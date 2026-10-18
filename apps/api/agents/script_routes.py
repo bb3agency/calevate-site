@@ -28,7 +28,7 @@ discarded it (`DELETE .../proposal/{id}`). The test routes below still gate on t
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Final, Literal
+from typing import Annotated, Any, Final, Literal, get_args
 from uuid import UUID
 
 from calevate_shared.call_script import (
@@ -51,7 +51,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import publishing, script_builder, script_proposals, test_conversations
+from apps.api.agents import (
+    publishing,
+    script_builder,
+    script_proposals,
+    test_conversations,
+    trial_results,
+)
 from apps.api.agents.engine_limits import too_long_sentence
 from apps.api.agents.script_edits import MAX_EDITS, ScriptEdit, apply_edits
 from apps.api.billing.ai_quota import require_ai_assist
@@ -413,6 +419,50 @@ class TestSettingOut(BaseModel):
     reason: str
 
 
+TestReliability = Literal["passed", "flaky", "failed", "unjudged"]
+TestStanding = Literal["works", "unreliable", "broken", "setting", "check", "ours", "wrong"]
+TestChange = Literal["fixed", "broken", "still", "same", "new"]
+#: `turn_checks.SOUND_KINDS`, named on the wire so the screen can word each one.
+SoundKind = Literal[
+    "brackets",
+    "symbols",
+    "time",
+    "money_digits",
+    "formal_words",
+    "spoken_number",
+    "repeated_question",
+    "several_questions",
+    "unmarked_question",
+    "too_long",
+    "wrong_language",
+    "third_person",
+    "foreign_script",
+    "repeated_turn",
+]
+
+
+class TestSoundOut(BaseModel):
+    """One way a test's replies sounded wrong (D-828): a note, never the verdict."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: SoundKind
+    #: The first time it was seen, in the owner's words.
+    reason: str
+    #: Tries it was seen on.
+    tries: int
+
+
+class TestTryOut(BaseModel):
+    """One try of a test: the conversation it was and its verdict."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    verdict: TestVerdict
+    reason: str
+    turns: list[TestTurnOut]
+
+
 class TestResultOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -422,23 +472,23 @@ class TestResultOut(BaseModel):
     category: str
     #: `ai` · `recording` · `stop_calling` · `person` for a compliance probe, else null.
     probe: str | None
-    #: `generated` · `standard` · `saved` · `retest`.
+    #: `generated` · `standard` · `saved` · `real`, and `retest` on runs before D-828.
     source: str
+    #: The try to read: the first that failed, else the first.
     turns: list[TestTurnOut]
     #: What a good agent does here, in plain English.
     expect: str
-    #: `passed`, `needs_fix`, `failed`, or `unjudged` when no AI could check it.
+    #: `passed` (every try), `needs_fix` or `failed` (the shown try's), or `unjudged`.
     verdict: TestVerdict
     #: One line on why, in plain English.
     reason: str
-    #: `script_step` · `knowledge` · `objection` · `style` · `settings` · `platform`, or null.
+    #: `script_step` · `knowledge` · `objection` · `settings` · `platform`, or null
+    #: (`style` on results before D-828).
     fix: str | None
     #: The step to change, when `fix` is `script_step`.
     step_id: str | None
     #: Textbook words the agent used that callers do not say.
     formal_words: list[str]
-    #: This scenario's verdict in the run being re-tested, on a "Test again".
-    before: TestVerdict | None
     #: What a test chat cannot show for this check, in the owner's words, or null.
     limit: str | None = None
     #: Who can fix it (D-823): `script`, `knowledge`, `setting`, `platform` (ours, and we
@@ -448,6 +498,23 @@ class TestResultOut(BaseModel):
     setting: TestSettingOut | None = None
     #: The owner marked this test wrong: it is left out of the score and the fixes.
     marked_wrong: bool = False
+    #: Tries that passed, and tries judged (D-828). Results before D-828 had one try.
+    passes: int = 0
+    judged_tries: int = 0
+    #: Works every try (`passed`), some (`flaky`), none (`failed`), or nobody could judge.
+    reliability: TestReliability = "unjudged"
+    #: Where it sits for the owner (`trial_results.standing`).
+    standing: TestStanding = "check"
+    #: Counted in the owner's score: their script or knowledge decides it.
+    counted: bool = False
+    #: Against the same test in the run this one repeated, when it is in the score.
+    change: TestChange | None = None
+    #: How its replies sounded, when wrong: notes for us, never the verdict.
+    sounds: list[TestSoundOut] = Field(default_factory=list)
+    #: Where it was produced: `test_chat`, the engine's website-chat sandbox.
+    channel: Literal["test_chat"] = "test_chat"
+    #: Every try, in order.
+    tries: list[TestTryOut] = Field(default_factory=list)
 
 
 class ScriptEditOut(BaseModel):
@@ -502,12 +569,49 @@ class ImprovementOut(BaseModel):
 
 
 class TestScoreOut(BaseModel):
+    """The owner's score (`trial_results.owner_score`)."""
+
     model_config = ConfigDict(extra="forbid")
 
+    #: Tests in the score that worked on every try.
     passed: int
-    #: Scenarios with a verdict; `unjudged` ones are not counted.
+    #: Tests in the score: the ones the script or the knowledge decides.
     judged: int
     total: int
+    #: Of `judged`, tests that worked on some tries only.
+    unreliable: int = 0
+    #: Tests left out because they are ours to fix.
+    ours: int = 0
+    #: Tests nobody could judge, for the owner to read.
+    check: int = 0
+    #: Tests a setting decides.
+    setting: int = 0
+
+
+class TestComparisonOut(BaseModel):
+    """Before against after on the same tests (D-828), for a "Test again"."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The run this one repeated, and the script version that run talked to (restore it to
+    #: undo a change that broke a test).
+    with_run: UUID
+    with_version: int | None
+    fixed: int
+    broken: int
+    still: int
+    same: int
+    new: int
+    #: The live script was the same in both runs.
+    same_script: bool
+
+
+class TestSoundCountOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: SoundKind
+    #: Tests whose replies sounded wrong this way on any try.
+    tests: int
 
 
 class TestRunOut(BaseModel):
@@ -540,6 +644,17 @@ class TestRunOut(BaseModel):
     ) = None
     created_at: datetime
     completed_at: datetime | None
+    #: The version of the agent's test set this run asked; null before D-828.
+    set_version: int | None = None
+    #: Tries per test, and tries finished (progress while running).
+    trials: int = 1
+    trials_done: int = 0
+    #: Before against after, when this run repeated an earlier one.
+    comparison: TestComparisonOut | None = None
+    #: How the replies sounded across the run, most frequent first: ours to fix.
+    sounds: list[TestSoundCountOut] = Field(default_factory=list)
+    #: A machine code when `failed`: `stalled` when its job stopped part-way.
+    error_code: str | None = None
 
 
 class TestHistoryOut(BaseModel):
@@ -550,6 +665,7 @@ class TestHistoryOut(BaseModel):
     prompt_version: int | None
     round: int
     score: TestScoreOut
+    set_version: int | None = None
 
 
 class TestConversationsOut(BaseModel):
@@ -566,11 +682,27 @@ class TestConversationsOut(BaseModel):
     latest: TestRunOut | None
     #: Finished runs, newest first, for the score over time.
     history: list[TestHistoryOut]
+    #: Saved tests and real-call questions the latest set does not have: they join a new set,
+    #: never a "Test again".
+    waiting_tests: int = 0
+    #: AI-written practice callers may be asked for: the agent has few real calls.
+    practice_offered: bool = False
+    #: Tries per test and the most test-chat replies one run may use.
+    trials: int = trial_results.TRIALS
+    max_replies: int = test_conversations.MAX_REPLIES_PER_RUN
 
 
 def _score(run: test_conversations.TestRun) -> TestScoreOut:
-    passed, judged = run.score
-    return TestScoreOut(passed=passed, judged=judged, total=len(run.results))
+    score = run.score
+    return TestScoreOut(
+        passed=score.passed,
+        judged=score.counted,
+        total=len(run.results),
+        unreliable=score.unreliable,
+        ours=score.ours,
+        check=score.check,
+        setting=score.setting,
+    )
 
 
 TestAction = Literal["knowledge", "do_not_call", "call_back", "other"]
@@ -598,30 +730,61 @@ def _actions(tools: Any) -> list[TestAction]:
     return out
 
 
-def _result_out(raw: dict[str, Any], wrong_keys: frozenset[str] = frozenset()) -> TestResultOut:
-    """A stored result on today's wire. Runs before D-724 kept one `said`/`reply` pair and
-    an `advice` sentence; results before D-823 carry no owner, which is read from `fix`."""
+def _turns_out(raw: dict[str, Any]) -> list[TestTurnOut]:
     conversation = raw.get("conversation")
-    turns = (
-        [
-            TestTurnOut(
-                said=str(t.get("said", "")),
-                reply=str(t.get("reply", "")),
-                actions=_actions(t.get("tools")),
-            )
-            for t in conversation
-            if isinstance(t, dict)
-        ]
-        if isinstance(conversation, list)
-        else [TestTurnOut(said=str(raw.get("said", "")), reply=str(raw.get("reply", "")))]
-    )
-    before = raw.get("before")
+    if not isinstance(conversation, list):
+        return [TestTurnOut(said=str(raw.get("said", "")), reply=str(raw.get("reply", "")))]
+    return [
+        TestTurnOut(
+            said=str(t.get("said", "")),
+            reply=str(t.get("reply", "")),
+            actions=_actions(t.get("tools")),
+        )
+        for t in conversation
+        if isinstance(t, dict)
+    ]
+
+
+_SOUND_KINDS: Final = frozenset(get_args(SoundKind))
+
+
+def _sounds_out(raw: dict[str, Any]) -> list[TestSoundOut]:
+    return [
+        TestSoundOut(
+            kind=note["kind"],
+            reason=str(note.get("reason") or ""),
+            tries=int(note.get("tries") or 1),
+        )
+        for note in raw.get("sounds") or []
+        if isinstance(note, dict) and note.get("kind") in _SOUND_KINDS
+    ]
+
+
+def _result_out(
+    raw: dict[str, Any],
+    wrong_keys: frozenset[str] = frozenset(),
+    change: trial_results.Change | None = None,
+) -> TestResultOut:
+    """A stored result on today's wire. Runs before D-724 kept one `said`/`reply` pair and
+    an `advice` sentence; results before D-823 carry no owner, which is read from `fix`;
+    results before D-828 had one try and no sound notes."""
+    turns = _turns_out(raw)
     verdict = test_conversations.result_verdict(raw)
     wrong = str(raw.get("key", "")) in wrong_keys
     owner: test_conversations.Owner | None = (
         "test" if wrong else test_conversations.result_owner(raw)
     )
     setting = raw.get("setting")
+    rel = trial_results.reliability(raw)
+    stored_tries = [t for t in raw.get("tries") or [] if isinstance(t, dict)]
+    tries = [
+        TestTryOut(
+            verdict=test_conversations.result_verdict(t),
+            reason=str(t.get("reason") or ""),
+            turns=_turns_out(t),
+        )
+        for t in stored_tries
+    ] or [TestTryOut(verdict=verdict, reason=str(raw.get("reason") or ""), turns=turns)]
     return TestResultOut(
         key=str(raw.get("key", "")),
         title=str(raw.get("title", "")),
@@ -635,7 +798,6 @@ def _result_out(raw: dict[str, Any], wrong_keys: frozenset[str] = frozenset()) -
         fix=raw.get("fix") or None,
         step_id=raw.get("step_id") or None,
         formal_words=[str(w) for w in raw.get("formal_words") or []],
-        before=test_conversations.result_verdict({"verdict": before}) if before else None,
         limit=str(raw["limit"]) if raw.get("limit") else None,
         owner=None if verdict == "passed" and not wrong else owner,
         setting=(
@@ -644,6 +806,14 @@ def _result_out(raw: dict[str, Any], wrong_keys: frozenset[str] = frozenset()) -
             else None
         ),
         marked_wrong=wrong,
+        passes=int(raw.get("passes") or (1 if rel == "passed" else 0)),
+        judged_tries=int(raw.get("judged_tries") or (0 if rel == "unjudged" else 1)),
+        reliability=rel,
+        standing=trial_results.standing(raw, wrong_keys),
+        counted=trial_results.in_owner_score(raw, wrong_keys),
+        change=change,
+        sounds=_sounds_out(raw),
+        tries=tries,
     )
 
 
@@ -670,7 +840,38 @@ def _improvement_out(raw: dict[str, Any] | None) -> ImprovementOut | None:
     )
 
 
-def _run_out(run: test_conversations.TestRun, live_version: int | None) -> TestRunOut:
+def _comparison(
+    run: test_conversations.TestRun, previous: test_conversations.TestRun | None
+) -> tuple[TestComparisonOut | None, trial_results.Comparison]:
+    if previous is None or run.status != "done":
+        return None, trial_results.Comparison()
+    found = trial_results.compare(
+        previous.results,
+        run.results,
+        wrong_keys=run.wrong_keys,
+        before_wrong_keys=previous.wrong_keys,
+    )
+    return (
+        TestComparisonOut(
+            with_run=previous.id,
+            with_version=previous.prompt_version,
+            fixed=found.count("fixed"),
+            broken=found.count("broken"),
+            still=found.count("still"),
+            same=found.count("same"),
+            new=found.count("new"),
+            same_script=previous.prompt_version == run.prompt_version,
+        ),
+        found,
+    )
+
+
+def _run_out(
+    run: test_conversations.TestRun,
+    live_version: int | None,
+    previous: test_conversations.TestRun | None = None,
+) -> TestRunOut:
+    comparison, changes = _comparison(run, previous)
     return TestRunOut(
         id=run.id,
         status=run.status,  # type: ignore[arg-type]
@@ -680,7 +881,11 @@ def _run_out(run: test_conversations.TestRun, live_version: int | None) -> TestR
         retest_of=run.retest_of,
         auto_improve=run.auto_improve,
         score=_score(run),
-        results=[_result_out(r, run.wrong_keys) for r in run.results if isinstance(r, dict)],
+        results=[
+            _result_out(r, run.wrong_keys, changes.changes.get(str(r.get("key"))))
+            for r in run.results
+            if isinstance(r, dict)
+        ],
         improvement=_improvement_out(run.improvement),
         note=run.note,
         improving=run.improving,
@@ -688,6 +893,16 @@ def _run_out(run: test_conversations.TestRun, live_version: int | None) -> TestR
         improve_stop=run.improve_stop,  # type: ignore[arg-type]
         created_at=run.created_at,
         completed_at=run.completed_at,
+        set_version=run.set_version,
+        trials=run.trials,
+        trials_done=run.trials_done,
+        comparison=comparison,
+        sounds=[
+            TestSoundCountOut(kind=kind, tests=n)  # type: ignore[arg-type]
+            for kind, n in trial_results.sound_counts(run.results, run.wrong_keys).items()
+            if kind in _SOUND_KINDS
+        ],
+        error_code=run.error_code,
     )
 
 
@@ -697,12 +912,19 @@ async def _tests_out(
     ready = await test_conversations.readiness(session, agent_id)
     run = await test_conversations.latest_run(session, agent_id)
     history = await test_conversations.recent_runs(session, agent_id)
+    previous = (
+        await test_conversations.get_run(session, agent_id, run.retest_of)
+        if run is not None and run.retest_of is not None
+        else None
+    )
+    # The set to add to is the latest one that asked anything.
+    asked = next((r for r in [run, *history] if r is not None and r.scenarios), None)
     return TestConversationsOut(
         available=ready.available,
         unavailable_reason=ready.reason,
         cost_note=test_conversations.COST_NOTE,
         waiting_update=await test_conversations.waiting_update(session, tenant_id, agent_id),
-        latest=_run_out(run, ready.live_version) if run is not None else None,
+        latest=_run_out(run, ready.live_version, previous) if run is not None else None,
         history=[
             TestHistoryOut(
                 id=h.id,
@@ -710,9 +932,15 @@ async def _tests_out(
                 prompt_version=h.prompt_version,
                 round=h.improve_round,
                 score=_score(h),
+                set_version=h.set_version,
             )
             for h in history
         ],
+        waiting_tests=await test_conversations.waiting_tests(session, agent_id, asked),
+        practice_offered=(
+            await test_conversations.count_real_calls(session, agent_id)
+            < test_conversations.ENOUGH_REAL_CALLS
+        ),
     )
 
 
@@ -732,10 +960,13 @@ async def get_test_conversations(
 class RunTestsIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    #: "Test again" after a fix: that run's failures are asked again beside a fresh set.
+    #: "Test again": exactly that run's tests are asked again, for before against after.
+    #: Without it the run makes a new version of the agent's test set.
     retest_of: UUID | None = None
     #: Prepare the improvement proposal by itself when this run has failures.
     auto_improve: bool = False
+    #: Add AI-written practice callers to the new set (never with `retest_of`).
+    practice_callers: bool = False
 
 
 @router.post(
@@ -764,6 +995,7 @@ async def run_test_conversations(
         requested_by=principal.user_id,
         retest_of=body.retest_of,
         auto_improve=body.auto_improve,
+        practice_callers=body.practice_callers,
     )
     await write_audit(
         session,
@@ -778,6 +1010,8 @@ async def run_test_conversations(
             "prompt_version": run.prompt_version,
             "retest": body.retest_of is not None,
             "auto_improve": body.auto_improve,
+            "practice_callers": body.practice_callers,
+            "set_version": run.set_version,
         },
     )
     return await _tests_out(session, agent_id, principal.tenant_id)

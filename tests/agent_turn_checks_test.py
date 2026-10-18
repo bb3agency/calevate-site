@@ -9,6 +9,8 @@ the rules must leave alone.
 
 from __future__ import annotations
 
+from typing import get_args
+
 from apps.api.agents.test_conversations import (
     Turn,
     decide,
@@ -16,7 +18,14 @@ from apps.api.agents.test_conversations import (
     probe_scenario,
     standard_scenarios,
 )
-from apps.api.agents.turn_checks import formal_swaps, sentences, turn_problems
+from apps.api.agents.turn_checks import (
+    JOB_KINDS,
+    SOUND_KINDS,
+    Kind,
+    formal_swaps,
+    sentences,
+    turn_problems,
+)
 from calevate_shared.call_script import (
     ONE_DETAIL_PER_TURN,
     STAGE_DETAIL_MAX,
@@ -25,7 +34,7 @@ from calevate_shared.call_script import (
     native_steps,
 )
 from calevate_shared.engine import VOICE_STYLE_GUIDANCE
-from calevate_shared.spoken_style import register_guidance, style_for
+from calevate_shared.spoken_style import languages, register_guidance, style_for
 
 RAGHAVA_TURN = (
     "మీకు whole chilli కావాలా, chilli powder కావాలా? Whole chilli or chilli powder? "
@@ -143,28 +152,36 @@ def test_sentences_keep_abbreviations_and_decimals_whole() -> None:
     assert sentences("It is Rs. 4.50 a gram. Okay?") == ["It is Rs. 4.50 a gram.", "Okay?"]
 
 
-def test_the_hard_check_fails_a_bad_reply_before_the_judge() -> None:
+def test_how_a_reply_sounds_is_noted_and_never_fails_the_test() -> None:
+    """D-828: brackets read out are ours to fix in the platform prompt, so the AI check still
+    passes and the problem travels as a sound note."""
     scenario = probe_scenario("ai", "te-IN")
     turns = [Turn(said="AI aa?", reply="నేను AI assistant ని అండి. [It is 11:03 am now.]")]
     hard = hard_check(scenario, turns, language="te-IN")
-    assert hard.verdict == "failed"
-    assert hard.fix == "platform"
-    assert "brackets" in (hard.reason or "")
+    assert hard.verdict == "passed"
+    assert [p.kind for p in hard.sounds] == ["brackets"]
     result = decide(scenario, turns, None, language="te-IN", unjudged_reason="not judged")
-    assert result["verdict"] == "failed"
-    clean = [Turn(said="AI aa?", reply="నేను AI assistant ని అండి.")]
-    assert hard_check(scenario, clean, language="te-IN").verdict == "passed"
+    assert result["verdict"] == "passed"
+    assert [s["kind"] for s in result["sounds"]] == ["brackets"]
+    assert result["channel"] == "test_chat"
 
 
-def test_a_textbook_word_now_fails_the_scenario_even_when_the_judge_passed_it() -> None:
+def test_a_textbook_word_is_a_note_whatever_the_judge_says() -> None:
     style = style_for("te-IN")
     assert style is not None
     formal = style.word_swaps[0][0]
     scenario = probe_scenario("ai", "te-IN")
     turns = [Turn(said="AI aa?", reply=f"{formal}, నేను AI assistant ని.")]
     result = decide(scenario, turns, None, language="te-IN", unjudged_reason="x")
-    assert (result["verdict"], result["fix"]) == ("failed", "style")
+    assert (result["verdict"], result["fix"], result["owner"]) == ("passed", None, None)
     assert formal in result["formal_words"]
+    assert {s["kind"] for s in result["sounds"]} == {"formal_words"}
+
+
+def test_every_reply_problem_is_either_how_it_sounds_or_a_broken_task() -> None:
+    kinds = set(get_args(Kind))
+    assert kinds == SOUND_KINDS | JOB_KINDS
+    assert not SOUND_KINDS & JOB_KINDS
 
 
 def test_the_standard_set_carries_the_shape_callers() -> None:
@@ -205,3 +222,24 @@ def test_a_step_that_collects_several_details_asks_for_one_per_turn() -> None:
     # Never at the cost of the owner's own words: a full step is sent as written.
     full = "x" * (STAGE_DETAIL_MAX - 10)
     assert native_steps(script(["a", "b"], full))[0].detail == full
+
+
+#: A price in each language's own number words, where the check knows them.
+_NATIVE_PRICES = {"te": "నూట ఇరవై రూపాయలు అండి.", "hi": "एक सौ बीस रुपये है जी।"}
+
+
+def test_a_price_said_the_way_its_languages_number_rule_allows_is_never_flagged() -> None:
+    """The check follows `spoken_style.json`: Hindi's prices rule allows Hindi number words,
+    Telugu's says the English way, and a check that disagreed with the data failed exactly
+    the prices the data asks for (D-828)."""
+    assert style_for("te-IN").native_price_words is False  # type: ignore[union-attr]
+    assert style_for("hi-IN").native_price_words is True  # type: ignore[union-attr]
+    for tag in languages():
+        style = style_for(tag)
+        assert style is not None
+        english = "one twenty rupees."
+        assert "spoken_number" not in _kinds(english, language=tag), tag
+        native = _NATIVE_PRICES.get(tag.split("-")[0])
+        if native is not None:
+            flagged = "spoken_number" in _kinds(native, language=tag)
+            assert flagged is not style.native_price_words, tag

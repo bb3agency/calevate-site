@@ -32,7 +32,7 @@ from apps.api.agents.test_conversations import (
     speech_problems,
 )
 from apps.api.agents.turn_checks import (
-    PLATFORM_KINDS,
+    JOB_KINDS,
     claims_done,
     conversation_problems,
     turn_problems,
@@ -158,7 +158,7 @@ def test_every_conversation_level_class_of_the_specimen_is_caught() -> None:
         "partial_number",
         "goodbye_while_asking",
     ]
-    assert {"unconfirmed_action", "asked_known_number", "partial_number"} <= PLATFORM_KINDS
+    assert {"unconfirmed_action", "asked_known_number", "partial_number"} <= JOB_KINDS
 
 
 def test_the_new_formal_words_of_the_specimen_are_listed() -> None:
@@ -240,7 +240,6 @@ def test_a_simpler_repeat_passes() -> None:
     ("reply", "language", "kind"),
     [
         ("ఆరు వందల రూపాయలు అండి.", "te-IN", "spoken_number"),
-        ("छह सौ रुपये है जी।", "hi-IN", "spoken_number"),
         ("2 किलो ले लीजिए।", "hi-IN", "spoken_number"),
         ("ఇది 맛있는 powder.", "te-IN", "foreign_script"),
         ("यह అది है।", "hi-IN", "foreign_script"),

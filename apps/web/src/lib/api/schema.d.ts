@@ -23743,6 +23743,11 @@ export interface components {
              * @default false
              */
             auto_improve: boolean;
+            /**
+             * Practice Callers
+             * @default false
+             */
+            practice_callers: boolean;
             /** Retest Of */
             retest_of?: string | null;
         };
@@ -26195,6 +26200,31 @@ export interface components {
             unavailable_reason: string | null;
         };
         /**
+         * TestComparisonOut
+         * @description Before against after on the same tests (D-828), for a "Test again".
+         */
+        TestComparisonOut: {
+            /** Broken */
+            broken: number;
+            /** Fixed */
+            fixed: number;
+            /** New */
+            new: number;
+            /** Same */
+            same: number;
+            /** Same Script */
+            same_script: boolean;
+            /** Still */
+            still: number;
+            /**
+             * With Run
+             * Format: uuid
+             */
+            with_run: string;
+            /** With Version */
+            with_version: number | null;
+        };
+        /**
          * TestConversationsOut
          * @description Test conversations that improve the agent (D-724): advised, never required.
          */
@@ -26206,8 +26236,28 @@ export interface components {
             /** History */
             history: components["schemas"]["TestHistoryOut"][];
             latest: components["schemas"]["TestRunOut"] | null;
+            /**
+             * Max Replies
+             * @default 60
+             */
+            max_replies: number;
+            /**
+             * Practice Offered
+             * @default false
+             */
+            practice_offered: boolean;
+            /**
+             * Trials
+             * @default 3
+             */
+            trials: number;
             /** Unavailable Reason */
             unavailable_reason: string | null;
+            /**
+             * Waiting Tests
+             * @default 0
+             */
+            waiting_tests: number;
             /** Waiting Update */
             waiting_update?: string | null;
         };
@@ -26228,19 +26278,37 @@ export interface components {
             /** Round */
             round: number;
             score: components["schemas"]["TestScoreOut"];
+            /** Set Version */
+            set_version?: number | null;
         };
         /** TestResultOut */
         TestResultOut: {
-            /** Before */
-            before: ("passed" | "needs_fix" | "failed" | "unjudged") | null;
             /** Category */
             category: string;
+            /** Change */
+            change?: ("fixed" | "broken" | "still" | "same" | "new") | null;
+            /**
+             * Channel
+             * @default test_chat
+             * @constant
+             */
+            channel: "test_chat";
+            /**
+             * Counted
+             * @default false
+             */
+            counted: boolean;
             /** Expect */
             expect: string;
             /** Fix */
             fix: string | null;
             /** Formal Words */
             formal_words: string[];
+            /**
+             * Judged Tries
+             * @default 0
+             */
+            judged_tries: number;
             /** Key */
             key: string;
             /** Limit */
@@ -26252,17 +26320,38 @@ export interface components {
             marked_wrong: boolean;
             /** Owner */
             owner?: ("script" | "knowledge" | "setting" | "platform" | "test") | null;
+            /**
+             * Passes
+             * @default 0
+             */
+            passes: number;
             /** Probe */
             probe: string | null;
             /** Reason */
             reason: string;
+            /**
+             * Reliability
+             * @default unjudged
+             * @enum {string}
+             */
+            reliability: "passed" | "flaky" | "failed" | "unjudged";
             setting?: components["schemas"]["TestSettingOut"] | null;
+            /** Sounds */
+            sounds?: components["schemas"]["TestSoundOut"][];
             /** Source */
             source: string;
+            /**
+             * Standing
+             * @default check
+             * @enum {string}
+             */
+            standing: "works" | "unreliable" | "broken" | "setting" | "check" | "ours" | "wrong";
             /** Step Id */
             step_id: string | null;
             /** Title */
             title: string;
+            /** Tries */
+            tries?: components["schemas"]["TestTryOut"][];
             /** Turns */
             turns: components["schemas"]["apps__api__agents__script_routes__TestTurnOut"][];
             /**
@@ -26275,6 +26364,7 @@ export interface components {
         TestRunOut: {
             /** Auto Improve */
             auto_improve: boolean;
+            comparison?: components["schemas"]["TestComparisonOut"] | null;
             /** Completed At */
             completed_at: string | null;
             /**
@@ -26282,6 +26372,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Error Code */
+            error_code?: string | null;
             /**
              * Id
              * Format: uuid
@@ -26310,20 +26402,57 @@ export interface components {
             /** Round */
             round: number;
             score: components["schemas"]["TestScoreOut"];
+            /** Set Version */
+            set_version?: number | null;
+            /** Sounds */
+            sounds?: components["schemas"]["TestSoundCountOut"][];
             /**
              * Status
              * @enum {string}
              */
             status: "queued" | "running" | "done" | "failed";
+            /**
+             * Trials
+             * @default 1
+             */
+            trials: number;
+            /**
+             * Trials Done
+             * @default 0
+             */
+            trials_done: number;
         };
-        /** TestScoreOut */
+        /**
+         * TestScoreOut
+         * @description The owner's score (`trial_results.owner_score`).
+         */
         TestScoreOut: {
+            /**
+             * Check
+             * @default 0
+             */
+            check: number;
             /** Judged */
             judged: number;
+            /**
+             * Ours
+             * @default 0
+             */
+            ours: number;
             /** Passed */
             passed: number;
+            /**
+             * Setting
+             * @default 0
+             */
+            setting: number;
             /** Total */
             total: number;
+            /**
+             * Unreliable
+             * @default 0
+             */
+            unreliable: number;
         };
         /** TestSettingOut */
         TestSettingOut: {
@@ -26334,6 +26463,46 @@ export interface components {
             area: "handover" | "agreements";
             /** Reason */
             reason: string;
+        };
+        /** TestSoundCountOut */
+        TestSoundCountOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "brackets" | "symbols" | "time" | "money_digits" | "formal_words" | "spoken_number" | "repeated_question" | "several_questions" | "unmarked_question" | "too_long" | "wrong_language" | "third_person" | "foreign_script" | "repeated_turn";
+            /** Tests */
+            tests: number;
+        };
+        /**
+         * TestSoundOut
+         * @description One way a test's replies sounded wrong (D-828): a note, never the verdict.
+         */
+        TestSoundOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "brackets" | "symbols" | "time" | "money_digits" | "formal_words" | "spoken_number" | "repeated_question" | "several_questions" | "unmarked_question" | "too_long" | "wrong_language" | "third_person" | "foreign_script" | "repeated_turn";
+            /** Reason */
+            reason: string;
+            /** Tries */
+            tries: number;
+        };
+        /**
+         * TestTryOut
+         * @description One try of a test: the conversation it was and its verdict.
+         */
+        TestTryOut: {
+            /** Reason */
+            reason: string;
+            /** Turns */
+            turns: components["schemas"]["apps__api__agents__script_routes__TestTurnOut"][];
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "passed" | "needs_fix" | "failed" | "unjudged";
         };
         /** TestWebhookIn */
         TestWebhookIn: {

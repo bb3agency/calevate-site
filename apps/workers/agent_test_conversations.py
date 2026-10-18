@@ -1,13 +1,17 @@
 """Runs one queued set of test conversations, and prepares the "Improve my agent" proposal
 (`apps/api/agents/test_conversations.py` describes the loop, D-724, D-823).
 
-`run_agent_test_conversations`: claim the queued run; gather its tests, real calls first
-(re-asked failures, the standing specimen callers, questions from real calls, saved tests),
-with AI-written practice callers only for an agent with few real calls; talk to the live
-agent through the engine's test chat with a pause between messages; decide the rule checks
-in code and judge the rest with the AI; store the results worst first, each with its owner.
-A failure on our side raises `agent_test_platform_rule_failed`. One attempt: a run that
-cannot finish is marked failed with a machine code and the owner may start another.
+`run_agent_test_conversations`: one try of a run, `trial_results.TRIALS` tries per run, each
+its own job queued by the try before it (outbox, same transaction), so every try fits the
+worker's job timeout. The first try fixes the run's test set: "Test again" copies the
+earlier run's tests exactly; otherwise a new version, real calls first (questions from real
+calls, saved tests, the standing specimen callers), with AI-written practice callers only
+when the owner asked. Each try talks to the live agent through the engine's test chat with a
+pause between messages, decides the rule checks in code and judges the rest with the AI. The
+last try aggregates every try into the results, worst first, each with its owner. Anything
+on our side (a failed platform rule, or replies that sounded wrong) raises
+`agent_test_platform_rule_failed`. One attempt per try: a try that cannot finish marks the
+run failed with a machine code and the owner may start another.
 
 `improve_agent_test_run`: the proposal for the failures the script or the knowledge owns,
 small edits the owner keeps one by one. It never changes the script and never puts anything
@@ -34,7 +38,7 @@ from calevate_shared.call_script import upgrade_to_v2
 from calevate_shared.engine import VoiceEngine
 from sqlalchemy import text
 
-from apps.api.agents import script_builder
+from apps.api.agents import script_builder, trial_results
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.service import AgentRow, in_call_model
 from apps.api.agents.specimen_scenarios import specimen_scenarios
@@ -44,6 +48,7 @@ from apps.api.agents.test_conversations import (
     ASSIST_FEATURE_TEST_JUDGE,
     AUTO_STOP_NOTES,
     ENOUGH_REAL_CALLS,
+    FEW_GENERATED,
     IMPROVE_JOB,
     MAX_GENERATED,
     MAX_SAVED,
@@ -55,25 +60,26 @@ from apps.api.agents.test_conversations import (
     ImproveStop,
     Judged,
     Scenario,
+    TestRun,
     Turn,
     WrongTests,
     auto_improve_stop,
+    compose_set,
     decide,
-    ensure_probes,
     failing,
     get_run,
     load_brief,
     needs_improving,
     probe_scenario,
     queue_improvement,
+    queue_try,
     real_call_scenarios,
+    recent_runs,
     standard_scenarios,
     store_improve_stop,
     store_improvement,
     waiting_update,
     wants_auto_improvement,
-    within_budget,
-    worst_first,
     wrong_tests,
 )
 from apps.api.agents.test_window import send_test_message
@@ -112,8 +118,6 @@ IMPROVE_JOB_NAME: Final = IMPROVE_JOB
 #: Seconds between messages: the engine answers 429 to "messages sent faster than a person
 #: types" (test-chat.md:438-445) without saying how fast that is.
 PAUSE_S: Final = 4.0
-#: The most failures of the previous run asked again on "Test again".
-MAX_RETESTED: Final = 6
 
 #: Why AI help could not do its part, by the refusal's code (`extraction.assist_unavailable`
 #: answers `assist_<reason>`), in the owner's words with what to do. The log line beside each
@@ -141,9 +145,9 @@ _AI_REFUSAL_OTHER: Final = "AI help was not available. Test again in a few minut
 
 
 def not_written_note(code: str) -> str:
-    """The run's note when the standard callers ran instead of new ones."""
+    """The run's note when the practice callers the owner asked for could not be written."""
     why = _AI_REFUSAL.get(code, _AI_REFUSAL_OTHER)
-    return f"The standard test callers ran instead of new ones for your business, because {why}"
+    return f"No practice callers were written this time, because {why}"
 
 
 def not_judged_reason(code: str) -> str:
@@ -235,7 +239,8 @@ async def _finish(
         await session.execute(
             text(
                 "UPDATE agent_test_runs SET status = :status, "
-                "results = CAST(:results AS jsonb), error_code = :code, note = :note, "
+                "results = CAST(:results AS jsonb), error_code = :code, "
+                "note = coalesce(:note, note), "
                 "completed_at = now(), updated_at = now() WHERE id = :id AND status = 'running'"
             ),
             {
@@ -274,57 +279,83 @@ async def _saved_scenarios(tenant_id: UUID, agent_id: UUID) -> list[Scenario]:
     ]
 
 
-def _retests(previous: list[dict[str, Any]], wrong: WrongTests) -> list[Scenario]:
-    out = []
-    for raw in previous:
-        if raw.get("verdict") not in ("needs_fix", "failed"):
-            continue
-        scenario = Scenario.of(raw)
-        if scenario.turns and wrong.keeps(scenario):
-            out.append(
-                Scenario(
-                    key=scenario.key,
-                    title=scenario.title,
-                    category=scenario.category,
-                    turns=scenario.turns,
-                    expect=scenario.expect,
-                    probe=scenario.probe,
-                    source="retest",
-                    case_id=scenario.case_id,
-                )
-            )
-    return out[:MAX_RETESTED]
-
-
-async def write_scenarios(
+async def write_practice_callers(
     brief: AgentBrief,
     *,
     tenant_id: UUID,
     round_key: str,
-    count: int,
     tenant_leg: TenantModelLeg | None,
 ) -> tuple[list[Scenario], str | None]:
-    """This run's rule checks and, for an agent with fewer than `ENOUGH_REAL_CALLS` real
-    calls, a few AI-written practice callers; and the run's note. An agent with enough real
-    calls is tested on them alone and nothing is written (or charged)."""
+    """`FEW_GENERATED` AI-written practice callers the owner asked for, and the run's note.
+    An agent with enough real calls is tested on them alone and nothing is written (or
+    charged). The rule checks keep our own wording (`probe_scenario`), so every version of
+    the set asks them alike: any the writer reworded are dropped."""
     if brief.real_calls >= ENOUGH_REAL_CALLS:
-        return [probe_scenario(p, brief.language) for p in PROBES], FROM_REAL_CALLS_NOTE
+        return [], FROM_REAL_CALLS_NOTE
     exhausted = await _allowance_used(tenant_id)
     try:
         answer = await generate_scenarios(
             brief,
             round_key=round_key,
-            count=count,
+            count=MAX_GENERATED,
             tenant_leg=tenant_leg,
             quota_exhausted=exhausted,
         )
     except ProblemError as refused:
-        log.info("agent_tests_standard_set", extra={"reason": refused.code})
+        log.info("agent_tests_no_practice", extra={"reason": refused.code})
         await _meter_refused(tenant_id, refused, ASSIST_FEATURE_TEST_GENERATE)
-        standard = standard_scenarios(brief.language, brief.direction)
-        return ensure_probes(standard, brief.language, cap=count), not_written_note(refused.code)
+        return [], not_written_note(refused.code)
     await _meter(tenant_id, answer, ASSIST_FEATURE_TEST_GENERATE)
-    return ensure_probes(answer.value, brief.language, cap=count), answer.capability.disclosure
+    callers = [s for s in answer.value if s.probe is None][:FEW_GENERATED]
+    return callers, answer.capability.disclosure
+
+
+async def new_test_set(
+    brief: AgentBrief,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    wrong: WrongTests,
+    practice: bool,
+    earlier: list[dict[str, Any]],
+    round_key: str,
+    tenant_leg: TenantModelLeg | None,
+) -> tuple[list[Scenario], str | None]:
+    """A new version of the agent's test set (`test_conversations.compose_set`) and the
+    run's note. Practice callers are written only when the owner asked (`practice`); without
+    that, the ones the previous set (`earlier`) held are kept, so adding a saved test does
+    not silently drop them."""
+    language = brief.language
+    note: str | None = None
+    if practice:
+        written, note = await write_practice_callers(
+            brief, tenant_id=tenant_id, round_key=round_key, tenant_leg=tenant_leg
+        )
+    else:
+        written = [s for s in (Scenario.of(raw) for raw in earlier) if s.source == "generated"]
+        if brief.real_calls >= ENOUGH_REAL_CALLS:
+            note = FROM_REAL_CALLS_NOTE
+    few_calls = brief.real_calls < ENOUGH_REAL_CALLS
+    scenarios = compose_set(
+        probes=[probe_scenario(p, language) for p in PROBES],
+        real=[
+            replace(s, turns=tuple(safe_line(t) for t in s.turns))
+            for s in real_call_scenarios(brief, skip=wrong.keys)
+        ],
+        saved=[s for s in await _saved_scenarios(tenant_id, agent_id) if wrong.keeps(s)],
+        practice=[s for s in written if wrong.keeps(s)],
+        specimen=[
+            s
+            for s in specimen_scenarios(language, brief.business_type, round_key=round_key)
+            if wrong.keeps(s)
+        ],
+        standard=[
+            s
+            for s in (standard_scenarios(language, brief.direction) if few_calls else [])
+            if s.probe is None and wrong.keeps(s)
+        ],
+    )
+    return scenarios, note
 
 
 async def talk(
@@ -513,27 +544,110 @@ async def _store_saved_results(
             )
 
 
+def _jsonb_list(value: Any) -> list[Any]:
+    if isinstance(value, str):
+        value = json.loads(value)
+    return list(value or [])
+
+
+async def _first_try_set(
+    brief: AgentBrief,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    run_id: UUID,
+    wrong: WrongTests,
+    practice: bool,
+    previous: TestRun | None,
+    earlier: list[dict[str, Any]],
+    tenant_leg: TenantModelLeg | None,
+) -> list[Scenario]:
+    """The run's test set, saved on the run with its note before anything is asked: "Test
+    again" (`previous`) asks exactly the tests that run asked; otherwise a new version."""
+    if previous is not None:
+        scenarios = [Scenario.of(raw) for raw in previous.scenarios]
+        note = None
+    else:
+        scenarios, note = await new_test_set(
+            brief,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            wrong=wrong,
+            practice=practice,
+            earlier=earlier,
+            round_key=f"r{run_id.hex[-6:]}",
+            tenant_leg=tenant_leg,
+        )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE agent_test_runs SET scenarios = CAST(:s AS jsonb), note = :note, "
+                "updated_at = now() WHERE id = :id"
+            ),
+            {"id": run_id, "s": json.dumps([s.as_dict() for s in scenarios]), "note": note},
+        )
+    return scenarios
+
+
+async def _claim_try(tenant_id: UUID, run_id: UUID, trial: int) -> Any:
+    """Take try `trial` of the run, or None when it is not this try's turn: the run is not
+    waiting for it (another worker has it, a try failed, or the run was given up as
+    stalled). Compare-and-swap on `trial_started`, so a redelivered job runs nothing twice."""
+    async with tenant_session(tenant_id) as session:
+        return (
+            await session.execute(
+                text(
+                    "UPDATE agent_test_runs r SET status = 'running', trial_started = :t, "
+                    "updated_at = now() FROM agents a WHERE r.id = :id AND a.id = r.agent_id "
+                    "AND r.trial_started = :t - 1 AND r.trials_done = :t - 1 AND r.trials >= :t "
+                    "AND r.status = CASE WHEN :t = 1 THEN 'queued' ELSE 'running' END "
+                    "RETURNING r.agent_id, a.engine_agent_ref, r.improve_round, r.retest_of, "
+                    "r.prompt_version, r.trials, r.practice_callers, r.scenarios"
+                ),
+                {"id": run_id, "t": trial},
+            )
+        ).first()
+
+
+async def _store_try(
+    tenant_id: UUID, run_id: UUID, trial: int, trials: int, decided: list[dict[str, Any]]
+) -> list[list[dict[str, Any]]] | None:
+    """Record one try and, in the same transaction, queue the next (outbox); every try so
+    far, or None when the run moved on without this one (given up as stalled)."""
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text(
+                    "UPDATE agent_test_runs SET trials_done = :t, updated_at = now(), "
+                    "trial_results = coalesce(trial_results, '[]'::jsonb) "
+                    "|| jsonb_build_array(CAST(:try AS jsonb)) "
+                    "WHERE id = :id AND status = 'running' AND trial_started = :t "
+                    "AND trials_done = :t - 1 RETURNING trial_results"
+                ),
+                {"id": run_id, "t": trial, "try": json.dumps(decided)},
+            )
+        ).first()
+        if stored is None:
+            return None
+        if trial < trials:
+            await queue_try(session, tenant_id=tenant_id, run_id=run_id, trial=trial + 1)
+    raw = stored[0]
+    return list(json.loads(raw) if isinstance(raw, str) else raw)
+
+
 async def run_agent_test_conversations(
     ctx: dict[str, Any], payload: dict[str, Any], *, pause: Pause = _pause
 ) -> str:
+    """One try of a run (`payload["trial"]`, 1 when absent). The first try makes or copies
+    the run's test set; the last aggregates every try into the results."""
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
     run_id = UUID(str(payload["run_id"]))
-    async with tenant_session(tenant_id) as session:
-        claimed = (
-            await session.execute(
-                text(
-                    "UPDATE agent_test_runs r SET status = 'running', updated_at = now() "
-                    "FROM agents a WHERE r.id = :id AND r.status = 'queued' "
-                    "AND a.id = r.agent_id RETURNING r.agent_id, a.engine_agent_ref, "
-                    "r.improve_round, r.retest_of, r.prompt_version"
-                ),
-                {"id": run_id},
-            )
-        ).first()
+    trial = int(payload.get("trial") or 1)
+    claimed = await _claim_try(tenant_id, run_id, trial)
     if claimed is None:
         return "not_queued"
-    agent_id, engine_agent_ref, round_no, retest_of, version = claimed
+    agent_id, engine_agent_ref, round_no, retest_of, version, trials, practice, stored = claimed
     engine = get_engine()
     if not isinstance(engine, RunsTestChat) or engine_agent_ref is None:
         await _finish(tenant_id, run_id, status="failed", results=None, failure="unavailable")
@@ -542,44 +656,27 @@ async def run_agent_test_conversations(
         async with tenant_session(tenant_id) as session:
             brief = await load_brief(session, agent_id)
             tenant_leg = await account_assist_leg(session)
-            previous = await get_run(session, agent_id, retest_of) if retest_of else None
             wrong = await wrong_tests(session, agent_id)
             agreements_waiting = await waiting_update(session, tenant_id, agent_id) is not None
-        round_key = f"r{run_id.hex[-6:]}"
-        retests = _retests(previous.results, wrong) if previous is not None else []
-        fresh, note = await write_scenarios(
-            brief,
-            tenant_id=tenant_id,
-            round_key=round_key,
-            count=MAX_GENERATED,
-            tenant_leg=tenant_leg,
-        )
-        retested_probes = {s.probe for s in retests if s.probe}
-        fresh = [s for s in fresh if s.probe is None or s.probe not in retested_probes]
-        saved = [s for s in await _saved_scenarios(tenant_id, agent_id) if wrong.keeps(s)]
-        retested = {s.key for s in retests}
-        # Two standing callers for the failure classes of a real call (D-749), and the
-        # questions real callers asked that the agent could not answer, ahead of the
-        # AI-written ones so the message cap drops those first; a test being retested
-        # already runs.
-        specimen = [
-            s
-            for s in specimen_scenarios(brief.language, brief.business_type, round_key=round_key)
-            if s.key not in retested and wrong.keeps(s)
-        ]
-        real = [
-            replace(s, turns=tuple(safe_line(t) for t in s.turns))
-            for s in real_call_scenarios(brief, skip=frozenset(retested) | wrong.keys)
-        ]
-        scenarios = within_budget(retests + specimen + real + saved + fresh)
-        async with tenant_session(tenant_id) as session:
-            await session.execute(
-                text(
-                    "UPDATE agent_test_runs SET scenarios = CAST(:s AS jsonb), "
-                    "updated_at = now() WHERE id = :id"
-                ),
-                {"id": run_id, "s": json.dumps([s.as_dict() for s in scenarios])},
+            previous = await get_run(session, agent_id, retest_of) if retest_of else None
+            earlier = await recent_runs(session, agent_id) if trial == 1 and not retest_of else []
+        if trial == 1:
+            scenarios = await _first_try_set(
+                brief,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                wrong=wrong,
+                practice=bool(practice),
+                previous=previous,
+                earlier=earlier[0].scenarios if earlier else [],
+                tenant_leg=tenant_leg,
             )
+        else:
+            scenarios = [Scenario.of(raw) for raw in _jsonb_list(stored)]
+        # A test the owner marked wrong since the set was made is not asked again; a rule
+        # check always is (`WrongTests.keeps`).
+        scenarios = [s for s in scenarios if wrong.keeps(s)]
         conversations = await talk(
             engine,
             agent_id=agent_id,
@@ -594,7 +691,7 @@ async def run_agent_test_conversations(
             tenant_id=tenant_id,
             tenant_leg=tenant_leg,
             agent_model=await agent_in_call_model(tenant_id, agent_id, engine),
-            seed=run_id.hex,
+            seed=f"{run_id.hex}{trial}",
         )
     except ProblemError as exc:
         log.warning("agent_tests_failed", extra={"run_id": str(run_id), "reason": exc.code})
@@ -606,8 +703,7 @@ async def run_agent_test_conversations(
         return "failed"
 
     rules = brief.rules(agreements_waiting=agreements_waiting)
-    before = {str(r.get("key")): r.get("verdict") for r in (previous.results if previous else [])}
-    results = [
+    decided = [
         {
             **decide(
                 scenario,
@@ -617,16 +713,28 @@ async def run_agent_test_conversations(
                 unjudged_reason=unjudged_reason,
                 rules=rules,
             ),
-            "before": before.get(scenario.key),
             "judge": judge_record.get(scenario.key),
         }
         for scenario, turns in zip(scenarios, conversations, strict=True)
     ]
-    await _store_saved_results(
-        tenant_id, scenarios, conversations, hosted_agent_limits(engine).knowledge_tool, version
-    )
+    if trial == 1:
+        await _store_saved_results(
+            tenant_id, scenarios, conversations, hosted_agent_limits(engine).knowledge_tool, version
+        )
+    tries = await _store_try(tenant_id, run_id, trial, int(trials), decided)
+    if tries is None:
+        return "not_queued"
+    if trial < int(trials):
+        log.info("agent_tests_try_done", extra={"run_id": str(run_id), "try": trial})
+        return "try_done"
+    results = trial_results.aggregate_run(tries)
     await _finish(
-        tenant_id, run_id, status="done", results=worst_first(results), failure=None, note=note
+        tenant_id,
+        run_id,
+        status="done",
+        results=trial_results.worst_first(results),
+        failure=None,
+        note=None,
     )
     _alarm_platform_failures(results, tenant_id=tenant_id, agent_id=agent_id, run_id=run_id)
     async with tenant_session(tenant_id) as session:
@@ -653,23 +761,27 @@ PLATFORM_FAILURE_CODE: Final = "agent_test_platform_rule_failed"
 def _alarm_platform_failures(
     results: list[dict[str, Any]], *, tenant_id: UUID, agent_id: UUID, run_id: UUID
 ) -> None:
-    """One alarm per run whose failures include one the platform owns: a rule check our
-    prompt or action should have made pass, or a reply shape only the platform prompt can
-    change. The owner is told "we're fixing this", so somebody here has to be told too."""
-    ours = [
-        r
-        for r in results
-        if r.get("owner") == "platform" and r.get("verdict") in ("failed", "needs_fix")
-    ]
-    if not ours:
+    """One alarm per run that found something the platform owns: a test that failed on a
+    rule our prompt or action should have kept, or replies that sounded wrong in a way only
+    the platform prompt and the register layer can change (`turn_checks.SOUND_KINDS`). The
+    owner is told "we're fixing this", so somebody here has to be told too; the detail
+    carries the count per kind, so the register layer is fixed from totals, not anecdotes."""
+    ours = [r for r in results if trial_results.standing(r) == "ours"]
+    sounds = trial_results.sound_counts(results)
+    if not ours and not sounds:
         return
+    parts = []
+    if ours:
+        checks = sorted({str(r.get("probe") or r.get("fix") or "shape") for r in ours})
+        parts.append(f"{len(ours)} test(s) failed on a rule the platform owns: {', '.join(checks)}")
+    if sounds:
+        parts.append(
+            "tests per way it sounded wrong: " + ", ".join(f"{k}={n}" for k, n in sounds.items())
+        )
     alert(
         "CORE_LOGIC",
         PLATFORM_FAILURE_CODE,
-        detail=(
-            f"{len(ours)} test(s) failed on a rule the platform owns; checks: "
-            + ", ".join(sorted({str(r.get("probe") or r.get("fix") or "shape") for r in ours}))
-        ),
+        detail="; ".join(parts),
         tenant_id=str(tenant_id),
         agent_id=str(agent_id),
         run_id=str(run_id),
@@ -849,7 +961,8 @@ __all__ = [
     "improve_agent_test_run",
     "improve_run",
     "judge_all",
+    "new_test_set",
     "run_agent_test_conversations",
     "talk",
-    "write_scenarios",
+    "write_practice_callers",
 ]

@@ -33918,6 +33918,11 @@
             "title": "Auto Improve",
             "type": "boolean"
           },
+          "practice_callers": {
+            "default": false,
+            "title": "Practice Callers",
+            "type": "boolean"
+          },
           "retest_of": {
             "anyOf": [
               {
@@ -39960,6 +39965,64 @@
         "title": "TestCasesOut",
         "type": "object"
       },
+      "TestComparisonOut": {
+        "additionalProperties": false,
+        "description": "Before against after on the same tests (D-828), for a \"Test again\".",
+        "properties": {
+          "broken": {
+            "title": "Broken",
+            "type": "integer"
+          },
+          "fixed": {
+            "title": "Fixed",
+            "type": "integer"
+          },
+          "new": {
+            "title": "New",
+            "type": "integer"
+          },
+          "same": {
+            "title": "Same",
+            "type": "integer"
+          },
+          "same_script": {
+            "title": "Same Script",
+            "type": "boolean"
+          },
+          "still": {
+            "title": "Still",
+            "type": "integer"
+          },
+          "with_run": {
+            "format": "uuid",
+            "title": "With Run",
+            "type": "string"
+          },
+          "with_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "With Version"
+          }
+        },
+        "required": [
+          "with_run",
+          "with_version",
+          "fixed",
+          "broken",
+          "still",
+          "same",
+          "new",
+          "same_script"
+        ],
+        "title": "TestComparisonOut",
+        "type": "object"
+      },
       "TestConversationsOut": {
         "additionalProperties": false,
         "description": "Test conversations that improve the agent (D-724): advised, never required.",
@@ -39989,6 +40052,21 @@
               }
             ]
           },
+          "max_replies": {
+            "default": 60,
+            "title": "Max Replies",
+            "type": "integer"
+          },
+          "practice_offered": {
+            "default": false,
+            "title": "Practice Offered",
+            "type": "boolean"
+          },
+          "trials": {
+            "default": 3,
+            "title": "Trials",
+            "type": "integer"
+          },
           "unavailable_reason": {
             "anyOf": [
               {
@@ -39999,6 +40077,11 @@
               }
             ],
             "title": "Unavailable Reason"
+          },
+          "waiting_tests": {
+            "default": 0,
+            "title": "Waiting Tests",
+            "type": "integer"
           },
           "waiting_update": {
             "anyOf": [
@@ -40052,6 +40135,17 @@
           },
           "score": {
             "$ref": "#/components/schemas/TestScoreOut"
+          },
+          "set_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set Version"
           }
         },
         "required": [
@@ -40067,14 +40161,19 @@
       "TestResultOut": {
         "additionalProperties": false,
         "properties": {
-          "before": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "change": {
             "anyOf": [
               {
                 "enum": [
-                  "passed",
-                  "needs_fix",
-                  "failed",
-                  "unjudged"
+                  "fixed",
+                  "broken",
+                  "still",
+                  "same",
+                  "new"
                 ],
                 "type": "string"
               },
@@ -40082,11 +40181,18 @@
                 "type": "null"
               }
             ],
-            "title": "Before"
+            "title": "Change"
           },
-          "category": {
-            "title": "Category",
+          "channel": {
+            "const": "test_chat",
+            "default": "test_chat",
+            "title": "Channel",
             "type": "string"
+          },
+          "counted": {
+            "default": false,
+            "title": "Counted",
+            "type": "boolean"
           },
           "expect": {
             "title": "Expect",
@@ -40109,6 +40215,11 @@
             },
             "title": "Formal Words",
             "type": "array"
+          },
+          "judged_tries": {
+            "default": 0,
+            "title": "Judged Tries",
+            "type": "integer"
           },
           "key": {
             "title": "Key",
@@ -40148,6 +40259,11 @@
             ],
             "title": "Owner"
           },
+          "passes": {
+            "default": 0,
+            "title": "Passes",
+            "type": "integer"
+          },
           "probe": {
             "anyOf": [
               {
@@ -40163,6 +40279,17 @@
             "title": "Reason",
             "type": "string"
           },
+          "reliability": {
+            "default": "unjudged",
+            "enum": [
+              "passed",
+              "flaky",
+              "failed",
+              "unjudged"
+            ],
+            "title": "Reliability",
+            "type": "string"
+          },
           "setting": {
             "anyOf": [
               {
@@ -40173,8 +40300,29 @@
               }
             ]
           },
+          "sounds": {
+            "items": {
+              "$ref": "#/components/schemas/TestSoundOut"
+            },
+            "title": "Sounds",
+            "type": "array"
+          },
           "source": {
             "title": "Source",
+            "type": "string"
+          },
+          "standing": {
+            "default": "check",
+            "enum": [
+              "works",
+              "unreliable",
+              "broken",
+              "setting",
+              "check",
+              "ours",
+              "wrong"
+            ],
+            "title": "Standing",
             "type": "string"
           },
           "step_id": {
@@ -40191,6 +40339,13 @@
           "title": {
             "title": "Title",
             "type": "string"
+          },
+          "tries": {
+            "items": {
+              "$ref": "#/components/schemas/TestTryOut"
+            },
+            "title": "Tries",
+            "type": "array"
           },
           "turns": {
             "items": {
@@ -40222,8 +40377,7 @@
           "reason",
           "fix",
           "step_id",
-          "formal_words",
-          "before"
+          "formal_words"
         ],
         "title": "TestResultOut",
         "type": "object"
@@ -40234,6 +40388,16 @@
           "auto_improve": {
             "title": "Auto Improve",
             "type": "boolean"
+          },
+          "comparison": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TestComparisonOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "completed_at": {
             "anyOf": [
@@ -40251,6 +40415,17 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
           },
           "id": {
             "format": "uuid",
@@ -40353,6 +40528,24 @@
           "score": {
             "$ref": "#/components/schemas/TestScoreOut"
           },
+          "set_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set Version"
+          },
+          "sounds": {
+            "items": {
+              "$ref": "#/components/schemas/TestSoundCountOut"
+            },
+            "title": "Sounds",
+            "type": "array"
+          },
           "status": {
             "enum": [
               "queued",
@@ -40362,6 +40555,16 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "trials": {
+            "default": 1,
+            "title": "Trials",
+            "type": "integer"
+          },
+          "trials_done": {
+            "default": 0,
+            "title": "Trials Done",
+            "type": "integer"
           }
         },
         "required": [
@@ -40384,17 +40587,38 @@
       },
       "TestScoreOut": {
         "additionalProperties": false,
+        "description": "The owner's score (`trial_results.owner_score`).",
         "properties": {
+          "check": {
+            "default": 0,
+            "title": "Check",
+            "type": "integer"
+          },
           "judged": {
             "title": "Judged",
+            "type": "integer"
+          },
+          "ours": {
+            "default": 0,
+            "title": "Ours",
             "type": "integer"
           },
           "passed": {
             "title": "Passed",
             "type": "integer"
           },
+          "setting": {
+            "default": 0,
+            "title": "Setting",
+            "type": "integer"
+          },
           "total": {
             "title": "Total",
+            "type": "integer"
+          },
+          "unreliable": {
+            "default": 0,
+            "title": "Unreliable",
             "type": "integer"
           }
         },
@@ -40427,6 +40651,116 @@
           "reason"
         ],
         "title": "TestSettingOut",
+        "type": "object"
+      },
+      "TestSoundCountOut": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "brackets",
+              "symbols",
+              "time",
+              "money_digits",
+              "formal_words",
+              "spoken_number",
+              "repeated_question",
+              "several_questions",
+              "unmarked_question",
+              "too_long",
+              "wrong_language",
+              "third_person",
+              "foreign_script",
+              "repeated_turn"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "tests": {
+            "title": "Tests",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "tests"
+        ],
+        "title": "TestSoundCountOut",
+        "type": "object"
+      },
+      "TestSoundOut": {
+        "additionalProperties": false,
+        "description": "One way a test's replies sounded wrong (D-828): a note, never the verdict.",
+        "properties": {
+          "kind": {
+            "enum": [
+              "brackets",
+              "symbols",
+              "time",
+              "money_digits",
+              "formal_words",
+              "spoken_number",
+              "repeated_question",
+              "several_questions",
+              "unmarked_question",
+              "too_long",
+              "wrong_language",
+              "third_person",
+              "foreign_script",
+              "repeated_turn"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "tries": {
+            "title": "Tries",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "reason",
+          "tries"
+        ],
+        "title": "TestSoundOut",
+        "type": "object"
+      },
+      "TestTryOut": {
+        "additionalProperties": false,
+        "description": "One try of a test: the conversation it was and its verdict.",
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/apps__api__agents__script_routes__TestTurnOut"
+            },
+            "title": "Turns",
+            "type": "array"
+          },
+          "verdict": {
+            "enum": [
+              "passed",
+              "needs_fix",
+              "failed",
+              "unjudged"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict",
+          "reason",
+          "turns"
+        ],
+        "title": "TestTryOut",
         "type": "object"
       },
       "TestWebhookIn": {

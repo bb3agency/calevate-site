@@ -989,6 +989,16 @@ class AgentTestRun(PKMixin, TimestampMixin, Base):
         CheckConstraint(
             f"improve_stop IS NULL OR improve_stop IN {IMPROVE_STOPS!r}", name="improve_stop_enum"
         ),
+        CheckConstraint("trials BETWEEN 1 AND 5", name="trials_range"),
+        CheckConstraint(
+            "trials_done BETWEEN 0 AND trials AND trial_started BETWEEN trials_done AND trials",
+            name="trials_done_range",
+        ),
+        CheckConstraint(
+            "trial_results IS NULL OR jsonb_typeof(trial_results) = 'array'",
+            name="trial_results_is_array",
+        ),
+        CheckConstraint("set_version IS NULL OR set_version >= 1", name="set_version_positive"),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -1030,6 +1040,19 @@ class AgentTestRun(PKMixin, TimestampMixin, Base):
     #: What the agent was tested with (`test_conversations.inputs_fingerprint`), so "Test
     #: again" with nothing changed is refused rather than re-run.
     inputs_hash: Mapped[str | None] = mapped_column(Text)
+    #: The version of the agent's test set this run asked (D-828); "Test again" keeps it.
+    set_version: Mapped[int | None] = mapped_column(Integer)
+    #: Tries per test (`trial_results.TRIALS`), each its own worker job.
+    trials: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="1")
+    #: The try chain's compare-and-swap guards: tries finished, and the try last claimed.
+    trials_done: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
+    trial_started: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
+    #: Each finished try's results; the last try aggregates them into `results`.
+    trial_results: Mapped[list[Any] | None] = mapped_column(JSONB)
+    #: The owner asked for AI-written practice callers in this new set.
+    practice_callers: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
 
 
 class AgentTestLabel(PKMixin, TimestampMixin, Base):

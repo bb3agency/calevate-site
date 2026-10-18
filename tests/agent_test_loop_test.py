@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.agents import lifecycle, test_conversations
+from apps.api.agents import lifecycle, test_conversations, trial_results
 from apps.api.agents.script_edits import (
     EditRejectedError,
     ScriptEdit,
@@ -215,7 +215,9 @@ def test_stop_calling_without_the_opt_out_action_fails_whatever_the_judge_says()
     assert recorded["verdict"] == "passed"
 
 
-def test_textbook_words_from_the_spoken_style_list_fail_whatever_the_judge_says() -> None:
+def test_textbook_words_are_a_note_ours_to_fix_and_the_judge_decides_the_task() -> None:
+    """FAILS IF a textbook word fails the test again and reaches the script improver: the
+    18-19 Oct 2026 runs failed 25 of 34 tests that way and could not converge (D-828)."""
     scenario = Scenario(key="k", title="Thanks", category="business", turns=("ok",), expect="")
     result = decide(
         scenario,
@@ -224,9 +226,9 @@ def test_textbook_words_from_the_spoken_style_list_fail_whatever_the_judge_says(
         language="te-IN",
         unjudged_reason="",
     )
-    # A hard fail since D-739, with the spoken word to use in the reason.
-    assert result["verdict"] == "failed" and result["fix"] == "style"
-    assert "sorry అండి" in result["reason"]
+    assert result["verdict"] == "passed" and result["owner"] is None
+    (note,) = result["sounds"]
+    assert note["kind"] == "formal_words" and "sorry అండి" in note["reason"]
     assert {"క్షమించండి", "ధర", "ధన్యవాదాలు"} <= set(result["formal_words"])
 
 
@@ -348,7 +350,8 @@ def test_the_judges_answer_is_held_to_the_run_and_the_vocabulary() -> None:
         {"a", "b"},
     )
     assert judged is not None and set(judged) == {"a"}
-    assert judged["a"].fix == "style" and judged["a"].formal_words == ("ధన్యవాదాలు",)
+    # How it sounds is never the judge's kind of fix (D-828): an old-shape "style" is dropped.
+    assert judged["a"].fix is None and judged["a"].formal_words == ("ధన్యవాదాలు",)
 
 
 # --- improving -------------------------------------------------------------------------
@@ -517,9 +520,11 @@ async def _agent() -> tuple[uuid.UUID, uuid.UUID]:
     return tenant_id, agent_id
 
 
-async def test_a_run_writes_talks_judges_meters_and_retests(
+async def test_a_run_tries_every_test_three_times_and_test_again_asks_the_same_tests(
     azure: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """FAILS IF a run judges one conversation per test, a "Test again" asks other tests than
+    the run it repeats, or practice callers are written without being asked for (D-828)."""
     tenant_id, agent_id = await _agent()
     fake = _FakeChat()
     monkeypatch.setattr(test_conversations, "get_engine", lambda: fake)
@@ -549,43 +554,32 @@ async def test_a_run_writes_talks_judges_meters_and_retests(
             },
         ]
     }
+    failing_key: list[str] = []
+    asked = {"write": 0, "judge": 0}
 
-    def _verdicts(keys: list[str], failing: str | None) -> dict[str, Any]:
-        return {
-            "results": [
-                {
-                    "key": k,
-                    "verdict": "failed" if k == failing else "passed",
-                    "reason": "Because.",
-                    "fix": "knowledge" if k == failing else "none",
-                    "step_id": "",
-                    "formal_words": [],
-                }
-                for k in keys
-            ]
-        }
-
-    async def _no_pause() -> None:
-        return None
-
-    async with tenant_session(tenant_id) as session:
-        run = await test_conversations.request_run(
-            session, tenant_id=tenant_id, agent_id=agent_id, requested_by=None, auto_improve=True
-        )
-    round_key = f"r{run.id.hex[-6:]}"
-    answers = [generated]
-    monkeypatch.setattr(chat, "complete", _model(answers))
-
-    # The judge needs the keys the run will hold, so it is answered from the request.
     async def _complete(leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any) -> Any:
         content = str(messages[-1]["content"])
         if "Conversations to check" in content:
+            asked["judge"] += 1
             keys = [
                 line[1 : line.index("]")] for line in content.splitlines() if line.startswith("[")
             ]
-            body = _verdicts(keys, failing=f"{round_key}_1")
+            body: dict[str, Any] = {
+                "results": [
+                    {
+                        "key": k,
+                        "verdict": "failed" if k in failing_key else "passed",
+                        "reason": "Because.",
+                        "fix": "knowledge" if k in failing_key else "none",
+                        "step_id": "",
+                        "formal_words": [],
+                    }
+                    for k in keys
+                ]
+            }
         else:
-            body = answers.pop(0)
+            asked["write"] += 1
+            body = generated
         return chat.ChatOutcome(
             content=json.dumps(body),
             finish_reason="stop",
@@ -593,16 +587,45 @@ async def test_a_run_writes_talks_judges_meters_and_retests(
         )
 
     monkeypatch.setattr(chat, "complete", _complete)
-    outbox: list[str] = []
+    outbox: list[tuple[str, dict[str, Any]]] = []
 
     async def _enqueue(session: Any, *, job: str, payload: dict[str, Any], **_: Any) -> None:
-        outbox.append(job)
+        outbox.append((job, payload))
 
     monkeypatch.setattr(test_conversations, "enqueue_outbox", _enqueue)
-    outcome = await worker.run_agent_test_conversations(
-        {}, {"tenant_id": str(tenant_id), "run_id": str(run.id)}, pause=_no_pause
-    )
-    assert outcome == "done"
+
+    async def _no_pause() -> None:
+        return None
+
+    async def _every_try(run_id: uuid.UUID) -> list[str]:
+        """The first try, then each try the one before queued. The request's own job is
+        the first try, run here directly."""
+        outbox.clear()
+        outcomes = [
+            await worker.run_agent_test_conversations(
+                {}, {"tenant_id": str(tenant_id), "run_id": str(run_id)}, pause=_no_pause
+            )
+        ]
+        while outbox and outbox[-1][0] == test_conversations.RUN_JOB:
+            _job, payload = outbox.pop()
+            outcomes.append(await worker.run_agent_test_conversations({}, payload, pause=_no_pause))
+        return outcomes
+
+    async with tenant_session(tenant_id) as session:
+        run = await test_conversations.request_run(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            requested_by=None,
+            auto_improve=True,
+            practice_callers=True,
+        )
+    assert (run.set_version, run.trials) == (1, trial_results.TRIALS)
+    failing_key.append(f"r{run.id.hex[-6:]}_1")
+    assert await _every_try(run.id) == ["try_done", "try_done", "done"]
+    # A redelivered try runs nothing twice.
+    redelivered = {"tenant_id": str(tenant_id), "run_id": str(run.id), "trial": 2}
+    assert await worker.run_agent_test_conversations({}, redelivered) == "not_queued"
     async with tenant_session(tenant_id) as session:
         done = await test_conversations.get_run(session, agent_id, run.id)
         features = set(
@@ -613,29 +636,32 @@ async def test_a_run_writes_talks_judges_meters_and_retests(
                 )
             ).scalars()
         )
-    assert done.status == "done"
+    assert done.status == "done" and done.trials_done == trial_results.TRIALS
+    # One writing request (the owner asked for practice callers), one judge request per try.
+    assert asked == {"write": 1, "judge": trial_results.TRIALS}
+    assert {"agent_test_generate", "agent_test_judge"} <= features
     assert {r["probe"] for r in done.results if r.get("probe")} == set(PROBES)
-    assert done.results[0]["verdict"] == "failed"  # failures first
-    judged = [r for r in done.results if r["verdict"] != "unjudged"]
-    assert done.score == (len(judged) - 1, len(judged)), done.results
+    failed = done.results[0]  # failures first
+    assert failed["key"] == failing_key[0] and failed["owner"] == "knowledge"
+    assert (failed["passes"], failed["judged_tries"]) == (0, trial_results.TRIALS)
+    assert len(failed["tries"]) == trial_results.TRIALS
+    assert trial_results.reliability(failed) == "failed"
     # Hand-over is off on this agent: asking for a person is a setting, not a failure.
     person = next(r for r in done.results if r.get("probe") == "person")
     assert person["verdict"] == "unjudged" and person["owner"] == "setting"
-    assert {"agent_test_generate", "agent_test_judge"} <= features
-    # The rule checks never reach the judge (D-823). What the judge itself said about the
-    # rest is kept beside the stored verdict, for calibration: the model it ran on, that it
-    # shares the agent's family (no other leg is configured here), and where in its request
-    # each conversation sat.
-    assert all(r["judge"] is None for r in done.results if r.get("probe"))
-    records = [r["judge"] for r in done.results if r.get("judge")]
+    # The owner's score counts the tests the script or knowledge decides, never the rules.
+    counted = [r for r in done.results if trial_results.in_owner_score(r)]
+    assert all(not r.get("probe") for r in counted)
+    assert done.score.counted == len(counted) and done.score.passed == len(counted) - 1
+    # The rule checks never reach the judge (D-823); what the judge said about the rest is
+    # kept per try for calibration.
+    assert all(t.get("judge") is None for r in done.results if r.get("probe") for t in r["tries"])
+    records = [t["judge"] for t in failed["tries"]]
     assert {j["model"] for j in records} == {get_settings().azure_openai_model}
-    assert all(j["same_family"] is True for j in records)
-    assert sorted(j["position"] for j in records) == list(range(len(records)))
-    failed = done.results[0]
-    assert failed["judge"]["verdict"] == "failed" and failed["judge"]["reason"] == "Because."
-    assert failed["owner"] == "knowledge"
-    # Auto-improve was asked for and a test the knowledge owns failed: the proposal is queued.
-    assert outbox == [test_conversations.IMPROVE_JOB]
+    assert all(j["same_family"] is True and j["verdict"] == "failed" for j in records)
+    # Auto-improve was asked for and a test the knowledge owns failed every try.
+    assert [job for job, _payload in outbox] == [test_conversations.IMPROVE_JOB]
+    outbox.clear()
 
     # "Test again" with nothing changed is refused: the same failures would come back.
     async with tenant_session(tenant_id) as session:
@@ -648,24 +674,91 @@ async def test_a_run_writes_talks_judges_meters_and_retests(
         await session.execute(
             text("UPDATE agents SET handoff_enabled = true WHERE id = :id"), {"id": agent_id}
         )
-    # Something changed, so "Test again" re-asks the failure word for word and shows before
-    # and after.
-    async with tenant_session(tenant_id) as session:
         again = await test_conversations.request_run(
             session, tenant_id=tenant_id, agent_id=agent_id, requested_by=None, retest_of=run.id
         )
-    assert again.improve_round == 2
-    answers.append(generated)
-    round_key = f"r{again.id.hex[-6:]}"
+    assert again.improve_round == 2 and again.set_version == run.set_version
+    failing_key.clear()  # the fix worked
     fake.sent.clear()
-    await worker.run_agent_test_conversations(
-        {}, {"tenant_id": str(tenant_id), "run_id": str(again.id)}, pause=_no_pause
-    )
+    assert await _every_try(again.id) == ["try_done", "try_done", "done"]
     async with tenant_session(tenant_id) as session:
         second = await test_conversations.get_run(session, agent_id, again.id)
-    retested = next(r for r in second.results if r["source"] == "retest")
-    assert retested["before"] == "failed"
-    assert "మిర్చి kg ఎంత?" in fake.sent
+    # Exactly the same tests, nothing written: the practice caller came from the set.
+    assert [s["key"] for s in second.scenarios] == [s["key"] for s in done.scenarios]
+    assert asked["write"] == 1
+    assert fake.sent.count("మిర్చి kg ఎంత?") == trial_results.TRIALS
+    comparison = trial_results.compare(done.results, second.results)
+    assert comparison.keys("fixed") == [failed["key"]]
+    assert comparison.count("broken") == 0 and comparison.count("new") == 0
+
+
+async def test_test_again_never_takes_practice_callers_and_a_dead_run_is_replaced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, agent_id = await _agent()
+    monkeypatch.setattr(test_conversations, "get_engine", _FakeChat)
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as mixed:
+            await test_conversations.request_run(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                requested_by=None,
+                retest_of=uuid.uuid4(),
+                practice_callers=True,
+            )
+    assert mixed.value.code == "agent_tests_practice_needs_new_set"
+    stuck = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO agent_test_runs (id, tenant_id, agent_id, status, set_version, "
+                "created_at, updated_at) VALUES (:id, :t, :a, 'running', 1, now(), "
+                "now() - make_interval(secs => :age))"
+            ),
+            {
+                "id": stuck,
+                "t": tenant_id,
+                "a": agent_id,
+                "age": test_conversations.STALLED_RUN_S + 60,
+            },
+        )
+    async with tenant_session(tenant_id) as session:
+        fresh = await test_conversations.request_run(
+            session, tenant_id=tenant_id, agent_id=agent_id, requested_by=None
+        )
+        dead = await test_conversations.get_run(session, agent_id, stuck)
+    assert fresh.id != stuck and fresh.set_version == 2
+    assert (dead.status, dead.error_code) == ("failed", test_conversations.STALLED_CODE)
+
+    # A "Test again" that stopped part-way may be asked again with nothing changed: it
+    # produced no comparison. Before it stopped, the same request is "nothing changed".
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agent_test_runs SET status = 'done' WHERE id = :id"), {"id": fresh.id}
+        )
+        with pytest.raises(ProblemError) as same:
+            await test_conversations.request_run(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                requested_by=None,
+                retest_of=fresh.id,
+            )
+    assert same.value.code == "agent_tests_nothing_changed"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO agent_test_runs (id, tenant_id, agent_id, status, retest_of, "
+                "error_code, created_at, updated_at) VALUES (:id, :t, :a, 'failed', :r, "
+                "'crashed', now() + interval '1 second', now())"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "a": agent_id, "r": fresh.id},
+        )
+        retried = await test_conversations.request_run(
+            session, tenant_id=tenant_id, agent_id=agent_id, requested_by=None, retest_of=fresh.id
+        )
+    assert retried.retest_of == fresh.id and retried.set_version == fresh.set_version
 
 
 async def _failed_run(tenant_id: uuid.UUID, agent_id: uuid.UUID, results: list[Any]) -> uuid.UUID:
