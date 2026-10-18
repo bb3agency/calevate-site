@@ -181,15 +181,19 @@ def edited_script(raw: dict[str, Any], current: CallScript) -> CallScript | None
     try:
         edited = CallScript.model_validate({**current.model_dump(), **fields})
     except ValidationError as invalid:
+        errors = invalid.errors(include_input=False, include_url=False)
         # Where and which rule, never the value: the value is the client's script.
         problems = [
             f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
-            for error in invalid.errors(include_input=False, include_url=False)[:8]
+            for error in errors[:8]
         ]
-        log.warning(
-            "script_assist_edit_unusable",
-            extra={"problems": [p.split(":", 1)[0] for p in problems], "count": len(problems)},
+        # One string, not a list: the log formatter reduces a list to "[N items]", which hid
+        # exactly what an operator needs here. Paths and rule types only.
+        where = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])} {error['type']}"
+            for error in errors[:8]
         )
+        log.warning("script_assist_edit_unusable", extra={"where": where, "count": len(errors)})
         raise UnusableAnswerError("; ".join(problems)) from invalid
     return edited.model_copy(update={"raw_override": None, "schema_version": 2})
 

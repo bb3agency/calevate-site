@@ -116,3 +116,18 @@ def test_every_writer_follows_the_spoken_style_guide() -> None:
     # A language with no style row falls back to the register text it was given.
     other = ScriptBrief(language="xx-XX", register="Plain").user_message()
     assert "Spoken register: Plain" in other
+
+
+def test_an_unusable_edit_logs_where_it_broke_as_readable_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The formatter reduces a list to "[N items]"; the field paths must survive as text."""
+    from apps.workers.script_assist import UnusableAnswerError
+    from apps.workers.script_assist import edited_script as _edited_script
+    from calevate_shared.call_script import CallScript
+
+    with caplog.at_level("WARNING"), pytest.raises(UnusableAnswerError):
+        _edited_script({"stages": [{"id": "Bad Id"}]}, CallScript(schema_version=2))
+    record = next(r for r in caplog.records if r.getMessage() == "script_assist_edit_unusable")
+    assert isinstance(record.where, str) and "stages.0" in record.where
+    assert record.count >= 1
