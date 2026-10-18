@@ -917,11 +917,13 @@ open, because the 15 Oct reply answered only the §13.1 requests.
 - Whether a change to the built-in speaking rules will be announced, now that our prompt relies on them.
 - The rent page does not document `Idempotency-Key`.
 
-## 17. Draft of the next email (18 Oct 2026, unsent; the founder sends)
+## 17. Draft of the next email (19 Oct 2026, unsent; the founder sends)
 
-Gathers what §16.1 left open, what building the 18 Oct answers raised (D-813..D-816), and §15
-questions 19–23, which were not sent. Before sending, the founder checks question 9 against the
-latest worker log (`grep engine_webhook` on the workers' logs) and drops it if the save works.
+Gathers what §16.1 left open, what building the 18 Oct answers raised (D-813..D-822), the
+prompt-size work of 19 Oct (our fixed layers against what ThinnestAI adds), and §15 questions
+19-23, which were not sent. Before sending, the founder checks question 13 against the latest
+worker log and drops it if the save works; question 16 goes from the workspace owner's address
+with ThinnestAI support copied (`workspace/data-and-erasure.md`, Model training).
 
 > **Subject:** Calevate: thank you for the answers, and what is still open
 >
@@ -936,53 +938,65 @@ latest worker log (`grep engine_webhook` on the workers' logs) and drops it if t
 > **Releases**
 > 1. You wrote that billing on List Calls, `languages` and `reaskAfterSeconds`, and the
 >    corrected `byok-model` 409 need a release. Your What's new lists them under 17 Oct. Are
->    they live in production now, and if not, when? We switch each on once you confirm.
+>    they live in production now, and if not, when?
 >
 > **Billing**
 > 2. Forwarded calls: Get Call says a call forwarded without an agent is charged the carrier
->    fee only, but the Phone numbers page and Update Phone Number (`forwardTo`) still say it
->    is charged at the standard voice rate. Which is right? And when the number's agent stays
->    attached but the call is forwarded, is that "without an agent"?
-> 3. A call that ends before the agent speaks and lasts 0 seconds: is it billed nothing, or
->    one 30-second block?
+>    fee only, but the Phone numbers page and Update Phone Number (`forwardTo`) still say the
+>    standard voice rate. Which is right? And when the number's agent stays attached but the
+>    call is forwarded, is that "without an agent"?
+> 3. A call that ends before the agent speaks and lasts 0 seconds: billed nothing, or one
+>    30-second block?
+> 4. Test Chat on an agent that uses our own model key (`byok: llm`): what does one reply cost
+>    us?
+>
+> **What the model receives**
+> 5. You shared the speaking rules; thank you, we now rely on them and dropped ours that
+>    repeated them. Could you share the text of the core rules, the AI-disclosure line and
+>    the hand-over and lead rules you add before our instructions, so we can remove what we
+>    repeat? We keep our own truthful-answer lines (an Indian requirement), so we want to be
+>    sure the AI question is not answered twice.
+> 6. About how many characters do your added parts come to per call (core rules, disclosure,
+>    hand-over and lead rules, speaking rules, date line)? Is the whole prompt sent on every
+>    turn, so that `usage.inputTokens` is the sum over turns?
+> 7. Can Test Chat run against an agent's unsaved draft instead of the published version, so
+>    owners can try a change before putting it live?
 >
 > **Our model on calls**
-> 4. We are moving calls on our own Google key to `gemini-3.1-flash-lite` (2.5 is no longer
->    available to new Google projects). Is that model fully supported on calls with
->    `byok: llm` and `llm_voice`, and do you ask it for the lowest thinking level?
-> 5. On our Pip assistant, Google caches about 60% of each request on that model. On calls,
->    is the part of the prompt before our first per-call value byte-identical on every turn,
->    so Google can cache it, and does `usage.cachedInputTokens` report Google's cached count
->    for our key?
+> 8. We are moving calls on our own Google key to `gemini-3.1-flash-lite` (2.5 is no longer
+>    available to new Google projects). Is it fully supported with `byok: llm` and
+>    `llm_voice`, and do you ask it for the lowest thinking level?
+> 9. On our assistant, Google caches about 60% of each request on that model. On calls, is
+>    the part of the prompt before our first per-call value byte-identical on every turn so
+>    Google can cache it, and does `usage.cachedInputTokens` report Google's cached count for
+>    our key?
 >
 > **Lending a number**
-> 6. A number is lent to one agent at a time. If it is lent to agent B while agent A has a
->    call on it that is still queued, ringing or answered, what happens to A's call?
+> 10. A number is lent to one agent at a time. If it is lent to agent B while agent A has a
+>     call on it that is queued, ringing or answered, what happens to A's call?
 >
-> **Speaking rules and docs**
-> 7. Our prompt now relies on your built-in speaking rules. Will a change to them appear in
->    What's new?
-> 8. Two answers are not in the docs yet: that a shared clone's id in a customer workspace is
->    the developer's own id, and that `POST /phone-numbers` honours `Idempotency-Key`. Could
->    the pages say so?
+> **Docs and notices**
+> 11. Will a change to the built-in speaking rules appear in What's new?
+> 12. Two answers are not in the docs yet: that a shared clone's id in a customer workspace is
+>     the developer's own id, and that `POST /phone-numbers` honours `Idempotency-Key`. Could
+>     the pages say so?
 >
 > **Webhooks**
-> 9. Since 16 Oct, `PATCH /webhooks/{id}` adding `contact.erased` and `byok.changed` to an
->    existing endpoint answers `500 internal_error` "Could not save the endpoint.", and
->    `POST /webhooks` for the same agent with all eight events answers `500` "Could not add
->    the endpoint." (developer workspace, endpoint `wh_47764a52-314c-4ada-ab87-ffb8693cfb7f`).
->    Could you look at why the save fails?
+> 13. Since 16 Oct, `PATCH /webhooks/{id}` adding `contact.erased` and `byok.changed` answers
+>     `500` "Could not save the endpoint.", and `POST /webhooks` with all eight events answers
+>     `500` "Could not add the endpoint." (developer workspace, endpoint
+>     `wh_47764a52-314c-4ada-ab87-ffb8693cfb7f`). Could you look at why?
 >
 > **Recordings**
-> 10. When a whole line is forwarded to a person's phone (no agent on the call), is the call
+> 14. When a whole line is forwarded to a person's phone (no agent on the call), is the call
 >     recorded, and is the audio available from `GET /calls/{id}/recording`?
 >
 > **Compliance**
-> 11. The signed DPA and the list of your sub-processors that handle a call on your stack.
-> 12. Please exclude our developer workspace and every customer workspace under it from model
+> 15. The signed DPA and the list of your sub-processors that handle a call on your stack.
+> 16. Please exclude our developer workspace and every customer workspace under it from model
 >     training, and confirm in writing. (Your data page asks for this from the workspace
 >     owner's address to support; I am copying support.)
-> 13. Any update from Plivo on the TRAI regulation 4 notice, and which access provider holds
+> 17. Any update from Plivo on the TRAI regulation 4 notice, and which access provider holds
 >     the numbers you rent to us.
 >
 > Thanks,
