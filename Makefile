@@ -4,7 +4,7 @@
 # in the repo root would make `make guardrails` print "nothing to be done" and exit 0:
 # the CI gate reporting success without running a single check.
 .PHONY: help dev dev-otp up down check lint lint-check types test db-reset redis-reset seed-dev eval eval-ci \
-        copilot-eval qa-report qa-report-publish \
+        copilot-eval register-eval qa-report qa-report-publish \
         gen-api conformance smoke guardrails web-check legal-hashes coverage-ratchet \
         coverage-ratchet-accept
 
@@ -236,6 +236,11 @@ eval-ci:  ## The ratchet exactly as CI runs it — part of the gate, not an extr
 # tool arrays; with one it calls that model once per case and needs its credential.
 copilot-eval:  ## make copilot-eval [PROVIDER=google MODEL=<gemini id> | PROVIDER=azure] [RECORD=run.json]
 	uv run python -m scripts.copilot_tool_eval $(if $(PROVIDER),--provider=$(PROVIDER)) $(if $(MODEL),--model=$(MODEL)) $(if $(RECORD),--record=$(RECORD))
+
+# The in-call spoken register (D-829): the real composed prompt, the in-call model on our
+# Google key, every reply scored by the test loop's checks. Paid: under ₹20 a full run.
+register-eval:  ## make register-eval OUT=<scratch>/run.json [VARIANT=positive+late] [LANGUAGE=te-IN]
+	uv run python -m scripts.register_eval --spend --out=$(OUT) $(if $(VARIANT),--variant=$(VARIANT)) $(if $(LANGUAGE),--language=$(LANGUAGE))
 
 # G3 ships this to every client monthly, so VERTICAL is required for the same reason
 # CLIENT is: a clinic's report listing property calls is not the asset it is sold as,
