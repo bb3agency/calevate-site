@@ -1,11 +1,13 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
+import { READ_FILE_REQUEST } from "@/app/c/[slug]/knowledge/TeachBox";
 import KnowledgePage from "@/app/c/[slug]/knowledge/page";
 import { MakeCallTest } from "@/components/improvement/MakeCallTest";
 import { SavedTests } from "@/components/improvement/SavedTests";
 import { TryChat } from "@/components/improvement/TryChat";
 import type { Me } from "@/lib/api/client";
+import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
 import { noContent, renderClientPage, type Routes } from "./harness";
 
@@ -58,21 +60,17 @@ async function renderKnowledge(over: Routes = {}) {
     "/v1/kb/uploads": [],
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [] },
+    "/v1/kb/teach/open": { teaching: null },
     ...over,
   });
 }
 
 describe("the teach box", () => {
-  it("shows what was found for review, lets a fact become a rule, and asks which agent", async () => {
+  it("shows what Pip sorted for review, lets a fact become a rule, and asks which agent", async () => {
     const { calls } = await renderKnowledge({
-      "POST /v1/kb/teach": teaching({ status: "queued", items: [] }),
-      "/v1/kb/teach/teach-1": teaching(),
+      "/v1/kb/teach/open": { teaching: teaching() },
       "POST /v1/kb/teach/teach-1/save": { facts_added: 1, rules_added: 1, agent_id: "agent-2" },
     });
-    fireEvent.change(await screen.findByLabelText("What should your agents know?"), {
-      target: { value: "Chilli powder is 120 rupees. Never promise same-day delivery." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^Sort it$/ }));
 
     const list = await screen.findByRole("list", { name: "Check what we found" });
     const rows = within(list).getAllByRole("listitem");
@@ -103,14 +101,9 @@ describe("the teach box", () => {
 
   it("does not save what the owner unticked", async () => {
     const { calls } = await renderKnowledge({
-      "POST /v1/kb/teach": teaching({ status: "queued", items: [] }),
-      "/v1/kb/teach/teach-1": teaching(),
+      "/v1/kb/teach/open": { teaching: teaching() },
       "POST /v1/kb/teach/teach-1/save": { facts_added: 1, rules_added: 0, agent_id: null },
     });
-    fireEvent.change(await screen.findByLabelText("What should your agents know?"), {
-      target: { value: "Chilli powder is 120 rupees." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^Sort it$/ }));
     fireEvent.click(await screen.findByLabelText("Keep: Never promise same-day delivery."));
     fireEvent.click(screen.getByRole("button", { name: "Save 1 fact" }));
     await waitFor(() => expect(calls.some((c) => c.path === "/v1/kb/teach/teach-1/save")).toBe(true));
@@ -119,28 +112,101 @@ describe("the teach box", () => {
     expect(body.agent_id).toBeNull();
   });
 
-  it("shows the words heard in a voice note before anything is sorted", async () => {
-    const { calls } = await renderKnowledge({
-      "POST /v1/kb/teach": teaching({ status: "queued", items: [] }),
-      "/v1/kb/teach/teach-1": teaching({ status: "heard", input_kind: "voice", words: "Chilli 120", items: [] }),
-      "POST /v1/kb/teach/teach-1/words": teaching({ status: "queued", words: "Chilli is ₹120", items: [] }),
-    });
+  it("asks Pip to teach the words in the box, and to read a photo or file attached to it", async () => {
+    const asked: AssistantRequest[] = [];
+    function Listener() {
+      useAssistantRequests((request) => asked.push(request));
+      return null;
+    }
+    render(<Listener />);
+    const { calls } = await renderKnowledge();
     fireEvent.change(await screen.findByLabelText("What should your agents know?"), {
-      target: { value: "Chilli 120" },
+      target: { value: "Chilli powder is 120 rupees." },
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Sort it$/ }));
-    const heard = (await screen.findByLabelText(
-      "This is what we heard. Fix anything we got wrong.",
-    )) as HTMLTextAreaElement;
-    expect(heard.value).toBe("Chilli 120");
-    expect(calls.some((c) => c.path === "/v1/kb/teach/teach-1/save")).toBe(false);
-    fireEvent.change(heard, { target: { value: "Chilli is ₹120" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Sort it$/ }));
-    await waitFor(() =>
-      expect(JSON.parse(calls.find((c) => c.path === "/v1/kb/teach/teach-1/words")?.body ?? "{}")).toEqual({
-        words: "Chilli is ₹120",
-      }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Let Pip teach it" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Let Pip read a photo or file: / }));
+    expect(asked.map((a) => a.prompt)).toEqual([
+      "Teach my agents this: Chilli powder is 120 rupees.",
+      READ_FILE_REQUEST,
+    ]);
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
+  it("puts the words heard in a voice note in the box to check, and sorts nothing", async () => {
+    class SpeakingRecorder {
+      static isTypeSupported = () => true;
+      mimeType = "audio/webm";
+      ondataavailable: ((event: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      start() {}
+      stop() {
+        this.ondataavailable?.({ data: new Blob(["voice"], { type: "audio/webm" }) });
+        this.onstop?.();
+      }
+    }
+    vi.stubGlobal("MediaRecorder", SpeakingRecorder);
+    // The upload is the one request that is an XMLHttpRequest (`apiUpload`); it answers
+    // with the voice teaching, which the screen then reads until it is heard.
+    const uploaded: string[] = [];
+    class UploadXhr {
+      status = 0;
+      responseText = "";
+      withCredentials = false;
+      readonly upload = new EventTarget();
+      private readonly events = new EventTarget();
+      private url = "";
+      open(_method: string, url: string): void {
+        this.url = url;
+      }
+      setRequestHeader(): void {}
+      getResponseHeader(): string {
+        return "application/json";
+      }
+      addEventListener(type: string, listener: EventListener): void {
+        this.events.addEventListener(type, listener);
+      }
+      abort(): void {}
+      send(): void {
+        uploaded.push(this.url);
+        queueMicrotask(() => {
+          this.status = 201;
+          this.responseText = JSON.stringify(
+            teaching({ status: "reading", input_kind: "voice", words: null, items: [] }),
+          );
+          this.events.dispatchEvent(new Event("load"));
+        });
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", UploadXhr);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) },
+    });
+    Object.defineProperty(navigator, "permissions", {
+      configurable: true,
+      value: { query: vi.fn(async () => ({ state: "granted" })) },
+    });
+    try {
+      const heard = teaching({ status: "heard", input_kind: "voice", words: "Chilli 120", items: [] });
+      const { calls } = await renderKnowledge({
+
+        "/v1/kb/teach/teach-1": heard,
+        "POST /v1/kb/teach/teach-1/discard": { ...heard, status: "discarded" },
+      });
+      await act(async () => {
+        fireEvent.click(await screen.findByRole("button", { name: "Say it" }));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /Stop/ }));
+      });
+      const box = screen.getByLabelText("What should your agents know?") as HTMLTextAreaElement;
+      await waitFor(() => expect(box.value).toBe("Chilli 120"));
+      await waitFor(() => expect(calls.some((c) => c.path === "/v1/kb/teach/teach-1/discard")).toBe(true));
+      expect(calls.some((c) => c.path.endsWith("/save"))).toBe(false);
+      expect(uploaded.some((url) => url.endsWith("/v1/kb/teach/upload"))).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

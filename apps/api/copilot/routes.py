@@ -275,18 +275,18 @@ async def ask_copilot(
     it) — because a client's own allowance is what this route spends. Their assistant is
     the admin one, on the admin route, on our money.
 
-    **NO `Idempotency-Key`, WHERE `assist_call` REQUIRES ONE, AND THE DIFFERENCE IS WHAT A
-    REPLAY WOULD HAVE TO BE.** That route's key works because its answer is one JSON object
-    the idempotency record can store and hand back. This answer is a stream, and the only
-    way to replay it is to keep the whole of it verbatim, addressable by a caller-supplied
-    key. **`copilot_memories` IS NOT THAT STORE and must not be mistaken for it**: it holds
-    a redacted, truncated MEMORY of the exchange for the model's benefit, not the byte
-    sequence the browser rendered, and nothing addresses it by an idempotency key. A key that
-    could not replay anything would be a claim row and a 409 on the honest retry, i.e. the
-    mechanism's costs with none of its protection. What bounds a double-click instead is
-    the `costly` rate-limit profile (`core/ratelimit.py`, 30/min per caller — its own
-    comment says "no human clicks these 30 times a minute") and the per-tenant AI ceiling
-    the gate below enforces.
+    **NO `Idempotency-Key`, WHERE `POST /v1/leads/{lead_id}/call` REQUIRES ONE, AND THE
+    DIFFERENCE IS WHAT A REPLAY WOULD HAVE TO BE.** That route's key works because its
+    answer is one JSON object the idempotency record can store and hand back. This answer
+    is a stream, and the only way to replay it is to keep the whole of it verbatim,
+    addressable by a caller-supplied key. **`copilot_memories` IS NOT THAT STORE and must
+    not be mistaken for it**: it holds a redacted, truncated MEMORY of the exchange for the
+    model's benefit, not the byte sequence the browser rendered, and nothing addresses it
+    by an idempotency key. A key that could not replay anything would be a claim row and a
+    409 on the honest retry, i.e. the mechanism's costs with none of its protection. What
+    bounds a double-click instead is the `costly` rate-limit profile (`core/ratelimit.py`,
+    30/min per caller — its own comment says "no human clicks these 30 times a minute")
+    and the per-tenant AI ceiling the gate below enforces.
 
     **NO `Depends(db)`.** A streaming route must not hold a pooled Postgres connection
     across a provider round trip, and it does not have to: the gate takes its own

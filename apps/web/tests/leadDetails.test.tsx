@@ -1,9 +1,11 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { LeadDetailsScreen } from "@/app/c/[slug]/settings/lead-details/LeadDetailsScreen";
+import { DRAFT_REQUEST } from "@/components/leadFields/LeadDetailsView";
 import type { LeadFields } from "@/lib/api/leadFields";
 import { BUSINESS_TYPES, businessTypeLabel } from "@/lib/businessTypes";
+import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
 import { renderClientPage } from "./harness";
 
@@ -56,6 +58,15 @@ function leadFields(over: Partial<LeadFields> = {}): LeadFields {
     ...over,
   };
 }
+const DRAFTED: NonNullable<LeadFields["draft"]> = {
+  status: "done",
+  requested_at: "2026-10-10T10:00:00Z",
+  completed_at: "2026-10-10T10:00:30Z",
+  fields: [field("produce", "Produce", true), field("kilos", "Kilos")],
+  error_code: null,
+  reviewed: false,
+};
+
 
 describe("the business types", () => {
   it("are one list that does not start with a clinic", () => {
@@ -77,43 +88,47 @@ describe("the business types", () => {
 });
 
 describe("the lead details screen", () => {
-  it("shows the core as always captured and offers the one draft", async () => {
+  it("shows the core as always captured and offers the one draft through Pip (D-821)", async () => {
+    const asked: AssistantRequest[] = [];
+    function Listener() {
+      useAssistantRequests((request) => asked.push(request));
+      return null;
+    }
+    render(<Listener />);
     const { calls } = await renderClientPage(<LeadDetailsScreen />, {
       "/v1/me": OWNER,
       "/v1/lead-fields": leadFields(),
-      "POST /v1/lead-fields/draft": {
-        draft: {
-          status: "queued",
-          requested_at: "2026-10-10T10:00:00Z",
-          completed_at: null,
-          fields: [],
-          error_code: null,
-        },
-      },
     });
     await screen.findByRole("heading", { name: "Always captured" });
     expect(screen.getByText("What they want")).toBeTruthy();
     expect(screen.getByText("Nothing here yet.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Draft from the business details" }));
-    await waitFor(() =>
-      expect(calls.some((c) => c.method === "POST" && c.path === "/v1/lead-fields/draft")).toBe(
-        true,
-      ),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^Let Pip draft them: / }));
+    expect(asked.map((a) => a.prompt)).toEqual([DRAFT_REQUEST]);
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
 
-  it("says a finished draft was made once and is the owner's to edit", async () => {
+  it("asks the owner to keep the drafted details before any agent has them", async () => {
+    const { calls } = await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/lead-fields": leadFields({ can_draft: false, draft: DRAFTED }),
+      "POST /v1/lead-fields/draft/review": { fields_kept: 1, agents_changed: 1 },
+    });
+    await screen.findByRole("heading", { name: "2 drafted details" });
+    expect(screen.getByText(/no agent has them yet/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Kilos/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 of 2 to my agents" }));
+    await waitFor(() => {
+      const review = calls.find((c) => c.path === "/v1/lead-fields/draft/review");
+      expect(review && JSON.parse(review.body ?? "{}")).toEqual({ keep: ["produce"] });
+    });
+  });
+
+  it("says a reviewed draft was made once and is the owner's to edit", async () => {
     await renderClientPage(<LeadDetailsScreen />, {
       "/v1/me": OWNER,
       "/v1/lead-fields": leadFields({
         can_draft: false,
-        draft: {
-          status: "done",
-          requested_at: "2026-10-10T10:00:00Z",
-          completed_at: "2026-10-10T10:00:30Z",
-          fields: [field("produce", "Produce", true)],
-          error_code: null,
-        },
+        draft: { ...DRAFTED, reviewed: true, fields: [field("produce", "Produce", true)] },
         agents: [
           {
             id: "a1",
@@ -129,7 +144,8 @@ describe("the lead details screen", () => {
     await screen.findByText(/Drafted once from your business details/);
     expect(screen.getByText(/won't be drafted again/)).toBeTruthy();
     expect(screen.getByText("Produce")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Draft from the business details" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Let Pip draft them/ })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /drafted details/ })).toBeNull();
   });
 
   it("saves an added detail for the chosen agent through the per-agent write", async () => {

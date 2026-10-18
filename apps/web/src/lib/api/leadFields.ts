@@ -4,7 +4,8 @@
  * The lead details a business captures (founder decision 15): the fixed core every lead
  * carries, each agent's own business fields, and the one AI draft a custom business gets.
  *
- * Reads and the draft/replace actions are `/v1/lead-fields` (client) and
+ * Reads, the draft review and the replace action are `/v1/lead-fields` (client; the draft
+ * itself is asked of Pip, D-821) and
  * `/v1/admin/tenants/{id}/lead-fields` (operator). Saving one agent's fields is the same
  * per-agent PUT the agent screen uses, so a list has one write path whichever screen
  * edits it.
@@ -31,6 +32,7 @@ export type LeadFieldsDraft = Schemas["LeadFieldsDraftOut"];
 export type LeadField = Schemas["ExtractionField"];
 export type ReplaceOut = Schemas["ReplaceOut"];
 export type DraftRequestOut = Schemas["DraftRequestOut"];
+export type DraftReviewOut = Schemas["LeadFieldsReviewOut"];
 export type CapturedField = Schemas["CapturedFieldOut"];
 export type CapturedFields = Schemas["CapturedFieldsOut"];
 export type ExtractionSchemaOut = Schemas["ExtractionSchemaOut"];
@@ -62,14 +64,25 @@ export function useLeadFields(session: Session): UseQueryResult<LeadFields> {
   });
 }
 
-export function useDraftLeadFields(
+/**
+ * Keep some or none of the drafted details (D-821). The draft itself is asked of Pip; the
+ * kept fields go onto every agent without its own, so the agents' query is refreshed too.
+ */
+export function useReviewLeadFieldsDraft(
   session: Session,
-): UseMutationResult<DraftRequestOut, Error, void> {
+): UseMutationResult<DraftReviewOut, Error, string[]> {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      apiRequest<DraftRequestOut>(session, "/v1/lead-fields/draft", { method: "POST" }),
-    onSuccess: () => client.invalidateQueries({ queryKey: leadFieldsKeys.client(session.orgSlug) }),
+    mutationFn: (keep: string[]) =>
+      apiRequest<DraftReviewOut>(session, "/v1/lead-fields/draft/review", {
+        method: "POST",
+        body: { keep },
+      }),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: leadFieldsKeys.client(session.orgSlug) }),
+        client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
+      ]),
   });
 }
 

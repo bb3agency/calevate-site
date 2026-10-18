@@ -3,6 +3,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Mic, Square } from "lucide-react";
 
+import { AskAssistant } from "@/components/copilot/AskAssistant";
+import { PipMark } from "@/components/illustration/pip";
 import { SavedTick } from "@/components/console/savedTick";
 import { Section } from "@/components/console/section";
 import {
@@ -14,18 +16,19 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
 } from "@/components/ui";
-import { FileDrop } from "@/components/fileDrop";
 import { ModalDialog } from "@/components/modalDialog";
 import { useFormValidation } from "@/components/formValidation";
 import { useAgents } from "@/lib/api/agents";
 import { useClientSession } from "@/lib/api/session";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
+import { openAssistant } from "@/lib/copilot/launcher";
 import { lookup } from "@/lib/lookup";
 import {
   isTeachingBusy,
-  useConfirmWords,
   useDiscardTeaching,
+  useHearVoiceNote,
+  useOpenTeaching,
   useSaveTeaching,
-  useStartTeaching,
   useTeaching,
   type TeachItem,
   type Teaching,
@@ -36,29 +39,33 @@ import { useKnowledgeCopilot } from "./copilot";
 /** The voice note stops itself here: the speech-to-text step takes clips under 30 s. */
 const MAX_RECORDING_S = 30;
 
-/** A photo is read by the reading step, whose ceiling this is. */
-const MAX_PHOTO_MB = 12;
-
 const FAILURE: Record<string, string> = {
   voice_unreadable: "We could not hear that recording. Try again somewhere quieter, or type it.",
   nothing_heard: "We did not hear any words. Try recording again, or type it.",
-  photo_reading_unavailable: "Reading photos is switched off at the moment. Type it instead.",
-  unreadable: "We could not read that file. Try a clearer photo, or type it.",
-  nothing_read: "We found no words in that. Try a clearer photo, or type it.",
-  upload_missing: "That upload went missing. Send it again.",
+  upload_missing: "That recording went missing. Record it again.",
 };
+
+/** What Pip is asked, in the words the owner sees in its ask box. */
+export function teachRequest(words: string, question: string | null): string {
+  return question
+    ? `Teach my agents the answer to a caller who asked “${question}”: ${words}`
+    : `Teach my agents this: ${words}`;
+}
+export const READ_FILE_REQUEST = "Read the photo or file I attach and teach my agents what it says.";
 
 /** One row of the review, with what the owner decided about it. */
 type ReviewItem = TeachItem & { key: number; keep: boolean };
 
 /**
- * THE TEACH BOX: one place to tell the agents something, by typing, a photo or a file, or
- * a voice note (founder decision 9).
+ * THE TEACH BOX: one place to tell the agents something (founder decision 9), asked of Pip
+ * since D-821.
  *
- * Whatever is given comes back sorted into facts (what is true about the business; every
- * agent gets them) and rules (how one agent should behave; they wait in its script). The
- * owner reviews each before anything is saved. A voice note shows its words first, so a
- * misheard price is caught before it is sorted.
+ * The owner types it or says it here, and "Let Pip teach it" prefills Pip with the words; a
+ * photo of a price list or a file is attached in Pip itself, which reads it. Pip sends the
+ * words to be sorted into facts (every agent gets them) and rules (how one agent should
+ * behave), and they come back HERE for review: nothing is saved until the owner keeps it.
+ * A voice note is heard first and its words land in the box, so a misheard price is caught
+ * before anything is sorted.
  */
 export function TeachBox({
   allowed,
@@ -71,71 +78,86 @@ export function TeachBox({
   answering?: { gapId: string | null; question: string; key: number } | null;
 }) {
   const session = useClientSession();
-  const start = useStartTeaching(session);
+  const hear = useHearVoiceNote(session);
+  const discardHeard = useDiscardTeaching(session);
+  const open = useOpenTeaching(session);
   const [words, setWords] = useState("");
-  const [teachingId, setTeachingId] = useState<string | null>(null);
   const [linkedGap, setLinkedGap] = useState<string | null>(null);
   const [asked, setAsked] = useState<string | null>(null);
+  const [heardId, setHeardId] = useState<string | null>(null);
+  const [voiceFailure, setVoiceFailure] = useState<string | null>(null);
+  const heard = useTeaching(session, heardId);
   // What the last save did, said beside the box it came back to (REDESIGN-2: saves are
   // confirmed where the person is looking, never by a toast).
   const [saved, setSaved] = useState<{ note: string; at: number } | null>(null);
-  const teaching = useTeaching(session, teachingId);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const inputId = useId();
   const valid = useFormValidation();
   const teachField = valid.field("teach", "Write what your agents should know.");
 
-  useKnowledgeCopilot({ body: words, setBody: setWords });
+  useKnowledgeCopilot({
+    body: words,
+    setBody: setWords,
+    answering: asked ? { gapId: linkedGap, question: asked } : null,
+  });
 
   useEffect(() => {
     if (!answering) return;
     setWords("");
     setAsked(answering.question);
     setLinkedGap(answering.gapId);
-    setTeachingId(null);
     boxRef.current?.scrollIntoView?.({ block: "center" });
     boxRef.current?.focus();
   }, [answering]);
 
-  const reset = () => {
-    setTeachingId(null);
-    setWords("");
-    setLinkedGap(null);
-    setAsked(null);
-    start.reset();
-  };
+  // A voice note's words go into the box for the owner to check; the heard teaching has
+  // done its job and is discarded.
+  const note = heard.data;
+  const discardNote = discardHeard.mutate;
+  useEffect(() => {
+    if (!note || note.id !== heardId) return;
+    if (note.status === "heard") {
+      setWords((current) => [current.trim(), note.words ?? ""].filter(Boolean).join("\n"));
+      setHeardId(null);
+      discardNote(note.id);
+      boxRef.current?.focus();
+    } else if (note.status === "failed") {
+      setVoiceFailure(note.error_code ?? "voice_unreadable");
+      setHeardId(null);
+    }
+  }, [note, heardId, discardNote]);
 
-  const begin = (
-    input:
-      | { kind: "text"; words: string }
-      | { kind: "photo" | "file" | "voice"; file: Blob; filename: string },
-  ) => {
-    setSaved(null);
-    start.mutate(
-      { ...input, gapId: linkedGap },
-      { onSuccess: (created) => setTeachingId(created.id) },
-    );
-  };
-
-  const current = teaching.data;
-  const working = start.isPending || (teachingId !== null && (!current || isTeachingBusy(current.status)));
+  const listening = hear.isPending || (heardId !== null && note?.status !== "heard" && note?.status !== "failed");
+  const current = open.data ?? null;
 
   return (
     <Section
       title="Teach your agents"
       info={
         <p>
-          Type it, send a photo of a price list, or say it. We sort what you give into facts,
-          which every agent gets, and rules for how one agent should behave. You check each
-          one before it is saved.
+          Type it or say it, or attach a photo of a price list or a file in {ASSISTANT_NAME}.{" "}
+          {ASSISTANT_NAME} sorts it into facts, which every agent gets, and rules for how one agent
+          should behave. You check each one here before it is saved.
         </p>
       }
     >
-      {teachingId === null ? (
+      {current && current.status === "ready" ? (
+        <Review
+          teaching={current}
+          onSaved={(saveNote) => {
+            setSaved({ note: saveNote, at: Date.now() });
+            setWords("");
+            setAsked(null);
+            setLinkedGap(null);
+          }}
+        />
+      ) : current && isTeachingBusy(current.status) ? (
+        <Working />
+      ) : (
         <form
           className="space-y-3"
           noValidate
-          onSubmit={valid.onSubmit(() => begin({ kind: "text", words: words.trim() }))}
+          onSubmit={valid.onSubmit(() => openAssistant({ prompt: teachRequest(words.trim(), asked) }))}
         >
           <label htmlFor={inputId} className="sr-only">
             What should your agents know?
@@ -152,7 +174,7 @@ export function TeachBox({
             rows={4}
             value={words}
             onChange={(event) => setWords(event.target.value)}
-            disabled={!allowed || start.isPending}
+            disabled={!allowed || listening}
             placeholder={
               "For example: Red chilli powder is ₹120 for 250 g. We deliver in Kukatpally " +
               "and Miyapur. Never promise same-day delivery."
@@ -160,39 +182,41 @@ export function TeachBox({
             className={`${FIELD} mt-0`}
           />
           {valid.error("teach")}
-          {start.error ? <ProblemNotice error={start.error} /> : null}
+          {hear.error ? <ProblemNotice error={hear.error} /> : null}
+          {discardHeard.error ? <ProblemNotice error={discardHeard.error} /> : null}
+          {voiceFailure ? (
+            <p role="alert" className="text-sm text-ink">
+              {lookup(FAILURE, voiceFailure) ?? "We could not hear that recording. Type it instead."}
+            </p>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="submit"
-              className={PRIMARY_BUTTON}
-              disabled={!allowed || start.isPending}
-              title={reason ?? undefined}
-            >
-              {start.isPending ? "Sending…" : "Sort it"}
+            <button type="submit" className={PRIMARY_BUTTON} disabled={!allowed || listening} title={reason ?? undefined}>
+              Let {ASSISTANT_NAME} teach it
             </button>
             <VoiceButton
-              disabled={!allowed || start.isPending}
-              onRecorded={(blob) => begin({ kind: "voice", file: blob, filename: "voice-note.webm" })}
+              disabled={!allowed || listening}
+              onRecorded={(blob) => {
+                setSaved(null);
+                setVoiceFailure(null);
+                hear.mutate({ file: blob }, { onSuccess: (started) => setHeardId(started.id) });
+              }}
               onTypeInstead={() => boxRef.current?.focus()}
             />
+            {listening ? (
+              <span role="status" className="text-meta text-ink-muted">
+                <span className="text-shimmer">Listening to your voice note…</span>
+              </span>
+            ) : null}
             {saved ? <SavedTick at={saved.at} /> : null}
           </div>
           {saved ? <p className="text-meta text-ink-muted">{saved.note}</p> : null}
-          <FileDrop
-            label="Or send a photo or a file"
-            hint={`A photo of a price list or menu, up to ${MAX_PHOTO_MB} MB, or a Word, text, CSV or Excel file.`}
-            accept={TEACH_ACCEPT}
-            validate={teachFileProblem}
-            disabled={!allowed || start.isPending}
-            onFiles={([file]) => {
-              if (!file) return;
-              begin({
-                kind: file.type.startsWith("image/") ? "photo" : "file",
-                file,
-                filename: file.name,
-              });
-            }}
-          />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line pt-3">
+            <p className="text-meta text-ink-muted">
+              A photo of a price list or menu, or a Word, text, CSV or Excel file: attach it in{" "}
+              {ASSISTANT_NAME}.
+            </p>
+            <AskAssistant label={`Let ${ASSISTANT_NAME} read a photo or file`} prompt={READ_FILE_REQUEST} disabled={!allowed} />
+          </div>
           {asked ? (
             <p className="text-meta text-ink-muted">
               Answering a caller who asked &ldquo;{asked}&rdquo;.{" "}
@@ -209,76 +233,23 @@ export function TeachBox({
             </p>
           ) : null}
         </form>
-      ) : teaching.error ? (
-        <ProblemNotice error={teaching.error} onRetry={() => void teaching.refetch()} />
-      ) : working || !current ? (
-        <Working teaching={current} />
-      ) : current.status === "heard" ? (
-        <CheckWords teaching={current} onCancel={reset} />
-      ) : current.status === "ready" ? (
-        <Review
-          teaching={current}
-          onDone={reset}
-          onSaved={(note) => {
-            reset();
-            setSaved({ note, at: Date.now() });
-          }}
-        />
-      ) : current.status === "failed" ? (
-        <div className="space-y-3">
-          <p role="alert" className="text-sm text-ink">
-            {lookup(FAILURE, current.error_code) ?? "Something went wrong. Try again, or type it."}
-          </p>
-          <button type="button" className={SECONDARY_BUTTON} onClick={reset}>
-            Start again
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          <p className="text-sm text-ink-muted">That one is finished.</p>
-          <button type="button" className={SECONDARY_BUTTON} onClick={reset}>
-            Teach something else
-          </button>
-        </div>
       )}
+      {open.error ? <ProblemNotice error={open.error} onRetry={() => void open.refetch()} /> : null}
     </Section>
   );
 }
 
-function Working({ teaching }: { teaching: Teaching | undefined }) {
-  const label =
-    teaching?.status === "reading"
-      ? teaching.input_kind === "voice"
-        ? "Listening to your voice note…"
-        : "Reading what you sent…"
-      : teaching?.status === "sorting" || teaching?.status === "queued"
-        ? "Sorting into facts and rules…"
-        : "Sending…";
+function Working() {
+  const label = `${ASSISTANT_NAME} is sorting it into facts and rules…`;
   return (
     <div className="space-y-3">
-      <p className="text-sm text-ink-muted" aria-hidden>
-        <span className="text-shimmer">{label}</span>
+      <p className="flex items-center gap-2 text-sm text-ink-muted" aria-hidden>
+        <PipMark size={16} thinking className="shrink-0" />
+        {label}
       </p>
       <Skeleton rows={3} label={label} />
     </div>
   );
-}
-
-/** What the reading step takes. A dropped file bypasses `accept`, so this is checked too. */
-const TEACH_ACCEPT = "image/*,.docx,.txt,.csv,.xlsx";
-const TEACH_DOCUMENT_EXTENSIONS = [".docx", ".txt", ".csv", ".xlsx"];
-
-function teachFileProblem(file: File): string | null {
-  const isPhoto = file.type.startsWith("image/");
-  const name = file.name.toLowerCase();
-  if (!isPhoto && !TEACH_DOCUMENT_EXTENSIONS.some((extension) => name.endsWith(extension))) {
-    return "Send a photo, or a Word, text, CSV or Excel file.";
-  }
-  if (file.size === 0) return "That file is empty.";
-  if (isPhoto && file.size > MAX_PHOTO_MB * 1024 * 1024) {
-    return `That photo is over ${MAX_PHOTO_MB} MB. Send a smaller one.`;
-  }
-  return null;
 }
 
 /** What the browser says about the microphone before we ask for it. */
@@ -445,56 +416,11 @@ export function VoiceButton({
   );
 }
 
-function CheckWords({ teaching, onCancel }: { teaching: Teaching; onCancel: () => void }) {
-  const session = useClientSession();
-  const confirm = useConfirmWords(session);
-  const discard = useDiscardTeaching(session);
-  const [words, setWords] = useState(teaching.words ?? "");
-  const id = useId();
-  return (
-    <form
-      className="space-y-3"
-      noValidate
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (words.trim()) confirm.mutate({ id: teaching.id, words: words.trim() });
-      }}
-    >
-      <label htmlFor={id} className={FIELD_LABEL}>
-        This is what we heard. Fix anything we got wrong.
-      </label>
-      <textarea
-        id={id}
-        rows={4}
-        value={words}
-        onChange={(event) => setWords(event.target.value)}
-        className={`${FIELD} mt-0`}
-      />
-      {confirm.error ? <ProblemNotice error={confirm.error} /> : null}
-      {discard.error ? <ProblemNotice error={discard.error} /> : null}
-      <div className="flex flex-wrap gap-2">
-        <button type="submit" className={PRIMARY_BUTTON} disabled={confirm.isPending || !words.trim()}>
-          {confirm.isPending ? "Sending…" : "Sort it"}
-        </button>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON}
-          onClick={() => discard.mutate(teaching.id, { onSuccess: onCancel })}
-        >
-          Start again
-        </button>
-      </div>
-    </form>
-  );
-}
-
 function Review({
   teaching,
-  onDone,
   onSaved,
 }: {
   teaching: Teaching;
-  onDone: () => void;
   /** Called with what the save means for the agents, in one sentence. */
   onSaved: (note: string) => void;
 }) {
@@ -603,7 +529,7 @@ function Review({
           type="button"
           className={SECONDARY_BUTTON}
           disabled={save.isPending}
-          onClick={() => discard.mutate(teaching.id, { onSuccess: onDone })}
+          onClick={() => discard.mutate(teaching.id)}
         >
           Discard
         </button>

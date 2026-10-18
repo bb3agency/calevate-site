@@ -136,9 +136,7 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         ("/v1/agents/{agent_id}/script/tests", "GET", "client_api"),
         ("/v1/agents/{agent_id}/try-chat", "POST", "costly"),
         ("/v1/agents/{agent_id}/test-cases/run", "POST", "costly"),
-        ("/v1/kb/teach", "POST", "costly"),
         ("/v1/kb/teach/upload", "POST", "costly"),
-        ("/v1/kb/teach/{teaching_id}/words", "POST", "costly"),
         ("/v1/copilot/routines/{routine_id}/run", "POST", "costly"),
         # Routes that ring a real phone or push an agent to the voice platform; these sat
         # at `client_api` / `admin_api` beside siblings that were already weighted.

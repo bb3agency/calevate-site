@@ -114,7 +114,7 @@ Permission = Literal[
     # declared until the founder's decision that staff must be able to use the assistant.
     # `org:manage` was never chosen for the copilot's sake — it was chosen because the
     # route SPENDS the account's AI allowance and therefore needed a member of
-    # `MUTATING_PERMISSIONS` (`copilot/routes.py`, `crm/routes.py::assist_call`), and
+    # `MUTATING_PERMISSIONS` (`copilot/routes.py`, the call translation retry), and
     # `org:manage` was the mutating permission a client role happened to hold. Granting
     # staff `org:manage` to unlock a chat panel would have carried billing, members and
     # every organization setting with it: the largest possible widening for the narrowest

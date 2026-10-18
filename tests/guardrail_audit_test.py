@@ -1125,16 +1125,6 @@ class TestRedactionExposure:
             "CallDetailOut.summary_local",
             "LeadOut.last_call_headline",
             "SubjectExportCallOut.summary_local",
-            # The assistant's re-summarise (D-127). It is the ONE entry in this registry
-            # whose value cannot contain unredacted transcript text by CONSTRUCTION
-            # rather than by a pass applied on the way out: the model is handed
-            # `transcript_turns.text_redacted` and `run_assist` refuses input that
-            # `redact()` still changes, so there is no unredacted digit in scope for it
-            # to copy. The output goes through `crm.service.redacted_summary` anyway,
-            # which is what makes its entry say the same sentence as `CallDetailOut`'s —
-            # and `tests/call_assist_test.py` drives BOTH halves (the bytes sent to
-            # Vertex, and a model that invents a phone-shaped run in its answer).
-            "CallAssistOut.summary",
             "SubjectExportTurnOut.text",
             "SubjectExportCallOut.summary",
             # D-694: the assistant's activity log and its background job progress, both

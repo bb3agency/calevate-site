@@ -28,7 +28,7 @@ input. The description is still never logged (hard rule 6): it is business conte
 
 Metering and quota are NOT decided here — `billing/ai_quota` owns both, joined by
 `workers/script_proposal.py` in SUBJECT → GATE → RUN → METER order, exactly
-as `crm/routes.assist_call` does for re-summarise. This module returns the draft and, for
+as `crm/resummarise.second_reading` does for re-summarise. This module returns the draft and, for
 an Azure answer Azure counted, its `usage`; it charges nothing.
 """
 

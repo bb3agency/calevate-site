@@ -109,6 +109,9 @@ export function CopilotPanel({
   // Whether the wallet dialog is on screen. Separate from `atCeiling`: meeting the
   // ceiling is a fact about the month, opening the dialog is a decision to spend.
   const [buying, setBuying] = useState(false);
+  // A Confirm refused at the ceiling (an action that spends the allowance, D-821) opens the
+  // same wallet notice as an ask refused there.
+  const [confirmAtCeiling, setConfirmAtCeiling] = useState(false);
   const conversation = useCopilotConversation(session, holder);
   // FILES FOR THE NEXT QUESTION (D-781): chosen, converted on this device, and streamed to
   // the API before Ask; Ask waits while any is still on its way.
@@ -117,6 +120,7 @@ export function CopilotPanel({
   const canAsk = (question.trim() !== "" || tray.ready > 0) && !tray.busy;
   const send = () => {
     if (!canAsk) return;
+    setConfirmAtCeiling(false);
     conversation.ask(question, tray.take());
     setQuestion("");
   };
@@ -132,7 +136,7 @@ export function CopilotPanel({
   const stick = useRef(true);
   const inputId = useId();
 
-  const wantsQuota = realm === "client" && conversation.atCeiling;
+  const wantsQuota = realm === "client" && (conversation.atCeiling || confirmAtCeiling);
   const quota = useAiQuota(session, { enabled: wantsQuota });
   const buy = useBuyAiExtra(session);
 
@@ -557,6 +561,7 @@ export function CopilotPanel({
               confirmable={confirmable}
               realm={realm}
               onDismiss={conversation.dismissProposal}
+              onCeiling={() => setConfirmAtCeiling(true)}
             />
           )}
         </div>
@@ -820,7 +825,12 @@ export function CopilotPanel({
           error={buy.error}
           onCancel={() => setBuying(false)}
           onAccept={() =>
-            buy.mutate(quota.data.extra_block_inr, { onSuccess: () => setBuying(false) })
+            buy.mutate(quota.data.extra_block_inr, {
+              onSuccess: () => {
+                setBuying(false);
+                setConfirmAtCeiling(false);
+              },
+            })
           }
         />
       )}

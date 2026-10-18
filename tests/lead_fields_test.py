@@ -235,8 +235,15 @@ async def _run_worker(tenant_id: uuid.UUID, monkeypatch: pytest.MonkeyPatch) -> 
 # --- 3b. the draft, end to end ------------------------------------------------------------
 
 
+async def _request(tenant_id: uuid.UUID) -> str:
+    """Asking for the draft is Pip's (`lead_fields_draft`, D-821); its executor is this."""
+    async with tenant_session(tenant_id) as session:
+        draft = await lead_fields.request_draft(session, tenant_id=tenant_id, requested_by=None)
+    return draft.status
+
+
 @pytest.mark.rls
-async def test_a_custom_business_is_drafted_once_and_never_again(
+async def test_a_custom_business_is_drafted_once_and_kept_by_its_owner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id, token = await _tenant("custom")
@@ -246,9 +253,7 @@ async def test_a_custom_business_is_drafted_once_and_never_again(
     assert [f["key"] for f in body["core_fields"]] == [f.key for f in CORE_LEAD_FIELDS]
     assert body["agents"][0]["business_fields"] == []
 
-    code, body = await _call("POST", "/v1/lead-fields/draft", token)
-    assert code == 202, body
-    assert body["draft"]["status"] == "queued"
+    assert await _request(tenant_id) == "queued"
     async with tenant_session(tenant_id) as session:
         queued = (
             await session.execute(
@@ -261,33 +266,67 @@ async def test_a_custom_business_is_drafted_once_and_never_again(
         ).scalar()
     assert queued == 1
     # Asking again while it is queued is the same draft, not a second one.
-    code, body = await _call("POST", "/v1/lead-fields/draft", token)
-    assert code == 202 and body["draft"]["status"] == "queued"
+    assert await _request(tenant_id) == "queued"
 
     assert await _run_worker(tenant_id, monkeypatch) == "done"
-    assert await _business_keys(tenant_id) == [["produce", "kilos"]]
     # A second delivery of the same message finds nothing to claim.
     assert await _run_worker(tenant_id, monkeypatch) == "not_queued"
-
+    # Drafted, and on no agent until the owner keeps it (D-821).
+    assert await _business_keys(tenant_id) == [[]]
     code, body = await _call("GET", "/v1/lead-fields", token)
-    assert body["draft"]["status"] == "done" and body["can_draft"] is False
-    code, body = await _call("POST", "/v1/lead-fields/draft", token)
+    assert body["draft"]["status"] == "done" and body["draft"]["reviewed"] is False
+    assert [f["key"] for f in body["draft"]["fields"]] == ["produce", "kilos"]
+    assert body["can_draft"] is False
+
+    code, body = await _call("POST", "/v1/lead-fields/draft/review", token, {"keep": ["produce"]})
+    assert code == 200, body
+    assert body == {"fields_kept": 1, "agents_changed": 1}
+    assert await _business_keys(tenant_id) == [["produce"]]
+    code, body = await _call("GET", "/v1/lead-fields", token)
+    assert body["draft"]["reviewed"] is True
+    assert [f["key"] for f in body["draft"]["fields"]] == ["produce"]
+    # Reviewed once, never again, and never redrafted.
+    code, body = await _call("POST", "/v1/lead-fields/draft/review", token, {"keep": ["kilos"]})
     assert code == 409, body
+    with pytest.raises(ProblemError) as again:
+        await _request(tenant_id)
+    assert again.value.code == "lead_fields_already_drafted"
 
 
 @pytest.mark.rls
-async def test_a_draft_never_overwrites_fields_somebody_already_chose(
+async def test_a_discarded_draft_reaches_no_agent_and_new_agents_start_from_the_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    tenant_id, _ = await _tenant("custom")
+    tenant_id, token = await _tenant("custom")
+    await _request(tenant_id)
+    assert await _run_worker(tenant_id, monkeypatch) == "done"
+    code, body = await _call("POST", "/v1/lead-fields/draft/review", token, {"keep": []})
+    assert code == 200 and body == {"fields_kept": 0, "agents_changed": 0}
+    assert await _business_keys(tenant_id) == [[]]
+    async with tenant_session(tenant_id) as session:
+        start = await lead_fields.starting_business_fields(
+            session, tenant_id=tenant_id, vertical="custom"
+        )
+    assert start == lead_fields.standard_fields(lead_fields.CUSTOM)
+
+
+@pytest.mark.rls
+async def test_a_kept_draft_never_overwrites_fields_somebody_already_chose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, token = await _tenant("custom")
     own = [ExtractionField(key="flavour", label="Flavour", type="text")]
     async with tenant_session(tenant_id) as session:
         agent_id = (await lead_fields.agents_with_fields(session))[0]["id"]
         await write_schema(session, agent_id=agent_id, fields=own)
-        await lead_fields.request_draft(session, tenant_id=tenant_id, requested_by=None)
+    await _request(tenant_id)
     assert await _run_worker(tenant_id, monkeypatch) == "done"
+    code, body = await _call(
+        "POST", "/v1/lead-fields/draft/review", token, {"keep": ["produce", "kilos"]}
+    )
+    assert code == 200 and body["agents_changed"] == 0, body
     assert await _business_keys(tenant_id) == [["flavour"]]
-    # The drafted set is still what a new agent of this business starts with.
+    # The kept set is what a new agent of this business starts with.
     async with tenant_session(tenant_id) as session:
         start = await lead_fields.starting_business_fields(
             session, tenant_id=tenant_id, vertical="custom"
@@ -323,7 +362,10 @@ async def test_a_known_business_type_is_never_drafted() -> None:
     code, body = await _call("GET", "/v1/lead-fields", token)
     assert body["can_draft"] is False and body["has_standard_set"] is True
     assert body["business_type_label"] == "Shop, food or produce"
-    code, body = await _call("POST", "/v1/lead-fields/draft", token)
+    with pytest.raises(ProblemError) as refused:
+        await _request(tenant_id)
+    assert refused.value.code == "lead_fields_draft_not_custom"
+    code, body = await _call("POST", "/v1/lead-fields/draft/review", token, {"keep": []})
     assert code == 422, body
     async with tenant_session(tenant_id) as session:
         assert not await lead_fields.maybe_request_draft(

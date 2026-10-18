@@ -280,13 +280,8 @@ def test_the_directory_says_owner_only_for_exactly_the_screens_rbac_shuts() -> N
     directory = screens_module.render_directory()
     shut = {screen.name for screen in screens_module.screens_closed_to(ROLE_PERMISSIONS["staff"])}
     for screen in screens_module.CLIENT_SCREENS:
-        line = next(row for row in directory.splitlines() if row.startswith(f"- {screen.name} ("))
-        expected = (
-            "Open to: the account owner only."
-            if screen.name in shut
-            else ("Open to: everyone on the team.")
-        )
-        assert expected in line, screen.name
+        line = next(row for row in directory.splitlines() if row.startswith(f"- {screen.name} — "))
+        assert ("Owner only." in line) == (screen.name in shut), screen.name
     assert "Credits & billing" not in shut
 
 

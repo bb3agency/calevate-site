@@ -1,11 +1,13 @@
-"""The seam: `POST /v1/calls/{call_id}/assist` — subject, gate, run, meter (D-127).
+"""The seam: a second reading of one call, asked of Pip (`call_summarise_again`, D-821)
+— subject, gate, run, meter (D-127). It was `POST /v1/calls/{call_id}/assist`; every
+property below is the same, proved through the confirmation that replaced the route.
 
 `billing/ai_quota.py` (D-137/D-140) and `workers/extraction.run_assist` (D-134/D-142)
 were built one call apart by two agents who did not know about each other, and both
 recorded the same top gap: nothing joined them, so the ledger, the ceiling, the wallet
 dialog, the platform brake, the capability ladder and the assistant client were reachable
-by no user. `crm/routes.assist_call` is the call that joins them and this file is what makes
-each half of the join falsifiable.
+by no user. `crm/resummarise.second_reading` is the call that joins them and this file is
+what makes each half of the join falsifiable.
 
 WHAT IS PROVED HERE, and each one is a property somebody could break silently:
 
@@ -18,7 +20,7 @@ WHAT IS PROVED HERE, and each one is a property somebody could break silently:
    `platform_ai_spend`, and no request reaching the provider at all — checked in that
    order, because a ledger assertion alone would pass on a path that paid Google and
    failed to record it.
-3. **A double-click is paid for once.** The dedupe is BEFORE the model call, which is the
+3. **A double-click is paid for once.** The card's token is burnt BEFORE the model call, the
    only place it saves anything (`billing/ai_quota.ASSIST_REF_PREFIX`).
 4. **A fallback is disclosed and is not metered.** The sentence reaches the response, and
    the free leg writes no rupees.
@@ -51,9 +53,13 @@ from uuid import UUID
 import httpx
 import pytest
 from apps.api.billing import ai_quota, rates
+from apps.api.copilot import write_tools
+from apps.api.copilot.actions import WriteRefusedError
+from apps.api.copilot.schemas import CopilotProposalEvent
+from apps.api.core.context import Principal
+from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
-from apps.api.crm import assist
-from apps.api.crm import routes as crm_routes
+from apps.api.crm import assist, resummarise
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from apps.workers import extraction as extraction_module
@@ -91,6 +97,76 @@ RAW_TURNS: list[tuple[str, str]] = [
 
 def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://api")
+
+
+TOOL = "call_summarise_again"
+
+
+class _Answer:
+    """What the person was shown: the reading's three facts, or the refusal's problem body."""
+
+    def __init__(self, status_code: int, body: dict[str, Any]) -> None:
+        self.status_code = status_code
+        self.body = body
+
+    @property
+    def text(self) -> str:
+        return json.dumps(self.body, default=str)
+
+    def json(self) -> dict[str, Any]:
+        return self.body
+
+
+#: The readings `second_reading` returned, in order: the confirmation shows them as one
+#: sentence, and these tests assert the three facts it is made from.
+_READINGS: list[resummarise.SecondReading] = []
+
+
+@pytest.fixture(autouse=True)
+def _keep_each_reading(monkeypatch: pytest.MonkeyPatch) -> None:
+    _READINGS.clear()
+    real = resummarise.second_reading
+
+    async def spy(*args: Any, **kwargs: Any) -> resummarise.SecondReading:
+        reading = await real(*args, **kwargs)
+        _READINGS.append(reading)
+        return reading
+
+    monkeypatch.setattr(resummarise, "second_reading", spy)
+
+
+def _principal(tenant_id: UUID, token: str, role: str = "owner") -> Principal:
+    user_id = UUID(token.rsplit(":", 1)[1])
+    return Principal(realm="client", user_id=user_id, tenant_id=tenant_id, role=role)
+
+
+async def _card(principal: Principal, call_id: UUID) -> CopilotProposalEvent:
+    return await write_tools.plan_write(
+        TOOL, json.dumps({"call_id": str(call_id)}), actor=write_tools.actor_for(principal)
+    )
+
+
+async def _ask(tenant_id: UUID, token: str, call_id: UUID, *, role: str = "owner") -> _Answer:
+    """Pip proposes, the person confirms: the whole path the call page's button took."""
+    principal = _principal(tenant_id, token, role)
+    try:
+        proposal = await _card(principal, call_id)
+        async with tenant_session(tenant_id) as session:
+            out = await write_tools.confirm(session, proposal.token, principal=principal, ip=None)
+    except ProblemError as refused:
+        return _Answer(refused.status, {**refused.as_problem(), "remediation": refused.remediation})
+    except WriteRefusedError as refused:
+        return _Answer(403, {"kind": "permission", "detail": refused.reason})
+    reading = _READINGS[-1]
+    return _Answer(
+        200,
+        {
+            "summary": reading.summary,
+            "disclosure": reading.disclosure,
+            "metered": reading.metered,
+            "detail": out.detail,
+        },
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -279,11 +355,8 @@ async def _audit_actions(call_id: UUID) -> list[str]:
     return [str(r[0]) for r in rows]
 
 
-def _headers(token: str, slug: str, key: str | None = "idem-1") -> dict[str, str]:
-    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
-    if key is not None:
-        headers["Idempotency-Key"] = f"{key}-{uuid.uuid4().hex[:8]}" if key == "fresh" else key
-    return headers
+def _headers(token: str, slug: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
 
 
 async def _at_the_ceiling(tenant_id: UUID, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -320,13 +393,12 @@ async def test_the_model_is_sent_the_redacted_turns_and_never_the_raw_column(
     encoder is between us and the wire, and the redacted marker is asserted PRESENT so
     that "the number is missing" cannot be satisfied by the transcript being missing too.
     """
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
     azure = FakeAzure()
     use_fake_azure(monkeypatch, azure)
 
-    async with _client() as http:
-        response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
+    response = await _ask(tenant_id, token, call_id)
 
     assert response.status_code == 200, response.text
     sent = azure.sent.content.decode()
@@ -342,15 +414,14 @@ async def test_the_model_is_sent_the_redacted_turns_and_never_the_raw_column(
 async def test_the_model_is_told_the_language_the_agent_speaks(
     azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
     async with tenant_session(tenant_id) as session:
         await session.execute(text("UPDATE agents SET language_primary = 'hi-IN'"))
     azure = FakeAzure()
     use_fake_azure(monkeypatch, azure)
 
-    async with _client() as http:
-        response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
+    response = await _ask(tenant_id, token, call_id)
 
     assert response.status_code == 200, response.text
     sent = azure.sent.content.decode()
@@ -373,13 +444,12 @@ async def test_a_turn_whose_redacted_copy_still_holds_a_number_is_refused_before
     A `text_redacted` column holding an unredacted number is not hypothetical: it is what
     a re-run of an older redaction pass, or a hand-repaired row, leaves behind.
     """
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id, redacted=[RAW_TURNS[0][1], RAW_TURNS[1][1]])
     azure = FakeAzure()
     use_fake_azure(monkeypatch, azure)
 
-    async with _client() as http:
-        response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
+    response = await _ask(tenant_id, token, call_id)
 
     assert response.status_code == 422, response.text
     assert response.json()["type"].endswith("/assist_input_not_redacted")
@@ -393,13 +463,12 @@ async def test_a_turn_with_no_redacted_copy_at_all_fails_closed(
     """`transcript_turns.text_redacted` is NULLable, and the two wrong answers are
     obvious: send `text` instead (the residency inversion), or skip the turn and hand the
     client a summary of part of a call presented as a summary of the call."""
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id, redacted=[redact(RAW_TURNS[0][1]).text, None])
     azure = FakeAzure()
     use_fake_azure(monkeypatch, azure)
 
-    async with _client() as http:
-        response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
+    response = await _ask(tenant_id, token, call_id)
 
     assert response.status_code == 422, response.text
     assert response.json()["type"].endswith("/assist_transcript_not_redacted")
@@ -427,15 +496,14 @@ async def test_a_tenant_at_the_ceiling_is_refused_before_a_token_is_spent(
     it is asserted by name rather than by status: a 422 with a different code would leave
     the client with a dead button and no dialog.
     """
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
     await _at_the_ceiling(tenant_id, monkeypatch)
     azure = FakeAzure()
     use_fake_azure(monkeypatch, azure)
     spend_before = await _platform_spend()
 
-    async with _client() as http:
-        response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
+    response = await _ask(tenant_id, token, call_id)
 
     assert response.status_code == 422, response.text
     assert response.json()["type"].endswith("/ai_quota_exceeded")
@@ -463,12 +531,11 @@ async def test_a_call_with_no_transcript_is_refused_for_that_reason_and_not_for_
     would otherwise be told to spend ₹500 on a call the money cannot help with. Both
     conditions hold here, and the answer names the one they can act on.
     """
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _empty_call(tenant_id)
     await _at_the_ceiling(tenant_id, monkeypatch)
 
-    async with _client() as http:
-        response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
+    response = await _ask(tenant_id, token, call_id)
 
     assert response.status_code == 422, response.text
     assert response.json()["type"].endswith("/assist_no_transcript")
@@ -477,40 +544,19 @@ async def test_a_call_with_no_transcript_is_refused_for_that_reason_and_not_for_
 async def test_another_tenants_call_is_not_found_rather_than_assisted() -> None:
     """Hard rule 1 from the outside. Under RLS "no such call" and "somebody else's call"
     are one answer, deliberately, and the route must not turn the second into a 200."""
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     other_tenant, _other_slug, _other_token = await _make_tenant()
     stranger_call = await _call_with_transcript(other_tenant)
 
-    async with _client() as http:
-        response = await http.post(
-            f"/v1/calls/{stranger_call}/assist", headers=_headers(token, slug)
-        )
+    response = await _ask(tenant_id, token, stranger_call)
 
     assert response.status_code == 404, response.text
     assert await _usage_rows(tenant_id) == []
     assert await _usage_rows(other_tenant) == []
 
 
-async def test_the_request_is_refused_without_an_idempotency_key() -> None:
-    """REQUIRED, not optional (draft-ietf-httpapi-idempotency-key-header-07 §2.4 asks for
-    a 400 with a problem body). An optional key protects only the callers that remember
-    to send one — this console, on the day it was written — and what a repeat costs here
-    is a second silent payment to Google."""
-    tenant_id, slug, token = await _make_tenant()
-    call_id = await _call_with_transcript(tenant_id)
-
-    async with _client() as http:
-        response = await http.post(
-            f"/v1/calls/{call_id}/assist", headers=_headers(token, slug, key=None)
-        )
-
-    assert response.status_code == 400, response.text
-    assert response.json()["type"].endswith("/idempotency_key_required")
-    assert "Idempotency-Key" in (response.json()["remediation"] or "")
-
-
 async def test_a_staff_member_cannot_spend_the_accounts_ai_allowance() -> None:
-    """`org:manage`, with the control that makes the 403 mean something: the same token
+    """`org:manage`, with the control that makes the refusal mean something: the same token
     reaches a client-realm route it DOES hold, so the refusal is about this permission
     and not about a broken credential.
 
@@ -520,11 +566,10 @@ async def test_a_staff_member_cannot_spend_the_accounts_ai_allowance() -> None:
     """
     tenant_id, slug, token = await _make_tenant(role="staff")
     call_id = await _call_with_transcript(tenant_id)
-    headers = _headers(token, slug)
 
+    refused = await _ask(tenant_id, token, call_id, role="staff")
     async with _client() as http:
-        refused = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
-        accepted = await http.get(f"/v1/calls/{call_id}", headers=headers)
+        accepted = await http.get(f"/v1/calls/{call_id}", headers=_headers(token, slug))
 
     assert accepted.status_code == 200, (
         f"the control failed: this staff token cannot read a call either ({accepted.text}), "
@@ -547,14 +592,13 @@ async def test_a_successful_assist_is_metered_in_ktok_at_the_published_price(
     is the whole of D-137's unit argument — `unit_cost_paid` is NUMERIC(12,4) and a
     per-TOKEN price would have stored as 0.0000 and made every assist free.
     """
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
     azure = FakeAzure()  # 1,200 prompt / 800 completion, 500 of them reasoning
     use_fake_azure(monkeypatch, azure)
     spend_before, requests_before = await _platform_spend()
 
-    async with _client() as http:
-        response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
+    response = await _ask(tenant_id, token, call_id)
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -625,14 +669,13 @@ async def test_the_stored_summary_and_extraction_are_left_exactly_as_they_were(
     `call_extractions` rows are what pins a lead to its schema version, so it would
     rewrite history a client may already have exported.
     """
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
     azure = FakeAzure()
     azure.answer = {**azure.answer, "summary": "A completely different second reading."}
     use_fake_azure(monkeypatch, azure)
 
-    async with _client() as http:
-        response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
+    response = await _ask(tenant_id, token, call_id)
 
     assert response.json()["summary"] == "A completely different second reading."
     async with tenant_session(tenant_id) as session:
@@ -655,14 +698,13 @@ async def test_the_answer_goes_out_through_the_same_redaction_pass_as_every_summ
     never have anything to do — which is exactly why it has to be tested: a guard that is
     normally a no-op is a guard nobody notices the absence of. A model that invents a
     phone-shaped run (or a future prompt that quotes one back) must not print it."""
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
     azure = FakeAzure()
     azure.answer = {**azure.answer, "summary": f"Ravi asked us to ring {CALLER_NUMBER}."}
     use_fake_azure(monkeypatch, azure)
 
-    async with _client() as http:
-        response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
+    response = await _ask(tenant_id, token, call_id)
 
     summary = response.json()["summary"]
     assert CALLER_NUMBER not in summary
@@ -670,30 +712,32 @@ async def test_the_answer_goes_out_through_the_same_redaction_pass_as_every_summ
     assert "Ravi asked us to ring" in summary, "the sentence survived; only the digits went"
 
 
-# --------------------------------------------------------- 4. the double-click (D-140)
+# ---------------------------------------------- 4. the double-click (D-140, then D-821)
 
 
-async def test_the_same_idempotency_key_answers_twice_and_is_paid_for_once(
+async def test_one_confirmation_is_paid_for_once(
     azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Deduping AFTER the provider has been paid hides the spend rather than saving it
-    (`billing/ai_quota.ASSIST_REF_PREFIX`), so the second click must not reach Azure at
-    all — asserted on the request count, not only on the ledger."""
-    tenant_id, slug, token = await _make_tenant()
+    (`billing/ai_quota.ASSIST_REF_PREFIX`), so a second press of the same Confirm must not
+    reach Azure at all — asserted on the request count, not only on the ledger. Since
+    D-821 the card's token is what dedupes (`write_tools.confirm` burns it once)."""
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
     azure = FakeAzure()
     use_fake_azure(monkeypatch, azure)
     spend_before, requests_before = await _platform_spend()
-    headers = _headers(token, slug, key=f"double-{uuid.uuid4().hex[:8]}")
+    principal = _principal(tenant_id, token)
+    proposal = await _card(principal, call_id)
 
-    async with _client() as http:
-        first = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
-        second = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
+    async with tenant_session(tenant_id) as session:
+        await write_tools.confirm(session, proposal.token, principal=principal, ip=None)
+    with pytest.raises(ProblemError) as again:
+        async with tenant_session(tenant_id) as session:
+            await write_tools.confirm(session, proposal.token, principal=principal, ip=None)
 
-    assert first.status_code == 200, first.text
-    assert second.status_code == 200, second.text
-    assert second.json() == first.json(), "the second click got a different answer"
-    assert len(azure.requests) == 1, "the second click was paid for"
+    assert again.value.code == "copilot_proposal_already_used"
+    assert len(azure.requests) == 1, "the second press was paid for"
     rows = await _usage_rows(tenant_id)
     assert len(rows) == 2, "one assist is two rows (in and out), not four"
     spend_after, requests_after = await _platform_spend()
@@ -701,36 +745,19 @@ async def test_the_same_idempotency_key_answers_twice_and_is_paid_for_once(
     assert spend_after > spend_before
 
 
-async def test_a_different_key_on_the_same_call_is_a_second_assist(
+async def test_asking_again_about_the_same_call_is_a_second_reading(
     azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The other half, and the reason the key is per-ATTEMPT rather than per-call.
-
-    Asking the assistant twice about one call is a legitimate thing to do — the first
-    answer was thin, the caller rang back, the lead is being written up — and an
-    idempotency scheme keyed on the CALL would answer the second ask with the first
-    answer forever, at no charge and with no way to tell.
-
-    THIS TEST WAS WRITTEN THE LAZY WAY FIRST and is recorded here because it passed:
-    `assert body_hash({"call_id": "a"}) != body_hash({"call_id": "b"})` is green whatever
-    this route does, because it exercises `reliability.service` and never issues a
-    request. Its NAME made a claim about the endpoint that its body could not fail on.
-    """
-    tenant_id, slug, token = await _make_tenant()
+    """The other half: asking twice about one call is legitimate — the first answer was
+    thin, the caller rang back — so dedupe is per CONFIRMATION, never per call."""
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
     azure = FakeAzure()
     use_fake_azure(monkeypatch, azure)
     spend_before, requests_before = await _platform_spend()
 
-    async with _client() as http:
-        first = await http.post(
-            f"/v1/calls/{call_id}/assist",
-            headers=_headers(token, slug, key=f"ask-1-{uuid.uuid4().hex[:8]}"),
-        )
-        second = await http.post(
-            f"/v1/calls/{call_id}/assist",
-            headers=_headers(token, slug, key=f"ask-2-{uuid.uuid4().hex[:8]}"),
-        )
+    first = await _ask(tenant_id, token, call_id)
+    second = await _ask(tenant_id, token, call_id)
 
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
@@ -755,7 +782,7 @@ async def test_an_azure_outage_answers_with_sarvam_and_the_disclosure_reaches_th
     And the free leg writes no rupees: D-36 prices Sarvam at zero, so a `usage_events`
     row here would be a paid quantity claimed for a call the paid leg never served.
     """
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
     monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
     spend_before = await _platform_spend()
@@ -776,8 +803,7 @@ async def test_an_azure_outage_answers_with_sarvam_and_the_disclosure_reaches_th
     monkeypatch.setattr(AzureOpenAIExtractor, "run", _azure_down)
     monkeypatch.setattr(SarvamExtractor, "run", _sarvam_run)
 
-    async with _client() as http:
-        response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
+    response = await _ask(tenant_id, token, call_id)
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -806,11 +832,10 @@ async def test_no_provider_at_all_is_a_refusal_with_something_to_do_about_it(
         "sarvam_api_key",
     ):
         monkeypatch.setattr(settings, field, None, raising=False)
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
 
-    async with _client() as http:
-        response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
+    response = await _ask(tenant_id, token, call_id)
 
     assert response.status_code == 503, response.text
     assert response.json()["type"].endswith("/assist_no_credential")
@@ -837,7 +862,7 @@ async def test_an_azure_answer_azure_did_not_count_alerts_instead_of_metering_ze
     operator is told. The assertion is on the ALERT, because "no rows" is also what a
     quietly broken meter looks like.
     """
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
     azure = FakeAzure()
     azure.usage = None  # a 200 whose body carries no `usage` block at all
@@ -851,8 +876,7 @@ async def test_an_azure_answer_azure_did_not_count_alerts_instead_of_metering_ze
 
     monkeypatch.setattr(assist, "alert", _capture)
 
-    async with _client() as http:
-        response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
+    response = await _ask(tenant_id, token, call_id)
 
     assert response.status_code == 200, response.text
     assert response.json()["summary"], "we paid for this answer; the client still gets it"
@@ -870,7 +894,7 @@ async def test_a_sarvam_fallback_is_unmetered_without_waking_an_operator(
     """The other side of the same `if`, asserted separately because the two outcomes look
     identical in the ledger and must not look identical to a person on call: a free leg is
     correct and an unaccountable paid leg is an incident."""
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
     monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
 
@@ -893,8 +917,7 @@ async def test_a_sarvam_fallback_is_unmetered_without_waking_an_operator(
         lambda stage, code, **kw: fired.append(code),
     )
 
-    async with _client() as http:
-        response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
+    response = await _ask(tenant_id, token, call_id)
 
     assert response.status_code == 200, response.text
     assert response.json()["metered"] is False
@@ -904,137 +927,57 @@ async def test_a_sarvam_fallback_is_unmetered_without_waking_an_operator(
 # --------------------------------------------------- 7. the wiring the halves asked for
 
 
-def test_the_route_declares_a_mutating_permission_that_exists_and_is_granted() -> None:
+def test_the_action_declares_a_mutating_permission_that_exists_and_is_granted() -> None:
     """D-119's two halves in one assertion: a declared permission that is not in
     `get_args(Permission)` is a typo two copies of which agree with each other, and one no
-    role holds is a lock with no key — a route that reads as guarded and is dead."""
+    role holds is a lock with no key. And it is a confirm action: it spends money."""
     from typing import get_args
 
-    from apps.api.core.rbac import (
-        GRANTED_PERMISSIONS,
-        MUTATING_PERMISSIONS,
-        Permission,
-        iter_api_routes,
-    )
+    from apps.api.core.rbac import GRANTED_PERMISSIONS, MUTATING_PERMISSIONS, Permission
 
-    route = next(r for r in iter_api_routes(app) if r.path == "/v1/calls/{call_id}/assist")
-    declared = (route.openapi_extra or {})["x-calevate-permission"]
-    assert declared in get_args(Permission)
-    assert declared in GRANTED_PERMISSIONS
-    assert declared in MUTATING_PERMISSIONS, (
+    tool = write_tools.tool_named(TOOL)
+    assert tool is not None
+    assert tool.permission in get_args(Permission)
+    assert tool.permission in GRANTED_PERMISSIONS
+    assert tool.permission in MUTATING_PERMISSIONS, (
         "an assist spends money, so a D-22 read-only operator must be refused it"
     )
-    assert route.methods == {"POST"}
+    assert tool.tier == "confirm" and tool.external_spend
 
 
-@pytest.mark.parametrize(
-    ("subject", "expected_code"),
-    [
-        pytest.param("no_transcript", "assist_no_transcript", id="no-transcript"),
-        pytest.param("at_ceiling", "ai_quota_exceeded", id="quota-exceeded"),
-    ],
-)
-async def test_a_refusal_before_the_provider_is_paid_frees_the_key_for_an_immediate_retry(
-    azure_configured: None, monkeypatch: pytest.MonkeyPatch, subject: str, expected_code: str
-) -> None:
-    """THE OTHER DIRECTION, and it was open while its twin below was closed.
-
-    `claim_idempotency` commits in its own transaction and only the arm around
-    `run_assist` released it, so the two refusals that happen BEFORE the provider is
-    called — no readable transcript, and the quota ceiling — left the record `processing`
-    for the whole `CLAIM_LEASE`. A client who reused the key they had just been refused on
-    got `idempotent_request_in_flight` for a request that cost nothing.
-
-    WHY THAT WAS A MONEY BUG AND NOT AN ANNOYANCE. The browser's workaround is a FRESH key
-    per attempt, which makes the retry work and disables the dedupe: a key that is never
-    reused cannot answer a repeat, so a lost response — a 504, a dropped connection — on a
-    run the server COMPLETED pays a second time. That is precisely the event the required
-    `Idempotency-Key` exists to prevent, so working around this in the browser trades a
-    rare double charge for a common broken one.
-
-    Asserted as REUSE OF THE SAME KEY, twice, with the same answer both times: a second
-    422 rather than a 409. The test below is the control — after payment, the same key
-    must NOT free up — and the two together are the whole boundary.
-    """
-    tenant_id, slug, token = await _make_tenant()
-    azure = FakeAzure()
-    use_fake_azure(monkeypatch, azure)
-    if subject == "no_transcript":
-        call_id = await _empty_call(tenant_id)
-    else:
-        call_id = await _call_with_transcript(tenant_id)
-        await _at_the_ceiling(tenant_id, monkeypatch)
-    headers = _headers(token, slug, key=f"prepay-{uuid.uuid4().hex[:8]}")
-
-    async with _client() as http:
-        first = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
-        second = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
-
-    assert first.status_code == 422, first.text
-    assert first.json()["type"].endswith(f"/{expected_code}")
-    assert second.status_code == 422, (
-        f"the retry was answered {second.status_code} ({second.json().get('type')}) rather "
-        "than with the same refusal: the claim was left `processing` by a path that spent "
-        "nothing, so the client cannot reuse the key they were just refused on"
-    )
-    assert second.json()["type"].endswith(f"/{expected_code}")
-    assert azure.requests == [], "no provider call on either attempt"
-    assert await _usage_rows(tenant_id) == []
-
-
-async def test_a_failure_after_the_provider_was_paid_does_not_let_the_same_key_pay_again(
+async def test_a_failure_after_the_provider_was_paid_does_not_let_the_same_card_pay_again(
     azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """CORRECTNESS 1 (D-181): the claim used to roll back with the side effect it guards.
+    """CORRECTNESS 1 (D-181), on the path that replaced the route (D-821).
 
-    `claim_idempotency` INSERTed the `processing` record into the REQUEST's transaction.
-    `core/deps.db` rolls that transaction back on any exception — so a raise anywhere
-    after `run_assist` (the audit chain refusing to write, a statement timeout, a severed
-    connection) erased the claim, the usage rows and the audit row while **the model
-    provider had already been paid** (Azure OpenAI since D-410, Google when this failure
-    was found), and the retry with the same key — which is what the key is for — paid a
-    second time.
-
-    Driven with the audit write raising, because that is the failure the audit report
-    names and it sits between the payment and the response. What must be true afterwards
-    is one thing: the second request with the same key does not reach Azure.
+    A failure after the executor returned rolls back the confirm's transaction, and the
+    confirm ordinarily gives the card's token back so the person can try again. The model
+    was already paid and that money does not roll back, so for this action the token must
+    stay spent (`ActionTool.external_spend`). Driven with the audit write raising, because
+    it sits between the payment and the answer.
     """
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
     azure = FakeAzure()
     use_fake_azure(monkeypatch, azure)
-    headers = _headers(token, slug, key=f"crash-{uuid.uuid4().hex[:8]}")
+    principal = _principal(tenant_id, token)
+    proposal = await _card(principal, call_id)
 
     async def refuse_to_audit(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("audit chain unavailable")
 
-    # Patched and restored BY HAND rather than through `monkeypatch.undo()`: undo() is
-    # per-test, not per-call, so it would also revert `azure_configured`'s environment
-    # and the retry below would be refused as `assist_no_credential` — a green test that
-    # never reached the model. (That is not hypothetical; it is what this test did first.)
-    original_write_audit = crm_routes.write_audit
-    crm_routes.write_audit = refuse_to_audit  # type: ignore[assignment]
-    # Restored in `finally`: a failure in between would otherwise leave every later test
-    # in the session writing its audit rows through `refuse_to_audit`.
-    try:
-        # The 500 is not the subject; what the crashed request left behind is. `_client()`
-        # re-raises an unhandled server exception into the test, which would end it before
-        # the retry.
-        async with AsyncClient(
-            transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://api"
-        ) as http:
-            first = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
-        assert first.status_code >= 500, first.text
-        assert len(azure.requests) == 1, "the provider was paid once"
-    finally:
-        crm_routes.write_audit = original_write_audit  # type: ignore[assignment]
-    async with _client() as http:
-        second = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
-
-    assert len(azure.requests) == 1, (
-        f"the retry paid Microsoft a second time (status {second.status_code}): the claim "
-        "did not survive the failure it exists to survive"
-    )
+    real_write_audit = write_tools.write_audit
+    monkeypatch.setattr(write_tools, "write_audit", refuse_to_audit)
+    with pytest.raises(RuntimeError):
+        async with tenant_session(tenant_id) as session:
+            await write_tools.confirm(session, proposal.token, principal=principal, ip=None)
+    assert len(azure.requests) == 1, "the provider was paid once"
+    monkeypatch.setattr(write_tools, "write_audit", real_write_audit)
+    with pytest.raises(ProblemError) as again:
+        async with tenant_session(tenant_id) as session:
+            await write_tools.confirm(session, proposal.token, principal=principal, ip=None)
+    assert again.value.code == "copilot_proposal_already_used"
+    assert len(azure.requests) == 1, "the same card paid Microsoft a second time"
 
 
 async def test_a_provider_this_meter_does_not_know_is_not_quietly_free(

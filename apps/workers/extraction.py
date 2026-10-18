@@ -1418,7 +1418,7 @@ GOOGLE_PROVIDER: Final = "google"
 #: joined them — the state a greppable boolean exists to stop a document describing as
 #: "quota enforcement".
 #:
-#: `POST /v1/calls/{call_id}/assist` (`apps/api/crm/routes.py::assist_call`) is the middle.
+#: `crm/resummarise.second_reading` (Pip's `call_summarise_again`, D-821) is the middle.
 #: It calls `require_ai_assist` BEFORE the provider is paid, hands the verdict to
 #: `run_assist`, and meters `AssistResult.usage` back through `crm/assist.py::meter_assist`
 #: — the three lines this comment named as its own closing condition, in that order.
@@ -1737,7 +1737,7 @@ def assist_capability(
     reads, and for one reason: none is knowable from configuration. The first is a row this
     module has no session to read and a POLICY (`agents/llm_models.dashboard_leg_reason`)
     this module deliberately does not own; the second is a per-tenant month-to-date sum that
-    `usage_events` owns (`require_ai_assist`, reached through `crm/routes.py::assist_call`);
+    `usage_events` owns (`require_ai_assist`, reached through `crm/resummarise.second_reading`);
     the third is only knowable by having just tried. Passing them in keeps this function a
     pure function of its inputs, which is what lets one test drive every state without a
     database.
@@ -2108,7 +2108,7 @@ async def run_assist(
     line of a route handler that nobody would re-read, and the moment to make it
     impossible is before the handler exists rather than after it ships.
 
-    That bet paid immediately. `crm/routes.py::assist_call` is now the caller, and the
+    That bet paid immediately. `crm/resummarise.second_reading` is now the caller, and the
     sabotage that swaps `text_redacted` for `text` in `crm/assist.py`'s one SQL string
     does not first fail an assertion about bytes — it fails HERE, with
     `assist_input_not_redacted`, from inside the function the route calls. The guard

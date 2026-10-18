@@ -401,3 +401,35 @@ one moved; `agent_script_suggest` is its tool.
   being worked out, then asks the allowance; the executor runs
   `test_conversations.request_improvement` (the queued job, D-748). Review stays in
   `ImprovementReview`.
+
+## 11. The remaining helpers (`copilot/assist_actions.py`, D-821)
+
+Every AI request a person makes on a client screen is now asked of Pip. The screens keep only
+"Let Pip do it" buttons that prefill Pip and the review of what comes back.
+
+| Tool | Tier, permission, audit | Executor (the old button's function) | Review |
+|---|---|---|---|
+| `knowledge_teach` | confirm, `kb:write` (curation switch included), `kb_teaching.start` | `teach/teaching.start_teaching` (text); Pip passes the words of a photo or file the person attached | the teach box on Knowledge base, through `GET /v1/kb/teach/open` |
+| `lead_fields_draft` | confirm, `org:manage`, `lead_fields.draft_requested` | `agents/lead_fields.request_draft` (absorbed cost, no allowance gate, as before) | Lead details: `POST /v1/lead-fields/draft/review {keep}` writes the kept fields onto agents with none |
+| `call_summarise_again` | confirm, `org:manage`, `call.ai_assist`, `external_spend` | `crm/resummarise.second_reading`: redacted transcript, allowance gate, metering under `resummarise` | the confirmation itself; nothing is stored |
+
+* **Planner refusals.** Teach: empty words, an unknown `gap_id`. Lead fields: a business type
+  with standard details, a draft queued or running, a draft already made. Second reading: the
+  call (404), no transcript or a turn without a redacted copy, then `require_ai_assist`, all
+  before a card.
+* **`Executed.recorded`.** What the activity log keeps instead of `detail` when `detail` holds
+  content it must not (the second summary). The confirmation shows `detail` once.
+* **`ActionTool.external_spend`.** The executor pays a provider before it returns. `confirm`
+  then keeps the token spent if anything after the executor fails (the money did not roll back),
+  and `stage_for_approval` refuses the tool, so a background task never stages it.
+* **The ceiling.** A Confirm refused with `ai_quota_exceeded` opens the panel's wallet notice
+  (`ProposalCard.onCeiling`), the same one an ask refused there opens.
+* **Retired:** `POST /v1/kb/teach`, `POST /v1/kb/teach/{id}/words`, the photo and file kinds of
+  `POST /v1/kb/teach/upload` (a voice note is still heard there and its words return to the
+  teach box), the client `POST /v1/lead-fields/draft` (the operator's twin stays) and
+  `POST /v1/calls/{id}/assist`. Tests: `apps/api/copilot/assist_actions_test.py`,
+  `tests/call_assist_test.py`, `tests/lead_fields_test.py`, `tests/teach_loop_test.py`.
+* **Left where it is, and why.** "Make this call a test" drafts nothing with AI (its draft is
+  the call's redacted caller lines, `teach/test_cases.draft_from_call`). The English "Try again"
+  retries a background step. Test runs, saved tests and Try chat test the agent itself. The
+  operator's lead-details draft and business-type "Suggest again" are admin console controls.

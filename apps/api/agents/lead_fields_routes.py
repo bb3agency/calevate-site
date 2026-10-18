@@ -2,7 +2,8 @@
 
     GET   /v1/lead-fields                        the core, the business type, each agent's
                                                  business fields and the AI draft's state
-    POST  /v1/lead-fields/draft                  queue the one AI draft (custom business)
+    POST  /v1/lead-fields/draft/review           keep some or none of the AI draft (D-821; the
+                                                 draft itself is asked of Pip)
     POST  /v1/lead-fields/replace                replace agents' business fields with the
                                                  standard set for the business type (or the
                                                  AI draft, for a custom business)
@@ -53,6 +54,10 @@ Operator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin")
 #: Every agent of one business, and then some: bounds the replace body.
 MAX_AGENT_IDS = 50
 
+#: Bounds a review body: more keys than a draft ever holds
+#: (`workers/lead_fields_draft.MAX_DRAFTED_FIELDS`).
+MAX_DRAFT_KEYS = 40
+
 
 class _Out(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -72,6 +77,10 @@ class LeadFieldsDraftOut(_Out):
     fields: list[ExtractionField]
     #: A machine code when `failed` (`no_draft`, `no_provider`, `draft_crashed`).
     error_code: str | None
+    #: The owner has kept or discarded it (D-821). A `done` draft that is not reviewed
+    #: waits on this screen and has reached no agent; once reviewed, `fields` is what
+    #: was kept.
+    reviewed: bool
 
 
 class LeadFieldsAgentOut(_Out):
@@ -132,6 +141,7 @@ def _draft_out(draft: service.Draft | None) -> LeadFieldsDraftOut | None:
         completed_at=draft.completed_at,
         fields=draft.fields,
         error_code=draft.error_code,
+        reviewed=draft.reviewed,
     )
 
 
@@ -165,19 +175,21 @@ async def _render(session: AsyncSession, *, tenant_id: UUID) -> LeadFieldsOut:
 async def _replacement_fields(
     session: AsyncSession, *, tenant_id: UUID, business_type: str | None
 ) -> list[ExtractionField]:
-    """The standard set for the type, or — for a custom business — its finished draft."""
+    """The standard set for the type, or — for a custom business — what its owner kept of
+    the draft. An unreviewed draft is not something to replace with (D-821)."""
     vertical = business_type or await service.vertical_of(session, tenant_id=tenant_id)
     if service.has_standard_set(vertical):
         return service.standard_fields(vertical)
     draft = await service.read_draft(session, tenant_id=tenant_id)
-    if draft is None or draft.status != "done":
+    if draft is None or draft.status != "done" or not draft.reviewed or not draft.fields:
         raise ProblemError.business_rule(
             "lead_fields_nothing_to_replace_with",
             (
-                "This business has no standard set of lead details, and none has been "
-                "drafted from its details yet."
+                "This business has no standard set of lead details, and none have been "
+                "drafted from its details and kept yet."
             ),
-            remediation="Draft the details first, or edit each agent's details directly.",
+            remediation="Draft the details and keep them first, or edit each agent's details "
+            "directly.",
         )
     return draft.fields
 
@@ -212,36 +224,55 @@ async def get_lead_fields(session: Session, principal: Reader) -> LeadFieldsOut:
     return await _render(session, tenant_id=principal.tenant_id)
 
 
+class LeadFieldsReviewIn(BaseModel):
+    """The drafted fields the owner keeps, by key. Empty discards the draft."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    keep: list[str] = Field(max_length=MAX_DRAFT_KEYS)
+
+
+class LeadFieldsReviewOut(_Out):
+    fields_kept: int
+    agents_changed: int
+
+
 @router.post(
-    "/draft",
-    response_model=DraftRequestOut,
-    status_code=202,
+    "/draft/review",
+    response_model=LeadFieldsReviewOut,
     openapi_extra=permission_meta("org:manage"),
-    summary="Draft this business's lead details once, from its business details",
+    summary="Keep some or none of the drafted lead details (D-821)",
     description=(
-        "For a business set up as 'Something else'. Queued; the screen polls `GET` for the "
-        "result. Drafted once: a finished draft is never redrafted (409), and a failed one "
-        "may be asked for again."
+        "The kept fields go onto every agent that has no business details of its own yet "
+        "and become what a new agent starts with; the rest are dropped. Once: a reviewed "
+        "draft is refused (409). Asking for the draft is Pip's (`lead_fields_draft`)."
     ),
 )
-async def post_draft(session: Session, principal: Owner, request: Request) -> DraftRequestOut:
+async def post_draft_review(
+    payload: LeadFieldsReviewIn, session: Session, principal: Owner, request: Request
+) -> LeadFieldsReviewOut:
     assert principal.tenant_id is not None
-    draft = await service.request_draft(
-        session, tenant_id=principal.tenant_id, requested_by=principal.user_id
-    )
+    reviewed = await service.review_draft(session, tenant_id=principal.tenant_id, keep=payload.keep)
+    if reviewed.written:
+        # The scripts ask for the new details from the next call (D-722).
+        await queue_business_type_apply(session, tenant_id=principal.tenant_id)
     await write_audit(
         session,
-        action="lead_fields.draft_requested",
+        action="lead_fields.draft_reviewed",
         actor=principal,
         tenant_id=principal.tenant_id,
         object_type="organization",
         object_id=str(principal.tenant_id),
         ip=client_request_ip(request),
-        summary={"status": draft.status},
+        summary={
+            "field_keys": [f.key for f in reviewed.kept],
+            "agents": [str(w.agent_id) for w in reviewed.written],
+        },
     )
-    out = _draft_out(draft)
-    assert out is not None
-    return DraftRequestOut(draft=out)
+    return LeadFieldsReviewOut(
+        fields_kept=len(reviewed.kept),
+        agents_changed=sum(1 for w in reviewed.written if w.changed),
+    )
 
 
 @router.post(

@@ -122,6 +122,7 @@ from apps.api.copilot.actions import (
     parse_args,
 )
 from apps.api.copilot.agent_actions import AGENT_ACTIONS
+from apps.api.copilot.assist_actions import ASSIST_ACTIONS
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.schemas import (
@@ -880,7 +881,8 @@ PROPOSE_KNOWLEDGE: Final = WriteTool(
         "answers from, so it can answer that question in future. Only for something the "
         "person has just told you about their own business — never invent a price, a "
         "policy or an opening time, and never repeat something a caller said. Confirming "
-        "adds it without review; the agents start using it once it has been published."
+        "adds it without review; the agents start using it once it has been published. "
+        "For several things at once, or a photo or file to learn from, use `knowledge_teach`."
         + PROPOSES_ONLY,
         {
             "agent_id": {
@@ -950,6 +952,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *CONSOLE_ACTIONS,
     # D-820: the script change the retired Script-page helper made, reviewed on that page.
     *SCRIPT_ACTIONS,
+    # D-821: the teach box, the lead-details draft and a call's second reading.
+    *ASSIST_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}
@@ -1407,7 +1411,7 @@ async def run_immediate(
                 args=plan.args,
                 prior_state=prior_state,
                 result_state=result_state,
-                summary=executed.detail,
+                summary=executed.recorded or executed.detail,
                 # NOTHING MOVED, NOTHING TO UNDO. An `applied: false` receipt offers no
                 # Undo, because the inverse would "restore" the state that is already there.
                 undoable_until=until,
@@ -1713,8 +1717,10 @@ async def confirm(
     # got to make.
     await _burn(proposal.jti)
 
+    paid = False
     try:
         executed = await proposal.tool.execute(session, actor, proposal.args)
+        paid = proposal.tool.external_spend
         await write_audit(
             session,
             action=proposal.tool.audit_action,
@@ -1742,7 +1748,7 @@ async def confirm(
                 tenant_id=actor.tenant_id,
                 object_id=proposal.object_id or None,
                 args=proposal.args,
-                summary=executed.detail,
+                summary=executed.recorded or executed.detail,
             ),
         )
     except BaseException as failure:
@@ -1753,7 +1759,10 @@ async def confirm(
         # raises and the original exception is re-raised untouched, so the person still gets
         # the executor's own refusal (`409` on a campaign that stopped running, `404` on a
         # lead that was deleted) and can act on the SAME token.
-        await _unburn(proposal.jti)
+        # Unless the executor already paid an outside provider: that money did not roll back,
+        # so the same card must not be able to pay it again (`ActionTool.external_spend`).
+        if not paid:
+            await _unburn(proposal.jti)
         if isinstance(failure, ProblemError):
             await action_log.record_refusal(
                 realm="client",
@@ -1808,6 +1817,14 @@ async def stage_for_approval(
     tool = _BY_NAME.get(name)
     if tool is None:
         raise WriteRefusedError(f"`{name}` is not something that waits for approval")
+    if tool.external_spend:
+        # An approval is decided in the transaction its change is made in, and a model call
+        # paid inside it does not roll back with it: such a step is asked in conversation,
+        # where its confirmation card keeps the money from being spent twice.
+        raise WriteRefusedError(
+            f"`{name}` is asked in conversation, not in a background task, so leave it out "
+            "and tell the person to ask for it directly"
+        )
     actor = actor_for(principal)
     if actor is None:
         raise WriteRefusedError(f"`{name}` needs a signed-in account, so nothing was staged")
@@ -1943,7 +1960,11 @@ async def approve(
         summary={"via": "copilot", "tool": tool.name, "approval": True, **executed.audit_summary},
     )
     await action_log.decide_approval(
-        session, action_id=action_id, status="done", by=actor.user_id, summary=executed.detail
+        session,
+        action_id=action_id,
+        status="done",
+        by=actor.user_id,
+        summary=executed.recorded or executed.detail,
     )
     return CopilotConfirmOut(
         tool=tool.name,

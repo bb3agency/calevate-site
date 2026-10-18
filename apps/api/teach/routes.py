@@ -10,9 +10,8 @@ ids and counts only (hard rule 6).
 
 from __future__ import annotations
 
-import re
 from datetime import datetime
-from typing import Annotated, Final, Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
@@ -30,7 +29,6 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.base import uuid7
 from apps.api.kb.curation import goes_live_without_review, requires_kb_curation
-from apps.api.kb.uploads import classify_upload, file_extension, stored_content_type
 from apps.api.teach import facts as fact_store
 from apps.api.teach import knows, rules, struggles, teaching, test_cases, try_chat
 from apps.api.teach import pinned as pinned_store
@@ -42,7 +40,6 @@ from apps.api.teach.models import (
     MAX_PINNED_ANSWER_CHARS,
     MAX_PINNED_QUESTION_CHARS,
     MAX_RULE_CHARS,
-    MAX_TEACH_WORDS,
 )
 
 router = APIRouter(tags=["teach"])
@@ -314,41 +311,6 @@ def _teaching_out(found: teaching.Teaching) -> TeachingOut:
     )
 
 
-class TeachIn(Strict):
-    words: str = Field(min_length=1, max_length=MAX_TEACH_WORDS)
-    #: The struggle this answers, when opened from "Add the answer".
-    gap_id: UUID | None = None
-
-
-@router.post(
-    "/v1/kb/teach",
-    response_model=TeachingOut,
-    status_code=201,
-    openapi_extra=permission_meta("kb:write"),
-    summary="Teach in words; the AI sorts them into facts and rules for review",
-    description=(
-        "Sorting runs in the background and is counted against this month's AI help. Poll "
-        "`GET /v1/kb/teach/{id}` until `status` is `ready`. When the AI help is used up the "
-        "words come back unsorted for the owner to mark."
-    ),
-)
-async def teach_words(
-    payload: TeachIn,
-    session: Session,
-    principal: Principal = Depends(requires_kb_curation()),
-) -> TeachingOut:
-    assert principal.tenant_id is not None
-    started = await teaching.start_teaching(
-        session,
-        tenant_id=principal.tenant_id,
-        input_kind="text",
-        words=teaching.clean_words(payload.words),
-        gap_id=payload.gap_id,
-        requested_by=principal.user_id,
-    )
-    return _teaching_out(started)
-
-
 _READ_CHUNK_BYTES = 1024 * 1024
 
 
@@ -364,7 +326,7 @@ async def _read_bounded(file: UploadFile, limit: int) -> bytes:
                 code="teach_upload_too_large",
                 title="That is too large",
                 detail=f"Send something under {limit // (1024 * 1024)} MB.",
-                remediation="Send a smaller photo, or add a long document under Files.",
+                remediation="Record a shorter voice note, or type it.",
                 status=413,
             )
         chunks.append(chunk)
@@ -373,97 +335,45 @@ async def _read_bounded(file: UploadFile, limit: int) -> bytes:
     return b"".join(chunks)
 
 
-#: A photo is read by the OCR leg, whose own ceiling this is
-#: (`calevate_shared.document_ingest.MAX_IMAGE_BYTES`).
-_PHOTO_LIMIT = 12 * 1024 * 1024
-#: The photo types a teaching accepts, each with the suffix its object key carries: the
-#: image formats the OCR leg documents (`apps/workers/document_ocr.py`).
-PHOTO_SUFFIXES: Final[dict[str, str]] = {
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "image/webp": "webp",
-    "image/heic": "heic",
-    "image/heif": "heif",
-    "image/avif": "avif",
-}
-_KEY_SUFFIX = re.compile(r"[a-z0-9]{1,8}")
-
-
-def safe_key_suffix(extension: str) -> str:
-    """An object-key suffix from a client's filename, or `bin`. The extension is the
-    client's text, and a `/` or `..` in it would add a segment to the key."""
-    return extension if _KEY_SUFFIX.fullmatch(extension) else "bin"
-
-
-_FILE_LIMIT = 20 * 1024 * 1024
-
-
 @router.post(
     "/v1/kb/teach/upload",
     response_model=TeachingOut,
     status_code=201,
     openapi_extra=permission_meta("kb:write"),
-    summary="Teach with a photo, a file or a voice note",
+    summary="Hear a voice note for the teach box",
     description=(
-        "`kind` is `photo` (a picture of a price list or menu), `file` (.docx, .txt, .csv, "
-        ".xlsx) or `voice` (a voice note under 30 seconds). A voice note stops at `heard` "
-        "so the owner can check the words; confirm them with `POST .../words`."
+        "`kind` is `voice` (a voice note under 30 seconds). The teaching stops at `heard`: "
+        "the screen puts the words in the teach box for the owner to check, discards the "
+        "teaching, and Pip sorts what the owner sends it (D-821). Typed words, photos and "
+        "files are taught through Pip."
     ),
 )
 async def teach_upload(
     session: Session,
     file: Annotated[UploadFile, File()],
-    kind: Annotated[Literal["photo", "file", "voice"], Form()],
-    gap_id: Annotated[UUID | None, Form()] = None,
+    kind: Annotated[Literal["voice"], Form()],
     principal: Principal = Depends(requires_kb_curation()),
 ) -> TeachingOut:
     assert principal.tenant_id is not None
-    filename = file.filename or "upload"
     content_type = (file.content_type or "").split(";")[0].strip().lower()
-    if kind == "voice":
-        if content_type not in teaching.VOICE_CONTENT_TYPES:
-            raise ProblemError.business_rule(
-                "teach_voice_kind",
-                "We could not play that recording.",
-                remediation="Record the voice note again here.",
-            )
-        data = await _read_bounded(file, teaching.MAX_VOICE_BYTES)
-        suffix = content_type.split("/")[-1]
-    else:
-        source_kind = (
-            "image"
-            if kind == "photo"
-            else classify_upload(filename=filename, content_type=content_type)
+    if content_type not in teaching.VOICE_CONTENT_TYPES:
+        raise ProblemError.business_rule(
+            "teach_voice_kind",
+            "We could not play that recording.",
+            remediation="Record the voice note again here.",
         )
-        if source_kind == "pdf":
-            raise ProblemError.business_rule(
-                "teach_pdf",
-                "A PDF goes to your agents as it is, so add it under Files instead.",
-            )
-        if source_kind == "image" and content_type not in PHOTO_SUFFIXES:
-            # A named set, not `image/*`: the type is stored with the object and handed
-            # to the reader, and `image/svg+xml` is a script-bearing document, not a photo.
-            raise ProblemError.business_rule("teach_photo_kind", "That is not a photo.")
-        data = await _read_bounded(file, _PHOTO_LIMIT if source_kind == "image" else _FILE_LIMIT)
-        suffix = (
-            PHOTO_SUFFIXES[content_type]
-            if source_kind == "image"
-            else safe_key_suffix(file_extension(filename))
-        )
-        if source_kind != "image":
-            # The type a document is stored and read under is OURS, from the extension
-            # `classify_upload` accepted, never the multipart header (`kb/uploads`).
-            content_type = stored_content_type(filename)
+    data = await _read_bounded(file, teaching.MAX_VOICE_BYTES)
     # Local import: `apps.workers.storage` holds the object-store client.
     from apps.workers.storage import kb_object_key, store_kb_object
 
     teaching_id = uuid7()
     key = kb_object_key(
-        tenant_id=principal.tenant_id, upload_id=teaching_id, slot="teach", suffix=suffix[:8]
+        tenant_id=principal.tenant_id,
+        upload_id=teaching_id,
+        slot="teach",
+        suffix=content_type.split("/")[-1][:8],
     )
-    await store_kb_object(
-        key=key, data=data, content_type=content_type or "application/octet-stream"
-    )
+    await store_kb_object(key=key, data=data, content_type=content_type)
     started = await teaching.start_teaching(
         session,
         tenant_id=principal.tenant_id,
@@ -471,12 +381,32 @@ async def teach_upload(
         words=None,
         object_key=key,
         content_type=content_type,
-        filename=filename[:200],
-        gap_id=gap_id,
+        filename="voice-note",
         teaching_id=teaching_id,
         requested_by=principal.user_id,
     )
     return _teaching_out(started)
+
+
+class OpenTeachingOut(Strict):
+    teaching: TeachingOut | None
+
+
+@router.get(
+    "/v1/kb/teach/open",
+    response_model=OpenTeachingOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="This person's newest teaching that is being sorted or waits for review",
+    description=(
+        "What Pip was asked to teach (D-821) lands here for review: the newest of this "
+        "person's teachings that is `queued`, `sorting` or `ready`, or null."
+    ),
+)
+async def open_teaching(
+    session: Session, principal: Principal = Depends(requires("agents:read"))
+) -> OpenTeachingOut:
+    found = await teaching.open_teaching(session, requested_by=principal.user_id)
+    return OpenTeachingOut(teaching=_teaching_out(found) if found is not None else None)
 
 
 @router.get(
@@ -489,30 +419,6 @@ async def read_teaching(
     teaching_id: UUID, session: Session, _: Principal = Depends(requires("agents:read"))
 ) -> TeachingOut:
     return _teaching_out(await teaching.get_teaching(session, teaching_id))
-
-
-class WordsIn(Strict):
-    words: str = Field(min_length=1, max_length=MAX_TEACH_WORDS)
-
-
-@router.post(
-    "/v1/kb/teach/{teaching_id}/words",
-    response_model=TeachingOut,
-    openapi_extra=permission_meta("kb:write"),
-    summary="Confirm (or correct) the words heard in a voice note, then sort them",
-)
-async def confirm_words(
-    teaching_id: UUID,
-    payload: WordsIn,
-    session: Session,
-    principal: Principal = Depends(requires_kb_curation()),
-) -> TeachingOut:
-    assert principal.tenant_id is not None
-    return _teaching_out(
-        await teaching.confirm_words(
-            session, tenant_id=principal.tenant_id, teaching_id=teaching_id, words=payload.words
-        )
-    )
 
 
 class SaveIn(Strict):

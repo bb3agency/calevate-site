@@ -15,6 +15,7 @@ import { ApiProblem, TransportProblem, type Session } from "@/lib/api/client";
 import { useConfirmProposal, type CopilotConfirmOut } from "@/lib/api/copilot";
 import { lookup } from "@/lib/lookup";
 import type { CopilotProposal } from "@/lib/copilot/types";
+import { AI_CEILING_CODE } from "@/lib/copilot/useCopilotConversation";
 
 /**
  * The confirmation card: what the assistant is OFFERING to change, and the one click that
@@ -70,6 +71,7 @@ export function ProposalCard({
   confirmable,
   realm = "client",
   onDismiss,
+  onCeiling,
 }: {
   session: Session;
   proposal: CopilotProposal;
@@ -82,6 +84,8 @@ export function ProposalCard({
   /** Which confirm door this card posts to (D-694): the admin realm has its own. */
   realm?: "client" | "admin";
   onDismiss: () => void;
+  /** Called when Confirm is refused at the AI allowance ceiling. */
+  onCeiling?: () => void;
 }) {
   const confirm = useConfirmProposal(session, realm, proposal.confirm_action ?? null);
   const card = useRef<HTMLDivElement>(null);
@@ -106,6 +110,13 @@ export function ProposalCard({
     const timer = setTimeout(() => setExpired(true), remaining);
     return () => clearTimeout(timer);
   }, [proposal.expires_at]);
+
+  // The allowance ran out between the card and the click: the panel opens its wallet
+  // notice, the ONE place AI help is bought (D-821; `call_summarise_again` spends at confirm).
+  const ceiling = confirm.error instanceof ApiProblem && confirm.error.code === AI_CEILING_CODE;
+  useEffect(() => {
+    if (ceiling) onCeiling?.();
+  }, [ceiling, onCeiling]);
 
   const outcome = confirm.data;
   // Whether the card is still offering a decision. Once it has an outcome it is a record
@@ -306,7 +317,7 @@ function Outcome({
         <Check aria-hidden className="h-3.5 w-3.5" />
         {outcome.applied ? "Done" : "Nothing to change"}
       </p>
-      <p className="mt-1 text-xs text-ink">{outcome.detail}</p>
+      <p className="mt-1 whitespace-pre-line text-xs text-ink">{outcome.detail}</p>
       <button type="button" onClick={onDismiss} className={`${SECONDARY_BUTTON} mt-2`}>
         Close
       </button>

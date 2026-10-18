@@ -9,7 +9,7 @@ A job rather than a call inside Pip's answer: the draft is two model legs at mos
 not belong inside the action's database transaction (D-748's reason for the improve job) nor
 inside Pip's own answer budget.
 
-SUBJECT → GATE → RUN → METER, `crm/routes.assist_call`'s order: the request is the subject;
+SUBJECT → GATE → RUN → METER, `crm/resummarise.second_reading`'s order: the request is the subject;
 the action's planner and executor ran the gate (`require_ai_assist`), and the ceiling is read
 again here and passed to the ladder, which then answers on the platform's standby as every
 dashboard assist does; each completed or refused paid leg is metered in its own transaction

@@ -803,6 +803,50 @@ describe("a proposal", () => {
     expect(screen.queryAllByText("Done").length).toBe(0);
   });
 
+  it("OPENS THE WALLET NOTICE WHEN CONFIRM MEETS THE AI CEILING (D-821)", async () => {
+    stubCopilot({
+      chunks: proposalChunks({
+        ...PROPOSAL,
+        tool: "call_summarise_again",
+        title: "Summarise this call again",
+        object_type: "call",
+        current: null,
+        proposed: "A second summary of this call",
+        cost: "Uses your account's AI help allowance.",
+      }),
+      confirm: {
+        status: 422,
+        body: {
+          type: "urn:calevate:billing/ai_quota_exceeded",
+          title: "No AI help left",
+          detail: "This account has used all of this month's included AI help.",
+        },
+      },
+      quota: {
+        month: "2026-08",
+        plan_tier: "growth",
+        state: "ceiling_reached",
+        included_inr: "500.00",
+        used_inr: "500.00",
+        allowance_inr: "500.00",
+        remaining_inr: "0.00",
+        requests_used: 500,
+        requests_included: 500,
+        requests_remaining: 0,
+        extra_purchased_inr: null,
+        extra_block_inr: "250.00",
+        extra_block_requests: 250,
+        extra_available: true,
+        extra_unavailable_reason: null,
+      },
+    });
+    renderPanel();
+    await ask("summarise this call again");
+    await screen.findByRole("button", { name: /^Confirm — / });
+    await clickConfirm();
+    expect(await screen.findByRole("button", { name: "Add more AI help" })).toBeTruthy();
+  });
+
   it("DISMISS SENDS NOTHING — a proposal is refused by doing nothing", async () => {
     const { confirms } = stubCopilot({ chunks: proposalChunks() });
     renderPanel();

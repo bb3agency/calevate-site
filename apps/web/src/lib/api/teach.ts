@@ -3,10 +3,10 @@
 /**
  * Teaching the agents and the improvement loop (`apps/api/teach/`).
  *
- * The teach box posts words, a photo, a file or a voice note; a worker reads and sorts it,
- * so the screen polls the teaching until it is `heard` (check the words) or `ready`
- * (review). Saving puts facts into the business's knowledge at once and rules into the
- * chosen agent's script as waiting rules.
+ * The teach box: Pip is asked to teach (D-821) and a worker sorts what it sends; the screen
+ * polls the open teaching until it is `ready` for review. A voice note is heard here and its
+ * words go back into the teach box. Saving puts facts into the business's knowledge at once
+ * and rules into the chosen agent's script as waiting rules.
  */
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
@@ -28,7 +28,7 @@ export type TestCases = Schemas["TestCasesOut"];
 export type CaseDraft = Schemas["CaseDraftOut"];
 export type TryChatReply = Schemas["TryChatOut"];
 
-export type TeachUploadKind = "photo" | "file" | "voice";
+
 
 const knowsKey = (slug: string) => ["kb-knows", slug] as const;
 const struggleKey = (slug: string, agentId?: string) => ["kb-struggles", slug, agentId ?? null] as const;
@@ -68,24 +68,17 @@ export function useTeaching(session: Session, id: string | null): UseQueryResult
   });
 }
 
-export function useStartTeaching(session: Session) {
+/**
+ * Hear a voice note for the teach box. The teaching stops at `heard`; the screen takes its
+ * words into the teach box and discards it, and Pip sorts what the owner sends (D-821).
+ */
+export function useHearVoiceNote(session: Session) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (
-      input:
-        | { kind: "text"; words: string; gapId?: string | null }
-        | { kind: TeachUploadKind; file: Blob; filename: string; gapId?: string | null },
-    ): Promise<Teaching> => {
-      if (input.kind === "text") {
-        return apiRequest<Teaching>(session, "/v1/kb/teach", {
-          method: "POST",
-          body: { words: input.words, gap_id: input.gapId ?? null },
-        });
-      }
+    mutationFn: async ({ file }: { file: Blob }): Promise<Teaching> => {
       const form = new FormData();
-      form.append("file", input.file, input.filename);
-      form.append("kind", input.kind);
-      if (input.gapId) form.append("gap_id", input.gapId);
+      form.append("file", file, "voice-note.webm");
+      form.append("kind", "voice");
       return apiUpload<Teaching>(session, "/v1/kb/teach/upload", form);
     },
     onSuccess: (teaching) =>
@@ -93,16 +86,18 @@ export function useStartTeaching(session: Session) {
   });
 }
 
-export function useConfirmWords(session: Session) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, words }: { id: string; words: string }) =>
-      apiRequest<Teaching>(session, `/v1/kb/teach/${id}/words`, {
-        method: "POST",
-        body: { words },
-      }),
-    onSuccess: (teaching) =>
-      client.setQueryData(teachingKey(session.orgSlug, teaching.id), teaching),
+const openTeachingKey = (slug: string) => ["kb-teaching-open", slug] as const;
+
+/**
+ * What this person asked Pip to teach that is being sorted or waits for review (D-821).
+ * Polls while it is sorted; Pip's confirmation refreshes every query, so a new one appears.
+ */
+export function useOpenTeaching(session: Session): UseQueryResult<Teaching | null> {
+  return useQuery({
+    queryKey: openTeachingKey(session.orgSlug),
+    queryFn: async () =>
+      (await apiRequest<{ teaching: Teaching | null }>(session, "/v1/kb/teach/open")).teaching,
+    refetchInterval: (query) => (isTeachingBusy(query.state.data?.status) ? 1_500 : false),
   });
 }
 
@@ -126,14 +121,17 @@ export function useSaveTeaching(session: Session) {
       void client.invalidateQueries({ queryKey: knowsKey(session.orgSlug) });
       void client.invalidateQueries({ queryKey: ["kb-struggles", session.orgSlug] });
       void client.invalidateQueries({ queryKey: ["kb", session.orgSlug] });
+      void client.invalidateQueries({ queryKey: openTeachingKey(session.orgSlug) });
     },
   });
 }
 
 export function useDiscardTeaching(session: Session) {
+  const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
       apiRequest<Teaching>(session, `/v1/kb/teach/${id}/discard`, { method: "POST" }),
+    onSuccess: () => client.invalidateQueries({ queryKey: openTeachingKey(session.orgSlug) }),
   });
 }
 

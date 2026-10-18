@@ -277,13 +277,6 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
         "by the allowlisted raw-transcript route, which is role-checked and audited "
         "(tests/call_summary_redaction_test.py)"
     ),
-    "CallAssistOut.summary": (
-        "the assistant's re-summarise. Redacted TWICE and the first pass is the one that "
-        "matters: the model is handed `transcript_turns.text_redacted` and `run_assist` "
-        "refuses input that `redact()` still changes, so there is no unredacted digit "
-        "for it to copy; the output then goes out through `crm.service.redacted_summary` "
-        "like every other summary on this surface (tests/call_assist_test.py)"
-    ),
     "CopilotApprovalPreviewOut.summary": (
         "the planner's own sentence about a waiting assistant action (D-694), composed by "
         "OUR planners from ids and statuses and put through `workers.redaction.redact` "

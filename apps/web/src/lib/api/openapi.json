@@ -4600,24 +4600,8 @@
             "title": "File",
             "type": "string"
           },
-          "gap_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Gap Id"
-          },
           "kind": {
-            "enum": [
-              "photo",
-              "file",
-              "voice"
-            ],
+            "const": "voice",
             "title": "Kind",
             "type": "string"
           }
@@ -5524,38 +5508,6 @@
           "answering"
         ],
         "title": "CalevateNumberOut",
-        "type": "object"
-      },
-      "CallAssistOut": {
-        "additionalProperties": false,
-        "description": "One user-triggered re-summarise of a call (D-127 G-2/G-5/G-6).\n\n**EVERY FIELD IS REQUIRED \u2014 none carries a Pydantic default.** A default here\ngenerates an OPTIONAL property in the client this repo generates from OpenAPI, and\nall three of these are facts the screen has to state rather than shapes it may skip:\nan absent `disclosure` would render a Sarvam answer as the assistant's own (the one\noutcome G-6 rules out), and an absent `metered` would render \"this cost you nothing\"\nas the default for an assist that cost the allowance.\n\nNothing here is persisted. The stored `calls.summary` is the FIRST pass, over the raw\ntranscript; this is a second reading over the redacted copy, held for as long as the\nperson is looking at it (`crm/assist.py` argues why overwriting one with the other\nwould degrade the lead and rewrite history).",
-        "properties": {
-          "disclosure": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Disclosure"
-          },
-          "metered": {
-            "title": "Metered",
-            "type": "boolean"
-          },
-          "summary": {
-            "title": "Summary",
-            "type": "string"
-          }
-        },
-        "required": [
-          "summary",
-          "disclosure",
-          "metered"
-        ],
-        "title": "CallAssistOut",
         "type": "object"
       },
       "CallBackOut": {
@@ -23091,6 +23043,10 @@
             "title": "Requested At",
             "type": "string"
           },
+          "reviewed": {
+            "title": "Reviewed",
+            "type": "boolean"
+          },
           "status": {
             "enum": [
               "queued",
@@ -23107,7 +23063,8 @@
           "requested_at",
           "completed_at",
           "fields",
-          "error_code"
+          "error_code",
+          "reviewed"
         ],
         "title": "LeadFieldsDraftOut",
         "type": "object"
@@ -23186,6 +23143,44 @@
           "agents"
         ],
         "title": "LeadFieldsOut",
+        "type": "object"
+      },
+      "LeadFieldsReviewIn": {
+        "additionalProperties": false,
+        "description": "The drafted fields the owner keeps, by key. Empty discards the draft.",
+        "properties": {
+          "keep": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 40,
+            "title": "Keep",
+            "type": "array"
+          }
+        },
+        "required": [
+          "keep"
+        ],
+        "title": "LeadFieldsReviewIn",
+        "type": "object"
+      },
+      "LeadFieldsReviewOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agents_changed": {
+            "title": "Agents Changed",
+            "type": "integer"
+          },
+          "fields_kept": {
+            "title": "Fields Kept",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fields_kept",
+          "agents_changed"
+        ],
+        "title": "LeadFieldsReviewOut",
         "type": "object"
       },
       "LeadFilterIn": {
@@ -27091,6 +27086,26 @@
           "inr_per_month"
         ],
         "title": "OfferedNumberOut",
+        "type": "object"
+      },
+      "OpenTeachingOut": {
+        "additionalProperties": false,
+        "properties": {
+          "teaching": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TeachingOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "teaching"
+        ],
+        "title": "OpenTeachingOut",
         "type": "object"
       },
       "OperatorCreateIn": {
@@ -37937,34 +37952,6 @@
         "title": "SubmitOut",
         "type": "object"
       },
-      "TeachIn": {
-        "additionalProperties": false,
-        "properties": {
-          "gap_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Gap Id"
-          },
-          "words": {
-            "maxLength": 8000,
-            "minLength": 1,
-            "title": "Words",
-            "type": "string"
-          }
-        },
-        "required": [
-          "words"
-        ],
-        "title": "TeachIn",
-        "type": "object"
-      },
       "TeachItemIO": {
         "additionalProperties": false,
         "properties": {
@@ -45263,22 +45250,6 @@
           "example"
         ],
         "title": "WhatsAppTemplateVariableIn",
-        "type": "object"
-      },
-      "WordsIn": {
-        "additionalProperties": false,
-        "properties": {
-          "words": {
-            "maxLength": 8000,
-            "minLength": 1,
-            "title": "Words",
-            "type": "string"
-          }
-        },
-        "required": [
-          "words"
-        ],
-        "title": "WordsIn",
         "type": "object"
       },
       "WorkspaceFailureOut": {
@@ -60124,47 +60095,6 @@
         "x-calevate-permission": "calls:read"
       }
     },
-    "/v1/calls/{call_id}/assist": {
-      "post": {
-        "description": "Runs the dashboard assistant over this call's REDACTED transcript and returns a fresh summary. Nothing is stored: the call's own summary and captured fields are the first pass over the raw transcript and are left alone. Refused before any model is called when the account is past its included AI allowance \u2014 the screen opens the wallet dialog on `ai_quota_exceeded`. A `Idempotency-Key` header is REQUIRED so a double-click is paid for once. Requires `org:manage`.",
-        "operationId": "assist_call_v1_calls__call_id__assist_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "call_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Call Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CallAssistOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Re-summarise this call with the assistant model \u2014 metered, quota-gated (D-127)",
-        "tags": [
-          "crm"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
     "/v1/calls/{call_id}/callback": {
       "get": {
         "description": "A GET so the button renders disabled-with-a-reason on page load.\n\nBoth the eligibility rules AND the compliance gate are evaluated, because a call\nthat is eligible on our rules can still be un-dialable right now (outside calling\nhours, DNC, spend cap) \u2014 and \"the button is greyed out and I do not know why\" is\nthe exact failure SURFACES \u00a72b exists to prevent.",
@@ -66005,26 +65935,16 @@
         "x-calevate-permission": "calls:read"
       }
     },
-    "/v1/kb/teach": {
-      "post": {
-        "description": "Sorting runs in the background and is counted against this month's AI help. Poll `GET /v1/kb/teach/{id}` until `status` is `ready`. When the AI help is used up the words come back unsorted for the owner to mark.",
-        "operationId": "teach_words_v1_kb_teach_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TeachIn"
-              }
-            }
-          },
-          "required": true
-        },
+    "/v1/kb/teach/open": {
+      "get": {
+        "description": "What Pip was asked to teach (D-821) lands here for review: the newest of this person's teachings that is `queued`, `sorting` or `ready`, or null.",
+        "operationId": "open_teaching_v1_kb_teach_open_get",
         "responses": {
-          "201": {
+          "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TeachingOut"
+                  "$ref": "#/components/schemas/OpenTeachingOut"
                 }
               }
             },
@@ -66037,16 +65957,16 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Teach in words; the AI sorts them into facts and rules for review",
+        "summary": "This person's newest teaching that is being sorted or waits for review",
         "tags": [
           "teach"
         ],
-        "x-calevate-permission": "kb:write"
+        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/kb/teach/upload": {
       "post": {
-        "description": "`kind` is `photo` (a picture of a price list or menu), `file` (.docx, .txt, .csv, .xlsx) or `voice` (a voice note under 30 seconds). A voice note stops at `heard` so the owner can check the words; confirm them with `POST .../words`.",
+        "description": "`kind` is `voice` (a voice note under 30 seconds). The teaching stops at `heard`: the screen puts the words in the teach box for the owner to check, discards the teaching, and Pip sorts what the owner sends it (D-821). Typed words, photos and files are taught through Pip.",
         "operationId": "teach_upload_v1_kb_teach_upload_post",
         "requestBody": {
           "content": {
@@ -66076,7 +65996,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Teach with a photo, a file or a voice note",
+        "summary": "Hear a voice note for the teach box",
         "tags": [
           "teach"
         ],
@@ -66208,56 +66128,6 @@
           }
         },
         "summary": "Keep the reviewed facts and rules",
-        "tags": [
-          "teach"
-        ],
-        "x-calevate-permission": "kb:write"
-      }
-    },
-    "/v1/kb/teach/{teaching_id}/words": {
-      "post": {
-        "operationId": "confirm_words_v1_kb_teach__teaching_id__words_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "teaching_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Teaching Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/WordsIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TeachingOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Confirm (or correct) the words heard in a voice note, then sort them",
         "tags": [
           "teach"
         ],
@@ -66919,16 +66789,26 @@
         "x-calevate-permission": "org:read"
       }
     },
-    "/v1/lead-fields/draft": {
+    "/v1/lead-fields/draft/review": {
       "post": {
-        "description": "For a business set up as 'Something else'. Queued; the screen polls `GET` for the result. Drafted once: a finished draft is never redrafted (409), and a failed one may be asked for again.",
-        "operationId": "post_draft_v1_lead_fields_draft_post",
+        "description": "The kept fields go onto every agent that has no business details of its own yet and become what a new agent starts with; the rest are dropped. Once: a reviewed draft is refused (409). Asking for the draft is Pip's (`lead_fields_draft`).",
+        "operationId": "post_draft_review_v1_lead_fields_draft_review_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadFieldsReviewIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
-          "202": {
+          "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DraftRequestOut"
+                  "$ref": "#/components/schemas/LeadFieldsReviewOut"
                 }
               }
             },
@@ -66941,7 +66821,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Draft this business's lead details once, from its business details",
+        "summary": "Keep some or none of the drafted lead details (D-821)",
         "tags": [
           "agents"
         ],
