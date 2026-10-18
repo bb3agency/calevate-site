@@ -45,9 +45,12 @@ export function KnowledgeGaps({
   agentId,
   className,
   hideWhenClear = false,
+  headingLevel = 2,
 }: {
   agentId?: string;
   className?: string;
+  /** 3 inside an agent's Training tab, whose tab label is the h2; its rows go one lower. */
+  headingLevel?: 2 | 3;
   /** Render nothing until there is something to teach: the dashboard home shows this card
    *  only when an agent actually struggled. The agent page keeps the calm line. */
   hideWhenClear?: boolean;
@@ -60,14 +63,14 @@ export function KnowledgeGaps({
   // only when their owner has switched curation on (`/v1/me` reports the effective set).
   const write = useWriteAccess(session, "kb:write", "teach or dismiss these");
 
-  const title = agentId ? "Where this agent struggled" : "Where your agents struggled";
+  const title = agentId ? "Where it struggled on real calls" : "Where your agents struggled";
   // A gap found while the screen is open enters softly (D-774); the list on load does not.
   const enter = useEnterClass(gaps.data ? gaps.data.items.map((gap) => gap.id) : null);
 
   if (gaps.isLoading) {
     if (hideWhenClear) return null;
     return (
-      <Section title={title} className={className}>
+      <Section title={title} headingLevel={headingLevel} className={className}>
         <Skeleton rows={4} />
       </Section>
     );
@@ -75,7 +78,7 @@ export function KnowledgeGaps({
 
   if (gaps.error || !gaps.data) {
     return (
-      <Section title={title} className={className}>
+      <Section title={title} headingLevel={headingLevel} className={className}>
         <ProblemNotice
           error={gaps.error ?? new Error("Your knowledge gaps did not load.")}
           onRetry={() => void gaps.refetch()}
@@ -90,6 +93,7 @@ export function KnowledgeGaps({
   return (
     <Section
       title={title}
+      headingLevel={headingLevel}
       className={className}
       info={
         <p>
@@ -129,6 +133,7 @@ export function KnowledgeGaps({
               gap={gap}
               showAgent={!agentId}
               canWrite={write.allowed}
+              rowHeading={headingLevel === 3 ? "h4" : "h3"}
             />
           ))}
         </ul>
@@ -139,7 +144,7 @@ export function KnowledgeGaps({
 
 const SIGNAL_BADGE: Record<GapSignal, string> = {
   dont_know: "Didn't know this",
-  deferred_channel: "Punted to WhatsApp / callback",
+  deferred_channel: "Put it off to a message or call back",
   unanswered_question: "Left unanswered",
 };
 
@@ -149,8 +154,10 @@ function GapRow({
   canWrite,
   eg,
   enterClass,
+  rowHeading: RowHeading,
 }: {
   enterClass: string;
+  rowHeading: "h3" | "h4";
   gap: KnowledgeGap;
   showAgent: boolean;
   canWrite: boolean;
@@ -192,18 +199,14 @@ function GapRow({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <span className="text-meta font-medium text-warn">{SIGNAL_BADGE[gap.signal]}</span>
-          {/* `h3`, not `h4`. This row sits inside a panel, whose title is the `h2`, so
-              `h4` skips a level — WCAG 2.2 1.3.1 Info and Relationships (Level A), and
-              axe's `heading-order` reports it as soon as a screen renders this card after
-              any other heading. UX-DOCTRINE §2: heading level is a property of where the
-              component is allowed to be used, and this component is only ever used inside
-              a card. */}
-          <h3
+          {/* One level under the panel's title, never two: a skipped level is WCAG 2.2
+              1.3.1 (Level A) and axe's `heading-order`. */}
+          <RowHeading
             title={gap.topic_label}
             className="mt-0.5 truncate text-sm font-semibold text-ink"
           >
             {gap.topic_label}
-          </h3>
+          </RowHeading>
           {showAgent && gap.agent_name ? (
             <p className="text-meta text-ink-muted">{gap.agent_name}</p>
           ) : null}
@@ -285,7 +288,7 @@ function GapRow({
             onClick={() => setTeaching(true)}
             disabled={busy}
           >
-            Teach this
+            Teach the answer
           </button>
           <button
             type="button"

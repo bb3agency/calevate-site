@@ -1,29 +1,24 @@
 "use client";
 
 /**
- * THE BUILDER'S TOP LINE — where the owner is, whether their work is saved, how much room
- * the script has left, and the one action that matters: "Put it live", shown only while
- * callers hear something different from the draft.
+ * THE SCRIPT TAB'S TOP LINE — whether callers hear this draft, whether the owner's work is
+ * saved, and the one action that matters: "Put it live", shown only while callers hear
+ * something different from the draft.
  *
- * There is no Save button. The draft saves itself; the line under the title says so in
- * words, and says why when it cannot. The pill beside the title says whether callers hear
- * this draft. No version numbers are shown anywhere. History sits in the ⋯ menu with the
- * other occasional actions, so the bar holds two buttons: "Let Pip do it" (D-820) and the one
- * primary.
+ * There is no Save button. The draft saves itself; the line beside the pill says so in
+ * words, and says why when it cannot. No version numbers are shown anywhere. History, the
+ * full instructions, the flow picture and hand-writing sit in "More options" (D-825); asking
+ * Pip has its own panel beside the steps. The room-left meter appears only once the script
+ * is near the limit (`ROOM_SHOWN_FROM`): below it there is nothing for the owner to do.
  *
  * Also here: the "full instructions" drawer, the exact text the calling system reads.
  */
 
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
-
-import { PRIMARY_BUTTON, SECONDARY_BUTTON, formatCount, formatIST, type NoticeTone } from "@/components/ui";
+import { PRIMARY_BUTTON, formatCount, formatIST, type NoticeTone } from "@/components/ui";
 import { Drawer } from "@/components/console/drawer";
 import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
 import { StatusPill } from "@/components/console/statusPill";
 import { StickyPageBar } from "@/components/console/stickyPageBar";
-import { PipMark } from "@/components/illustration/pip";
-import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
 import type { PartLength } from "@/components/heldBackNotice";
 import type { PreviewOut } from "@/lib/api/script";
@@ -72,69 +67,41 @@ export function saveLine(state: SaveState): string {
 }
 
 export function ScriptToolbar({
-  backHref,
-  agentName,
   save,
   room,
   unpublished,
   canWrite,
   writeReason,
   publishing,
-  askOpen,
   live,
   menu,
   onPublish,
-  onAsk,
 }: {
-  backHref: string;
-  agentName: string;
   save: SaveState;
   room: Room | null;
   unpublished: boolean;
   canWrite: boolean;
   writeReason: string | null;
   publishing: boolean;
-  askOpen: boolean;
   /** Whether callers hear this draft, in a word or two. */
   live: { text: string; tone: NoticeTone };
   menu: RowMenuItem[];
   onPublish: () => void;
-  onAsk: () => void;
 }) {
   const warn = save.kind === "held" || save.kind === "conflict" || save.kind === "failed";
   const tooLong = room !== null && room.used > room.limit;
+  const showRoom = room !== null && room.used >= room.limit * ROOM_SHOWN_FROM;
   return (
     <StickyPageBar>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex min-w-0 flex-1 basis-60 items-center gap-3">
-          <Link
-            href={backHref}
-            aria-label={`Back to ${agentName}`}
-            className="press flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-ink/[0.05] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:h-11 touch:w-11"
-          >
-            <ArrowLeft aria-hidden className="h-4 w-4" />
-          </Link>
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 className="truncate text-heading text-ink">Script</h2>
-              <StatusPill tone={live.tone}>{live.text}</StatusPill>
-            </div>
-            <p role="status" className={`truncate text-meta ${warn ? "text-warn" : "text-ink-muted"}`}>
-              {agentName} · {saveLine(save)}
-            </p>
-          </div>
+        <div className="flex min-w-0 flex-1 basis-60 items-center gap-2">
+          <StatusPill tone={live.tone}>{live.text}</StatusPill>
+          <p role="status" className={`truncate text-meta ${warn ? "text-warn" : "text-ink-muted"}`}>
+            {saveLine(save)}
+          </p>
         </div>
-        {room && <RoomLeft used={room.used} limit={room.limit} />}
-        <div className="flex w-full items-center gap-2 sm:w-auto">
-          <button
-            type="button"
-            onClick={onAsk}
-            aria-pressed={askOpen}
-            className={`${SECONDARY_BUTTON} inline-flex items-center justify-center gap-1.5 max-sm:flex-1`}
-          >
-            <PipMark size={16} className="shrink-0" />
-            Let {ASSISTANT_NAME} do it
-          </button>
+        {showRoom && room && <RoomLeft used={room.used} limit={room.limit} />}
+        <div className="ml-auto flex items-center gap-2">
           {unpublished && (
             <button
               type="button"
@@ -161,6 +128,9 @@ export function ScriptToolbar({
     </StickyPageBar>
   );
 }
+
+/** The room-left meter shows from this share of the limit; below it there is nothing to act on. */
+export const ROOM_SHOWN_FROM = 0.85;
 
 /**
  * How much of the calling system's instructions box the script leaves free. The number is

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import AgentScriptPage from "@/app/c/[slug]/agents/[agentId]/script/page";
+import { ScriptBuilder } from "@/app/c/[slug]/agents/[agentId]/script/ScriptBuilder";
 import { partSummaries } from "@/app/c/[slug]/agents/[agentId]/script/ScriptParts";
 import type { Me } from "@/lib/api/client";
 import { EMPTY_SCRIPT, type CallScript, type ScriptOut, type ScriptProposal } from "@/lib/api/script";
@@ -43,7 +43,7 @@ const FULL: CallScript = {
       name: "Greet",
       mode: "guide",
       instruction: "Say hello and ask what they need.",
-      sounds_like: "",
+      sounds_like: "Namaskaram andi, em kavali?",
       branches: [{ when: "they want a person", target: "hand_over" }],
       otherwise: "",
       collect: ["Delivery area"],
@@ -71,7 +71,13 @@ function out(script: CallScript, draft: CallScript | null = null): ScriptOut {
 }
 
 const PREVIEW = { compiled: "FULL TEXT", instructions_chars: 2000, instructions_limit: 8000, native_steps: 2 };
-const page = <AgentScriptPage params={Promise.resolve({ slug: "acme", agentId: "agent-1" })} />;
+const page = (
+  <ScriptBuilder
+    agentId="agent-1"
+    knowledgeHref="/c/acme/knowledge"
+    trainingHref="/c/acme/agents/agent-1?section=training"
+  />
+);
 
 const routes = (script: ScriptOut, extra: Record<string, unknown> = {}) => ({
   "/v1/me": OWNER,
@@ -88,14 +94,15 @@ afterEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
-describe("the script page leads with the opening line and the steps", () => {
-  it("shows the steps as one-line summaries and the set-once parts as closed rows", async () => {
+describe("the Script tab leads with the opening line and the steps", () => {
+  it("shows each step as its name, what it does and its example line, and the set-once parts as closed rows", async () => {
     const { container } = await renderClientPage(page, routes(out(FULL)));
     const list = await screen.findByRole("list", { name: "Steps of the call, in order" });
     const first = list.querySelector(":scope > li")?.textContent ?? "";
     expect(first).toContain("Greet");
+    expect(first).toContain("Say hello and ask what they need.");
+    expect(first).toContain("“Namaskaram andi, em kavali?”");
     expect(first).toContain("1 other way out");
-    expect(first).toContain("Finds out: Delivery area");
 
     const rows = Array.from(container.querySelectorAll("details")).map((d) => d.querySelector("summary h4")?.textContent);
     expect(rows).toEqual([
@@ -112,6 +119,31 @@ describe("the script page leads with the opening line and the steps", () => {
     expect(screen.getByLabelText("Your business in one line")).toBeTruthy();
     expect(screen.getByText("An organic produce shop in Kukatpally")).toBeTruthy();
     expect(screen.getByText("1 line · waiting for a native speaker")).toBeTruthy();
+  });
+
+  it("opens a step in place, with its rarer options folded and saying what they hold", async () => {
+    await renderClientPage(page, routes(out(FULL)));
+    const list = await screen.findByRole("list", { name: "Steps of the call, in order" });
+    const card = list.querySelector(":scope > li") as HTMLElement;
+    const open = within(card).getByRole("button", { expanded: false, name: /Greet/ });
+    fireEvent.click(open);
+    expect(within(card).getByLabelText("Example line")).toHaveProperty("value", "Namaskaram andi, em kavali?");
+    const more = within(card).getByText("More options").closest("details") as HTMLDetailsElement;
+    expect(more.open).toBe(false);
+    expect(more.textContent).toContain("finds out Delivery area");
+    // Far from the limit, no letters count is shown.
+    expect(within(card).queryByText(/letters left/)).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { expanded: true, name: /Greet/ }));
+    expect(within(card).queryByLabelText("Example line")).toBeNull();
+  });
+
+  it("shows how much room is left once the script nears the limit", async () => {
+    await renderClientPage(
+      page,
+      routes(out(FULL), { "POST /v1/agents/agent-1/script/preview": { ...PREVIEW, instructions_chars: 7400 } }),
+    );
+    const meter = await screen.findByRole("meter", { name: "Room left in the instructions" }, { timeout: 4000 });
+    expect(meter.getAttribute("aria-valuetext")).toBe("600 letters left");
   });
 
   it("says whether callers hear this draft", async () => {

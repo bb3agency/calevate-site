@@ -168,7 +168,7 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         name="Agents",
         group=None,
         summary="The AI voice agents themselves — what they say, what they capture, whether "
-        "they are live, and each agent's Test section of practice callers and fixes.",
+        "they are live, and each agent's Training tab, where it is taught, tried and tested.",
         aliases=(
             "bots",
             "ai agents",

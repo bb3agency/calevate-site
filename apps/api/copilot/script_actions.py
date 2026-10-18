@@ -1,12 +1,12 @@
 """Pip's script abilities (D-820): prepare a change to an agent's call script, or fixes for
 the tests it failed, for review where each lives.
 
-Founder, 18 Oct 2026: Pip is the one AI assistant, and the Script page's own "AI helper"
+Founder, 18 Oct 2026: Pip is the one AI assistant, and the Script tab's own "AI helper"
 panel is retired in its favour. This action is what the panel did — make one change the
 person asked for, draft the whole script from the five owner questions, or turn a
 hand-written script into steps — through the same writer (`workers/script_assist.
 draft_script`), and it ends where the panel ended: a PROPOSAL the owner keeps part by part
-into their draft on the Script page, or discards. It never writes the draft and never puts
+into their draft on the Script tab, or discards. It never writes the draft and never puts
 anything live.
 
 WHY `confirm`. Writing the proposal spends the account's AI allowance, and the tier rule is
@@ -16,10 +16,10 @@ NOT do (touch the draft, reach a caller) is what its `reversal` says.
 
 WHY A JOB BEHIND IT. The executor records the request and queues `draft_script_proposal`
 (`agents/script_proposals.request_proposal`): two model legs do not belong inside the
-confirm request's transaction (D-748's reason for the improve job). The Script page shows
+confirm request's transaction (D-748's reason for the improve job). The Script tab shows
 the proposal when it is ready.
 
-`agent_tests_fix` is the Test section's "Improve my agent" / "Suggest a fix for this",
+`agent_tests_fix` is the Training tab's "Improve my agent" / "Suggest a fix for this",
 asked of Pip the same way: its executor is `test_conversations.request_improvement`, the
 function that section's button called, and the fixes are reviewed there
 (`ImprovementReview`), as before.
@@ -158,7 +158,7 @@ async def _plan_script_suggest(
     if pending is not None and pending.status == "drafting":
         raise WriteRefusedError(
             "the last change asked for is still being written, so tell the person to wait for "
-            "it on the Script page before asking for another"
+            "it on the Script tab before asking for another"
         )
     # The allowance, asked before the card: a refusal here (used up, paused) reaches the
     # person now, with its own remediation, rather than after they press Confirm.
@@ -168,7 +168,7 @@ async def _plan_script_suggest(
         title=_TITLES[parsed.mode],
         summary=(
             f"{ASSISTANT_NAME} writes a suggestion for “{name}”'s call script. It waits on "
-            "the agent's Script page, where you keep the parts you want into your draft."
+            "the agent's Script tab, where you keep the parts you want into your draft."
         ),
         current=(
             "A suggestion is waiting for review; this one replaces it."
@@ -179,7 +179,7 @@ async def _plan_script_suggest(
         cost="Uses your account's AI help allowance.",
         reversal=(
             "Nothing in the script changes until you keep the suggestion, and nothing goes "
-            "live until you put it live. Discard it on the Script page if you do not want it."
+            "live until you put it live. Discard it on the Script tab if you do not want it."
         ),
         args=canonical,
     )
@@ -207,7 +207,7 @@ async def _execute_script_suggest(
         applied=True,
         detail=(
             f"{ASSISTANT_NAME} is writing it now; it takes about half a minute. Review it on "
-            f"“{name}”'s Script page: nothing reaches the script until you keep it."
+            f"“{name}”'s Script tab: nothing reaches the script until you keep it."
         ),
         # Ids and closed-set words only: the request is the client's own business copy.
         audit_summary={
@@ -226,15 +226,15 @@ AGENT_SCRIPT_SUGGEST: Final = ActionTool(
     name="agent_script_suggest",
     tier="confirm",
     undo=None,
-    # The Script page's own write permission (`script_routes.ScriptWriter`).
+    # The Script tab's own write permission (`script_routes.ScriptWriter`).
     permission="org:manage",
     object_type="agent",
     audit_action="agent.script_assist",
-    where="on the agent's Script page, under Agents",
+    where="on the agent's Script tab, under Agents",
     schema=action_schema(
         "agent_script_suggest",
         "Write a suggested change to an agent's call script; the person reviews it on its "
-        "Script page. For rewriting, adding to or drafting the script; `set_fields` only types "
+        "Script tab. For rewriting, adding to or drafting the script; `set_fields` only types "
         "a dictated value into a field on screen. `change`: one change in their words. "
         "`whole`: from the five answers; ask the five questions together first. `steps`: a "
         "hand-written script into steps. Failed tests: `agent_tests_fix`." + PROPOSES_ONLY,
@@ -307,13 +307,13 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
     if not failures:
         raise WriteRefusedError(
             "none of these failed tests is the script's or the facts' to fix: each result in "
-            "the Test section says who can (a setting to change, or our side, which we are "
+            "the Training tab says who can (a setting to change, or our side, which we are "
             "fixing), so tell the person that instead"
         )
     if run.improving:
         raise WriteRefusedError(
             "fixes for this run are already being worked out, so tell the person they will "
-            "appear in the agent's Test section"
+            "appear in the agent's Training tab"
         )
     await require_ai_assist(session, tenant_id=actor.tenant_id)
     titles = [strip_invisible(str(r.get("title") or "")) for r in failures]
@@ -323,7 +323,7 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
         title="Suggest fixes for failed tests",
         summary=(
             f"{ASSISTANT_NAME} works out changes to “{name}”'s script and facts that fix "
-            f"{count}. They wait in the agent's Test section, where you keep the ones you want."
+            f"{count}. They wait in the agent's Training tab, where you keep the ones you want."
         ),
         current=None,
         proposed="; ".join(t for t in titles if t) or count,
@@ -343,7 +343,7 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
 async def _execute_tests_fix(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`test_conversations.request_improvement` — what the Test section's button called —
+    """`test_conversations.request_improvement` — what the Training tab's button called —
     behind the allowance asked again at the door. It queues the job and answers at once
     (D-748)."""
     parsed = parse_args(_TestsFixArgs, args)
@@ -361,7 +361,7 @@ async def _execute_tests_fix(
         applied=True,
         detail=(
             f"{ASSISTANT_NAME} is working out the fixes; it takes up to two minutes. Review "
-            f"them in “{name}”'s Test section: nothing changes until you keep one."
+            f"them in “{name}”'s Training tab: nothing changes until you keep one."
         ),
         audit_summary={
             "agent_id": str(parsed.agent_id),
@@ -375,15 +375,15 @@ AGENT_TESTS_FIX: Final = ActionTool(
     name="agent_tests_fix",
     tier="confirm",
     undo=None,
-    # The Test section's own write permission (`script_routes.ScriptWriter`).
+    # The Training tab's own write permission (`script_routes.ScriptWriter`).
     permission="org:manage",
     object_type="agent",
     audit_action="agent.tests_improvement",
-    where="in the agent's Test section, under Agents",
+    where="in the agent's Training tab, under Agents",
     schema=action_schema(
         "agent_tests_fix",
         "Suggest script and fact changes that fix the tests an agent failed in its latest "
-        "run; the person keeps them in its Test section. For a change they describe, use "
+        "run; the person keeps them in its Training tab. For a change they describe, use "
         "`agent_script_suggest`." + PROPOSES_ONLY,
         {
             "agent_id": {

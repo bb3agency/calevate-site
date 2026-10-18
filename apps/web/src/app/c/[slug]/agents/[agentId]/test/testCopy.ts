@@ -20,13 +20,13 @@ export const VERDICT: Record<TestVerdict, { label: string; tone: string; dot: st
   passed: { label: "Passed", tone: "text-brand-strong", dot: "bg-brand-strong" },
   needs_fix: { label: "Needs a fix", tone: "text-warn", dot: "bg-warn" },
   failed: { label: "Failed", tone: "text-danger", dot: "bg-danger" },
-  unjudged: { label: "Not checked", tone: "text-ink-muted", dot: "bg-ink-faint" },
+  unjudged: { label: "Read it yourself", tone: "text-ink-muted", dot: "bg-ink-faint" },
 };
 
 /** What the owner does about a failure, by who can fix it (D-823), in one line. */
 export const WHAT_TO_DO: Record<TestOwner, string> = {
   script: "Change the script, or let Pip suggest the change.",
-  knowledge: "Add or correct the fact in Knowledge, or let Pip suggest it.",
+  knowledge: "Teach the right answer above, or let Pip suggest it.",
   setting: "Change the setting below. Nothing in the script fixes this.",
   platform: "We're fixing this. It is on our side, and nothing in your script changes it.",
   test: "You marked this test wrong, so it is left out of the score and the fixes.",
@@ -51,7 +51,7 @@ export function ownerOf(result: Pick<TestResult, "owner" | "fix" | "marked_wrong
 
 /** Where each setting a result can point to lives, relative to the agent's page. */
 export const SETTING_LINK: Record<TestSetting["area"], { label: string; section: string | null }> = {
-  handover: { label: "Open call handling", section: "calls" },
+  handover: { label: "Open call handling", section: "settings" },
   agreements: { label: "Open agreements", section: null },
 };
 

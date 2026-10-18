@@ -101,7 +101,7 @@ function tests(over: Partial<TestConversations["latest"] & object> = {}, waiting
 
 const SAVED = { cases: [], available: true, unavailable_reason: null, live_version: 3, cost_note: "" };
 
-describe("the Test section", () => {
+describe("the practice callers in Training", () => {
   it("states the run, the trend, each language and what to do, failures first", async () => {
     await renderClientPage(<TestSection agent={AGENT} slug="acme" />, {
       "/v1/me": ME,
@@ -123,7 +123,7 @@ describe("the Test section", () => {
     expect(screen.queryByText(/Fix on our side: contact us/)).toBeNull();
     expect(screen.getByText(/Your agreements are waiting/)).toBeTruthy();
     // Needs a fix is listed before Read these yourself.
-    const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    const headings = screen.getAllByRole("heading", { level: 4 }).map((h) => h.textContent);
     expect(headings.findIndex((h) => h?.startsWith("Needs a fix"))).toBeLessThan(
       headings.findIndex((h) => h?.startsWith("Read these yourself")),
     );
@@ -201,7 +201,7 @@ describe("the Test section", () => {
     expect(screen.getAllByRole("button", { name: "Let Pip suggest a fix" })).toHaveLength(1);
     expect(screen.queryByText(/contact us/i)).toBeNull();
     // A setting's result links to the setting.
-    expect(screen.getByRole("link", { name: "Open call handling" }).getAttribute("href")).toContain("section=calls");
+    expect(screen.getByRole("link", { name: "Open call handling" }).getAttribute("href")).toContain("section=settings#call-handling");
     fireEvent.click(screen.getAllByRole("button", { name: "This test is wrong" })[1]);
     await screen.findByText("Marked wrong (1)");
     expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/results/g1/wrong"))).toBe(true);

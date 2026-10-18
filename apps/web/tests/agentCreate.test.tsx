@@ -272,7 +272,7 @@ describe("what the form promises about the agent it is about to build", () => {
     expect(container.textContent).toContain("not answering or dialling anyone");
     // The primary way on is the BUILDER: an agent with no script cannot be switched on.
     const write = screen.getByRole("link", { name: /Write its script/ });
-    expect(write.getAttribute("href")).toBe("/c/acme/agents/agent-9/script");
+    expect(write.getAttribute("href")).toBe("/c/acme/agents/agent-9?section=script");
     const open = screen.getByRole("link", { name: /Open Front desk/ });
     expect(open.getAttribute("href")).toBe("/c/acme/agents/agent-9");
     // The flow is gone: a second press would build a second agent nobody asked for.

@@ -1,7 +1,12 @@
 "use client";
 
 /**
- * THE CALL AS A NUMBERED LIST — the phone's view of the script, and the desktop's "List".
+ * THE CALL AS NUMBERED STEPS — the script's main view at every width (D-825); the flow
+ * picture is the occasional alternative on a desktop.
+ *
+ * Each card says the step's name, what the agent does there and its example line, in that
+ * order; a step opens in place under its card (`editor`), so the owner never leaves the
+ * list to change one.
  *
  * The number on each card IS its place in `script.stages`; reordering here renumbers the
  * canvas too, because both read that one array. Three ways to move a card, so nobody is
@@ -13,7 +18,7 @@
  * when a thumb lands anywhere else on a card.
  */
 
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, CircleAlert, GripVertical } from "lucide-react";
 
 import { QUIET_ICON_BUTTON } from "@/components/ui";
@@ -30,14 +35,18 @@ export function SectionList({
   readOnly,
   onOpen,
   onMove,
+  editor,
 }: {
   sections: Section[];
   context: ScriptContext | null;
   issues: Issue[];
   selected: string | null;
   readOnly: boolean;
+  /** Opens a step, or closes it when it is the open one. */
   onOpen: (id: string) => void;
   onMove: (from: number, to: number) => void;
+  /** The open step's editor, drawn under its card. */
+  editor?: ReactNode;
 }) {
   const [announce, setAnnounce] = useState("");
   const [drag, setDrag] = useState<{ id: string; from: number; over: number; dy: number } | null>(null);
@@ -105,10 +114,11 @@ export function SectionList({
                 else items.current.delete(section.id);
               }}
               style={dragging ? { transform: `translateY(${drag.dy}px)` } : undefined}
-              className={`relative flex rounded-card border bg-surface transition-transform duration-(--duration-fast) ease-out ${
+              className={`relative rounded-card border bg-surface transition-transform duration-(--duration-fast) ease-out ${
                 dragging ? "z-raised border-brand shadow-overlay" : selected === section.id ? "border-brand" : "border-line"
               } ${shift}`}
             >
+              <div className="flex">
               <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-line py-3">
                 <span className="text-heading tabular-nums text-ink" aria-hidden>
                   {index + 1}
@@ -138,8 +148,9 @@ export function SectionList({
               </div>
               <button
                 type="button"
+                aria-expanded={selected === section.id}
                 onClick={() => onOpen(section.id)}
-                className="min-w-0 flex-1 rounded-r-card px-4 py-3 text-left hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand"
+                className="min-w-0 flex-1 px-4 py-3 text-left hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand"
               >
                 <SectionSummary sections={sections} index={index} context={context} issues={own} />
               </button>
@@ -165,6 +176,10 @@ export function SectionList({
                   </button>
                 </div>
               )}
+              </div>
+              {selected === section.id && editor ? (
+                <div className="border-t border-line px-4 py-4 sm:pl-16">{editor}</div>
+              ) : null}
             </li>
           );
         })}
@@ -174,9 +189,9 @@ export function SectionList({
 }
 
 /**
- * What a card says, in three short lines so the call scans top to bottom: the name, what
- * to do (one line), and where it goes next with how many other ways out and what it finds
- * out. The full ways out are one click away in the step's editor.
+ * What a card says, in up to three short lines so the call scans top to bottom: the name,
+ * what it does (one line), and the example line as the caller would hear it. Where it goes
+ * next is said only when it is not simply the next step; the rest is in the editor.
  */
 function SectionSummary({
   sections,
@@ -190,25 +205,25 @@ function SectionSummary({
   issues: Issue[];
 }) {
   const s = sections[index];
+  const jumps = s.otherwise !== "" || s.branches.length > 0;
   return (
-    <span className="block space-y-1.5">
+    <span className="block space-y-1">
       <span className="flex items-center gap-2">
         <span className="truncate text-body font-semibold text-ink">{s.name.trim() || "Untitled step"}</span>
-        {index === 0 && <span className="shrink-0 text-meta text-ink-muted">Start</span>}
         {s.mode === "say" && <span className="shrink-0 text-meta text-ink-muted">Exact words</span>}
       </span>
-      <span className="block truncate text-meta text-ink-muted">
+      <span className="line-clamp-2 block text-meta text-ink-muted">
         {s.instruction.trim() || "Nothing written yet."}
       </span>
-      <span className="block truncate text-meta text-ink">
-        {s.branches.length ? "Otherwise" : "Then"} → {thenLabel(sections, index, context)}
-        {s.branches.length > 0 && (
-          <span className="text-ink-muted">
-            {" "}· {s.branches.length} other {s.branches.length === 1 ? "way" : "ways"} out
-          </span>
-        )}
-        {s.collect.length > 0 && <span className="text-ink-muted"> · Finds out: {s.collect.join(", ")}</span>}
-      </span>
+      {s.sounds_like.trim() ? (
+        <span className="block truncate text-meta italic text-ink">&ldquo;{s.sounds_like.trim()}&rdquo;</span>
+      ) : null}
+      {jumps ? (
+        <span className="block truncate text-meta text-ink-muted">
+          {s.branches.length ? "Otherwise" : "Then"}: {thenLabel(sections, index, context)}
+          {s.branches.length > 0 && ` · ${s.branches.length} other ${s.branches.length === 1 ? "way" : "ways"} out`}
+        </span>
+      ) : null}
       {issues.length > 0 && (
         <span className="flex items-center gap-1 text-meta text-danger">
           <CircleAlert aria-hidden className="h-3.5 w-3.5 shrink-0" />

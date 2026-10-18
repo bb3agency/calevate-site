@@ -151,7 +151,7 @@ describe("the knowledge-gaps card", () => {
         },
       }),
     );
-    fireEvent.click(await screen.findByText("Teach this"));
+    fireEvent.click(await screen.findByText("Teach the answer"));
     const box = await screen.findByLabelText(
       "What should the agent say next time?",
     );
@@ -202,7 +202,7 @@ describe("the knowledge-gaps card", () => {
         }),
       }),
     );
-    fireEvent.click(await screen.findByText("Teach this"));
+    fireEvent.click(await screen.findByText("Teach the answer"));
     fireEvent.change(
       await screen.findByLabelText("What should the agent say next time?"),
       { target: { value: "It is 500 rupees." } },
@@ -229,7 +229,7 @@ describe("the knowledge-gaps card", () => {
     expect(
       await screen.findByText("Only an account owner can teach or dismiss these."),
     ).toBeTruthy();
-    expect(screen.queryByText("Teach this")).toBeNull();
+    expect(screen.queryByText("Teach the answer")).toBeNull();
     expect(screen.queryByText("Dismiss")).toBeNull();
     expect(calls.some((c) => c.method === "POST")).toBe(false);
   });

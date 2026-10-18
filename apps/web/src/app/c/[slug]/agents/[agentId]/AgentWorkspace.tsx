@@ -1,27 +1,29 @@
 "use client";
 
 /**
- * ONE AGENT'S WORKSPACE — a settings layout (D-657).
+ * ONE AGENT'S WORKSPACE — seven plain tabs (D-825, founder 19 Oct 2026; was the D-657
+ * twelve-section menu).
  *
  * A slim header (name, the On/Off switch, Try it, and Put it live while the script has
- * changes), then a section menu with one line of state each, ordered by what an owner
- * comes to do (`sections/agentSections.tsx`).
- * Each section is short and complete on its own and is visited, not read in
- * sequence, which is the case the doctrine allows a section switch for.
+ * changes), then Overview · Script · Training · Actions · What it notes · Voice · Settings
+ * (`sections/agentSections.tsx`). Each tab is complete on its own and is visited rather
+ * than read in order, which is the case UX-DOCTRINE §3 allows tabs for; the decision is
+ * D-825.
  *
  * ## What may not move out of Overview
  *
  * The truthful-answer guarantee, the two opening-notice switches under it, and the
- * publish state. Overview is the section that opens first, so none of them is ever behind a
- * section switch (doctrine §8 rule 7). The header carries the publish state on every
- * section.
+ * publish state. Overview is the tab that opens first, so none of them is ever behind a
+ * switch (doctrine §8 rule 7). The header carries the publish state on every tab.
  *
- * ## Nothing was removed
+ * ## Where everything went
  *
- * Every control the stacked workspace had is still here and still writes to the same
- * endpoint; what changed is where it sits. Sections live in `?section=` so the screen's
- * queries stay mounted between them, and a section with unsaved edits asks before it is
- * left (`SettingsLayout` reads `useUnsavedGuard`).
+ * Every control the twelve sections had is still here and still writes to the same
+ * endpoint. Calls are Overview's latest calls; call handling, the model and the link to the
+ * business-wide leads and calling hours are in Settings; knowledge, the old Test section
+ * and the try-it chat are Training. The script builder, which had its own route, is the
+ * Script tab, and `/script` and `/test` now redirect here. Old `?section=` values resolve
+ * through `LEGACY_SECTIONS`.
  *
  * ## A deleted agent is a different screen
  *
@@ -34,29 +36,26 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 
-import { NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
+import { NoticeBox, ProblemNotice, Skeleton, WIDE_RAIL } from "@/components/ui";
 import { PageHeader } from "@/components/console/pageHeader";
-import { SettingsLayout } from "@/components/console/settingsLayout";
+import { SettingsLayout, useActiveSection } from "@/components/console/settingsLayout";
 import { isDeleted } from "@/lib/agentState";
 import { useAgent, type Agent } from "@/lib/api/agents";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
-import { KnowledgeGaps } from "../../KnowledgeGaps";
 import { AgentIdentity } from "../AgentIdentity";
 import { AgentModel } from "../AgentModel";
 import { Actions } from "../actions/Actions";
 import { ExtractionList } from "../panels/extraction";
-import { TrainingPanel } from "../panels/training";
-import { AdvancedSection } from "./sections/advanced";
+import { ScriptBuilder } from "./script/ScriptBuilder";
 import { AgentHeader } from "./sections/agentHeader";
-import { CallHandlingSection, VoiceSection } from "./sections/deliverySections";
+import { LEGACY_SECTIONS, useAgentSections } from "./sections/agentSections";
+import { VoiceSection } from "./sections/deliverySections";
 import { Overview } from "./sections/overview";
-import { ScriptSection } from "./sections/scriptSection";
-import { TestSection } from "./test/TestSection";
-import { SectionRows, useAgentSections } from "./sections/agentSections";
-
+import { SettingsTab } from "./sections/settingsTab";
+import { TrainingTab } from "./sections/training";
 
 /** The screen, from the route's params. Loading, failure and the agent are three branches. */
 export function AgentWorkspace({ slug, agentId }: { slug: string; agentId: string }) {
@@ -64,8 +63,8 @@ export function AgentWorkspace({ slug, agentId }: { slug: string; agentId: strin
   const { href } = useClientRealm();
   const agent = useAgent(session, agentId);
 
-  // Declared only while there is no agent: once it arrives, the mounted section's own
-  // surface (e.g. the capture columns) is the one the assistant should see.
+  // Declared only while there is no agent: once it arrives, the mounted tab's own surface
+  // (e.g. the capture columns) is the one the assistant should see.
   useCopilotSurface(
     agent.data
       ? null
@@ -136,60 +135,44 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
 }
 
 function LiveAgent({ agent, slug, leadsLink }: { agent: Agent; slug: string; leadsLink: ReactNode }) {
-  const sections = useAgentSections(agent, slug);
+  const sections = useAgentSections(agent);
+  const active = useActiveSection(sections, undefined, LEGACY_SECTIONS);
+  const { href } = useClientRealm();
   return (
-    <div className="space-y-6">
-      <AgentHeader agent={agent} slug={slug} />
+    // The Script tab's flow picture and the editor beside it use the width a desktop has,
+    // so the shell takes the wide rail while that tab is open.
+    <div className="space-y-6" {...(active === "script" ? WIDE_RAIL : {})}>
+      <AgentHeader agent={agent} slug={slug} onScriptTab={active === "script"} />
       <SettingsLayout
-        label="Agent settings"
+        label="About this agent"
+        menu="tabs"
         sections={sections}
+        aliases={LEGACY_SECTIONS}
         renderSection={(id) => {
           switch (id) {
             case "script":
               return (
                 <>
                   <StarterDraftNotice agent={agent} />
-                  <ScriptSection agent={agent} slug={slug} />
+                  <ScriptBuilder
+                    agentId={agent.id}
+                    knowledgeHref={href(`/c/${slug}/knowledge`)}
+                    trainingHref={href(`/c/${slug}/agents/${agent.id}?section=training`)}
+                  />
                 </>
               );
-            case "test":
-              return <TestSection agent={agent} slug={slug} />;
-            case "voice":
-              return <VoiceSection agent={agent} />;
-            case "model":
-              return <AgentModel agent={agent} slug={slug} />;
-            case "calls":
-              return <CallHandlingSection agent={agent} />;
+            case "training":
+              return <TrainingTab agent={agent} slug={slug} />;
+            case "actions":
+              return <ActionsTab agentId={agent.id} />;
             case "captured":
               return <ExtractionList agent={agent} leadsHref={leadsLink} />;
-            case "knowledge":
-              return (
-                <>
-                <KnowledgeSurface agentId={agent.id} />
-                <div className="space-y-8">
-                  {/* The questions it could not answer on real calls, teachable in place. */}
-                  <KnowledgeGaps agentId={agent.id} />
-                  <section aria-labelledby="agent-knows-heading">
-                    <h3 id="agent-knows-heading" className="mb-1 text-heading text-ink">
-                      What it knows
-                    </h3>
-                    <TrainingPanel agent={agent} />
-                  </section>
-                </div>
-                </>
-              );
-            case "actions":
-              return <ActionsSection agentId={agent.id} />;
-            case "advanced":
-              return <AdvancedSection agent={agent} slug={slug} />;
+            case "voice":
+              return <VoiceSection agent={agent} />;
+            case "settings":
+              return <SettingsTab agent={agent} slug={slug} />;
             default:
-              return (
-                <>
-                  <Overview agent={agent} slug={slug} />
-                  {/* On a phone the menu is a row of pills; this list is the fuller way in. */}
-                  <SectionRows sections={sections.filter((s) => s.id !== "overview")} />
-                </>
-              );
+              return <Overview agent={agent} slug={slug} />;
           }
         }}
       />
@@ -197,27 +180,7 @@ function LiveAgent({ agent, slug, leadsLink }: { agent: Agent; slug: string; lea
   );
 }
 
-/** The Knowledge section, declared to the assistant (its panels declare nothing). */
-function KnowledgeSurface({ agentId }: { agentId: string }) {
-  useCopilotSurface({
-    route: "/c/{slug}/agents/{id}",
-    title: "Agent: what it knows",
-    realm: "client",
-    fields: [],
-    facts: [
-      { key: "agent_id", label: "Agent id", value: agentId },
-      {
-        key: "what_is_here",
-        label: "What this section shows",
-        value: "questions this agent could not answer on real calls, which can be taught here, and the knowledge it uses",
-      },
-    ],
-    apply: noFill,
-  });
-  return null;
-}
-
-function ActionsSection({ agentId }: { agentId: string }) {
+function ActionsTab({ agentId }: { agentId: string }) {
   const session = useClientSession();
   return <Actions agentId={agentId} session={session} />;
 }
@@ -231,7 +194,7 @@ function StarterDraftNotice({ agent }: { agent: Agent }) {
   if (params.get("from") !== "starter" || agent.published) return null;
   return (
     <NoticeBox tone="neutral" className="mb-6">
-      Your agent is a draft. Review the script, then publish.
+      Your agent is a draft. Review the script, then put it live.
     </NoticeBox>
   );
 }

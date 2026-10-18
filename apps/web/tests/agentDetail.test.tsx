@@ -27,16 +27,17 @@ import {
 import { operatorEngineCatalogue } from "./fixtures/engineCatalogue";
 
 /*
- * THE WORKSPACE IS A SETTINGS LAYOUT (D-657): one section is mounted at a time, chosen by
- * `?section=`. Each describe below opens the section that owns its subject; the default is
- * Overview, which is also what a real visit opens first.
+ * THE AGENT PAGE IS SEVEN TABS (D-825): one tab is mounted at a time, chosen by
+ * `?section=`. Each describe below opens the tab that owns its subject; the default is
+ * Overview, which is also what a real visit opens first. Old section ids still open the tab
+ * that holds their content now (`LEGACY_SECTIONS`).
  */
-const nav = vi.hoisted(() => ({ params: new URLSearchParams() }));
+const nav = vi.hoisted(() => ({ params: new URLSearchParams(), push: vi.fn() }));
 vi.mock("next/navigation", () => ({
   useSearchParams: () => nav.params,
   usePathname: () => "/c/acme/agents/agent-1",
   useRouter: () => ({
-    push: vi.fn(),
+    push: nav.push,
     replace: vi.fn(),
     refresh: vi.fn(),
     back: vi.fn(),
@@ -49,6 +50,7 @@ function openSection(id: string) {
 }
 beforeEach(() => {
   nav.params = new URLSearchParams();
+  nav.push.mockClear();
 });
 
 /**
@@ -333,6 +335,44 @@ function routes(over: Record<string, unknown> = {}) {
     ...over,
   };
 }
+
+/** What the Training tab reads besides the screen's own: the knowledge, tests and wallet. */
+const TRAINING_READS = {
+  "/v1/kb/knows": {
+    facts: [
+      { id: "f1", text: "We deliver in Kukatpally.", pinned: false, origin: "taught", created_at: "2026-10-10T09:00:00Z" },
+      { id: "f2", text: "Red chilli powder is ₹120 for 250 g.", pinned: true, origin: "taught", created_at: "2026-10-10T09:00:00Z" },
+    ],
+    facts_state: "live",
+    items: [{ id: "i1", kind: "document", name: "Price list", state: "live" }],
+  },
+  "/v1/kb/teach/open": { teaching: null },
+  "/v1/agents/agent-1/test-cases": { cases: [], limit: 20 },
+  "/v1/agents/agent-1/script/tests": {
+    available: true,
+    unavailable_reason: null,
+    cost_note: null,
+    latest: null,
+    history: [],
+  },
+};
+
+/** What the Script tab's builder reads: the script in today's shape, its proposal and rules. */
+const SCRIPT_TAB_READS = {
+  "/v1/agents/agent-1/script": {
+    script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram." },
+    draft: null,
+    stored_schema_version: 2,
+    context: null,
+    version: 4,
+    is_freeform: false,
+    has_pending: false,
+    standard_variables: [],
+  },
+  "/v1/agents/agent-1/script/proposal": { proposal: null },
+  "/v1/agents/agent-1/script/proposed-rules": [],
+  "POST /v1/agents/agent-1/script/preview": { compiled: "", instructions_chars: 1000, instructions_limit: 8000, native_steps: 0 },
+};
 
 /** The value rendered under a `dt`, read off the `dd` beside it. */
 /** The value beside a label: a `<dd>` after its `<dt>`, or a `SettingRow`'s value cell. */
@@ -1839,28 +1879,28 @@ describe("changing what an agent is", () => {
   });
 });
 
-describe("what the agent knows (D-689: the business's knowledge, shared)", () => {
-  beforeEach(() => openSection("knowledge"));
+describe("Training shows what the agent knows (D-689: the business's knowledge, shared)", () => {
+  beforeEach(() => openSection("training"));
 
-  it("says the agent uses the business knowledge and links to where it is added", async () => {
-    await renderClientPage(page, routes());
+  it("lists the business's facts read-only, pinned first, and links to where they are changed", async () => {
+    await renderClientPage(page, routes(TRAINING_READS));
 
-    await screen.findByText("What it knows");
-    const panel = card("What it knows");
-    expect(panel.textContent).toContain("Reception uses your business knowledge");
-    const link = within(panel).getByRole("link", { name: /Open your business knowledge/ });
+    const heading = await screen.findByRole("heading", { level: 3, name: "What it knows" });
+    const panel = heading.closest("section") as HTMLElement;
+    await within(panel).findByText("Red chilli powder is ₹120 for 250 g.");
+    expect(panel.textContent).toContain("2 facts and 1 file or page, shared by all your agents.");
+    const facts = within(panel).getAllByRole("listitem").map((row) => row.textContent);
+    expect(facts).toEqual(["Red chilli powder is ₹120 for 250 g.", "We deliver in Kukatpally."]);
+    const link = within(panel).getByRole("link", { name: /Manage knowledge/ });
     expect(link.getAttribute("href")).toBe("/c/acme/knowledge");
   });
 
-  it("offers no per-agent form and no per-agent list of sources", async () => {
-    const { calls } = await renderClientPage(page, routes());
-
-    await screen.findByText("What it knows");
-    const panel = card("What it knows");
-    expect(within(panel).queryByRole("button", { name: /Teach it a fact/ })).toBeNull();
-    expect(within(panel).queryByRole("textbox")).toBeNull();
-    // Knowledge lives on one page for the whole business, so this panel reads none of it.
-    expect(calls.some((call) => call.path.startsWith("/v1/kb/sources"))).toBe(false);
+  it("is where an old Knowledge or Test link lands", async () => {
+    openSection("knowledge");
+    await renderClientPage(page, routes(TRAINING_READS));
+    const tab = await screen.findByRole("tab", { name: "Training" });
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+    expect(await screen.findByRole("heading", { level: 3, name: "Teach your agents" })).toBeTruthy();
   });
 });
 
@@ -1966,16 +2006,14 @@ describe("the header holds the one primary, and Overview keeps the guarantee fir
     expect(guarantee.closest("details")).toBeNull();
   });
 
-  it("offers the builder from the Script section", async () => {
+  it("puts the script builder itself in the Script tab", async () => {
     openSection("script");
-    const { container } = await renderClientPage(page, routes());
+    await renderClientPage(page, routes(SCRIPT_TAB_READS));
 
-    await screen.findByText("Reception");
-    const open = await screen.findByRole("link", { name: /Open the script/ });
-    expect(open.getAttribute("href")).toBe("/c/acme/agents/agent-1/script");
-    expect(container.textContent).toContain(
-      "callers hear them only after you put them live",
-    );
+    const opening = await screen.findByLabelText("Opening line");
+    expect((opening as HTMLInputElement).value).toBe("Namaskaram.");
+    expect(screen.getByRole("heading", { level: 3, name: "Tell Pip what to change" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Script" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("tells an agent with no script that the script is what unblocks it", async () => {
@@ -2141,22 +2179,44 @@ describe("progressive disclosure defaults", () => {
     expect(container.querySelector("main details, [role='main'] details")).toBeNull();
   });
 
-  it("gives the model its own section, beside Voice", async () => {
+  it("shows seven plain tabs in one tab list, Overview open first", async () => {
     await renderClientPage(page, routes());
     await screen.findByText("Reception");
-    const nav = screen.getByRole("navigation", { name: "Agent settings" });
-    const voice = within(nav).getByRole("link", { name: /^Voice/ });
-    const model = within(nav).getByRole("link", { name: /^Model/ });
-    expect(model.getAttribute("href")).toContain("section=model");
-    expect(voice.compareDocumentPosition(model) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const list = screen.getByRole("tablist", { name: "About this agent" });
+    expect(within(list).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Overview",
+      "Script",
+      "Training",
+      "Actions",
+      "What it notes",
+      "Voice",
+      "Settings",
+    ]);
+    const overview = within(list).getByRole("tab", { name: "Overview" });
+    expect(overview.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(overview.id);
   });
 
-  it("gives what the agent can do on a call its own section, not a closed panel", async () => {
-    // REDESIGN-2: Actions moved out of Advanced's disclosures into the section menu.
+  it("moves along the tabs with the arrow keys and opens one with Enter, by its address", async () => {
     await renderClientPage(page, routes());
     await screen.findByText("Reception");
-    const nav = screen.getByRole("navigation", { name: "Agent settings" });
-    expect(within(nav).getByRole("link", { name: "Actions" }).getAttribute("href")).toContain("section=actions");
+    const overview = screen.getByRole("tab", { name: "Overview" });
+    overview.focus();
+    fireEvent.keyDown(overview, { key: "ArrowRight" });
+    const script = screen.getByRole("tab", { name: "Script" });
+    expect(document.activeElement).toBe(script);
+    // Manual activation: moving the focus opens nothing until Enter.
+    expect(nav.push).not.toHaveBeenCalled();
+    fireEvent.keyDown(script, { key: "Enter" });
+    expect(nav.push).toHaveBeenCalledWith("/c/acme/agents/agent-1?section=script", { scroll: false });
+  });
+
+  it("opens call handling and the model in Settings from their old addresses", async () => {
+    openSection("calls");
+    await renderClientPage(page, routes());
+    expect((await screen.findByRole("tab", { name: "Settings" })).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("heading", { level: 3, name: "How it handles calls" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 3, name: "Model" })).toBeTruthy();
   });
 
   it("never hides a compliance control behind one", async () => {
@@ -2173,9 +2233,9 @@ describe("progressive disclosure defaults", () => {
     expect(disclosed("What it writes down")).toBe(false);
     first.unmount();
 
-    openSection("knowledge");
-    await renderClientPage(page, routes());
-    await screen.findByText("Reception");
+    openSection("training");
+    await renderClientPage(page, routes(TRAINING_READS));
+    await screen.findByRole("heading", { level: 3, name: "What it knows" });
     expect(disclosed("What it knows")).toBe(false);
   });
 

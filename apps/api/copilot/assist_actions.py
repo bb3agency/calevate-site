@@ -2,7 +2,7 @@
 
 Founder, 18 Oct 2026: Pip is the one AI assistant (D-820), and every AI request a person
 makes on a screen is asked of Pip with "Let Pip do it", reviewed where its result lands.
-D-820 moved the Script page's helper and the Test section's fixes (`script_actions.py`);
+D-820 moved the Script tab's helper and the Training tab's fixes (`script_actions.py`);
 this module moves the rest, each through the same service function its old button called:
 
 * `knowledge_teach` — the Knowledge base teach box. Pip sends the words (typed, or read off
@@ -381,7 +381,7 @@ async def _plan_call_test(session: AsyncSession, actor: ToolActor, args: Mapping
     if await test_cases.saved_count(session, draft.agent_id) >= test_cases.MAX_CASES_PER_AGENT:
         raise WriteRefusedError(
             f"this call's agent already keeps {test_cases.MAX_CASES_PER_AGENT} saved tests, "
-            "so one must be deleted on its Test section first"
+            "so one must be deleted on its Training tab first"
         )
     pending = _pending_of(parsed)
     return Plan(

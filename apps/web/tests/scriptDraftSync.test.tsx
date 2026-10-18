@@ -2,9 +2,8 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
-import AgentScriptPage from "@/app/c/[slug]/agents/[agentId]/script/page";
+import { ScriptBuilder } from "@/app/c/[slug]/agents/[agentId]/script/ScriptBuilder";
 import { reconcileDraft, saveState } from "@/app/c/[slug]/agents/[agentId]/script/scriptDraft";
-import { liveScriptText } from "@/app/c/[slug]/agents/[agentId]/sections/scriptSection";
 import type { Me } from "@/lib/api/client";
 import { EMPTY_SCRIPT, type CallScript, type ScriptOut } from "@/lib/api/script";
 
@@ -49,7 +48,13 @@ function out(opening: string, version: number | null, draft: { opening: string; 
 
 const NO_TESTS = { available: false, unavailable_reason: "Not yet.", cost_note: "", latest: null, history: [] };
 const PREVIEW = { compiled: "", instructions_chars: 2000, instructions_limit: 8000, native_steps: 0 };
-const page = <AgentScriptPage params={Promise.resolve({ slug: "acme", agentId: "agent-1" })} />;
+const page = (
+  <ScriptBuilder
+    agentId="agent-1"
+    knowledgeHref="/c/acme/knowledge"
+    trainingHref="/c/acme/agents/agent-1?section=training"
+  />
+);
 
 function opening(): HTMLTextAreaElement {
   return screen.getByLabelText("Opening line") as HTMLTextAreaElement;
@@ -263,11 +268,3 @@ describe("the save line", () => {
   });
 });
 
-describe("the agent page says whether callers hear the script, without version numbers", () => {
-  it("reads plainly", () => {
-    expect(liveScriptText({ published: false }, out(OLD, null))).toBe("Not put live yet");
-    expect(liveScriptText({ published: true }, out(OLD, 4))).toBe("Live");
-    expect(liveScriptText({ published: true }, out(OLD, 4, { opening: NEW, at: SAVED_AT }))).toBe("Live, with changes waiting");
-    expect(liveScriptText({ published: false }, out(OLD, 4))).toBe("Ready · agent is off");
-  });
-});

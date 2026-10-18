@@ -19,7 +19,7 @@ import { wholeRequestFor } from "../[agentId]/script/PipAsk";
  */
 export function CreatedPanel({ agent, slug }: { agent: Agent; slug: string }) {
   const { href } = useClientRealm();
-  const script = href(`/c/${slug}/agents/${agent.id}/script`);
+  const script = href(`/c/${slug}/agents/${agent.id}?section=script`);
   return (
     <section aria-labelledby="agent-created-heading" className="settings-enter max-w-2xl py-6">
       <CheckCircle2 aria-hidden className="h-6 w-6 text-brand-strong" />

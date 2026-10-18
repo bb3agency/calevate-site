@@ -1,96 +1,59 @@
 "use client";
 
 /**
- * THE AGENT PAGE'S MENU, ordered by what an owner comes to do, with one line of state each.
+ * THE AGENT PAGE'S SEVEN TABS (D-825, founder 19 Oct 2026): Overview · Script · Training ·
+ * Actions · What it notes · Voice · Settings.
  *
- * Script comes straight after Overview because it is the screen's main job, and Test beside
- * it because testing is how a script change is checked (D-748). Knowledge,
- * Actions and the call log follow; then what it notes, the business's leads and calling
- * hours, its voice, its model and call handling; Settings last. The call log and Leads & hours live on
- * their own pages (the call list, and the business-wide calling setup, which is per client
- * and not per agent), so their entries link out rather than open in place.
+ * Ordered by what an owner comes to do: see how it is doing, change what it says, teach it,
+ * then the rarer parts. Calls fold into Overview (its latest calls, and a link to all of
+ * them); call handling, the model and the business-wide leads and calling hours fold into
+ * Settings; knowledge, try-it and testing are Training.
  *
- * The state lines are read from what the page already loads; nothing here adds a request
- * the sections do not make anyway.
+ * `LEGACY_SECTIONS` keeps every address the twelve-section page had working: a bookmark,
+ * or a test result's "Open call handling", opens the tab that holds it now.
+ *
+ * Training carries the count of questions it could not answer on real calls, read with the
+ * same filters as the list in that tab, so the badge and the list share one cached query.
  */
 
-import Link from "next/link";
-import { ChevronRight } from "lucide-react";
-
 import type { SettingsSection } from "@/components/console/settingsLayout";
-import { useClientRealm, useClientSession } from "@/lib/api/session";
 import type { Agent } from "@/lib/api/agents";
-import { useScript } from "@/lib/api/script";
+import { useKnowledgeGaps } from "@/lib/api/knowledgeGaps";
+import { useClientSession } from "@/lib/api/session";
 
-import { hasUnpublished, workingCopy } from "../script/scriptDraft";
+export const AGENT_TABS = {
+  overview: "Overview",
+  script: "Script",
+  training: "Training",
+  actions: "Actions",
+  captured: "What it notes",
+  voice: "Voice",
+  settings: "Settings",
+} as const;
 
-export function useAgentSections(agent: Agent, slug: string): SettingsSection[] {
+export type AgentTab = keyof typeof AGENT_TABS;
+
+/** The sections the page had before D-825, and the tab that holds each now. */
+export const LEGACY_SECTIONS: Readonly<Record<string, AgentTab>> = {
+  test: "training",
+  knowledge: "training",
+  calls: "settings",
+  model: "settings",
+  advanced: "settings",
+};
+
+/** The open-gap read Training's list makes; shared so the badge and the list are one query. */
+export const OPEN_GAPS = { status: "open", limit: 20 } as const;
+
+export function useAgentSections(agent: Pick<Agent, "id">): SettingsSection[] {
   const session = useClientSession();
-  const { href } = useClientRealm();
-  const script = useScript(session, agent.id);
-  const working = agent.published && agent.status === "live";
-
-  let scriptLine = "";
-  if (script.data) {
-    const copy = workingCopy(script.data).script;
-    const count = copy.stages?.length ?? 0;
-    const shape =
-      copy.raw_override !== null
-        ? "Written by hand"
-        : script.data.version === null && count === 0
-          ? "Not written yet"
-          : `${count} ${count === 1 ? "step" : "steps"}`;
-    scriptLine = hasUnpublished(script.data, copy) ? `${shape} · changes waiting` : shape;
-  }
-
-  return [
-    { id: "overview", label: "Overview", detail: working ? "Taking calls" : "Not taking calls" },
-    { id: "script", label: "Script", detail: scriptLine },
-    { id: "test", label: "Test", detail: "Practice callers, and fixes" },
-    { id: "knowledge", label: "Knowledge", detail: "Shared by all your agents" },
-    { id: "actions", label: "Actions", detail: "What it can do on a call" },
-    {
-      id: "call-log",
-      label: "Calls",
-      detail: "Every call it handled",
-      href: href(`/c/${slug}/calls?agent_id=${agent.id}`),
-    },
-    { id: "captured", label: "What it notes", detail: "Details it writes down" },
-    {
-      id: "leads-hours",
-      label: "Leads & hours",
-      detail: "For your whole business",
-      href: href(`/c/${slug}/lead-sources`),
-    },
-    { id: "voice", label: "Voice", detail: "How it sounds" },
-    { id: "model", label: "Model", detail: agent.llm_tier_label },
-    { id: "calls", label: "Call handling", detail: "Length, pauses, silence, handover, memory" },
-    { id: "advanced", label: "Settings", detail: "What it is, delete" },
-  ];
-}
-
-/** The menu as rows, for the bottom of Overview on a phone. */
-export function SectionRows({ sections }: { sections: SettingsSection[] }) {
-  const { href } = useClientRealm();
-  return (
-    <nav aria-label="Everything about this agent" className="mt-10 lg:hidden">
-      <ul className="divide-y divide-line border-y border-line">
-        {sections.map((section) => (
-          <li key={section.id}>
-            <Link
-              href={section.href ?? href(`?section=${section.id}`)}
-              scroll={section.href ? undefined : false}
-              className="flex min-h-14 items-center gap-3 py-2.5 hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand"
-            >
-              <span className="min-w-0 flex-1">
-                <span className="block text-body font-medium text-ink">{section.label}</span>
-                {section.detail && <span className="block truncate text-meta text-ink-muted">{section.detail}</span>}
-              </span>
-              <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-ink-faint" />
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </nav>
-  );
+  const gaps = useKnowledgeGaps(session, { agentId: agent.id, ...OPEN_GAPS });
+  // No badge while the count is unread or failed: Training's own list says which, and a
+  // missing badge claims nothing.
+  const open = gaps.isSuccess && gaps.data.open_count > 0 ? gaps.data.open_count : null;
+  return (Object.keys(AGENT_TABS) as AgentTab[]).map((id) => ({
+    id,
+    label: AGENT_TABS[id],
+    ...(id === "training" && open !== null ? { badge: open } : {}),
+  }));
 }

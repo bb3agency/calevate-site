@@ -178,7 +178,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
           These switches never change it — they only decide whether the notices are said
           before it.{" "}
           <Link
-            href={href(`/c/${session.orgSlug}/agents/${agent.id}/script`)}
+            href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=script`)}
             className="font-medium text-brand-strong underline-offset-2 hover:underline"
           >
             {opening.trim() ? "Edit the opening line" : "Write an opening line"}

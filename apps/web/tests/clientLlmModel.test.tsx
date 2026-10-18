@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
@@ -496,6 +496,8 @@ function agentRoutes(over: Record<string, unknown> = {}) {
       published: true,
     },
     "/v1/agents/lanes": LANES,
+    // "What it is", beside the model in the Settings tab (D-825).
+    "/v1/business-profile": businessProfileFixture(),
     // The header's "spent this month" line (owners hold billing:read).
     [AGENT_SPEND_PATH]: spendThisMonth(),
     ...over,
@@ -513,7 +515,8 @@ describe("where one agent's model tier came from", () => {
     expect(follow.closest("label")?.textContent).toContain("Standard now");
     expect(follow.closest("label")?.textContent).toContain("the model running now");
     expect((radio(/^Standard/) as HTMLInputElement).checked).toBe(false);
-    expect(screen.queryByRole("checkbox")).toBeNull();
+    const model = screen.getByRole("heading", { level: 3, name: "Model" }).closest("section") as HTMLElement;
+    expect(within(model).queryByRole("checkbox")).toBeNull();
     expect(screen.queryByRole("button", { name: /Save model/ })).toBeNull();
     expect(container.textContent).not.toContain("Follow my organisation");
     expect(container.textContent ?? "").not.toMatch(VENDOR_WORDS);

@@ -1,18 +1,21 @@
 "use client";
 
 /**
- * "LET PIP DO IT" — how an owner asks for AI help with the script (D-820).
+ * "TELL PIP WHAT TO CHANGE" — how an owner asks for AI help with the script (D-820), as a
+ * panel beside the steps on a wide screen and under the opening line on a narrow one
+ * (D-825).
  *
- * Pip is the one assistant, so this strip writes nothing itself: every control prefills
+ * Pip is the one assistant, so this panel writes nothing itself: every control prefills
  * Pip's ask box with a request about THIS agent's script, and the owner presses Ask there.
  * Pip prepares the suggestion; it comes back to this page for review (`PipProposal`).
- * The strip says before the first request that it spends the AI allowance.
+ * The panel says before the first request that it spends the AI allowance.
  */
 
 import { useState, type FormEvent } from "react";
 
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { FIELD, FIELD_LABEL, RestrictionNote, SECONDARY_BUTTON } from "@/components/ui";
+import { PipMark } from "@/components/illustration/pip";
 import { useActAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
@@ -46,7 +49,11 @@ export function PipAsk({ handWritten }: { handWritten: boolean }) {
   };
 
   return (
-    <section aria-label={`Ask ${ASSISTANT_NAME} to change the script`} className="max-w-3xl space-y-3 rounded-card border border-line p-4">
+    <section aria-labelledby="pip-ask-heading" className="space-y-3 rounded-card border border-line bg-surface p-4">
+      <h3 id="pip-ask-heading" className="flex items-center gap-2 text-heading text-ink">
+        <PipMark size={18} className="shrink-0" />
+        Tell {ASSISTANT_NAME} what to change
+      </h3>
       <RestrictionNote reason={write.reason} />
       {handWritten ? (
         <div className="space-y-2">
@@ -58,38 +65,38 @@ export function PipAsk({ handWritten }: { handWritten: boolean }) {
         </div>
       ) : (
         <>
-          <form noValidate onSubmit={submit} className="space-y-1.5">
+          <form noValidate onSubmit={submit} className="space-y-2">
             <label className={FIELD_LABEL} htmlFor="pip-change">
               What should change?
             </label>
-            <div className="flex flex-wrap gap-2">
-              <input
-                id="pip-change"
-                className={`${FIELD} min-w-0 flex-1 basis-64`}
-                maxLength={600}
-                disabled={!write.allowed}
-                value={change}
-                placeholder="When someone asks for a discount, offer free delivery instead"
-                onChange={(e) => setChange(e.target.value)}
-              />
-              <button type="submit" className={SECONDARY_BUTTON} disabled={!write.allowed || change.trim().length === 0}>
-                Let {ASSISTANT_NAME} do it
-              </button>
-            </div>
+            <textarea
+              id="pip-change"
+              className={`${FIELD} mt-0`}
+              rows={3}
+              maxLength={600}
+              disabled={!write.allowed}
+              value={change}
+              placeholder="When someone asks for a discount, offer free delivery instead"
+              onChange={(e) => setChange(e.target.value)}
+            />
+            <button type="submit" className={SECONDARY_BUTTON} disabled={!write.allowed || change.trim().length === 0}>
+              Let {ASSISTANT_NAME} do it
+            </button>
           </form>
-          <ul className="flex flex-wrap gap-1.5" aria-label="Ideas">
-            {IDEAS.map((idea) => (
-              <li key={idea}>
-                <AskAssistant variant="chip" prompt={changeRequest(idea)} label={idea} disabled={!write.allowed} />
-              </li>
-            ))}
-          </ul>
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <p className="text-meta text-ink-muted">
-              Uses your AI allowance. You review every change here before it goes into your draft.
-            </p>
-            <AskAssistant label={`Let ${ASSISTANT_NAME} draft the whole script`} prompt={WHOLE_REQUEST} disabled={!write.allowed} />
+          <div className="space-y-1.5">
+            <p className="text-meta text-ink-muted">Or tap one:</p>
+            <ul className="flex flex-wrap gap-1.5" aria-label="Ideas">
+              {IDEAS.map((idea) => (
+                <li key={idea}>
+                  <AskAssistant variant="chip" prompt={changeRequest(idea)} label={idea} disabled={!write.allowed} />
+                </li>
+              ))}
+            </ul>
           </div>
+          <p className="text-meta text-ink-muted">
+            Uses your AI allowance. You check every change before it goes into your draft.
+          </p>
+          <AskAssistant label={`Let ${ASSISTANT_NAME} draft the whole script`} prompt={WHOLE_REQUEST} disabled={!write.allowed} />
         </>
       )}
     </section>
