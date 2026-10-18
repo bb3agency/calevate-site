@@ -370,8 +370,8 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/ops/engine-minute-prices": BoundedByConstruction(
         by=(
             "one row per engine in `billing/engine_minutes.ATTESTED_MINUTE_ENGINES` times "
-            "`ENGINE_RATE_KEYS` (four keys, also a CHECK on `engine_rate_key`), each the "
-            "rate in force now, never the history."
+            "`PRICED_RATE_KEYS` (the route keys and the carrier's fee, a CHECK on "
+            "`rate_key`), each the rate in force now, never the history."
         )
     ),
     "GET /v1/ops/engine-model-bands": BoundedByConstruction(

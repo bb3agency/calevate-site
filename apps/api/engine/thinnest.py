@@ -610,22 +610,27 @@ _CALL_KEYS: Final[frozenset[str]] = frozenset(get_args(CallKeys))
 _VOICE_PLANS: Final[frozenset[str]] = frozenset(get_args(CallVoicePlan))
 
 
-#: The call's `hangup` when it ended before the agent spoke: such a call is charged the
-#: carrier's fee only, its seconds rounded to the carrier's block (get-call.md:1276-1285).
-#: The enum (:918-935) does not define its values; this one is read by its name and by the
-#: console's "Ended before the agent spoke" outcome (channels/voice.md:443). The block's
-#: length and the fee are UNKNOWN: no page in the 15 Oct 2026 snapshot states them.
+#: The call's `hangup` when it ended before the agent spoke (snapshots/2026-10-18/pages/
+#: api-reference/calls/get-call.md:918-933; the console's "Ended before the agent spoke",
+#: channels/voice.md:443). Such a call, like a forwarded one, is charged the phone carrier's
+#: fee only, in 30-second blocks (get-call.md:1236-1243); what that fee is reaches money
+#: only as the operator-attested `carrier` rate (`billing/engine_minutes.CARRIER_RATE_KEY`).
 _BEFORE_AGENT_HANGUP: Final = "before_agent"
 
 
-def parse_billing(value: Any, *, hangup: str | None = None) -> CallBilling | None:
-    """The call's `billing` object in our names (snapshots/2026-10-15/pages/api-reference/
-    calls/get-call.md:1228-1294; `call.analysed` carries the same one, api-reference/webhooks/
-    create-webhook.md:330-340). None for a booked call that has not rung (:1228-1239), and
-    for a `keys` outside the documented enum (:1240-1252), which is no billing we can read.
-    `voicePlan` is lower case (:1253-1265); `ratePerMinuteMicro` is millionths of `currency`
-    (:1266-1275), read as rupees only; `billedSeconds` is null until settled (:1276-1285).
-    `hangup` is the call's own, which says whether the carrier-only charge applies."""
+def parse_billing(
+    value: Any, *, hangup: str | None = None, forwarded: bool = False
+) -> CallBilling | None:
+    """The call's `billing` object in our names (snapshots/2026-10-18/pages/api-reference/
+    calls/get-call.md:1228-1310; List Calls rows and `call.analysed` carry the same one,
+    calls/list-calls.md:769-773, api-reference/webhooks/create-webhook.md:330-340). None for a
+    booked call that has not rung (get-call.md:1228-1233), and for a `keys` outside the
+    documented enum (:1257-1269), which is no billing we can read. `voicePlan` is lower case
+    (:1270-1282); `ratePerMinuteMicro` is millionths of `currency` (:1283-1292), read as
+    rupees only; `billedSeconds` is null until a charge was taken and on a free trial call
+    (:1293-1302). A call that ended before the agent spoke (`hangup`) or was `forwarded`
+    without an agent is carrier-only: its plan and rate are the ones it was set up on, not
+    what was charged (:1236-1243)."""
     if not isinstance(value, dict):
         return None
     keys = value.get("keys")
@@ -642,7 +647,7 @@ def parse_billing(value: Any, *, hangup: str | None = None) -> CallBilling | Non
         else None,
         currency=currency if currency in ("INR", "USD") else None,
         billed_seconds=_whole(value.get("billedSeconds")),
-        carrier_only=hangup == _BEFORE_AGENT_HANGUP,
+        carrier_only=forwarded or hangup == _BEFORE_AGENT_HANGUP,
     )
 
 
@@ -3542,6 +3547,9 @@ class ThinnestEngine:
         fields = payload.get("fields")
         analysed = payload.get("analysedAt") is not None or hangup == "not_placed"
         agent = _scoped(_agent_ref_of(payload), workspace)
+        # `forwardedTo` is the phone a number forward put the call through to, absent or
+        # null otherwise (api-reference/webhooks "call.completed", read 11 Oct 2026).
+        forwarded = bool(_str(payload.get("forwardedTo")))
         return ExecutionSnapshot(
             engine_call_id=call_id,
             engine_agent_ref=agent,
@@ -3572,13 +3580,12 @@ class ThinnestEngine:
             quality=parse_quality(payload.get("quality")),
             llm_usage=parse_llm_usage(payload.get("usage")),
             tts_characters=parse_tts_characters(payload.get("usage")),
-            # Get Call and `call.analysed` carry it; a List Calls row's schema has none
-            # (snapshots/2026-10-15/pages/api-reference/calls/list-calls.md), so a listing
-            # reads None.
-            billing=parse_billing(payload.get("billing"), hangup=hangup),
-            # `forwardedTo` is the phone a number forward put the call through to, absent or
-            # null otherwise (api-reference/webhooks "call.completed", read 11 Oct 2026).
-            forwarded=bool(_str(payload.get("forwardedTo"))),
+            billing=parse_billing(payload.get("billing"), hangup=hangup, forwarded=forwarded),
+            # List Calls rows carry `billing` once the vendor's release of 17 Oct 2026 is live
+            # (snapshots/2026-10-18/pages/whats-new/index.md:20-23); a row from before it has
+            # no key at all, which `billing_reported` tells apart from `billing: null`.
+            billing_reported="billing" in payload,
+            forwarded=forwarded,
             engine=self.name,
         )
 

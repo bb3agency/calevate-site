@@ -4573,11 +4573,16 @@ class ExecutionSnapshot(BaseModel):
     #: Characters the engine sent to the voice to be spoken, cut-off sentences, greeting and
     #: fillers included: what a voice provider bills. None when the engine reported none.
     tts_characters: int | None = None
-    #: What the engine billed this call as. None when it reported nothing: a listing row, a
-    #: booked call that has not rung, an engine that does not say.
+    #: What the engine billed this call as. None when it reported nothing: a booked call that
+    #: has not rung, a listing row from before the engine put billing on its list, an engine
+    #: that does not say.
     billing: CallBilling | None = None
+    #: The engine's document had a billing entry at all, even an empty one. A listing row
+    #: without it is from before the engine listed billing, so the call's billing is read
+    #: by id instead; a row with it is the answer, even when that answer is "none yet".
+    billing_reported: bool = False
     #: The engine put this call through to a phone rather than an agent answering it (a
-    #: number forward): no transcript, and its minutes are priced as forwarded minutes.
+    #: number forward): no transcript, and its minutes are priced at the carrier's fee.
     forwarded: bool = False
     #: The engine has deleted this call's recording and transcript (a per-call deletion we
     #: asked for, or the workspace's retention window). The call is still known and billed;

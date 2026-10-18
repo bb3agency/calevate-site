@@ -817,7 +817,7 @@ async def _plan_healer_attest(
 ) -> Plan:
     from apps.api.billing.engine_minutes import (
         ATTESTED_MINUTE_ENGINES,
-        ENGINE_RATE_KEYS,
+        PRICED_RATE_KEYS,
         attested_minute_prices,
         cost_with_fee,
         topup_fee,
@@ -831,8 +831,8 @@ async def _plan_healer_attest(
     engine = get_settings().engine
     if engine not in ATTESTED_MINUTE_ENGINES:
         raise WriteRefusedError("this deployment's voice platform is not priced by the minute")
-    if parsed.rate_key not in ENGINE_RATE_KEYS:
-        raise WriteRefusedError(f"the rate key must be one of {', '.join(ENGINE_RATE_KEYS)}")
+    if parsed.rate_key not in PRICED_RATE_KEYS:
+        raise WriteRefusedError(f"the rate key must be one of {', '.join(PRICED_RATE_KEYS)}")
     if not parsed.operator_typed_it:
         raise WriteRefusedError(
             "a rate is attested only from a figure the operator read in the voice platform's "
@@ -962,8 +962,8 @@ HEALER_ATTEST_RATE: Final = AdminActionTool(
         {
             "rate_key": {
                 "type": "string",
-                "description": "Which rate: platform, standard, premium, studio, byok_voice "
-                "or byok_llm_voice (the call evidence names it).",
+                "description": "Which rate: platform, standard, premium, studio, byok_voice, "
+                "byok_llm_voice or carrier (the call evidence names it).",
             },
             "inr_per_min": {
                 "type": "string",

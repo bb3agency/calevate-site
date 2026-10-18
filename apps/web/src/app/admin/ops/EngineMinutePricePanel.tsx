@@ -39,6 +39,7 @@ const KEY_LABELS: Record<string, string> = {
   standard: "Voice band: standard",
   premium: "Voice band: premium",
   studio: "Voice band: studio",
+  carrier: "Carrier fee only (a call no agent ran on)",
 };
 
 /**
