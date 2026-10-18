@@ -34,18 +34,26 @@ def upgrade() -> None:
     op.add_column(
         "lead_field_drafts", sa.Column("reviewed_at", sa.DateTime(timezone=True), nullable=True)
     )
+    # FORCEd RLS: without an `app.tenant_id` the owner's own statements see no row, so the
+    # backfill (and the downgrade's check) run inside a NO FORCE / FORCE bracket
+    # (c7a41e8b52d9's reason). Without it the backfill matched nothing and every applied
+    # draft read as waiting for review.
+    op.execute("ALTER TABLE lead_field_drafts NO FORCE ROW LEVEL SECURITY")
     op.execute(
         "UPDATE lead_field_drafts SET reviewed_at = COALESCE(completed_at, updated_at) "
         "WHERE status = 'done'"
     )
+    op.execute("ALTER TABLE lead_field_drafts FORCE ROW LEVEL SECURITY")
 
 
 def downgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '3s'")
+    op.execute("ALTER TABLE lead_field_drafts NO FORCE ROW LEVEL SECURITY")
     op.execute(
         "DO $$ BEGIN IF EXISTS (SELECT 1 FROM lead_field_drafts "
         "WHERE status = 'done' AND reviewed_at IS NULL) THEN RAISE EXCEPTION "
         "'a drafted set of lead details waits for review; it would read as applied'; "
         "END IF; END $$"
     )
+    op.execute("ALTER TABLE lead_field_drafts FORCE ROW LEVEL SECURITY")
     op.drop_column("lead_field_drafts", "reviewed_at")

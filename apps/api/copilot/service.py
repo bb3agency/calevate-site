@@ -972,8 +972,9 @@ def tool_array(realm: CopilotRealm, *, account_open: bool = True) -> list[dict[s
     a console screen with none. Each carries exactly the tools that surface can run:
 
     * The CLIENT write tools are not in the admin realm at all. An admin principal has a
-      tenant only inside a view-as session (`core/auth`: `impersonating=tenant_id is not
-      None`), and `actions.assistant_closed_to` refuses every one of them there because
+      tenant only inside a view-as session (`core/auth` marks the principal impersonating
+      exactly when it carries a tenant), and `actions.assistant_closed_to` refuses every one
+      of them there because
       `copilot:use` is withheld from view-as; with no tenant, `actor_for` returns None and
       they refuse as having no account. They were ~45 schemas that could only ever answer
       with a refusal, and about half of every admin request.
