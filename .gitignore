@@ -81,3 +81,6 @@ VPS_INPUTS.md
 # unaffected, and no `add -A` can ever capture it again.
 apps/api/_ratchet_probe/
 /mergewt
+
+# design-taste-frontend skill working files (direction sheets, inspector screenshots, downloaded credits)
+.taste-skill/
