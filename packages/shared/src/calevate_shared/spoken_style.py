@@ -333,6 +333,20 @@ def _prompt_examples(tag: str, row: Mapping[str, Any]) -> tuple[tuple[ExampleTur
     block = row.get("prompt_examples")
     if not block or block.get("review") != PROMPT_EXAMPLES_APPROVED:
         return ()
+    return _exchanges(tag, block)
+
+
+def candidate_prompt_examples(tag: str | None) -> tuple[tuple[ExampleTurn, ...], ...]:
+    """The language's drafted in-call examples awaiting the founder (`candidate_prompt_examples`
+    in the file), for the register eval to measure (`scripts/register_eval`). No prompt reads
+    them: an example reaches a live agent only by moving into `prompt_examples` once approved."""
+    language = find_language(tag) if tag else None
+    row = _raw()["languages"].get(language.bcp47 if language is not None else tag or "")
+    block = row.get("candidate_prompt_examples") if row is not None else None
+    return _exchanges(str(tag), block) if block else ()
+
+
+def _exchanges(tag: str, block: Mapping[str, Any]) -> tuple[tuple[ExampleTurn, ...], ...]:
     exchanges: list[tuple[ExampleTurn, ...]] = []
     for exchange in block["exchanges"]:
         turns: list[ExampleTurn] = []
@@ -402,9 +416,14 @@ def prompt_example_line(tag: str | None) -> str | None:
     style = style_for(tag)
     if style is None or not style.prompt_examples:
         return None
+    return example_sentence(style.prompt_examples)
+
+
+def example_sentence(exchanges: Sequence[Sequence[ExampleTurn]]) -> str:
+    """Exchanges as the one sentence `prompt_example_line` composes."""
     said = "; ".join(
         ", ".join(f'{_WHO[turn.speaker]} "{turn.text}"' for turn in exchange)
-        for exchange in style.prompt_examples
+        for exchange in exchanges
     )
     return f"How a turn sounds, never words to copy: {said}."
 
@@ -515,8 +534,10 @@ __all__ = [
     "Speaker",
     "StyleEntry",
     "caller_guidance",
+    "candidate_prompt_examples",
     "default_entries",
     "example_exchange",
+    "example_sentence",
     "install_published",
     "languages",
     "merged_entries",

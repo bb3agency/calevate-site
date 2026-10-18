@@ -746,6 +746,53 @@
             ]
           ]
         ]
+      },
+      "candidate_prompt_examples": {
+        "review": "needs_founder_review",
+        "drafted_on": "2026-10-19",
+        "note": "More in-call examples carrying the spoken words the agent tests miss (thanks, help, sorry, details, quantity), drafted for D-829. Measured by scripts/register_eval (--variant examples) and never read by a prompt: they join prompt_examples only after the founder approves them.",
+        "exchanges": [
+          [
+            [
+              "caller",
+              "ఓకే, thanks అండి."
+            ],
+            [
+              "agent",
+              "సరే అండి, ఇంకేమైనా కావాలంటే call చేయండి."
+            ]
+          ],
+          [
+            [
+              "caller",
+              "కొంచెం help చేస్తారా?"
+            ],
+            [
+              "agent",
+              "తప్పకుండా అండి, ఏం కావాలో చెప్పండి."
+            ]
+          ],
+          [
+            [
+              "caller",
+              "నా order ఇంకా రాలేదు."
+            ],
+            [
+              "agent",
+              "అయ్యో, sorry అండి. Order details ఒకసారి చెప్తారా?"
+            ]
+          ],
+          [
+            [
+              "caller",
+              "ఎంత తీసుకోవాలి?"
+            ],
+            [
+              "agent",
+              "half kg కావాలా, one kg కావాలా?"
+            ]
+          ]
+        ]
       }
     },
     "hi-IN": {
@@ -1129,6 +1176,53 @@
             ]
           ]
         ]
+      },
+      "candidate_prompt_examples": {
+        "review": "needs_founder_review",
+        "drafted_on": "2026-10-19",
+        "note": "More in-call examples carrying the spoken words (thank you, help, sorry, details, quantity), drafted for D-829. Measured by scripts/register_eval (--variant examples) and never read by a prompt: they join prompt_examples only after the founder approves them.",
+        "exchanges": [
+          [
+            [
+              "caller",
+              "ठीक है, thank you जी."
+            ],
+            [
+              "agent",
+              "ठीक है जी, और कुछ चाहिए तो call कर लीजिए."
+            ]
+          ],
+          [
+            [
+              "caller",
+              "थोड़ी help करेंगे?"
+            ],
+            [
+              "agent",
+              "हाँ जी, बताइए क्या चाहिए?"
+            ]
+          ],
+          [
+            [
+              "caller",
+              "मेरा order अभी तक नहीं आया।"
+            ],
+            [
+              "agent",
+              "अरे, sorry जी. Order की details एक बार बताएँगे?"
+            ]
+          ],
+          [
+            [
+              "caller",
+              "कितना लूँ?"
+            ],
+            [
+              "agent",
+              "half kg चाहिए या one kg?"
+            ]
+          ]
+        ]
       }
     },
     "en-IN": {
@@ -1335,6 +1429,53 @@
             [
               "agent",
               "Okay, which area are you in?"
+            ]
+          ]
+        ]
+      },
+      "candidate_prompt_examples": {
+        "review": "needs_founder_review",
+        "drafted_on": "2026-10-19",
+        "note": "More in-call examples (thanks, help, sorry, quantity), drafted for D-829. Measured by scripts/register_eval (--variant examples) and never read by a prompt: they join prompt_examples only after the founder approves them.",
+        "exchanges": [
+          [
+            [
+              "caller",
+              "Okay, thanks."
+            ],
+            [
+              "agent",
+              "Sure, call us any time you need something."
+            ]
+          ],
+          [
+            [
+              "caller",
+              "Can you help me with something?"
+            ],
+            [
+              "agent",
+              "Of course, tell me what you need."
+            ]
+          ],
+          [
+            [
+              "caller",
+              "My order hasn't come yet."
+            ],
+            [
+              "agent",
+              "Oh, sorry about that. Can you tell me the order details?"
+            ]
+          ],
+          [
+            [
+              "caller",
+              "How much should I take?"
+            ],
+            [
+              "agent",
+              "Do you want half a kg or one kg?"
             ]
           ]
         ]

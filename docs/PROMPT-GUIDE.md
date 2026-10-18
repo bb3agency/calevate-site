@@ -231,6 +231,23 @@ invitation to trim guardrails.
   the spoken register (Telugu: neutral Telangana/Andhra spoken, andi/garu), a list of formal
   words and the spoken words people use instead, and example calls per business type. All
   of it is AI-drafted and marked `needs_native_review` until a native speaker reads it.
+- **A register change ships only on a measured gain (D-829).** The swap pairs and two
+  examples did not stop textbook Telugu: of 57 agent turns on 8 real Telugu calls (10-11 Oct
+  2026) 26 used one of eight list words, and about 25 of 34 agent-test failures on 19 Oct
+  were `formal_words`. `scripts/register_eval.py` (`make register-eval`) plays 20 fixed caller
+  lines per language (`scripts/fixtures/register_eval_callers.json`) three times each to the
+  real composed prompt of the retail starter (Telugu, Hindi, English) followed by ThinnestAI's
+  speaking rules, on the in-call model and our key, and scores every reply with
+  `agents/turn_checks.turn_problems`; `--compare` gives each kind's change with a 95%
+  interval. Candidates (`--variant`, combined with `+`): `positive` (only the words to say;
+  a forbidden word named in a prompt can come back more often, Mann et al., arXiv:2511.12381,
+  Nov 2025; "say what to do", S17), `persona`, `examples` (the drafts in
+  `candidate_prompt_examples`, `needs_founder_review`, measured but never quoted live) and
+  `late` (the section just before the confidentiality block; ThinnestAI's rules still follow
+  everything we send). Sizes (`--dry-run`), platform layers one language / three:
+  current 4,871 / 5,879 (both at the D-824 guard), positive 4,626 / 5,468, persona +163,
+  examples +304, late +0. The baseline is not yet measured: no Google key was reachable
+  where D-829 was built, so the shipped register is unchanged.
 - Proper nouns: spell client/staff/locality names phonetically in [T0 FACTS]
   (pronunciation hints), e.g., "Dr. Sowmya (సౌమ్య)".
 - Numbers, times, addresses: read slowly, confirm back ("మీ నంబర్ 98… కరెక్టేనా?").
