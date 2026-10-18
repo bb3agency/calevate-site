@@ -31,6 +31,7 @@ import {
 } from "@/lib/api/businessProfile";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
@@ -98,6 +99,7 @@ function Wizard({
 
   // Seeded once: a refetch must never overwrite what the client is typing.
   const [draft, setDraft] = useState<ProfileDraft>(() => draftFromProfile(profile));
+  const eg = useVerticalExamples(profile.vertical_template ?? null);
   const requested = params.get("step");
   const firstTodo = profile.setup.steps.findIndex((step) => step.state === "todo");
   const [index, setIndex] = useState(() => {
@@ -208,6 +210,7 @@ function Wizard({
                     disabled={!canWrite}
                     errorAt={(path) => fieldMessage(fields, path)}
                     vertical={profile.vertical_template ?? null}
+                    examples={eg}
                   />
                 </fieldset>
                 {problem && (

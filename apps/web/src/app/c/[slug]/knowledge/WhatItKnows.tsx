@@ -15,6 +15,7 @@ import {
 } from "@/components/ui";
 import type { useKbSources } from "@/lib/api/kb";
 import { useClientSession } from "@/lib/api/session";
+import { useBusinessSuggestions } from "@/lib/useVerticalExamples";
 import { lookup } from "@/lib/lookup";
 import {
   useAddFact,
@@ -263,6 +264,9 @@ function PinnedForm({ onDone }: { onDone: () => void }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const add = useAddFact(session);
+  // The account's own example question once its copy lands (D-827); the pair below is the
+  // fallback, kept together so the answer matches the question.
+  const asked = useBusinessSuggestions().exampleQuestions[0];
   return (
     <form
       className="mb-4 max-w-2xl space-y-3"
@@ -284,7 +288,7 @@ function PinnedForm({ onDone }: { onDone: () => void }) {
           id="pinned-question"
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
-          placeholder="Do you deliver on Sundays?"
+          placeholder={asked ?? "Do you deliver on Sundays?"}
           className={FIELD}
         />
       </div>
@@ -297,7 +301,7 @@ function PinnedForm({ onDone }: { onDone: () => void }) {
           rows={2}
           value={answer}
           onChange={(event) => setAnswer(event.target.value)}
-          placeholder="No, we deliver Monday to Saturday."
+          placeholder={asked ? "The answer, as your agent should give it." : "No, we deliver Monday to Saturday."}
           className={FIELD}
         />
       </div>

@@ -412,11 +412,13 @@ Every AI request a person makes on a client screen is now asked of Pip. The scre
 | `knowledge_teach` | confirm, `kb:write` (curation switch included), `kb_teaching.start` | `teach/teaching.start_teaching` (text); Pip passes the words of a photo or file the person attached | the teach box on Knowledge base, through `GET /v1/kb/teach/open` |
 | `lead_fields_draft` | confirm, `org:manage`, `lead_fields.draft_requested` | `agents/lead_fields.request_draft` (absorbed cost, no allowance gate, as before) | Lead details: `POST /v1/lead-fields/draft/review {keep}` writes the kept fields onto agents with none |
 | `call_summarise_again` | confirm, `org:manage`, `call.ai_assist`, `external_spend` | `crm/resummarise.second_reading`: redacted transcript, allowance gate, metering under `resummarise` | the confirmation itself; nothing is stored |
+| `business_copy_refresh` (D-827) | confirm, `org:manage`, `organization.business_copy_refresh_requested` | `tenancy/business_copy.queue_generation` after `require_ai_assist`; the worker meters by tokens under `business_copy` | none: the examples replace only the AI's earlier ones, and the Business profile screen shows when they were refreshed |
 
 * **Planner refusals.** Teach: empty words, an unknown `gap_id`. Lead fields: a business type
   with standard details, a draft queued or running, a draft already made. Second reading: the
   call (404), no transcript or a turn without a redacted copy, then `require_ai_assist`, all
-  before a card.
+  before a card. Examples refresh: a run already in progress; the allowance is checked at the
+  confirm, so a person at the ceiling meets the ceiling notice.
 * **`Executed.recorded`.** What the activity log keeps instead of `detail` when `detail` holds
   content it must not (the second summary). The confirmation shows `detail` once.
 * **`ActionTool.external_spend`.** The executor pays a provider before it returns. `confirm`

@@ -3651,6 +3651,9 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # Leads held after hours for release (D-716): a hold left behind could still be
         # released into a call-back after the certificate said the account holds nothing.
         await session.execute(text("DELETE FROM lead_call_holds"))
+        # The AI-written examples (D-827): written from the business's details and its
+        # callers' redacted questions, so they go with the account.
+        await session.execute(text("DELETE FROM business_copies"))
         # THE UPLOADED FILES, WHICH TWO COMMENTS ASSERTED THIS ARM ALREADY SWEPT AND WHICH
         # IT DID NOT (18 Sep 2026). `kb/uploads.py` said an orphaned object sat in the
         # tenant's own prefix "so an offboarding still sweeps it up" and `storage.py` said

@@ -403,8 +403,9 @@ def test_every_action_argument_is_a_uuid_a_closed_set_or_a_bounded_string() -> N
 
     FAILS IF: a new action takes a free-text argument with no `max_length`.
     """
-    # `lead_fields_draft` acts on the asker's own account and takes nothing (D-821).
-    takes_nothing = {"lead_fields_draft"}
+    # `lead_fields_draft` (D-821) and `business_copy_refresh` (D-827) act on the asker's own
+    # account and take nothing.
+    takes_nothing = {"lead_fields_draft", "business_copy_refresh"}
     for tool in WRITE_TOOLS:
         properties = tool.schema["function"]["parameters"]["properties"]
         assert bool(properties) != (tool.name in takes_nothing), tool.name

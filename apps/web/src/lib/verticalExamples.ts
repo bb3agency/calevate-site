@@ -346,6 +346,60 @@ const BY_VERTICAL: Readonly<Record<NonNullable<Vertical>, VerticalExamples>> = {
  * a fallback is visibly a fallback instead of quietly being wrong.
  */
 export function examplesFor(vertical: string | null | undefined): VerticalExamples {
+  return lookupExamples(vertical);
+}
+
+/** The account's AI-written placeholders (D-827), as the server sends them. */
+export type GeneratedPlaceholders = components["schemas"]["Placeholders"];
+
+/** Each generated key, in the table's spelling. `orgName` and `orgSlug` are not generated:
+ * they are shown only while an operator creates an account. */
+const FROM_GENERATED: Readonly<Record<keyof GeneratedPlaceholders, keyof VerticalExamples>> = {
+  branch_label: "branchLabel",
+  service_name: "serviceName",
+  service_price: "servicePrice",
+  service_note: "serviceNote",
+  ask_on_arrival: "askOnArrival",
+  faq_question: "faqQuestion",
+  staff_name: "staffName",
+  staff_spoken: "staffSpoken",
+  staff_role: "staffRole",
+  staff_why_it_matters: "staffWhyItMatters",
+  booking_rules: "bookingRules",
+  contact_name: "contactName",
+  knowledge_title: "knowledgeTitle",
+  knowledge_answer: "knowledgeAnswer",
+  extraction_reason: "extractionReason",
+  script_brief: "scriptBrief",
+  extraction_label: "extractionLabel",
+  extraction_options: "extractionOptions",
+  end_call_rules: "endCallRules",
+  lead_search: "leadSearch",
+  booking_job_title: "bookingJobTitle",
+  booking_job_line: "bookingJobLine",
+};
+
+/**
+ * The per-trade examples with the account's own generated ones laid over them, key by key.
+ *
+ * The table stays the fallback for every key the generated set does not fill (none, once a
+ * copy lands; all of them before the first one does), so a screen never shows an empty
+ * placeholder while the account's copy is on its way.
+ */
+export function withGeneratedCopy(
+  base: VerticalExamples,
+  generated: GeneratedPlaceholders | null | undefined,
+): VerticalExamples {
+  if (!generated) return base;
+  const merged: { -readonly [K in keyof VerticalExamples]: string } = { ...base };
+  for (const from of Object.keys(FROM_GENERATED) as (keyof GeneratedPlaceholders)[]) {
+    const value = generated[from];
+    if (typeof value === "string" && value.trim()) merged[FROM_GENERATED[from]] = value;
+  }
+  return merged;
+}
+
+function lookupExamples(vertical: string | null | undefined): VerticalExamples {
   // `lookup`, not `key in table` — the house rule, and it is right about this one: `in`
   // walks the prototype chain, so a wire value of `constructor` would report as present
   // and hand this form the `Object` function to read placeholders off. The vertical

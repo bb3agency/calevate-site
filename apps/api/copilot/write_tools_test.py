@@ -234,6 +234,8 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "call_summarise_again",
         # D-822's call-to-test APPENDS.
         "call_test_prepare",
+        # D-827's examples refresh APPENDS.
+        "business_copy_refresh",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]

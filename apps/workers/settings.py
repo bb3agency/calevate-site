@@ -109,6 +109,7 @@ from apps.workers.agent_test_conversations import (
 from apps.workers.alerts import sweep_alert_clears
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import FEE_SWEEP_MINUTE, issue_platform_fees
+from apps.workers.business_copy import generate_business_copy, sweep_business_copies
 from apps.workers.business_type import apply_business_type
 from apps.workers.call_translation import (
     BACKFILL_MINUTE as TRANSLATION_BACKFILL_MINUTE,
@@ -338,6 +339,9 @@ FUNCTIONS: list[Any] = [
         # (founder decision 11), both from the outbox (`apps/api/teach/`).
         run_kb_teaching,
         run_agent_test_cases,
+        # An account's AI-written examples and suggestions (D-827), from the outbox
+        # (`tenancy/business_copy.queue_generation` and `sweep_business_copies`).
+        generate_business_copy,
         # Pinned facts re-spliced into every agent (founder decision 9).
         recompile_pinned_facts,
         # D-720. A saved setting brought onto every live agent it changes: the walk in
@@ -1112,6 +1116,17 @@ CRON_JOBS = [
     # `WorkerSettings.max_tries` does not reach a function carrying its own. A tick that
     # gave up on its first transient error would leave a client's trial reading as running
     # for another day and an erasure that is due unfiled.
+    # D-827. Daily: every account not on a trial whose business examples were last looked
+    # at 15 days ago gets the scheduled check queued; the run writes new copy only when the
+    # inputs changed. Idempotent per day (`enqueue_outbox_once`), so a retried tick queues
+    # nothing twice.
+    _cron(
+        traced_job(sweep_business_copies),
+        walk=fleet_wide("one tenant_session per open organization, under a time budget"),
+        hour={10},
+        minute={44},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     _cron(
         traced_job(sweep_trials),
         walk=fleet_wide("one tenant_session per organization, under a time budget"),

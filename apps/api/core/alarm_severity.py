@@ -700,6 +700,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # problem: `usage_events` keeps the evidence and the price can be back-applied.
     "ai_assist_unmeterable": "attention",
     "ai_usage_incomplete": "attention",
+    # D-827. One client's AI-written examples not refreshed: the copy in use stays, so the
+    # client loses nothing today; an operator looks at the model's health.
+    "business_copy_unavailable": "attention",
+    "business_copy_sweep_truncated": "attention",
     # An account reached the in-app assistant's daily fair-use cap (D-694). Bounded, one
     # account, and the client has already been told; an operator decides whether to raise it.
     "copilot_fair_use_reached": "attention",

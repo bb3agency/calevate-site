@@ -292,6 +292,14 @@ export function stubApi(routes: Routes): ApiCall[] {
         if (Object.hasOwn(DEFAULT_SESSIONS, scoped)) {
           return jsonResponse(DEFAULT_SESSIONS[scoped]);
         }
+        // THE ACCOUNT'S OWN EXAMPLES (D-827), answered "none written yet" by default: every
+        // screen that shows a placeholder reads them, and none yet is what makes it show the
+        // per-trade table every existing assertion was written against. A test about the
+        // generated examples names the route itself.
+        if (scoped === "GET /v1/business-copy") return jsonResponse(NO_BUSINESS_COPY);
+        if (/^GET \/v1\/admin\/tenants\/[^/]+\/business-copy$/.test(scoped)) {
+          return jsonResponse(NO_ADMIN_BUSINESS_COPY);
+        }
         // BOTH SHELLS' LIVE CHANGE STREAM (D-774), held open and silent by default: every
         // `/admin` and `/c/<slug>` screen mounts it, and a stream that says nothing is what
         // a quiet account looks like. A test about live updates names the route itself.
@@ -358,6 +366,29 @@ const DEFAULT_SESSIONS: Record<string, unknown> = {
   },
   // D-703: which sign-in doors are open. Signup open, Google off, unless a test says so.
   "GET /v1/auth/client/sign-in-options": { google: false, self_serve_signup: true },
+};
+
+/** `GET /v1/business-copy` before the first copy lands. See the fallback in `stubApi`. */
+export const NO_BUSINESS_COPY = {
+  placeholders: null,
+  steps: [],
+  caller_details: [],
+  example_questions: [],
+  language: null,
+  generated_at: null,
+  refreshing: false,
+  stop_reason: null,
+  stop_message: null,
+};
+
+/** The operator's read of the same, on a client's page. */
+export const NO_ADMIN_BUSINESS_COPY = {
+  ...NO_BUSINESS_COPY,
+  model: null,
+  cost_inr: null,
+  absorbed: false,
+  last_trigger: null,
+  last_attempt_at: null,
 };
 
 function jsonResponse(body: unknown): Response {

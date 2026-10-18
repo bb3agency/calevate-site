@@ -372,6 +372,8 @@ TENANT_TABLES = [
     # append-only: the client edits both, and `audit_log` holds the trail.
     "business_profiles",
     "business_contacts",
+    # Each client's AI-written examples and suggestions (D-827, migration e4b7c2d9a183).
+    "business_copies",
     "handoff_attempts",
     "kb_retrieval_logs",
     # The stored monthly QA report (SURFACES §2) and the weekly 5% spot-check queue

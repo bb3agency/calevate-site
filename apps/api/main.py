@@ -115,6 +115,7 @@ def _mount_routers(application: FastAPI) -> None:
     """Imports are local so a router import error names the module that broke."""
     from apps.api.actions.routes import router as actions_router
     from apps.api.admin.account_routes import router as tenant_account_router
+    from apps.api.admin.business_copy_routes import router as business_copy_admin_router
     from apps.api.admin.business_type_routes import router as business_type_router
     from apps.api.admin.closure_routes import router as tenant_closure_router
     from apps.api.admin.engine_workspace_routes import router as engine_workspace_router
@@ -242,6 +243,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.quality.sampling_routes import router as qa_sampling_router
     from apps.api.security.routes import router as csp_report_router
     from apps.api.teach.routes import router as teach_router
+    from apps.api.tenancy.business_copy_routes import router as business_copy_router
     from apps.api.tenancy.call_lines_routes import router as call_lines_router
     from apps.api.tenancy.profile_routes import admin_router as business_profile_admin_router
     from apps.api.tenancy.profile_routes import router as business_profile_router
@@ -328,6 +330,9 @@ def _mount_routers(application: FastAPI) -> None:
     # The client's one business profile, which every agent reads (D-695).
     application.include_router(business_profile_router)
     application.include_router(business_profile_admin_router)
+    # The account's AI-written examples (D-827): the screens' read, and the operator's view.
+    application.include_router(business_copy_router)
+    application.include_router(business_copy_admin_router)
     application.include_router(agents_router)
     # The ACCOUNT-level model default (D-454). Its own paths (`/v1/organization/...`,
     # `/v1/admin/organizations/...`) collide with nothing above, so mount order is not

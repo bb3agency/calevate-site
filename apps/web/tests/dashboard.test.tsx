@@ -8,6 +8,7 @@ import type { Wallet } from "@/lib/api/wallet";
 
 import { activeTrialBlock, agentRow } from "./fixtures/sharedReads";
 import {
+  NO_BUSINESS_COPY,
   browserOffline,
   problem,
   renderClientPage,
@@ -246,6 +247,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/knowledge-gaps?status=open&limit=20": { items: [], open_count: 0, total: 0 },
     "/v1/business-profile": businessProfileFixture(),
     "/v1/healer/incidents?days=30&limit=20": { open: 0, items: [] },
+    "/v1/business-copy": NO_BUSINESS_COPY,
     ...over,
   };
 }

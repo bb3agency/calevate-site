@@ -828,6 +828,35 @@ comes back. Pip proposes; the person confirms the card; the old button's own fun
   should do → they change anything and press "Save test", or "Discard". Nothing joins the
   agent's tests before Save; Pip's receipt carries an Undo until then. Anyone who may change
   agents (`agents:write`, so staff too) sees the button.
+- **Refresh your examples (Business profile, D-827).** "Refresh now" → `business_copy_refresh`
+  (owner, `org:manage`) → the allowance is checked at the confirm → the worker writes the
+  account's examples again; the screen shows when they were last refreshed.
+
+### 13a. The account's own examples (D-827)
+
+Every client account gets example text written for its business: the placeholders and hints
+of the per-trade table (`apps/web/src/lib/verticalExamples.ts`), suggested script steps with
+an example line each, an example line for each step of the ready-made starters, caller-detail
+suggestions and example questions. Headings and buttons are never generated.
+
+1. **When.** At account creation (`admin/service._write_tenant_root` queues
+   `generate_business_copy` through the outbox, for signup and the operator wizard alike);
+   on "Refresh now" (Pip) and on an operator's "Write again at our cost"; and by the daily
+   check (`sweep_business_copies`) for an account not on a trial whose last look is 15 days
+   old, which writes new copy only when the inputs' fingerprint changed.
+2. **From what.** The business profile, type, knowledge titles, pinned facts, lead details,
+   agents, open knowledge gaps and callers' recent unanswered questions, all redacted. Gemini
+   only, with no standby (the inputs include callers' questions; Sarvam ToS s.17.5).
+3. **Where it shows.** `useVerticalExamples` lays the copy over the per-trade table key by
+   key, so every placeholder screen reads it; the script builder offers the step names,
+   example lines and caller-detail ideas; the Knowledge base offers an example question. The
+   table answers until the first copy lands. A new agent made from a starter gets the starter
+   lines in its empty example lines when its language matches; nothing a person typed is
+   ever replaced, because the copy lives in its own row (`business_copies`).
+4. **What it costs.** The tokens it used, on the client's AI allowance (`business_copy`), with
+   the cached-input split; a trial's first copy and an operator's refresh are ours
+   (`business_copy_absorbed`). At the ceiling the run stops (`allowance_used_up`) and the copy
+   in use stays. A Gemini failure keeps the copy and raises `business_copy_unavailable`.
 
 Failure handling: refusals the model can fix come back as Pip's sentence; a refusal at
 Confirm (allowance used up, AI paused) is shown on the card with the server's remediation; a

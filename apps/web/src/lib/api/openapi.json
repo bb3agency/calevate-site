@@ -677,6 +677,169 @@
         "title": "AdminAvailableNumbersOut",
         "type": "object"
       },
+      "AdminBusinessCopyOut": {
+        "additionalProperties": false,
+        "properties": {
+          "absorbed": {
+            "title": "Absorbed",
+            "type": "boolean"
+          },
+          "caller_details": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Caller Details",
+            "type": "array"
+          },
+          "cost_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Inr"
+          },
+          "example_questions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 6,
+            "title": "Example Questions",
+            "type": "array"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "last_attempt_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt At"
+          },
+          "last_trigger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Trigger"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "placeholders": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Placeholders"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "refreshing": {
+            "title": "Refreshing",
+            "type": "boolean"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepSuggestion"
+            },
+            "maxItems": 6,
+            "title": "Steps",
+            "type": "array"
+          },
+          "stop_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Message"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "allowance_used_up",
+                  "ai_paused",
+                  "inputs_unchanged",
+                  "provider_unavailable",
+                  "answer_unusable",
+                  "account_closed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          }
+        },
+        "required": [
+          "placeholders",
+          "steps",
+          "caller_details",
+          "example_questions",
+          "language",
+          "generated_at",
+          "refreshing",
+          "stop_reason",
+          "stop_message",
+          "model",
+          "cost_inr",
+          "absorbed",
+          "last_trigger",
+          "last_attempt_at"
+        ],
+        "title": "AdminBusinessCopyOut",
+        "type": "object"
+      },
       "AdminBusinessProfileOut": {
         "additionalProperties": false,
         "properties": {
@@ -4959,6 +5122,116 @@
           "note"
         ],
         "title": "BusinessContactOut",
+        "type": "object"
+      },
+      "BusinessCopyOut": {
+        "additionalProperties": false,
+        "description": "What the screens show. Lists are capped by `GeneratedCopy`'s own bounds.",
+        "properties": {
+          "caller_details": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Caller Details",
+            "type": "array"
+          },
+          "example_questions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 6,
+            "title": "Example Questions",
+            "type": "array"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "placeholders": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Placeholders"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "refreshing": {
+            "title": "Refreshing",
+            "type": "boolean"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepSuggestion"
+            },
+            "maxItems": 6,
+            "title": "Steps",
+            "type": "array"
+          },
+          "stop_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Message"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "allowance_used_up",
+                  "ai_paused",
+                  "inputs_unchanged",
+                  "provider_unavailable",
+                  "answer_unusable",
+                  "account_closed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          }
+        },
+        "required": [
+          "placeholders",
+          "steps",
+          "caller_details",
+          "example_questions",
+          "language",
+          "generated_at",
+          "refreshing",
+          "stop_reason",
+          "stop_message"
+        ],
+        "title": "BusinessCopyOut",
         "type": "object"
       },
       "BusinessDetailsIn": {
@@ -29197,6 +29470,169 @@
         "title": "PinnedOrderIn",
         "type": "object"
       },
+      "Placeholders": {
+        "additionalProperties": false,
+        "description": "The per-trade table's keys (`verticalExamples.ts`), in snake case, for this business.\n\n`orgName` and `orgSlug` are not here: they are shown only while an operator creates an\naccount, before there is a business to write them for.",
+        "properties": {
+          "ask_on_arrival": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Ask On Arrival",
+            "type": "string"
+          },
+          "booking_job_line": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Booking Job Line",
+            "type": "string"
+          },
+          "booking_job_title": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Booking Job Title",
+            "type": "string"
+          },
+          "booking_rules": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Booking Rules",
+            "type": "string"
+          },
+          "branch_label": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Branch Label",
+            "type": "string"
+          },
+          "contact_name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Contact Name",
+            "type": "string"
+          },
+          "end_call_rules": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "End Call Rules",
+            "type": "string"
+          },
+          "extraction_label": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Extraction Label",
+            "type": "string"
+          },
+          "extraction_options": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Extraction Options",
+            "type": "string"
+          },
+          "extraction_reason": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Extraction Reason",
+            "type": "string"
+          },
+          "faq_question": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Faq Question",
+            "type": "string"
+          },
+          "knowledge_answer": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Knowledge Answer",
+            "type": "string"
+          },
+          "knowledge_title": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Knowledge Title",
+            "type": "string"
+          },
+          "lead_search": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Lead Search",
+            "type": "string"
+          },
+          "script_brief": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Script Brief",
+            "type": "string"
+          },
+          "service_name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Service Name",
+            "type": "string"
+          },
+          "service_note": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Service Note",
+            "type": "string"
+          },
+          "service_price": {
+            "pattern": "^[1-9][0-9]{0,8}$",
+            "title": "Service Price",
+            "type": "string"
+          },
+          "staff_name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Staff Name",
+            "type": "string"
+          },
+          "staff_role": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Staff Role",
+            "type": "string"
+          },
+          "staff_spoken": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Staff Spoken",
+            "type": "string"
+          },
+          "staff_why_it_matters": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Staff Why It Matters",
+            "type": "string"
+          }
+        },
+        "required": [
+          "branch_label",
+          "service_name",
+          "service_price",
+          "service_note",
+          "ask_on_arrival",
+          "faq_question",
+          "staff_name",
+          "staff_spoken",
+          "staff_role",
+          "staff_why_it_matters",
+          "booking_rules",
+          "contact_name",
+          "knowledge_title",
+          "knowledge_answer",
+          "extraction_reason",
+          "script_brief",
+          "extraction_label",
+          "extraction_options",
+          "end_call_rules",
+          "lead_search",
+          "booking_job_title",
+          "booking_job_line"
+        ],
+        "title": "Placeholders",
+        "type": "object"
+      },
       "PlanMarginOut": {
         "additionalProperties": false,
         "description": "The gross margin of a committed-volume bundle's rates at our cost floor (D-469).\n\nReturned on every plan the operator reads or writes, so the margin of a bundle is a\nnumber on the screen that sets it \u2014 not something discovered when a client reconciles.\nThe effective committed rate is `monthly_fee / included_min`; both it and the overage\nrate are judged against the Clear cost floor of the deployment's engine and `MIN_GROSS_MARGIN`\n(`billing/rates.py`, the same floor the prepaid packs use). Money and ratios are exact\nstrings (hard rule 7); `null` where a rate is unset, never a zero standing in for it.",
@@ -36999,6 +37435,30 @@
           "stay_signed_in"
         ],
         "title": "StaySignedInIn",
+        "type": "object"
+      },
+      "StepSuggestion": {
+        "additionalProperties": false,
+        "description": "A step the script builder suggests: its name (English) and how it sounds on the\nphone (the business's main call language).",
+        "properties": {
+          "example_line": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Example Line",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "example_line"
+        ],
+        "title": "StepSuggestion",
         "type": "object"
       },
       "StepUpVerifyIn": {
@@ -51392,6 +51852,87 @@
         "x-calevate-permission": "agents:write"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/business-copy": {
+      "get": {
+        "operationId": "admin_read_business_copy_v1_admin_tenants__tenant_id__business_copy_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminBusinessCopyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The client's AI-written examples and suggestions",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/business-copy/refresh": {
+      "post": {
+        "description": "Queues one run now, whether or not the client's details changed. Our cost, not the client's AI allowance. Refused while a run is in progress.",
+        "operationId": "admin_refresh_business_copy_v1_admin_tenants__tenant_id__business_copy_refresh_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminBusinessCopyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Write the client's examples and suggestions again, at our cost",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/business-profile": {
       "get": {
         "description": "Read-only. An operator edits the profile through view-as, where the same writes\nand the same audit apply. Audited as an admin read: it holds staff names and mobiles.",
@@ -59743,6 +60284,34 @@
           "billing"
         ],
         "x-calevate-permission": "wallet:read"
+      }
+    },
+    "/v1/business-copy": {
+      "get": {
+        "operationId": "get_business_copy_v1_business_copy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessCopyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This account's own examples and suggestions",
+        "tags": [
+          "account"
+        ],
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/business-profile": {

@@ -12,7 +12,7 @@ import {
   type ProfileDraft,
   type StepId,
 } from "@/lib/api/businessProfile";
-import { examplesFor } from "@/lib/verticalExamples";
+import { examplesFor, type VerticalExamples } from "@/lib/verticalExamples";
 
 import { Field, RowList } from "./fields";
 import { HoursEditor, hoursProblems } from "./HoursEditor";
@@ -33,6 +33,7 @@ export function SectionEditor({
   disabled,
   errorAt,
   vertical,
+  examples,
 }: {
   step: StepId;
   draft: ProfileDraft;
@@ -40,8 +41,10 @@ export function SectionEditor({
   disabled: boolean;
   errorAt: (path: string) => string | undefined;
   vertical: string | null;
+  /** The account's own examples (`useVerticalExamples`), where the screen has them (D-827). */
+  examples?: VerticalExamples;
 }) {
-  const eg = examplesFor(vertical);
+  const eg = examples ?? examplesFor(vertical);
   const input = (path: string, label: string, value: string, set: (v: string) => void, extra?: {
     placeholder?: string;
     hint?: string;

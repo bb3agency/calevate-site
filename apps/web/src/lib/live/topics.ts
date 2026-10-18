@@ -194,6 +194,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "invitations",
     "kyc",
     "business-profile",
+    // The account's AI-written examples (D-827): a run writes `business_copies`.
+    "business-copy",
+    "admin/business-copy",
     "legal-readiness",
     "deletion-request",
     "deletion-requests",

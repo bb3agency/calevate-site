@@ -33,7 +33,7 @@ rules above.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, Literal, get_args
 from uuid import UUID
@@ -59,6 +59,7 @@ from apps.api.agents.lead_fields import starting_business_fields
 from apps.api.agents.models import AgentDirection
 from apps.api.agents.script_builder import rewrite_script, save_agent_script
 from apps.api.core.errors import ProblemError
+from apps.api.tenancy.business_copy import read_state as read_business_copy
 
 StarterJob = Literal["answer_calls", "call_leads"]
 STARTER_JOBS: Final[tuple[StarterJob, ...]] = get_args(StarterJob)
@@ -563,15 +564,44 @@ async def apply_starter(
     )
     validate_fields(fields)
     await write_schema(session, agent_id=agent_id, fields=fields)
+    script = starter.call_script(business=business, language=language)
+    stored = await read_business_copy(session)
+    if stored is not None and stored.copy is not None and stored.language == language:
+        script = with_example_lines(script, getattr(stored.copy.starter_lines, job))
     saved = await save_agent_script(
         session,
         tenant_id=tenant_id,
         agent_id=agent_id,
-        script=starter.call_script(business=business, language=language),
+        script=script,
         notes=f"Ready-made starter: {JOB_LABEL[job]}",
         created_by=created_by,
     )
     return saved.version
+
+
+def with_example_lines(script: CallScript, lines: Sequence[str]) -> CallScript:
+    """The starter with the business's AI-written example line on each step (D-827).
+
+    Only a NEW agent's script gets them, and only into an empty "example line": nothing a
+    person wrote is there to replace. A line that would push its step past the engine's
+    step limit is left out, and lines written for a different number of steps are not
+    used at all. A starter that carries them no longer matches the bare catalogue, so
+    `replace_unedited_starter` treats it as edited and leaves it alone, which is the safe
+    side of that comparison."""
+    if len(lines) != len(script.stages):
+        return script
+    stages: list[ConversationStage] = []
+    for stage, line in zip(script.stages, lines, strict=True):
+        if stage.sounds_like.strip() or not line.strip():
+            stages.append(stage)
+            continue
+        try:
+            stages.append(
+                ConversationStage.model_validate({**stage.model_dump(), "sounds_like": line})
+            )
+        except ValueError:
+            stages.append(stage)
+    return script.model_copy(update={"stages": stages})
 
 
 #: The job an agent's direction implies. "both" has none: no starter makes such an agent.
@@ -668,4 +698,5 @@ __all__ = [
     "starter_for",
     "starter_vertical_of",
     "vertical_of",
+    "with_example_lines",
 ]

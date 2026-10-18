@@ -53,6 +53,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.like import contains_pattern
 from apps.api.db.session import admin_session, tenant_session
+from apps.api.tenancy.business_copy import queue_generation
 from apps.api.tenancy.lifecycle import assert_account_open
 from apps.api.tenancy.models import DEFAULT_PLAN_TIER as _DEFAULT_PLAN_TIER
 from apps.api.tenancy.onboarding import complete_onboarding_if_finished
@@ -418,6 +419,9 @@ async def _write_tenant_root(
                 ),
                 {"id": uuid7(), "tid": tenant_id, "uid": owner_user_id},
             )
+        # The account's own examples and suggestions are written once it exists (D-827), by
+        # the worker after this transaction commits, never inside the request.
+        await queue_generation(session, tenant_id=tenant_id, trigger="signup")
         # NO VOICE WORKSPACE IS QUEUED AT BIRTH (D-695): a workspace slot is scarce and paid
         # for, and an account nobody pays for must not hold one. What owes a workspace is
         # decided elsewhere; the operator's "Create workspace now" queues one by hand.

@@ -24,7 +24,7 @@ import {
 } from "@/lib/api/leads";
 import { useLeadFields } from "@/lib/api/leadFields";
 import { lookup } from "@/lib/lookup";
-import { examplesFor } from "@/lib/verticalExamples";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 import { BulkActionBar, EMPTY_SELECTION, type BulkSelection } from "./BulkActionBar";
 import { DialerPicker } from "./DialerPicker";
@@ -83,6 +83,7 @@ export function LeadsScreen() {
   const mayEditLead = useWriteAccess(session, "leads:write", "edit a lead");
   const mayDispatch = useWriteAccess(session, "leads:dispatch", "call a lead from this table");
   const me = useMe(session);
+  const eg = useVerticalExamples();
   /**
    * Saving a view asks TWO questions since D-587: `leads:write` is writable in a view-as
    * session, but the server refuses the act `leads.saved_view` there — a saved view is
@@ -200,7 +201,7 @@ export function LeadsScreen() {
   return (
     <div className="space-y-4 pb-12">
       <LeadsToolbar
-        askExample={examplesFor(me.data?.organization?.vertical_template).leadSearch}
+        askExample={eg.leadSearch}
         search={f.search}
         onSearch={f.setSearch}
         ask={f.ask}
