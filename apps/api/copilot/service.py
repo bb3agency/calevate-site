@@ -958,12 +958,31 @@ def _read_tool_registry(realm: CopilotRealm) -> Mapping[str, tools_module.ReadTo
     return {tool.name: tool for tool in realm_read_tools(realm)}
 
 
-def tool_array(realm: CopilotRealm) -> list[dict[str, Any]]:
+def tool_array(realm: CopilotRealm, *, account_open: bool = True) -> list[dict[str, Any]]:
     """Every tool the model is offered, in a FIXED order, IDENTICAL ON EVERY REQUEST OF
-    THIS REALM.
+    THIS SURFACE.
+
+    THREE SURFACES, EACH ONE FIXED LIST (D-816): the client realm; the admin realm with a
+    client's account open (`account_open`, i.e. the run has a tenant); and the admin realm on
+    a console screen with none. Each carries exactly the tools that surface can run:
+
+    * The CLIENT write tools are not in the admin realm at all. An admin principal has a
+      tenant only inside a view-as session (`core/auth`: `impersonating=tenant_id is not
+      None`), and `actions.assistant_closed_to` refuses every one of them there because
+      `copilot:use` is withheld from view-as; with no tenant, `actor_for` returns None and
+      they refuse as having no account. They were ~45 schemas that could only ever answer
+      with a refusal, and about half of every admin request.
+    * With no account open, the tenant-scoped read tools refuse before reading
+      (`tools.run_read_tool`), so the console surface omits them and keeps every
+      platform-scoped one. They are appended LAST when an account is open, so the two admin
+      surfaces share the longest possible cached prefix.
+
+    `account_open` is ignored in the client realm, whose array has one form. Its default is
+    the admin surface that offers the most, so a caller that does not say gets every read
+    tool rather than silently losing some.
 
     ONE COMPOSER FOR BOTH REALMS, so there is still one answer to "what tools exist" and
-    the cacheable prefix has one definition per realm. `set_fields` comes first because it
+    the cacheable prefix has one definition per surface. `set_fields` comes first because it
     was first and because moving it would change the prefix for no gain; the read tools
     follow in `realm_read_tools` order, and the proposing write tools last in registration
     order.
@@ -973,26 +992,30 @@ def tool_array(realm: CopilotRealm) -> list[dict[str, Any]]:
     identical tokens: *"A minimum of 1,024 tokens in length"*, *"The first 1,024 tokens in
     the prompt must be identical"*, over *"both the messages array and tool definitions"*
     (MicrosoftDocs/azure-ai-docs, `articles/foundry/openai/includes/
-    how-to-prompt-caching-content.md` @ main, read 1 Sep 2026). A REALM is a stable
-    partition of requests — every admin request gets one array, every client request gets
-    the other — so it is two caches, each hit by its own population. A per-SCREEN or
-    per-ROLE array is the thing that destroys caching, because it partitions the traffic
-    into slices too small and too numerous to keep warm.
+    how-to-prompt-caching-content.md` @ main, read 1 Sep 2026). A SURFACE is a stable
+    partition of requests — three populations, three caches, each hit by its own traffic. A
+    per-SCREEN or per-ROLE array is the thing that destroys caching, because it partitions
+    the traffic into slices too small and too numerous to keep warm.
 
-    NOTHING IS GATED OUT OF EITHER ARRAY — not by screen, not by tenant, not by role. A
-    caller who may not use a read tool is refused INSIDE it by `tools.run_read_tool`, which
-    is where the check has to exist anyway: a schema the model was never shown is
-    obscurity, not an access control. `copilot/tools_test.py` pins the byte-identity across
-    two differing requests, per realm, and that the two realms differ.
+    NOTHING IS GATED BY SCREEN, BY WHICH TENANT, OR BY ROLE. A caller who may not use a
+    read tool is refused INSIDE it by `tools.run_read_tool`, which is where the check has to
+    exist anyway: a schema the model was never shown is obscurity, not an access control.
+    What a surface leaves out is only what can never run on it. `copilot/tools_test.py` and
+    `copilot/tool_surfaces_test.py` pin the byte-identity and the three lists.
     """
+    if realm == "admin":
+        account_reads = [tool for tool in realm_read_tools("client") if tool.scope == "tenant"]
+        return [
+            prompt_module.set_fields_tool(),
+            *[_read_schema(tool) for tool in admin_tools.ADMIN_READ_TOOLS],
+            *[_read_schema(tool) for tool in realm_read_tools("client") if tool.scope != "tenant"],
+            *admin_actions.admin_action_schemas(),
+            admin_screens.admin_open_screen_tool(),
+            *([_read_schema(tool) for tool in account_reads] if account_open else []),
+        ]
     return [
         prompt_module.set_fields_tool(),
-        *[
-            prompt_module.function_tool(
-                name=tool.name, description=tool.description, parameters=tool.parameters
-            )
-            for tool in realm_read_tools(realm)
-        ],
+        *[_read_schema(tool) for tool in realm_read_tools(realm)],
         *write_tools.write_tool_schemas(),
         # NAVIGATION, LAST, AND CLIENT-REALM ONLY (D-524). `screens.py` is an inventory of
         # the CLIENT console and there is no admin equivalent, so offering the tool to an
@@ -1000,17 +1023,16 @@ def tool_array(realm: CopilotRealm) -> list[dict[str, Any]]:
         # than inserted for the reason `set_fields` stays first: the array is the cacheable
         # prefix, so a new tool costs one re-warm at deploy where a reordering would cost
         # every request behind it.
-        *([navigation.open_screen_tool()] if realm == "client" else []),
-        # D-694, APPENDED for the reason above. The client realm gains the background-job
-        # tool; the admin realm gains its own actions and its own `open_screen` (same name,
-        # the admin inventory's words). Each realm's array is still one fixed list.
-        *([background_tool()] if realm == "client" else []),
-        *(
-            [*admin_actions.admin_action_schemas(), admin_screens.admin_open_screen_tool()]
-            if realm == "admin"
-            else []
-        ),
+        navigation.open_screen_tool(),
+        # D-694, APPENDED for the reason above: the background-job tool.
+        background_tool(),
     ]
+
+
+def _read_schema(tool: tools_module.ReadTool) -> dict[str, Any]:
+    return prompt_module.function_tool(
+        name=tool.name, description=tool.description, parameters=tool.parameters
+    )
 
 
 async def _run_one_read_tool(
@@ -1095,9 +1117,10 @@ async def _run_read_tools(
     `run_read_tool` never raises and `_run_one_read_tool` swallows only its own timeout,
     so `gather` needs no `return_exceptions`.
 
-    **A REPEAT IS NOT RUN TWICE.** `already_run` carries (name, arguments) across the whole
-    ANSWER, so a model that asks for the identical lookup on turn after turn is told that it
-    already has the result instead of being served it again. Nothing about the second answer
+    **A REPEAT IS NOT RUN TWICE.** `already_run` carries the (name, arguments) whose results
+    the model can still see (`visible_lookups`; an older result is cleared and may be asked
+    for again), so a model that asks for the identical lookup on the next turn is told that
+    it already has the result instead of being served it again. Nothing about the second answer
     could differ — the same tool, the same arguments, inside one question — so re-running it
     buys a database round trip and a paid turn and changes nothing, and the loop converges on
     a sentence rather than on `MAX_TURNS`. It is keyed on the ARGUMENT STRING as the model
@@ -1240,6 +1263,66 @@ def _with_tool_result(
         ),
         {"role": "tool", "tool_call_id": call.id, "content": result},
     ]
+
+
+#: How many of the latest tool-calling exchanges keep their read-tool results in full on the
+#: next model turn (founder, 18 Oct 2026, D-816). An older read result is replaced by
+#: `cleared_result`: it is re-fetchable, and resending it would be paid on every turn after.
+KEEP_TOOL_RESULT_EXCHANGES: Final = 1
+
+
+def cleared_result(name: str) -> str:
+    """The one line an older read result becomes. Names the tool so the model can ask again."""
+    return f"[Earlier result of `{name}` cleared to save space; call `{name}` again if needed.]"
+
+
+def _exchanges(messages: Sequence[chat.ChatMessage]) -> list[int]:
+    return [
+        index
+        for index, message in enumerate(messages)
+        if message.get("role") == "assistant" and message.get("tool_calls")
+    ]
+
+
+def clear_old_read_results(
+    messages: Sequence[chat.ChatMessage], read_names: frozenset[str]
+) -> list[chat.ChatMessage]:
+    """`messages` with every READ-tool result older than the latest
+    `KEEP_TOOL_RESULT_EXCHANGES` exchanges replaced by `cleared_result`. Deterministic, and
+    no model call (Anthropic's context-engineering guidance: clearing a re-fetchable tool
+    result is the cheapest lever, and keeps the record of the call).
+
+    Only READ results: a refusal or a proposal receipt is not re-fetchable, and clearing it
+    would lose the reason the model must act on. The assistant turns are untouched, so their
+    tool calls and any Gemini thought signatures they carry are sent back exactly. Results
+    pair with their calls by position, never by `tool_call_id`, which may be empty.
+    """
+    starts = _exchanges(messages)
+    if len(starts) <= KEEP_TOOL_RESULT_EXCHANGES:
+        return list(messages)
+    cutoff = starts[-KEEP_TOOL_RESULT_EXCHANGES]
+    out: list[chat.ChatMessage] = []
+    pending: list[str] = []
+    for index, message in enumerate(messages):
+        if message.get("role") == "assistant" and message.get("tool_calls"):
+            pending = [str(call["function"]["name"]) for call in message["tool_calls"]]
+        elif message.get("role") == "tool" and pending:
+            name = pending.pop(0)
+            if index < cutoff and name in read_names:
+                out.append({**message, "content": cleared_result(name)})
+                continue
+        out.append(message)
+    return out
+
+
+def visible_lookups(messages: Sequence[chat.ChatMessage]) -> set[tuple[str, str]]:
+    """The (tool, arguments) calls of the exchanges whose results are still sent in full."""
+    starts = _exchanges(messages)
+    return {
+        (str(call["function"]["name"]), str(call["function"]["arguments"]))
+        for start in starts[-KEEP_TOOL_RESULT_EXCHANGES:]
+        for call in messages[start]["tool_calls"]
+    }
 
 
 def _preview(value: str) -> str:
@@ -1499,7 +1582,9 @@ async def _run_tool_loop(
     # ONE LIST, SAME BYTES, EVERY REQUEST OF THIS REALM — see `tool_array`, which is the
     # only composer, and which argues why a realm is a partition caching survives and a
     # screen or a role is not.
-    tools = tool_array(realm)
+    tools = tool_array(
+        realm, account_open=tool_context is not None and tool_context.tenant_id is not None
+    )
     # THE NARROWING HAPPENS ONCE, HERE. `actor_for` is the only place a `Principal` becomes
     # a `ToolActor`, and it refuses rather than defaults, so a principal with no tenant
     # cannot reach a tool as a `None` id.
@@ -1516,13 +1601,18 @@ async def _run_tool_loop(
     #: somebody whose real problem is that the field is read-only OR that their role may
     #: not pause a campaign, and the person cannot tell which loop they were in.
     refusal_reasons: tuple[str, ...] = ()
-    #: Every (tool, arguments) lookup this ANSWER has already run. Carried across the turns
-    #: because that is the span a repeat is pointless over — see `_run_read_tools`.
+    #: Every (tool, arguments) lookup whose result the model can still see. Recomputed per
+    #: turn from what is sent, because an older result is cleared (`clear_old_read_results`)
+    #: and a lookup whose result was cleared must be allowed to run again — see
+    #: `_run_read_tools` for why a visible one is not.
     lookups_run: set[tuple[str, str]] = set()
+    read_names = frozenset(_read_tool_registry(realm))
 
     for turn_index in range(limits.max_turns):
         outcome: chat.ChatOutcome | None = None
-        async for event in turn(leg, messages, tools):
+        sent = clear_old_read_results(messages, read_names)
+        lookups_run = visible_lookups(sent)
+        async for event in turn(leg, sent, tools):
             if event.text is not None:
                 # EGRESS STRIPPING ON EVERY FRAGMENT, not once at the end: fragments are
                 # what the browser renders, and a tag-block character split across two

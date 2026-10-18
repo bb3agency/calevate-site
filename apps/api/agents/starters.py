@@ -341,6 +341,14 @@ _ENDING: Final = (
     "have it, say goodbye and end the call."
 )
 
+#: The outbound starter's one per-call value, in its LAST section. The engine caches the
+#: prompt up to the first value it fills per call (VENDOR-STATED, ThinnestAI email of 18 Oct
+#: 2026), so a `{{lead_name}}` in the second step left every stage, objection and
+#: policy after it outside the cache (D-816).
+_CALL_LEADS_ENDING: Final = (
+    f"{_ENDING}\nThe person you are calling, if you have their name: {{{{lead_name}}}}"
+)
+
 
 def _answer_calls(vertical: str, trade: Trade) -> Starter:
     return Starter(
@@ -445,8 +453,8 @@ def _call_leads(vertical: str, trade: Trade) -> Starter:
                 title="Check you have the right person",
                 instruction=(
                     "Make sure you are speaking with the person you meant to call. Their "
-                    "name, if you have it, is {{lead_name}}. If it is the wrong person, "
-                    "apologise and end the call."
+                    "name, if you have it, is under ENDING below. If it is the wrong "
+                    "person, apologise and end the call."
                 ),
                 exit_when="You know you have the right person.",
             ),
@@ -487,7 +495,7 @@ def _call_leads(vertical: str, trade: Trade) -> Starter:
                 "to know now.",
             ),
         ),
-        ending=_ENDING,
+        ending=_CALL_LEADS_ENDING,
     )
 
 

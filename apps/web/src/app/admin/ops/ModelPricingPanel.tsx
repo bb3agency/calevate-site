@@ -284,6 +284,18 @@ function ModelPriceRow({
             </span>
           )}
         </dd>
+        {price.price_attested && (
+          <>
+            <dt className="text-ink-muted">Cached input price (US$ per million tokens)</dt>
+            <dd className="text-ink">
+              {price.cached_input_usd_per_mtok ? (
+                <MonoValue>{price.cached_input_usd_per_mtok}</MonoValue>
+              ) : (
+                <span className="text-ink-muted">Not confirmed — cached input is billed at the input price</span>
+              )}
+            </dd>
+          </>
+        )}
         {price.attested_at && (
           <>
             <dt className="text-ink-muted">Confirmed</dt>
@@ -367,6 +379,7 @@ function AttestForm({
 }) {
   const [inputUsd, setInputUsd] = useState("");
   const [outputUsd, setOutputUsd] = useState("");
+  const [cachedUsd, setCachedUsd] = useState("");
   const [sourceNote, setSourceNote] = useState("");
   const [confirm, setConfirm] = useState("");
 
@@ -395,6 +408,7 @@ function AttestForm({
             // The exact strings the operator typed — no Number(), no rounding (hard rule 7).
             inputUsdPerMtok: inputUsd.trim(),
             outputUsdPerMtok: outputUsd.trim(),
+            cachedInputUsdPerMtok: cachedUsd.trim() || undefined,
             sourceNote: sourceNote.trim(),
           },
           { onSuccess: onDone },
@@ -440,6 +454,22 @@ function AttestForm({
           className={`${FIELD} font-mono`}
         />
         {valid.error("outputUsd")}
+      </label>
+
+      <label className="block">
+        <span className={FIELD_LABEL}>
+          Cached input price (US$ per million tokens, optional)
+        </span>
+        <input
+          value={cachedUsd}
+          onChange={(e) => setCachedUsd(e.target.value)}
+          inputMode="decimal"
+          className={`${FIELD} font-mono`}
+        />
+        <span className={FIELD_HINT}>
+          The invoice line for input served from the vendor&apos;s prompt cache. Leave it
+          empty if there is none, and cached input is billed at the input price.
+        </span>
       </label>
 
       <label className="block">

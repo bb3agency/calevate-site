@@ -577,18 +577,10 @@ async def ask_admin_copilot(
             # is a caller-composed description used for the prompt and the audit row and
             # for nothing else.
             #
-            # **WHAT THE WRITE TOOLS DO IN THIS REALM, STATED RATHER THAN DISCOVERED.**
-            # `actor_for` refuses a principal with no tenant, and an admin principal carries
-            # one ONLY inside a D-22 view-as session. So:
-            #   * operator on a console screen → no actor → `plan_write` refuses with "needs
-            #     a signed-in account and this session has none". The tools are still
-            #     OFFERED, because the array must not vary by caller (`tool_array`).
-            #   * operator inside a view-as session → an actor exists, and every write
-            #     tool's permission is in `MUTATING_PERMISSIONS`, which D-22 refuses and
-            #     which `IMPERSONATION_PERMITTED_MUTATIONS` deliberately does not exempt.
-            # Both refusals are the EXISTING ladder asked by the existing code; neither is a
-            # new check written here. See the report and D-499 for what would let an
-            # operator propose inside an account they are merely viewing.
+            # The CLIENT write tools are not offered in this realm (D-816, `tool_array`):
+            # with no tenant `actor_for` refuses, and inside a view-as session
+            # `assistant_closed_to` refuses, so none of them could ever run here. The admin
+            # realm's own actions (`admin_actions.py`) run as this principal.
             principal=principal,
             # WHAT MAKES AN ACTION'S IDEMPOTENCY KEY STABLE ACROSS A RETRY: the question and
             # the replayed history, never the metering `ref` (minted per attempt, so a retry

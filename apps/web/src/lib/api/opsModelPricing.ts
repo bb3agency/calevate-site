@@ -71,6 +71,8 @@ export interface AttestPriceInput {
   /** USD per MILLION input tokens, as the exact string the operator typed. Never a number. */
   inputUsdPerMtok: string;
   outputUsdPerMtok: string;
+  /** USD per MILLION cached input tokens (D-816); omitted when the invoice shows no cached rung. */
+  cachedInputUsdPerMtok?: string;
   sourceNote: string;
   /** ISO instant with an offset, or omitted for "from now on". */
   effectiveFrom?: string;
@@ -79,12 +81,20 @@ export interface AttestPriceInput {
 export function useAttestModelPrice() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ model, inputUsdPerMtok, outputUsdPerMtok, sourceNote, effectiveFrom }: AttestPriceInput) =>
+    mutationFn: ({
+      model,
+      inputUsdPerMtok,
+      outputUsdPerMtok,
+      cachedInputUsdPerMtok,
+      sourceNote,
+      effectiveFrom,
+    }: AttestPriceInput) =>
       apiRequest<ModelPriceWrite>(adminSession(), `${OPS_MODEL_PRICES_PATH}/${model}`, {
         method: "POST",
         body: {
           input_usd_per_mtok: inputUsdPerMtok,
           output_usd_per_mtok: outputUsdPerMtok,
+          ...(cachedInputUsdPerMtok ? { cached_input_usd_per_mtok: cachedInputUsdPerMtok } : {}),
           source_note: sourceNote,
           ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
         },

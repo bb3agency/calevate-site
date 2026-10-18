@@ -97,9 +97,14 @@ Keep it short: every sentence is repeated in every request of the realm.
 
 ## 3. The permission check, inside the tool
 
-The tool array is **byte-identical within a realm** (prompt caching): never add, remove or
-reorder a tool by screen, tenant or role. New tools APPEND to their registry. Permission is
-checked inside:
+The tool array is **byte-identical within a surface** (prompt caching): never add, remove or
+reorder a tool by screen, tenant or role. There are three surfaces, each one fixed list
+(D-816, `service.tool_array`): the client realm; the admin realm with an account open; the
+admin realm on a console screen, which leaves out the account-scoped read tools (they refuse
+with no account). The admin realm carries no client write tool: every one refuses an admin
+principal (no tenant, or a view-as session where `copilot:use` is withheld);
+`copilot/tool_surfaces_test.py` proves both. New tools APPEND to their registry. Permission
+is checked inside:
 
 * `plan_write` / `run_immediate` / `confirm` / `approve` each call
   `actions.may_act(session, actor, tool.permission)` — the role table, the view-as rule and,
@@ -178,6 +183,12 @@ copy the body.
    (`make copilot-eval`); an operator with a key scores the real model with
    `make copilot-eval PROVIDER=google MODEL=<fast or planning tier id>` (or
    `PROVIDER=azure`), before and after a prompt or description change, on both tiers.
+   For whole answers and their cost (D-816), run the live eval on a deployment with the real
+   keys and a demo account, never in CI: `uv run python -m scripts.copilot_tool_eval --live
+   --spend --tenant=<demo account id> --record=before.json`, change, run again into
+   `after.json`, then `--compare before.json after.json`. Per question it records the tools
+   used, the answer (redacted), input, cached and output tokens and the rupee cost; writes
+   are refused (no principal), and it prints its total spend.
 
 ## 6. Stream events (`POST /v1/copilot/ask`, `POST /v1/admin/copilot/ask`)
 

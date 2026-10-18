@@ -297,6 +297,9 @@ class ModelPriceOut(BaseModel):
     #: The attested figures, USD per million tokens, as strings. `null` until attested.
     input_usd_per_mtok: str | None
     output_usd_per_mtok: str | None
+    #: The attested price of input served from the vendor's prompt cache (D-816); `null`
+    #: when none was attested, and cached input is then billed at the input price.
+    cached_input_usd_per_mtok: str | None
     effective_from: str | None
     attested_at: str | None
     attested_by: str | None
@@ -494,6 +497,9 @@ class ModelPriceAttestIn(BaseModel):
     #: boundary; never a JSON number.
     input_usd_per_mtok: str
     output_usd_per_mtok: str
+    #: USD per MILLION input tokens served from the vendor's prompt cache, as a decimal
+    #: STRING (D-816). Omit when the invoice shows no cached rung.
+    cached_input_usd_per_mtok: str | None = None
     #: When this price becomes authoritative. Omit for "from now on"; supply an earlier
     #: instant to correct the record for a period already elapsed. MUST be timezone-aware.
     effective_from: datetime | None = None
@@ -723,6 +729,11 @@ def _row(
         off_call_only=offer.off_call_only,
         input_usd_per_mtok=str(attested.input_usd_per_mtok) if attested else None,
         output_usd_per_mtok=str(attested.output_usd_per_mtok) if attested else None,
+        cached_input_usd_per_mtok=(
+            str(attested.cached_input_usd_per_mtok)
+            if attested and attested.cached_input_usd_per_mtok is not None
+            else None
+        ),
         effective_from=attested.effective_from.isoformat() if attested else None,
         attested_at=attested.attested_at.isoformat() if attested else None,
         attested_by=attested.attested_by if attested else None,
@@ -948,6 +959,12 @@ async def attest_model_price(
     try:
         input_price = _money("input_usd_per_mtok", payload.input_usd_per_mtok)
         output_price = _money("output_usd_per_mtok", payload.output_usd_per_mtok)
+        cached_price = (
+            None
+            if payload.cached_input_usd_per_mtok is None
+            or not payload.cached_input_usd_per_mtok.strip()
+            else _money("cached_input_usd_per_mtok", payload.cached_input_usd_per_mtok)
+        )
     except ValueError as exc:
         raise ProblemError(
             kind="validation",
@@ -966,6 +983,7 @@ async def attest_model_price(
         effective_from=effective_from,
         source_note=payload.source_note,
         actor_id=principal.user_id,
+        cached_input_usd_per_mtok=cached_price,
     )
     await write_audit(
         session,
@@ -980,6 +998,11 @@ async def attest_model_price(
             "model": model,
             "input_usd_per_mtok": str(attested.input_usd_per_mtok),
             "output_usd_per_mtok": str(attested.output_usd_per_mtok),
+            "cached_input_usd_per_mtok": (
+                None
+                if attested.cached_input_usd_per_mtok is None
+                else str(attested.cached_input_usd_per_mtok)
+            ),
             "effective_from": attested.effective_from.isoformat(),
             "source_note": attested.source_note,
         },

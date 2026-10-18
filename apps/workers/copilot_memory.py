@@ -323,6 +323,7 @@ async def _distil_group(
             ref=new_assist_ref(),
             tokens_in=outcome.usage.prompt_tokens,
             tokens_out=outcome.usage.output_tokens,
+            cached_tokens_in=outcome.usage.cached_tokens_in,
             # THE SETTING, NOT `leg.wire_model`, and getting this wrong would have been an
             # unfixable row on an append-only ledger. On Azure you deploy a model under an
             # id you choose and call THAT id (D-410/D-417), so `wire_model` is a DEPLOYMENT

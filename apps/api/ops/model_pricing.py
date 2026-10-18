@@ -98,6 +98,9 @@ class AttestedModelPrice:
     #: because the billing seam refuses an unattributed attestation (D-31/D-32).
     attested_by: str
     source_note: str
+    #: USD per MILLION cached input tokens, or `None` when no cached rung was attested
+    #: (D-816): input is then priced at `input_usd_per_mtok` whatever the provider reports.
+    cached_input_usd_per_mtok: Decimal | None = None
 
 
 async def attested_model_prices(
@@ -133,7 +136,8 @@ async def attested_model_prices(
                 # (`LlmPriceAttestation`) refuses an empty attester — so the operator is
                 # always named by something, their display name where there is one and their
                 # id otherwise.
-                "COALESCE(a.name, p.attested_by::text), p.source_note "
+                "COALESCE(a.name, p.attested_by::text), p.source_note, "
+                "p.cached_input_usd_per_mtok "
                 "FROM platform_model_prices p "
                 "LEFT JOIN admin_users a ON a.id = p.attested_by "
                 "WHERE p.effective_from <= :at "
@@ -151,6 +155,7 @@ async def attested_model_prices(
             attested_at=r[4],
             attested_by=str(r[5]),
             source_note=str(r[6]),
+            cached_input_usd_per_mtok=r[7],
         )
         for r in rows
     }
@@ -587,8 +592,13 @@ async def attest_price(
     effective_from: datetime,
     source_note: str,
     actor_id: object,
+    cached_input_usd_per_mtok: Decimal | None = None,
 ) -> AttestedModelPrice:
     """Record one operator-attested price as a NEW effective-dated row. Never an UPDATE.
+
+    `cached_input_usd_per_mtok` is the vendor's price for input it served from its prompt
+    cache (D-816), or None when the invoice shows no such rung; it must be above zero and at
+    most the input price, and storable per `rates.CACHED_TOKENS_PER_UNIT` tokens.
 
     The caller MUST have step-up confirmed and MUST write the audit row on this same
     session. Refuses an unknown model (the catalogue is closed), a negative price (the
@@ -621,6 +631,28 @@ async def attest_price(
             subject=f"the attested {leg} price for {model!r}",
             unit="1,000 tokens",
         )
+    if cached_input_usd_per_mtok is not None:
+        if not Decimal("0") < cached_input_usd_per_mtok <= input_usd_per_mtok:
+            raise ProblemError(
+                kind="validation",
+                code="model_price_cached_out_of_range",
+                title="The cached-input price must be between zero and the input price",
+                detail=(
+                    "A cache hit is a discount on input: above zero, and at most the input "
+                    "price, in USD per million tokens."
+                ),
+                remediation=(
+                    "Enter the cached-input line from the same invoice, or leave it empty if "
+                    "the vendor bills no cached rung."
+                ),
+            )
+        _refuse_unmeterable_rate(
+            rates.usd_mtok_to_inr_ktok_exact(cached_input_usd_per_mtok)
+            * rates.CACHED_TOKENS_PER_UNIT
+            / Decimal("1000"),
+            subject=f"the attested cached-input price for {model!r}",
+            unit="10,000 tokens",
+        )
     # The PK collision, turned into a sentence. `pg_advisory_xact_lock` on the model is not
     # needed — the PK is `(model, effective_from)` and two writers colliding on it is
     # exactly the state we want to refuse — but reading first lets the message name the
@@ -651,8 +683,8 @@ async def attest_price(
             text(
                 "INSERT INTO platform_model_prices "
                 "(model, effective_from, input_usd_per_mtok, output_usd_per_mtok, "
-                "attested_by, source_note) "
-                "VALUES (:m, :ef, :in, :out, :by, :note) "
+                "attested_by, source_note, cached_input_usd_per_mtok) "
+                "VALUES (:m, :ef, :in, :out, :by, :note, :cached) "
                 "RETURNING attested_at"
             ),
             {
@@ -662,6 +694,7 @@ async def attest_price(
                 "out": output_usd_per_mtok,
                 "by": actor_id,
                 "note": source_note,
+                "cached": cached_input_usd_per_mtok,
             },
         )
     ).one()
@@ -673,6 +706,7 @@ async def attest_price(
         attested_at=row[0],
         attested_by=str(actor_id),
         source_note=source_note,
+        cached_input_usd_per_mtok=cached_input_usd_per_mtok,
     )
 
 

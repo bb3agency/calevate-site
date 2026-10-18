@@ -20979,6 +20979,8 @@ export interface components {
         };
         /** ModelPriceAttestIn */
         ModelPriceAttestIn: {
+            /** Cached Input Usd Per Mtok */
+            cached_input_usd_per_mtok?: string | null;
             /** Effective From */
             effective_from?: string | null;
             /** Input Usd Per Mtok */
@@ -21006,6 +21008,8 @@ export interface components {
             attested_at: string | null;
             /** Attested By */
             attested_by: string | null;
+            /** Cached Input Usd Per Mtok */
+            cached_input_usd_per_mtok: string | null;
             /** Credential Installed */
             credential_installed: boolean;
             /** Effective From */

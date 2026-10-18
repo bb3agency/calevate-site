@@ -302,7 +302,7 @@ async def test_the_native_stream_yields_text_calls_usage_and_keeps_the_parts() -
     assert outcome is not None
     assert outcome.finish_reason == "tool_calls"
     assert outcome.usage == chat.TokenUsage(
-        prompt_tokens=910, output_tokens=25, cached_prompt_tokens=100
+        prompt_tokens=910, output_tokens=25, cached_prompt_tokens=100, cached_reported=True
     )
     [call] = outcome.tool_calls
     assert call.name == "leads" and json.loads(call.arguments) == {"q": "tea"}

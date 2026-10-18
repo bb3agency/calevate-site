@@ -514,6 +514,7 @@ async def meter_assist(
         ref=ref,
         tokens_in=usage.prompt_tokens,
         tokens_out=usage.output_tokens,
+        cached_tokens_in=usage.cached_tokens_in,
         # THE MODEL, AND THE PRICE IS DERIVED FROM IT rather than passed beside it
         # (D-410). This call used to hand over two rupee figures and a model name as
         # three independent arguments, which is a ledger row whose `unit_cost_paid` can
@@ -575,12 +576,10 @@ async def _meter_standby(
         ref=ref,
         tokens_in=usage.prompt_tokens,
         tokens_out=usage.output_tokens,
+        cached_tokens_in=usage.cached_tokens_in,
         model=SARVAM_DEFAULT_LLM,
         feature=ASSIST_FEATURE_STANDBY,
-        extra_meta={
-            "standby_for": feature,
-            "cached_prompt_tokens": str(usage.cached_prompt_tokens),
-        },
+        extra_meta={"standby_for": feature},
     )
     return AssistMetering(metered=False, cost_inr=recorded.cost_inr)
 
@@ -684,6 +683,7 @@ async def meter_platform_assist(
         ref=ref,
         tokens_in=usage.prompt_tokens,
         tokens_out=usage.output_tokens,
+        cached_tokens_in=usage.cached_tokens_in,
         model=model,
         feature=feature,
     )

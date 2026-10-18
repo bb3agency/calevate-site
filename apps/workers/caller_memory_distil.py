@@ -433,6 +433,7 @@ async def _distil_call(
             ref=new_assist_ref(),
             tokens_in=outcome.usage.prompt_tokens,
             tokens_out=outcome.usage.output_tokens,
+            cached_tokens_in=outcome.usage.cached_tokens_in,
             # THE SETTING, NOT `leg.wire_model` — `copilot_memory`'s reason: on Azure
             # `wire_model` is a DEPLOYMENT name (D-410/D-417), for which
             # `rates.llm_inr_per_ktok` publishes no price and would raise.

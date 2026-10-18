@@ -333,6 +333,7 @@ function modelPrices(): ModelPrices {
         offerable: true,
         input_usd_per_mtok: "0.150000",
         output_usd_per_mtok: "0.600000",
+        cached_input_usd_per_mtok: null,
         effective_from: "2026-08-01T00:00:00Z",
         attested_at: "2026-08-12T09:00:00Z",
         attested_by: "Ops",

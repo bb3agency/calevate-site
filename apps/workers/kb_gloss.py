@@ -270,6 +270,7 @@ async def _gloss_one(
             ref=new_assist_ref(),
             tokens_in=outcome.usage.prompt_tokens,
             tokens_out=outcome.usage.output_tokens,
+            cached_tokens_in=outcome.usage.cached_tokens_in,
             # THE SETTING, NOT `leg.wire_model`. On Azure a model is served under a
             # DEPLOYMENT id the operator chose (D-410/D-417); `rates.llm_inr_per_ktok`
             # publishes no price for a deployment name and would raise, on an append-only

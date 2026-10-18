@@ -124,6 +124,10 @@ def test_every_starter_compiles_and_keeps_the_platform_floor(key: tuple[str, str
     )
     assert TRUTHFUL_ANSWER_MARKER in engine_prompt
     assert "do-not-call tool" in engine_prompt.lower()
+    # A per-call value only in the last section the starter writes (D-816): the engine caches
+    # the prompt up to the first one, so every stage, objection and policy sits before it.
+    if "{{" in body:
+        assert body.index("{{") > body.index("[ENDING]")
 
 
 @pytest.mark.parametrize("key", sorted(starters.CATALOGUE))

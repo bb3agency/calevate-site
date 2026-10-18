@@ -292,7 +292,7 @@ export interface CopilotConversation {
  * comment used to name `copilotHistory.test.ts`, a file that has never existed in this
  * tree; the guard was real, its name here was not.)
  */
-export const MAX_HISTORY = 10;
+export const MAX_HISTORY = 12;
 
 /**
  * The last whole EXCHANGES that fit under the ceiling, oldest first.

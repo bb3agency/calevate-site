@@ -96,6 +96,9 @@ UNIT_RATE_SHAPE: dict[str, str] = {
     "forwarding_test_min": "derived",
     # One of our own WhatsApp sends at the operator-attested per-message price (D-746).
     "whatsapp_msg": "struck",
+    # Prompt-cache hits at the attested cached rung, per TEN thousand tokens (D-816); the
+    # attestation form refuses a figure the column cannot hold at that unit.
+    "ai_assist_10ktok_cached_in": "struck",
 }
 
 

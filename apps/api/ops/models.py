@@ -279,6 +279,11 @@ class PlatformModelPrice(Base):
     #: "openai.com/api/pricing 23 Aug 2026". Required at the boundary (it is the evidence that
     #: makes this an attestation rather than a guess) and NOT NULL here.
     source_note: Mapped[str] = mapped_column(Text, nullable=False)
+    #: USD per MILLION input tokens the vendor served from its prompt cache, or NULL when
+    #: none was attested — input is then priced at `input_usd_per_mtok` whatever the provider
+    #: reports (D-816, migration b4d2e9c71a58). `ck_platform_model_prices_cached_input_range`
+    #: keeps it above zero and at most the input price.
+    cached_input_usd_per_mtok: Mapped[Decimal | None] = mapped_column(USD_PER_MTOK, nullable=True)
 
 
 #: RUPEES per ONE THOUSAND synthesised characters. NUMERIC(12,6), never a float (hard rule

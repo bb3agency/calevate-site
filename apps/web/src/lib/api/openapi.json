@@ -889,7 +889,7 @@
             "items": {
               "$ref": "#/components/schemas/CopilotTurn"
             },
-            "maxItems": 10,
+            "maxItems": 12,
             "title": "History",
             "type": "array"
           },
@@ -11391,7 +11391,7 @@
             "items": {
               "$ref": "#/components/schemas/CopilotTurn"
             },
-            "maxItems": 10,
+            "maxItems": 12,
             "title": "History",
             "type": "array"
           },
@@ -26401,6 +26401,17 @@
       "ModelPriceAttestIn": {
         "additionalProperties": false,
         "properties": {
+          "cached_input_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached Input Usd Per Mtok"
+          },
           "effective_from": {
             "anyOf": [
               {
@@ -26461,6 +26472,17 @@
               }
             ],
             "title": "Attested By"
+          },
+          "cached_input_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached Input Usd Per Mtok"
           },
           "credential_installed": {
             "title": "Credential Installed",
@@ -26564,6 +26586,7 @@
           "off_call_only",
           "input_usd_per_mtok",
           "output_usd_per_mtok",
+          "cached_input_usd_per_mtok",
           "effective_from",
           "attested_at",
           "attested_by",

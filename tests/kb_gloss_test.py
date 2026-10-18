@@ -48,6 +48,7 @@ ENGLISH_BODY = "The consultation fee for a first visit is 500 rupees, payable at
 class _FakeUsage:
     prompt_tokens: int = 120
     output_tokens: int = 40
+    cached_tokens_in: int | None = None
 
 
 @dataclass
