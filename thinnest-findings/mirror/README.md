@@ -102,3 +102,18 @@ What matters to us (paths under `snapshots/2026-10-15/pages/`; the item-by-item 
 - **Clones shared with customers.** A developer's clones are listed in each customer workspace's `GET /voices` with `sharedFromDeveloper: true`, count against the developer's limit only, and cannot be renamed or deleted there (`api-reference/voices/list-voices.md:579-589`; `channels/voice-clone.md:114-126`).
 - **Own voices marked.** `GET /byok/voices` rows carry `own` (`api-reference/bring-your-own-keys/list-byok-voices.md:731-739`).
 - **Not used yet:** `voice.speakingSpeed` 0.7–1.3 (Studio, cloned and own-key voices ignore it, `channels/voice.md:153-167`); the Ear backchannel fields (`api-reference/agents/update-agent.md:1480-1525`); `voice.reaskAfterSeconds`, which `channels/voice.md:659` documents but no API schema in this snapshot defines; and up to four reply languages in the console (`agent/behaviour.md:66-95`), with no matching API field found.
+
+## Snapshot of 18 Oct 2026 (`snapshots/2026-10-18/`)
+
+A full re-fetch on 18 Oct 2026 (UTC run 07:39–07:43, `started_at` and `generated_at` in its `MANIFEST.json`): 285 of 285 pages, 0 failures, every page HTTP 200, with its own `llms.txt` and `MANIFEST.json`. The example account id of the form `AC` + 32 hex was masked at fetch time (one file, `api-reference/phone-numbers/save-carrier-account.md`, lines 473 and 577, same byte length), and the manifest hashes are of the masked file. Against `2026-10-15/`: 1 page added, 0 removed, 13 changed. Cite this snapshot for anything current.
+
+- **Added:** `agent/website-and-app-agent` (an on-screen agent product we do not use).
+- **Changed:** `agent/behaviour`, `agents/{create,get,list,update}-agent(s)`, `agents/set-agent-byok-{model,voice}`, `calls/{get,list,cancel}-call(s)`, `post-call/delete-call-content`, `usage/list-wallet-ledger`, `whats-new/index` (an entry for 17 Oct).
+
+What matters to us (paths under `snapshots/2026-10-18/pages/`; the item-by-item check of ThinnestAI's 18 Oct email is `docs/evidence/thinnest-reply-2026-10-18.md`). ThinnestAI's founder wrote on 18 Oct that List Calls billing, `languages`/`reaskAfterSeconds` and the own-model `409` "need a release to be live"; the docs below already describe them.
+- **Carrier-only calls.** A call that ended before the agent spoke, and a call forwarded without an agent, are charged the carrier's fee only: ₹0.38 a minute in 30-second blocks (₹0.19 each); `billedSeconds` is rounded up to the block, and `voicePlan`/`ratePerMinuteMicro` still show the plan the call was set up on, so such a call is reconciled by `costMicro` (`api-reference/calls/get-call.md:1235-1243`).
+- **Free trial calls.** `voicePlan`, `ratePerMinuteMicro` and `billedSeconds` are null only for a call paid from a free-plan workspace's trial minutes; a developer's own test calls carry them (`api-reference/calls/get-call.md:1246-1249`).
+- **`billing` on List Calls**, the same object as Get Call (`api-reference/calls/list-calls.md:772`).
+- **Reply languages.** `languages` on Create/Update Agent: `[]` auto, one name, or two to four with the first as fallback; send `languages` or `language`, not both; `secondLanguage` is retired (`api-reference/agents/update-agent.md:754-780`).
+- **`voice.reaskAfterSeconds`**: `0` never, 1.5–10 s, `null` the platform's 2.5 s (`api-reference/agents/update-agent.md:1452-1461`).
+- **Own model on an agent.** `PUT /agents/{id}/byok-model` answers `409` only when the workspace brings no keys or only its voice key; `llm`, `llm_voice` and `all` can set an agent's model (`api-reference/agents/set-agent-byok-model.md:514-525`).
