@@ -117,11 +117,6 @@ export function AssistPanel({
               />
             </div>
           ))}
-          {hasContent(script) && (
-            <button type="button" className={TEXT_ACTION} onClick={() => setFromQuestions(false)}>
-              Ask for one change instead
-            </button>
-          )}
         </>
       ) : (
         <>
@@ -154,26 +149,38 @@ export function AssistPanel({
               </li>
             ))}
           </ul>
-          <button type="button" className={TEXT_ACTION} onClick={() => setFromQuestions(true)}>
-            Draft the whole script from five questions
-          </button>
         </>
       )}
-      <button
-        type="button"
-        className={PRIMARY_BUTTON_SM}
-        disabled={!write.allowed || assist.isPending || written < 10}
-        title={write.reason ?? (written < 10 ? "Write a little more first." : undefined)}
-        onClick={ask}
-      >
-        {assist.isPending ? (
-          <span className="text-shimmer">Thinking…</span>
-        ) : fromQuestions ? (
-          "Draft my script"
+      {/* One primary action, then the other mode as a quieter link beside it: inline, the
+          two ran together into one line of text. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <button
+          type="button"
+          className={PRIMARY_BUTTON_SM}
+          disabled={!write.allowed || assist.isPending || written < 10}
+          title={write.reason ?? (written < 10 ? "Write a little more first." : undefined)}
+          onClick={ask}
+        >
+          {assist.isPending ? (
+            <span className="text-shimmer">Thinking…</span>
+          ) : fromQuestions ? (
+            "Draft my script"
+          ) : (
+            "Suggest the change"
+          )}
+        </button>
+        {fromQuestions ? (
+          hasContent(script) && (
+            <button type="button" className={TEXT_ACTION} onClick={() => setFromQuestions(false)}>
+              Ask for one change instead
+            </button>
+          )
         ) : (
-          "Suggest the change"
+          <button type="button" className={TEXT_ACTION} onClick={() => setFromQuestions(true)}>
+            Or draft the whole script from five questions
+          </button>
         )}
-      </button>
+      </div>
       {assist.isPending && (
         <p role="status" className="text-meta text-ink-muted">
           This takes about half a minute.

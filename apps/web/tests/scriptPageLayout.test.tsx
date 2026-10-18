@@ -202,3 +202,16 @@ describe("accessibility with every part open", () => {
     await expectNoA11yViolations(container, "script page, every part open");
   });
 });
+
+describe("the AI helper's actions", () => {
+  it("keeps the one primary action apart from the other way to ask", async () => {
+    await renderClientPage(page, routes(out(FULL)));
+    fireEvent.click(await screen.findByRole("button", { name: "AI helper" }));
+    const primary = await screen.findByRole("button", { name: "Suggest the change" });
+    const other = screen.getByRole("button", { name: "Or draft the whole script from five questions" });
+    // Two separate controls in one wrapping row, never one run of text.
+    expect(primary).not.toBe(other);
+    expect(primary.parentElement).toBe(other.parentElement);
+    expect(primary.parentElement?.className).toContain("gap-x-4");
+  });
+});
