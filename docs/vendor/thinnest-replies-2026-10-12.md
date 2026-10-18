@@ -734,7 +734,11 @@ H. **`own` on `GET /byok/voices`.** `GET /byok/voices` marks our own account's v
 3. Does "a free trial call" (`voicePlan`, `ratePerMinuteMicro` and `billedSeconds` all null) include test calls that our own free-trial agents place in our developer workspace, or only ThinnestAI's own free plan?
 4. `voice.reaskAfterSeconds` is in the Voice guide (`channels/voice.md:659`) but in no API schema. Does Update Agent accept it? Is there an API field for the console's "up to four" reply languages?
 
-## 15. Draft of the next email (16 Oct 2026, unsent; the founder sends)
+## 15. The email of 16 Oct 2026 (questions 1–18 sent 16 Oct, 23:22 IST; 19–23 not sent)
+
+The founder sent questions 1–18, opening with "contact.erased and byok.changed close the loop"
+in place of the reference to question 22. Questions 19–23 were not sent and move to §17. The
+answers to 1–18 are §16.
 
 Gathers what §14.1 left open, the four new questions it lists, and what building A–H on our
 side (D-796, D-797, D-798) raised. §13 questions 1-15 are repeated only where §14.1 marks them
@@ -833,3 +837,80 @@ open, because the 15 Oct reply answered only the §13.1 requests.
 >
 > Thanks,
 > Umesh
+
+## 16. Ashutosh's answer to questions 1–18, received 18 Oct 2026
+
+- **From:** Ashutosh K, founder of ThinnestAI, 18 Oct 2026, 11:19 IST.
+- **Relayed by:** the founder.
+- **Evidence class:** **VENDOR-STATED**. The docs check is `docs/evidence/thinnest-reply-2026-10-18.md`, against `thinnest-findings/mirror/snapshots/2026-10-18/`.
+- **Release:** items 5, 6 and 9 "need a release to be live, which I'll confirm separately". The docs' What's new already lists them under 17 Oct.
+- **Rememory:** vendor memory 1c709aea; the founder's decisions on it are decision memory 99f4d113.
+
+### 16.0 The email, verbatim (the answers; the quoted A–H text of 15 Oct is §14.0)
+
+> Answers in your numbering. Items 5, 6 and 9 need a release to be live, which I'll confirm separately.
+>
+> **From the new release**
+>
+> Shared clone id. Yes, it is the same id. A customer workspace's GET /voices lists the developer's clone with the developer's own clone id, marked sharedFromDeveloper: true, so your publish check will find it.
+>
+> Forwarded call with no agent. The call runs no agent, so it is charged the phone carrier's fee only. In billing, voicePlan and ratePerMinuteMicro still show the plan and rate the call was set up on, which is not what was charged. billedSeconds is in carrier blocks. Reconcile these calls by costMicro. Our API reference now says so.
+>
+> "Free trial call". Plan, rate and billed seconds are null for a call paid from a free-plan workspace's trial minutes. Your developer workspace is on a paid plan, so its test calls, including your free-trial agents' calls, are billed from your balance and carry plan and rate. A trial call in one of your customer workspaces that is on a trial carries the trial rate.
+>
+> Call that ends before the agent speaks. It is billed the carrier fee only, in 30-second blocks. The phone rate is ₹0.38 a minute, so ₹0.19 per block, and billedSeconds is the length rounded up to the block. A 4-second call is one block: 30 seconds and ₹0.19.
+>
+> billing on List Calls. It is now on every call in List Calls: the same object as Get Call, so you no longer need a Get Call per row. We did not add a "settled" webhook. List Calls covers calls settled after call.analysed.
+>
+> voice.reaskAfterSeconds and the reply languages. Both are now in the API reference. reaskAfterSeconds could already be set on Update Agent. It was missing from the schema. It takes 0 for never, 1.5 to 10 seconds, or null for the platform's 2.5 seconds. languages on Create Agent and Update Agent sets the console's "one, or up to four": [] is auto, one name is that language, and two to four are the languages the agent expects, the first being its fallback, for example ["Telugu", "English"]. Get Agent returns it. Send languages or language, not both. More than four, a repeat or an unknown name gets a 400.
+>
+> **Per-agent keys and billing**
+>
+> Per-agent byok. It is live for every workspace. All four choices, off and null work through Create Agent and Update Agent, as long as the workspace holds verified keys for the choice you pick.
+>
+> Post-call summary and field extraction. They run on our own light model on our account, not on your key. Google never bills you for them, and the token usage doesn't count them. cachedInputTokens is what your provider returned for the call. Whether it bills it at its cached rate is the provider's decision.
+>
+> PUT /agents/{id}/byok-model. You found a mistake in our API reference. The 409 text for that route had been overwritten with the voice routes' wording. It's now corrected. A Clear agent (scope llm, no voice key) can have its own model. The 409 applies only when the workspace brings no keys, or only its voice, or the agent is set to byok: "off".
+>
+> Prices. Studio is ₹3.00 a minute on pay-as-you-go and Pro. A workspace on Scale gets 5% off. The discount applies to the workspace that is on Scale, so if Calevate goes on Scale, its clients don't get it. There is no further volume rate. Standard is ₹2.00 a minute and Premium ₹2.50 on pay-as-you-go and Pro. The 5% on Scale applies to those too.
+>
+> **Agent behaviour**
+>
+> The speaking rules. The full current text is below. *(Recorded verbatim in `docs/vendor/thinnest-speaking-rules-2026-10-18.md`.)*
+>
+> voice.surfaces: []. Yes, accepted on an agent with no number. phone_number_required fires only when phone is added, or calls are switched on with phone present, and the agent has neither its own number nor a lent one.
+>
+> Caller goes quiet. nudgeAfterSeconds and endAfterSilenceSeconds are handled by the call engine, outside the model. The nudge is spoken directly and recorded as an agent turn. The model sees no empty turn or event. It sees the nudge as an earlier agent turn in later history.
+>
+> Where your instructions sit. In order: our core rules, the AI disclosure, the hand-over and lead rules, the agent's name, the business description (fenced), your instructions (fenced, with the steps and the per-call variables filled in), the caller memory (fenced), then the reply-language rule. The speaking rules, the date line and per-turn blocks such as a transfer instruction come after. So the part that is the same on every call comes first. The cached prefix runs up to your first per-call variable. Put variables late in your instructions if caching matters.
+>
+> **Placing calls**
+>
+> "Answers the phone". An agent counts for Place Call when its voice channel has Answer calls on, phone in its surfaces, and a dialable number: its own, or one lent to it. A lent number counts for both Place Call and phone_number_required. Setting surfaces: ["phone"] on the borrowing agent right after the lend is the right way. Answer calls must also be on for that agent.
+>
+> Lending. It adds the number to the borrower's calling pool and removes it from any other agent's pool, so a number is lent to one agent at a time. It does not add phone to the surfaces by itself. A lent number is for calling out only: an agent with no number of its own never answers an inbound call, because the number's own agent answers.
+>
+> **Numbers**
+>
+> Idempotency-Key on rent. Yes, POST /phone-numbers honours it.
+>
+> 140-series numbers. We don't offer them. Our carrier requires a minimum commitment of ₹1 lakh for the 140 series. We also block 140 as a forwarding destination. If Calevate wants promotional calling, that is a commercial conversation to have with us first.
+
+### 16.1 What it closes, what the founder decided, and what stays open
+
+**Closed:** §15 questions 1–18, item by item in `docs/evidence/thinnest-reply-2026-10-18.md`.
+
+**Founder decisions, 18 Oct 2026** (decision memory 99f4d113):
+- Each agent has a client setting for up to four reply languages, the first the fallback, defaulting to Telugu then English. It is sent as `languages` once the release is confirmed live; until then the single `language`.
+- ThinnestAI's speaking rules stay (no `callInstructions`). Our prompt drops only the sentences that repeat them and puts per-call values last, for caching.
+- The Standard band (₹2.00/min) is not offered.
+- Promotional (140-series) calling is dropped for now; 140-series numbers are refused as transfer and forwarding destinations.
+
+**Built from it:** the decision rows of the 18 Oct build lanes in `docs/ROADMAP.md`.
+
+**Still open, carried to §17:**
+- Live dates for items 5, 6 and 9.
+- §15 questions 19–23, which were not sent.
+- What re-lending a number does to a call the previous borrower already has on it (the trial line is held per call for this reason, `campaigns/engine_numbers.lend_trial_line`).
+- Whether a change to the built-in speaking rules will be announced, now that our prompt relies on them.
+- The rent page does not document `Idempotency-Key`.

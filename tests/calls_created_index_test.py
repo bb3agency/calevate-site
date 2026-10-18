@@ -58,4 +58,7 @@ async def test_the_reads_by_creation_time_use_the_index() -> None:
         connection = await session.connection()
         for statement, params in captured:
             plan = (await connection.exec_driver_sql("EXPLAIN " + statement, params)).all()
-            assert INDEX in " ".join(str(row[0]) for row in plan), statement
+            shown = "\n".join(str(row[0]) for row in plan)
+            # The plan is in the message because the full suite leaves other tenants' rows
+            # in `calls`, and a plan that differs only there cannot be reproduced alone.
+            assert INDEX in shown, f"{statement}\n{shown}"

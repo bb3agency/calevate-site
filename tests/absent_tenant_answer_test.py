@@ -287,6 +287,7 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "POST /v1/admin/tenants/{tenant_id}/kb/{source_id}/approve": None,
     "POST /v1/admin/tenants/{tenant_id}/kb/{source_id}/publish": None,
     "POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute": None,
+    "POST /v1/ops/tenants/{tenant_id}/calls/{call_id}/recording/recopy": None,
 }
 
 

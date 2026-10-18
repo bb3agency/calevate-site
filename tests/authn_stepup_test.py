@@ -539,6 +539,13 @@ _OPS_WRITES_WITHOUT_STEP_UP = {
         "on a harmless lever, which is what makes them worthless on `outbox/replay`, "
         "where the blast radius is other people's customer data arriving twice."
     ),
+    ("apps/api/ops/routes.py", "recopy_call_recording_route"): (
+        "queues the pipeline's own copy of ONE call's recording into our bucket (D-808), "
+        "under the key the pipeline would have used, writing the pointer only while it is "
+        "empty. It sends nothing a person did not already expect and refuses a call that is "
+        "copied, erased, deleted on the platform or never connected; the hourly sweep queues "
+        "the same job unprompted."
+    ),
     ("apps/api/ops/hosted_voice_routes.py", "add_hosted"): (
         "marks ONE voice the sync already read as added (D-687). It arrives DISABLED, so it "
         "reaches no picker and no agent; it calls no vendor and is reversible by archiving."
