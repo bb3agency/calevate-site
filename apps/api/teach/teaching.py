@@ -1,11 +1,12 @@
-"""The teach box: one input for text, a photo or file, or a voice note, sorted by AI into
-facts and rules for the owner to review (founder decision 9, 10 Oct 2026).
+"""The teach box: what the agents should know, sorted by AI into facts and rules for the
+owner to review (founder decision 9, 10 Oct 2026). Asked of Pip since D-821
+(`copilot/assist_actions.knowledge_teach`): Pip reads a photo or a file itself and sends
+the words; a voice note is heard here and its words go back into the teach box.
 
 The flow, one `kb_teachings` row per use:
 
     text   -> queued -> sorting -> ready -> saved | discarded
-    photo  -> queued -> reading -> sorting -> ready -> ...
-    voice  -> queued -> reading -> heard (the owner checks the words) -> queued -> sorting ...
+    voice  -> queued -> reading -> heard (the words go back into the teach box; discarded)
 
 Reading and sorting happen in a worker (`apps/workers/kb_teach.py`), never in a request
 handler. Saving is the owner's act: facts go into the business's knowledge at once
@@ -52,7 +53,8 @@ VOICE_CONTENT_TYPES: Final = frozenset(
 MIN_TEACH_CHARS: Final = 3
 
 ItemKind = Literal["fact", "rule"]
-InputKind = Literal["text", "photo", "file", "voice"]
+#: What a teaching can start from now. Rows from before D-821 may say `photo` or `file`.
+InputKind = Literal["text", "voice"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,29 +190,27 @@ async def start_teaching(
     return _teaching_of(row)
 
 
-async def confirm_words(
-    session: AsyncSession, *, tenant_id: UUID, teaching_id: UUID, words: str
-) -> Teaching:
-    """The owner checked (and may have corrected) the words heard in a voice note; sort them."""
-    cleaned = clean_words(words)
+#: A teaching still on its way to review, or waiting in it.
+_OPEN_STATUSES: Final = ("queued", "sorting", "ready")
+
+
+async def open_teaching(session: AsyncSession, *, requested_by: UUID | None) -> Teaching | None:
+    """The newest teaching this person asked for that is being sorted or waits for review:
+    what Pip was asked to teach lands here on the Knowledge base screen (D-821). Voice notes
+    are not listed: they stop at `heard` and their words go back into the teach box."""
+    if requested_by is None:
+        return None
     row = (
         await session.execute(
             text(
-                "UPDATE kb_teachings SET words = :words, status = 'queued', updated_at = now() "
-                f"WHERE id = :id AND status = 'heard' RETURNING {_COLUMNS}"
+                f"SELECT {_COLUMNS} FROM kb_teachings WHERE requested_by = :by "
+                "AND status = ANY(:open) AND input_kind = 'text' "
+                "ORDER BY created_at DESC LIMIT 1"
             ),
-            {"id": teaching_id, "words": cleaned},
+            {"by": requested_by, "open": list(_OPEN_STATUSES)},
         )
     ).first()
-    if row is None:
-        await get_teaching(session, teaching_id)  # 404 when it is not ours
-        raise ProblemError.conflict(
-            "teaching_not_waiting_for_words", "These words were already confirmed."
-        )
-    await enqueue_outbox(
-        session, job=TEACH_JOB, payload={"tenant_id": str(tenant_id), "teaching_id": str(row.id)}
-    )
-    return _teaching_of(row)
+    return _teaching_of(row) if row is not None else None
 
 
 async def discard(session: AsyncSession, teaching_id: UUID) -> Teaching:
@@ -366,9 +366,9 @@ __all__ = [
     "TeachItem",
     "Teaching",
     "clean_words",
-    "confirm_words",
     "discard",
     "get_teaching",
+    "open_teaching",
     "save",
     "start_teaching",
 ]

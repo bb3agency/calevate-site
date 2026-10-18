@@ -30,7 +30,7 @@ async def test_a_voice_note_writes_our_cost_and_spends_nothing_of_the_clients(
         before = await read_ai_quota(session, tenant_id=tenant_id)
 
     words = await kb_teach.read_upload(
-        tenant_id, data=b"audio", input_kind="voice", content_type="audio/webm", filename="v"
+        tenant_id, data=b"audio", input_kind="voice", content_type="audio/webm"
     )
 
     assert words == "we open at nine"
@@ -76,7 +76,7 @@ async def test_a_voice_note_that_could_not_be_heard_costs_nothing(
     tenant_id, _agent_id = await _seed_tenant(f"fakeagent_{uuid.uuid4().hex[:10]}")
     with pytest.raises(kb_teach.UnreadableError):
         await kb_teach.read_upload(
-            tenant_id, data=b"audio", input_kind="voice", content_type="audio/webm", filename="v"
+            tenant_id, data=b"audio", input_kind="voice", content_type="audio/webm"
         )
     async with tenant_session(tenant_id) as session:
         count = (

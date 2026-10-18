@@ -345,7 +345,7 @@ async def purchase_number(
     """Claim the key, buy, record the answer — three transactions, in that order.
 
     **THE CLAIM COMMITS BEFORE THE VENDOR IS CALLED**, in its own transaction, which is
-    `POST /v1/calls/{call_id}/assist`'s shape and exists for the same reason: written into
+    `billing/payment_routes._create_order_once`'s shape and exists for the same reason: written into
     the request's transaction it would be rolled back by `core/deps.db` on any later
     exception, so a retry with the key that exists to prevent a second purchase would make
     one.

@@ -164,13 +164,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/kb/teach/{teaching_id}": BoundedByConstruction(
         by="one teaching's items, at most `workers.kb_teach.MAX_ITEMS` and 30 on save (`SaveIn`)."
     ),
-    "POST /v1/kb/teach": BoundedByConstruction(
-        by="the same one teaching as `GET /v1/kb/teach/{teaching_id}`."
+    "GET /v1/kb/teach/open": BoundedByConstruction(
+        by="at most one teaching, the same shape as `GET /v1/kb/teach/{teaching_id}`."
     ),
     "POST /v1/kb/teach/upload": BoundedByConstruction(
-        by="the same one teaching as `GET /v1/kb/teach/{teaching_id}`."
-    ),
-    "POST /v1/kb/teach/{teaching_id}/words": BoundedByConstruction(
         by="the same one teaching as `GET /v1/kb/teach/{teaching_id}`."
     ),
     "POST /v1/kb/teach/{teaching_id}/discard": BoundedByConstruction(
@@ -209,14 +206,11 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/admin/tenants/{tenant_id}/lead-fields": BoundedByConstruction(
         by="the same render as `GET /v1/lead-fields`, for one named tenant."
     ),
-    "POST /v1/lead-fields/draft": BoundedByConstruction(
+    "POST /v1/admin/tenants/{tenant_id}/lead-fields/draft": BoundedByConstruction(
         by=(
             "the one draft row, whose fields are at most "
             "`workers.lead_fields_draft.MAX_DRAFTED_FIELDS`."
         )
-    ),
-    "POST /v1/admin/tenants/{tenant_id}/lead-fields/draft": BoundedByConstruction(
-        by="the same one draft row as `POST /v1/lead-fields/draft`."
     ),
     "GET /v1/leads/{lead_id}/captured": BoundedByConstruction(
         by=(

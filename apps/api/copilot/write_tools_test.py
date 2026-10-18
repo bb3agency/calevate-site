@@ -228,6 +228,10 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         # D-820's script suggestion and test fixes APPEND.
         "agent_script_suggest",
         "agent_tests_fix",
+        # D-821's teach box, lead-details draft and second reading APPEND.
+        "knowledge_teach",
+        "lead_fields_draft",
+        "call_summarise_again",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]

@@ -2,7 +2,8 @@
 
 Founder decision 15 (10 Oct 2026): a business that fits no known type gets its business
 fields drafted by AI from everything known about it at that point — its profile, services,
-FAQs, booking rules, knowledge titles and what its agents do — and never again. The client
+FAQs, booking rules, knowledge titles and what its agents do — and never again. The owner
+keeps the drafted fields one by one before any agent gets them (D-821), and
 edits them freely afterwards.
 
 Enqueued through the outbox by `agents/lead_fields.request_draft`, in the transaction that
@@ -32,17 +33,13 @@ from calevate_shared.extraction import ExtractionField, FieldType, is_phone_fiel
 from calevate_shared.lead_fields import CORE_KEYS, CORE_LEAD_FIELDS, OUTPUT_KEYS
 from sqlalchemy import text
 
-from apps.api.admin.business_type import queue_apply
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.extraction_routes import (
     MAX_ENUM_VALUE_LEN,
     MAX_LABEL_LEN,
     MAX_REASON_LEN,
 )
-from apps.api.agents.lead_fields import (
-    business_type_label,
-    replace_business_fields,
-)
+from apps.api.agents.lead_fields import business_type_label
 from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.billing.models import ASSIST_FEATURE_LEAD_FIELDS
 from apps.api.core.errors import ProblemError
@@ -363,14 +360,11 @@ async def draft_lead_fields(ctx: dict[str, Any], payload: dict[str, Any]) -> str
             ),
             {"fields": json.dumps([f.model_dump() for f in fields]), "model": model},
         )
-        # Onto every agent that has no business fields of its own yet; an agent whose
-        # fields somebody already chose keeps them.
-        written = await replace_business_fields(session, fields=fields, only_empty=True)
-        # Their scripts ask for the new fields from the next call (D-722).
-        await queue_apply(session, tenant_id=tenant_id)
+    # It reaches no agent until the owner keeps it, field by field (D-821,
+    # `lead_fields.review_draft`).
     log.info(
         "lead_fields_drafted",
-        extra={"tenant_id": str(tenant_id), "fields": len(fields), "agents": len(written)},
+        extra={"tenant_id": str(tenant_id), "fields": len(fields)},
     )
     return "done"
 

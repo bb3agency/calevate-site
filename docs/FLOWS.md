@@ -802,3 +802,31 @@ Owner surfaces: client — Pip's panel and `/c/<slug>/agents/<id>/script`.
 The Test section's fixes follow the same path (D-820): "Let Pip suggest fixes" (or "Let Pip
 suggest a fix" on one failed test) prefills Pip; Pip proposes `agent_tests_fix`; confirming
 queues the improve job (D-724/D-748), and the fixes are kept one by one in that section.
+
+## 13. The Other AI Requests, through Pip (D-821)
+
+Each screen keeps a "Let Pip do it" button that only prefills Pip, and the review of what
+comes back. Pip proposes; the person confirms the card; the old button's own function runs.
+
+- **Teach the agents (Knowledge base).** Type it or say it in the teach box (a voice note is
+  heard and its words land in the box to check), or attach a photo or file in Pip, which reads
+  it. "Let Pip teach it" → `knowledge_teach` → the words are sorted by the worker → the facts
+  and rules wait in the teach box (`GET /v1/kb/teach/open`) for the owner to keep; nothing is
+  saved before that. Answering a caller's question carries its `gap_id`, which closes it.
+- **Draft the lead details (Lead details, custom business).** "Let Pip draft them" →
+  `lead_fields_draft` → drafted once → the owner keeps them field by field ("Add N to my
+  agents", or "Keep none"); kept fields go onto every agent without details of its own and are
+  what a new agent starts with. A draft made automatically after a business-profile save waits
+  for the same review.
+- **A second reading of a call (call page).** "Let Pip write a second reading" →
+  `call_summarise_again` → once confirmed, a fresh summary of the redacted transcript in Pip's
+  confirmation, with the fallback disclosure when another model answered; nothing is stored.
+  At the allowance ceiling the panel offers the wallet dialog.
+
+Failure handling: refusals the model can fix come back as Pip's sentence; a refusal at
+Confirm (allowance used up, AI paused) is shown on the card with the server's remediation; a
+failed sort shows in the teach box; a failed lead-details draft offers "Let Pip draft them"
+again.
+
+Owner surfaces: client — Pip's panel, `/c/<slug>/knowledge`, `/c/<slug>/settings/lead-details`,
+`/c/<slug>/calls/<id>`.

@@ -3236,6 +3236,7 @@ const CLIENT_SCREENS: Screen[] = [
       // renders its ProblemNotice and the scan would cover an error panel.
       "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
       "/v1/kb/knows": { facts: [], facts_state: "none", items: [] },
+      "/v1/kb/teach/open": { teaching: null },
       // Documents and web pages (D-534). One row per state family, so the sweep covers
       // the populated list rather than its empty state: a live PDF, and a photograph
       // waiting for the client to confirm what was read off it.

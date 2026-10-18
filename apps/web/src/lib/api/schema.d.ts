@@ -5347,26 +5347,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/calls/{call_id}/assist": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Re-summarise this call with the assistant model — metered, quota-gated (D-127)
-         * @description Runs the dashboard assistant over this call's REDACTED transcript and returns a fresh summary. Nothing is stored: the call's own summary and captured fields are the first pass over the raw transcript and are left alone. Refused before any model is called when the account is past its included AI allowance — the screen opens the wallet dialog on `ai_quota_exceeded`. A `Idempotency-Key` header is REQUIRED so a double-click is paid for once. Requires `org:manage`.
-         */
-        post: operations["assist_call_v1_calls__call_id__assist_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/calls/{call_id}/callback": {
         parameters: {
             query?: never;
@@ -7776,20 +7756,20 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/kb/teach": {
+    "/v1/kb/teach/open": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
         /**
-         * Teach in words; the AI sorts them into facts and rules for review
-         * @description Sorting runs in the background and is counted against this month's AI help. Poll `GET /v1/kb/teach/{id}` until `status` is `ready`. When the AI help is used up the words come back unsorted for the owner to mark.
+         * This person's newest teaching that is being sorted or waits for review
+         * @description What Pip was asked to teach (D-821) lands here for review: the newest of this person's teachings that is `queued`, `sorting` or `ready`, or null.
          */
-        post: operations["teach_words_v1_kb_teach_post"];
+        get: operations["open_teaching_v1_kb_teach_open_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7806,8 +7786,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Teach with a photo, a file or a voice note
-         * @description `kind` is `photo` (a picture of a price list or menu), `file` (.docx, .txt, .csv, .xlsx) or `voice` (a voice note under 30 seconds). A voice note stops at `heard` so the owner can check the words; confirm them with `POST .../words`.
+         * Hear a voice note for the teach box
+         * @description `kind` is `voice` (a voice note under 30 seconds). The teaching stops at `heard`: the screen puts the words in the teach box for the owner to check, discards the teaching, and Pip sorts what the owner sends it (D-821). Typed words, photos and files are taught through Pip.
          */
         post: operations["teach_upload_v1_kb_teach_upload_post"];
         delete?: never;
@@ -7864,23 +7844,6 @@ export interface paths {
          * @description Facts join the business's knowledge and reach every agent without review. Rules wait in the chosen agent's script until the owner adds them and puts the script live.
          */
         post: operations["save_teaching_v1_kb_teach__teaching_id__save_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/kb/teach/{teaching_id}/words": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Confirm (or correct) the words heard in a voice note, then sort them */
-        post: operations["confirm_words_v1_kb_teach__teaching_id__words_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8110,7 +8073,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/lead-fields/draft": {
+    "/v1/lead-fields/draft/review": {
         parameters: {
             query?: never;
             header?: never;
@@ -8120,10 +8083,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Draft this business's lead details once, from its business details
-         * @description For a business set up as 'Something else'. Queued; the screen polls `GET` for the result. Drafted once: a finished draft is never redrafted (409), and a failed one may be asked for again.
+         * Keep some or none of the drafted lead details (D-821)
+         * @description The kept fields go onto every agent that has no business details of its own yet and become what a new agent starts with; the rest are dropped. Once: a reviewed draft is refused (409). Asking for the draft is Pip's (`lead_fields_draft`).
          */
-        post: operations["post_draft_v1_lead_fields_draft_post"];
+        post: operations["post_draft_review_v1_lead_fields_draft_review_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -12383,13 +12346,11 @@ export interface components {
         Body_teach_upload_v1_kb_teach_upload_post: {
             /** File */
             file: string;
-            /** Gap Id */
-            gap_id?: string | null;
             /**
              * Kind
-             * @enum {string}
+             * @constant
              */
-            kind: "photo" | "file" | "voice";
+            kind: "voice";
         };
         /** Body_upload_document_v1_compliance_kyc_documents_post */
         Body_upload_document_v1_compliance_kyc_documents_post: {
@@ -12682,30 +12643,6 @@ export interface components {
              * Format: uuid
              */
             id: string;
-        };
-        /**
-         * CallAssistOut
-         * @description One user-triggered re-summarise of a call (D-127 G-2/G-5/G-6).
-         *
-         *     **EVERY FIELD IS REQUIRED — none carries a Pydantic default.** A default here
-         *     generates an OPTIONAL property in the client this repo generates from OpenAPI, and
-         *     all three of these are facts the screen has to state rather than shapes it may skip:
-         *     an absent `disclosure` would render a Sarvam answer as the assistant's own (the one
-         *     outcome G-6 rules out), and an absent `metered` would render "this cost you nothing"
-         *     as the default for an assist that cost the allowance.
-         *
-         *     Nothing here is persisted. The stored `calls.summary` is the FIRST pass, over the raw
-         *     transcript; this is a second reading over the redacted copy, held for as long as the
-         *     person is looking at it (`crm/assist.py` argues why overwriting one with the other
-         *     would degrade the lead and rewrite history).
-         */
-        CallAssistOut: {
-            /** Disclosure */
-            disclosure: string | null;
-            /** Metered */
-            metered: boolean;
-            /** Summary */
-            summary: string;
         };
         /**
          * CallBackOut
@@ -19646,6 +19583,8 @@ export interface components {
              * Format: date-time
              */
             requested_at: string;
+            /** Reviewed */
+            reviewed: boolean;
             /**
              * Status
              * @enum {string}
@@ -19671,6 +19610,21 @@ export interface components {
             need_key: string;
             /** Standard Fields */
             standard_fields: components["schemas"]["ExtractionField"][];
+        };
+        /**
+         * LeadFieldsReviewIn
+         * @description The drafted fields the owner keeps, by key. Empty discards the draft.
+         */
+        LeadFieldsReviewIn: {
+            /** Keep */
+            keep: string[];
+        };
+        /** LeadFieldsReviewOut */
+        LeadFieldsReviewOut: {
+            /** Agents Changed */
+            agents_changed: number;
+            /** Fields Kept */
+            fields_kept: number;
         };
         /**
          * LeadFilterIn
@@ -21219,6 +21173,10 @@ export interface components {
             region: string | null;
             /** Series */
             series: string;
+        };
+        /** OpenTeachingOut */
+        OpenTeachingOut: {
+            teaching: components["schemas"]["TeachingOut"] | null;
         };
         /** OperatorCreateIn */
         OperatorCreateIn: {
@@ -25398,13 +25356,6 @@ export interface components {
             /** Version */
             version: number;
         };
-        /** TeachIn */
-        TeachIn: {
-            /** Gap Id */
-            gap_id?: string | null;
-            /** Words */
-            words: string;
-        };
         /** TeachItemIO */
         TeachItemIO: {
             /**
@@ -28176,11 +28127,6 @@ export interface components {
             example: string;
             /** Label */
             label: string;
-        };
-        /** WordsIn */
-        WordsIn: {
-            /** Words */
-            words: string;
         };
         /** WorkspaceFailureOut */
         WorkspaceFailureOut: {
@@ -37816,37 +37762,6 @@ export interface operations {
             };
         };
     };
-    assist_call_v1_calls__call_id__assist_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                call_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CallAssistOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     callback_eligibility_v1_calls__call_id__callback_get: {
         parameters: {
             query?: never;
@@ -42170,26 +42085,22 @@ export interface operations {
             };
         };
     };
-    teach_words_v1_kb_teach_post: {
+    open_teaching_v1_kb_teach_open_get: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TeachIn"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
-            201: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TeachingOut"];
+                    "application/json": components["schemas"]["OpenTeachingOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -42320,41 +42231,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SavedOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    confirm_words_v1_kb_teach__teaching_id__words_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                teaching_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WordsIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TeachingOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -42846,22 +42722,26 @@ export interface operations {
             };
         };
     };
-    post_draft_v1_lead_fields_draft_post: {
+    post_draft_review_v1_lead_fields_draft_review_post: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadFieldsReviewIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
-            202: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DraftRequestOut"];
+                    "application/json": components["schemas"]["LeadFieldsReviewOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -4,7 +4,7 @@ import { LeadDetailsView } from "@/components/leadFields/LeadDetailsView";
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
-  useDraftLeadFields,
+  useReviewLeadFieldsDraft,
   useLeadFields,
   useReplaceLeadFields,
   useSaveAgentLeadFields,
@@ -26,7 +26,7 @@ export function LeadDetailsScreen() {
   const eg = useVerticalExamples();
   const writes = {
     save: useSaveAgentLeadFields(session),
-    draft: useDraftLeadFields(session),
+    review: useReviewLeadFieldsDraft(session),
     replace: useReplaceLeadFields(session),
   };
 
@@ -51,7 +51,10 @@ export function LeadDetailsScreen() {
           {
             key: "draft",
             label: "Drafted once from the business details",
-            value: fields.data.draft?.status ?? (fields.data.can_draft ? "not yet" : "not needed"),
+            value:
+              fields.data.draft?.status === "done" && !fields.data.draft.reviewed
+                ? "drafted; waiting for the owner to keep the ones that fit, on this screen"
+                : (fields.data.draft?.status ?? (fields.data.can_draft ? "not yet" : "not needed")),
           },
         ]
       : [{ key: "state", label: "What is on screen", value: fields.error ? "failed to load" : "still loading" }],

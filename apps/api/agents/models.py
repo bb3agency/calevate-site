@@ -919,7 +919,8 @@ class LeadFieldDraft(PKMixin, TimestampMixin, Base):
 
     `UNIQUE(tenant_id)` is the "generated once, never again" rule: a second draft has no
     row to live in. A `failed` draft produced nothing and may be asked for again, which
-    moves this same row back to `queued`. `fields` is what the model drafted, kept as the
+    moves this same row back to `queued`. `fields` is what the model drafted (what the owner
+    kept, once reviewed), kept as the
     record of what was generated; the client's later edits live in `extraction_schemas`
     as ordinary versions and never touch it.
     """
@@ -946,6 +947,10 @@ class LeadFieldDraft(PKMixin, TimestampMixin, Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: When the owner kept or discarded the draft, field by field (D-821). NULL on a `done`
+    #: draft means it waits for review and has reached no agent; `fields` then holds what
+    #: was drafted, and after the review only what was kept.
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 AGENT_TEST_RUN_STATUSES = ("queued", "running", "done", "failed")

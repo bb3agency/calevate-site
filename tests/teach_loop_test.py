@@ -300,10 +300,11 @@ async def test_a_rule_cannot_be_saved_without_naming_its_agent() -> None:
     assert refused.value.code == "teaching_rule_needs_agent"
 
 
-async def test_a_voice_note_stops_for_the_owner_to_check_the_words(
+async def test_a_voice_note_stops_with_its_words_for_the_teach_box(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id, _ = await _tenant()
+    asker = uuid.uuid4()
     deleted: list[list[str]] = []
 
     async def _read(key: str) -> bytes:
@@ -329,7 +330,7 @@ async def test_a_voice_note_stops_for_the_owner_to_check_the_words(
             object_key="kb-uploads/x/y/teach.webm",
             content_type="audio/webm",
             filename="voice-note",
-            requested_by=None,
+            requested_by=asker,
         )
     payload = {"tenant_id": str(tenant_id), "teaching_id": str(started.id)}
     assert await kb_teach.run_kb_teaching({}, payload) == "heard"
@@ -338,13 +339,10 @@ async def test_a_voice_note_stops_for_the_owner_to_check_the_words(
         heard = await teaching.get_teaching(session, started.id)
         assert heard.status == "heard" and heard.words == "Chilli 250 grams 120 rupees"
         assert heard.items == []
-        await teaching.confirm_words(
-            session, tenant_id=tenant_id, teaching_id=started.id, words="Chilli 250 g is ₹120."
-        )
-    assert await kb_teach.run_kb_teaching({}, payload) == "ready"
-    async with tenant_session(tenant_id) as session:
-        ready = await teaching.get_teaching(session, started.id)
-    assert [i.text for i in ready.items] == ["Chilli 250 g is ₹120."]
+        # The words go back into the teach box (D-821): nothing is sorted from here, and
+        # a heard note is not an open teaching for review.
+        assert await teaching.open_teaching(session, requested_by=asker) is None
+    assert await kb_teach.run_kb_teaching({}, payload) == "not_queued"
 
 
 async def test_an_unreadable_voice_note_fails_with_a_code_and_not_a_crash(

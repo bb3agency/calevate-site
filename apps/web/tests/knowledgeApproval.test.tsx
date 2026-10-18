@@ -1,9 +1,10 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import KnowledgePage from "@/app/c/[slug]/knowledge/page";
 import type { Me } from "@/lib/api/client";
 import type { KbSource } from "@/lib/api/kb";
+import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
 import {
   browserOffline,
@@ -141,6 +142,7 @@ async function renderKnowledge(
     "/v1/kb/sources": sources,
     "/v1/kb/staff-curation": STAFF_CURATION,
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [] },
+    "/v1/kb/teach/open": { teaching: null },
     // The document list (D-534). Empty by default: every assertion in this file is about
     // the PASTED-TEXT ladder, and an unrouted endpoint would leave a second `role="alert"`
     // on the screen for the reason `STAFF_CURATION` above records.
@@ -151,7 +153,7 @@ async function renderKnowledge(
 
 /** The teach box's control, found the way a client finds it. */
 function submitButton(): HTMLButtonElement {
-  return screen.getByRole("button", { name: /^sort it$/i }) as HTMLButtonElement;
+  return screen.getByRole("button", { name: /^let pip teach it$/i }) as HTMLButtonElement;
 }
 
 describe("the approval gate as the client sees it", () => {
@@ -392,33 +394,14 @@ describe("one body of knowledge for the whole business (D-689)", () => {
     expect(container.textContent).toContain("shared by every one of your agents");
   });
 
-  it("teaches in words with no agent id", async () => {
-    const { calls } = await renderKnowledge([], {
-      "POST /v1/kb/teach": {
-        id: SOURCE_ID,
-        status: "queued",
-        input_kind: "text",
-        words: "We are open from nine to six, Monday to Saturday.",
-        items: [],
-        agent_id: null,
-        gap_id: null,
-        note: null,
-        error_code: null,
-        created_at: "2026-10-10T10:00:00Z",
-      },
-      [`/v1/kb/teach/${SOURCE_ID}`]: {
-        id: SOURCE_ID,
-        status: "sorting",
-        input_kind: "text",
-        words: "We are open from nine to six, Monday to Saturday.",
-        items: [],
-        agent_id: null,
-        gap_id: null,
-        note: null,
-        error_code: null,
-        created_at: "2026-10-10T10:00:00Z",
-      },
-    });
+  it("asks Pip to teach the words, with no agent named (D-821)", async () => {
+    const asked: AssistantRequest[] = [];
+    function Listener() {
+      useAssistantRequests((request) => asked.push(request));
+      return null;
+    }
+    render(<Listener />);
+    const { calls } = await renderKnowledge([]);
     await waitFor(() => expect(submitButton().disabled).toBe(false));
 
     fireEvent.change(screen.getByLabelText("What should your agents know?"), {
@@ -426,16 +409,10 @@ describe("one body of knowledge for the whole business (D-689)", () => {
     });
     fireEvent.click(submitButton());
 
-    await waitFor(() =>
-      expect(calls.some((c) => c.method === "POST" && c.path === "/v1/kb/teach")).toBe(true),
-    );
-    const posted = calls.find((c) => c.method === "POST" && c.path === "/v1/kb/teach");
-    const body = JSON.parse(posted?.body ?? "{}") as Record<string, unknown>;
-    expect(body).toEqual({
-      words: "We are open from nine to six, Monday to Saturday.",
-      gap_id: null,
-    });
-    expect("agent_id" in body).toBe(false);
+    expect(asked.map((a) => a.prompt)).toEqual([
+      "Teach my agents this: We are open from nine to six, Monday to Saturday.",
+    ]);
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
 });
 

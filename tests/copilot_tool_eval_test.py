@@ -144,6 +144,7 @@ SIBLINGS = (
     ("lead_set_status", "leads_bulk_update"),
     ("platform_tenants", "admin_client_standing"),
     ("agent_script_suggest", "agent_tests_fix"),
+    ("propose_knowledge", "knowledge_teach"),
 )
 
 

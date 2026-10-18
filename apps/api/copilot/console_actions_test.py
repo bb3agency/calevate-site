@@ -29,6 +29,7 @@ from tests.lead_dial_routes_test import (  # reuse, never re-implement
 )
 
 from apps.api.copilot import action_log, write_tools
+from apps.api.copilot.assist_actions import ASSIST_ACTIONS
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.script_actions import SCRIPT_ACTIONS
 from apps.api.copilot.write_tools_test import _audit, _confirm, _principal, _user_of
@@ -134,8 +135,8 @@ _MUST_CONFIRM = {
 def test_the_console_actions_are_appended_after_the_earlier_ones() -> None:
     names = [tool.name for tool in write_tools.WRITE_TOOLS]
     console = [tool.name for tool in CONSOLE_ACTIONS]
-    # Only D-820's script action is registered after them.
-    later = len(SCRIPT_ACTIONS)
+    # Only D-820's and D-821's actions are registered after them.
+    later = len(SCRIPT_ACTIONS) + len(ASSIST_ACTIONS)
     assert names[-len(console) - later : -later] == console
     assert len(set(names)) == len(names)
 

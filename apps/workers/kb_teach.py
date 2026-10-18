@@ -1,10 +1,10 @@
-"""Reads and sorts one teaching from the teach box (`apps/api/teach/teaching.py`).
+"""Hears or sorts one teaching from the teach box (`apps/api/teach/teaching.py`).
 
-1. READ, when the owner sent a photo, a file or a voice note: a photo is read by the OCR leg
-   (`document_ocr`, metered as `kb_ocr`), a file by the document reader, a voice note by our
-   speech-to-text sub-processor (metered at our cost as `kb_teach_voice`, absorbed). A voice
-   note then STOPS at `heard`: the owner checks the words before anything is sorted or saved.
-2. SORT the words into facts and rules with the dashboard-assist ladder
+1. HEAR, when the owner recorded a voice note: our speech-to-text sub-processor writes the
+   words (metered at our cost as `kb_teach_voice`, absorbed), and the teaching STOPS at
+   `heard`: the words go back into the teach box for the owner to check. Photos and files
+   are read by Pip since D-821 and are never uploaded here.
+2. SORT words Pip was asked to teach into facts and rules with the dashboard-assist ladder
    (`script_assist.ask_json`: the account's Gemini leg or Azure, then the disclosed
    standby), metered against the client's AI allowance as `kb_teach`. When the allowance
    is used up or no model answers, the words come back unsorted, one line each,
@@ -24,7 +24,6 @@ from typing import Any, Final
 from uuid import UUID
 
 import httpx
-from calevate_shared.document_ingest import DocumentRefusedError, OcrUnavailableError
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import account_assist_leg
@@ -32,20 +31,15 @@ from apps.api.billing.ai_quota import (
     new_assist_ref,
     read_ai_quota,
     record_absorbed_stt_usage,
-    record_ai_assist_usage,
 )
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.crm import assist as crm_assist
-from apps.api.crm.assist import ASSIST_FEATURE_KB_OCR
 from apps.api.db.session import tenant_session
-from apps.api.kb.uploads import classify_upload
 from apps.api.teach.models import MAX_FACT_CHARS, MAX_RULE_CHARS, MAX_TEACH_WORDS
 from apps.api.teach.teaching import ASSIST_FEATURE_KB_TEACH, TEACH_JOB
 from apps.workers.chat import TokenUsage
-from apps.workers.document_ocr import OcrImage, PaidOcrUnusableError, ocr_images
-from apps.workers.document_text import extract_document
 from apps.workers.extraction import (
     QUOTA_EXHAUSTED_REASON,
     AssistCapability,
@@ -244,31 +238,6 @@ async def transcribe_voice(data: bytes, content_type: str) -> str:
     return str(transcript or "").strip()
 
 
-async def _meter_ocr(
-    tenant_id: UUID,
-    model: str,
-    prompt: int | None,
-    output: int | None,
-    cached: int | None = None,
-    incomplete: bool = False,
-) -> None:
-    if prompt is None or output is None:
-        log.warning("kb_teach_ocr_unmeterable", extra={"tenant_id": str(tenant_id)})
-        return
-    async with tenant_session(tenant_id) as session:
-        await record_ai_assist_usage(
-            session,
-            tenant_id=tenant_id,
-            ref=new_assist_ref(),
-            tokens_in=prompt,
-            tokens_out=output,
-            cached_tokens_in=cached,
-            usage_incomplete=incomplete,
-            model=model,
-            feature=ASSIST_FEATURE_KB_OCR,
-        )
-
-
 #: `usage_events.meta.feature` for transcribing a teach-box voice note. Absorbed (founder,
 #: 11 Oct 2026): our cost, never the client's allowance or wallet.
 ASSIST_FEATURE_KB_VOICE: Final = "kb_teach_voice"
@@ -291,54 +260,20 @@ async def _meter_voice(tenant_id: UUID) -> None:
         )
 
 
-async def read_upload(
-    tenant_id: UUID, *, data: bytes, input_kind: str, content_type: str, filename: str
-) -> str:
-    """The text of a photo, a file or a voice note. Raises `UnreadableError` with a code."""
-    if input_kind == "voice":
-        try:
-            heard = await transcribe_voice(data, content_type)
-        except (httpx.HTTPError, RuntimeError, ValueError) as failure:
-            log.warning("kb_teach_stt_failed", extra={"error": type(failure).__name__})
-            raise UnreadableError("voice_unreadable") from failure
-        await _meter_voice(tenant_id)
-        return heard
-    kind = (
-        "image"
-        if input_kind == "photo"
-        else classify_upload(filename=filename, content_type=content_type)
-    )
+async def read_upload(tenant_id: UUID, *, data: bytes, input_kind: str, content_type: str) -> str:
+    """The words in a voice note. Raises `UnreadableError` with a code.
+
+    Photos and files are read by Pip since D-821 and are never uploaded here; a row of
+    either kind queued before then is reported unreadable rather than read."""
+    if input_kind != "voice":
+        raise UnreadableError("unreadable")
     try:
-        if kind == "image":
-            extracted = await ocr_images(
-                [OcrImage(data=data, mime_type=content_type or "image/jpeg", position=1)]
-            )
-        else:
-            extracted = extract_document(data, kind)  # type: ignore[arg-type]
-    except OcrUnavailableError as unavailable:
-        log.error("kb_teach_ocr_unavailable", extra={"reason": unavailable.reason})
-        raise UnreadableError("photo_reading_unavailable") from unavailable
-    except DocumentRefusedError as refused:
-        if isinstance(refused, PaidOcrUnusableError):
-            await _meter_ocr(
-                tenant_id,
-                refused.model,
-                refused.prompt_tokens,
-                refused.output_tokens,
-                refused.cached_prompt_tokens,
-                refused.usage_incomplete,
-            )
-        raise UnreadableError("unreadable") from refused
-    if extracted.model is not None:
-        await _meter_ocr(
-            tenant_id,
-            extracted.model,
-            extracted.prompt_tokens,
-            extracted.output_tokens,
-            extracted.cached_prompt_tokens,
-            extracted.usage_incomplete,
-        )
-    return extracted.text
+        heard = await transcribe_voice(data, content_type)
+    except (httpx.HTTPError, RuntimeError, ValueError) as failure:
+        log.warning("kb_teach_stt_failed", extra={"error": type(failure).__name__})
+        raise UnreadableError("voice_unreadable") from failure
+    await _meter_voice(tenant_id)
+    return heard
 
 
 class UnreadableError(Exception):
@@ -381,7 +316,7 @@ async def run_kb_teaching(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         ).first()
     if claimed is None:
         return "not_queued"
-    status, input_kind, words, object_key, content_type, filename = claimed
+    status, input_kind, words, object_key, content_type, _filename = claimed
 
     try:
         if status == "reading":
@@ -395,7 +330,6 @@ async def run_kb_teaching(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
                     data=data,
                     input_kind=str(input_kind),
                     content_type=str(content_type or ""),
-                    filename=str(filename or "upload"),
                 )
             except UnreadableError as unreadable:
                 await _fail(tenant_id, teaching_id, unreadable.code)
@@ -404,28 +338,18 @@ async def run_kb_teaching(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             await delete_objects([str(object_key)])
             words = (words or "").strip()[:MAX_TEACH_WORDS]
             if not words:
-                await _fail(
-                    tenant_id,
-                    teaching_id,
-                    "nothing_heard" if input_kind == "voice" else "nothing_read",
-                )
+                await _fail(tenant_id, teaching_id, "nothing_heard")
                 return "failed"
-            if input_kind == "voice":
-                await _set(
-                    tenant_id,
-                    teaching_id,
-                    "UPDATE kb_teachings SET status = 'heard', words = :words, object_key = NULL, "
-                    "updated_at = now() WHERE id = :id AND status = 'reading'",
-                    words=words,
-                )
-                return "heard"
+            # A voice note STOPS here: its words go back into the teach box for the owner
+            # to check, and Pip sorts what they send it (D-821).
             await _set(
                 tenant_id,
                 teaching_id,
-                "UPDATE kb_teachings SET status = 'sorting', words = :words, object_key = NULL, "
+                "UPDATE kb_teachings SET status = 'heard', words = :words, object_key = NULL, "
                 "updated_at = now() WHERE id = :id AND status = 'reading'",
                 words=words,
             )
+            return "heard"
 
         async with tenant_session(tenant_id) as session:
             tenant_leg = await account_assist_leg(session)

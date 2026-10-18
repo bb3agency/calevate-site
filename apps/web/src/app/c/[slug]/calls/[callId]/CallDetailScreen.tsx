@@ -366,7 +366,7 @@ export function CallDetailScreen({
           )}
           {/* D-127: always offered, whatever the stored summary looks like; it carries
               its own refusals and changes nothing already saved. */}
-          <AssistCard session={session} callId={callId} />
+          <AssistCard session={session} />
         </aside>
       </div>
     </div>

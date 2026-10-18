@@ -290,6 +290,7 @@ describe("the teach box with too little in it", () => {
       "/v1/kb/sources": [],
       "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
       "/v1/kb/knows": { facts: [], facts_state: "none", items: [] },
+      "/v1/kb/teach/open": { teaching: null },
       "/v1/kb/uploads": [],
     });
   }
@@ -301,16 +302,16 @@ describe("the teach box with too little in it", () => {
     )) as HTMLTextAreaElement;
     await waitFor(() =>
       expect(
-        (screen.getByRole("button", { name: /^Sort it$/ }) as HTMLButtonElement).disabled,
+        (screen.getByRole("button", { name: /^Let Pip teach it$/ }) as HTMLButtonElement).disabled,
       ).toBe(false),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /^Sort it$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Let Pip teach it$/ }));
     expect(await screen.findByText("Write what your agents should know.")).toBeTruthy();
     expect(document.activeElement).toBe(box);
 
     fireEvent.change(box, { target: { value: "ab" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Sort it$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Let Pip teach it$/ }));
     expect(await screen.findByText("Use at least 3 characters.")).toBeTruthy();
     expect(page.calls.some((c) => c.method === "POST")).toBe(false);
   });

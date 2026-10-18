@@ -67,15 +67,20 @@ _TITLES: Final[dict[ProposalMode, str]] = {
 }
 
 
+#: Free text the model passes on, bounded so a refusal never carries an unbounded value;
+#: the canonical arguments cut it to the field's own limit.
+_Said = Annotated[str, Field(max_length=2000)]
+
+
 class _Answers(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # Defaults because the canonical arguments keep only the questions that were answered.
-    what_you_offer: str | None = None
-    customers: str | None = None
-    good_outcome: str | None = None
-    common_questions: str | None = None
-    never_say: str | None = None
+    what_you_offer: _Said | None = None
+    customers: _Said | None = None
+    good_outcome: _Said | None = None
+    common_questions: _Said | None = None
+    never_say: _Said | None = None
 
 
 class _ScriptSuggestArgs(BaseModel):
@@ -83,7 +88,7 @@ class _ScriptSuggestArgs(BaseModel):
 
     agent_id: UUID
     mode: ProposalMode
-    change: str | None
+    change: _Said | None
     answers: _Answers | None
 
 
@@ -265,7 +270,7 @@ class _TestsFixArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent_id: UUID
-    test_keys: Annotated[list[str], Field(max_length=30)] | None
+    test_keys: Annotated[list[Annotated[str, Field(max_length=100)]], Field(max_length=30)] | None
     #: Not in the schema: the planner resolves the run and signs it into the canonical
     #: arguments, so a re-plan at approval reads the same run rather than a newer one.
     run_id: UUID | None = None

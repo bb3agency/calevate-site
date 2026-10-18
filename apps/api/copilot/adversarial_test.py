@@ -403,9 +403,11 @@ def test_every_action_argument_is_a_uuid_a_closed_set_or_a_bounded_string() -> N
 
     FAILS IF: a new action takes a free-text argument with no `max_length`.
     """
+    # `lead_fields_draft` acts on the asker's own account and takes nothing (D-821).
+    takes_nothing = {"lead_fields_draft"}
     for tool in WRITE_TOOLS:
         properties = tool.schema["function"]["parameters"]["properties"]
-        assert properties, tool.name
+        assert bool(properties) != (tool.name in takes_nothing), tool.name
     parsed = write_tools._ProposeKnowledgeArgs.model_fields["topic_key"]
     assert parsed is not None
     with pytest.raises(write_tools.WriteRefusedError) as refusal:

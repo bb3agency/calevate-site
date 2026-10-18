@@ -28,6 +28,7 @@ import {
   type DraftRow,
 } from "@/app/c/[slug]/agents/panels/extractionDraft";
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SavedTick } from "@/components/console/savedTick";
 import { useFormValidation } from "@/components/formValidation";
@@ -42,12 +43,15 @@ import {
 } from "@/components/ui";
 import type {
   DraftRequestOut,
+  DraftReviewOut,
   ExtractionSchemaOut,
   LeadField,
   LeadFields,
   LeadFieldsAgent,
+  LeadFieldsDraft,
   ReplaceOut,
 } from "@/lib/api/leadFields";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { lookup } from "@/lib/lookup";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import type { VerticalExamples } from "@/lib/verticalExamples";
@@ -64,7 +68,10 @@ const CORE_MEANING: Readonly<Record<string, string>> = {
 
 export interface LeadDetailsWrites {
   save: UseMutationResult<ExtractionSchemaOut, Error, { agentId: string; fields: LeadField[] }>;
-  draft: UseMutationResult<DraftRequestOut, Error, void>;
+  /** The operator's button. On the client's screen the draft is asked of Pip (D-821). */
+  draft?: UseMutationResult<DraftRequestOut, Error, void>;
+  /** The owner's review of a finished draft: keep these keys. Client only. */
+  review?: UseMutationResult<DraftReviewOut, Error, string[]>;
   replace: UseMutationResult<ReplaceOut, Error, { agent_ids?: string[] | null }>;
 }
 
@@ -137,6 +144,9 @@ function Origin({ data, your }: { data: LeadFields; your: string }) {
       </>
     );
   }
+  if (data.draft?.status === "done" && !data.draft.reviewed) {
+    return <>Drafted once from {your} business details. Keep the ones that fit; no agent has them yet.</>;
+  }
   if (data.draft?.status === "done") {
     const when = data.draft.completed_at ? ` on ${formatISTStamp(data.draft.completed_at)}` : "";
     return (
@@ -173,6 +183,9 @@ function BusinessFields({
       {data.can_draft && noFieldsAnywhere && (
         <DraftOffer data={data} canWrite={canWrite} draft={writes.draft} audience={audience} />
       )}
+      {data.draft?.status === "done" && !data.draft.reviewed && (
+        <DraftReview draft={data.draft} canWrite={canWrite} review={writes.review} audience={audience} />
+      )}
       {agents.length === 0 ? (
         <p className="text-sm text-ink-muted">
           {audience === "client" ? "You have" : "This client has"} no agents yet. The details
@@ -197,6 +210,9 @@ function Drafting() {
   );
 }
 
+/** What the client asks Pip; the operator's screen keeps its own button. */
+export const DRAFT_REQUEST = "Draft the lead details for my business from its business details.";
+
 function DraftOffer({
   data,
   canWrite,
@@ -215,25 +231,129 @@ function DraftOffer({
         {failed ? "The details could not be drafted last time." : "Nothing here yet."}
       </p>
       <p className="mt-1 max-w-prose text-sm text-ink-muted [text-wrap:pretty]">
-        {audience === "client" ? "We can" : "Calevate can"} draft these once from the business
-        details — what {audience === "client" ? "you sell" : "it sells"}, the questions callers
-        ask and the knowledge on file. They can be changed afterwards and are not drafted
-        again. For the best draft, fill in the business profile first.
+        {audience === "client" ? ASSISTANT_NAME : "Calevate"} can draft these once from the
+        business details — what {audience === "client" ? "you sell" : "it sells"}, the questions
+        callers ask and the knowledge on file. You keep the ones that fit before any agent gets
+        them, and they are not drafted again. For the best draft, fill in the business profile
+        first.
       </p>
-      {draft.error && (
+      {draft?.error && (
         <div className="mt-3">
           <ProblemNotice error={draft.error} />
         </div>
       )}
-      <button
-        type="button"
-        className={`${PRIMARY_BUTTON} mt-3`}
-        disabled={!canWrite || draft.isPending}
-        onClick={() => draft.mutate()}
-      >
-        {draft.isPending ? "Starting…" : failed ? "Try again" : "Draft from the business details"}
-      </button>
+      {draft ? (
+        <button
+          type="button"
+          className={`${PRIMARY_BUTTON} mt-3`}
+          disabled={!canWrite || draft.isPending}
+          onClick={() => draft.mutate()}
+        >
+          {draft.isPending ? "Starting…" : failed ? "Try again" : "Draft from the business details"}
+        </button>
+      ) : (
+        <AskAssistant
+          label={`Let ${ASSISTANT_NAME} draft them`}
+          prompt={DRAFT_REQUEST}
+          size="md"
+          disabled={!canWrite}
+          className="mt-3"
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * THE DRAFT, KEPT FIELD BY FIELD (D-821). Every field starts ticked; what is kept goes onto
+ * every agent that has no details of its own yet and is what a new agent starts with. Once
+ * reviewed, it is never offered again. An operator sees it and waits for the owner.
+ */
+function DraftReview({
+  draft,
+  canWrite,
+  review,
+  audience,
+}: {
+  draft: LeadFieldsDraft;
+  canWrite: boolean;
+  review: LeadDetailsWrites["review"];
+  audience: "client" | "operator";
+}) {
+  const [kept, setKept] = useState<Set<string>>(() => new Set(draft.fields.map((f) => f.key)));
+  const count = kept.size;
+  const owner = audience === "client" && review !== undefined;
+  return (
+    <section aria-labelledby="draft-review-heading" className="space-y-3 rounded-md border border-line px-4 py-4">
+      <div>
+        <h3 id="draft-review-heading" className="text-sm font-medium text-ink">
+          {draft.fields.length === 1 ? "1 drafted detail" : `${draft.fields.length} drafted details`}
+        </h3>
+        <p className="mt-1 text-sm text-ink-muted">
+          {owner
+            ? "Untick what you do not want. What you keep goes to every agent without details of its own."
+            : "Waiting for the account owner to keep the ones that fit."}
+        </p>
+      </div>
+      <ul className="divide-y divide-line border-y border-line">
+        {draft.fields.map((field) => {
+          const on = kept.has(field.key);
+          return (
+            <li key={field.key}>
+              <label className={`flex items-start gap-3 py-2.5 ${owner ? "cursor-pointer" : ""} ${on ? "" : "opacity-55"}`}>
+                {owner && (
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 shrink-0 accent-[var(--brand-strong)]"
+                    checked={on}
+                    disabled={!canWrite}
+                    onChange={(e) =>
+                      setKept((current) => {
+                        const next = new Set(current);
+                        if (e.target.checked) next.add(field.key);
+                        else next.delete(field.key);
+                        return next;
+                      })
+                    }
+                  />
+                )}
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-ink">{field.label}</span>
+                  {field.reason && <span className="block text-xs text-ink-muted">{field.reason}</span>}
+                </span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+      {owner && review && (
+        <>
+          {review.error && <ProblemNotice error={review.error} />}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className={PRIMARY_BUTTON}
+              disabled={!canWrite || count === 0 || review.isPending}
+              onClick={() => review.mutate([...kept])}
+            >
+              {count === draft.fields.length
+                ? count === 1
+                  ? "Add it to my agents"
+                  : `Add all ${count} to my agents`
+                : `Add ${count} of ${draft.fields.length} to my agents`}
+            </button>
+            <button
+              type="button"
+              className={SECONDARY_BUTTON}
+              disabled={!canWrite || review.isPending}
+              onClick={() => review.mutate([])}
+            >
+              Keep none
+            </button>
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 

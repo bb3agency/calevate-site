@@ -320,11 +320,6 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/whatsapp/templates", "costly", _m("POST")),
     # The forwarding test (D-746): real calls we pay for, also capped per client per day.
     Rule("/v1/forwarding/lines/*/tests", "costly", _m("POST")),
-    # The dashboard assist (D-127). `costly` for the reason that profile names — it is
-    # literally "an LLM call" — and it is the one route in this family that also holds a
-    # pooled Postgres connection for the length of the vendor round trip, because the
-    # tenant GUC is transaction-local (`crm/assist.py` argues the whole departure).
-    Rule("/v1/calls/*/assist", "costly", _m("POST")),
     # The in-app copilot (`apps/api/copilot/`). `costly` for the reason that profile names
     # — it is literally "an LLM call" — and this one is the only route in the family that
     # can make SEVERAL of them for one click (`copilot/service.MAX_TURNS`). It is also the
@@ -340,9 +335,7 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/agents/*/script/tests", "costly", _m("POST")),
     Rule("/v1/agents/*/try-chat", "costly", _m("POST")),
     Rule("/v1/agents/*/test-cases/run", "costly", _m("POST")),
-    Rule("/v1/kb/teach", "costly", _m("POST")),
     Rule("/v1/kb/teach/upload", "costly", _m("POST")),
-    Rule("/v1/kb/teach/*/words", "costly", _m("POST")),
     Rule("/v1/copilot/routines/*/run", "costly", _m("POST")),
     Rule("/v1/campaigns/*/launch", "costly", _m("POST")),
     Rule("/v1/numbers/purchase", "costly", _m("POST")),

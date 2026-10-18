@@ -590,17 +590,21 @@ def _directory_line(screen: Screen) -> str:
 
     ONE LINE PER SCREEN, not XML: this block is OURS and static (unlike the screen state,
     which is untrusted and is XML for the provenance attributes it has to carry), and it is
-    read by a model as a list. The route is the LAST field on the line and is labelled as
-    the internal address, so the sentence a model composes from the earlier fields — name,
-    place, purpose, words — never has it in.
+    read by a model as a list. Where the screen sits is the group heading above its line,
+    and "Owner only." appears only on the screens staff cannot open, so neither is repeated
+    on every line of a prefix paid on every request (D-821). The route is the LAST field and
+    sits in brackets the block's header names as the address, so the sentence a model
+    composes from the earlier fields — name, purpose, words — never has it in.
     """
-    place = "in the left sidebar" if screen.group is None else f"under {screen.group}"
-    who = "everyone on the team" if _open_to_staff(screen) else "the account owner only"
+    owner = "" if _open_to_staff(screen) else " Owner only."
     return (
-        f"- {screen.name} ({place}) — {screen.summary} "
-        f"Also asked for as: {', '.join(screen.aliases)}. Open to: {who}. "
-        f"[address, never say this aloud: {screen.route}]"
+        f"- {screen.name} — {screen.summary} "
+        f"Also asked for as: {', '.join(screen.aliases)}.{owner} [{screen.route}]"
     )
+
+
+def _group_heading(group: Group) -> str:
+    return "In the left sidebar:" if group is None else f"Under {group} in the left sidebar:"
 
 
 def render_directory() -> str:
@@ -610,45 +614,42 @@ def render_directory() -> str:
     by mypy, it cannot be mutated by a previous request, and `prompt.py` interpolates its
     result exactly once at import.
     """
-    lines = "\n".join(_directory_line(screen) for screen in CLIENT_SCREENS)
+    rows: list[str] = []
+    heading: Group | object = object()
+    for screen in CLIENT_SCREENS:
+        if screen.group != heading:
+            heading = screen.group
+            rows.append(_group_heading(screen.group))
+        rows.append(_directory_line(screen))
+    lines = "\n".join(rows)
     return (
         "--- THE SCREENS OF THIS CONSOLE (a complete list; nothing else exists) ---\n"
-        "This is every screen a client can open, in the order they appear down the left "
-        "sidebar. It is complete and it is correct: if a screen is not on this list it "
-        "does not exist in this product, and if it IS on this list it exists and you must "
-        "never tell somebody it does not.\n"
+        "Every screen a client can open, in sidebar order. If a screen is not on this list "
+        "it does not exist; if it is, it exists, and you never say it does not. Each line: "
+        'the name, what it is for, the words clients use for it, "Owner only." when staff '
+        "cannot open it, and its address in brackets (for matching; never say this aloud).\n"
         f"{lines}\n"
         "\n"
         "HOW TO USE THIS LIST:\n"
-        "- WHEN SOMEBODY ASKS WHERE SOMETHING IS, name the screen and say where it sits — "
-        '"Credits & billing, under Settings & account in the left sidebar". Give the name '
-        "first; that is what they are looking for on their own screen.\n"
-        "- THEY WILL NOT USE OUR NAME FOR IT. Match what they said against the words after "
-        '"Also asked for as" — somebody asking to pay, to top up, to recharge, for their '
-        "invoice, or for what this month has cost means Credits & billing. Say our name "
-        'for it and say theirs too: "that is on Credits & billing — the Usage tab has '
-        "this month's cost\". Never invent a screen name, never capitalise their word as "
-        "if it were one, and never say a screen does not exist because it is not called "
-        "what they called it.\n"
-        "- CHECK WHETHER THEY ARE ALREADY ON IT. The SCREEN STATE at the end of this "
-        "prompt carries the address of the screen they are looking at, and the LIVE "
-        "BUSINESS STATE names it. If it is the screen they are asking for, tell them they "
-        "are already there and what to do on it.\n"
-        "- YOU CAN TAKE THEM THERE. When they ask to be taken, moved, or to have a screen "
-        'opened ("take me to billing", "open my leads"), call open_screen with the '
-        "screen's NAME from this list — it opens in their browser straight away. Say you "
-        "are opening it, not that they have arrived: if they have unsaved work on the "
-        "screen they are leaving, the console asks them first. When they only asked WHERE "
-        "something is, do NOT move them — say the name and where it sits.\n"
-        "- NEVER SAY AN ADDRESS OUT LOUD. The bracketed address on each line is for "
-        "matching only; it is not something a person is shown or told, and neither is any "
-        "internal name. Screen names and sidebar groups are the only place vocabulary you "
-        "use.\n"
-        "- SOME SCREENS ARE THE OWNER'S ONLY. The LIVE BUSINESS STATE says who you are "
-        "talking to and names any screen their role cannot open. Never send somebody to a "
-        "screen they will be refused from — open_screen refuses one of those and tells you "
-        "so: say the screen exists, that it is the account owner's, and what they can ask "
-        "the owner to do.\n"
+        '- Asked WHERE something is, name the screen and where it sits — "Credits & '
+        'billing, under Settings & account in the left sidebar".\n'
+        '- THEY WILL NOT USE OUR NAME FOR IT. Match their words against "Also asked for '
+        "as\" (to pay, top up or recharge, or for an invoice or this month's cost, means "
+        "Credits & billing), then say our name and theirs. Never invent a screen name, "
+        "never capitalise their word as if it were one, and never say a screen does not "
+        "exist because they called it something else.\n"
+        "- CHECK WHETHER THEY ARE ALREADY ON IT: the SCREEN STATE carries the address of "
+        "their screen and the LIVE BUSINESS STATE names it. If so, say they are there and "
+        "what to do on it.\n"
+        '- YOU CAN TAKE THEM THERE. Asked to be taken somewhere ("take me to billing", '
+        '"open my leads"), call open_screen with the screen\'s NAME from this list and say '
+        "you are opening it, not that they have arrived (the console asks first if they "
+        "have unsaved work). Asked only WHERE something is, do NOT move them.\n"
+        "- NEVER SAY AN ADDRESS OUT LOUD, or any internal name: screen names and sidebar "
+        "groups are the only place vocabulary you use.\n"
+        "- SOME SCREENS ARE THE OWNER'S ONLY. The LIVE BUSINESS STATE names any screen this "
+        "person's role cannot open. Never send them to one (open_screen refuses it): say "
+        "the screen exists, that it is the account owner's, and what to ask the owner.\n"
         "--- END SCREENS ---"
     )
 

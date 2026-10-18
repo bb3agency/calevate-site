@@ -20,12 +20,11 @@ from calevate_shared.extraction import OutcomeTag
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.llm_tiers import client_model_labels
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.agents.trial_panel import read_trial_panel
 from apps.api.billing import service as billing
-from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
+from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
@@ -36,8 +35,8 @@ from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
 from apps.api.core.stepup import ActionCode, ClientActionCode, client_confirmation
-from apps.api.crm import assist, lead_search, saved_views, service, translation
 from apps.api.crm import columns as lead_column_registry
+from apps.api.crm import lead_search, saved_views, service, translation
 from apps.api.crm.attention import attention_queue
 from apps.api.crm.captured import captured_fields
 from apps.api.crm.lead_dial import place_lead_call
@@ -45,7 +44,6 @@ from apps.api.crm.performance import performance
 from apps.api.crm.recording_download import DOWNLOAD_LINK_TTL_S, recording_download_for
 from apps.api.crm.schemas import (
     AttentionOut,
-    CallAssistOut,
     CallbackEligibilityOut,
     CallbackOut,
     CallDetailOut,
@@ -85,7 +83,6 @@ from apps.api.reliability.service import (
     fail_idempotency,
     scope_key,
 )
-from apps.workers.extraction import run_assist
 
 router = APIRouter(prefix="/v1", tags=["crm"])
 
@@ -441,8 +438,8 @@ async def retranslate_call(
     request: Request,
     principal: Principal = Depends(requires("org:manage")),
 ) -> CallTranslationOut:
-    """`org:manage` and the view-as lock for `assist_call`'s reasons: it spends the
-    client's AI allowance. No `Idempotency-Key`: the compare-and-swap on
+    """`org:manage` and the view-as lock, because it spends the client's AI allowance.
+    No `Idempotency-Key`: the compare-and-swap on
     `translation_state` is the idempotency, and nothing is paid inside the request."""
     assert principal.tenant_id is not None
     assert_view_as_may(principal, "billing.ai_assist")
@@ -464,233 +461,6 @@ async def retranslate_call(
         summary={"state": state},
     )
     return CallTranslationOut(translation_state=state)
-
-
-@router.post(
-    "/calls/{call_id}/assist",
-    response_model=CallAssistOut,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Re-summarise this call with the assistant model — metered, quota-gated (D-127)",
-    description=(
-        "Runs the dashboard assistant over this call's REDACTED transcript and returns a "
-        "fresh summary. Nothing is stored: the call's own summary and captured fields are "
-        "the first pass over the raw transcript and are left alone. Refused before any "
-        "model is called when the account is past its included AI allowance — the screen "
-        "opens the wallet dialog on `ai_quota_exceeded`. A `Idempotency-Key` header is "
-        "REQUIRED so a double-click is paid for once. Requires `org:manage`."
-    ),
-)
-async def assist_call(
-    call_id: UUID,
-    session: Session,
-    request: Request,
-    principal: Principal = Depends(requires("org:manage")),
-) -> CallAssistOut:
-    """SUBJECT → GATE → RUN → METER. `crm/assist.py`'s docstring argues each arrow.
-
-    **`org:manage`, and it is the whole population question.** This is a POST that spends
-    money, so `test_every_mutating_route_is_gated_by_a_mutating_permission` requires a
-    permission in `MUTATING_PERMISSIONS`. Until D-587 that ALSO meant an operator inside a
-    "view as client" session could not spend a client's allowance from a client screen;
-    `org:manage` is now writable in such a session, so that property is asserted here as
-    its own lock (`assert_view_as_may`, below) rather than inherited from the permission.
-    Of the mutating permissions a client role holds, `org:manage` is the one this
-    console already uses for the whole AI surface: `GET /v1/billing/ai-quota` is
-    `billing:read` and `POST /v1/billing/ai-quota/extra` is `org:manage`, both owner-only,
-    on SEC-COMP §5's ground that spend is an owner's business. Gating the thing that
-    SPENDS the allowance more loosely than the panel that displays it would be this
-    product disagreeing with itself. `leads:write` was the alternative — staff hold it, so
-    it would let staff re-summarise — and was rejected because it names the wrong object
-    on a call route and would put "leads:write" in the audit row for an act on a call. A
-    new `calls:assist` was rejected on `bulk_leads`'s ground: its holder set would be
-    exactly `leads:write`'s, and a permission every role holds precisely when it holds
-    another is a fourth registry entry that buys nothing.
-
-    **The `Idempotency-Key` is REQUIRED**, as it is on `POST /v1/leads/{lead_id}/call`,
-    because a repeat is a second, silent payment to our model provider — Azure OpenAI
-    since D-410 — with nothing else in front of it. D-140 removed the client-suppliable
-    metering `ref` precisely so that dedupe could not happen after the provider was paid,
-    and moved double-click protection here. An OPTIONAL key would protect only the callers
-    that remember to send one, i.e. this console on the day it was written, which is the
-    argument `ops/config_routes.require_if_match` already makes for `If-Match`. 400 with a
-    problem body is what draft-ietf-httpapi-idempotency-key-header-07 §2.4 asks for when
-    the header is missing on an operation that documents it (RFC 9457 supersedes the
-    draft's RFC 7807 reference; the shape is the same).
-    """
-    assert principal.tenant_id is not None  # guaranteed by the tenant-scoped session
-    # THE PAYER, NOT CAUTION (D-587). This meters the CLIENT'S AI allowance, which is why
-    # `copilot:use` is withheld from a view-as session as a permission — and this route
-    # spends the same wallet under a permission that is otherwise ordinary settings. The
-    # founder's rule is the ground: "you never charge a client for your own support work".
-    assert_view_as_may(principal, "billing.ai_assist")
-    tenant_id = principal.tenant_id
-
-    idem_key = request.headers.get("Idempotency-Key")
-    if not idem_key:
-        raise ProblemError(
-            kind="validation",
-            status=400,
-            code="idempotency_key_required",
-            title="This request has to carry an Idempotency-Key",
-            detail=(
-                "Running the assistant costs money, so every attempt names itself and a "
-                "repeat of the same attempt is answered rather than re-run."
-            ),
-            remediation="Send an `Idempotency-Key` header — one fresh value per attempt.",
-        )
-    # THE CLAIM COMMITS BEFORE THE MODEL RUNS, in its own transaction — the shape
-    # `billing/payment_routes._create_order_once` argues for and the shape this route
-    # did not have. Written into the REQUEST's transaction it was rolled back by
-    # `core/deps.db` on any later exception, so a raise anywhere after `run_assist`
-    # (a statement timeout, a severed connection, a refused audit write) erased the
-    # claim, the usage rows and the audit row while the model provider had already been
-    # paid (Azure OpenAI since D-410) — and the retry with the same key, which is what the
-    # key is FOR, paid a second time.
-    async with tenant_session(tenant_id) as claim_session:
-        claim = await claim_idempotency(
-            claim_session,
-            scope=scope_key(tenant_id=tenant_id, user_id=principal.user_id),
-            route="/v1/calls/{call_id}/assist",
-            method="POST",
-            key=idem_key,
-            request_hash=body_hash({"call_id": str(call_id)}),
-        )
-    if claim.state == "replay" and claim.response_payload:
-        # The stored answer, not a second run. This is the double-click, and it is
-        # answered BEFORE the model is called, which is the only place answering it saves
-        # anything (`billing/ai_quota.ASSIST_REF_PREFIX`).
-        return CallAssistOut.model_validate(claim.response_payload)
-
-    # STEPS 1-3 ARE ONE ARM, AND THE BOUNDARY IS "HAS THE PROVIDER BEEN PAID".
-    #
-    # This `try` used to open at step 3, around `run_assist` alone, and the two refusals
-    # above it therefore left the claim `processing` for the whole `CLAIM_LEASE` — a
-    # client who was told "this call has no transcript" or "you are at your ceiling"
-    # could not reuse the key they had just been refused on, and got
-    # `idempotent_request_in_flight` for a request that cost nothing. The browser worked
-    # around it by minting a FRESH key per attempt, which is worse than the bug it hides:
-    # a key that is never reused cannot dedupe, so a lost response — a 504, a dropped
-    # connection — on a run the server COMPLETED pays a second time, which is the exact
-    # event this required header exists to prevent.
-    #
-    # So the arm covers everything up to and including the provider call, and stops
-    # there. `run_assist` RETURNING is the instant the money is spent, and every failure
-    # after it keeps the claim on purpose — that half is the mechanism working, and step 4
-    # says why. Releasing on a pre-payment refusal is not a relaxation of it: the two
-    # cases are opposites, and conflating them is what left this one open.
-    try:
-        # 1. THE SUBJECT, before the money. A call with no readable redacted transcript
-        #    cannot be summarised at any price, and finding that out after the ceiling
-        #    check would answer a client at their limit with "add ₹500" for a call the
-        #    money would not have helped with.
-        source = await assist.load_assist_source(session, call_id)
-
-        # 2. THE GATE. It RAISES — `ai_quota_exceeded` is what opens the wallet dialog
-        #    (G-5), `ai_paused_platform_wide` is the brake — so a refusal reaches the
-        #    client without a token having been spent. Everything below this line costs
-        #    money.
-        quota = await require_ai_assist(session, tenant_id=tenant_id)
-
-        # 3. THE RUN. The key is minted HERE, by the server, per attempt:
-        #    `record_ai_assist_usage` accepts nothing else, because its idempotency is a
-        #    switch that turns metering off (D-140).
-        ref = new_assist_ref()
-        # WHOSE AI ANSWERS. The account's own model decides, where it may serve this leg —
-        # the founder's rule that the assistant uses the same AI as the rest of the service.
-        # Read HERE rather than inside `run_assist` because that selector is a pure function
-        # of its arguments (its docstring argues for it) and this transaction already has a
-        # tenant-scoped session open.
-        tenant_leg = await account_assist_leg(session)
-        result = await run_assist(
-            source.spec,
-            # `text_redacted`, assembled by `crm/assist.py`, which never names the raw
-            # column. `run_assist` re-runs `redact()` over this and REFUSES text that
-            # still matches — that guard had no caller until this line, and this line
-            # must not defeat it.
-            source.transcript,
-            # The gate's verdict, passed IN rather than re-read. It is False on every
-            # path that reaches here — `require_ai_assist` RAISES at the ceiling rather
-            # than returning "no", which is G-5's block — and it is written as the READ
-            # rather than as a literal `False` so that this caller stays correct if the
-            # gate ever learns to answer instead of raise. A literal would be a promise
-            # about another module's control flow, made in this one.
-            tenant_leg=tenant_leg,
-            quota_exhausted=quota.at_ceiling,
-            languages=source.languages,
-        )
-    except Exception as failure:
-        # NO ANSWER WAS PAID FOR ON ANY PATH THAT REACHES HERE, so the key is released
-        # rather than left `processing`: a refused attempt that kept it would answer the
-        # client's own retry with "already in flight" for the whole lease, for a request
-        # that bought nothing. Its own transaction, for the same reason the claim had one —
-        # the request's is about to roll back. `_create_order_once`'s failure arm, exactly.
-        # A paid turn that answered unusably before the refusal is still metered.
-        async with tenant_session(tenant_id) as fail_session:
-            if isinstance(failure, ProblemError):
-                await assist.meter_refusal(
-                    fail_session,
-                    tenant_id=tenant_id,
-                    refusal=failure,
-                    feature=assist.ASSIST_FEATURE_RESUMMARISE,
-                )
-            await fail_idempotency(fail_session, record_id=claim.record_id)
-        raise
-
-    # 4. THE METER, THE AUDIT AND THE CLAIM'S COMPLETION, in ONE transaction of their
-    #    own — the record of a payment that has already happened. It is deliberately not
-    #    the request's transaction: that one rolls back on any later exception, and this
-    #    is the exact set of rows whose disappearance made a paid call look un-made.
-    #    `meter_assist` never raises; if the audit write or the completion does, the money
-    #    is unrecorded and the claim stays `processing`, which refuses the retry for the
-    #    lease rather than paying twice — and the raise is what tells an operator.
-    async with tenant_session(tenant_id) as record_session:
-        charged_earlier = await assist.meter_earlier(
-            record_session,
-            tenant_id=tenant_id,
-            earlier=result.earlier,
-            feature=assist.ASSIST_FEATURE_RESUMMARISE,
-        )
-        metered = await assist.meter_assist(
-            record_session, tenant_id=tenant_id, ref=ref, result=result, model=result.model
-        )
-        charged = metered.metered or charged_earlier
-        out = CallAssistOut(
-            # The same `redact()` pass `calls.summary` goes out through. The model was
-            # given redacted text and so cannot have copied a digit it never saw; this is
-            # the belt to that braces, and it is what lets the redaction guardrail's entry
-            # for this field say what `CallDetailOut.summary`'s says.
-            summary=service.redacted_summary(result.output.summary) or "",
-            disclosure=result.capability.disclosure,
-            metered=charged,
-        )
-        await write_audit(
-            record_session,
-            action="call.ai_assist",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="call",
-            object_id=str(call_id),
-            ip=client_request_ip(request),
-            # `usage_events` records the tenant, the cost and the key; it does not record
-            # WHO asked or WHICH call was read (`call_id IS NULL` is in the index
-            # predicate). A transcript being handed to a sub-processor is a processing act
-            # under DPDP and the actor and the subject are exactly what a grievance asks
-            # for, so they are recorded here. Ids, a provider name and a boolean — no
-            # prose, no output.
-            summary={
-                "provider": result.capability.provider,
-                "fallback_reason": result.capability.fallback_reason,
-                "metered": charged,
-                "ref": ref,
-            },
-        )
-        await complete_idempotency(
-            record_session,
-            record_id=claim.record_id,
-            response_status=200,
-            response_payload=out.model_dump(),
-        )
-    return out
 
 
 # --- the Leads table's lens: which rows, and which columns --------------------
@@ -1588,9 +1358,8 @@ async def _release_undialled_claim(tenant_id: UUID, record_id: UUID) -> None:
     """Release a lead-call claim on a path that dialled nobody.
 
     A refused attempt that kept its claim would answer the client's own retry with the
-    same key "already in flight" for the whole lease, for a request that rang nothing;
-    `assist_call` releases on its pre-payment refusals for the same reason. Its own
-    transaction, because the request's is about to roll back.
+    same key "already in flight" for the whole lease, for a request that rang nothing.
+    Its own transaction, because the request's is about to roll back.
     """
     async with tenant_session(tenant_id) as fail_session:
         await fail_idempotency(fail_session, record_id=record_id)
@@ -1614,7 +1383,7 @@ async def call_lead(
     # Idempotency: a double-click must not place two calls to a customer, so the key is
     # REQUIRED rather than honoured when present. An optional key dedupes only the callers
     # that remember to send one; every other caller's retry is a second phone ringing,
-    # which nothing later can undo. Refused before the gate, as `assist_call` does.
+    # which nothing later can undo. Refused before the gate.
     idem_key = request.headers.get("Idempotency-Key")
     if not idem_key:
         raise ProblemError(

@@ -623,12 +623,6 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/agents/{agent_id}/restore", {}, {}),
     (
         "POST",
-        "/v1/calls/{call_id}/assist",
-        {"question": "what did the caller ask for?"},
-        {"Idempotency-Key": "idor-sweep-assist"},
-    ),
-    (
-        "POST",
         "/v1/campaigns/{campaign_id}/contacts",
         {"contacts": [{"phone": "+919000000004"}]},
         {},
@@ -752,7 +746,6 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("PATCH", "/v1/kb/facts/{fact_id}", {"text": "Open 10 to 6."}, {}),
     ("DELETE", "/v1/kb/facts/{fact_id}", {}, {}),
     ("GET", "/v1/kb/teach/{teaching_id}", {}, {}),
-    ("POST", "/v1/kb/teach/{teaching_id}/words", {"words": "We open at ten."}, {}),
     (
         "POST",
         "/v1/kb/teach/{teaching_id}/save",

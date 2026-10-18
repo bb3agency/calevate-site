@@ -276,6 +276,10 @@ class Executed:
     detail: str
     audit_summary: dict[str, Any]
     object_id: str | None = None
+    #: What the activity log keeps instead of `detail`, when `detail` carries content the log
+    #: must not hold (D-821: a call's second summary is shown once and not stored). `None`
+    #: keeps `detail`, which is every other action.
+    recorded: str | None = None
 
 
 #: A tool's read half: session (tenant-scoped) → described plan. READS ONLY, on every tier.
@@ -378,6 +382,11 @@ class ActionTool:
     #: a `confirm` tool carries `None`. Checked at construction, so a tool that is cheap to
     #: run and impossible to take back cannot be registered as immediate.
     undo: Undo | None
+    #: The executor pays an outside provider before it returns (a model call). The money
+    #: cannot be rolled back with the transaction, so once the executor has returned, a
+    #: failure later in `confirm` keeps the token spent rather than letting the same card
+    #: pay again (D-821; the route it replaced held its idempotency claim for this reason).
+    external_spend: bool = False
 
     def __post_init__(self) -> None:
         if self.tier == "immediate" and self.undo is None:

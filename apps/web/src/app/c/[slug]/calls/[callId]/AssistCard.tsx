@@ -1,247 +1,44 @@
 "use client";
 
-import { useState } from "react";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
+import { Disclosure, RestrictionNote } from "@/components/ui";
+import type { Session } from "@/lib/api/client";
+import { useActAccess } from "@/lib/api/hooks";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
-import {
-  Disclosure,
-  NoticeBox,
-  PRIMARY_BUTTON,
-  SECONDARY_BUTTON,
-  ProblemNotice,
-  RestrictionNote,
-  Skeleton,
-} from "@/components/ui";
-import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
-import { ApiProblem, type Session } from "@/lib/api/client";
-import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
-import { useActAccess, useCallAssist } from "@/lib/api/hooks";
+/** What Pip is asked, in the words the owner sees in its ask box. */
+export const SECOND_READING_REQUEST = "Summarise this call again from its transcript.";
 
 /**
- * "Re-summarise this call" — the one place a client can spend the dashboard-AI allowance
- * on a call (D-127 G-2/G-5/G-6), and the surface the whole metering half of that decision
- * was built for.
+ * "A second reading of this call", asked of Pip (D-821; it was a panel of its own, D-127).
  *
- * ## What it does and does not change
+ * Pip proposes `call_summarise_again`; once the owner confirms, it reads the REDACTED
+ * transcript and shows the fresh summary in its panel, beside a disclosure when another
+ * model answered and a note when nothing was charged. Nothing here is stored or replaced,
+ * and the ceiling's wallet dialog is Pip's own (`CopilotPanel`). Pip knows which call from
+ * this page's `call_id` fact.
  *
- * The answer is a SECOND READING, shown beside the stored summary and never in place of
- * it. The stored one came from the raw transcript on the first post-call pass; this one
- * comes from the redacted copy through the assistant model (`apps/api/crm/assist.py`
- * argues why replacing one with the other would degrade the lead). So the card renders
- * both facts as what they are, and nothing on this screen is overwritten by pressing it.
- *
- * ## §52, and the three states that are not a number
- *
- * Loading is a `Skeleton`, failure is a `ProblemNotice`, and the assistant answering with
- * an EMPTY summary — which is a paid-for outcome, not an absence — is stated in words
- * rather than rendered as a blank card. There is no `?? ""` between the server and a
- * pixel here except the one the API itself guarantees is a string.
- *
- * ## The ceiling (G-5)
- *
- * `require_ai_assist` refuses with `ai_quota_exceeded`, and the browser is told to open
- * the wallet dialog on that code and on no other. The figures come from a re-read of
- * `GET /v1/billing/ai-quota` rather than from the error body, which is the server's own
- * instruction: one computation of what a block costs, so the amount a person accepts can
- * never be a stale copy carried in a refusal. That read is enabled only once the ceiling
- * has actually been met — an owner who never hits it never pays for the request.
- *
- * ## The disclosure (G-6)
- *
- * A fallback is never silent. When `disclosure` is non-null the answer was written by
- * Sarvam rather than the assistant model, and the sentence the server composed is shown
- * WITH the answer — not in a tooltip, not below the fold.
+ * The access is the action's own: `org:manage`, and never from a view-as session, because
+ * it spends the client's AI allowance (`billing.ai_assist`).
  */
-export function AssistCard({ session, callId }: { session: Session; callId: string }) {
-  const assist = useCallAssist(session, callId);
-  /**
-   * TWO questions, and the second is what D-587 left behind. The permission is the
-   * route's own — `POST /v1/calls/{id}/assist` is `org:manage`, because the AI surface is
-   * owner-scoped throughout (SEC-COMP §5: spend is an owner's business) — and `org:manage`
-   * is now WRITABLE in a view-as session, so the permission alone stopped refusing this.
-   * The refusal it used to give for free is now the named act `billing.ai_assist`
-   * (`crm/routes.py:303`): running the assistant over this call spends the CLIENT'S own
-   * allowance, and the founder's rule is that support work is never billed to the client.
-   * `useWriteAccess` alone would have offered an operator a button the server refuses.
-   */
-  const write = useActAccess(
-    session,
-    "org:manage",
-    "billing.ai_assist",
-    "use AI help on this call",
-  );
-
-  const atCeiling = assist.error instanceof ApiProblem && assist.error.code === "ai_quota_exceeded";
-  const quota = useAiQuota(session, { enabled: atCeiling });
-  const buy = useBuyAiExtra(session);
-  const [asking, setAsking] = useState(false);
-
+export function AssistCard({ session }: { session: Session }) {
+  const write = useActAccess(session, "org:manage", "billing.ai_assist", "use AI help on this call");
   return (
-    // Behind a disclosure (UX-DOCTRINE §3): rarely used, low consequence, and it spends the
-    // client's AI allowance, so it is offered rather than put in the reader's way. The
-    // closed state says what is inside.
-    <Disclosure
-      variant="inline"
-      title="A second reading of this call"
-      className="border-t border-line"
-    >
+    // Behind a disclosure (UX-DOCTRINE §3): rarely used, and it spends the allowance.
+    <Disclosure variant="inline" title="A second reading of this call" className="border-t border-line">
       <div className="space-y-3 pb-3">
         <p className="text-meta text-ink-muted">
-          The assistant reads the redacted transcript again and writes a fresh summary beside
-          the one above. It uses your AI allowance and changes nothing already saved.
+          {ASSISTANT_NAME} reads the transcript again with numbers hidden and writes a fresh
+          summary for you. It uses your AI allowance and changes nothing saved here.
         </p>
-
         <RestrictionNote reason={write.reason} />
-
-        <button
-          type="button"
-          className={SECONDARY_BUTTON}
-          disabled={!write.allowed || assist.isPending}
-          onClick={() => assist.mutate()}
-        >
-          {assist.isPending ? <span className="text-shimmer">Reading the call…</span> : "Write a second reading"}
-        </button>
-
-        {/* Loading is a skeleton. Not a spinner in the button alone: the answer lands in
-            the space below, and a card that stays the same height and then jumps is how a
-            person misses that anything happened. */}
-        {assist.isPending && <Skeleton rows={3} />}
-
-        {/* Failure is a refusal — the server's own words, with its remediation. The
-            ceiling is the ONE code that gets a different treatment, because it has an
-            action attached; everything else is stated and offered a retry. */}
-        {assist.error != null &&
-          (atCeiling ? (
-            <CeilingOffer
-              quota={quota}
-              buy={buy}
-              asking={asking}
-              onAsk={() => setAsking(true)}
-              onClose={() => {
-                buy.reset();
-                setAsking(false);
-              }}
-              onBought={() => {
-                setAsking(false);
-                assist.reset();
-              }}
-            />
-          ) : (
-            <ProblemNotice error={assist.error} onRetry={() => assist.mutate()} />
-          ))}
-
-        {assist.data && <AssistAnswer answer={assist.data} />}
+        <AskAssistant
+          label={`Let ${ASSISTANT_NAME} write a second reading`}
+          prompt={SECOND_READING_REQUEST}
+          size="md"
+          disabled={!write.allowed}
+        />
       </div>
     </Disclosure>
-  );
-}
-
-/** The answer, its provenance, and what it cost — three facts, none of them optional. */
-function AssistAnswer({
-  answer,
-}: {
-  answer: { summary: string; disclosure: string | null; metered: boolean };
-}) {
-  return (
-    <div className="space-y-2 border-l-2 border-line pl-4">
-      <p className="text-meta font-medium text-ink-faint">
-        The assistant&apos;s summary
-      </p>
-      {answer.summary.trim() ? (
-        <p className="text-sm text-ink">{answer.summary}</p>
-      ) : (
-        // A completed run that produced nothing is an OUTCOME, and §52 does not let an
-        // empty state stand in for one. It is also not free — it is stated, not hidden.
-        <p className="text-sm text-ink-muted">
-          The assistant read the call and did not produce a summary for it. Nothing on this
-          call was changed. You can try again.
-        </p>
-      )}
-      {/* G-6: a fallback is ALWAYS disclosed, in the server's own sentence. */}
-      {answer.disclosure !== null && (
-        <NoticeBox tone="neutral" title="Written by a different model">
-          {answer.disclosure}
-        </NoticeBox>
-      )}
-      {!answer.metered && (
-        <p className="text-xs text-ink-faint">
-          This one did not use any of your AI allowance.
-        </p>
-      )}
-    </div>
-  );
-}
-
-/**
- * At the ceiling: the block, on the SERVER's terms, through the ONE dialog.
- *
- * The three states of the quota re-read are all handled, and that is the §52 point rather
- * than defensiveness: this component decides whether a control that spends money is
- * rendered, so "we have not got an answer" must not look like "there is nothing to buy".
- */
-function CeilingOffer({
-  quota,
-  buy,
-  asking,
-  onAsk,
-  onClose,
-  onBought,
-}: {
-  quota: ReturnType<typeof useAiQuota>;
-  buy: ReturnType<typeof useBuyAiExtra>;
-  asking: boolean;
-  onAsk: () => void;
-  onClose: () => void;
-  onBought: () => void;
-}) {
-  // Bound once so the dialog's `onAccept` closes over a value TypeScript has already
-  // narrowed: `quota.data` is `AiQuota | undefined` at every later read, and a non-null
-  // assertion inside the callback would be the browser promising something the query
-  // envelope does not.
-  const allowance = quota.data;
-
-  return (
-    <NoticeBox tone="warn" title="You have used this month's included AI help">
-      <p>AI help is off until next month. Calls, campaigns and leads carry on as before.</p>
-
-      {quota.error != null && (
-        <div className="mt-3">
-          <ProblemNotice error={quota.error} onRetry={() => void quota.refetch()} />
-        </div>
-      )}
-      {quota.error == null && allowance === undefined && (
-        <div className="mt-3">
-          <Skeleton rows={2} />
-        </div>
-      )}
-      {allowance !== undefined &&
-        (allowance.extra_available ? (
-          <button type="button" className={`${PRIMARY_BUTTON} mt-3`} onClick={onAsk}>
-            See what more AI help costs
-          </button>
-        ) : (
-          <p className="mt-3">{extraUnavailableSentence(allowance)}</p>
-        ))}
-
-      {asking && allowance !== undefined && (
-        <AcceptChargeDialog
-          quota={allowance}
-          pending={buy.isPending}
-          error={buy.error}
-          onCancel={onClose}
-          // The SERVER's figure, echoed back untouched. Nothing here computes an amount,
-          // and a mismatch is refused rather than clamped.
-          onAccept={() => buy.mutate(allowance.extra_block_inr, { onSuccess: onBought })}
-        />
-      )}
-
-      {buy.data && !asking && (
-        <div role="status" className="mt-3">
-          <p>
-            AI help is available again for the rest of {buy.data.month}. Press
-            &ldquo;Write a second reading&rdquo; to try again.
-          </p>
-        </div>
-      )}
-    </NoticeBox>
   );
 }

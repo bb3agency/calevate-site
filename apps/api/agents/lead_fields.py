@@ -11,7 +11,8 @@ Three sources can fill an agent's business fields, and every one ends as an ordi
   type change itself).
 * **The AI draft**, for a custom business only: drafted ONCE by a worker
   (`apps/workers/lead_fields_draft.py`) from the business's own details, kept on
-  `lead_field_drafts`, and written onto every agent that has no business fields yet. It is
+  `lead_field_drafts`, reviewed by the owner field by field (D-821), and the kept fields are
+  written onto every agent that has no business fields yet. It is
   never redrafted; `UNIQUE(tenant_id)` makes a second draft unrepresentable.
 * **The client's own edits**, through the per-agent editor, at any time.
 
@@ -20,6 +21,7 @@ The core is never stored (`calevate_shared.lead_fields`).
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final
@@ -66,10 +68,14 @@ class Draft:
     requested_at: datetime
     completed_at: datetime | None
     error_code: str | None
+    #: The owner kept or discarded what was drafted (D-821). A `done` draft that is not
+    #: reviewed has reached no agent yet.
+    reviewed: bool = False
 
 
 _DRAFT_SQL: Final = (
-    "SELECT status, fields, requested_at, completed_at, error_code FROM lead_field_drafts "
+    "SELECT status, fields, requested_at, completed_at, error_code, reviewed_at "
+    "FROM lead_field_drafts "
     "WHERE tenant_id = :tid"
 )
 
@@ -84,6 +90,7 @@ async def read_draft(session: AsyncSession, *, tenant_id: UUID) -> Draft | None:
         requested_at=row[2],
         completed_at=row[3],
         error_code=row[4],
+        reviewed=row[5] is not None,
     )
 
 
@@ -100,11 +107,11 @@ async def starting_business_fields(
     session: AsyncSession, *, tenant_id: UUID, vertical: str | None
 ) -> list[ExtractionField]:
     """What a NEW agent of this business starts with: its type's standard set, or — for a
-    custom business whose draft is done — the drafted set. Never a redraft."""
+    custom business whose owner kept some of its draft — the kept set. Never a redraft."""
     if has_standard_set(vertical):
         return standard_fields(vertical)
     draft = await read_draft(session, tenant_id=tenant_id)
-    if draft is not None and draft.status == "done":
+    if draft is not None and draft.status == "done" and draft.reviewed and draft.fields:
         return draft.fields
     return standard_fields(CUSTOM)
 
@@ -189,6 +196,49 @@ async def maybe_request_draft(
         return False
     await request_draft(session, tenant_id=tenant_id, requested_by=requested_by)
     return True
+
+
+@dataclass(frozen=True, slots=True)
+class Reviewed:
+    kept: list[ExtractionField]
+    written: list[AgentWrite]
+
+
+async def review_draft(session: AsyncSession, *, tenant_id: UUID, keep: list[str]) -> Reviewed:
+    """The owner's review of the finished draft (D-821): the fields whose keys are in `keep`
+    are written onto every agent that has no business fields of its own yet, and become the
+    set a new agent starts with; the rest are dropped. `keep=[]` discards the draft. Once,
+    under a row lock: a second review is refused, and the draft is never redrafted.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT status, fields, reviewed_at FROM lead_field_drafts "
+                "WHERE tenant_id = :tid FOR UPDATE"
+            ),
+            {"tid": tenant_id},
+        )
+    ).first()
+    if row is None or str(row[0]) != "done":
+        raise ProblemError.business_rule(
+            "lead_fields_nothing_to_review", "There is no finished draft to review."
+        )
+    if row[2] is not None:
+        raise ProblemError.conflict(
+            "lead_fields_already_reviewed",
+            "This draft was already reviewed. Change the details on this screen instead.",
+        )
+    wanted = set(keep)
+    kept = [f for f in business_only(row[1] or []) if f.key in wanted]
+    written = await replace_business_fields(session, fields=kept, only_empty=True) if kept else []
+    await session.execute(
+        text(
+            "UPDATE lead_field_drafts SET reviewed_at = now(), fields = CAST(:fields AS jsonb), "
+            "updated_at = now() WHERE tenant_id = :tid"
+        ),
+        {"tid": tenant_id, "fields": json.dumps([f.model_dump() for f in kept])},
+    )
+    return Reviewed(kept=kept, written=written)
 
 
 # ------------------------------------------------------------- writing onto the agents
@@ -278,6 +328,7 @@ __all__ = [
     "MAX_AGENTS",
     "AgentWrite",
     "Draft",
+    "Reviewed",
     "agents_with_fields",
     "business_type_label",
     "has_standard_set",
@@ -285,6 +336,7 @@ __all__ = [
     "read_draft",
     "replace_business_fields",
     "request_draft",
+    "review_draft",
     "standard_fields",
     "starting_business_fields",
     "vertical_of",

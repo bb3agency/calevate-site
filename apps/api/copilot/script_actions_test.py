@@ -101,7 +101,9 @@ def test_it_is_a_confirm_action_on_the_script_pages_permission() -> None:
     assert tool is not None
     assert tool.tier == "confirm"
     assert tool.permission == "org:manage"
-    assert write_tools.WRITE_TOOLS[-2:] == script_actions.SCRIPT_ACTIONS
+    names = [t.name for t in write_tools.WRITE_TOOLS]
+    at = names.index("agent_script_suggest")
+    assert write_tools.WRITE_TOOLS[at : at + 2] == script_actions.SCRIPT_ACTIONS
 
 
 def test_the_answers_are_the_five_owner_questions() -> None:
