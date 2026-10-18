@@ -79,6 +79,7 @@ from apps.workers.fx_pull import (
     FxRung,
     degraded_alarm_due,
     fetch_published_rate,
+    ist_today,
     parse_fbil_response,
     parse_rate_response,
     pull_fx_rate,
@@ -98,7 +99,7 @@ def _body(**overrides: Any) -> str:
     """The vendor's documented response shape, verbatim from their OpenAPI example's
     structure (`lib/public/v2/openapi.json`, `Rate`): `date`, `base`, `quote`, `rate`."""
     payload: dict[str, Any] = {
-        "date": date.today().isoformat(),
+        "date": ist_today().isoformat(),
         "base": "USD",
         "quote": "INR",
         "rate": 88.4275,
@@ -163,7 +164,7 @@ def test_a_rate_installed_mid_job_does_not_reach_a_job_already_running() -> None
     """THE IN-FLIGHT GUARANTEE. `fx_scope()` resolves once; a refresher swapping the
     process-wide quote underneath must not change what this unit of work is costing at."""
     first = FxQuote(
-        rate=PUBLISHED, as_of=date.today(), source=TEST_SOURCE, observed_at=datetime.now(UTC)
+        rate=PUBLISHED, as_of=ist_today(), source=TEST_SOURCE, observed_at=datetime.now(UTC)
     )
     install_fx_quote(first)
     with fx_scope() as pinned:
@@ -171,7 +172,7 @@ def test_a_rate_installed_mid_job_does_not_reach_a_job_already_running() -> None
         install_fx_quote(
             FxQuote(
                 rate=Decimal("95.0000"),
-                as_of=date.today(),
+                as_of=ist_today(),
                 source=TEST_SOURCE,
                 observed_at=datetime.now(UTC),
             )
@@ -188,7 +189,7 @@ def test_a_nested_scope_reuses_the_outer_pin() -> None:
     straddle the scope exists to prevent."""
     install_fx_quote(
         FxQuote(
-            rate=PUBLISHED, as_of=date.today(), source=TEST_SOURCE, observed_at=datetime.now(UTC)
+            rate=PUBLISHED, as_of=ist_today(), source=TEST_SOURCE, observed_at=datetime.now(UTC)
         )
     )
     with fx_scope() as outer:
@@ -207,7 +208,7 @@ def test_the_pin_distinguishes_no_quote_from_no_scope() -> None:
         install_fx_quote(
             FxQuote(
                 rate=PUBLISHED,
-                as_of=date.today(),
+                as_of=ist_today(),
                 source=TEST_SOURCE,
                 observed_at=datetime.now(UTC),
             )
@@ -226,11 +227,11 @@ def _quote(as_of: date) -> FxQuote:
 
 
 def test_a_fresh_published_rate_is_used() -> None:
-    install_fx_quote(_quote(date.today()))
+    install_fx_quote(_quote(ist_today()))
     resolved = usd_inr_rate_now()
     assert resolved.rate == PUBLISHED
     assert resolved.source == TEST_SOURCE
-    assert resolved.as_of == date.today()
+    assert resolved.as_of == ist_today()
     assert resolved.basis == "published"
 
 
@@ -264,7 +265,7 @@ def test_the_typed_rate_is_used_when_nothing_was_ever_published() -> None:
 def test_the_typed_rate_overrides_a_fresh_published_one_only_when_switched_on(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    install_fx_quote(_quote(date.today()))
+    install_fx_quote(_quote(ist_today()))
     assert usd_inr_rate_now().basis == "published", "off by default"
     _set_manual(monkeypatch, override=True)
     resolved = usd_inr_rate_now()
@@ -299,7 +300,7 @@ def test_the_ceiling_is_measured_from_the_end_of_the_publication_day() -> None:
     every afternoon's perfectly fresh quote look half a day old, and a ceiling that drifts
     with the clock is one nobody can reason about."""
     today = FxQuote(
-        rate=PUBLISHED, as_of=date.today(), source=TEST_SOURCE, observed_at=datetime.now(UTC)
+        rate=PUBLISHED, as_of=ist_today(), source=TEST_SOURCE, observed_at=datetime.now(UTC)
     )
     assert today.age() == timedelta(0)
     edge = datetime(2026, 8, 27, 12, 0, tzinfo=UTC)
@@ -316,7 +317,7 @@ def test_a_conversion_records_which_rate_it_used() -> None:
     """`fx_rate` says WHAT; `fx_source`/`fx_as_of` say WHICH. Six months into a
     reconciliation, "was this call billed off a live rate?" is the first question, and it
     is not re-derivable from the number."""
-    as_of = date.today() - timedelta(days=1)
+    as_of = ist_today() - timedelta(days=1)
     install_fx_quote(
         FxQuote(rate=PUBLISHED, as_of=as_of, source=TEST_SOURCE, observed_at=datetime.now(UTC))
     )
@@ -339,7 +340,7 @@ def test_the_published_rate_never_passes_through_a_float() -> None:
     # What a float round-trip would have produced, spelled out rather than computed, so
     # the assertion still means something if someone "tidies" `Decimal(float)` away.
     assert rate != Decimal("88.42749999999999488409230252727866172790527343750")
-    assert as_of == date.today()
+    assert as_of == ist_today()
 
 
 def test_an_integral_rate_is_still_a_decimal() -> None:
@@ -373,7 +374,7 @@ def test_a_future_publication_date_is_refused() -> None:
     """`as_of` is what the staleness ceiling is measured against, so a bad feed could use
     it to disable the ceiling entirely — a rate dated 2030 would never go stale."""
     with pytest.raises(FxPullError):
-        parse_rate_response(_body(date=(date.today() + timedelta(days=30)).isoformat()))
+        parse_rate_response(_body(date=(ist_today() + timedelta(days=30)).isoformat()))
 
 
 async def test_a_non_200_is_a_failed_pull_and_not_a_rate() -> None:
@@ -425,7 +426,7 @@ async def test_the_request_asks_for_the_pair_and_the_provider_it_documents() -> 
 async def test_two_concurrent_pulls_write_one_row() -> None:
     """Two workers ticking at the same second. The advisory lock serialises them and the
     unique key makes the loser a no-op — not a duplicate, and not an error either."""
-    as_of = date.today()
+    as_of = ist_today()
 
     async def one() -> bool:
         async with untenanted_session() as session:
@@ -445,10 +446,10 @@ async def test_a_repeat_pull_of_the_same_publication_is_a_no_op() -> None:
     day's 288 ticks must store nothing rather than 287 duplicate rows."""
     async with untenanted_session() as session:
         _, first = await record_observation(
-            session, rate=PUBLISHED, as_of=date.today(), source=TEST_SOURCE, source_url="u"
+            session, rate=PUBLISHED, as_of=ist_today(), source=TEST_SOURCE, source_url="u"
         )
         _, second = await record_observation(
-            session, rate=PUBLISHED, as_of=date.today(), source=TEST_SOURCE, source_url="u"
+            session, rate=PUBLISHED, as_of=ist_today(), source=TEST_SOURCE, source_url="u"
         )
     assert (first, second) == (True, False)
 
@@ -458,20 +459,20 @@ async def test_a_corrected_rate_for_a_published_date_is_a_new_row() -> None:
     as a duplicate — and the correction is the one observation nobody may lose."""
     async with untenanted_session() as session:
         await record_observation(
-            session, rate=PUBLISHED, as_of=date.today(), source=TEST_SOURCE, source_url="u"
+            session, rate=PUBLISHED, as_of=ist_today(), source=TEST_SOURCE, source_url="u"
         )
         corrected, inserted = await record_observation(
             session,
             rate=Decimal("88.5000"),
-            as_of=date.today(),
+            as_of=ist_today(),
             source=TEST_SOURCE,
             source_url="u",
         )
         assert inserted is True
         current = await latest_observation(session)
     assert current is not None and current.rate == corrected.rate
-    assert observation_key(source=TEST_SOURCE, as_of=date.today(), rate=PUBLISHED) != (
-        observation_key(source=TEST_SOURCE, as_of=date.today(), rate=Decimal("88.5000"))
+    assert observation_key(source=TEST_SOURCE, as_of=ist_today(), rate=PUBLISHED) != (
+        observation_key(source=TEST_SOURCE, as_of=ist_today(), rate=Decimal("88.5000"))
     )
 
 
@@ -480,14 +481,14 @@ async def test_an_implausible_move_is_refused_and_the_previous_rate_keeps_servin
     the cost path. A 10x jump is refused; the belief the platform already holds survives."""
     async with untenanted_session() as session:
         await record_observation(
-            session, rate=PUBLISHED, as_of=date.today(), source=TEST_SOURCE, source_url="u"
+            session, rate=PUBLISHED, as_of=ist_today(), source=TEST_SOURCE, source_url="u"
         )
     with pytest.raises(ImplausibleRateError):
         async with untenanted_session() as session:
             await record_observation(
                 session,
                 rate=PUBLISHED * 10,
-                as_of=date.today(),
+                as_of=ist_today(),
                 source=TEST_SOURCE,
                 source_url="u",
             )
@@ -502,7 +503,7 @@ async def test_a_stored_rate_cannot_be_edited_or_deleted() -> None:
     an editable history is not evidence."""
     async with untenanted_session() as session:
         await record_observation(
-            session, rate=PUBLISHED, as_of=date.today(), source=TEST_SOURCE, source_url="u"
+            session, rate=PUBLISHED, as_of=ist_today(), source=TEST_SOURCE, source_url="u"
         )
     for statement in (
         "UPDATE fx_rate_observations SET rate = 9 WHERE source = :s",
@@ -520,7 +521,7 @@ async def test_the_stored_rate_keeps_its_published_digits() -> None:
     float's nearest neighbour."""
     async with untenanted_session() as session:
         await record_observation(
-            session, rate=PUBLISHED, as_of=date.today(), source=TEST_SOURCE, source_url="u"
+            session, rate=PUBLISHED, as_of=ist_today(), source=TEST_SOURCE, source_url="u"
         )
         stored = await latest_observation(session)
     assert stored is not None
@@ -535,7 +536,7 @@ async def test_the_stored_rate_keeps_its_published_digits() -> None:
 async def test_the_refresh_installs_the_stored_rate_for_the_conversion_to_read() -> None:
     async with untenanted_session() as session:
         await record_observation(
-            session, rate=PUBLISHED, as_of=date.today(), source=TEST_SOURCE, source_url="u"
+            session, rate=PUBLISHED, as_of=ist_today(), source=TEST_SOURCE, source_url="u"
         )
     quote = await refresh_fx_snapshot()
     assert quote is not None and quote.rate == PUBLISHED
@@ -589,14 +590,14 @@ async def test_every_completed_tick_records_a_check_even_when_nothing_new_is_sto
     """THE PRODUCTION REPORT (10 Oct 2026): "fetched 5 hours ago" on a healthy poller. A
     daily publication polled every five minutes inserts once, so the row's `observed_at`
     never moves; the check record must move on EVERY completed tick, insert or not."""
-    _install_ladder(monkeypatch, {"test:fbil": (FBIL_RATE, date.today())})
+    _install_ladder(monkeypatch, {"test:fbil": (FBIL_RATE, ist_today())})
 
     first = json.loads(await pull_fx_rate({"job_try": 1}))
     assert first["inserted"] is True
     after_first = await last_check()
     assert after_first is not None
     assert after_first.serving_source == "test:fbil"
-    assert after_first.serving_as_of == date.today()
+    assert after_first.serving_as_of == ist_today()
 
     second = json.loads(await pull_fx_rate({"job_try": 1}))
     assert second["inserted"] is False, "the same publication is not stored twice"
@@ -647,7 +648,7 @@ async def test_the_silence_alarm_reads_the_last_check_not_the_row(
     monkeypatch.setattr(job_module, "alert", lambda *a, **k: alerts.append(str(a[1])))
     async with untenanted_session() as session:
         await record_observation(
-            session, rate=PUBLISHED, as_of=date.today(), source=TEST_SOURCE, source_url="u"
+            session, rate=PUBLISHED, as_of=ist_today(), source=TEST_SOURCE, source_url="u"
         )
 
     await record_check(
@@ -773,7 +774,7 @@ DEFAULT_RATE = Decimal("95.3900")
 
 def _stale_date() -> date:
     """Seven days back — exactly the gap the live deployment was carrying."""
-    return date.today() - MAX_QUOTE_AGE - timedelta(days=2)
+    return ist_today() - MAX_QUOTE_AGE - timedelta(days=2)
 
 
 def _install_ladder(
@@ -855,7 +856,7 @@ async def test_the_preferred_rung_serves_and_the_fallback_is_never_asked(
     alerts, fetched = _install_ladder(
         monkeypatch,
         {
-            "test:fbil": (FBIL_RATE, date.today()),
+            "test:fbil": (FBIL_RATE, ist_today()),
             "test:default": AssertionError("rung 2 must not be fetched while rung 1 serves"),
         },
     )
@@ -879,7 +880,7 @@ async def test_the_fallback_rung_serves_when_the_preferred_one_has_gone_quiet(
         monkeypatch,
         {
             "test:fbil": (FBIL_RATE, _stale_date()),
-            "test:default": (DEFAULT_RATE, date.today()),
+            "test:default": (DEFAULT_RATE, ist_today()),
         },
     )
     summary = json.loads(await pull_fx_rate({"job_try": 1}))
@@ -893,7 +894,7 @@ async def test_the_fallback_rung_serves_when_the_preferred_one_has_gone_quiet(
         stored = {row.source: row for row in await recent_observations(session, limit=50)}
     assert set(stored) == {"test:fbil", "test:default"}
     assert stored["test:fbil"].as_of == _stale_date()
-    assert stored["test:default"].source_url == _LADDER_DEFAULT.url_for(date.today())
+    assert stored["test:default"].source_url == _LADDER_DEFAULT.url_for(ist_today())
 
     # STATE 1 OF 3: degraded. Published rate, moved provenance, not urgent.
     assert [code for code, _ in alerts] == ["fx_source_degraded"]
@@ -913,7 +914,7 @@ async def test_the_fallback_rung_serves_when_the_preferred_one_has_gone_quiet(
     assert cost is not None
     assert cost.rate == DEFAULT_RATE
     assert cost.source == "test:default", "the ROW says which rung priced this minute"
-    assert cost.as_of == date.today()
+    assert cost.as_of == ist_today()
 
 
 async def test_a_preferred_rung_that_does_not_answer_still_reaches_the_fallback(
@@ -925,7 +926,7 @@ async def test_a_preferred_rung_that_does_not_answer_still_reaches_the_fallback(
         monkeypatch,
         {
             "test:fbil": FxFeedUnreachableError("the endpoint answered HTTP 503"),
-            "test:default": (DEFAULT_RATE, date.today()),
+            "test:default": (DEFAULT_RATE, ist_today()),
         },
     )
     summary = json.loads(await pull_fx_rate({"job_try": 1}))
@@ -947,7 +948,7 @@ async def test_a_response_the_parser_refuses_is_a_different_reason_than_a_quiet_
             "test:fbil": FxPullError(
                 "the response carried no numeric `rate`", code="rate_not_numeric"
             ),
-            "test:default": (DEFAULT_RATE, date.today()),
+            "test:default": (DEFAULT_RATE, ist_today()),
         },
     )
     await pull_fx_rate({"job_try": 1})
@@ -997,7 +998,7 @@ async def test_the_plausibility_band_applies_to_the_fallback_rung(
         monkeypatch,
         {
             "test:fbil": (FBIL_RATE, _stale_date()),
-            "test:default": (FBIL_RATE * 10, date.today()),
+            "test:default": (FBIL_RATE * 10, ist_today()),
         },
     )
     with pytest.raises(ImplausibleRateError):
@@ -1017,13 +1018,13 @@ async def test_the_ladder_does_not_descend_past_a_rate_it_refused(
     platform to another source without anybody looking at the first one."""
     async with untenanted_session() as session:
         await record_observation(
-            session, rate=FBIL_RATE, as_of=date.today(), source="test:seed", source_url="u"
+            session, rate=FBIL_RATE, as_of=ist_today(), source="test:seed", source_url="u"
         )
     alerts, fetched = _install_ladder(
         monkeypatch,
         {
-            "test:fbil": (FBIL_RATE * 10, date.today()),
-            "test:default": (DEFAULT_RATE, date.today()),
+            "test:fbil": (FBIL_RATE * 10, ist_today()),
+            "test:default": (DEFAULT_RATE, ist_today()),
         },
     )
     with pytest.raises(ImplausibleRateError):
@@ -1061,7 +1062,7 @@ async def test_both_frankfurter_rungs_are_read_by_one_parser() -> None:
     place those get fixed one at a time, so there is not one."""
     import httpx
 
-    poisoned = _body(date=(date.today() + timedelta(days=30)).isoformat())
+    poisoned = _body(date=(ist_today() + timedelta(days=30)).isoformat())
     for rung in (FRANKFURTER_FBIL_RUNG, FRANKFURTER_DEFAULT_RUNG):
         assert rung.parse is parse_rate_response
         client = httpx.AsyncClient(
@@ -1139,7 +1140,7 @@ _FBIL_TEN_USD = Decimal("884.275")
 def _fbil_record(name: str, *, rate: Any, run_date: str | None = None) -> dict[str, Any]:
     return {
         "subProdName": name,
-        "processRunDate": run_date or date.today().isoformat(),
+        "processRunDate": run_date or ist_today().isoformat(),
         "rate": rate,
     }
 
@@ -1164,7 +1165,7 @@ def test_the_fbil_rate_survives_the_units_division_as_an_exact_decimal() -> None
     # What a float round-trip would have produced, spelled out rather than computed, so
     # the assertion still means something if someone "tidies" the Decimal path away.
     assert rate != Decimal("88.427499999999997726263245567679405212402343750")
-    assert as_of == date.today()
+    assert as_of == ist_today()
 
 
 def test_the_fbil_units_are_read_and_never_assumed_to_be_one() -> None:
@@ -1200,8 +1201,8 @@ def test_the_newest_publication_in_the_window_wins_and_a_correction_supersedes()
     newest `processRunDate` is the rate in force, and among records sharing a date the
     LATER one wins — the same tiebreak `latest_observation` applies, for the same reason:
     a correction is the one observation nobody may lose to an accident of order."""
-    older = (date.today() - timedelta(days=3)).isoformat()
-    today = date.today().isoformat()
+    older = (ist_today() - timedelta(days=3)).isoformat()
+    today = ist_today().isoformat()
     rate, as_of = parse_fbil_response(
         _fbil_body(
             _fbil_record("INR / 1 USD", rate=90.1111, run_date=older),
@@ -1209,7 +1210,7 @@ def test_the_newest_publication_in_the_window_wins_and_a_correction_supersedes()
             _fbil_record("INR / 1 USD", rate=88.4275, run_date=today),
         )
     )
-    assert as_of == date.today()
+    assert as_of == ist_today()
     assert rate == PUBLISHED, "the corrected figure, not the one it corrects"
 
 
@@ -1219,7 +1220,7 @@ def test_a_stale_fbil_window_still_produces_a_rate_for_the_ladder_to_judge() -> 
     staleness predicate — not vanish into "no record found", which is the vocabulary
     reserved for the feed having changed under us."""
     assert FBIL_WINDOW > MAX_QUOTE_AGE, "or 'behind' and 'broken' become the same response"
-    behind = date.today() - MAX_QUOTE_AGE - timedelta(days=2)
+    behind = ist_today() - MAX_QUOTE_AGE - timedelta(days=2)
     rate, as_of = parse_fbil_response(
         _fbil_body(_fbil_record("INR / 1 USD", rate=88.4275, run_date=behind.isoformat()))
     )
@@ -1320,7 +1321,7 @@ def test_a_future_fbil_publication_date_is_refused_rather_than_skipped() -> None
     2030 would never go stale. It refuses the whole response rather than quietly falling
     back to an older record, because the older record would then serve under a feed we
     already know is wrong about dates."""
-    ahead = (date.today() + timedelta(days=30)).isoformat()
+    ahead = (ist_today() + timedelta(days=30)).isoformat()
     with pytest.raises(FxPullError) as raised:
         parse_fbil_response(
             _fbil_body(
@@ -1380,13 +1381,13 @@ async def test_the_fbil_rung_is_written_through_the_same_plausibility_door(
     ladder does NOT descend past it."""
     async with untenanted_session() as session:
         await record_observation(
-            session, rate=PUBLISHED, as_of=date.today(), source="test:seed", source_url="u"
+            session, rate=PUBLISHED, as_of=ist_today(), source="test:seed", source_url="u"
         )
     alerts, fetched = _install_ladder(
         monkeypatch,
         {
-            "test:direct": (PUBLISHED * 100, date.today()),
-            "test:fbil": (PUBLISHED, date.today()),
+            "test:direct": (PUBLISHED * 100, ist_today()),
+            "test:fbil": (PUBLISHED, ist_today()),
         },
         rungs=(_LADDER_DIRECT, _LADDER_FBIL),
     )
@@ -1409,7 +1410,7 @@ async def test_the_ladder_descends_past_two_stale_rungs_to_the_third(
         {
             "test:direct": (FBIL_RATE, _stale_date()),
             "test:fbil": (FBIL_RATE, _stale_date()),
-            "test:default": (DEFAULT_RATE, date.today()),
+            "test:default": (DEFAULT_RATE, ist_today()),
         },
         rungs=(_LADDER_DIRECT, _LADDER_FBIL, _LADDER_DEFAULT),
     )
@@ -1505,7 +1506,7 @@ def test_the_window_asked_for_outlives_a_publication_gap_longer_than_the_ceiling
 
 _DEGRADED_ANSWERS: dict[str, Any] = {
     "test:fbil": (FBIL_RATE, _stale_date()),
-    "test:default": (DEFAULT_RATE, date.today()),
+    "test:default": (DEFAULT_RATE, ist_today()),
 }
 
 
@@ -1535,7 +1536,7 @@ async def test_the_degraded_alarm_is_raised_again_when_the_serving_source_change
         FxCheck(
             checked_at=datetime.now(UTC),
             serving_source="test:another-fallback",
-            serving_as_of=date.today(),
+            serving_as_of=ist_today(),
             degraded_alarmed_on=datetime.now(UTC).date(),
         )
     )
@@ -1553,7 +1554,7 @@ async def test_the_degraded_alarm_is_raised_once_on_a_new_ist_day(
         FxCheck(
             checked_at=datetime.now(UTC),
             serving_source="test:default",
-            serving_as_of=date.today(),
+            serving_as_of=ist_today(),
             degraded_alarmed_on=date(2000, 1, 1),
         )
     )

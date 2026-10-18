@@ -472,9 +472,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "language-models",
         "assistant",
         "Assistant: use Azure when Gemini is not set up",
-        "When the assistant's Gemini model is not available on this platform (no key, price "
-        "or data-use approval), answer on Azure instead of the basic fallback. A Gemini "
-        "failure during a question always falls back to the basic fallback.",
+        "With Gemini not set up (no key, price or data-use approval), answer on Azure, not the "
+        "basic fallback. A Gemini failure mid-question uses the basic fallback.",
     ),
     "copilot_daily_message_cap": _m(
         "language-models",
