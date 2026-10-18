@@ -88,24 +88,38 @@ HANDOFF_NUMBER_NOT_INDIA: Final = (
     "number starting with +91."
 )
 
+#: What a client is told when a number they would pass callers to is a 140-series one.
+HANDOFF_NUMBER_PROMOTIONAL: Final = (
+    "Calls cannot be passed to a 140-series number, which is kept for promotional calls. "
+    "Enter this person's own mobile or landline number."
+)
+
 
 def india_handoff_number(value: str) -> str:
-    """Pydantic after-validator for every number written to a handover roster.
+    """Pydantic after-validator for every number callers may be passed or forwarded to.
 
     The India-only freeze (`compliance.service.INDIA_E164_PREFIX`) is refused when the
     number is registered, so the roster never holds a number the platform will not ring
     and the client is told while they are looking at the form rather than by a caller who
     was never put through. The business profile's contacts
     (`tenancy/business_profile.BusinessContactIn`), the one place a roster number is typed,
-    validate through this function.
+    and the healer's forwarding phone (`healer/routes.FallbackPhoneIn`) validate through
+    this function.
+
+    A 140-series number (`agents.models.series_for_e164`) is refused too: promotional
+    calling is dropped (founder decision, 18 Oct 2026) and ThinnestAI blocks 140 numbers as
+    a forwarding destination (its email of 18 Oct 2026, item 18).
 
     Imported inside the function because `compliance.service` imports `agents.service`,
     which imports this module.
     """
+    from apps.api.agents.models import series_for_e164
     from apps.api.compliance.service import INDIA_E164_PREFIX
 
     if not value.startswith(INDIA_E164_PREFIX):
         raise ValueError(HANDOFF_NUMBER_NOT_INDIA)
+    if series_for_e164(value) == "140":
+        raise ValueError(HANDOFF_NUMBER_PROMOTIONAL)
     return value
 
 
@@ -405,6 +419,7 @@ def handoff_spec(duty: OnDuty, *, trigger: str | None, language: str) -> Handoff
 __all__ = [
     "HANDOFF_DEGRADED_SAY",
     "HANDOFF_NUMBER_NOT_INDIA",
+    "HANDOFF_NUMBER_PROMOTIONAL",
     "HANDOFF_SPOKEN_TEMPLATES",
     "HANDOFF_TRIGGER_DEFAULT",
     "MAX_BRIEF_CHARS",

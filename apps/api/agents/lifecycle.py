@@ -62,7 +62,7 @@ keep. The honest per-agent fact is how many numbers it answers, which is a count
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -73,6 +73,7 @@ from apps.api.agents.engine_choice import (
     refuse_choice_under_byok,
     require_engine_choice,
 )
+from apps.api.agents.languages import default_extra_languages, published_extra_languages
 from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection, AgentStatus
 from apps.api.agents.own_model import refuse_own_model_choice
 from apps.api.agents.service import (
@@ -252,6 +253,7 @@ async def create_agent(
     name: str,
     direction: AgentDirection,
     language_primary: str,
+    languages_extra: Sequence[str] | None = None,
     max_call_duration_s: int | None = None,
     starter: StarterJob | None = None,
     created_by: UUID | None = None,
@@ -301,6 +303,10 @@ async def create_agent(
     The tenant must still be OPEN, for `publish_agent`'s reason one step earlier: an agent
     created against a churned or erased account is a row on a retention clock, and the
     account that cannot take a publish should not be manufacturing things to publish.
+
+    `languages_extra` is the reply languages after the main one; None gives the default
+    (`languages.default_extra_languages`: the business profile's languages when it lists
+    any, else Telugu then English; founder 18 Oct 2026, D-815).
     """
     await assert_account_open(session, tenant_id=tenant_id)
     if direction not in AGENT_DIRECTIONS:
@@ -321,11 +327,14 @@ async def create_agent(
     # read cannot be empty; `str()` is for the type, not for a case.
     org = (
         await session.execute(
-            text("SELECT name, vertical_template FROM organizations WHERE id = :tid"),
+            text(
+                "SELECT o.name, o.vertical_template, bp.languages FROM organizations o "
+                "LEFT JOIN business_profiles bp ON bp.tenant_id = o.id WHERE o.id = :tid"
+            ),
             {"tid": tenant_id},
         )
     ).one()
-    business, vertical_template = org[0], org[1]
+    business, vertical_template, business_languages = org[0], org[1], org[2]
     ai_line = ai_disclosure_for(language=language_primary, business=str(business))
     recording_line = recording_notice_for(language=language_primary)
     # Sentence three, in the agent's own language and written whether or not memory is on
@@ -337,12 +346,13 @@ async def create_agent(
     await session.execute(
         text(
             "INSERT INTO agents (id, tenant_id, name, direction, language_primary, "
+            "languages_extra, "
             "disclosure_line, ai_disclosure_line, recording_notice_line, "
             "caller_memory_notice_line, "
             "ai_disclosure_enabled, recording_notice_enabled, max_call_duration_s, "
             "status, engine, created_at, updated_at) VALUES (:id, :tid, :name, :dir, :lang, "
-            ":bundle, :ai_line, :rec_line, :mem_line, false, false, :cap, 'draft', :engine, "
-            "now(), now())"
+            ":extra, :bundle, :ai_line, :rec_line, :mem_line, false, false, :cap, 'draft', "
+            ":engine, now(), now())"
         ),
         {
             "id": agent_id,
@@ -350,6 +360,12 @@ async def create_agent(
             "name": name,
             "dir": direction,
             "lang": language_primary,
+            "extra": published_extra_languages(
+                language_primary,
+                default_extra_languages(language_primary, business_languages)
+                if languages_extra is None
+                else languages_extra,
+            ),
             # Both toggles FALSE (D-669: a call opens with the greeting only) and the
             # bundle written, spelled at the INSERT rather than left to a
             # `server_default` three files away, because what a new agent volunteers is
@@ -434,6 +450,7 @@ async def update_agent(
     name: str | None = None,
     direction: AgentDirection | None = None,
     language_primary: str | None = None,
+    languages_extra: Sequence[str] | None = None,
     llm_model: str | None = None,
     set_llm_model: bool = False,
     engine_voice_id: str | None = None,
@@ -483,6 +500,7 @@ async def update_agent(
             ("name", name),
             ("direction", direction),
             ("language_primary", language_primary),
+            ("languages_extra", languages_extra),
         )
         if value is not None
     ]
@@ -552,6 +570,11 @@ async def update_agent(
             "UPDATE agents SET name = coalesce(:name, name), "
             "direction = coalesce(:direction, direction), "
             "language_primary = coalesce(:language_primary, language_primary), "
+            # The reply languages after the main one. Sent: replaced. Not sent: kept, less a
+            # new main language, which is never also an extra one.
+            "languages_extra = CASE WHEN :set_languages_extra "
+            "THEN CAST(:languages_extra AS text[]) "
+            "ELSE array_remove(languages_extra, CAST(:language_primary AS text)) END, "
             # NOT `coalesce`, and this is the one column where it would be wrong: a NULL
             # here is the caller ASKING for NULL, so `coalesce(:llm_model, llm_model)`
             # would silently turn "clear my choice" into "change nothing". The CASE reads
@@ -570,6 +593,12 @@ async def update_agent(
             "name": name,
             "direction": direction,
             "language_primary": language_primary,
+            "set_languages_extra": languages_extra is not None,
+            "languages_extra": (
+                published_extra_languages(language_primary, languages_extra)
+                if language_primary is not None and languages_extra is not None
+                else list(languages_extra or ())
+            ),
             "llm_model": llm_model,
             "set_llm_model": set_llm_model,
             "engine_voice_id": engine_voice_id,

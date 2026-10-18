@@ -167,6 +167,15 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
 > voice call may go out at all without a registered telemarketer's 140 header is one of
 > the counsel questions below.
 >
+> **D-815 (founder decision, 18 Oct 2026): 140-series promotional calling is dropped for
+> now.** ThinnestAI does not offer 140-series numbers (its carrier asks a ₹1 lakh minimum
+> commitment) and blocks a 140 number as a forwarding destination (ThinnestAI's email of
+> 18 Oct 2026; VENDOR-STATED, not in the 18 Oct docs snapshot). Calevate stays
+> service/transactional under the no-cold-calls pledge, and a 140-series number is refused
+> wherever a client names a number callers are passed or forwarded to (the business
+> profile's contacts and the healer's forwarding phone, `agents/handoff.
+> india_handoff_number`). Revisited only as a commercial conversation with ThinnestAI.
+>
 > **OPEN COUNSEL QUESTIONS** (`docs/evidence/dlt-roles-and-operating-model-2026-09-18.md`
 > §8 and Addendum 2): whether TCCCPR 2025 Reg 3(2) reaches a relationship call from an
 > unregistered 10-digit sender; the 2025 UTM enforcement and Reg 25(6) disconnection of

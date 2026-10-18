@@ -110,6 +110,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     status: "live",
     archived_at: null,
     language_primary: "te-IN",
+    reply_languages: ["te-IN"],
     disclosure_line:
       "Namaskaram, this is an AI assistant calling for Sri Clinic.",
     // D-163: the two notices this agent volunteers, and the switch on each. Both ON by
@@ -1768,6 +1769,30 @@ describe("changing what an agent is", () => {
     const patched = calls.find((call) => call.method === "PATCH");
     expect(patched?.path).toBe("/v1/agents/agent-1");
     expect(JSON.parse(patched?.body ?? "{}")).toEqual({ name: "Front desk" });
+  });
+
+  it("sends the languages it replies in, its main language first (D-815)", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "PATCH /v1/agents/agent-1": agent({ reply_languages: ["te-IN", "en-IN"] }),
+      }),
+    );
+
+    await screen.findByText("Reception");
+    const panel = card("What it is");
+    const replies = within(panel).getByRole("group", { name: "It also replies in" });
+    // The main language is never offered again as an extra one.
+    expect(within(replies).queryByRole("checkbox", { name: "Telugu" })).toBeNull();
+    await act(async () => {
+      fireEvent.click(within(replies).getByRole("checkbox", { name: "English (India)" }));
+    });
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Save changes/));
+    });
+
+    const patched = calls.find((call) => call.method === "PATCH");
+    expect(JSON.parse(patched?.body ?? "{}")).toEqual({ reply_languages: ["te-IN", "en-IN"] });
   });
 
   it("offers no save until something has been changed, and Cancel puts it back", async () => {

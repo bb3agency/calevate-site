@@ -474,6 +474,14 @@ class Settings(BaseSettings):
     #: (selectable, key installed, price attested). Gemini 2.5 Flash-Lite can switch thinking
     #: off; a Gemini 3 model cannot (`calevate_shared.engine.GoogleDirectModel`).
     thinnest_own_model_default: GoogleDirectModel = THINNEST_OWN_MODEL_DEFAULT
+    #: Send each agent's reply languages as ThinnestAI's `languages` list (up to four, the
+    #: first its fallback; `thinnest-findings/mirror/snapshots/2026-10-18/pages/
+    #: api-reference/agents/update-agent.md:754-768`) instead of the single `language`.
+    #: ThinnestAI's founder wrote on 18 Oct 2026 that the field needs a release to be live,
+    #: so this stays off until they confirm it; off, an agent with several languages is sent
+    #: `auto` and one with a single language is sent that language, as before. On, a publish
+    #: whose answer does not carry the list back is refused (`engine_languages_not_saved`).
+    thinnest_reply_languages: bool = False
     #: The reply ceiling, in tokens, every agent with none of its own is published with
     #: (D-769). A reply that reaches it is cut off mid-sentence; the default is the vendor's
     #: own, so leaving it changes nothing a call does (`calevate_shared.engine.REPLY_TOKENS_*`).

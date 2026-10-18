@@ -2618,6 +2618,28 @@
             "title": "Name",
             "type": "string"
           },
+          "reply_languages": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "te-IN",
+                    "hi-IN",
+                    "en-IN"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Reply Languages",
+            "uniqueItems": true
+          },
           "starter": {
             "anyOf": [
               {
@@ -2922,6 +2944,18 @@
             "title": "Recording Notice Line",
             "type": "string"
           },
+          "reply_languages": {
+            "items": {
+              "enum": [
+                "te-IN",
+                "hi-IN",
+                "en-IN"
+              ],
+              "type": "string"
+            },
+            "title": "Reply Languages",
+            "type": "array"
+          },
           "script_opening_line": {
             "default": "",
             "title": "Script Opening Line",
@@ -2949,6 +2983,7 @@
           "status",
           "archived_at",
           "language_primary",
+          "reply_languages",
           "disclosure_line",
           "ai_disclosure_line",
           "ai_disclosure_enabled",
@@ -3351,6 +3386,28 @@
               }
             ],
             "title": "Name"
+          },
+          "reply_languages": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "te-IN",
+                    "hi-IN",
+                    "en-IN"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Reply Languages",
+            "uniqueItems": true
           }
         },
         "title": "AgentUpdateIn",
@@ -55059,7 +55116,7 @@
         "x-calevate-permission": "agents:read"
       },
       "patch": {
-        "description": "Applies immediately. A live agent is re-published to the voice platform in the same transaction \u2014 including the numbers it answers, so switching a two-way agent to outbound-only really does stop it picking up \u2014 and if that push fails nothing is saved.\n\n`llm_tier` is the one field where sending `null` MEANS something: it clears this agent's own AI model tier so it follows the account default again. Omit the field entirely to leave the current choice alone. A tier that is not switched on yet is refused with `llm_tier_not_available` \u2014 `GET /v1/organization/llm-defaults` marks those tiers `is_available: false`. Choosing the tier the agent is already on changes nothing. Where that read says `tier_choosable: false`, any tier is refused with `llm_tier_not_chosen_here` and only `null` is accepted.\n\n`engine_voice_id` and `engine_model_id` choose from the voice platform's own list (`GET /v1/agents/engine-catalogue`, whose model ids are opaque) where it supplies one; `null` clears a choice that has not yet been published. An entry that list marks unavailable is refused with its reason.\n\nAn archived agent is refused: restore it first.",
+        "description": "Applies immediately. A live agent is re-published to the voice platform in the same transaction \u2014 including the numbers it answers, so switching a two-way agent to outbound-only really does stop it picking up \u2014 and if that push fails nothing is saved.\n\n`reply_languages` sets the languages the agent replies in, in order, at most four; the first becomes its main language and the one it falls back to when it cannot tell which language a caller is speaking.\n\n`llm_tier` is the one field where sending `null` MEANS something: it clears this agent's own AI model tier so it follows the account default again. Omit the field entirely to leave the current choice alone. A tier that is not switched on yet is refused with `llm_tier_not_available` \u2014 `GET /v1/organization/llm-defaults` marks those tiers `is_available: false`. Choosing the tier the agent is already on changes nothing. Where that read says `tier_choosable: false`, any tier is refused with `llm_tier_not_chosen_here` and only `null` is accepted.\n\n`engine_voice_id` and `engine_model_id` choose from the voice platform's own list (`GET /v1/agents/engine-catalogue`, whose model ids are opaque) where it supplies one; `null` clears a choice that has not yet been published. An entry that list marks unavailable is refused with its reason.\n\nAn archived agent is refused: restore it first.",
         "operationId": "update_agent_route_v1_agents__agent_id__patch",
         "parameters": [
           {

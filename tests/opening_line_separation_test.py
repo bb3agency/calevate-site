@@ -245,6 +245,7 @@ def test_the_roster_serves_the_notices_the_opening_line_and_the_first_words() ->
         None,  # 19 engine voice
         None,  # 20 engine model
         _script(),  # 21 applied script body
+        None,  # 22 extra reply languages
     )
     out = agent_out(row)
     assert out.opening_line == ""

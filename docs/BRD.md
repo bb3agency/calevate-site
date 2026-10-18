@@ -287,7 +287,9 @@ Client #1 strategy (pick lowest-friction path first):
    one-pager; recorded demo video.
 5. Expectation-setting script for outbound clients: 140-series promotional answer rates
    run 8–20% industry-wide (vs 45–65% on 160-series/recognized numbers) — set this before
-   launch so low pickup is never blamed on the AI.
+   launch so low pickup is never blamed on the AI. Since D-815 (18 Oct 2026) 140-series
+   promotional calling is not offered: outbound is service and transactional only, under
+   the no-cold-calls pledge.
 
 KPI targets (first 90 days post-launch): 2 signed clients; ≥1 case study; demo agent
 handling ≥100 test calls; churn 0.

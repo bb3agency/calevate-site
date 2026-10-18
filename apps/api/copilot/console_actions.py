@@ -2514,7 +2514,8 @@ BUSINESS_PROFILE_SET: Final = ActionTool(
                     {"type": "array", "items": {"type": "string", "enum": list(PRODUCT_LANGUAGES)}},
                     {"type": "null"},
                 ],
-                "description": "Every language the business serves callers in, or null.",
+                "description": "The languages agents created from now on start replying "
+                "in; existing agents keep their own. Or null.",
             },
         },
     ),
