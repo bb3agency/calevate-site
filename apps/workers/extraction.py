@@ -97,6 +97,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
@@ -108,6 +109,8 @@ from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
     SARVAM_DEFAULT_LLM,
     azure_openai_base_url,
+    google_openai_compat_base_url,
+    keeps_default_temperature,
 )
 from calevate_shared.extraction import (
     MODEL_MOMENT_KINDS,
@@ -224,6 +227,16 @@ class ExtractionTruncatedError(ValueError):
 #: in two files, which a comment cannot keep honest.
 ASSIST_TIMEOUT_S: Final = 15.0
 
+#: How many `ASSIST_TIMEOUT_S` budgets one assist may spend on providers IN ALL
+#: (`ladder_deadlines`): every request is cut to what is left, so a strict-schema degrade,
+#: a repair and the standby cannot add up past it. `tests/assist_deadline_test.py` pins
+#: `ASSIST_LADDER_LEGS * ASSIST_TIMEOUT_S + ASSIST_ROUTE_RESERVE_S` under the edge deadline.
+ASSIST_LADDER_LEGS: Final = 3
+
+#: A request is not started with less than this left of the assist's budget: it could not
+#: finish, and it would still be billed if it did.
+MIN_REQUEST_S: Final = 1.0
+
 #: What the route spends OUTSIDE the two provider legs, reserved rather than measured.
 #:
 #: Not a timeout anybody enforces — it is the headroom the arithmetic above subtracts for
@@ -339,6 +352,9 @@ class SarvamExtractor:
         #: What the last `run` cost, in Sarvam's own count, or None if it sent no `usage`
         #: block. Read by the post-call pipeline to record the pass at our cost.
         self.last_usage: TokenUsage | None = None
+        #: When the assist this pass serves must be done by (`ladder_deadlines`); None in
+        #: the post-call pipeline, where each request keeps its whole `timeout_s`.
+        self.deadline: float | None = None
 
     @property
     def _leg(self) -> chat.ChatLeg:
@@ -376,7 +392,7 @@ class SarvamExtractor:
             return await chat.complete(
                 self._leg,
                 [{"role": "user", "content": prompt}],
-                timeout_s=self._timeout_s,
+                timeout_s=request_timeout(self._timeout_s, self.deadline),
                 temperature=0,
                 response_format=response_format,
                 max_tokens=EXTRACTION_MAX_TOKENS,
@@ -709,6 +725,35 @@ class AzureOpenAIExtractor:
         #: nobody meters. `record_ai_assist_usage` (D-137) meters the ASSIST leg, because
         #: that is the one that costs Calevate rupees.
         self.last_usage: TokenUsage | None = None
+        #: When the assist this pass serves must be done by (`ladder_deadlines`).
+        self.deadline: float | None = None
+
+    def _chat_leg(self) -> chat.ChatLeg:
+        return chat.ChatLeg(
+            url=self._url,
+            api_key=self._api_key,
+            # THE DEPLOYMENT, not the model — see the class docstring.
+            wire_model=self._deployment,
+            dialect="openai",
+        )
+
+    def _temperature(self) -> float | None:
+        return 0
+
+    def _log_degraded(self) -> None:
+        log.warning(
+            "azure_json_schema_unsupported",
+            extra={
+                "model": self.model_name,
+                "deployment": self._deployment,
+                "consequence": (
+                    "Structured Outputs was refused by this resource, so the "
+                    "assist ran on json_object: valid JSON, but no model-side "
+                    "guarantee that it matches the agent's extraction schema. "
+                    "Confirm the deployment's model is gpt-4o-mini or later."
+                ),
+            },
+        )
 
     def _log_refusal(self, status: int) -> None:
         """The one place an Azure non-2xx becomes something an operator can act on.
@@ -762,16 +807,10 @@ class AzureOpenAIExtractor:
         must not do, and that is now true of every leg rather than of this one.
         """
         return await chat.complete(
-            chat.ChatLeg(
-                url=self._url,
-                api_key=self._api_key,
-                # THE DEPLOYMENT, not the model — see the class docstring.
-                wire_model=self._deployment,
-                dialect="openai",
-            ),
+            self._chat_leg(),
             [{"role": "user", "content": prompt}],
-            timeout_s=self._timeout_s,
-            temperature=0,
+            timeout_s=request_timeout(self._timeout_s, self.deadline),
+            temperature=self._temperature(),
             response_format=response_format,
             max_tokens=EXTRACTION_MAX_TOKENS,
             client=self._client,
@@ -793,19 +832,7 @@ class AzureOpenAIExtractor:
             self._log_refusal(refusal.response.status_code)
             raise
         if degraded:
-            log.warning(
-                "azure_json_schema_unsupported",
-                extra={
-                    "model": self.model_name,
-                    "deployment": self._deployment,
-                    "consequence": (
-                        "Structured Outputs was refused by this resource, so the "
-                        "assist ran on json_object: valid JSON, but no model-side "
-                        "guarantee that it matches the agent's extraction schema. "
-                        "Confirm the deployment's model is gpt-4o-mini or later."
-                    ),
-                },
-            )
+            self._log_degraded()
         self.last_usage = outcome.usage
         if outcome.finish_reason == "length":
             # Truncated at the cap: the JSON is unreliable, so refuse it rather than let
@@ -818,6 +845,50 @@ class AzureOpenAIExtractor:
         # is the only thing standing between a fenced answer and an empty extraction. One
         # parse path, correct under both promises.
         return _first_json_object(outcome.content)
+
+
+class GoogleCompatExtractor(AzureOpenAIExtractor):
+    """The assist extraction on the Google dashboard leg (D-478's compat endpoint, our key):
+    the same prompt, the same strict schema with the same degrade, the same truncation rule.
+
+    `model` is both the wire model and the ledger name. No temperature is sent on a Gemini 3
+    model (`engine.keeps_default_temperature`, D-786). Assist only: like the Azure leg it
+    reads redacted text, never the post-call pass's raw transcript (G-7)."""
+
+    def __init__(self, api_key: str, model: str, *, timeout_s: float = ASSIST_TIMEOUT_S) -> None:
+        # Not `super().__init__`: that builds the Azure endpoint from a resource name.
+        self._url = f"{google_openai_compat_base_url()}/chat/completions"
+        self._api_key = api_key
+        self._deployment = model
+        self.model_name = model
+        self._client = None
+        self._timeout_s = timeout_s
+        self.last_usage = None
+        self.deadline = None
+
+    def _chat_leg(self) -> chat.ChatLeg:
+        return chat.ChatLeg(
+            url=self._url, api_key=self._api_key, wire_model=self.model_name, dialect="google"
+        )
+
+    def _temperature(self) -> float | None:
+        return None if keeps_default_temperature(self.model_name) else 0
+
+    def _log_degraded(self) -> None:
+        log.warning("google_json_schema_unsupported", extra={"model": self.model_name})
+
+    def _log_refusal(self, status: int) -> None:
+        log.warning("google_request_refused", extra={"status": status, "model": self.model_name})
+
+
+def google_extractor(
+    model: str, *, timeout_s: float = ASSIST_TIMEOUT_S
+) -> GoogleCompatExtractor | None:
+    """The Google assist extractor on `model`, or None without the Gemini key."""
+    api_key = get_settings().gemini_api_key
+    if not api_key:
+        return None
+    return GoogleCompatExtractor(api_key, model, timeout_s=timeout_s)
 
 
 @dataclass(frozen=True)
@@ -1913,20 +1984,102 @@ def assist_unavailable(
 
 
 @dataclass(frozen=True, slots=True)
+class PaidTurn:
+    """A paid leg that answered (and was billed) but did not produce what the user got.
+
+    Metered at ITS model under the surface's feature, separately from the answer that
+    followed: folding its tokens into a standby answer priced them as the standby's model on
+    an append-only ledger. `usage is None` is a 2xx with no usage block, which `meter_assist`
+    reports as unmeterable rather than as free.
+    """
+
+    usage: TokenUsage | None
+    capability: AssistCapability
+    model: str | None = None
+
+
+class SpentRefusalError(ProblemError):
+    """A refusal raised after a paid leg answered: the refusal the user reads, plus the
+    turns that were paid for, so the caller can meter them before re-raising."""
+
+    def __init__(self, refusal: ProblemError, earlier: Sequence[PaidTurn]) -> None:
+        super().__init__(
+            kind=refusal.kind,
+            code=refusal.code,
+            title=refusal.title,
+            detail=refusal.detail,
+            status=refusal.status,
+            remediation=refusal.remediation,
+            fields=refusal.fields,
+            headers=refusal.headers,
+            failure_stage=refusal.failure_stage,
+        )
+        self.earlier: tuple[PaidTurn, ...] = tuple(earlier)
+
+
+def refused_after_spend(refusal: ProblemError, earlier: Sequence[PaidTurn]) -> ProblemError:
+    """`refusal`, carrying `earlier` when anything was paid for."""
+    return SpentRefusalError(refusal, earlier) if earlier else refusal
+
+
+class AssistDeadlineError(ValueError):
+    """The assist's time budget ran out before this request could start. A `ValueError` so
+    `extract_call` files it as `_model` and `provider_health` does not count it as an
+    outage: nothing was asked of the provider."""
+
+
+#: The clock the assist budgets are measured on; a module attribute so a test can drive it.
+_now: Callable[[], float] = time.monotonic
+
+
+def ladder_deadlines(timeout_s: float) -> tuple[float, float]:
+    """When the paid legs must stop and when the standby must stop, for one assist.
+
+    `ASSIST_LADDER_LEGS` request budgets in all: the paid leg (with its schema degrade and
+    any repair) gets all but the last, so the standby always has at least one whole budget
+    and inherits whatever the paid leg did not use. A fixed per-request budget let a strict
+    400, a degrade, a repair and the standby add up past the route's edge deadline, while a
+    standby that needed more than its fixed 15 s timed out even when the paid leg had failed
+    in a second."""
+    start = _now()
+    return (
+        start + (ASSIST_LADDER_LEGS - 1) * timeout_s,
+        start + ASSIST_LADDER_LEGS * timeout_s,
+    )
+
+
+def time_left(deadline: float) -> float:
+    """Seconds left before `deadline` on the assist clock (never negative)."""
+    return max(0.0, deadline - _now())
+
+
+def request_timeout(timeout_s: float, deadline: float | None) -> float:
+    """`timeout_s`, cut to what is left before `deadline`. Raises `AssistDeadlineError` when
+    nothing useful is left."""
+    if deadline is None:
+        return timeout_s
+    left = deadline - _now()
+    if left < MIN_REQUEST_S:
+        raise AssistDeadlineError("the assist time budget is spent")
+    return min(timeout_s, left)
+
+
+@dataclass(frozen=True, slots=True)
 class AssistResult:
     """One user-triggered assist: what came back, who wrote it, and what it cost.
 
-    `usage` is non-None only for AZURE tokens that Azure counted — the leg that spends
-    Calevate's rupees and the only one `record_ai_assist_usage` (D-137) has units for. A
-    Sarvam fallback adds nothing because D-36 prices that leg at zero, but it CARRIES the
-    Azure turn that failed in front of it when that turn was answered and billed (a
-    truncated reply). An Azure answer whose `usage` block did not arrive leaves it None
-    because "we do not know" and "it was free" must not meter the same.
+    `usage` is what the leg that WROTE the answer counted (`None` when it sent no usage
+    block); `model` is that leg's model for the ledger (`None` on Azure, whose model is the
+    live `azure_openai_model` setting). `earlier` is every paid leg that answered in front
+    of it without producing the answer (a truncated reply), metered separately at its own
+    model.
     """
 
     output: ExtractionOutput
     capability: AssistCapability
     usage: TokenUsage | None = None
+    model: str | None = None
+    earlier: tuple[PaidTurn, ...] = ()
 
 
 async def run_assist(
@@ -1998,54 +2151,52 @@ async def run_assist(
     if not capability.available:
         raise assist_unavailable(capability)
 
-    # What an Azure turn that did not produce the answer still cost. A truncated reply is
-    # refused as an ANSWER and was billed as a request (`AzureOpenAIExtractor.run` records
-    # `last_usage` before raising for exactly this), so it rides the fallback's result to
-    # the meter. The Sarvam leg itself adds nothing (D-36).
-    spent: TokenUsage | None = None
-    if capability.provider == AZURE_PROVIDER:
-        # `azure_extractor()` rather than a second assembly of the same four settings: it
-        # is the ONE constructor, and the branch that used to build the adapter inline
-        # here was the second place that decided what "configured" means.
-        #
-        # `ASSIST_TIMEOUT_S`, NOT `EXTRACTION_TIMEOUT_S`: this leg is the FIRST of two
-        # that a waiting browser pays for in series, behind a 60s edge deadline. See that
-        # constant for the arithmetic and for why the bound is per-leg rather than one
-        # deadline around both.
-        extractor = azure_extractor(timeout_s=ASSIST_TIMEOUT_S)
+    # A paid turn that did not produce the answer (a truncated reply) was still billed, so it
+    # is handed back beside the answer and metered at its own model (`PaidTurn`).
+    earlier: list[PaidTurn] = []
+    paid_until, standby_until = ladder_deadlines(ASSIST_TIMEOUT_S)
+    if capability.provider in (AZURE_PROVIDER, GOOGLE_PROVIDER):
+        # `ASSIST_TIMEOUT_S`, NOT `EXTRACTION_TIMEOUT_S`: a browser is waiting behind the
+        # edge deadline, and `ladder_deadlines` keeps the whole ladder inside it.
+        extractor: AzureOpenAIExtractor | None
+        if capability.provider == GOOGLE_PROVIDER and tenant_leg is not None:
+            # The Google rung answers on Google: a standby answer under a Google label
+            # would carry no disclosure (G-6) and could not be priced.
+            extractor = google_extractor(tenant_leg.model, timeout_s=ASSIST_TIMEOUT_S)
+        else:
+            extractor = azure_extractor(timeout_s=ASSIST_TIMEOUT_S)
         if extractor is not None:
+            extractor.deadline = paid_until
             output = await extract_call(
                 spec, redacted_transcript, extractor=extractor, languages=languages
             )
+            model = extractor.model_name if capability.provider == GOOGLE_PROVIDER else None
             failure = output.errors.get(MODEL_FAILURE)
             if failure is None:
                 # A schema-invalid FIELD is still an answer (`valid=False`, per-field
                 # errors) and belongs to the client to see. Only `_model` — the ladder's
                 # code for "the provider did not give us anything" — is a provider event.
                 return AssistResult(
-                    output=output, capability=capability, usage=extractor.last_usage
+                    output=output, capability=capability, usage=extractor.last_usage, model=model
                 )
             # `extract_call` swallows a provider failure into `errors["_model"]` so a
             # post-call pipeline never loses a call over one. Here the user is waiting
             # and the answer is empty, so the same event means something different: ask
             # the ONE selector again, with the fact we now have, rather than deciding
-            # locally what an Azure outage means.
+            # locally what an outage means.
             log.warning(
                 "assist_provider_failed",
                 extra={"model": extractor.model_name, "error": failure},
             )
-            spent = extractor.last_usage
-        # `quota_exhausted` is re-stated rather than dropped: it cannot be True here
-        # today (the ladder blocks on it first, so this branch is unreachable with it
-        # set), and a re-ask that silently forgot an input would become wrong the moment
-        # somebody reorders those rungs.
-        # `tenant_leg` is re-stated for `quota_exhausted`'s reason: a re-ask that silently
-        # dropped an input would stop disclosing the substitution the first ask disclosed.
+            if extractor.last_usage is not None:
+                earlier.append(PaidTurn(extractor.last_usage, capability, model))
+        # `tenant_leg` and `quota_exhausted` are re-stated: a re-ask that silently dropped an
+        # input would stop disclosing the substitution the first ask disclosed.
         capability = assist_capability(
             tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, provider_unavailable=True
         )
         if not capability.available:
-            raise assist_unavailable(capability)
+            raise refused_after_spend(assist_unavailable(capability), earlier)
 
     settings = get_settings()
     # Reachable only with `sarvam_api_key` set — `assist_capability` returns
@@ -2053,16 +2204,17 @@ async def run_assist(
     # capability object, and an `assert` here would be a crash where a refusal belongs.
     if not settings.sarvam_api_key:  # pragma: no cover - unreachable via the selector
         raise assist_unavailable(AssistCapability(available=False, reason=NO_CREDENTIAL_REASON))
-    output = await extract_call(
-        spec,
-        redacted_transcript,
-        # The SECOND leg, and the one whose answer the user actually gets when Azure was
-        # slow. Giving it the post-call 30s here is what used to push the pair past the
-        # edge deadline and replace this answer with a 504.
-        extractor=SarvamExtractor(settings.sarvam_api_key, timeout_s=ASSIST_TIMEOUT_S),
-        languages=languages,
+    # The standby inherits whatever time the paid leg left, and never less than one budget.
+    standby = SarvamExtractor(settings.sarvam_api_key, timeout_s=time_left(standby_until))
+    standby.deadline = standby_until
+    output = await extract_call(spec, redacted_transcript, extractor=standby, languages=languages)
+    return AssistResult(
+        output=output,
+        capability=capability,
+        usage=standby.last_usage,
+        model=SARVAM_DEFAULT_LLM,
+        earlier=tuple(earlier),
     )
-    return AssistResult(output=output, capability=capability, usage=spent)
 
 
 def _nothing_was_said(spec: ExtractionSchemaSpec) -> ExtractionOutput:
@@ -2124,6 +2276,8 @@ def _provider_of(runner: Extractor) -> str | None:
     name that is still a class is asked; `isinstance` against a function raises."""
     for kind, provider in (
         (SarvamExtractor, SARVAM_PROVIDER),
+        # Before Azure: the Google extractor is its subclass.
+        (GoogleCompatExtractor, GOOGLE_PROVIDER),
         (AzureOpenAIExtractor, AZURE_PROVIDER),
     ):
         if isinstance(kind, type) and isinstance(runner, kind):
@@ -2207,7 +2361,7 @@ async def extract_call(
             # The provider-health hook sits HERE, around the whole `run`, and not around
             # each HTTP request: Azure's 400 → `json_object` degrade is two requests and
             # one answer, and only the answer says whether the leg works.
-            async with provider_health.watch("extraction", provider):
+            async with provider_health.watch("extraction", provider, model=runner.model_name):
                 raw = await _run(runner, spec, transcript, moments, languages)
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
         # IndexError/TypeError belong here with the rest: a provider response whose
@@ -2248,6 +2402,7 @@ async def extract_call(
 
 
 __all__ = [
+    "ASSIST_LADDER_LEGS",
     "ASSIST_QUOTA_ENFORCED",
     "AZURE_PROVIDER",
     "GEMINI_EXTRACTION_DEFAULT",
@@ -2260,11 +2415,15 @@ __all__ = [
     "SARVAM_PROVIDER",
     "TENANT_PROVIDER_UNSUPPORTED_REASON",
     "AssistCapability",
+    "AssistDeadlineError",
     "AssistResult",
     "AzureOpenAIExtractor",
     "Extractor",
+    "GoogleCompatExtractor",
     "OfflineExtractor",
+    "PaidTurn",
     "SarvamExtractor",
+    "SpentRefusalError",
     "TenantModelLeg",
     "TokenUsage",
     "assist_capability",
@@ -2274,7 +2433,12 @@ __all__ = [
     "build_response_schema",
     "extract_call",
     "get_extractor",
+    "google_extractor",
+    "ladder_deadlines",
     "model_answered",
+    "refused_after_spend",
+    "request_timeout",
     "run_assist",
+    "time_left",
     "usage_from_body",
 ]

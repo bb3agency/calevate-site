@@ -114,6 +114,10 @@ _AI_REFUSAL: Final[dict[str, str]] = {
     "assist_tenant_provider_unsupported": (
         "AI help is not switched on for your account yet. Ask your Calevate team to switch it on."
     ),
+    "assist_answer_unusable": (
+        "the AI answered, but not in a form we could use. Test again; if it keeps happening, "
+        "contact us."
+    ),
 }
 _AI_REFUSAL_OTHER: Final = "AI help was not available. Test again in a few minutes."
 
@@ -150,8 +154,12 @@ async def _pause() -> None:
 
 
 async def _meter(tenant_id: UUID, answer: JsonAnswer[Any], feature: str) -> None:
-    """A completed AI step is money spent: recorded in its own transaction (crm/assist §4)."""
+    """A completed AI step is money spent: recorded in its own transaction (crm/assist §4),
+    with any paid leg that answered unusably in front of it."""
     async with tenant_session(tenant_id) as session:
+        await crm_assist.meter_earlier(
+            session, tenant_id=tenant_id, earlier=answer.earlier, feature=feature
+        )
         await crm_assist.meter_assist(
             session,
             tenant_id=tenant_id,
@@ -159,6 +167,14 @@ async def _meter(tenant_id: UUID, answer: JsonAnswer[Any], feature: str) -> None
             result=answer,
             feature=feature,
             model=answer.model,
+        )
+
+
+async def _meter_refused(tenant_id: UUID, refused: ProblemError, feature: str) -> None:
+    """A refused AI step whose paid leg answered still owes the ledger that spend."""
+    async with tenant_session(tenant_id) as session:
+        await crm_assist.meter_refusal(
+            session, tenant_id=tenant_id, refusal=refused, feature=feature
         )
 
 
@@ -262,6 +278,7 @@ async def write_scenarios(
         )
     except ProblemError as refused:
         log.info("agent_tests_standard_set", extra={"reason": refused.code})
+        await _meter_refused(tenant_id, refused, ASSIST_FEATURE_TEST_GENERATE)
         standard = standard_scenarios(brief.language, brief.direction)
         return ensure_probes(standard, brief.language, cap=count), not_written_note(refused.code)
     await _meter(tenant_id, answer, ASSIST_FEATURE_TEST_GENERATE)
@@ -387,6 +404,7 @@ async def judge_all(
         )
     except ProblemError as refused:
         log.info("agent_tests_not_judged", extra={"reason": refused.code})
+        await _meter_refused(tenant_id, refused, ASSIST_FEATURE_TEST_JUDGE)
         return {}, not_judged_reason(refused.code), {}
     await _meter(tenant_id, answer, ASSIST_FEATURE_TEST_JUDGE)
     agent_family = model_family(agent_model)
@@ -637,6 +655,7 @@ async def improve_agent_test_run(ctx: dict[str, Any], payload: dict[str, Any]) -
         log.info(
             "agent_tests_improve_refused", extra={"run_id": str(run_id), "reason": refused.code}
         )
+        await _meter_refused(tenant_id, refused, ASSIST_FEATURE_TEST_IMPROVE)
         note = (
             _AI_REFUSAL_NOTE.format(why=_AI_REFUSAL[refused.code])
             if refused.code in _AI_REFUSAL

@@ -230,7 +230,7 @@ async def _embed_batch(
     RAISES on a transport failure so the CALLER can roll this batch back — the claims
     included, which is what returns those chunks to `pending` for the next tick.
     """
-    async with provider_health.watch("embeddings", chat.provider_of(leg)):
+    async with provider_health.watch("embeddings", chat.provider_of(leg), model=leg.wire_model):
         outcome = await chat.embed(
             leg,
             [embedding_input(content, gloss) for _, content, gloss in claimed],

@@ -275,7 +275,7 @@ async def _distil_group(
     ids = [UUID(str(row[0])) for row in episodes]
     record = "\n---\n".join(str(row[1]) for row in episodes)
 
-    async with provider_health.watch("memory", chat.provider_of(leg)):
+    async with provider_health.watch("memory", chat.provider_of(leg), model=leg.wire_model):
         outcome = await chat.complete(
             leg,
             [

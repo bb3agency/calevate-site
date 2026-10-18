@@ -514,6 +514,19 @@ def provider_of(leg: ChatLeg) -> str:
 _INPUT_REFUSED_STATUSES: Final = frozenset({400, 413, 422})
 
 
+def _json_body(response: httpx.Response) -> object:
+    """A 2xx body as JSON. A body that is not JSON (a proxy's HTML page, a cut-off answer)
+    raises `httpx.DecodingError`, an `httpx.HTTPError`, so every caller's provider-failure
+    arm handles it; a bare `ValueError` would escape those arms as a crash."""
+    try:
+        return response.json()
+    except ValueError as exc:
+        log.warning("chat_response_not_json", extra={"status": response.status_code})
+        raise httpx.DecodingError(
+            "the provider answered with a body that is not JSON", request=response.request
+        ) from exc
+
+
 def refused_this_input(exc: BaseException) -> bool:
     """Did the provider refuse what this request carried, rather than fail to serve it?
 
@@ -576,7 +589,7 @@ async def complete(
         if owns_client:
             await http.aclose()
     response.raise_for_status()
-    body = response.json()
+    body = _json_body(response)
     if not isinstance(body, dict):  # pragma: no cover - a provider that is not this API
         return ChatOutcome(content="")
     message, finish_reason = _message_of(body)
@@ -856,7 +869,7 @@ async def embed(
         if owns_client:
             await http.aclose()
     response.raise_for_status()
-    body = response.json()
+    body = _json_body(response)
     if not isinstance(body, dict):  # pragma: no cover - a provider that is not this API
         return EmbeddingOutcome(vectors=())
     rows = body.get("data")

@@ -618,13 +618,21 @@ async def assist_call(
             quota_exhausted=quota.at_ceiling,
             languages=source.languages,
         )
-    except Exception:
-        # NOTHING HAS BEEN PAID FOR ON ANY PATH THAT REACHES HERE, so the key is released
+    except Exception as failure:
+        # NO ANSWER WAS PAID FOR ON ANY PATH THAT REACHES HERE, so the key is released
         # rather than left `processing`: a refused attempt that kept it would answer the
         # client's own retry with "already in flight" for the whole lease, for a request
-        # that cost nothing. Its own transaction, for the same reason the claim had one —
+        # that bought nothing. Its own transaction, for the same reason the claim had one —
         # the request's is about to roll back. `_create_order_once`'s failure arm, exactly.
+        # A paid turn that answered unusably before the refusal is still metered.
         async with tenant_session(tenant_id) as fail_session:
+            if isinstance(failure, ProblemError):
+                await assist.meter_refusal(
+                    fail_session,
+                    tenant_id=tenant_id,
+                    refusal=failure,
+                    feature=assist.ASSIST_FEATURE_RESUMMARISE,
+                )
             await fail_idempotency(fail_session, record_id=claim.record_id)
         raise
 
@@ -636,9 +644,16 @@ async def assist_call(
     #    is unrecorded and the claim stays `processing`, which refuses the retry for the
     #    lease rather than paying twice — and the raise is what tells an operator.
     async with tenant_session(tenant_id) as record_session:
-        metered = await assist.meter_assist(
-            record_session, tenant_id=tenant_id, ref=ref, result=result
+        charged_earlier = await assist.meter_earlier(
+            record_session,
+            tenant_id=tenant_id,
+            earlier=result.earlier,
+            feature=assist.ASSIST_FEATURE_RESUMMARISE,
         )
+        metered = await assist.meter_assist(
+            record_session, tenant_id=tenant_id, ref=ref, result=result, model=result.model
+        )
+        charged = metered.metered or charged_earlier
         out = CallAssistOut(
             # The same `redact()` pass `calls.summary` goes out through. The model was
             # given redacted text and so cannot have copied a digit it never saw; this is
@@ -646,7 +661,7 @@ async def assist_call(
             # for this field say what `CallDetailOut.summary`'s says.
             summary=service.redacted_summary(result.output.summary) or "",
             disclosure=result.capability.disclosure,
-            metered=metered.metered,
+            metered=charged,
         )
         await write_audit(
             record_session,
@@ -665,7 +680,7 @@ async def assist_call(
             summary={
                 "provider": result.capability.provider,
                 "fallback_reason": result.capability.fallback_reason,
-                "metered": metered.metered,
+                "metered": charged,
                 "ref": ref,
             },
         )

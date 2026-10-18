@@ -216,12 +216,20 @@ class PaidOcrUnusableError(OcrUnusableError):
     """
 
     def __init__(
-        self, *, reason: str, images: int, model: str, prompt_tokens: int, output_tokens: int
+        self,
+        *,
+        reason: str,
+        images: int,
+        model: str,
+        prompt_tokens: int,
+        output_tokens: int,
+        cached_prompt_tokens: int | None = None,
     ) -> None:
         super().__init__(reason=reason, images=images)
         self.model = model
         self.prompt_tokens = prompt_tokens
         self.output_tokens = output_tokens
+        self.cached_prompt_tokens = cached_prompt_tokens
 
 
 def ocr_leg() -> chat.ChatLeg:
@@ -314,6 +322,8 @@ async def ocr_images(
     discarded: list[str] = []
     prompt_tokens = 0
     output_tokens = 0
+    cached_tokens = 0
+    cached_known = True
     usage_seen = False
     try:
         for image in images:
@@ -325,6 +335,8 @@ async def ocr_images(
                 usage_seen = True
                 prompt_tokens += usage.prompt_tokens
                 output_tokens += usage.output_tokens
+                cached_tokens += usage.cached_prompt_tokens
+                cached_known = cached_known and usage.cached_reported
             if reason is not None:
                 discarded.append(f"page {image.position}: {reason}")
                 continue
@@ -351,6 +363,7 @@ async def ocr_images(
                 model=DOCUMENT_OCR_MODEL,
                 prompt_tokens=prompt_tokens,
                 output_tokens=output_tokens,
+                cached_prompt_tokens=cached_tokens if cached_known else None,
             )
         raise OcrUnusableError(reason="all_images_discarded", images=len(images))
 
@@ -374,6 +387,7 @@ async def ocr_images(
         # raises unless an operator has attested the Google price.
         prompt_tokens=prompt_tokens if usage_seen else None,
         output_tokens=output_tokens if usage_seen else None,
+        cached_prompt_tokens=cached_tokens if usage_seen and cached_known else None,
         discarded=tuple(discarded),
     )
 
@@ -404,7 +418,7 @@ async def _transcribe(
         ],
     }
     try:
-        async with provider_health.watch("ocr", chat.provider_of(leg)):
+        async with provider_health.watch("ocr", chat.provider_of(leg), model=leg.wire_model):
             outcome = await chat.complete(
                 leg,
                 [message],

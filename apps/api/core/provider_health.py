@@ -197,9 +197,10 @@ async def note_success(leg: AiLeg, provider: str) -> None:
 
 
 @asynccontextmanager
-async def watch(leg: AiLeg, provider: str) -> AsyncIterator[None]:
+async def watch(leg: AiLeg, provider: str, *, model: str | None = None) -> AsyncIterator[None]:
     """Wrap ONE main-leg provider call: an `httpx.HTTPError` or `TimeoutError` out of the
-    block is a failure (re-raised untouched), a clean exit is a success.
+    block is a failure (re-raised untouched), a clean exit is a success. `model` is the id
+    the request named, so the alarm says which model failed (`note_failure`).
 
     Anything else — a JSON parse, a truncation — is neither: the provider answered, and
     whether the answer was usable is the caller's business, not an outage.
@@ -207,7 +208,7 @@ async def watch(leg: AiLeg, provider: str) -> AsyncIterator[None]:
     try:
         yield
     except (httpx.HTTPError, TimeoutError) as exc:
-        await note_failure(leg, provider, exc)
+        await note_failure(leg, provider, exc, model=model)
         raise
     await note_success(leg, provider)
 

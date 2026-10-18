@@ -26,6 +26,7 @@ brake exactly as re-summarise does. It reuses `billing/ai_quota` (gate + meter) 
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -71,6 +72,7 @@ from apps.workers.script_assist import (
     CONVERT_INSTRUCTION,
     OWNER_QUESTIONS,
     ScriptBrief,
+    ScriptDraft,
     draft_script,
 )
 
@@ -438,6 +440,22 @@ async def save_script(
     return SaveScriptOut(version=saved.version, staged=saved.staged)
 
 
+async def _drafted(tenant_id: UUID, run: Awaitable[ScriptDraft]) -> ScriptDraft:
+    """`run`, with the spend of a paid answer that was refused metered before the refusal
+    reaches the owner (hard rule 7, `crm/assist.meter_refusal`)."""
+    try:
+        return await run
+    except ProblemError as refusal:
+        async with tenant_session(tenant_id) as record_session:
+            await crm_assist.meter_refusal(
+                record_session,
+                tenant_id=tenant_id,
+                refusal=refusal,
+                feature=crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT,
+            )
+        raise
+
+
 @router.post(
     "/assist",
     response_model=AssistOut,
@@ -508,17 +526,26 @@ async def assist_script(
     # WHOSE AI DRAFTS. The account's own model where it may serve this leg — read on the
     # session already open, for `crm/routes.assist_call`'s reason.
     tenant_leg = await account_assist_leg(session)
-    draft = await draft_script(
-        brief,
-        tenant_leg=tenant_leg,
-        quota_exhausted=quota.at_ceiling,
-        edit_of=payload.current if payload.change.strip() else None,
-        change=payload.change,
+    draft = await _drafted(
+        tenant_id,
+        draft_script(
+            brief,
+            tenant_leg=tenant_leg,
+            quota_exhausted=quota.at_ceiling,
+            edit_of=payload.current if payload.change.strip() else None,
+            change=payload.change,
+        ),
     )
 
     # METER — a completed run is money spent; record it in its own transaction so a later
     # failure cannot roll back the record of a payment already made (crm/assist §4).
     async with tenant_session(tenant_id) as record_session:
+        charged = await crm_assist.meter_earlier(
+            record_session,
+            tenant_id=tenant_id,
+            earlier=draft.earlier,
+            feature=crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT,
+        )
         metered = await crm_assist.meter_assist(
             record_session,
             tenant_id=tenant_id,
@@ -527,6 +554,7 @@ async def assist_script(
             model=draft.model,
             feature=crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT,
         )
+        charged = charged or metered.metered
         await write_audit(
             record_session,
             action="agent.script_assist",
@@ -535,12 +563,12 @@ async def assist_script(
             object_type="agent",
             object_id=str(agent_id),
             ip=client_request_ip(request),
-            summary={"metered": metered.metered, "provider": draft.capability.provider},
+            summary={"metered": charged, "provider": draft.capability.provider},
         )
     return AssistOut(
         script=draft.script,
         disclosure=draft.capability.disclosure,
-        metered=metered.metered,
+        metered=charged,
     )
 
 
@@ -1140,13 +1168,22 @@ async def convert_script(
         direction=context.direction,
         language=context.language,
     )
-    draft = await draft_script(
-        brief,
-        tenant_leg=tenant_leg,
-        quota_exhausted=quota.at_ceiling,
-        instruction=CONVERT_INSTRUCTION,
+    draft = await _drafted(
+        tenant_id,
+        draft_script(
+            brief,
+            tenant_leg=tenant_leg,
+            quota_exhausted=quota.at_ceiling,
+            instruction=CONVERT_INSTRUCTION,
+        ),
     )
     async with tenant_session(tenant_id) as record_session:
+        charged = await crm_assist.meter_earlier(
+            record_session,
+            tenant_id=tenant_id,
+            earlier=draft.earlier,
+            feature=crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT,
+        )
         metered = await crm_assist.meter_assist(
             record_session,
             tenant_id=tenant_id,
@@ -1155,6 +1192,7 @@ async def convert_script(
             model=draft.model,
             feature=crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT,
         )
+        charged = charged or metered.metered
         await write_audit(
             record_session,
             action="agent.script_convert",
@@ -1163,13 +1201,13 @@ async def convert_script(
             object_type="agent",
             object_id=str(agent_id),
             ip=client_request_ip(request),
-            summary={"metered": metered.metered, "provider": draft.capability.provider},
+            summary={"metered": charged, "provider": draft.capability.provider},
         )
     return ConvertOut(
         script=draft.script,
         unplaced=unplaced_lines(raw, draft.script),
         disclosure=draft.capability.disclosure,
-        metered=metered.metered,
+        metered=charged,
     )
 
 

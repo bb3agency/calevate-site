@@ -38,6 +38,7 @@ from scripts.seed import BUSINESS_TYPE_LABELS
 from sqlalchemy import text
 
 from apps.api.admin.business_type import CLINIC, CLINIC_DEFAULT_KEYS, record_suggestion
+from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.lead_fields import (
     agents_with_fields,
     maybe_request_draft,
@@ -208,19 +209,35 @@ async def _suggest(tenant_id: UUID, *, again: bool = False) -> str:
     if on_file and not again:
         return _log_suggestion(tenant_id, asked=False, outcome=SKIP_ALREADY_SUGGESTED)
     description, _ = await business_context(tenant_id, include_type=False)
+    # The account's own dashboard leg, as every other dashboard assist reads it: without it
+    # the ladder skipped the Gemini rung and a deployment with no Azure leg answered on the
+    # standby.
+    async with tenant_session(tenant_id) as session:
+        tenant_leg = await account_assist_leg(session)
     try:
         answer: JsonAnswer[tuple[str, str]] = await ask_json(
             description,
             SUGGEST_INSTRUCTION,
             parse=suggestion_from_model,
             azure_format=_SUGGEST_SCHEMA,
+            tenant_leg=tenant_leg,
             max_tokens=200,
             temperature=0.0,
         )
     except ProblemError as exc:
+        async with tenant_session(tenant_id) as session:
+            await crm_assist.meter_refusal(
+                session, tenant_id=tenant_id, refusal=exc, feature=ASSIST_FEATURE_BUSINESS_TYPE
+            )
         return _log_suggestion(tenant_id, asked=True, outcome=OUTCOME_UNAVAILABLE, code=exc.code)
     business_type, reason = answer.value
     async with tenant_session(tenant_id) as session:
+        await crm_assist.meter_earlier(
+            session,
+            tenant_id=tenant_id,
+            earlier=answer.earlier,
+            feature=ASSIST_FEATURE_BUSINESS_TYPE,
+        )
         await crm_assist.meter_assist(
             session,
             tenant_id=tenant_id,

@@ -228,7 +228,7 @@ async def _gloss_one(
         )
         return False
 
-    async with provider_health.watch("kb_gloss", chat.provider_of(leg)):
+    async with provider_health.watch("kb_gloss", chat.provider_of(leg), model=leg.wire_model):
         outcome = await chat.complete(
             leg,
             [

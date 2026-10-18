@@ -387,7 +387,7 @@ async def _distil_call(
         return 0, False
 
     transcript = "\n".join(f"{row[0]}: {row[1]}" for row in turns)
-    async with provider_health.watch("memory", chat.provider_of(leg)):
+    async with provider_health.watch("memory", chat.provider_of(leg), model=leg.wire_model):
         outcome = await chat.complete(
             leg,
             [
