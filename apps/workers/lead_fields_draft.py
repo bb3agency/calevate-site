@@ -6,8 +6,9 @@ FAQs, booking rules, knowledge titles and what its agents do — and never again
 edits them freely afterwards.
 
 Enqueued through the outbox by `agents/lead_fields.request_draft`, in the transaction that
-queued the `lead_field_drafts` row. One attempt and no retry ladder: a failed draft marks
-the row `failed` with a code, and the client or an operator asks again.
+queued the `lead_field_drafts` row. One request on the dashboard AI ladder
+(`script_assist.ask_json`) and no job retry: a failed draft marks the row `failed` with a
+code, and the client or an operator asks again.
 
 WHAT THE MODEL SEES. Only the business's own words about itself (the class
 `workers/script_assist` serves), never a caller, a lead or a transcript. It still passes
@@ -16,8 +17,8 @@ into FAQs and booking rules and the draft needs none of them. Nothing of it is l
 (hard rule 6).
 
 WHAT IT COSTS. One completion per business, ever. Recorded on the tenant's ledger under
-`billing.models.ASSIST_FEATURE_LEAD_FIELDS` at our cost when the model's price is
-billable (hard rule 7), and absorbed: it never counts against the client's AI allowance.
+`billing.models.ASSIST_FEATURE_LEAD_FIELDS` at our cost through `crm/assist.meter_assist`
+(hard rule 7), and absorbed: it never counts against the client's AI allowance.
 """
 
 from __future__ import annotations
@@ -27,13 +28,12 @@ import re
 from typing import Any, Final, cast
 from uuid import UUID
 
-import httpx
-from calevate_shared.engine import SARVAM_DEFAULT_LLM, azure_openai_base_url
 from calevate_shared.extraction import ExtractionField, FieldType, is_phone_field
 from calevate_shared.lead_fields import CORE_KEYS, CORE_LEAD_FIELDS, OUTPUT_KEYS
 from sqlalchemy import text
 
 from apps.api.admin.business_type import queue_apply
+from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.extraction_routes import (
     MAX_ENUM_VALUE_LEN,
     MAX_LABEL_LEN,
@@ -43,19 +43,17 @@ from apps.api.agents.lead_fields import (
     business_type_label,
     replace_business_fields,
 )
-from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
+from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.billing.models import ASSIST_FEATURE_LEAD_FIELDS
-from apps.api.billing.rates import llm_price_is_billable
-from apps.api.core import provider_health
+from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
+from apps.api.crm import assist as crm_assist
 from apps.api.crm.columns import FIXED_KEYS
 from apps.api.db.session import tenant_session
 from apps.api.tenancy.business_profile import load_profile
-from apps.workers import chat
-from apps.workers.chat import ChatOutcome
-from apps.workers.extraction import SARVAM_CHAT_URL, _first_json_object, azure_credentials
+from apps.workers.extraction import SpentRefusalError, TenantModelLeg
 from apps.workers.redaction import redact
+from apps.workers.script_assist import ANSWER_UNUSABLE_CODE, JsonAnswer, ask_json
 
 log = get_logger(__name__)
 
@@ -258,111 +256,58 @@ async def business_context(tenant_id: UUID, *, include_type: bool = True) -> tup
     return description[:MAX_CONTEXT_CHARS], vertical
 
 
-async def _ask(leg: chat.ChatLeg, description: str, *, strict: bool) -> ChatOutcome:
-    response_format: dict[str, Any] = (
-        {
+def _drafted_fields(raw: dict[str, Any]) -> list[ExtractionField] | None:
+    """`fields_from_model`, or None when nothing usable came back, so the ladder's next leg
+    gets its chance."""
+    return fields_from_model(raw) or None
+
+
+async def _draft(
+    description: str, tenant_leg: TenantModelLeg | None
+) -> JsonAnswer[list[ExtractionField]]:
+    """The fields, on the dashboard AI ladder every assist uses (`script_assist.ask_json`):
+    the account's Gemini leg or Azure, then the disclosed standby. Raises the ladder's
+    refusal when nothing answered usefully."""
+    return await ask_json(
+        description,
+        SYSTEM_PROMPT,
+        parse=_drafted_fields,
+        azure_format={
             "type": "json_schema",
             "json_schema": {"name": "lead_fields_draft", "strict": True, "schema": _DRAFT_SCHEMA},
-        }
-        if strict
-        else {"type": "json_object"}
-    )
-    return await chat.complete(
-        leg,
-        [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": description}],
-        timeout_s=DRAFT_TIMEOUT_S,
-        temperature=0.2,
-        response_format=response_format,
+        },
+        tenant_leg=tenant_leg,
         max_tokens=DRAFT_MAX_TOKENS,
+        temperature=0.2,
+        timeout_s=DRAFT_TIMEOUT_S,
+        health_leg="lead_fields",
     )
 
 
-async def _draft(description: str) -> tuple[list[ExtractionField], ChatOutcome | None, str | None]:
-    """The fields, the paid turn that produced them, and the model it was priced as.
-
-    Azure first, then the Sarvam leg, the order `workers/script_assist` keeps. A turn that
-    was answered but unusable is still returned so its cost is recorded.
-    """
-    settings = get_settings()
-    credentials = azure_credentials()
-    spent: tuple[ChatOutcome, str] | None = None
-    if credentials is not None:
-        resource, api_key, deployment = credentials
-        leg = chat.ChatLeg(
-            url=f"{azure_openai_base_url(resource)}/chat/completions",
-            api_key=api_key,
-            wire_model=deployment,
-            dialect="openai",
-        )
-        model = settings.azure_openai_model
-        try:
-            try:
-                outcome = await _ask(leg, description, strict=True)
-            except httpx.HTTPStatusError as refusal:
-                if refusal.response.status_code != 400:
-                    raise
-                outcome = await _ask(leg, description, strict=False)
-            await provider_health.note_success("lead_fields", "azure")
-            fields = (
-                fields_from_model(_first_json_object(outcome.content))
-                if outcome.finish_reason != "length"
-                else []
-            )
-            if fields:
-                return fields, outcome, model
-            spent = (outcome, model)
-        except (httpx.HTTPError, TimeoutError) as failure:
-            log.warning(
-                "lead_fields_draft_azure_failed", extra=provider_health.failure_fields(failure)
-            )
-            await provider_health.note_failure("lead_fields", "azure", failure)
-    if settings.sarvam_api_key:
-        leg = chat.ChatLeg(
-            url=SARVAM_CHAT_URL,
-            api_key=settings.sarvam_api_key,
-            wire_model=SARVAM_DEFAULT_LLM,
-            dialect="sarvam",
-        )
-        try:
-            outcome = await _ask(leg, description, strict=False)
-        except (httpx.HTTPError, TimeoutError) as failure:
-            log.warning(
-                "lead_fields_draft_sarvam_failed", extra=provider_health.failure_fields(failure)
-            )
-        else:
-            fields = (
-                fields_from_model(_first_json_object(outcome.content))
-                if outcome.finish_reason != "length"
-                else []
-            )
-            if fields:
-                return fields, outcome, SARVAM_DEFAULT_LLM
-            spent = spent or (outcome, SARVAM_DEFAULT_LLM)
-    if spent is not None:
-        return [], spent[0], spent[1]
-    return [], None, None
-
-
-async def _meter(tenant_id: UUID, outcome: ChatOutcome | None, model: str | None) -> None:
-    if outcome is None or model is None:
-        return
-    if outcome.usage is None:
-        log.warning("lead_fields_draft_unmeterable", extra={"tenant_id": str(tenant_id)})
-        return
-    if not llm_price_is_billable(model):
-        log.info("lead_fields_draft_unpriced", extra={"tenant_id": str(tenant_id), "model": model})
-        return
+async def _meter(tenant_id: UUID, answer: JsonAnswer[list[ExtractionField]]) -> None:
     async with tenant_session(tenant_id) as session:
-        await record_ai_assist_usage(
+        await crm_assist.meter_earlier(
+            session, tenant_id=tenant_id, earlier=answer.earlier, feature=ASSIST_FEATURE_LEAD_FIELDS
+        )
+        await crm_assist.meter_assist(
             session,
             tenant_id=tenant_id,
             ref=new_assist_ref(),
-            tokens_in=outcome.usage.prompt_tokens,
-            tokens_out=outcome.usage.output_tokens,
-            cached_tokens_in=outcome.usage.cached_tokens_in,
-            model=model,
+            result=answer,
             feature=ASSIST_FEATURE_LEAD_FIELDS,
+            model=answer.model,
         )
+
+
+async def _refused(tenant_id: UUID, refused: ProblemError) -> str:
+    """Meter what a refused draft spent, and the error code the draft row records:
+    `no_draft` when a model answered but nothing usable came back, else `no_provider`."""
+    async with tenant_session(tenant_id) as session:
+        await crm_assist.meter_refusal(
+            session, tenant_id=tenant_id, refusal=refused, feature=ASSIST_FEATURE_LEAD_FIELDS
+        )
+    answered = isinstance(refused, SpentRefusalError) or refused.code == ANSWER_UNUSABLE_CODE
+    return "no_draft" if answered else "no_provider"
 
 
 async def _fail(tenant_id: UUID, code: str) -> None:
@@ -395,16 +340,19 @@ async def draft_lead_fields(ctx: dict[str, Any], payload: dict[str, Any]) -> str
 
     try:
         description, _vertical = await business_context(tenant_id)
-        fields, outcome, model = await _draft(description)
-        await _meter(tenant_id, outcome, model)
+        async with tenant_session(tenant_id) as session:
+            tenant_leg = await account_assist_leg(session)
+        try:
+            answer = await _draft(description, tenant_leg)
+        except ProblemError as refused:
+            await _fail(tenant_id, await _refused(tenant_id, refused))
+            return "failed"
+        await _meter(tenant_id, answer)
     except Exception:
         log.exception("lead_fields_draft_crashed", extra={"tenant_id": str(tenant_id)})
         await _fail(tenant_id, "draft_crashed")
         return "failed"
-
-    if not fields:
-        await _fail(tenant_id, "no_draft" if outcome is not None else "no_provider")
-        return "failed"
+    fields, model = answer.value, answer.model
 
     async with tenant_session(tenant_id) as session:
         await session.execute(

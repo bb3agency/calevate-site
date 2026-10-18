@@ -203,6 +203,9 @@ class ExtractedText:
     model: str | None = None
     prompt_tokens: int | None = None
     output_tokens: int | None = None
+    #: How many of `prompt_tokens` the provider served from its prompt cache; `None` when any
+    #: read did not say (the ledger then prices all input at the full rate).
+    cached_prompt_tokens: int | None = None
     #: Per-image outcomes for a multi-image source, so an operator can see that page 3 of
     #: 5 was discarded without anyone opening the document. Codes only, never text.
     discarded: tuple[str, ...] = field(default_factory=tuple)

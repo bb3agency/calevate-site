@@ -31,6 +31,12 @@ from apps.api.crm.captured import captured_fields
 from apps.api.crm.columns import FIXED_KEYS
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import lead_fields_draft
+from apps.workers.extraction import (
+    PROVIDER_UNAVAILABLE_REASON,
+    AssistCapability,
+    assist_unavailable,
+)
+from apps.workers.script_assist import JsonAnswer
 from calevate_shared.extraction import ExtractionField, is_phone_field
 from calevate_shared.lead_fields import (
     CORE_KEYS,
@@ -214,9 +220,13 @@ DRAFTED = [
 
 
 async def _run_worker(tenant_id: uuid.UUID, monkeypatch: pytest.MonkeyPatch) -> str:
-    async def fake_draft(description: str) -> tuple[list[ExtractionField], None, None]:
+    async def fake_draft(description: str, tenant_leg: object) -> JsonAnswer[list[ExtractionField]]:
         assert "Raghava" in description
-        return list(DRAFTED), None, None
+        return JsonAnswer(
+            value=list(DRAFTED),
+            capability=AssistCapability(available=True, provider="sarvam"),
+            model="sarvam-105b",
+        )
 
     monkeypatch.setattr(lead_fields_draft, "_draft", fake_draft)
     return await lead_fields_draft.draft_lead_fields({}, {"tenant_id": str(tenant_id)})
@@ -291,8 +301,10 @@ async def test_a_failed_draft_may_be_asked_for_again(monkeypatch: pytest.MonkeyP
     async with tenant_session(tenant_id) as session:
         await lead_fields.request_draft(session, tenant_id=tenant_id, requested_by=None)
 
-    async def nothing(description: str) -> tuple[list[ExtractionField], None, None]:
-        return [], None, None
+    async def nothing(description: str, tenant_leg: object) -> JsonAnswer[list[ExtractionField]]:
+        raise assist_unavailable(
+            AssistCapability(available=False, reason=PROVIDER_UNAVAILABLE_REASON)
+        )
 
     monkeypatch.setattr(lead_fields_draft, "_draft", nothing)
     assert await lead_fields_draft.draft_lead_fields({}, {"tenant_id": str(tenant_id)}) == "failed"

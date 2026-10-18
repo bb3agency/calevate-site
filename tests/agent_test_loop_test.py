@@ -33,6 +33,7 @@ from apps.api.engine.test_chat import TestChatTool, TestChatTurn
 from apps.api.reliability.engine_actions import ACTION_NAMES, OPT_OUT, RETIRED_ACTION_NAMES
 from apps.workers import agent_test_ai, chat
 from apps.workers import agent_test_conversations as worker
+from apps.workers.script_assist import UnusableAnswerError
 from calevate_shared.call_script import CallScript, ConversationStage
 from sqlalchemy import text
 from tests.conftest import accept_agreements
@@ -338,15 +339,17 @@ def test_a_proposal_keeps_step_ids_and_invents_no_fact() -> None:
     ]
 
 
-def test_a_proposal_that_is_not_a_valid_script_is_no_proposal() -> None:
+def test_a_proposal_that_is_not_a_valid_script_names_what_to_fix() -> None:
+    """An invalid script is refused with the fields and rules it broke, so the ladder can send
+    it back to the model once (`script_assist.ask_json`'s repair) instead of dropping it."""
     bad = {
         "script": {"stages": [{"id": "BAD ID", "name": "", "instruction": ""}]},
         "changes": [],
         "facts": [],
     }
-    assert (
-        agent_test_ai.proposal_from_model(bad, current=CURRENT, keys=set(), fact_ids=set()) is None
-    )
+    with pytest.raises(UnusableAnswerError) as refused:
+        agent_test_ai.proposal_from_model(bad, current=CURRENT, keys=set(), fact_ids=set())
+    assert "stages.0.id" in refused.value.problems
 
 
 # --- a whole run, metered, and its RLS -------------------------------------------------

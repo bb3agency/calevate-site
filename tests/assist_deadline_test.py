@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 from apps.workers.extraction import (
+    ASSIST_LADDER_LEGS,
     ASSIST_ROUTE_RESERVE_S,
     ASSIST_TIMEOUT_S,
     EXTRACTION_TIMEOUT_S,
@@ -161,7 +162,8 @@ def test_every_budget_is_a_positive_number_of_seconds(constant: float) -> None:
 async def test_both_assist_legs_are_built_with_the_user_facing_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Azure first, Sarvam second, both at `ASSIST_TIMEOUT_S`.
+    """Azure first at `ASSIST_TIMEOUT_S`; Sarvam second with what is left of the ladder's
+    budget, which is at least one `ASSIST_TIMEOUT_S` and never more than the whole ladder.
 
     FAILS IF: either construction site in `run_assist` drops the keyword and falls back to
     the 30s default — which is the defect, and which no assertion about the constants
@@ -196,7 +198,19 @@ async def test_both_assist_legs_are_built_with_the_user_facing_budget(
     spec = ExtractionSchemaSpec.model_validate({"version": 1, "fields": []})
     await extraction.run_assist(spec, "Caller asked about opening hours.")
 
-    assert built == [("azure", ASSIST_TIMEOUT_S), ("sarvam", ASSIST_TIMEOUT_S)]
+    assert built[0] == ("azure", ASSIST_TIMEOUT_S)
+    assert built[1][0] == "sarvam"
+    assert ASSIST_TIMEOUT_S <= built[1][1] <= ASSIST_LADDER_LEGS * ASSIST_TIMEOUT_S
+
+
+def test_the_whole_ladder_budget_and_the_route_reserve_fit_inside_the_edge_deadline() -> None:
+    """`ladder_deadlines` caps every request of one assist at `ASSIST_LADDER_LEGS` budgets.
+
+    FAILS IF: the ladder budget, the per-request budget or the reserve grows past the api
+    vhost's `proxy_read_timeout`.
+    """
+    proxy = _proxy_read_timeout_s()
+    assert proxy > ASSIST_LADDER_LEGS * ASSIST_TIMEOUT_S + ASSIST_ROUTE_RESERVE_S
 
 
 def test_the_post_call_extractor_still_gets_the_post_call_budget() -> None:

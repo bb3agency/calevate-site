@@ -108,9 +108,8 @@ async def test_draft_script_falls_back_when_the_azure_draft_is_truncated(
 async def test_a_truncated_azure_draft_is_still_metered_when_sarvam_writes_the_script(
     both_keys: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The truncated Azure turn was billed whether or not its JSON was usable, so its
-    tokens ride the Sarvam draft to `meter_assist` (hard rule 7). They were dropped: the
-    draft came back with `usage=None` and the route metered nothing."""
+    """The truncated Azure turn was billed whether or not its JSON was usable, so it rides
+    the Sarvam draft to the meter as a `PaidTurn` at the Azure model (hard rule 7)."""
     outcomes = [
         chat.ChatOutcome(
             content=_DRAFT_JSON,
@@ -128,4 +127,6 @@ async def test_a_truncated_azure_draft_is_still_metered_when_sarvam_writes_the_s
     monkeypatch.setattr(chat, "complete", _complete)
     draft = await script_assist.draft_script("a clinic in Guntur")
     assert draft.capability.provider == "sarvam"
-    assert draft.usage == chat.TokenUsage(prompt_tokens=300, output_tokens=2000)
+    assert [turn.usage for turn in draft.earlier] == [
+        chat.TokenUsage(prompt_tokens=300, output_tokens=2000)
+    ]

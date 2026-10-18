@@ -816,7 +816,7 @@ async def _answer_via_sarvam(
     # Counted as its own leg (`standby`): Sarvam failing here means the assistant has no
     # answer left, and running out of Sarvam credit (API errors once credits run out,
     # sarvam.ai/api-pricing, 10 Oct 2026) also stops post-call extraction.
-    async with provider_health.watch("standby", SARVAM_PROVIDER):
+    async with provider_health.watch("standby", SARVAM_PROVIDER, model=SARVAM_DEFAULT_LLM):
         outcome = await chat.complete(
             chat.ChatLeg(
                 url=SARVAM_CHAT_URL,
@@ -843,6 +843,10 @@ async def _answer_via_sarvam(
             # is real spend.
             max_tokens=MAX_ANSWER_TOKENS,
         )
+    if outcome.finish_reason == "length":
+        # The same operator signal the tool-capable legs give: the answer shown is cut short
+        # and the ceiling was spent.
+        log.warning("copilot_answer_truncated", extra={"provider": SARVAM_PROVIDER})
     # THE FALLBACK IS SUBJECT TO THE SAME RULE AS THE LOOP: a leg that answered nothing
     # says so. This one is the last rung of the ladder, so silence here is silence for the
     # whole question — there is nothing left to fall back to.
@@ -2334,6 +2338,7 @@ async def _answer_pdf_turn(
 
     turns: list[chat.ChatOutcome] = []
     streamed = False
+    spent_emitted = False
     try:
         async with asyncio.timeout_at(deadline):
             async for event in _run_tool_loop(
@@ -2353,6 +2358,7 @@ async def _answer_pdf_turn(
                 attached=attached,
             ):
                 streamed = streamed or event.text is not None
+                spent_emitted = spent_emitted or event.spend is not None
                 yield event
         await provider_health.note_success("copilot", GOOGLE_PROVIDER)
         return
@@ -2366,18 +2372,21 @@ async def _answer_pdf_turn(
             },
         )
         await provider_health.note_failure("copilot", GOOGLE_PROVIDER, failure, model=model)
-        if streamed:
-            raise
-        if turns:
+        # The paid turns are handed over before anything else, whether or not part of the
+        # answer is already on the screen (hard rule 7).
+        if turns and not spent_emitted:
             yield CopilotEvent(
                 spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
             )
+        if streamed:
+            raise
 
     text_only = attached.as_text_only()
     if text_only is None or loop.time() + FALLBACK_RESERVE_S >= deadline:
         raise attachments.pdf_unavailable()
     fallback_turns: list[chat.ChatOutcome] = []
     said_note = False
+    fallback_spent = False
     try:
         async with asyncio.timeout_at(deadline):
             async for event in _run_tool_loop(
@@ -2401,17 +2410,21 @@ async def _answer_pdf_turn(
                 if not said_note and (event.text is not None or event.spend is not None):
                     said_note = True
                     yield CopilotEvent(text=attachments.PDF_TEXT_ONLY_NOTE)
+                fallback_spent = fallback_spent or event.spend is not None
                 yield event
     except (httpx.HTTPError, TimeoutError) as failure:
-        log.warning("copilot_pdf_text_failed", extra=provider_health.failure_fields(failure))
-        if said_note:
-            raise
-        if fallback_turns:
+        log.warning(
+            "copilot_pdf_text_failed",
+            extra={**provider_health.failure_fields(failure), "model": model},
+        )
+        if fallback_turns and not fallback_spent:
             yield CopilotEvent(
                 spend=CopilotSpend(
                     usage=_sum_usage(fallback_turns), capability=capability, model=model
                 )
             )
+        if said_note:
+            raise
         raise attachments.pdf_unavailable() from None
 
 
@@ -2542,6 +2555,7 @@ async def _answer_stream(
         if leg is None:  # pragma: no cover - unreachable via the selector
             raise assist_unavailable(capability)
         streamed_anything = False
+        spent_emitted = False
         # THE TURNS THIS LEG COMPLETED, HELD OUT HERE SO A FAILURE STILL HAS THEM. See
         # `_run_tool_loop`: the list is the caller's precisely because the failure path is.
         turns: list[chat.ChatOutcome] = []
@@ -2564,6 +2578,7 @@ async def _answer_stream(
                     attached=attached,
                 ):
                     streamed_anything = streamed_anything or event.text is not None
+                    spent_emitted = spent_emitted or event.spend is not None
                     yield event
             await provider_health.note_success("copilot", str(capability.provider))
             return
@@ -2580,8 +2595,6 @@ async def _answer_stream(
             await provider_health.note_failure(
                 "copilot", str(capability.provider), failure, model=model or leg.wire_model
             )
-            if streamed_anything:
-                raise
             # WHAT THE DEAD LEG ALREADY COST (hard rule 7). Emitted only when a turn
             # COMPLETED: `_sum_usage` of an empty list is `None`, which reaches
             # `meter_assist` as "we do not know what this cost" and fires
@@ -2589,10 +2602,14 @@ async def _answer_stream(
             # be counted, and a false alarm for a leg whose very first request never landed.
             # The route appends this to `spends` and meters it under its own `ref`, so the
             # fallback's spend below is a SECOND row rather than a replacement.
-            if turns:
+            if turns and not spent_emitted:
                 yield CopilotEvent(
                     spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
                 )
+            if streamed_anything:
+                # Part of the answer is on the screen, so no fallback; the paid turns
+                # above are still handed over first.
+                raise
             # **THE BUDGET IS A TOTAL, AND STARTING THE FALLBACK IS WHAT USED TO BREAK
             # THAT.** `asyncio.timeout_at` raises `TimeoutError`, this arm caught it, and
             # with nothing streamed yet the run went on to a whole second model call — so a

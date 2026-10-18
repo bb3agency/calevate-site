@@ -89,6 +89,7 @@ SUBJECT → GATE → RUN → METER, and each arrow is load-bearing:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Final, Protocol
@@ -100,7 +101,7 @@ from calevate_shared.lead_fields import with_core
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.ai_quota import record_ai_assist_usage
+from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.billing.models import ASSIST_FEATURE_STANDBY
 from apps.api.billing.platform_ai import record_platform_ai_usage
 from apps.api.billing.rates import llm_price_is_billable
@@ -114,6 +115,8 @@ from apps.workers.extraction import (
     GOOGLE_PROVIDER,
     SARVAM_PROVIDER,
     AssistCapability,
+    PaidTurn,
+    SpentRefusalError,
 )
 
 log = get_logger(__name__)
@@ -584,6 +587,40 @@ async def _meter_standby(
     return AssistMetering(metered=False, cost_inr=recorded.cost_inr)
 
 
+async def meter_earlier(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    earlier: Sequence[PaidTurn],
+    feature: str,
+) -> bool:
+    """Meter each paid turn that answered in front of the answer the user got, one row set
+    per turn under its own ref and at its own model (`PaidTurn`). True if any was charged.
+
+    Never raises for an ordinary outcome, for `meter_assist`'s reason."""
+    charged = False
+    for turn in earlier:
+        metering = await meter_assist(
+            session,
+            tenant_id=tenant_id,
+            ref=new_assist_ref(),
+            result=turn,
+            feature=feature,
+            model=turn.model,
+        )
+        charged = charged or metering.metered
+    return charged
+
+
+async def meter_refusal(
+    session: AsyncSession, *, tenant_id: UUID, refusal: ProblemError, feature: str
+) -> None:
+    """A refusal raised after a paid leg answered still owes the ledger that leg's spend
+    (hard rule 7); any other refusal cost nothing."""
+    if isinstance(refusal, SpentRefusalError):
+        await meter_earlier(session, tenant_id=tenant_id, earlier=refusal.earlier, feature=feature)
+
+
 async def meter_platform_assist(
     session: AsyncSession,
     *,
@@ -705,6 +742,8 @@ __all__ = [
     "MeterableAssist",
     "load_assist_source",
     "meter_assist",
+    "meter_earlier",
     "meter_platform_assist",
+    "meter_refusal",
     "transcript_for_model",
 ]

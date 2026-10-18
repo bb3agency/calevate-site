@@ -115,6 +115,7 @@ async def meter_language_pass(
             ref=new_assist_ref(),
             tokens_in=usage.prompt_tokens,
             tokens_out=usage.output_tokens,
+            cached_tokens_in=usage.cached_tokens_in,
             model=SARVAM_DEFAULT_LLM,
             feature=feature,
             extra_meta={

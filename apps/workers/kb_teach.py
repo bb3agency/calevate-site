@@ -4,9 +4,10 @@
    (`document_ocr`, metered as `kb_ocr`), a file by the document reader, a voice note by our
    speech-to-text sub-processor (metered at our cost as `kb_teach_voice`, absorbed). A voice
    note then STOPS at `heard`: the owner checks the words before anything is sorted or saved.
-2. SORT the words into facts and rules with the dashboard-assist ladder (Azure, then the
-   disclosed Sarvam leg), metered against the client's AI allowance as `kb_teach`. When the
-   allowance is used up or no model answers, the words come back unsorted, one line each,
+2. SORT the words into facts and rules with the dashboard-assist ladder
+   (`script_assist.ask_json`: the account's Gemini leg or Azure, then the disclosed
+   standby), metered against the client's AI allowance as `kb_teach`. When the allowance
+   is used up or no model answers, the words come back unsorted, one line each,
    with a sentence saying so: teaching never stops for lack of AI.
 
 WHAT THE MODEL SEES. The owner's own words about their business (the tenant-authored class
@@ -24,7 +25,6 @@ from uuid import UUID
 
 import httpx
 from calevate_shared.document_ingest import DocumentRefusedError, OcrUnavailableError
-from calevate_shared.engine import SARVAM_DEFAULT_LLM, azure_openai_base_url
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import account_assist_leg
@@ -34,7 +34,7 @@ from apps.api.billing.ai_quota import (
     record_absorbed_stt_usage,
     record_ai_assist_usage,
 )
-from apps.api.core import provider_health
+from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.crm import assist as crm_assist
@@ -43,20 +43,17 @@ from apps.api.db.session import tenant_session
 from apps.api.kb.uploads import classify_upload
 from apps.api.teach.models import MAX_FACT_CHARS, MAX_RULE_CHARS, MAX_TEACH_WORDS
 from apps.api.teach.teaching import ASSIST_FEATURE_KB_TEACH, TEACH_JOB
-from apps.workers import chat
 from apps.workers.chat import TokenUsage
 from apps.workers.document_ocr import OcrImage, PaidOcrUnusableError, ocr_images
 from apps.workers.document_text import extract_document
 from apps.workers.extraction import (
-    ASSIST_TIMEOUT_S,
-    AZURE_PROVIDER,
     QUOTA_EXHAUSTED_REASON,
-    SARVAM_CHAT_URL,
     AssistCapability,
-    _first_json_object,
+    PaidTurn,
+    SpentRefusalError,
     assist_capability,
-    azure_credentials,
 )
+from apps.workers.script_assist import ask_json
 from apps.workers.storage import delete_objects, read_kb_object
 
 log = get_logger(__name__)
@@ -133,10 +130,16 @@ QUOTA_NOTE: Final = (
 @dataclass(frozen=True, slots=True)
 class Sorted:
     items: list[dict[str, str]]
-    #: For `crm.assist.meter_assist`; `usage` is what a paid turn cost.
+    #: For `crm.assist.meter_assist`: who answered and what that answer cost.
     capability: AssistCapability
     usage: TokenUsage | None
     note: str | None
+    #: The answering model, for the meter (`JsonAnswer.model`).
+    model: str | None = None
+    #: Paid legs that answered unusably first (`crm/assist.meter_earlier`).
+    earlier: tuple[PaidTurn, ...] = ()
+    #: Did a model write `items`? False for the unsorted fallback.
+    answered: bool = False
 
 
 def items_from_model(raw: dict[str, Any]) -> list[dict[str, str]]:
@@ -174,98 +177,49 @@ def unsorted_items(words: str) -> list[dict[str, str]]:
     return [{"kind": "fact", "text": piece} for piece in pieces[:MAX_ITEMS]]
 
 
-async def _ask(leg: chat.ChatLeg, words: str, *, strict: bool) -> chat.ChatOutcome:
-    response_format: dict[str, Any] = (
-        {
-            "type": "json_schema",
-            "json_schema": {"name": "teach_sort", "strict": True, "schema": _SCHEMA},
-        }
-        if strict
-        else {"type": "json_object"}
-    )
-    return await chat.complete(
-        leg,
-        [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": words}],
-        timeout_s=ASSIST_TIMEOUT_S,
-        temperature=0.1,
-        response_format=response_format,
-        max_tokens=SORT_MAX_TOKENS,
-    )
-
-
-async def _via_azure(words: str) -> tuple[list[dict[str, str]], TokenUsage | None] | None:
-    credentials = azure_credentials()
-    if credentials is None:
-        return None
-    resource, api_key, deployment = credentials
-    leg = chat.ChatLeg(
-        url=f"{azure_openai_base_url(resource)}/chat/completions",
-        api_key=api_key,
-        wire_model=deployment,
-        dialect="openai",
-    )
-    try:
-        try:
-            outcome = await _ask(leg, words, strict=True)
-        except httpx.HTTPStatusError as refusal:
-            if refusal.response.status_code != 400:
-                raise
-            outcome = await _ask(leg, words, strict=False)
-    except httpx.HTTPError as failure:
-        log.warning("kb_teach_azure_failed", extra=provider_health.failure_fields(failure))
-        await provider_health.note_failure("teach", AZURE_PROVIDER, failure)
-        return None
-    await provider_health.note_success("teach", AZURE_PROVIDER)
-    items = (
-        items_from_model(_first_json_object(outcome.content))
-        if outcome.finish_reason != "length"
-        else []
-    )
-    return items, outcome.usage
-
-
-async def _via_sarvam(words: str) -> list[dict[str, str]]:
-    settings = get_settings()
-    if not settings.sarvam_api_key:
-        return []
-    leg = chat.ChatLeg(
-        url=SARVAM_CHAT_URL,
-        api_key=settings.sarvam_api_key,
-        wire_model=SARVAM_DEFAULT_LLM,
-        dialect="sarvam",
-    )
-    try:
-        outcome = await _ask(leg, words, strict=False)
-    except httpx.HTTPError as failure:
-        log.warning("kb_teach_sarvam_failed", extra=provider_health.failure_fields(failure))
-        return []
-    if outcome.finish_reason == "length":
-        return []
-    return items_from_model(_first_json_object(outcome.content))
+def _sorted_items(raw: dict[str, Any]) -> list[dict[str, str]] | None:
+    """`items_from_model`, or None when nothing usable came back, so the ladder's next leg
+    gets its chance."""
+    return items_from_model(raw) or None
 
 
 async def sort_words(
     words: str, *, capability: AssistCapability, tenant_leg: Any, quota_exhausted: bool
 ) -> Sorted:
-    """Facts and rules from the owner's words; the ladder `workers/script_assist` follows."""
+    """Facts and rules from the owner's words, on the dashboard AI ladder every assist uses
+    (`script_assist.ask_json`): the account's Gemini leg or Azure, then the disclosed standby.
+    Nothing answering leaves the words unsorted, one fact per line, with a note saying so."""
     if not capability.available:
         note = QUOTA_NOTE if capability.reason == QUOTA_EXHAUSTED_REASON else UNSORTED_NOTE
         return Sorted(unsorted_items(words), capability, None, note)
-    spent: TokenUsage | None = None
-    if capability.provider == AZURE_PROVIDER:
-        azure = await _via_azure(words)
-        if azure is not None and azure[0]:
-            return Sorted(azure[0], capability, azure[1], capability.disclosure)
-        spent = azure[1] if azure is not None else None
-        capability = assist_capability(
-            tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, provider_unavailable=True
+    try:
+        answer = await ask_json(
+            words,
+            SYSTEM_PROMPT,
+            parse=_sorted_items,
+            azure_format={
+                "type": "json_schema",
+                "json_schema": {"name": "teach_sort", "strict": True, "schema": _SCHEMA},
+            },
+            tenant_leg=tenant_leg,
+            quota_exhausted=quota_exhausted,
+            max_tokens=SORT_MAX_TOKENS,
+            temperature=0.1,
+            health_leg="teach",
         )
-        if not capability.available:
-            return Sorted(unsorted_items(words), capability, spent, UNSORTED_NOTE)
-    items = await _via_sarvam(words)
-    if not items:
-        return Sorted(unsorted_items(words), capability, spent, UNSORTED_NOTE)
-    return Sorted(items, capability, spent, capability.disclosure)
+    except ProblemError as refused:
+        log.info("kb_teach_unsorted", extra={"reason": refused.code})
+        earlier = refused.earlier if isinstance(refused, SpentRefusalError) else ()
+        return Sorted(unsorted_items(words), capability, None, UNSORTED_NOTE, earlier=earlier)
+    return Sorted(
+        answer.value,
+        answer.capability,
+        answer.usage,
+        answer.capability.disclosure,
+        model=answer.model,
+        earlier=answer.earlier,
+        answered=True,
+    )
 
 
 async def transcribe_voice(data: bytes, content_type: str) -> str:
@@ -290,7 +244,13 @@ async def transcribe_voice(data: bytes, content_type: str) -> str:
     return str(transcript or "").strip()
 
 
-async def _meter_ocr(tenant_id: UUID, model: str, prompt: int | None, output: int | None) -> None:
+async def _meter_ocr(
+    tenant_id: UUID,
+    model: str,
+    prompt: int | None,
+    output: int | None,
+    cached: int | None = None,
+) -> None:
     if prompt is None or output is None:
         log.warning("kb_teach_ocr_unmeterable", extra={"tenant_id": str(tenant_id)})
         return
@@ -301,6 +261,7 @@ async def _meter_ocr(tenant_id: UUID, model: str, prompt: int | None, output: in
             ref=new_assist_ref(),
             tokens_in=prompt,
             tokens_out=output,
+            cached_tokens_in=cached,
             model=model,
             feature=ASSIST_FEATURE_KB_OCR,
         )
@@ -357,11 +318,21 @@ async def read_upload(
         raise UnreadableError("photo_reading_unavailable") from unavailable
     except DocumentRefusedError as refused:
         if isinstance(refused, PaidOcrUnusableError):
-            await _meter_ocr(tenant_id, refused.model, refused.prompt_tokens, refused.output_tokens)
+            await _meter_ocr(
+                tenant_id,
+                refused.model,
+                refused.prompt_tokens,
+                refused.output_tokens,
+                refused.cached_prompt_tokens,
+            )
         raise UnreadableError("unreadable") from refused
     if extracted.model is not None:
         await _meter_ocr(
-            tenant_id, extracted.model, extracted.prompt_tokens, extracted.output_tokens
+            tenant_id,
+            extracted.model,
+            extracted.prompt_tokens,
+            extracted.output_tokens,
+            extracted.cached_prompt_tokens,
         )
     return extracted.text
 
@@ -461,13 +432,20 @@ async def run_kb_teaching(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             str(words), capability=capability, tenant_leg=tenant_leg, quota_exhausted=exhausted
         )
         async with tenant_session(tenant_id) as session:
-            if result.capability.available or result.usage is not None:
+            await crm_assist.meter_earlier(
+                session,
+                tenant_id=tenant_id,
+                earlier=result.earlier,
+                feature=ASSIST_FEATURE_KB_TEACH,
+            )
+            if result.answered:
                 await crm_assist.meter_assist(
                     session,
                     tenant_id=tenant_id,
                     ref=new_assist_ref(),
                     result=result,
                     feature=ASSIST_FEATURE_KB_TEACH,
+                    model=result.model,
                 )
             await session.execute(
                 text(

@@ -229,7 +229,7 @@ async def embed_query_vector(
         log.info("query_embedding_no_provider", extra={"feature": feature})
         return None
     try:
-        async with provider_health.watch("embeddings", chat.provider_of(leg)):
+        async with provider_health.watch("embeddings", chat.provider_of(leg), model=leg.wire_model):
             outcome = await chat.embed(
                 leg, [question], dimensions=EMBEDDING_DIMS, timeout_s=EMBED_TIMEOUT_S
             )

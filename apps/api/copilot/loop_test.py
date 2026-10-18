@@ -787,6 +787,41 @@ async def test_a_leg_that_dies_after_a_paid_turn_is_still_metered(
     assert spends[1].capability.provider == extraction_module.SARVAM_PROVIDER
 
 
+async def test_a_leg_that_dies_after_text_was_shown_still_meters_its_paid_turns(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: a leg that already showed the person some words and then died re-raises
+    before handing over the turns it completed, so a paid turn reaches no ledger row."""
+    paid = chat.TokenUsage(prompt_tokens=800, output_tokens=40)
+    first_turn = _turn(
+        content="Let me check. ",
+        arguments=json.dumps({"items": [{"field_id": "status", "value": "live"}]}),
+        usage=paid,
+    )
+    turns_served = 0
+
+    def _stream(*args: Any, **kwargs: Any) -> AsyncIterator[chat.StreamEvent]:
+        async def _iterate() -> AsyncIterator[chat.StreamEvent]:
+            nonlocal turns_served
+            turns_served += 1
+            if turns_served > 1:
+                raise httpx.ReadError("azure went away mid-run")
+            for event in first_turn:
+                yield event
+
+        return _iterate()
+
+    monkeypatch.setattr(chat, "stream", _stream)
+    events: list[service.CopilotEvent] = []
+    with pytest.raises(httpx.ReadError):
+        async for event in service.run_copilot(PAYLOAD):
+            events.append(event)
+    spends = [e.spend for e in events if e.spend is not None]
+    assert len(spends) == 1
+    assert spends[0].usage == paid
+    assert spends[0].capability.provider == extraction_module.AZURE_PROVIDER
+
+
 async def test_a_leg_that_dies_before_completing_a_turn_invents_no_spend(
     azure_only: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -803,6 +838,23 @@ async def test_a_leg_that_dies_before_completing_a_turn_invents_no_spend(
     spends = [e.spend for e in await _drain() if e.spend is not None]
     assert len(spends) == 1
     assert spends[0].capability.provider == extraction_module.SARVAM_PROVIDER
+
+
+async def test_a_standby_answer_cut_at_the_ceiling_is_logged_for_an_operator(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """FAILS IF: the standby's answer hit `max_tokens` and nothing says so, while the same
+    event on the tool-capable legs logs `copilot_answer_truncated`."""
+    monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
+    monkeypatch.setattr(chat, "stream", _failing_stream(httpx.ConnectError("azure is down")))
+
+    async def _complete(*args: Any, **kwargs: Any) -> chat.ChatOutcome:
+        return chat.ChatOutcome(content="Nine in the", finish_reason="length")
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    with caplog.at_level("WARNING"):
+        await _drain()
+    assert any(r.getMessage() == "copilot_answer_truncated" for r in caplog.records)
 
 
 # --- the read tools: results feed back, and the loop CONTINUES (phase 1) -----------------

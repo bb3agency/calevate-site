@@ -300,7 +300,7 @@ async def _embed_claimed(
     if not live:
         return 0
 
-    async with provider_health.watch("embeddings", chat.provider_of(leg)):
+    async with provider_health.watch("embeddings", chat.provider_of(leg), model=leg.wire_model):
         outcome = await chat.embed(
             leg,
             [bodies[key] for key in live],
