@@ -897,31 +897,15 @@ async def confirm_copilot_proposal(
     client retrying one request, the burn stops one DECISION being submitted twice by any
     means, including a second browser tab holding the same token.
     """
-    outcome = await write_tools.confirm(
+    # No transcript turn here: the proposal's own answer turn (its card's title and summary,
+    # under the id the panel already holds) is what a reload shows. A second turn under a
+    # new id rendered beside the live card as a duplicate "Done".
+    return await write_tools.confirm(
         session,
         payload.token,
         principal=principal,
         ip=client_request_ip(request),
     )
-    # What the confirmed change did is part of the conversation the person scrolls back
-    # to; without it a reload shows the proposal and then nothing, as if it never ran.
-    if principal.realm == "client" and principal.user_id is not None:
-        run_started_at = await session_run.current_run_start(
-            realm="client", subject_id=principal.user_id
-        )
-        if run_started_at is not None:
-            await transcript.append_turn(
-                session,
-                realm=transcript.CLIENT,
-                turn_id=uuid7(),
-                owner_id=principal.user_id,
-                tenant_id=principal.tenant_id,
-                run_started_at=run_started_at,
-                screen_route="",
-                role="assistant",
-                spoken=f"Done. {outcome.detail}".strip(),
-            )
-    return outcome
 
 
 _CONVERSATION_DESCRIPTION = """\
