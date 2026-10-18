@@ -663,6 +663,7 @@
       "number_rules": [
         {
           "id": "prices",
+          "words": "english",
           "text": "Prices in English words the way shop people say them: 120 rupees is \"one twenty rupees\", 250 is \"two fifty rupees\", 1,500 is \"fifteen hundred rupees\". Never write the rupee sign or digits."
         },
         {
@@ -1121,6 +1122,7 @@
       "number_rules": [
         {
           "id": "prices",
+          "words": "native_or_english",
           "text": "Prices and quantities in words, the way shop people say them on the phone, in Hindi or English words: \"एक सौ बीस रुपये\" or \"one twenty\", \"एक किलो\". Never the rupee sign or digits."
         },
         {

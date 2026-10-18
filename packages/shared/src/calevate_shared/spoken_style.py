@@ -102,6 +102,11 @@ class LanguageStyle:
     prompt_swaps: tuple[tuple[str, str], ...] = ()
     fillers: tuple[Filler, ...] = ()
     number_rules: tuple[str, ...] = ()
+    #: A price may be said in the language's own number words ("एक सौ बीस रुपये"), from the
+    #: `words` of its `prices` number rule: `english` (Telugu: "one twenty rupees", D-744)
+    #: forbids them, `native_or_english` allows them, and no rule forbids nothing. The reply
+    #: check reads this (`agents/turn_checks`), so the check cannot drift from the rule.
+    native_price_words: bool = True
     punctuation: tuple[str, ...] = ()
     #: The IST date the reviewed set was published, when it was.
     reviewed_on: str | None = None
@@ -312,10 +317,28 @@ def _build(tag: str, row: Mapping[str, Any]) -> LanguageStyle:
         ),
         fillers=tuple(Filler(text=e.value["text"], use=e.value["use"]) for e in by_kind["filler"]),
         number_rules=tuple(e.value["text"] for e in by_kind["number_rule"]),
+        native_price_words=_native_price_words(tag, row),
         punctuation=tuple(e.value["text"] for e in by_kind["punctuation"]),
         reviewed_on=reviewed_on,
         prompt_examples=_prompt_examples(tag, row),
     )
+
+
+#: The `words` a `prices` number rule may name.
+PRICE_WORDS: Final = ("english", "native_or_english")
+
+
+def _native_price_words(tag: str, row: Mapping[str, Any]) -> bool:
+    """Whether the language's `prices` rule lets a price be said in its own number words.
+    Read from the file alone: the Ops screen's published layer reviews a rule's wording, not
+    this switch, so it changes only with a reviewed deploy, like `prompt_examples`."""
+    rule = next((r for r in row.get("number_rules", []) if r.get("id") == "prices"), None)
+    if rule is None or "words" not in rule:
+        return True
+    words = rule["words"]
+    if words not in PRICE_WORDS:
+        raise ValueError(f"spoken_style.json: {tag} prices rule words {words!r}")
+    return bool(words == "native_or_english")
 
 
 #: The status a `prompt_examples` block must carry before any prompt quotes it.
@@ -522,6 +545,7 @@ __all__ = [
     "DEFAULT_EXAMPLES",
     "ENTRY_KINDS",
     "OPENING_KEYS",
+    "PRICE_WORDS",
     "PROMPT_EXAMPLES_APPROVED",
     "REGISTER_KEY",
     "EntryKind",

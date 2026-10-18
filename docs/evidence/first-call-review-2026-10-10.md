@@ -420,6 +420,24 @@ take the call"; a trial → "say the business will get back to them").
   because ThinnestAI does not publish its chat-reply rate. Results stored before D-724 are
   served in this shape (`attention` → `needs_fix`, `read` → `unjudged`, `advice` →
   `reason`). Needs the agent switched on once. Advised, never required.
+- **Since D-828 (19 Oct 2026) the tests contract is:** `POST /script/tests {retest_of?,
+  auto_improve?, practice_callers?}`. Without `retest_of` a run makes a new version of the
+  agent's test set (`set_version`): the four rule checks in our wording, real-call
+  questions, saved tests, the specimen callers and, below ten real calls, the standard
+  callers; AI-written practice callers only with `practice_callers` (refused beside
+  `retest_of`). `retest_of` asks exactly that run's tests again. Every test is tried
+  `trials` (3) times, one worker job per try (`trials_done` while running); a run uses at
+  most `max_replies` (60) test-chat replies. Each result adds `passes`, `judged_tries`,
+  `reliability: passed|flaky|failed|unjudged`, `standing: works|unreliable|broken|setting|
+  check|ours|wrong`, `counted` (in the owner's score), `change: fixed|broken|still|same|new`
+  against the repeated run, `sounds[{kind, reason, tries}]` (how replies sounded: a note,
+  never the verdict), `channel: test_chat` and `tries[{verdict, reason, turns}]`; `before`
+  is gone. `score` counts only tests the script or knowledge decides (`judged`) plus
+  `unreliable`, `ours`, `check`, `setting`. `latest` adds `set_version`, `trials`,
+  `trials_done`, `comparison{with_run, with_version, fixed, broken, still, same, new,
+  same_script}`, `sounds[{kind, tests}]` and `error_code` (`stalled` for a run whose job
+  stopped); the body adds `waiting_tests` and `practice_offered`. "Improve my agent" works
+  only on tests that failed on most tries.
 - `POST /script/tests/{run_id}/improve {keys?}` → `{script, base_script, base: draft|live,
   changes[{target: step:<id>|<part>, because, why}], facts[{action: add|fix, fact_id,
   question, answer, because, why}], for_keys, disclosure, created_at}` ("Improve my agent";

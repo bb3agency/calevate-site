@@ -23,7 +23,7 @@ from typing import Any
 import pytest
 from apps.api.agents import test_conversations
 from apps.api.agents.test_conversations import Turn, decide, probe_scenario
-from apps.api.agents.turn_checks import PLATFORM_KINDS, turn_problems
+from apps.api.agents.turn_checks import SOUND_KINDS, turn_problems
 from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.billing.service import lock_tenant_credits
 from apps.api.copilot import write_tools
@@ -56,13 +56,13 @@ TELUGU_STOP = test_conversations.PROBE_LINES["stop_calling"]["te-IN"]
 # --- (a) language and person -------------------------------------------------------------
 
 
-def test_an_english_third_person_reply_to_a_telugu_caller_fails_on_our_side() -> None:
+def test_an_english_third_person_reply_to_a_telugu_caller_is_ours_to_fix() -> None:
     kinds = {
         p.kind
         for p in turn_problems(SCREENSHOT_OPT_OUT_REPLY, caller_said=TELUGU_STOP, language="te-IN")
     }
     assert {"wrong_language", "third_person"} <= kinds
-    assert {"wrong_language", "third_person"} <= PLATFORM_KINDS
+    assert {"wrong_language", "third_person"} <= SOUND_KINDS
 
 
 def test_a_code_mixed_telugu_reply_is_not_the_wrong_language() -> None:
@@ -93,7 +93,9 @@ def test_our_opt_out_answer_is_an_instruction_not_a_sentence_about_the_caller() 
 # --- (b) what a test chat can prove ---------------------------------------------------------
 
 
-def test_the_screenshot_opt_out_fails_for_its_words_not_for_an_unprovable_write() -> None:
+def test_the_screenshot_opt_out_did_its_task_and_its_words_are_a_note() -> None:
+    """The step that removes a number was taken, so the task passed; the English,
+    third-person reply is how it sounded (D-828), ours to fix and never the owner's score."""
     result = decide(
         probe_scenario("stop_calling", "te-IN"),
         [
@@ -108,9 +110,9 @@ def test_the_screenshot_opt_out_fails_for_its_words_not_for_an_unprovable_write(
         language="te-IN",
         unjudged_reason="n/a",
     )
-    assert result["verdict"] == "failed" and result["fix"] == "platform"
-    assert "answered in English" in result["reason"]
-    assert "not recorded" not in result["reason"]
+    assert result["verdict"] == "passed" and result["fix"] is None
+    assert {s["kind"] for s in result["sounds"]} == {"wrong_language", "third_person"}
+    assert any("answered in English" in s["reason"] for s in result["sounds"])
     assert result["limit"] == test_conversations.OPT_OUT_TEST_LIMIT
 
 

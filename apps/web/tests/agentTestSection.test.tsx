@@ -1,19 +1,20 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { FIX_ALL_REQUEST, TestSection } from "@/app/c/[slug]/agents/[agentId]/test/TestSection";
-import { countsOf, languageOf, trendLine } from "@/app/c/[slug]/agents/[agentId]/test/testCopy";
+import { countsOf, headlineOf, isFixable, languageOf, triesLine } from "@/app/c/[slug]/agents/[agentId]/test/testCopy";
 import type { Agent } from "@/lib/api/agents";
 import type { Me } from "@/lib/api/client";
-import type { TestConversations, TestResult } from "@/lib/api/script";
+import type { TestConversations, TestResult, TestRun } from "@/lib/api/script";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
 import { renderClientPage } from "./harness";
 
 /**
- * The agent's Test section (D-748), from the founder's screenshot of 11 Oct 2026: a Telugu
- * caller answered in English, a check that a test chat cannot prove, and the fixes (asked of
- * Pip since D-820) as the next step. Each test names what it guards.
+ * The practice tests (D-828), from the founder's screenshot of 19 Oct 2026: "0 of 13" after
+ * Pip's fixes, "worse than last time" against a different set of tests, and a Telugu caller
+ * who asked for a person answered in English by the test chat's sandbox, counted under "Need
+ * a fix" with "We're fixing this". Each test names what it guards.
  */
 
 const ME: Me = {
@@ -34,7 +35,7 @@ function result(over: Partial<TestResult>): TestResult {
     title: "A test",
     category: "business",
     probe: null,
-    source: "generated",
+    source: "real",
     turns: [],
     expect: "",
     verdict: "passed",
@@ -42,172 +43,277 @@ function result(over: Partial<TestResult>): TestResult {
     fix: null,
     step_id: null,
     formal_words: [],
-    before: null,
     limit: null,
+    passes: 3,
+    judged_tries: 3,
+    reliability: "passed",
+    standing: "works",
+    counted: true,
     ...over,
   };
 }
 
+/** The screenshot's first failure, under D-828: the sandbox's hand-over reply. */
+const PERSON = result({
+  key: "probe_person",
+  title: "Asks to speak to a person",
+  probe: "person",
+  source: "standard",
+  turns: [{ said: "ఒక మనిషితో మాట్లాడాలి, connect చేయండి.", reply: "I'm sorry, but I can't connect you to a person." }],
+  verdict: "unjudged",
+  reason: "A test chat cannot ring anyone, so it cannot show a caller being put through.",
+  passes: 0,
+  judged_tries: 0,
+  reliability: "unjudged",
+  standing: "check",
+  counted: false,
+  limit: "On a real call the person on duty is rung.",
+});
+
 const STOP = result({
   key: "probe_stop_calling",
   title: "Asks not to be called again",
-  category: "compliance",
   probe: "stop_calling",
   source: "standard",
-  turns: [
-    {
-      said: "నాకు మళ్ళీ call చేయకండి, నా number తీసేయండి.",
-      reply: "The caller's number has been added to the do-not-call list.",
-      actions: ["do_not_call"],
-    },
-  ],
+  turns: [{ said: "నాకు మళ్ళీ call చేయకండి.", reply: "సరే అండి.", actions: [] }],
   verdict: "failed",
-  reason: "The caller spoke Telugu and it answered in English.",
+  reason: "It did not take the step that removes a number.",
   fix: "platform",
-  limit: "A test chat has no phone number, so it cannot show a number being removed.",
+  owner: "platform",
+  passes: 0,
+  reliability: "failed",
+  standing: "ours",
+  counted: false,
 });
 
-function tests(over: Partial<TestConversations["latest"] & object> = {}, waiting: string | null = null): TestConversations {
+const PRICE = result({
+  key: "real_1",
+  title: "Asked on a real call: Delivery",
+  verdict: "failed",
+  reason: "It made up a delivery charge.",
+  fix: "knowledge",
+  owner: "knowledge",
+  passes: 0,
+  reliability: "failed",
+  standing: "broken",
+});
+
+const HOURS = result({ key: "saved_1", title: "When do you open?", source: "saved" });
+
+const FLAKY = result({
+  key: "real_2",
+  title: "Asked on a real call: Bulk order",
+  verdict: "failed",
+  reason: "Once it promised a discount.",
+  fix: "script_step",
+  owner: "script",
+  passes: 2,
+  reliability: "flaky",
+  standing: "unreliable",
+  tries: [
+    { verdict: "passed", reason: "Fine.", turns: [{ said: "Bulk ga istara?", reply: "Team confirm chestundi andi." }] },
+    { verdict: "failed", reason: "Once it promised a discount.", turns: [{ said: "Bulk ga istara?", reply: "Ten percent discount istam." }] },
+    { verdict: "passed", reason: "Fine.", turns: [{ said: "Bulk ga istara?", reply: "Team confirm chestundi andi." }] },
+  ],
+});
+
+function run(over: Partial<TestRun> = {}): TestRun {
+  return {
+    id: "run-2",
+    status: "done",
+    prompt_version: 12,
+    is_current: true,
+    round: 1,
+    retest_of: null,
+    auto_improve: false,
+    score: { passed: 1, judged: 2, total: 4 },
+    results: [PRICE, STOP, PERSON, HOURS],
+    improvement: null,
+    note: null,
+    improving: false,
+    improve_note: null,
+    created_at: "2026-10-19T10:00:00Z",
+    completed_at: "2026-10-19T10:09:00Z",
+    set_version: 2,
+    trials: 3,
+    trials_done: 3,
+    comparison: null,
+    sounds: [{ kind: "formal_words", tests: 2 }],
+    ...over,
+  };
+}
+
+function tests(latest: TestRun | null, over: Partial<TestConversations> = {}): TestConversations {
   return {
     available: true,
     unavailable_reason: null,
     cost_note: "Not charged.",
-    waiting_update: waiting,
-    latest: {
-      id: "run-2",
-      status: "done",
-      prompt_version: 3,
-      is_current: true,
-      round: 1,
-      retest_of: null,
-      auto_improve: false,
-      score: { passed: 1, judged: 2, total: 3 },
-      results: [
-        STOP,
-        result({ key: "r1", title: "Asks what you sell", verdict: "unjudged", reason: "Not checked." }),
-        result({ key: "probe_ai", title: "Asks if it is a person", probe: "ai", reason: "It answered truthfully." }),
-      ],
-      improvement: null,
-      note: null,
-      improving: false,
-      improve_note: null,
-      created_at: "2026-10-11T10:00:00Z",
-      completed_at: "2026-10-11T10:01:00Z",
-      ...over,
-    },
-    history: [{ id: "run-1", created_at: "2026-10-10T18:21:00Z", prompt_version: 3, round: 1, score: { passed: 3, judged: 7, total: 7 } }],
+    waiting_update: null,
+    latest,
+    history: [],
+    waiting_tests: 0,
+    practice_offered: false,
+    trials: 3,
+    max_replies: 60,
+    ...over,
   };
 }
 
-const SAVED = { cases: [], available: true, unavailable_reason: null, live_version: 3, cost_note: "" };
+const SAVED = { cases: [], available: true, unavailable_reason: null, live_version: 12, cost_note: "" };
 
-describe("the practice callers in Training", () => {
-  it("states the run, the trend, each language and what to do, failures first", async () => {
-    await renderClientPage(<TestSection agent={AGENT} slug="acme" />, {
-      "/v1/me": ME,
-      "/v1/agents/agent-1/script/tests": tests({}, "Your agreements are waiting, so the improvements cannot reach this one yet."),
-      "/v1/agents/agent-1/test-cases": SAVED,
-    });
-    await screen.findByText("Asks not to be called again");
-    // The summary counts a needs-fix and a failure together, and says which way it moved.
-    expect(screen.getByText("Need a fix").nextSibling?.textContent).toBe("1");
-    expect(screen.getByText(/Better than last time \(3 of 7/)).toBeTruthy();
-    // The caller's language and the agent's are shown, so the mismatch is visible.
-    expect(screen.getByText("· Telugu")).toBeTruthy();
-    expect(screen.getAllByText("· English").length).toBeGreaterThan(0);
-    expect(screen.getByText("Used its step that removes a number")).toBeTruthy();
-    // One plain line, then what to do; what a test cannot show is behind the ⓘ.
-    expect(screen.getByText("The caller spoke Telugu and it answered in English.")).toBeTruthy();
-    expect(screen.getByText(/What to do: We're fixing this/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /About what a test cannot show/i })).toBeTruthy();
-    expect(screen.queryByText(/Fix on our side: contact us/)).toBeNull();
+function page(data: TestConversations, extra: Record<string, unknown> = {}) {
+  return renderClientPage(<TestSection agent={AGENT} slug="acme" />, {
+    "/v1/me": ME,
+    "/v1/agents/agent-1/script/tests": data,
+    "/v1/agents/agent-1/test-cases": SAVED,
+    ...extra,
+  });
+}
+
+describe("the practice tests in Training", () => {
+  it("scores only what the owner's script decides and keeps our side apart (the screenshot)", async () => {
+    await page(tests(run(), { waiting_update: "Your agreements are waiting." }));
+    // One headline: right every time on 1 of the 2 tests the script decides.
+    expect(await screen.findByRole("heading", { name: "Right every time on 1 of your 2 tests." })).toBeTruthy();
+    expect(screen.getByText("1 right every time, 1 need a fix")).toBeTruthy();
+    // The rule we failed is ours: in "On our side", never under the owner's attention.
+    const attention = screen.getByRole("heading", { name: /Needs your attention/ }).closest("section");
+    expect(attention?.textContent).toContain("Asked on a real call: Delivery");
+    expect(attention?.textContent).not.toContain("Asks not to be called again");
+    expect(screen.getByText(/1 test failed on a rule we keep for every agent/)).toBeTruthy();
+    expect(screen.getByText(/some answers used textbook words \(2 tests\)/)).toBeTruthy();
+    expect(screen.getByText(/do not count against your agent/)).toBeTruthy();
+    expect(screen.queryByText(/contact us/i)).toBeNull();
+    // The sandbox's hand-over reply is for the owner to read, with the languages shown.
+    const read = screen.getByRole("heading", { name: /Read these yourself/ }).closest("section");
+    expect(read?.textContent).toContain("Asks to speak to a person");
+    expect(screen.getAllByText(", Telugu").length).toBeGreaterThan(0);
     expect(screen.getByText(/Your agreements are waiting/)).toBeTruthy();
-    // Needs a fix is listed before Read these yourself.
-    const headings = screen.getAllByRole("heading", { level: 4 }).map((h) => h.textContent);
-    expect(headings.findIndex((h) => h?.startsWith("Needs a fix"))).toBeLessThan(
-      headings.findIndex((h) => h?.startsWith("Read these yourself")),
-    );
+    // No trend against a different set of tests.
+    expect(screen.queryByText(/than last time/)).toBeNull();
   });
 
-  it("asks Pip for the fixes, prefilled and not sent (D-820)", async () => {
+  it("offers one primary action: Pip's fixes for tests that fail every time, prefilled and not sent", async () => {
     const asked: AssistantRequest[] = [];
     function Listener() {
       useAssistantRequests((request) => asked.push(request));
       return null;
     }
     render(<Listener />);
-    const { calls } = await renderClientPage(<TestSection agent={AGENT} slug="acme" />, {
-      "/v1/me": ME,
-      "/v1/agents/agent-1/script/tests": tests({
-        results: [STOP, result({ key: "g1", title: "Asks for a discount", verdict: "needs_fix", reason: "It promised a discount.", fix: "script_step" })],
-      }),
-      "/v1/agents/agent-1/test-cases": SAVED,
-    });
+    const { calls } = await page(tests(run({ results: [PRICE, FLAKY, HOURS] })));
     fireEvent.click(await screen.findByRole("button", { name: "Let Pip suggest fixes" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Let Pip suggest a fix" })[0]);
+    // A test right on 2 of 3 tries is not reliable yet, and not Pip's to chase.
+    const fixOne = screen.getAllByRole("button", { name: "Let Pip suggest a fix" });
+    expect(fixOne).toHaveLength(1);
+    fireEvent.click(fixOne[0]);
     expect(asked.map((a) => a.prompt)).toEqual([
       FIX_ALL_REQUEST,
-      "Suggest a fix for this agent's failed test “Asks for a discount”.",
+      "Suggest a fix for this agent's failed test “Asked on a real call: Delivery”.",
     ]);
+    expect(screen.getByText("Not reliable yet")).toBeTruthy();
+    expect(screen.getByText("Right 2 of 3 times")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /Try \d/ })).toHaveLength(3);
     expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
 
-  it("shows the fixes being worked out", async () => {
-    await renderClientPage(<TestSection agent={AGENT} slug="acme" />, {
-      "/v1/me": ME,
-      "/v1/agents/agent-1/script/tests": tests({
-        improving: true,
-        results: [STOP, result({ key: "g1", title: "Asks the price", verdict: "failed", fix: "knowledge" })],
-      }),
-      "/v1/agents/agent-1/test-cases": SAVED,
+  it("shows another try's conversation on demand", async () => {
+    await page(tests(run({ results: [FLAKY] })));
+    // The failing try is shown first.
+    expect(await screen.findByText("Ten percent discount istam.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Try 1/ }));
+    expect(screen.getByText("Team confirm chestundi andi.")).toBeTruthy();
+  });
+
+  it("leads a test again with what changed on the same tests, and offers Undo for a regression", async () => {
+    const compared = run({
+      retest_of: "run-1",
+      results: [
+        { ...PRICE, verdict: "passed", owner: null, standing: "works", reliability: "passed", passes: 3, change: "fixed" },
+        { ...HOURS, verdict: "failed", owner: "script", fix: "script_step", standing: "broken", reliability: "failed", passes: 0, change: "broken" },
+      ],
+      comparison: { with_run: "run-1", with_version: 11, fixed: 1, broken: 1, still: 0, same: 0, new: 0, same_script: false },
     });
+    const { calls } = await page(tests(compared), {
+      "POST /v1/agents/agent-1/script/versions/11/restore": { script: { schema_version: 2, stages: [] }, saved_at: "2026-10-19T10:10:00Z" },
+    });
+    expect(await screen.findByRole("heading", { name: "1 fixed, 1 newly broken." })).toBeTruthy();
+    expect(screen.getByText("Fixed")).toBeTruthy();
+    expect(screen.getByText("Newly broken")).toBeTruthy();
+    // Undo is the one primary action while a change broke a test.
+    expect(screen.queryByRole("button", { name: "Let Pip suggest fixes" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Undo the last change" }));
+    expect(await screen.findByText("The earlier script is in your draft")).toBeTruthy();
+    expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/versions/11/restore"))).toBe(true);
+  });
+
+  it("asks the same tests again, and adds new tests only as a new set", async () => {
+    const { calls } = await page(tests(run(), { waiting_tests: 2, practice_offered: true }), {
+      "POST /v1/agents/agent-1/script/tests": tests(run({ id: "run-3", status: "queued", trials_done: 0 })),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Test again" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/script/tests"))).toBe(true));
+    const posted = calls.filter((c) => c.method === "POST" && c.path.endsWith("/script/tests"));
+    expect(JSON.parse(posted[0]?.body ?? "null")).toEqual({ retest_of: "run-2", auto_improve: false });
+  });
+
+  it("offers waiting tests and practice callers as a new set", async () => {
+    const { calls } = await page(tests(run(), { waiting_tests: 2, practice_offered: true }), {
+      "POST /v1/agents/agent-1/script/tests": tests(run({ id: "run-3", status: "queued", trials_done: 0 })),
+    });
+    expect(await screen.findByRole("button", { name: "Add practice callers" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add 2 new tests" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/script/tests"))).toBe(true));
+    const posted = calls.filter((c) => c.method === "POST" && c.path.endsWith("/script/tests"));
+    expect(JSON.parse(posted[0]?.body ?? "null")).toEqual({ practice_callers: false });
+  });
+
+  it("shows which try is running", async () => {
+    await page(tests(run({ status: "running", trials_done: 1 })));
+    expect(await screen.findByText("Try 2 of 3")).toBeTruthy();
+    expect(screen.getByRole("status")).toBeTruthy();
+  });
+
+  it("says a run that stopped judged nothing, and retries the same comparison", async () => {
+    const { calls } = await page(tests(run({ status: "failed", retest_of: "run-1", error_code: "stalled", results: [] })), {
+      "POST /v1/agents/agent-1/script/tests": tests(run({ id: "run-3", status: "queued", trials_done: 0 })),
+    });
+    expect(await screen.findByText("The test did not finish")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/script/tests"))).toBe(true));
+    const posted = calls.filter((c) => c.method === "POST" && c.path.endsWith("/script/tests"));
+    expect(JSON.parse(posted[0]?.body ?? "null")).toEqual({ retest_of: "run-1" });
+  });
+
+  it("invites the first run", async () => {
+    await page(tests(null));
+    expect(await screen.findByRole("heading", { name: "Check your agent before your callers do" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Run the tests" })).toBeTruthy();
+  });
+
+  it("shows the fixes being worked out, and why they could not be", async () => {
+    await page(tests(run({ improving: true })));
     expect(await screen.findByText(/Working out fixes for 1 test/)).toBeTruthy();
   });
 
   it("says why suggestions could not be made", async () => {
-    await renderClientPage(<TestSection agent={AGENT} slug="acme" />, {
-      "/v1/me": ME,
-      "/v1/agents/agent-1/script/tests": tests({
-        improve_note: "Suggestions could not be worked out, because this month's AI help allowance is used up.",
-      }),
-      "/v1/agents/agent-1/test-cases": SAVED,
-    });
+    await page(tests(run({ improve_note: "Suggestions could not be worked out, because this month's AI help allowance is used up." })));
     expect(await screen.findByText(/allowance is used up/)).toBeTruthy();
   });
 
-  it("routes each failure to who can fix it, and lets the owner mark a test wrong (D-823)", async () => {
-    const PERSON = result({
-      key: "probe_person",
-      title: "Asks to speak to a person",
-      probe: "person",
-      verdict: "unjudged",
-      reason: "Hand-over to a person is switched off for this agent.",
-      fix: "settings",
-      owner: "setting",
-      setting: { area: "handover", reason: "Hand-over to a person is switched off for this agent." },
+  it("routes a setting to its setting and lets the owner mark a test wrong (D-823)", async () => {
+    const OFF = { ...PERSON, owner: "setting" as const, fix: "settings", standing: "setting" as const, setting: { area: "handover" as const, reason: "Hand-over to a person is switched off for this agent." } };
+    const { calls } = await page(tests(run({ results: [PRICE, OFF, HOURS] })), {
+      "POST /v1/agents/agent-1/script/tests/run-2/results/real_1/wrong": tests(
+        run({ results: [{ ...PRICE, owner: "test", marked_wrong: true, standing: "wrong", counted: false }, OFF, HOURS] }),
+      ),
     });
-    const PRICE = result({ key: "g1", title: "Asks the price", verdict: "failed", reason: "It made up a price.", fix: "knowledge", owner: "knowledge" });
-    const { calls } = await renderClientPage(<TestSection agent={AGENT} slug="acme" />, {
-      "/v1/me": ME,
-      "/v1/agents/agent-1/script/tests": tests({ results: [STOP, PRICE, PERSON] }),
-      "POST /v1/agents/agent-1/script/tests/run-2/results/g1/wrong": tests({
-        results: [STOP, { ...PRICE, owner: "test", marked_wrong: true }, PERSON],
-      }),
-      "/v1/agents/agent-1/test-cases": SAVED,
-    });
-    await screen.findByText("Asks the price");
-    // Only the knowledge failure is Pip's to fix; ours says so, without "contact us".
-    expect(screen.getByText(/1 test can be fixed in the script or your facts/)).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Let Pip suggest a fix" })).toHaveLength(1);
-    expect(screen.queryByText(/contact us/i)).toBeNull();
-    // A setting's result links to the setting.
+    await screen.findByText("Asked on a real call: Delivery");
     expect(screen.getByRole("link", { name: "Open call handling" }).getAttribute("href")).toContain("section=settings#call-handling");
-    fireEvent.click(screen.getAllByRole("button", { name: "This test is wrong" })[1]);
-    await screen.findByText("Marked wrong (1)");
-    expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/results/g1/wrong"))).toBe(true);
+    fireEvent.click(screen.getAllByRole("button", { name: "This test is wrong" })[0]);
+    expect((await screen.findAllByText("Marked wrong")).length).toBeGreaterThan(0);
+    expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/results/real_1/wrong"))).toBe(true);
   });
 });
-
 
 describe("test copy", () => {
   it("names a line's language from its letters", () => {
@@ -217,16 +323,33 @@ describe("test copy", () => {
     expect(languageOf("…")).toBeNull();
   });
 
-  it("compares runs as a share of what was checked", () => {
-    const run = { id: "b", score: { passed: 2, judged: 4, total: 6 } };
-    const prior = [{ id: "a", created_at: "2026-10-10T18:21:00Z", prompt_version: 1, round: 1, score: { passed: 3, judged: 6, total: 6 } }];
-    expect(trendLine(run, prior)).toMatch(/^Same as last time/);
-    expect(trendLine(run, [])).toBeNull();
-    expect(countsOf([{ verdict: "needs_fix" }, { verdict: "failed" }, { verdict: "unjudged" }])).toEqual({
-      passed: 0,
+  it("counts the owner's score without the rules or our side", () => {
+    expect(countsOf([PRICE, STOP, PERSON, HOURS, FLAKY])).toEqual({
+      passed: 1,
       failing: 2,
+      unreliable: 1,
       unchecked: 1,
-      total: 3,
+      ours: 1,
+      total: 5,
     });
+    // A result stored before D-828 (no standing) reads from its verdict and owner.
+    expect(countsOf([{ verdict: "failed", fix: "platform", probe: null }, { verdict: "failed", fix: "style", probe: null }]).ours).toBe(2);
+  });
+
+  it("says how often a test was right, and which are worth a fix", () => {
+    expect(triesLine(FLAKY)).toBe("Right 2 of 3 times");
+    expect(triesLine(PRICE)).toBe("Wrong all 3 times");
+    expect(triesLine({ passes: 1, judged_tries: 1 })).toBeNull();
+    expect(isFixable(PRICE)).toBe(true);
+    expect(isFixable(FLAKY)).toBe(false);
+    expect(isFixable({ ...FLAKY, passes: 1 })).toBe(true);
+    expect(isFixable(STOP)).toBe(false);
+  });
+
+  it("leads with the change on the same tests, or the score on a new set", () => {
+    expect(headlineOf(run()).title).toBe("Right every time on 1 of your 2 tests.");
+    expect(headlineOf(run({ results: [HOURS] })).title).toBe("Right every time on your one test.");
+    const same = run({ comparison: { with_run: "a", with_version: 12, fixed: 0, broken: 0, still: 1, same: 1, new: 0, same_script: true } });
+    expect(headlineOf(same).title).toBe("No change on the same tests.");
   });
 });

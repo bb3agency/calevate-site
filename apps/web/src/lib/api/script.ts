@@ -529,8 +529,6 @@ export interface TestResult {
   fix: FixKind | string | null;
   step_id: string | null;
   formal_words: string[];
-  /** The same test's verdict in the run being re-tested. */
-  before: TestVerdict | null;
   /** What a test chat cannot show for this check, in the owner's words. */
   limit?: string | null;
   /** Who can fix it; null when it passed. */
@@ -539,6 +537,64 @@ export interface TestResult {
   setting?: TestSetting | null;
   /** The owner marked this test wrong: out of the score and the fixes. */
   marked_wrong?: boolean;
+  /** Tries that passed, of the tries judged (D-828). */
+  passes?: number;
+  judged_tries?: number;
+  reliability?: TestReliability;
+  /** Where it sits for the owner (`trial_results.standing`). */
+  standing?: TestStanding;
+  /** In the owner's score: their script or knowledge decides it. */
+  counted?: boolean;
+  /** Against the same test in the run this one repeated. */
+  change?: TestChange | null;
+  /** How its replies sounded, when wrong: ours to fix, never the verdict. */
+  sounds?: TestSound[];
+  /** Every try, in order. */
+  tries?: TestTry[];
+}
+
+export type TestReliability = "passed" | "flaky" | "failed" | "unjudged";
+export type TestStanding = "works" | "unreliable" | "broken" | "setting" | "check" | "ours" | "wrong";
+export type TestChange = "fixed" | "broken" | "still" | "same" | "new";
+export type SoundKind =
+  | "brackets"
+  | "symbols"
+  | "time"
+  | "money_digits"
+  | "formal_words"
+  | "spoken_number"
+  | "repeated_question"
+  | "several_questions"
+  | "unmarked_question"
+  | "too_long"
+  | "wrong_language"
+  | "third_person"
+  | "foreign_script"
+  | "repeated_turn";
+
+export interface TestSound {
+  kind: SoundKind;
+  reason: string;
+  tries: number;
+}
+
+export interface TestTry {
+  verdict: TestVerdict;
+  reason: string;
+  turns: TestTurn[];
+}
+
+/** Before against after on the same tests (D-828). */
+export interface TestComparison {
+  with_run: string;
+  /** The script version the earlier run talked to: restore it to undo. */
+  with_version: number | null;
+  fixed: number;
+  broken: number;
+  still: number;
+  same: number;
+  new: number;
+  same_script: boolean;
 }
 
 /** One suggested edit, kept or left with its own tick box. */
@@ -574,10 +630,17 @@ export interface Improvement {
   created_at: string;
 }
 
+/** The owner's score: only tests their script or knowledge decides. */
 export interface TestScore {
+  /** Right on every try. */
   passed: number;
+  /** Tests in the score. */
   judged: number;
   total: number;
+  unreliable?: number;
+  ours?: number;
+  check?: number;
+  setting?: number;
 }
 
 export interface TestRun {
@@ -600,6 +663,16 @@ export interface TestRun {
   improve_stop?: ImproveStop | null;
   created_at: string;
   completed_at: string | null;
+  /** The version of the agent's test set this run asked. */
+  set_version?: number | null;
+  /** Tries per test, and tries finished. */
+  trials?: number;
+  trials_done?: number;
+  /** Before against after, when this run repeated an earlier one. */
+  comparison?: TestComparison | null;
+  /** How replies sounded across the run: tests per kind, ours to fix. */
+  sounds?: { kind: SoundKind; tests: number }[];
+  error_code?: string | null;
 }
 
 export interface TestHistoryEntry {
@@ -608,6 +681,7 @@ export interface TestHistoryEntry {
   prompt_version: number | null;
   round: number;
   score: TestScore;
+  set_version?: number | null;
 }
 
 export interface TestConversations {
@@ -618,6 +692,20 @@ export interface TestConversations {
   waiting_update?: string | null;
   latest: TestRun | null;
   history: TestHistoryEntry[];
+  /** Saved tests and real-call questions the latest set does not have yet. */
+  waiting_tests?: number;
+  /** Practice callers may be asked for: the agent has few real calls. */
+  practice_offered?: boolean;
+  /** Tries per test, and the most test-chat replies one run may use. */
+  trials?: number;
+  max_replies?: number;
+}
+
+/** What starts a run: "Test again" (`retest_of`), or a new set of tests. */
+export interface RunTestsBody {
+  retest_of?: string | null;
+  auto_improve?: boolean;
+  practice_callers?: boolean;
 }
 
 const testsKey = (org: string, agentId: string) => ["script-tests", org, agentId] as const;
@@ -638,11 +726,14 @@ export function useTestConversations(
   });
 }
 
-/** Start a run (or get the one already running). `retest_of` is "Test again" after a fix. */
+/**
+ * Start a run (or get the one already running). `retest_of` is "Test again": the same tests
+ * as that run, for before against after. Without it the run makes a new set of tests.
+ */
 export function useRunTestConversations(
   session: Session,
   agentId: string,
-): UseMutationResult<TestConversations, Error, { retest_of?: string | null; auto_improve?: boolean } | void> {
+): UseMutationResult<TestConversations, Error, RunTestsBody | void> {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body) =>

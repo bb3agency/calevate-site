@@ -269,9 +269,10 @@ function PracticeCallers({ agent, slug }: { agent: Agent; slug: string }) {
   let fact =
     "Not run yet. Practice callers ask what real callers asked, and each answer is checked.";
   if (busy) fact = "Running now.";
+  else if (latest?.status === "failed") fact = "The last test did not finish.";
   else if (latest?.status === "done") {
     const counts = countsOf(latest.results);
-    fact = `Last run: ${counts.passed} of ${counts.passed + counts.failing} answered right${
+    fact = `Last run: ${counts.passed} of ${counts.passed + counts.failing} right every time${
       counts.unchecked > 0 ? `, ${counts.unchecked} for you to read` : ""
     }.${waiting ? " Suggested fixes are waiting." : ""}`;
   }

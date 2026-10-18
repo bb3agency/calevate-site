@@ -15,7 +15,6 @@ import pytest
 from apps.api.agents import test_conversations
 from apps.api.agents.test_conversations import (
     ENOUGH_REAL_CALLS,
-    PROBES,
     Scenario,
     TestRun,
     WrongTests,
@@ -51,11 +50,10 @@ async def test_an_agent_with_enough_real_calls_is_tested_on_them_alone(
             ("0192f0aa-0000-7000-8000-00000000abcd", "Delivery", "Kukatpally ki delivery undha?"),
         ),
     )
-    scenarios, note = await worker.write_scenarios(
-        brief, tenant_id=uuid.uuid4(), round_key="r1", count=8, tenant_leg=None
+    callers, note = await worker.write_practice_callers(
+        brief, tenant_id=uuid.uuid4(), round_key="r1", tenant_leg=None
     )
-    assert {s.probe for s in scenarios} == set(PROBES) and len(scenarios) == len(PROBES)
-    assert note == worker.FROM_REAL_CALLS_NOTE
+    assert callers == [] and note == worker.FROM_REAL_CALLS_NOTE
     real = real_call_scenarios(brief)
     assert [s.turns for s in real] == [("Kukatpally ki delivery undha?",)]
     assert real[0].source == "real" and real[0].title == "Asked on a real call: Delivery"
@@ -114,7 +112,7 @@ async def test_a_test_marked_wrong_leaves_the_score_the_fixes_and_later_runs() -
             )
         ).scalar_one()
     assert run.wrong_keys == frozenset({"saved_x"})
-    assert run.score == (1, 2)
+    assert (run.score.passed, run.score.counted) == (1, 2)
     assert [r["key"] for r in needs_improving(run)] == ["k1"]
     assert snapshot["judge_verdict"] == "failed" and snapshot["owner"] == "script"
     saved = Scenario(

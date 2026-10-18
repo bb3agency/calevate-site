@@ -11,7 +11,8 @@ punctuation written for a voice, with no brackets, dashes, slashes, ellipses or 
 prices and quantities in words, never "₹120" or "1 kg"; "?" on every question.
 
 Used by the test loop's hard checks (`agents/test_conversations.hard_check`), which fail a
-reply before the AI judge reads it, and by the in-call model comparison
+test on a `JOB_KINDS` problem and note the `SOUND_KINDS` ones, and by the in-call model
+comparison
 (`scripts/compare_in_call_models`).
 
 CONSERVATIVE WHERE A RULE NEEDS JUDGEMENT. A false failure tells an owner their agent is
@@ -57,16 +58,38 @@ Kind = Literal[
     "repeated_turn",
 ]
 
-#: Problems only the platform can fix (the model reading out context, notes or an action's
-#: answer, or leaving the caller's language, which the platform prompt decides); the rest
-#: are the agent's speaking style, which the owner's script and examples influence.
-PLATFORM_KINDS: Final = frozenset(
+#: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
+#: turn. The platform prompt and the register layer (`spoken_style.json`) decide these, not
+#: the owner's script, so in the test loop they are a quality note and an alarm to us and
+#: never fail a test: production runs of 18-19 Oct 2026 failed 25 of 34 tests on textbook
+#: words alone, sent them to the script improver, which cannot change the in-call model's
+#: vocabulary, and the loop could not converge.
+SOUND_KINDS: Final = frozenset(
     {
         "brackets",
+        "symbols",
         "time",
+        "money_digits",
+        "formal_words",
+        "spoken_number",
+        "repeated_question",
+        "several_questions",
+        "unmarked_question",
+        "too_long",
         "wrong_language",
         "third_person",
         "foreign_script",
+        "repeated_turn",
+    }
+)
+#: What breaks the caller's task whatever the words: the caller's part said for them, a
+#: claim that something was done when nothing did it, a number asked for or taken wrongly,
+#: goodbye while the caller is still asking. These fail the test. They are platform rules
+#: as well (`calevate_shared.engine`), so they are ours to fix, not the owner's.
+JOB_KINDS: Final = frozenset(
+    {
+        "speaker_labels",
+        "caller_line",
         "unconfirmed_action",
         "asked_known_number",
         "partial_number",
@@ -515,8 +538,10 @@ _HI_NUMBER: Final = (
     "एक|दो|तीन|चार|पाँच|पांच|छह|छः|सात|आठ|नौ|दस|बीस|तीस|चालीस|पचास|साठ|सत्तर|अस्सी|नब्बे|"
     "सौ|हज़ार|हजार|डेढ़|ढाई"
 )
-#: A price in the language's own number words ("ఆరు నూరు రూపాయలు"): the founder's rule is
-#: the English way ("six hundred rupees"), as shops in Hyderabad say it (D-744).
+#: A price in the language's own number words ("ఆరు నూరు రూపాయలు"). A problem only where the
+#: language's `prices` number rule says the English way (`LanguageStyle.native_price_words`):
+#: Telugu's does ("six hundred rupees", as shops in Hyderabad say it, D-744), Hindi's allows
+#: "एक सौ बीस रुपये".
 _NATIVE_PRICE: Final[dict[str, re.Pattern[str]]] = {
     "te": re.compile(rf"(?:(?:{_TE_NUMBER})\s+)*(?:{_TE_NUMBER})\s*రూపాయ"),
     "hi": re.compile(rf"(?:(?:{_HI_NUMBER})\s+)*(?:{_HI_NUMBER})\s*(?:रुपय|रुपए|रुपये|रूपये)"),
@@ -552,14 +577,25 @@ def _script_and_number_problems(reply: str, language: str) -> list[TurnProblem]:
                 "the voice cannot say.",
             )
         )
-    native = _NATIVE_PRICE.get(language.split("-")[0].lower())
-    said = (native.search(reply) if native else None) or _DIGIT_UNIT.search(reply)
+    style = style_for(language) if language else None
+    native = (
+        _NATIVE_PRICE.get(language.split("-")[0].lower())
+        if style is not None and not style.native_price_words
+        else None
+    )
+    in_words = native.search(reply) if native else None
+    said = in_words or _DIGIT_UNIT.search(reply)
     if said:
+        how = (
+            'the English way, as shops do ("six hundred rupees", "one kg")'
+            if in_words
+            else "in words, as shops do"
+        )
         found.append(
             TurnProblem(
                 "spoken_number",
-                f"It said {_quoted(said.group(0))}. Say prices and quantities the English "
-                'way, as shops do ("six hundred rupees", "one kg"), never in digits.',
+                f"It said {_quoted(said.group(0))}. Say prices and quantities {how}, never in "
+                "digits.",
             )
         )
     return found
@@ -766,9 +802,10 @@ def conversation_problems(
 
 
 __all__ = [
+    "JOB_KINDS",
     "MAX_SENTENCES",
     "MOBILE_DIGITS",
-    "PLATFORM_KINDS",
+    "SOUND_KINDS",
     "Exchange",
     "TurnProblem",
     "claims_done",
