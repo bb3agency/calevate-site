@@ -115,6 +115,9 @@ TENANT_TABLES = [
     "kb_facts",
     "agent_rule_proposals",
     "agent_test_cases",
+    # A test Pip prepared from a call, waiting for one person to check and save it (D-822,
+    # migration b9e4c2d7a316).
+    "call_test_case_drafts",
     # A client's plan for calling new leads and the leads held for its release (D-716,
     # migration a9c4e2f7d138).
     "lead_call_policies",

@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, Text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -44,6 +44,7 @@ TEST_CASE_STATUSES = ("idle", "queued", "running")
 MAX_CASE_LINES = 6
 MAX_CASE_LINE_CHARS = 500
 MAX_CASE_EXPECTED_CHARS = 600
+MAX_CASE_TITLE_CHARS = 120
 
 
 class KbFact(PKMixin, TimestampMixin, Base):
@@ -191,11 +192,44 @@ class AgentTestCase(PKMixin, TimestampMixin, Base):
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
 
 
+class CallTestCaseDraft(PKMixin, TimestampMixin, Base):
+    """A test Pip prepared from a call for one person, waiting on the call page (D-822).
+
+    Only what Pip was told: the behaviour the person expects and an optional title. The
+    caller's lines are not copied; the "Make this call a test" form reads them redacted from
+    the call. Saving that form or discarding it deletes the row.
+    """
+
+    __tablename__ = "call_test_case_drafts"
+    __table_args__ = (
+        UniqueConstraint("call_id", "requested_by"),
+        CheckConstraint(
+            f"expected IS NULL OR char_length(expected) BETWEEN 1 AND {MAX_CASE_EXPECTED_CHARS}",
+            name="expected_length",
+        ),
+        CheckConstraint(
+            f"title IS NULL OR char_length(title) BETWEEN 1 AND {MAX_CASE_TITLE_CHARS}",
+            name="title_length",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    call_id: Mapped[UUID] = mapped_column(
+        ForeignKey("calls.id", ondelete="CASCADE"), nullable=False
+    )
+    requested_by: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    expected: Mapped[str | None] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text)
+
+
 __all__ = [
     "FACT_ORIGINS",
     "MAX_CASE_EXPECTED_CHARS",
     "MAX_CASE_LINES",
     "MAX_CASE_LINE_CHARS",
+    "MAX_CASE_TITLE_CHARS",
     "MAX_FACT_CHARS",
     "MAX_PINNED_ANSWER_CHARS",
     "MAX_PINNED_QUESTION_CHARS",
@@ -207,6 +241,7 @@ __all__ = [
     "TEST_CASE_STATUSES",
     "AgentRuleProposal",
     "AgentTestCase",
+    "CallTestCaseDraft",
     "KbFact",
     "KbTeaching",
 ]

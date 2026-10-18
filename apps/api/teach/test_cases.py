@@ -28,6 +28,7 @@ from apps.api.teach.models import (
     MAX_CASE_EXPECTED_CHARS,
     MAX_CASE_LINE_CHARS,
     MAX_CASE_LINES,
+    MAX_CASE_TITLE_CHARS,
 )
 
 #: The worker job (`apps/workers/agent_test_cases.JOB_NAME`).
@@ -35,7 +36,7 @@ RUN_CASES_JOB: Final = "run_agent_test_cases"
 
 #: The most saved tests one agent keeps; each run sends every line of every test.
 MAX_CASES_PER_AGENT: Final = 20
-MAX_TITLE_CHARS: Final = 120
+MAX_TITLE_CHARS: Final = MAX_CASE_TITLE_CHARS
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,16 +173,7 @@ async def create_case(
     ).scalar()
     if exists is None:
         raise ProblemError.not_found("Agent")
-    count = int(
-        (
-            await session.execute(
-                text("SELECT count(*) FROM agent_test_cases WHERE agent_id = :aid"),
-                {"aid": agent_id},
-            )
-        ).scalar()
-        or 0
-    )
-    if count >= MAX_CASES_PER_AGENT:
+    if await saved_count(session, agent_id) >= MAX_CASES_PER_AGENT:
         raise ProblemError.business_rule(
             "test_cases_full",
             f"This agent already has {MAX_CASES_PER_AGENT} saved tests.",
@@ -208,7 +200,97 @@ async def create_case(
             },
         )
     ).one()
+    if call_id is not None and created_by is not None:
+        # Saving the form is how a test Pip prepared is kept (D-822): it is done with.
+        await discard_pending(session, call_id=call_id, user_id=created_by)
     return _case_of(row)
+
+
+async def saved_count(session: AsyncSession, agent_id: UUID) -> int:
+    return int(
+        (
+            await session.execute(
+                text("SELECT count(*) FROM agent_test_cases WHERE agent_id = :aid"),
+                {"aid": agent_id},
+            )
+        ).scalar()
+        or 0
+    )
+
+
+# --- a test Pip prepared, waiting on the call page (D-822) ----------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class PendingCase:
+    """What Pip prepared for one person from one call: the form on the call page opens with
+    it, and nothing is saved until that person saves the form. The caller's lines are not
+    here; the form reads them redacted from the call (`draft_from_call`)."""
+
+    expected: str | None
+    title: str | None
+
+
+def clean_pending_text(value: str | None, limit: int) -> str | None:
+    cleaned = " ".join((value or "").split())[:limit]
+    return cleaned or None
+
+
+async def read_pending(
+    session: AsyncSession, *, call_id: UUID, user_id: UUID, lock: bool = False
+) -> PendingCase | None:
+    row = (
+        await session.execute(
+            text(
+                "SELECT expected, title FROM call_test_case_drafts "
+                "WHERE call_id = :call AND requested_by = :by" + (" FOR UPDATE" if lock else "")
+            ),
+            {"call": call_id, "by": user_id},
+        )
+    ).first()
+    return None if row is None else PendingCase(expected=row[0], title=row[1])
+
+
+async def write_pending(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    call_id: UUID,
+    user_id: UUID,
+    pending: PendingCase,
+) -> PendingCase:
+    """Create or replace this person's prepared test for this call. One per call and
+    person: asking again replaces what the form will open with, it does not stack."""
+    expected = clean_pending_text(pending.expected, MAX_CASE_EXPECTED_CHARS)
+    title = clean_pending_text(pending.title, MAX_TITLE_CHARS)
+    await session.execute(
+        text(
+            "INSERT INTO call_test_case_drafts (id, tenant_id, call_id, requested_by, "
+            "expected, title, created_at, updated_at) VALUES (:id, :tid, :call, :by, "
+            ":expected, :title, now(), now()) ON CONFLICT (call_id, requested_by) DO UPDATE "
+            "SET expected = EXCLUDED.expected, title = EXCLUDED.title, updated_at = now()"
+        ),
+        {
+            "id": uuid7(),
+            "tid": tenant_id,
+            "call": call_id,
+            "by": user_id,
+            "expected": expected,
+            "title": title,
+        },
+    )
+    return PendingCase(expected=expected, title=title)
+
+
+async def discard_pending(session: AsyncSession, *, call_id: UUID, user_id: UUID) -> bool:
+    result = await session.execute(
+        text(
+            "DELETE FROM call_test_case_drafts WHERE call_id = :call AND requested_by = :by "
+            "RETURNING id"
+        ),
+        {"call": call_id, "by": user_id},
+    )
+    return result.first() is not None
 
 
 async def list_cases(session: AsyncSession, agent_id: UUID) -> list[TestCase]:
@@ -275,14 +357,21 @@ async def request_run(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID)
 
 __all__ = [
     "MAX_CASES_PER_AGENT",
+    "MAX_TITLE_CHARS",
     "RUN_CASES_JOB",
     "CaseDraft",
+    "PendingCase",
     "TestCase",
     "clean_expected",
     "clean_lines",
+    "clean_pending_text",
     "create_case",
     "delete_case",
+    "discard_pending",
     "draft_from_call",
     "list_cases",
+    "read_pending",
     "request_run",
+    "saved_count",
+    "write_pending",
 ]

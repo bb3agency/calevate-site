@@ -13,9 +13,13 @@ this module moves the rest, each through the same service function its old butto
   details screen for the owner to keep field by field (a review step it did not have).
 * `call_summarise_again` — a second reading of one call over its REDACTED transcript;
   `crm/resummarise.second_reading`, shown in the confirmation and stored nowhere.
+* `call_test_prepare` — "Make this call a test" (D-822). No model: it fills in the call
+  page's test form (`teach/test_cases.write_pending`), which the person checks and saves.
 
-All three are `confirm`: the first and third spend the AI allowance, and the second is a
-one-time request that can never be made again. Permissions are the old buttons' own.
+The first three are `confirm`: the first and third spend the AI allowance, and the second is
+a one-time request that can never be made again. The fourth is `immediate` with an Undo: it
+saves no test, reaches no caller and spends nothing, and the form's own Save is the click.
+Permissions are the old buttons' own.
 """
 
 from __future__ import annotations
@@ -31,11 +35,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import lead_fields
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.copilot.actions import (
+    DOES_IT,
     PROPOSES_ONLY,
     ActionTool,
     Executed,
     Plan,
     ToolActor,
+    Undo,
+    UndoRecord,
+    UndoRefusedError,
     WriteRefusedError,
     action_schema,
     parse_args,
@@ -45,8 +53,8 @@ from apps.api.copilot.sanitize import strip_invisible
 from apps.api.crm import resummarise
 from apps.api.db.ownership import assert_visible
 from apps.api.kb.curation import CURATE_PERMISSION
-from apps.api.teach import teaching
-from apps.api.teach.models import MAX_TEACH_WORDS
+from apps.api.teach import teaching, test_cases
+from apps.api.teach.models import MAX_CASE_EXPECTED_CHARS, MAX_TEACH_WORDS
 
 _NULLABLE_TEXT: Final = {"anyOf": [{"type": "string"}, {"type": "null"}]}
 
@@ -335,11 +343,171 @@ CALL_SUMMARISE_AGAIN: Final = ActionTool(
     execute=_execute_second_reading,
 )
 
+
+# --- call_test_prepare --------------------------------------------------------------------
+
+
+class _CallTestArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    call_id: UUID
+    expected: Annotated[str, Field(max_length=MAX_CASE_EXPECTED_CHARS + 1)] | None
+    title: Annotated[str, Field(max_length=test_cases.MAX_TITLE_CHARS + 1)] | None
+
+
+def _pending_of(parsed: _CallTestArgs) -> test_cases.PendingCase:
+    return test_cases.PendingCase(
+        expected=test_cases.clean_pending_text(
+            strip_invisible(parsed.expected or ""), MAX_CASE_EXPECTED_CHARS
+        ),
+        title=test_cases.clean_pending_text(
+            strip_invisible(parsed.title or ""), test_cases.MAX_TITLE_CHARS
+        ),
+    )
+
+
+async def _plan_call_test(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
+    """READ ONLY. Refuses, before anything is written, what the form would refuse on save:
+    a call with no caller lines, or an agent that already keeps the most tests."""
+    del actor
+    parsed = parse_args(_CallTestArgs, args)
+    await assert_visible(session, "call", parsed.call_id)
+    draft = await test_cases.draft_from_call(session, parsed.call_id)
+    if not draft.caller_lines:
+        raise WriteRefusedError(
+            "the caller said nothing in this call that a test could send, so it cannot "
+            "become a test"
+        )
+    if await test_cases.saved_count(session, draft.agent_id) >= test_cases.MAX_CASES_PER_AGENT:
+        raise WriteRefusedError(
+            f"this call's agent already keeps {test_cases.MAX_CASES_PER_AGENT} saved tests, "
+            "so one must be deleted on its Test section first"
+        )
+    pending = _pending_of(parsed)
+    return Plan(
+        object_id=str(parsed.call_id),
+        title="Make this call a test",
+        summary=(
+            f"{ASSISTANT_NAME} fills in the test form on this call's page with what the "
+            "caller said, phone numbers and other identifiers hidden. You check it, change "
+            "anything, and save it there."
+        ),
+        current=None,
+        proposed=pending.expected or "What the agent should do: you write it on the form",
+        cost=None,
+        reversal="Nothing is saved until you save the form; discard it there.",
+        args={
+            "call_id": str(parsed.call_id),
+            "expected": pending.expected,
+            "title": pending.title,
+        },
+    )
+
+
+async def _capture_call_test(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> dict[str, Any]:
+    parsed = parse_args(_CallTestArgs, args)
+    pending = await test_cases.read_pending(session, call_id=parsed.call_id, user_id=actor.user_id)
+    if pending is None:
+        return {"exists": False}
+    return {"exists": True, "expected": pending.expected, "title": pending.title}
+
+
+async def _execute_call_test(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Executed:
+    """`test_cases.write_pending`: what the form opens with. Saving stays the form's own
+    `POST /v1/calls/{call_id}/test-case`, so nothing reaches the agent's tests unseen."""
+    parsed = parse_args(_CallTestArgs, args)
+    await test_cases.write_pending(
+        session,
+        tenant_id=actor.tenant_id,
+        call_id=parsed.call_id,
+        user_id=actor.user_id,
+        pending=_pending_of(parsed),
+    )
+    return Executed(
+        applied=True,
+        detail=(
+            "The test form on this call's page is filled in. Check what the caller says "
+            "and what the agent should do, then save it there."
+        ),
+        audit_summary={"call_id": str(parsed.call_id), "expected": parsed.expected is not None},
+        object_id=str(parsed.call_id),
+    )
+
+
+async def _invert_call_test(session: AsyncSession, actor: ToolActor, record: UndoRecord) -> str:
+    """Put back what the form would have opened with, if nobody has saved or changed it."""
+    call_id = UUID(str(record.args["call_id"]))
+    live = await test_cases.read_pending(session, call_id=call_id, user_id=actor.user_id, lock=True)
+    if live is None:
+        raise UndoRefusedError("that test was already saved or discarded, so it was left alone")
+    if (live.expected, live.title) != (
+        record.result_state.get("expected"),
+        record.result_state.get("title"),
+    ):
+        raise UndoRefusedError("that test was prepared again since, so it was left alone")
+    if not record.prior_state.get("exists"):
+        await test_cases.discard_pending(session, call_id=call_id, user_id=actor.user_id)
+        return "The test form on that call is empty again."
+    await test_cases.write_pending(
+        session,
+        tenant_id=actor.tenant_id,
+        call_id=call_id,
+        user_id=actor.user_id,
+        pending=test_cases.PendingCase(
+            expected=record.prior_state.get("expected"), title=record.prior_state.get("title")
+        ),
+    )
+    return "The test form on that call is back to what it held before."
+
+
+CALL_TEST_PREPARE: Final = ActionTool(
+    name="call_test_prepare",
+    # TIER 1. It saves no test: it fills in a form the person saves themselves. It reaches no
+    # caller, calls no model, spends nothing, and Undo puts the form back exactly.
+    tier="immediate",
+    # `POST /v1/calls/{call_id}/test-case`'s own permission: the save the form makes.
+    permission="agents:write",
+    object_type="call",
+    audit_action="agent_test_case.prepared",
+    where="in the test form on the call's page",
+    schema=action_schema(
+        "call_test_prepare",
+        "Make one call a test for its agent: fills in the test form on the call's page "
+        "with the caller's lines, which the person checks and saves there." + DOES_IT,
+        {
+            "call_id": {
+                "type": "string",
+                "description": "The call's id, from SCREEN STATE or `calls_recent`.",
+            },
+            "expected": {
+                **_NULLABLE_TEXT,
+                "description": "What the agent should do instead, in their words, or null.",
+            },
+            "title": {**_NULLABLE_TEXT, "description": "A name for the test, or null."},
+        },
+    ),
+    plan=_plan_call_test,
+    execute=_execute_call_test,
+    undo=Undo(capture=_capture_call_test, invert=_invert_call_test),
+)
+
+
 #: Registration order is wire order: new actions APPEND.
 ASSIST_ACTIONS: Final[tuple[ActionTool, ...]] = (
     KNOWLEDGE_TEACH,
     LEAD_FIELDS_DRAFT,
     CALL_SUMMARISE_AGAIN,
+    CALL_TEST_PREPARE,
 )
 
-__all__ = ["ASSIST_ACTIONS", "CALL_SUMMARISE_AGAIN", "KNOWLEDGE_TEACH", "LEAD_FIELDS_DRAFT"]
+__all__ = [
+    "ASSIST_ACTIONS",
+    "CALL_SUMMARISE_AGAIN",
+    "CALL_TEST_PREPARE",
+    "KNOWLEDGE_TEACH",
+    "LEAD_FIELDS_DRAFT",
+]

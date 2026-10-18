@@ -86,6 +86,8 @@ _REVIEWED_IMMEDIATE: dict[str, str] = {
     "campaign_clone": "a draft copy without contacts; Undo cancels it while it is empty",
     "agent_edit": "refuses a live agent, so no caller hears it; prior settings restored",
     "agent_capture_fields_set": "field definitions, reaching no caller; the prior list restored",
+    # D-822: it saves no test; it fills in the call page's form, which the person saves.
+    "call_test_prepare": "a filled-in form nobody has saved; Undo puts the form back",
 }
 
 

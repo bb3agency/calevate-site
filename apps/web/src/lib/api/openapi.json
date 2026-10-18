@@ -8284,6 +8284,16 @@
             "title": "Caller Lines",
             "type": "array"
           },
+          "pending": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PendingCaseOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -8294,7 +8304,8 @@
           "agent_id",
           "agent_name",
           "caller_lines",
-          "title"
+          "title",
+          "pending"
         ],
         "title": "CaseDraftOut",
         "type": "object"
@@ -28772,6 +28783,39 @@
           "cells"
         ],
         "title": "PendingCardOut",
+        "type": "object"
+      },
+      "PendingCaseOut": {
+        "additionalProperties": false,
+        "properties": {
+          "expected": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "expected",
+          "title"
+        ],
+        "title": "PendingCaseOut",
         "type": "object"
       },
       "PendingChangeOut": {
@@ -60343,6 +60387,39 @@
           "teach"
         ],
         "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/calls/{call_id}/test-case-draft/pending": {
+      "delete": {
+        "operationId": "discard_prepared_test_case_v1_calls__call_id__test_case_draft_pending_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Discard the test Pip prepared from this call",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "agents:write"
       }
     },
     "/v1/calls/{call_id}/transcript/raw": {

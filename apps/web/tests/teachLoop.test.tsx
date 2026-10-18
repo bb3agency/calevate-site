@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { READ_FILE_REQUEST } from "@/app/c/[slug]/knowledge/TeachBox";
 import KnowledgePage from "@/app/c/[slug]/knowledge/page";
-import { MakeCallTest } from "@/components/improvement/MakeCallTest";
+import { MAKE_TEST_REQUEST, MakeCallTest } from "@/components/improvement/MakeCallTest";
 import { SavedTests } from "@/components/improvement/SavedTests";
 import { TryChat } from "@/components/improvement/TryChat";
 import type { Me } from "@/lib/api/client";
@@ -273,45 +273,82 @@ describe("where it struggled", () => {
 });
 
 describe("make this call a test", () => {
-  it("starts from the caller's redacted lines and saves what the agent should do", async () => {
+  const DRAFT = {
+    call_id: "call-9",
+    agent_id: "agent-1",
+    agent_name: "Front desk",
+    caller_lines: ["naa number [phone], chilli undha?"],
+    title: "Asked about chilli",
+  };
+  const SAVED = {
+    id: "case-1",
+    agent_id: "agent-1",
+    source_call_id: "call-9",
+    title: "Asked about chilli",
+    caller_lines: ["naa number [phone], chilli undha?"],
+    expected: "Gives the chilli price.",
+    status: "idle",
+    last_result: null,
+    last_error: null,
+    last_run_at: null,
+    last_prompt_version: null,
+    created_at: "2026-10-10T10:00:00Z",
+  };
+
+  it("asks Pip to make the test and saves nothing itself", async () => {
+    const asked: AssistantRequest[] = [];
+    function Listener() {
+      useAssistantRequests((request) => asked.push(request));
+      return null;
+    }
+    render(<Listener />);
+    const { calls } = await renderClientPage(<MakeCallTest callId="call-9" />, {
+      "/v1/me": ME,
+      "/v1/calls/call-9/test-case-draft": { ...DRAFT, pending: null },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /^Let Pip make this call a test: / }));
+    expect(asked.map((a) => a.prompt)).toEqual([MAKE_TEST_REQUEST]);
+    expect(screen.queryByLabelText("What should the agent do?")).toBeNull();
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
+  it("opens the form Pip filled in for the person to check, change and save", async () => {
     const { calls } = await renderClientPage(<MakeCallTest callId="call-9" />, {
       "/v1/me": ME,
       "/v1/calls/call-9/test-case-draft": {
-        call_id: "call-9",
-        agent_id: "agent-1",
-        agent_name: "Front desk",
-        caller_lines: ["naa number [phone], chilli undha?"],
-        title: "Asked about chilli",
+        ...DRAFT,
+        pending: { expected: "Gives the chilli price.", title: null },
       },
-      "POST /v1/calls/call-9/test-case": {
-        id: "case-1",
-        agent_id: "agent-1",
-        source_call_id: "call-9",
-        title: "Asked about chilli",
-        caller_lines: ["naa number [phone], chilli undha?"],
-        expected: "Gives the chilli price.",
-        status: "idle",
-        last_result: null,
-        last_error: null,
-        last_run_at: null,
-        last_prompt_version: null,
-        created_at: "2026-10-10T10:00:00Z",
-      },
+      "POST /v1/calls/call-9/test-case": SAVED,
     });
-    fireEvent.click(screen.getByRole("button", { name: "Make this call a test" }));
     const line = (await screen.findByLabelText("Caller line 1")) as HTMLInputElement;
     expect(line.value).toBe("naa number [phone], chilli undha?");
-    fireEvent.change(screen.getByLabelText("What should the agent do?"), {
-      target: { value: "Gives the chilli price." },
-    });
+    const expected = screen.getByLabelText("What should the agent do?") as HTMLTextAreaElement;
+    expect(expected.value).toBe("Gives the chilli price.");
+    fireEvent.change(expected, { target: { value: "Looks up chilli and gives the price." } });
     fireEvent.click(screen.getByRole("button", { name: "Save test" }));
     await waitFor(() =>
       expect(JSON.parse(calls.find((c) => c.path === "/v1/calls/call-9/test-case")?.body ?? "{}")).toEqual({
         title: "Asked about chilli",
         caller_lines: ["naa number [phone], chilli undha?"],
-        expected: "Gives the chilli price.",
+        expected: "Looks up chilli and gives the price.",
       }),
     );
+  });
+
+  it("discards what Pip filled in", async () => {
+    const { calls } = await renderClientPage(<MakeCallTest callId="call-9" />, {
+      "/v1/me": ME,
+      "/v1/calls/call-9/test-case-draft": { ...DRAFT, pending: { expected: null, title: null } },
+      "DELETE /v1/calls/call-9/test-case-draft/pending": noContent(),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.method === "DELETE" && c.path === "/v1/calls/call-9/test-case-draft/pending"),
+      ).toBe(true),
+    );
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
 });
 

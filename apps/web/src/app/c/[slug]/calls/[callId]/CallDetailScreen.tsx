@@ -99,7 +99,9 @@ export function CallDetailScreen({
    * session, so an operator now gets a working button and an audit row naming them.
    */
   const write = useWriteAccess(session, "leads:dispatch", "place a follow-up call");
-  const testWrite = useWriteAccess(session, "org:manage", "save a call as a test");
+  // The save's own permission (`POST /v1/calls/{call_id}/test-case`), which Pip's
+  // `call_test_prepare` also holds (D-822).
+  const testWrite = useWriteAccess(session, "agents:write", "save a call as a test");
   const englishWrite = useWriteAccess(session, "org:manage", "prepare the English of a call");
   const retryEnglish = useRetryEnglish(session, callId);
   // ONE language for the page: the conversation and the summary both follow it. Chosen once,

@@ -797,6 +797,11 @@ async def run_test_cases(
     return await _cases_out(session, agent_id)
 
 
+class PendingCaseOut(Strict):
+    expected: str | None
+    title: str | None
+
+
 class CaseDraftOut(Strict):
     call_id: UUID
     agent_id: UUID
@@ -804,6 +809,9 @@ class CaseDraftOut(Strict):
     #: The caller's lines from the call, redacted, at most six.
     caller_lines: list[str]
     title: str
+    #: What Pip prepared for this person from this call, or null (D-822). The form opens
+    #: with it; nothing is saved until the person saves the form.
+    pending: PendingCaseOut | None
 
 
 @router.get(
@@ -813,10 +821,52 @@ class CaseDraftOut(Strict):
     summary="Start a test from this call: its caller lines, redacted",
 )
 async def draft_test_case(
-    call_id: UUID, session: Session, _: Principal = Depends(requires("calls:read"))
+    call_id: UUID, session: Session, principal: Principal = Depends(requires("calls:read"))
 ) -> CaseDraftOut:
-    return CaseDraftOut.model_validate(
-        await test_cases.draft_from_call(session, call_id), from_attributes=True
+    draft = await test_cases.draft_from_call(session, call_id)
+    pending = (
+        await test_cases.read_pending(session, call_id=call_id, user_id=principal.user_id)
+        if principal.user_id is not None
+        else None
+    )
+    return CaseDraftOut(
+        call_id=draft.call_id,
+        agent_id=draft.agent_id,
+        agent_name=draft.agent_name,
+        caller_lines=draft.caller_lines,
+        title=draft.title,
+        pending=(
+            PendingCaseOut(expected=pending.expected, title=pending.title)
+            if pending is not None
+            else None
+        ),
+    )
+
+
+@router.delete(
+    "/v1/calls/{call_id}/test-case-draft/pending",
+    status_code=204,
+    openapi_extra=permission_meta("agents:write"),
+    summary="Discard the test Pip prepared from this call",
+)
+async def discard_prepared_test_case(
+    call_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("agents:write")),
+) -> None:
+    assert principal.user_id is not None
+    if not await test_cases.discard_pending(session, call_id=call_id, user_id=principal.user_id):
+        raise ProblemError.not_found("Prepared test")
+    await write_audit(
+        session,
+        action="agent_test_case.prepared_discard",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="call",
+        object_id=str(call_id),
+        ip=client_request_ip(request),
+        summary={},
     )
 
 

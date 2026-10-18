@@ -78,6 +78,9 @@
     {"id": "c-call-summarise", "realm": "client", "kind": "action", "route": "/c/sunrise/calls/0192f3a4-0000-7000-8000-0000000ca111", "title": "Call",
      "facts": [{"key": "call_id", "label": "Call id", "value": "0192f3a4-0000-7000-8000-0000000ca111"}],
      "question": "Summarise this call again from its transcript", "expect": ["call_summarise_again"], "forbid": ["set_fields"]},
+    {"id": "c-call-to-test", "realm": "client", "kind": "action", "route": "/c/sunrise/calls/0192f3a4-0000-7000-8000-0000000ca111", "title": "Call",
+     "facts": [{"key": "call_id", "label": "Call id", "value": "0192f3a4-0000-7000-8000-0000000ca111"}],
+     "question": "Make this call a test for its agent; it should have given the chilli price", "expect": ["call_test_prepare"], "forbid": ["set_fields", "call_summarise_again"]},
 
     {"id": "c-fill-hours", "realm": "client", "kind": "fill", "route": "/c/sunrise/agents/new", "title": "Build an agent",
      "fields": [
