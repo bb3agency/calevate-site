@@ -161,7 +161,8 @@ EDIT_INSTRUCTION = (
     "You edit the call script of an AI phone agent. You are given the current script as "
     "JSON and one change the owner wants. Return the WHOLE script as JSON in exactly the same "
     "shape, with only that change made: keep every other field, every section and every "
-    "section id as it is, and give any new section a new short lowercase id. A field the "
+    "section id as it is, and give any new section a new short lowercase id. The steps of "
+    "the call are the `stages` list; leave the `steps` list exactly as it is. A field the "
     "change does not need stays exactly as it is, and an EMPTY field stays empty: do not fill "
     "in parts the owner did not ask about. Instructions "
     "stay in plain English; words the agent says stay in the call language, spoken, with "
@@ -174,10 +175,33 @@ EDIT_INSTRUCTION = (
 Parser = Callable[[dict[str, Any]], "CallScript | None"]
 
 
+def _stages_where_they_belong(fields: dict[str, Any], current: CallScript) -> dict[str, Any]:
+    """Move call steps the model wrote into the legacy `steps` list back into `stages`.
+
+    A script has both: `steps` (schema 1, items carrying only an `instruction`) and
+    `stages` (the steps an owner sees, each with an `id`). Asked to "keep every step", the
+    model put the stages into `steps`, and every one failed as an unknown field (production,
+    18 Oct 2026: 60 `extra_forbidden` errors, the same after the repair). An item with an
+    `id` can only be a stage, so it is moved; the legacy list is kept as it was.
+    """
+    steps = fields.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return fields
+    if not all(isinstance(item, dict) and "id" in item for item in steps):
+        return fields
+    moved = dict(fields)
+    if "stages" not in moved:
+        moved["stages"] = steps
+    moved["steps"] = [step.model_dump() for step in current.steps]
+    return moved
+
+
 def edited_script(raw: dict[str, Any], current: CallScript) -> CallScript | None:
     """The model's edited script, validated like any save; None when it is not a valid
     script (the edit is then reported as no draft rather than half applied)."""
-    fields = {k: v for k, v in raw.items() if k in CallScript.model_fields}
+    fields = _stages_where_they_belong(
+        {k: v for k, v in raw.items() if k in CallScript.model_fields}, current
+    )
     try:
         edited = CallScript.model_validate({**current.model_dump(), **fields})
     except ValidationError as invalid:

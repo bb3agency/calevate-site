@@ -26,7 +26,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, Final
 
-from calevate_shared.call_script import CallScript
+from calevate_shared.call_script import MAX_SCRIPT_STAGES, CallScript
 from calevate_shared.engine import (
     SARVAM_DEFAULT_LLM,
     truthful_answer_directive,
@@ -515,7 +515,11 @@ IMPROVE_INSTRUCTION: Final = (
     "fix these conversations: the smallest change that fixes each one, one change per "
     "failed conversation, never a rewrite of steps that did not fail. Keep every other "
     "field, every step and every step id as it is; give a new step a new short lowercase "
-    "id. Instructions stay in plain English; words the agent says stay in the call "
+    "id. The steps of the call are the `stages` list (each with an id); leave the `steps` "
+    f"list exactly as it is. A script has at most {MAX_SCRIPT_STAGES} stages: fix a failure "
+    "inside an "
+    "existing stage before adding one. Instructions stay in plain English; words the agent "
+    "says stay in the call "
     "language as people speak it, with the English words they use. Replace textbook words "
     "with their spoken form. Add or improve "
     "objection lines for push-back that went wrong. Keep a step's instruction under 500 "

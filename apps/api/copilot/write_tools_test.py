@@ -44,7 +44,7 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import credential_session, tenant_session, untenanted_session
 from apps.api.main import app
 from apps.workers import chat
 
@@ -759,6 +759,23 @@ async def test_the_confirm_route_carries_out_the_change_and_answers_what_it_did(
         json.dumps({"lead_id": str(lead_id), "reason": "manual"}),
         actor=_actor(tenant_id, _user_of(token)),
     )
+    # A live sign-in run, which a transcript turn is stamped with (D-540); a dev token
+    # carries no `auth_sessions` row of its own.
+    async with credential_session() as credentials:
+        await credentials.execute(
+            text(
+                "INSERT INTO auth_sessions (id, family_id, realm, subject_id, token_hash, "
+                "last_seen_at, idle_expires_at, absolute_expires_at, created_at, updated_at) "
+                "VALUES (:id, :fid, 'client', :sid, :hash, now(), now() + interval '1 hour', "
+                "now() + interval '1 hour', now() - interval '1 minute', now())"
+            ),
+            {
+                "id": (session_id := uuid.uuid4()),
+                "fid": uuid.uuid4(),
+                "sid": _user_of(token),
+                "hash": session_id.bytes,
+            },
+        )
 
     async with _client() as http:
         response = await http.post(
@@ -776,6 +793,18 @@ async def test_the_confirm_route_carries_out_the_change_and_answers_what_it_did(
         ),
     }
     assert await _dnc_count(tenant_id) == 1
+    # What the change did is in the conversation the person scrolls back to, so a reload
+    # does not show a proposal followed by nothing.
+    async with tenant_session(tenant_id) as session:
+        said = (
+            await session.execute(
+                text(
+                    "SELECT content FROM copilot_conversation_turns "
+                    "WHERE role = 'assistant' ORDER BY created_at DESC LIMIT 1"
+                )
+            )
+        ).scalar_one()
+    assert said.startswith("Done. That number is on your do-not-call list")
 
 
 async def test_confirm_re_checks_the_tools_permission_against_the_session_in_front_of_it() -> None:

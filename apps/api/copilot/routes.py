@@ -420,6 +420,8 @@ async def ask_copilot(
     spends: list[service.CopilotSpend] = []
     filled: tuple[str, ...] = ()
     proposed: str | None = None
+    #: The proposal card as one line, for the transcript when the answer had no text.
+    proposal_line = ""
     acted: list[str] = []
     #: The screen this answer opened, by NAME, or None. One at most (D-524). It is on the
     #: audit row because "the assistant moved me" is a thing a person may later ask about,
@@ -475,7 +477,10 @@ async def ask_copilot(
         if recorded:
             return
         recorded = True
-        answered = "".join(answer_parts)
+        # An answer that was only a proposal card has no words of its own; its card's title
+        # and summary stand in, so a reloaded conversation shows what Pip did instead of a
+        # question with no reply (which reads as the question having been sent twice).
+        answered = "".join(answer_parts) or proposal_line
         if not spends and not answered:
             # NOTHING WAS PAID FOR AND NOTHING WAS SAID. A selector refusal raises before
             # the first request, and a disconnect during the first token has produced
@@ -729,6 +734,7 @@ async def ask_copilot(
                 yield ServerSentEvent(event="fill", data=CopilotFillEvent(items=list(event.fill)))
             if event.proposal is not None:
                 proposed = event.proposal.tool
+                proposal_line = f"{event.proposal.title}. {event.proposal.summary}".strip()
                 yield ServerSentEvent(event="proposal", data=event.proposal)
             if event.step is not None:
                 # PURELY OBSERVATIONAL and deliberately NOT accumulated: a step is a frame
@@ -891,12 +897,31 @@ async def confirm_copilot_proposal(
     client retrying one request, the burn stops one DECISION being submitted twice by any
     means, including a second browser tab holding the same token.
     """
-    return await write_tools.confirm(
+    outcome = await write_tools.confirm(
         session,
         payload.token,
         principal=principal,
         ip=client_request_ip(request),
     )
+    # What the confirmed change did is part of the conversation the person scrolls back
+    # to; without it a reload shows the proposal and then nothing, as if it never ran.
+    if principal.realm == "client" and principal.user_id is not None:
+        run_started_at = await session_run.current_run_start(
+            realm="client", subject_id=principal.user_id
+        )
+        if run_started_at is not None:
+            await transcript.append_turn(
+                session,
+                realm=transcript.CLIENT,
+                turn_id=uuid7(),
+                owner_id=principal.user_id,
+                tenant_id=principal.tenant_id,
+                run_started_at=run_started_at,
+                screen_route="",
+                role="assistant",
+                spoken=f"Done. {outcome.detail}".strip(),
+            )
+    return outcome
 
 
 _CONVERSATION_DESCRIPTION = """\

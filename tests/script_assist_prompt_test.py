@@ -131,3 +131,26 @@ def test_an_unusable_edit_logs_where_it_broke_as_readable_text(
     record = next(r for r in caplog.records if r.getMessage() == "script_assist_edit_unusable")
     assert isinstance(record.where, str) and "stages.0" in record.where
     assert record.count >= 1
+
+
+def test_call_steps_written_into_the_legacy_steps_list_are_read_as_stages() -> None:
+    """Production, 18 Oct 2026: the improver put every stage under `steps` and all 60 of
+    their fields failed as unknown. An item with an id can only be a stage."""
+    from apps.workers.script_assist import edited_script as _edited_script
+    from calevate_shared.call_script import CallScript, ConversationStage
+
+    current = CallScript(
+        schema_version=2,
+        stages=[ConversationStage(id="greet", name="Greet", instruction="Say hello.")],
+    )
+    raw = {
+        "steps": [
+            {"id": "greet", "name": "Greet", "mode": "guide", "instruction": "Say hello warmly."},
+            {"id": "price", "name": "Price", "mode": "guide", "instruction": "Explain the price."},
+        ]
+    }
+    edited = _edited_script(raw, current)
+    assert edited is not None
+    assert [s.id for s in edited.stages] == ["greet", "price"]
+    assert edited.stages[0].instruction == "Say hello warmly."
+    assert edited.steps == current.steps

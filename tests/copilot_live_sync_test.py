@@ -21,7 +21,7 @@ import json
 import time
 import uuid
 from collections.abc import AsyncIterator, Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -687,3 +687,48 @@ async def test_a_zero_cost_client_answer_is_stored_under_the_browsers_id(
         (answer_id, "assistant"),
     ]
     assert notes == [("client", user_id), ("client", user_id)]
+
+
+async def test_an_answer_that_was_only_a_proposal_card_is_stored_as_its_card(
+    monkeypatch: pytest.MonkeyPatch, notes: list[tuple[str, UUID]]
+) -> None:
+    """A reload must show what Pip did, not the question alone (which reads as sent twice)."""
+    from apps.api.copilot.schemas import CopilotProposalEvent
+
+    tenant_id, slug, token = await _make_tenant()
+    user_id = UUID(token.rsplit(":", 1)[1])
+    await _live_run("client", user_id)
+    question_id, answer_id = uuid7(), uuid7()
+
+    async def _run(payload: Any, **kwargs: Any) -> AsyncIterator[service.CopilotEvent]:
+        yield service.CopilotEvent(
+            proposal=CopilotProposalEvent(
+                token="t",
+                tool="agent_tests_fix",
+                title="Suggest fixes for the failed tests",
+                summary="Pip works out fixes for 10 failed tests.",
+                object_type="agent",
+                object_id="a",
+                current=None,
+                proposed="fixes",
+                cost=None,
+                reversal="Discard it on the Test section.",
+                expires_at=datetime.now(UTC) + timedelta(minutes=10),
+            )
+        )
+
+    monkeypatch.setattr(service, "run_copilot", _run)
+    _HEADERS.clear()
+    _HEADERS.update({"Authorization": f"Bearer {token}", "X-Org-Slug": slug})
+    body = {**BODY, "turn_ids": {"question": str(question_id), "answer": str(answer_id)}}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        await _stream_events(http, "/v1/copilot/ask", body)
+
+    assert await _stored(transcript.CLIENT, user_id, tenant_id) == [
+        (question_id, "user", BODY["question"]),
+        (
+            answer_id,
+            "assistant",
+            "Suggest fixes for the failed tests. Pip works out fixes for 10 failed tests.",
+        ),
+    ]
