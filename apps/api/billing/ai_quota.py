@@ -144,6 +144,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.billing.lots import AiAssistDemand
 from apps.api.billing.models import (
     ABSORBED_ASSIST_FEATURES,
+    AI_ASSIST_CACHED_UNIT_TYPE,
     AI_ASSIST_UNIT_TYPES,
     AI_STT_UNIT_TYPE,
     FREE_ASSIST_FEATURES,
@@ -159,8 +160,10 @@ from apps.api.billing.plans import ist_month_end, parse_billing_month
 # SPEND MONEY. Two spellings of one money predicate is the D-103 shape, and it agreed with
 # the original only by coincidence of nobody having edited either.
 from apps.api.billing.rates import (
+    CACHED_TOKENS_PER_UNIT,
     PREPAID_TIERS,
     ROUNDING,
+    cached_input_inr_per_unit,
     llm_inr_per_ktok,
     stt_rate_inr_per_minute,
 )
@@ -1017,6 +1020,40 @@ class AssistMetered:
     cost_inr: Decimal
 
 
+def assist_ledger_rows(
+    *, model: str, tokens_in: int, tokens_out: int, cached_tokens_in: int | None
+) -> tuple[tuple[str, Decimal, Decimal], ...]:
+    """`(unit_type, qty, unit_cost_paid)` for one assist, the same for both AI ledgers.
+
+    Input the provider served from its prompt cache is its own row at the attested cached
+    rung (D-816) — but only when BOTH halves exist: a reported count with no attested rung,
+    or a rung with no reported count, prices all input at the full rate, which is what the
+    invoice says when nothing is known to be cheaper. `cached_tokens_in=None` means the
+    provider did not say. Raises `ValueError` for an unpriced model (`llm_inr_per_ktok`).
+    """
+    inr_per_ktok = llm_inr_per_ktok(model)
+    cached_rate = cached_input_inr_per_unit(model) if cached_tokens_in else None
+    cached = min(cached_tokens_in or 0, tokens_in) if cached_rate is not None else 0
+    rows: tuple[tuple[str, Decimal, Decimal], ...] = (
+        ("ai_assist_ktok_in", ktok(tokens_in - cached), inr_per_ktok["in"]),
+        ("ai_assist_ktok_out", ktok(tokens_out), inr_per_ktok["out"]),
+    )
+    if cached_rate is not None and cached:
+        qty = Decimal(cached) / CACHED_TOKENS_PER_UNIT
+        rows = (*rows, (AI_ASSIST_CACHED_UNIT_TYPE, qty, cached_rate))
+    return rows
+
+
+def cache_log_fields(*, tokens_in: int, cached_tokens_in: int | None) -> dict[str, object]:
+    """Counts an operator reads the prompt-cache hit rate from (D-816). Counts only."""
+    return {
+        "tokens_in": tokens_in,
+        # `None` is "the provider sent no cached count", which is not "zero hits": the
+        # Gemini OpenAI-compatible surface documents no such field.
+        "cached_tokens_in": cached_tokens_in,
+    }
+
+
 async def record_ai_assist_usage(
     session: AsyncSession,
     *,
@@ -1027,11 +1064,14 @@ async def record_ai_assist_usage(
     model: str,
     feature: str,
     extra_meta: dict[str, str] | None = None,
+    cached_tokens_in: int | None = None,
 ) -> AssistMetered:
-    """Meter one dashboard assist: two `usage_events` rows and the platform counter.
+    """Meter one dashboard assist: two `usage_events` rows (three with a priced cache hit,
+    `assist_ledger_rows`) and the platform counter.
 
     `extra_meta` adds ids to `meta` (never content): an absorbed standby names the surface
-    it stood in for, a post-call extraction its call, and a cached-input count rides along.
+    it stood in for and a post-call extraction its call. `cached_tokens_in` is how much of
+    `tokens_in` the provider served from its prompt cache, `None` when it did not say.
 
     THE ONLY WRITER of `ai_assist_ktok_*`. It is idempotent on `ref` in the DATABASE
     (`ux_usage_events_tenant_unit_ref`), not in a reader's `if`, because the failure it
@@ -1082,20 +1122,19 @@ async def record_ai_assist_usage(
     # the other half of the row. Metering an assist at a made-up price is worse than not
     # metering it: the first is a wrong number on an append-only ledger, the second is a
     # gap an operator can see in the platform counter.
-    inr_per_ktok = llm_inr_per_ktok(model)
+    rows = assist_ledger_rows(
+        model=model, tokens_in=tokens_in, tokens_out=tokens_out, cached_tokens_in=cached_tokens_in
+    )
 
     meta = json.dumps(
         {
             **(extra_meta or {}),
+            **({} if cached_tokens_in is None else {"cached_prompt_tokens": str(cached_tokens_in)}),
             "kind": ASSIST_META_KIND,
             "model": model,
             "feature": feature,
             "ref": ref,
         }
-    )
-    rows = (
-        ("ai_assist_ktok_in", ktok(tokens_in), inr_per_ktok["in"]),
-        ("ai_assist_ktok_out", ktok(tokens_out), inr_per_ktok["out"]),
     )
     landed = Decimal("0")
     landed_month: str | None = None
@@ -1143,6 +1182,7 @@ async def record_ai_assist_usage(
             "feature": feature,
             "month": landed_month,
             "cost_inr": str(landed),
+            **cache_log_fields(tokens_in=tokens_in, cached_tokens_in=cached_tokens_in),
         },
     )
     return AssistMetered(recorded=True, cost_inr=landed)

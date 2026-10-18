@@ -938,14 +938,38 @@ async def test_two_read_tools_chain_inside_one_answer(
 
     assert len(sent) == 3
     assert [call["name"] for call in seen] == ["leads_search", "calls_recent"]
-    # The chain is visible in the message list the LAST turn was sent: both results are
-    # there, in order.
+    # The second turn saw the first result in full; the last turn sees the latest result in
+    # full and the older one as a line naming its tool (D-816, `clear_old_read_results`).
+    assert any("Ramesh" in str(message.get("content")) for message in sent[1])
     contents = [str(message.get("content")) for message in sent[2]]
-    assert any("Ramesh" in content for content in contents)
+    assert not any("Ramesh" in content for content in contents)
+    assert service.cleared_result("leads_search") in contents
     assert any("90s" in content for content in contents)
     assert [e.text for e in events if e.text] == [
         "Ramesh is your only hot lead; his last call ran 90s."
     ]
+
+
+async def test_a_cleared_lookup_may_be_asked_for_again(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A result the model can no longer see is not a repeat: asking for it again runs it."""
+    seen = _fake_tools(
+        monkeypatch,
+        {"leads_search": "1 leads with status hot:\n- Ramesh", "calls_recent": "1 calls:\n- 90s"},
+    )
+    lookup = ("leads_search", '{"status": "hot", "limit": null}')
+    _scripted(
+        monkeypatch,
+        [
+            _tool_turn(lookup),
+            _tool_turn(("calls_recent", '{"limit": 5}')),
+            _tool_turn(lookup),
+            _turn(content="Ramesh is your only hot lead."),
+        ],
+    )
+    await _drain_with_tools()
+    assert [call["name"] for call in seen] == ["leads_search", "calls_recent", "leads_search"]
 
 
 async def test_independent_calls_in_one_turn_are_all_run_and_all_answered(

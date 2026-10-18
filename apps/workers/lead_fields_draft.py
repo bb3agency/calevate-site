@@ -359,6 +359,7 @@ async def _meter(tenant_id: UUID, outcome: ChatOutcome | None, model: str | None
             ref=new_assist_ref(),
             tokens_in=outcome.usage.prompt_tokens,
             tokens_out=outcome.usage.output_tokens,
+            cached_tokens_in=outcome.usage.cached_tokens_in,
             model=model,
             feature=ASSIST_FEATURE_LEAD_FIELDS,
         )

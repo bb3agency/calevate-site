@@ -154,7 +154,9 @@ def test_the_cached_input_count_is_read_as_a_subset_of_the_prompt() -> None:
             }
         }
     )
-    assert usage == TokenUsage(prompt_tokens=1_000, output_tokens=200, cached_prompt_tokens=400)
+    assert usage == TokenUsage(
+        prompt_tokens=1_000, output_tokens=200, cached_prompt_tokens=400, cached_reported=True
+    )
 
 
 # --- 2: the standby is ours --------------------------------------------------------------

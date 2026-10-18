@@ -293,6 +293,9 @@ CREATE TABLE platform_model_prices (
     attested_by         uuid        NOT NULL REFERENCES admin_users(id),
     attested_at         timestamptz NOT NULL DEFAULT now(),
     source_note         text        NOT NULL,     -- the invoice/console the figure was read off
+    -- D-816: input served from the vendor's prompt cache; NULL = none attested, so cached
+    -- input is billed at input_usd_per_mtok. CHECK: NULL or (> 0 and <= input_usd_per_mtok).
+    cached_input_usd_per_mtok numeric(12,6),
     PRIMARY KEY (model, effective_from)
 );
 

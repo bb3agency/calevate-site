@@ -170,6 +170,7 @@ def _to_attestation(record: AttestedModelPrice) -> LlmPriceAttestation | None:
             read_on=record.attested_at.astimezone(IST).date(),
             attested_by=record.attested_by,
             source=record.source_note,
+            cached_input_usd_per_mtok=record.cached_input_usd_per_mtok,
         )
     except ValueError:
         log.error("attested_price_unusable", extra={"model": record.model})

@@ -109,7 +109,15 @@ PAID_CREDIT_REASONS = ("topup",)
 # few percent of its per-token price would make this paragraph wrong. The prices themselves
 # live in ONE place, `billing/rates.py::llm_inr_per_ktok(model)`, with their source;
 # `tests/ai_quota_test.py` holds this paragraph to the arithmetic ON BOTH MODELS.
-AI_ASSIST_UNIT_TYPES = ("ai_assist_ktok_in", "ai_assist_ktok_out")
+#
+# `ai_assist_10ktok_cached_in` (D-816) is the share of an assist's input the provider served
+# from its prompt cache, priced at the attested cached rung and counted per TEN thousand
+# tokens (`rates.CACHED_TOKENS_PER_UNIT` argues the quantum). It is written only when the
+# provider reported a cached count AND an operator attested a cached rung; the
+# `ai_assist_ktok_in` row then carries only the uncached remainder, so input tokens are
+# `ai_assist_ktok_in * 1000 + ai_assist_10ktok_cached_in * 10000` and never counted twice.
+AI_ASSIST_CACHED_UNIT_TYPE = "ai_assist_10ktok_cached_in"
+AI_ASSIST_UNIT_TYPES = ("ai_assist_ktok_in", "ai_assist_ktok_out", "ai_assist_10ktok_cached_in")
 
 #: WHICH `usage_events.meta.feature` NAMES ARE THE COST OF A CLIENT UPLOADING KNOWLEDGE
 #: (D-608). The founder's requirement is one sentence — *"this cost of uploading knowledge
@@ -279,6 +287,7 @@ PLATFORM_ABSORBED_UNIT_TYPES = (
     "ai_stt_min",
     "forwarding_test_min",
     "whatsapp_msg",
+    "ai_assist_10ktok_cached_in",
 )
 
 

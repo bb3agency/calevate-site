@@ -169,6 +169,7 @@ async def _state(tenant_id: uuid.UUID, call_id: uuid.UUID) -> str:
 class _Usage:
     prompt_tokens = 400
     output_tokens = 20
+    cached_tokens_in = None
 
 
 class _Outcome:

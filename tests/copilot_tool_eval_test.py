@@ -7,14 +7,17 @@ and the scorer; a model's accuracy comes only from an operator run with a creden
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator, Mapping, Sequence
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
 from apps.api.copilot import service
 from apps.api.copilot.admin_prompt import ADMIN_SYSTEM_PROMPT
+from apps.api.copilot.schemas import CopilotStepEvent
 from apps.workers import chat
 from scripts import copilot_tool_eval as harness
 
@@ -104,7 +107,10 @@ def test_a_model_run_sends_the_production_turn_and_records_names_only(
         assert used is leg
         system: Any = messages[0]
         realm = "admin" if system["content"] == ADMIN_SYSTEM_PROMPT else "client"
-        assert list(tools) == service.tool_array(realm)
+        assert list(tools) in (
+            service.tool_array(realm, account_open=True),
+            service.tool_array(realm, account_open=False),
+        )
         sent.append((realm, len(tools)))
         call = chat.ToolCall(id="1", name="leads_search", arguments='{"status": null}')
         usage = chat.TokenUsage(prompt_tokens=100, output_tokens=5, cached_prompt_tokens=60)
@@ -144,7 +150,59 @@ SIBLINGS = (
 def test_overlapping_tools_each_name_the_other(first: str, second: str) -> None:
     descriptions = {
         tool["function"]["name"]: tool["function"]["description"]
-        for tool in service.tool_array("admin")
+        for tool in (*service.tool_array("client"), *service.tool_array("admin"))
     }
     assert f"`{second}`" in descriptions[first]
     assert f"`{first}`" in descriptions[second]
+
+
+# --- the operator's live run (D-816) ------------------------------------------------------
+
+
+def test_the_live_run_refuses_without_the_spend_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    assert harness.main(["--live"]) == harness.CANNOT_RUN
+    assert "--spend" in capsys.readouterr().out
+
+
+def test_a_live_answer_records_tools_tokens_and_a_redacted_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`run_copilot` is the seam: what the harness records is what the loop emitted."""
+    usage = chat.TokenUsage(
+        prompt_tokens=16_000, output_tokens=100, cached_prompt_tokens=12_000, cached_reported=True
+    )
+    capability = service.assist_capability(tenant_leg=None, quota_exhausted=False)
+
+    async def fake_run(*_: Any, **kwargs: Any) -> AsyncIterator[service.CopilotEvent]:
+        assert kwargs.get("principal") is None
+        step = CopilotStepEvent(id="s", tool="platform_tenants", status="running", args="")
+        yield service.CopilotEvent(step=step)
+        yield service.CopilotEvent(text="Call them on 9876543210.")
+        yield service.CopilotEvent(
+            spend=service.CopilotSpend(usage=usage, capability=capability, model="m")
+        )
+
+    monkeypatch.setattr(service, "run_copilot", fake_run)
+    monkeypatch.setattr(harness, "spend_cost", lambda spent, model: Decimal("0.0712"))
+    case = _case("a-roster")
+    answer = asyncio.run(harness.live_answer(case, None))
+    assert answer.tools == ["platform_tenants"]
+    assert answer.tokens_in == 16_000 and answer.tokens_cached == 12_000
+    assert answer.cost_inr == Decimal("0.0712")
+    assert "9876543210" not in answer.answer
+    assert "a-roster | platform_tenants | 16000 | 12000 | 100 | 0.0712" in harness.render_live(
+        [answer]
+    )
+
+
+def test_two_live_records_compare_side_by_side(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    row = {"tools": ["leads_search"], "tokens_in": 16_000, "tokens_cached": None}
+    before = {"answers": {"a-roster": {**row, "tokens_out": 90, "cost_inr": "0.40"}}}
+    after = {"answers": {"a-roster": {**row, "tokens_out": 80, "cost_inr": "0.10"}}}
+    paths = [tmp_path / "b.json", tmp_path / "a.json"]
+    for path, body in zip(paths, (before, after), strict=True):
+        path.write_text(json.dumps(body), "utf-8")
+    assert harness.main(["--compare", *map(str, paths)]) == 0
+    assert "a-roster | leads_search -> leads_search" in capsys.readouterr().out

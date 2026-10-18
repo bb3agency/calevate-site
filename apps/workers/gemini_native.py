@@ -184,6 +184,9 @@ def usage_of(frame: Mapping[str, Any]) -> TokenUsage | None:
         prompt_tokens=count("promptTokenCount") + count("toolUsePromptTokenCount"),
         output_tokens=count("candidatesTokenCount") + count("thoughtsTokenCount"),
         cached_prompt_tokens=count("cachedContentTokenCount"),
+        # `cachedContentTokenCount` is a documented `usageMetadata` field; JSON from a proto
+        # omits a zero, so an absent key on a frame that carries usage is zero hits.
+        cached_reported=True,
     )
 
 

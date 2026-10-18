@@ -105,6 +105,16 @@ class TokenUsage:
     #: an addition (OpenAI's `usage.prompt_tokens_details.cached_tokens`). 0 when the
     #: response does not say. Kept so a leg with a cached-input rate can be reconciled.
     cached_prompt_tokens: int = 0
+    #: Did the response carry a cached count at all? False is "not reported", which is not
+    #: "zero hits" — the ledger then prices all input at the full rate and the metering log
+    #: says the count was missing (D-816). Google documents no cached field on its
+    #: OpenAI-compatible surface (ai.google.dev/gemini-api/docs/openai, read 18 Oct 2026).
+    cached_reported: bool = False
+
+    @property
+    def cached_tokens_in(self) -> int | None:
+        """The cached count for the ledger, or None when the provider did not report one."""
+        return self.cached_prompt_tokens if self.cached_reported else None
 
     def plus(self, other: TokenUsage) -> TokenUsage:
         """The two turns of one multi-turn assist as one metered quantity.
@@ -113,11 +123,15 @@ class TokenUsage:
         the SUM — the alternative is N `usage_events` rows for one user action, which
         would move `read_ai_quota`'s `requests_used` (a `COUNT(DISTINCT ref)`) by N and
         make the request count and the rupee ceiling disagree about the same month.
+
+        The sum is "reported" only when every turn reported: a turn that did not say is
+        priced at the full rate, so its uncounted hits must not be claimed by the total.
         """
         return TokenUsage(
             prompt_tokens=self.prompt_tokens + other.prompt_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
             cached_prompt_tokens=self.cached_prompt_tokens + other.cached_prompt_tokens,
+            cached_reported=self.cached_reported and other.cached_reported,
         )
 
 
@@ -150,9 +164,13 @@ def usage_from_body(body: Mapping[str, Any]) -> TokenUsage | None:
         return None
     details = raw.get("prompt_tokens_details")
     cached = details.get("cached_tokens") if isinstance(details, dict) else None
+    reported = isinstance(cached, int) and cached >= 0
     cached_in = min(cached, total_in) if isinstance(cached, int) and cached > 0 else 0
     return TokenUsage(
-        prompt_tokens=total_in, output_tokens=total_out, cached_prompt_tokens=cached_in
+        prompt_tokens=total_in,
+        output_tokens=total_out,
+        cached_prompt_tokens=cached_in,
+        cached_reported=reported,
     )
 
 

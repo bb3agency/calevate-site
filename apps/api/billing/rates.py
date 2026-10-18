@@ -736,6 +736,10 @@ class LlmPriceAttestation:
     #: Where — an invoice number, a console URL, a billing-export line. Free-form for the
     #: same reason, and REQUIRED for D-31/D-32's: an unattributed figure is the defect class.
     source: str
+    #: USD per MILLION input tokens the vendor served from its prompt cache, or `None` when
+    #: the operator attested no cached rung — input is then priced at `input_usd_per_mtok`
+    #: whatever the provider reports, exactly as before the rung existed (D-816).
+    cached_input_usd_per_mtok: Decimal | None = None
 
     def __post_init__(self) -> None:
         # `is not None and <= 0` rather than `<= 0`, and the distinction is the whole of
@@ -750,6 +754,13 @@ class LlmPriceAttestation:
                 f"({self.input_usd_per_mtok}/{self.output_usd_per_mtok}). A zero here bills "
                 "every minute on this model at ₹0 and looks exactly like a working leg — "
                 "which is the one metering failure nobody investigates."
+            )
+        cached = self.cached_input_usd_per_mtok
+        if cached is not None and not Decimal("0") < cached <= self.input_usd_per_mtok:
+            raise ValueError(
+                f"{self.model!r} was attested with a cached-input price of {cached}, which "
+                f"is not above zero and at most the input price ({self.input_usd_per_mtok}). "
+                "A cache hit is a discount on input, never free and never dearer."
             )
         if not self.attested_by.strip() or not self.source.strip():
             raise ValueError(
@@ -906,6 +917,44 @@ def llm_inr_per_ktok(model: str) -> Mapping[str, Decimal]:
         "unverified evidence into unit_cost_paid (hard rule 7). Enter the price from the "
         "vendor invoice in the ops console; until then this model is not offerable."
     )
+
+
+#: Tokens in one unit of the cached-input ledger row (`ai_assist_10ktok_cached_in`).
+#:
+#: TEN THOUSAND rather than the thousand every other LLM unit counts in, because a cache hit
+#: is priced an order of magnitude below input and `unit_cost_paid` keeps four decimals.
+#: Gemini 3.1 Flash-Lite caches at $0.025 per 1M input tokens (ai.google.dev/gemini-api/docs/
+#: pricing, read 18 Oct 2026): ₹0.002375 per thousand at `PLANNING_USD_INR`, which stores as
+#: 0.0024 — 1.05%, over `LEDGER_RATE_ERROR_BUDGET` — and ₹0.02375 per ten thousand, which
+#: stores within 0.2%. A token count over ten thousand is still exact at four decimals.
+CACHED_TOKENS_PER_UNIT: Final[Decimal] = Decimal("10000")
+
+
+def cached_input_rate_exact(model: str) -> Decimal | None:
+    """The attested cached-input price for `model` in ₹ per `CACHED_TOKENS_PER_UNIT` tokens,
+    UNQUANTIZED, or None when no operator attested a cached rung for it.
+
+    The same two attestation stores `llm_inr_per_ktok` reads and nothing else: a cached
+    figure reaches `unit_cost_paid` only as a first-party reading (hard rule 7). A catalogue
+    model with a verified list price but no attested cached rung answers None, so its input
+    is priced at the full rate whatever the provider reports — what it cost before D-816.
+    """
+    attested = attested_llm_prices().get(model)
+    if attested is not None:
+        if attested.cached_input_usd_per_mtok is None:
+            return None
+        per_mtok_inr = attested.cached_input_usd_per_mtok * PLANNING_USD_INR
+        return per_mtok_inr * CACHED_TOKENS_PER_UNIT / Decimal("1000000")
+    inr = attested_inr_llm_prices().get(model)
+    if inr is None or inr.cached_in_inr_per_mtok is None:
+        return None
+    return inr.cached_in_inr_per_mtok * CACHED_TOKENS_PER_UNIT / Decimal("1000000")
+
+
+def cached_input_inr_per_unit(model: str) -> Decimal | None:
+    """`cached_input_rate_exact` at the ledger's quantum — what a cached-input row stores."""
+    rate = cached_input_rate_exact(model)
+    return None if rate is None else rate.quantize(MONEY_Q, rounding=ROUNDING)
 
 
 #: THE REFERENCE CONVERSATION the §10 per-minute figure is computed from. Every number
@@ -2790,6 +2839,7 @@ def llm_surcharge_billed_inr(*, minutes: Decimal, surcharge: Decimal | None) -> 
 __all__ = [
     "ASSUMED_SPEAKING_RATE",
     "BASE_RATE_LLM_MODEL",
+    "CACHED_TOKENS_PER_UNIT",
     "CARTESIA_BEST_MARGINAL_COST_INR_PER_MIN",
     "CARTESIA_COST_FLOOR_INR_PER_MIN",
     "CARTESIA_CREDITS_PER_CHARACTER",
@@ -2854,6 +2904,8 @@ __all__ = [
     "assumed_speaking_rate",
     "attested_inr_llm_prices",
     "attested_llm_prices",
+    "cached_input_inr_per_unit",
+    "cached_input_rate_exact",
     "cartesia_best_marginal_cost_inr_per_min",
     "cartesia_cheapest_plan",
     "cartesia_cheapest_plan_for_characters",

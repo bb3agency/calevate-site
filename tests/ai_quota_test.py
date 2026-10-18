@@ -321,7 +321,7 @@ async def test_the_check_constraint_admits_exactly_the_declared_unit_types() -> 
                 )
             )
         ).scalar_one()
-    in_constraint = set(re.findall(r"'([a-z_]+)'::", definition))
+    in_constraint = set(re.findall(r"'([a-z0-9_]+)'::", definition))
     assert in_constraint == set(UNIT_TYPES), (
         f"constraint and UNIT_TYPES disagree: only in DB {in_constraint - set(UNIT_TYPES)}, "
         f"only in code {set(UNIT_TYPES) - in_constraint}"
@@ -1614,8 +1614,8 @@ async def test_the_database_enum_holds_exactly_the_classified_units() -> None:
             )
         ).scalar_one()
 
-    in_database = set(re.findall(r"'([a-z_]+)'::", str(body))) or set(
-        re.findall(r"'([a-z_]+)'", str(body))
+    in_database = set(re.findall(r"'([a-z0-9_]+)'::", str(body))) or set(
+        re.findall(r"'([a-z0-9_]+)'", str(body))
     )
     assert in_database == set(UNIT_TYPES), (
         f"the database accepts {sorted(in_database ^ set(UNIT_TYPES))} that nobody classified"

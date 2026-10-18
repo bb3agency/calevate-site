@@ -1902,6 +1902,7 @@ async def _meter_extraction(
             ref=new_assist_ref(),
             tokens_in=usage.prompt_tokens,
             tokens_out=usage.output_tokens,
+            cached_tokens_in=usage.cached_tokens_in,
             model=SARVAM_DEFAULT_LLM,
             feature=ASSIST_FEATURE_CALL_EXTRACTION,
             extra_meta={

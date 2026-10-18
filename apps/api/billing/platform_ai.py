@@ -71,12 +71,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import (
     ASSIST_META_KIND,
+    assist_ledger_rows,
     bump_platform_ai_spend,
+    cache_log_fields,
     is_assist_ref,
-    ktok,
     read_platform_ai_spend,
 )
-from apps.api.billing.rates import llm_inr_per_ktok
 from apps.api.billing.service import _IST_MONTH
 from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.core.errors import ProblemError
@@ -91,7 +91,7 @@ log = get_logger(__name__)
 #: and the table it is in is what says who paid.
 PLATFORM_ASSIST_META_KIND: Final = ASSIST_META_KIND
 
-# TWO ROWS PER ATTEMPT, one per direction, exactly as `_INSERT_USAGE` writes them — so a
+# THE SAME ROWS PER ATTEMPT AS `_INSERT_USAGE` WRITES (`ai_quota.assist_ledger_rows`) — so a
 # person reading both ledgers side by side is reading one vocabulary. `RETURNING` carries
 # the row's OWN IST billing month for `record_ai_assist_usage`'s two-clock reason: the app
 # process's clock and the database's disagree by whatever NTP skew exists between them, and
@@ -131,8 +131,10 @@ async def record_platform_ai_usage(
     tokens_out: int,
     model: str,
     feature: str,
+    cached_tokens_in: int | None = None,
 ) -> PlatformAssistMetered:
-    """Meter one admin-copilot answer: two `platform_ai_usage` rows and the platform counter.
+    """Meter one admin-copilot answer: two `platform_ai_usage` rows (three with a priced cache
+    hit, `ai_quota.assist_ledger_rows`) and the platform counter.
 
     THE ONLY WRITER of `platform_ai_usage`. It is `record_ai_assist_usage` with the tenant
     replaced by an operator, and every property that function argues for is kept rather than
@@ -187,7 +189,9 @@ async def record_platform_ai_usage(
             "a platform assist metering key must come from new_assist_ref() "
             "(assist:<uuid>), never from a request"
         )
-    inr_per_ktok = llm_inr_per_ktok(model)
+    rows = assist_ledger_rows(
+        model=model, tokens_in=tokens_in, tokens_out=tokens_out, cached_tokens_in=cached_tokens_in
+    )
 
     # Ids, a model name and a feature name (hard rule 6). `admin_user_id` is in `meta` as
     # well as in its own column so a row exported to a spend board carries its attribution
@@ -201,11 +205,8 @@ async def record_platform_ai_usage(
             "admin_user_id": None if admin_user_id is None else str(admin_user_id),
             "system_actor": system_actor,
             "viewing_tenant_id": None if viewing_tenant_id is None else str(viewing_tenant_id),
+            **({} if cached_tokens_in is None else {"cached_prompt_tokens": str(cached_tokens_in)}),
         }
-    )
-    rows = (
-        ("ai_assist_ktok_in", ktok(tokens_in), inr_per_ktok["in"]),
-        ("ai_assist_ktok_out", ktok(tokens_out), inr_per_ktok["out"]),
     )
     landed = Decimal("0")
     landed_month: str | None = None
@@ -259,6 +260,7 @@ async def record_platform_ai_usage(
             "feature": feature,
             "month": landed_month,
             "cost_inr": str(landed),
+            **cache_log_fields(tokens_in=tokens_in, cached_tokens_in=cached_tokens_in),
         },
     )
     return PlatformAssistMetered(recorded=True, cost_inr=landed)

@@ -70,10 +70,10 @@ MAX_FIELDS = 200
 #: handful per screen; the ceiling is generous because each one is a short pair.
 MAX_FACTS = 50
 
-#: Conversation turns the browser replays into the request. Ten is five exchanges, which
-#: is the length at which a person opens a new question instead. NOTHING IS PERSISTED —
-#: this list IS the whole memory of the conversation, and it dies with the response.
-MAX_HISTORY = 10
+#: Conversation turns the browser replays into the request: the last SIX exchanges (founder,
+#: 18 Oct 2026, D-816). Older context is what Pip's own memories carry (`copilot/memory.py`),
+#: so the window is bounded rather than the whole thread resent on every question.
+MAX_HISTORY = 12
 
 #: `attachments.MAX_FILES`, restated as a schema bound (this module imports no service code;
 #: `attachments_test` holds the two equal).
