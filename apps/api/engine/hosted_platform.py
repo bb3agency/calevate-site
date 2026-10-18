@@ -65,6 +65,10 @@ class HostedAgentLimits:
     #: The longest call the engine will run, in seconds (ThinnestAI: `voice.maxCallSeconds`
     #: 60-1200). None where our own ceiling is the only one.
     call_seconds_max: int | None = None
+    #: Does the engine give the model what earlier calls with this person said, in a section
+    #: of its own? Then our caller-memory section stays out of the prompt
+    #: (`AgentConfig.caller_memory_in_engine`, D-814).
+    remembers_callers: bool = False
 
 
 NO_HOSTED_LIMITS: Final = HostedAgentLimits(
@@ -93,6 +97,11 @@ THINNEST_LIMITS: Final = HostedAgentLimits(
     knowledge_tool="search_knowledge",
     native_steps=True,
     call_seconds_max=CALL_SECONDS_MAX,
+    # `voice.pastConversations` (`ThinnestEngine._agent_body`): the engine reads the person's
+    # earlier conversations to the model in its own fenced section after our instructions
+    # (`channels/voice.md:218-249` of the 18 Oct 2026 snapshot; prompt order VENDOR-STATED,
+    # ThinnestAI email of 18 Oct 2026), and no dial or lookup of ours fills a memory slot.
+    remembers_callers=True,
 )
 
 _LIMITS_BY_ENGINE: Final[dict[str, HostedAgentLimits]] = {"thinnest": THINNEST_LIMITS}

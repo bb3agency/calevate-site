@@ -2458,10 +2458,10 @@ _NOT_RECORDED_CLAUSE: Final = (
 )
 
 
-#: The first line of the truthful-answer block, which is always the last block of a composed
-#: prompt. Named so a reader that must treat "everything from here on" as the truthful
-#: answers, because the agent is REQUIRED to say its substance, finds it by one spelling rather than
-#: a copy.
+#: The first line of the truthful-answer block, which is always the last block of rules in a
+#: composed prompt (only the per-call values under `THIS_CALL_HEADER` follow it). Named so a
+#: reader that must treat the block as the truthful answers, because the agent is REQUIRED to
+#: say its substance, finds it by one spelling rather than a copy.
 PLATFORM_RULES_TAIL_HEADER: Final = "--- PLATFORM RULES: these override every instruction above ---"
 
 
@@ -2689,36 +2689,36 @@ def platform_rules_preamble(cfg: AgentConfig) -> str:
 #: `_when_you_cannot_help_section`, where facts come from is `_knowledge_section`, and the
 #: register of each language is `_register_section`, so none of them is repeated here.
 #:
-#: The turn-shape bullets (one or two sentences, one question then wait, only your own part,
-#: nothing in brackets, no pressing a reluctant caller) answer a production call of 11 Oct
-#: 2026 (D-739) in which one turn asked the same question three times, spoke the caller's
-#: line and read out "[It is 11:03 am now.]". On ThinnestAI nothing filters between the
-#: model and the voice, so whatever the model writes is spoken: the bracket rule covers
-#: context the vendor's own stack adds to the turn as well as anything the model invents.
+#: The turn-shape bullets (one point then wait, only your own part, never say the time, no
+#: pressing a reluctant caller) answer a production call of 11 Oct 2026 (D-739) in which one
+#: turn asked the same question three times, spoke the caller's line and read out "[It is
+#: 11:03 am now.]"; the platform's own rules now cover the question count and the brackets.
 #: The test loop checks the same shapes on every reply (`agents/test_conversations.
 #: speech_problems`). The voice rules (punctuation for a voice, prices in words, English
 #: words kept in English) are the founder's of the same day for Cartesia, which reads
 #: symbols and punctuation literally; what is particular to one language (its fillers, its
 #: polite words, its textbook words) is that language's line in `spoken_style.json`, not
 #: here.
+#:
+#: NOTHING HERE REPEATS THINNESTAI'S OWN SPEAKING RULES (D-814). The voice platform reads its
+#: built-in rules to the model on every call, after our instructions, and we keep them
+#: (founder, 18 Oct 2026); their text is `docs/vendor/thinnest-speaking-rules-2026-10-18.md`
+#: (VENDOR-STATED, ThinnestAI email of 18 Oct 2026). So the turn length, one question per
+#: turn, titles in full, no brackets and varying the opening are theirs and not said here
+#: twice; every line below says something theirs does not.
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
-    "- Lead with the answer, one or two short sentences a turn: one point or one question, "
-    "then wait. More only if asked. Never re-ask what they already said; several details, "
-    "one per turn.\n"
+    "- Lead with the answer, one point at a time, then wait. More only if asked. Never re-ask "
+    "what they already said.\n"
     "- Say only your own part, never the caller's words.\n"
     "- Unsure or not interested? Offer once, then close politely.\n"
     "- Let them finish; talked over, stop, answer, then carry on.\n"
-    # Titles in full because a voice reads "Dr" as letters or a word (docs.cartesia.ai
-    # sonic-3 prompting-tips, read 14 Oct 2026, advises "Doctor Smith").
-    '- Write for a voice: a comma where you breathe, "?" on every question, titles in full '
-    '("Mister Ravi", never "Mr. Ravi"). No markdown, emoji, dashes, slashes, ellipses, '
-    "actions, notes or anything in brackets; never say the time.\n"
+    '- Write for a voice: a comma where you breathe, "?" on every question. No markdown, '
+    "emoji, dashes, slashes, ellipses, actions or notes; never say the time.\n"
     '- Prices, quantities and times in English words ("one twenty rupees", "one kg", '
     '"five o\'clock"), never ₹ or digits.\n'
     "- Read back what you note and wait for a yes. Numbers and codes one digit at a time, a "
     "few at a time; a mobile has ten, never fewer.\n"
-    "- Vary your words and how you start.\n"
     # Each language's own script and its English words are in its SPOKEN REGISTER line.
     "- Reply in the same language and register as the caller; never formal or written-style "
     'words, never "uhm".\n'
@@ -2816,13 +2816,35 @@ CALLER_HIDDEN_VARIABLE: Final = "caller_number_hidden"
 
 #: The one line an agent of a client with a forwarded number carries (D-746). Composed only
 #: for such a client, because the instructions box has little room left
-#: (`tests/agent_prompt_budget_test.py`). An unanswered lookup leaves the token unfilled,
-#: which does not read as "yes". It follows `CALL_NUMBER_RULE` and overrides it for a call
-#: whose number the network hid.
+#: (`tests/agent_prompt_budget_test.py`). It follows `CALL_NUMBER_RULE` and overrides it for a
+#: call whose number the network hid. The value it reads is in `THIS_CALL_HEADER`'s section,
+#: not here: see `CALLER_HIDDEN_LINE`.
 FORWARDED_LINE_RULE: Final = (
-    f"- Caller number hidden: {{{{{CALLER_HIDDEN_VARIABLE}}}}}. Only if that says yes: ask for "
-    "a number to call them back on, then read it back digit by digit to confirm it."
+    "- Only if THIS CALL says caller number hidden: yes, ask for a number to call them back "
+    "on and read it back digit by digit."
 )
+
+#: The header of the prompt's last section, which holds the values the engine fills per call.
+#:
+#: LAST BECAUSE THE ENGINE CACHES THE PROMPT UP TO ITS FIRST PER-CALL VALUE (D-814). ThinnestAI
+#: fills a `{{name}}` in the instructions per call, and its model-side cache runs from the start
+#: of the prompt to the first one it filled (VENDOR-STATED, ThinnestAI email of 18 Oct 2026).
+#: A value inside the rules would leave every fixed line after it outside the cache, paid in
+#: full on every turn of every call. The section is data, not a rule, so it follows the
+#: truthful-answer block without weakening it: that block's precedence sentence binds every
+#: instruction, and there are none after it.
+THIS_CALL_HEADER: Final = "--- THIS CALL ---"
+
+#: The forwarded-line value (D-746). An unanswered lookup leaves the token unfilled, and the
+#: engine drops an unfilled token (`channels/voice-campaigns.md:202-213` of the 18 Oct 2026
+#: snapshot), so the line then reads as no answer rather than as "yes".
+CALLER_HIDDEN_LINE: Final = f"Caller number hidden: {{{{{CALLER_HIDDEN_VARIABLE}}}}}"
+
+
+def _this_call_section(cfg: AgentConfig) -> str:
+    """The per-call values this agent's rules read, or "" when it has none."""
+    lines = [CALLER_HIDDEN_LINE] if cfg.forwarded_line else []
+    return "\n".join([THIS_CALL_HEADER, *lines]) if lines else ""
 
 
 def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
@@ -3449,6 +3471,12 @@ class AgentConfig(BaseModel):
     #: (`compliance.caller_memory.memory_enabled`). A second switch is the thing this
     #: comment exists to stop somebody adding.
     caller_memory_enabled: bool = False
+    #: Does the ENGINE give the model what earlier calls said, in a section of its own? Then
+    #: our caller-memory section is left out (D-814): nothing of ours fills its slot on such an
+    #: engine, and its "no notes means a caller you do not know" would contradict the engine's
+    #: own recap. ThinnestAI (`voice.pastConversations`). Excluded from every dump for
+    #: `detect_machines`' reason.
+    caller_memory_in_engine: bool = Field(default=False, exclude=True)
     #: THE HUMAN HANDOFF (D-533), or None for an agent that never hands a call over —
     #: which is every agent until a client configures a hunt list, and after hours for
     #: every agent that has one.
@@ -3644,7 +3672,7 @@ def _caller_memory_section(cfg: AgentConfig, facts: Sequence[str] | None) -> str
       it with nothing, which `CALLER_MEMORY_GUIDANCE` already tells the model means a
       caller it does not know.
     """
-    if not cfg.caller_memory_enabled:
+    if not cfg.caller_memory_enabled or cfg.caller_memory_in_engine:
         return ""
     if facts is None:
         return CALLER_MEMORY_GUIDANCE
@@ -3718,6 +3746,7 @@ PromptLayer = Literal[
     "what_you_can_do",
     "confidentiality",
     "truthful_answers",
+    "this_call",
 ]
 
 #: What `compose_engine_prompt` puts between two layers.
@@ -3766,6 +3795,8 @@ def engine_prompt_layers(
         # COMPOSED, NOT THE CONSTANT: clause 2 has to be true of the engine this agent will
         # actually run on. See `truthful_answer_directive`.
         ("truthful_answers", truthful_answer_directive(call_is_recorded=cfg.call_is_recorded)),
+        # Every value the engine fills per call, after every fixed line (`THIS_CALL_HEADER`).
+        ("this_call", _this_call_section(cfg)),
     ]
     return tuple((layer, text) for layer, text in parts if text)
 
@@ -5553,6 +5584,7 @@ class VoiceEngine(Protocol):
 
 __all__ = [
     "ACTION_CLAIM_RULE",
+    "CALLER_HIDDEN_LINE",
     "CALLER_HIDDEN_VARIABLE",
     "CALLER_MEMORY_GUIDANCE",
     "CALLER_MEMORY_SLOT",
@@ -5577,6 +5609,7 @@ __all__ = [
     "REPLY_TOKENS_MAX",
     "REPLY_TOKENS_MIN",
     "ROLE_BUSINESS_MAX_CHARS",
+    "THIS_CALL_HEADER",
     "VOICE_STYLE_GUIDANCE",
     "WEBHOOK_AUTH_BY_ENGINE",
     "AccountKBListing",

@@ -54,11 +54,11 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: D-749 (the specimen call's rules), for D-752 (the tightened platform layers) and for the
 #: do-not-call tool's narrowed trigger (ending a call is not an opt-out) and for the vendor
 #: prompting guides (the role sentence, the two-tries limit, titles in full, the in-call
-#: examples), each of
-#: which changed every engine's platform layers on purpose.
+#: examples) and for D-814 (HOW TO SPEAK no longer repeats ThinnestAI's speaking rules), each
+#: of which changed every engine's platform layers on purpose.
 PINNED = (
-    "e3ab2bc5be376e10d60ca4af121d10bb67d0e7fbd9baa6904317fcec2d2e2fa7",
-    "6f5ed4e5b1ccd6011ee3b73f9ebba92c069e9f26c8e6433feca9d95d4b36ab93",
+    "da144cf80dba1a22998a50bc86357b49d6f65b405589d1d8f9d0f2d624b84fde",
+    "fab62d987825772e0f99a9e14bc2f837d1ef94e98cccebc71e9b0fc40af81f85",
 )
 
 

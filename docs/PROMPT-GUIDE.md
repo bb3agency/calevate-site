@@ -47,16 +47,58 @@ order: `[BUSINESS]` `[IDENTITY]` `[GOAL]` `[OPENING]` `[SPEAKING STYLE]` `[CONVE
 in the call's language). Around it `compose_engine_prompt` adds, each said once: the
 role sentence and preamble, HOW TO SPEAK, LANGUAGES, SPOKEN REGISTER (per-language guidance and a
 formal-to-spoken word list, `spoken_style.json`), BUSINESS FACTS (names the search tool),
-the notices, caller memory, then after the script WHAT YOU CAN DO, CONFIDENTIALITY and
-the truthful-answer block. Instructions are in English; only what the agent says is in the
-call's language. The v1 template below is kept for scripts saved before v2, which compile
-unchanged until they are saved again.
+the notices, caller memory (left out where the engine keeps it, see below), then after the
+script WHAT YOU CAN DO, CONFIDENTIALITY and the truthful-answer block, and last THIS CALL,
+which holds the values the engine fills per call. Instructions are in English; only what the
+agent says is in the call's language. The v1 template below is kept for scripts saved before
+v2, which compile unchanged until they are saved again.
+
+**What the model receives on ThinnestAI, and the cache (D-814, 18 Oct 2026).** Evidence
+class VENDOR-STATED: ThinnestAI's email of 18 Oct 2026 (answers 11, 13 and 14), relayed by
+the founder; the 18 Oct docs snapshot does not describe the order. In this order: ThinnestAI's
+core rules, the AI disclosure, the hand-over and lead rules, the agent's name, the business
+description (fenced), OUR instructions (fenced, with the steps and the per-call variables
+filled in), the caller memory (fenced), the reply-language rule; then ThinnestAI's speaking
+rules, the date line and per-turn blocks such as a transfer instruction. Three things follow:
+- **The cache runs from the start up to our first per-call variable.** So every value the
+  engine fills per call (`{{name}}`) goes in THIS CALL, after every fixed line of ours
+  (`calevate_shared.engine.THIS_CALL_HEADER`; `tests/prompt_call_details_order_test.py`). The
+  only platform value today is the forwarded-line flag (`caller_number_hidden`, D-746); its
+  rule stays in WHAT YOU CAN DO and reads the value from THIS CALL. A `{{variable}}` a client
+  writes into its own script stays where the client wrote it, so a script that uses one ends
+  the cached prefix there; the script is matched verbatim on read-back, so the platform does
+  not move the client's words.
+- **ThinnestAI's speaking rules are kept, never replaced** (`voice.callInstructions` is not
+  set; founder, 18 Oct 2026). Their text is `docs/vendor/thinnest-speaking-rules-2026-10-18.md`.
+  HOW TO SPEAK does not repeat them: the turn length (one or two sentences), one question a
+  turn, titles in full, no brackets or bullets, and opening each turn differently are theirs.
+  Ours keeps what theirs lacks: lead with the answer and wait, never re-ask, only the agent's
+  own part, no markdown, emoji, dashes, slashes or ellipses, never the time, prices and
+  quantities in words, numbers and codes one digit at a time and read back, the caller's
+  language and register, the Telugu register lines and the two hard-rule blocks.
+- **Silence is the engine's and the model never sees it.** `nudgeAfterSeconds` and
+  `endAfterSilenceSeconds` run outside the model; the nudge is spoken directly and recorded
+  as an agent turn, and the model sees no empty turn or event. So the prompt carries no
+  silence rule; none was found in our layers when this was checked.
+- **Caller memory is the engine's on ThinnestAI.** With memory on, the agent is published
+  with `voice.pastConversations: recap` and ThinnestAI fences the person's earlier
+  conversations after our instructions, so our own caller-memory section, whose slot nothing
+  fills there, is left out (`HostedAgentLimits.remembers_callers`).
+
+A composition change reaches every live agent on its own: at worker start
+`agents/live_apply.queue_platform_prompt_apply` compares `platform_prompt_revision` (a digest
+over reference compositions) with the runs already recorded and, on a new revision, queues one
+platform live apply that republishes each live agent through `publish_agent` (D-720, D-739).
+The drift sweep does not raise an alarm in between: it reads back the client's script and the
+truthful-answer and confidentiality markers by containment, and none of those changed. No
+operator step is needed.
 
 **Turn shape and a voice's punctuation (D-739, 11 Oct 2026).** On ThinnestAI nothing filters
-between the model and the voice, so HOW TO SPEAK says: one or two short sentences a turn,
-one point or one question and then wait, only the agent's own part, nothing in brackets and
-never the time, no pressing a reluctant caller, punctuation written for a voice ("?" on every
-question, no dashes, slashes or ellipses) and prices and quantities in words. A step that
+between the model and the voice, so HOW TO SPEAK says: one point and then wait, only the
+agent's own part, never the time, no pressing a reluctant caller, punctuation written for a
+voice ("?" on every question, no dashes, slashes or ellipses) and prices and quantities in
+words. The turn length, one question a turn and no brackets were ours too until D-814; they
+are now ThinnestAI's own speaking rules, which every call keeps. A step that
 collects several details carries "Ask for one of these details per turn." The test loop
 fails a reply that breaks any of these before the AI judge reads it
 (`apps/api/agents/turn_checks.py`), textbook words from `spoken_style.json` included. A deploy
@@ -73,7 +115,7 @@ After the script, in WHAT YOU CAN DO, where a script cannot override them:
   number?". A forwarded line with a hidden number keeps its own rule.
 
 In HOW TO SPEAK:
-- Never write actions, notes or anything in brackets.
+- Never write actions or notes (no brackets is ThinnestAI's rule, D-814).
 - Take a number a few digits at a time; a mobile number has ten digits, never fewer.
 - Prices, quantities and times in English words ("six hundred rupees").
 - Asked to repeat, say it shorter.
@@ -103,13 +145,13 @@ layers stay within their 14 Oct size (the three-language cap below):
 - A clarification is never asked the same way twice. After two tries the agent says so and
   offers what the account allows, the same follow-up as "no answer after searching" (WHAT YOU
   CAN DO, so a script cannot undo it, and a trial agent still offers no call back).
-- Titles are written in full ("Mister Ravi", never "Mr. Ravi"), because a voice reads the
-  short form badly (docs.cartesia.ai sonic-3 prompting tips, read 14 Oct 2026). The example
-  is a title every business has, not a clinic's (D-722).
+- Titles are written in full, because a voice reads the short form badly (docs.cartesia.ai
+  sonic-3 prompting tips, read 14 Oct 2026). Since D-814 the line is ThinnestAI's own
+  speaking rule and not repeated in HOW TO SPEAK.
 - Silence is the engine's: it asks "are you still there?" and ends the call after the
-  configured seconds (`nudge_after_seconds`, `end_after_silence_seconds`, D-753). The prompt
-  says nothing about silence until ThinnestAI tells us whether the model sees it (next email,
-  `docs/vendor/thinnest-replies-2026-10-12.md` §13 question 12).
+  configured seconds (`nudge_after_seconds`, `end_after_silence_seconds`, D-753). ThinnestAI
+  confirmed on 18 Oct 2026 that the model never sees the silence (D-814 above), so the prompt
+  has no silence rule.
 - Example exchanges: SPOKEN REGISTER ends the primary language's line with "How a turn
   sounds, never words to copy:" and two short exchanges (`prompt_examples` in
   `spoken_style.json`, founder approved 14 Oct 2026; `spoken_style.prompt_example_line`).
@@ -125,7 +167,7 @@ one composer every agent passes through — structured OR raw-override. For a lo
 block was documented here but written by no code; a raw script reached the phone with only
 the compliance floor and the client's words. It is now a non-removable platform layer like
 the §1 invariants, positioned after the platform preamble (it frames the script) and before
-the truthful-answer floor (which alone holds the overriding last position). A wizard should
+the truthful-answer floor (which alone holds the overriding last position among the rules). A wizard should
 NOT re-author `[STYLE]`; the template shows it only so the order is legible.
 
 ```

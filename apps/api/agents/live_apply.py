@@ -216,6 +216,10 @@ def platform_prompt_revision() -> str:
             knowledge_tool="search_knowledge" if in_knowledge else None,
             callbacks_offered=callbacks,
             forwarded_line=not callbacks,
+            # Memory on with our section (the third agent) and with the engine's (the first),
+            # so a change to either rendering moves the revision.
+            caller_memory_enabled=callbacks,
+            caller_memory_in_engine=in_knowledge,
         )
         parts.append(compose_engine_prompt(cfg))
     return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:16]
