@@ -33,7 +33,7 @@ what proves that rather than this sentence.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from calevate_shared.call_script import opening_line_of
@@ -42,6 +42,7 @@ from calevate_shared.lead_fields import business_only
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.languages import Language, published_extra_languages
 from apps.api.agents.llm_models import resolve_llm_model
 from apps.api.agents.llm_tiers import engine_model_token, tier_label, tier_of_model
 from apps.api.agents.models import AgentStatus
@@ -86,7 +87,9 @@ AGENT_ROSTER_SQL = (
     "a.engine_voice_id, a.engine_model_id, "
     # The APPLIED script, the version callers hear, for its opening line (D-708). The same
     # pointer `agents/service._load_agent` publishes from.
-    "pv.body "
+    "pv.body, "
+    # The reply languages after the main one, appended for the reason above.
+    "a.languages_extra "
     "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
     "LEFT JOIN organizations o ON o.id = a.tenant_id "
     "LEFT JOIN prompt_versions pv ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -136,6 +139,11 @@ def agent_out(r: Any) -> AgentOut:
         direction=r[2],
         status=r[3],
         language_primary=r[4],
+        # Through the publish path's own filter, so the screen shows the languages the
+        # agent is published with and nothing it is not.
+        reply_languages=cast(
+            "list[Language]", [r[4], *published_extra_languages(str(r[4]), r[22])]
+        ),
         disclosure_line=r[5],
         engine=r[6],
         published=bool(r[7]),

@@ -48,12 +48,16 @@ from calevate_shared.languages import (
 from pydantic import BeforeValidator
 
 __all__ = [
+    "DEFAULT_REPLY_LANGUAGES",
     "LANGUAGE_LABELS",
+    "MAX_REPLY_LANGUAGES",
     "PRODUCT_LANGUAGES",
     "Language",
     "OfferedLanguage",
+    "default_extra_languages",
     "language_refusal",
     "published_extra_languages",
+    "reply_languages_refusal",
 ]
 
 #: THE THREE THE PRODUCT SELLS, as the wire and `agents.language_primary` spell them.
@@ -138,6 +142,42 @@ def _offered(value: object) -> object:
 #: already bounds, and a validator on the way OUT would turn a schema fault into a
 #: five-hundred with a sentence addressed to a caller who did not send it.
 OfferedLanguage = Annotated[Language, BeforeValidator(_offered)]
+
+
+#: The most languages an agent replies in, its main one included: the voice platform's own
+#: ceiling ("one, or up to four", thinnest-findings/mirror/snapshots/2026-10-18/pages/
+#: agent/behaviour.md:66-80; `languages` `maxItems: 4`, api-reference/agents/
+#: update-agent.md:754-768). Today the offered set is smaller, so it is the set that binds.
+MAX_REPLY_LANGUAGES: Final = 4
+
+#: What a new agent replies in when its creator names nothing else: Telugu, then English
+#: (founder decision, 18 Oct 2026). The main language always comes first, because the
+#: first language is the one the agent falls back to and the one its notices are written in.
+DEFAULT_REPLY_LANGUAGES: Final[tuple[Language, ...]] = ("te-IN", "en-IN")
+
+
+def default_extra_languages(primary: str, business: Sequence[str] | None = None) -> list[str]:
+    """The extra languages a new agent is created with (founder, 18 Oct 2026).
+
+    The business profile's languages when it lists any (`business_profiles.languages`, the
+    starting list for agents created from now on), else the default pair; either way after
+    the main language, each once, at most `MAX_REPLY_LANGUAGES` in all. Without a business
+    list a Telugu agent replies in Telugu then English, an English one in English then
+    Telugu, a Hindi one in Hindi, Telugu and English."""
+    source = business if business else DEFAULT_REPLY_LANGUAGES
+    return published_extra_languages(primary, source)[: MAX_REPLY_LANGUAGES - 1]
+
+
+def reply_languages_refusal(languages: Sequence[str]) -> str | None:
+    """Why this ordered list of reply languages is refused, or None when it is usable.
+    The tags themselves are checked by `OfferedLanguage`; this is the list's own shape."""
+    if not languages:
+        return "Choose at least one language for the agent to reply in."
+    if len(languages) > MAX_REPLY_LANGUAGES:
+        return f"An agent replies in at most {MAX_REPLY_LANGUAGES} languages."
+    if len(set(languages)) != len(languages):
+        return "Each language can be chosen only once."
+    return None
 
 
 def published_extra_languages(primary: str, stored: Sequence[str] | None) -> list[str]:

@@ -136,59 +136,6 @@ async def test_phone_number_required_is_refused_in_words() -> None:
     assert "ThinnestAI" not in f"{refused.value.title} {refused.value.detail}"
 
 
-async def test_a_refused_empty_list_saves_the_agent_without_it_and_alarms(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The docs do not say whether `surfaces: []` is accepted; if it is not, a write to an
-    agent with no number must still go through, or every such agent stops updating."""
-    import apps.api.engine.thinnest as thinnest
-
-    alarms: list[str] = []
-    monkeypatch.setattr(thinnest, "alert", lambda _kind, code, **_kw: alarms.append(code))
-    writes: list[dict[str, Any]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/tools"):
-            if request.method == "PATCH":
-                return httpx.Response(200, json=tools_state(json.loads(request.content)))
-            return httpx.Response(200, json=tools_state())
-        body = json.loads(request.content or b"{}")
-        writes.append(body)
-        if "surfaces" in body.get("voice", {}):
-            return httpx.Response(400, json={"error": "invalid", "code": "invalid_request"})
-        return httpx.Response(200, json={})
-
-    await _engine(handler).update_agent(AGENT, _cfg(has_phone_number=False))
-    assert [w["voice"].get("surfaces", "absent") for w in writes] == [[], "absent"]
-    assert alarms == ["engine_agent_surfaces_refused"]
-
-
-async def test_a_400_about_another_field_raises_the_first_refusal_without_the_alarm(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The write without `surfaces` is refused too, so the 400 was about something else:
-    the first refusal reaches the caller and no surfaces alarm is raised."""
-    import apps.api.engine.thinnest as thinnest
-
-    alarms: list[str] = []
-    monkeypatch.setattr(thinnest, "alert", lambda _kind, code, **_kw: alarms.append(code))
-    writes: list[dict[str, Any]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/tools"):
-            return httpx.Response(200, json=tools_state())
-        body = json.loads(request.content or b"{}")
-        writes.append(body)
-        code = "first_refusal" if len(writes) == 1 else "second_refusal"
-        return httpx.Response(400, json={"error": "invalid", "code": code})
-
-    with pytest.raises(EngineRejectedError) as refused:
-        await _engine(handler).update_agent(AGENT, _cfg(has_phone_number=False))
-    assert refused.value.vendor_code == "first_refusal"
-    assert [w["voice"].get("surfaces", "absent") for w in writes] == [[], "absent"]
-    assert alarms == []
-
-
 async def test_a_400_with_phone_named_is_not_retried() -> None:
     handler, seen = _recorder(
         {("PATCH", "/agents/ag_1"): httpx.Response(400, json={"error": "x", "code": "invalid"})}

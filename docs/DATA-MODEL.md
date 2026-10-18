@@ -174,7 +174,8 @@ business_profiles(id, tenant_id UNIQUE FK organizations, -- FORCEd tenant_isolat
                                      -- an absent day = NOT ANSWERED YET
   branches JSONB[] , services JSONB[] (price_inr a digit STRING, hard rule 7),
   faqs JSONB[], staff JSONB[] (name, pronunciation, role), booking_rules TEXT,
-  languages TEXT[]                   -- every language the business serves
+  languages TEXT[]                   -- every language the business serves: since D-815 the
+                                     -- STARTING reply languages of an agent created from now on
   setup_steps JSONB {step: done|skipped}, setup_started_at, setup_dismissed_at,
   merge_notes JSONB                  -- written only by the D-695 data move: per field, the
                                      -- value kept and the values set aside
@@ -187,12 +188,13 @@ business_contacts(id, tenant_id FK, position, label, phone_e164 CHECK E.164,
 
 ONE profile per client, the single source of what every agent says about the business:
 each agent's [T0 FACTS] is compiled from it (`tenancy/business_profile.fact_lines`), the
-after-hours flag and the handover rota are judged against its hours, and each agent's
-extra languages are its languages minus the agent's own primary. Contacts never enter a
+after-hours flag and the handover rota are judged against its hours, and its languages are
+where a NEW agent's reply languages start (D-815); each agent then keeps its own list
+(`agents.languages_extra`, below), which a later profile save does not rewrite. Contacts never enter a
 prompt. `agent_handoff_members.contact_id` (NOT NULL, CASCADE) makes each agent's handover
 list a SELECTION from `business_contacts`; the member's `label`/`phone_e164` are the
-contact's, copied in the same transaction by the one writer. `organizations.intake`,
-`agents.business_hours` and `agents.languages_extra` are no longer read or written (hard
+contact's, copied in the same transaction by the one writer. `organizations.intake` and
+`agents.business_hours` are no longer read or written (hard
 rule 8, step 1). `invitations.invitee_name` / `invitee_phone` carry the owner's details from
 the operator's form to their account.
 
@@ -200,7 +202,9 @@ the operator's form to their account.
 
 ```
 agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
-  language_primary, languages_extra TEXT[],
+  language_primary, languages_extra TEXT[],  -- D-815: the reply languages after the main one,
+    -- in order; CHECK ck_agents_languages_extra_offered: offered tags only, at most three,
+    -- never language_primary (migration e3b9d4a7c218, which copied each business's list in)
   stt_provider, stt_model, tts_provider, tts_voice, llm_model,     -- config strings
   engine_voice_id TEXT, engine_model_id TEXT,  -- b7e2d94f1a30, D-678. A voice and a model
     -- from the ENGINE'S OWN catalogue (ThinnestAI `GET /voices`, `GET /models`), sent only

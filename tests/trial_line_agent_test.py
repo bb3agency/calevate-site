@@ -184,6 +184,21 @@ async def test_a_borrower_refused_the_phone_is_reported_not_lent(
     assert alarms == ["trial_line_lend_failed"]
 
 
+async def test_a_borrower_whose_line_is_paused_is_reported_and_left_paused(
+    platform: Platform, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Place Call needs the borrower's Answer calls on as well as `phone` (ThinnestAI,
+    18 Oct 2026). Off is our pause, so it is reported rather than switched back on."""
+    trial = _trial_agent(platform)
+    trial["voice"]["answersCalls"] = False
+    await engine_numbers.converge_trial_line()
+    alarms: list[str] = []
+    monkeypatch.setattr(engine_numbers, "alert", lambda _s, code, **_: alarms.append(code))
+    assert not await engine_numbers.lend_trial_line("ag_trial")
+    assert alarms == ["trial_line_lend_failed"]
+    assert trial["voice"]["answersCalls"] is False
+
+
 async def test_without_a_number_nothing_is_made(
     platform: Platform, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * The three fields that describe WHAT an agent is — its name, which way its calls go, and
- * the language it speaks.
+ * The fields that describe WHAT an agent is — its name, which way its calls go, and the
+ * languages it replies in (its main language first, D-815).
  *
  * ## Why these three are a client's and the rest of the configuration is not
  *
@@ -77,6 +77,12 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
   const [language, setLanguage] = useState<AgentLanguage | null>(
     hasKey(LANGUAGE_NAMES, agent.language_primary) ? agent.language_primary : null,
   );
+  /* The other languages it replies in (D-815), in the order the server holds them. The
+     main language is always first on the wire, so it is never also one of these. */
+  const storedExtras = agent.reply_languages.slice(1);
+  const [extras, setExtras] = useState<AgentLanguage[]>(storedExtras);
+  const mainLanguage = language ?? agent.language_primary;
+  const shownExtras = extras.filter((tag) => tag !== mainLanguage);
 
   useCopilotSurface(
     isDeleted(agent)
@@ -125,7 +131,9 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
   const patch: AgentUpdateIn = {};
   if (name.trim() && name !== agent.name) patch.name = name.trim();
   if (direction !== agent.direction) patch.direction = direction;
-  if (language !== null && language !== agent.language_primary) patch.language_primary = language;
+  const languagesMoved =
+    mainLanguage !== agent.language_primary || shownExtras.join() !== storedExtras.join();
+  if (languagesMoved) patch.reply_languages = [mainLanguage, ...shownExtras];
   const changed = Object.keys(patch).length > 0;
   useUnsavedGuard(changed && !isDeleted(agent));
 
@@ -183,7 +191,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
       </fieldset>
 
       <label className="block max-w-sm">
-        <span className={FIELD_LABEL}>Language</span>
+        <span className={FIELD_LABEL}>Main language</span>
         <select
           value={language ?? agent.language_primary}
           onChange={(event) => {
@@ -205,10 +213,37 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
           ))}
         </select>
         <span className={FIELD_HINT}>
-          The language it greets and answers callers in. Its script and the two things it
+          The language it greets callers in, and the one it falls back to when it cannot
+          tell which language a caller is speaking. Its script and the two things it
           announces at the start of a call are written in this language.
         </span>
       </label>
+
+      <fieldset>
+        <legend className={FIELD_LABEL}>It also replies in</legend>
+        <div className="mt-2 space-y-2">
+          {LANGUAGE_CHOICES.filter((choice) => choice.value !== mainLanguage).map((choice) => (
+            <label key={choice.value} className="flex items-center gap-2 text-sm text-ink touch:min-h-11">
+              <input
+                type="checkbox"
+                checked={shownExtras.includes(choice.value)}
+                onChange={(event) =>
+                  setExtras(
+                    event.target.checked
+                      ? [...shownExtras, choice.value]
+                      : shownExtras.filter((tag) => tag !== choice.value),
+                  )
+                }
+              />
+              {choice.label}
+            </label>
+          ))}
+        </div>
+        <p className={FIELD_HINT}>
+          A caller who speaks one of these is answered in it. Leave them all unticked and it
+          answers in its main language only.
+        </p>
+      </fieldset>
 
       {(changed || save.isPending) && (
         <SaveBar
@@ -220,6 +255,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
             setName(agent.name);
             setDirection(agent.direction);
             setLanguage(hasKey(LANGUAGE_NAMES, agent.language_primary) ? agent.language_primary : null);
+            setExtras(storedExtras);
           }}
         />
       )}

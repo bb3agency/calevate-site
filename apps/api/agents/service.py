@@ -587,15 +587,15 @@ async def _load_agent(
                 "a.ai_disclosure_line, a.ai_disclosure_enabled, "
                 "a.recording_notice_line, a.recording_notice_enabled, "
                 "a.caller_memory_notice_line, a.caller_memory_enabled, "
-                # The hours and the languages are the BUSINESS's, from its one profile
-                # (D-695): every agent of a client answers in its languages and is judged
-                # against its hours.
+                # The hours are the BUSINESS's, from its one profile (D-695): every agent of a
+                # client is judged against them.
                 "a.handoff_enabled, a.handoff_trigger, bp.hours, "
                 # The ACCOUNT's model default, joined rather than fetched separately: the
                 # fallback is decided from these two columns together, and two statements
                 # would let a concurrent change to the account default land between them —
                 # a published config whose two halves came from different moments.
-                "o.default_llm_model, bp.languages, a.engine_voice_id, a.engine_model_id, "
+                # The reply languages after the main one are the AGENT's own (D-815).
+                "o.default_llm_model, a.languages_extra, a.engine_voice_id, a.engine_model_id, "
                 # The authored form of the applied version, for an engine that takes the
                 # script's stages as its own step list (`_steps_for`).
                 "pv.structured_script, "

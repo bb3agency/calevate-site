@@ -9,9 +9,12 @@ knowledge publish uses (`kb/service._refresh_agents`' shape):
 * each agent's [T0 FACTS] block is recompiled from the profile (`agents/t0.recompile_t0`),
   which mints a prompt version only when the block changed and re-publishes a live agent
   only when no hand-written script edit is staged;
-* hours, contacts and languages are agent CONFIGURATION too (the handover rota, the
-  after-hours flag, the languages the agent answers in), so a live agent whose block did
+* hours and contacts are agent CONFIGURATION too (the handover rota and the after-hours
+  flag), so a live agent whose block did
   not change is re-published when one of them did;
+* the languages are the STARTING reply languages of an agent created from now on
+  (`agents/lifecycle.create_agent`, D-815); a save never rewrites an existing agent's own
+  list, which the client changes on that agent;
 * a live agent whose block changed behind a staged script edit still gets its new facts
   on an engine that keeps facts in its knowledge base (`agents/engine_facts`), because
   there the facts are not part of the script.
@@ -61,7 +64,7 @@ log = get_logger(__name__)
 #: Sections whose answers are compiled into [T0 FACTS].
 FACT_STEPS: Final = frozenset({"hours", "branches", "services", "faqs", "staff", "booking"})
 #: Sections that are also agent configuration, so a live agent is re-published for them.
-CONFIG_STEPS: Final = frozenset({"hours", "contacts", "languages"})
+CONFIG_STEPS: Final = frozenset({"hours", "contacts"})
 
 
 def _whole_week(rows: list[DayHours]) -> list[DayHours]:
@@ -413,7 +416,7 @@ async def apply_to_agents(session: AsyncSession, *, tenant_id: UUID, changed: se
                 session, engine, agent_id=agent_id, ref=str(ref), facts=block[4] if block else None
             )
     if config_reaches_live:
-        # Hours, contacts and languages are agent configuration read at publish time, so
+        # Hours and contacts are agent configuration read at publish time, so
         # the client's live agents are brought onto them by the live-apply seam, queued in
         # this transaction (D-720). The applied script is what is republished; a draft
         # waiting behind "Put it live" stays a draft.

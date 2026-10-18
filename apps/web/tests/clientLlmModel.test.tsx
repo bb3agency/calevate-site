@@ -396,6 +396,7 @@ function agent(over: Partial<AgentWithLlm> = {}): AgentWithLlm {
     published: true,
     engine: "thinnest",
     language_primary: "te-IN",
+    reply_languages: ["te-IN"],
     disclosure_line: "Namaste, this is an AI assistant calling on behalf of Sri Clinic.",
     ai_disclosure_line: "Namaste, this is an AI assistant calling on behalf of Sri Clinic.",
     ai_disclosure_enabled: true,

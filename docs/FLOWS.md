@@ -39,7 +39,9 @@ Trigger: Sri opens Admin → New Client: one screen, one "Create and invite" (D-
    owner is taken to `/c/{slug}/setup`, a guided wizard with one topic per step — hours
    (closed is an answer, distinct from not answered), addresses/branches, services +
    prices (digit strings), common questions, staff names and how to say them, booking
-   rules, people who can take a call (Indian mobiles), languages — every step skippable.
+   rules, people who can take a call (Indian mobiles), languages — every step skippable. The
+   languages are where a new agent's reply languages start; each agent's own list is changed
+   on that agent, and a later change here does not rewrite existing agents (D-815).
    Progress is stored server-side per client (`business_profiles.setup_*`); a checklist
    on the dashboard resumes any step and folds away when everything is answered or
    skipped and nothing blocks going live, or when hidden. The same facts are edited later

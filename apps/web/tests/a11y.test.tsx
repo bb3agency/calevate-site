@@ -755,6 +755,7 @@ const AGENT = {
   status: "live",
   direction: "outbound",
   language: "te-IN",
+  reply_languages: ["te-IN"],
   disclosure_line:
     "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   // D-163: the two notices this agent volunteers, and the switch on each. Both ON, which

@@ -209,12 +209,65 @@ async def test_a_refused_model_is_said_in_our_words() -> None:
     assert caught.value.code == "engine_own_model_unavailable"
 
 
+def _clear_on_old_platform(key_model: str) -> _Vendor:
+    """A workspace whose key runs `key_model`, on a platform that still answers a Clear
+    agent's model with `409` (set-agent-byok-model.md:471-478 in snapshots/2026-10-13)."""
+    status = {**_OWN_STATUS, "credentials": [{**_OWN_STATUS["credentials"][0], "model": key_model}]}
+    agent = {"id": "ag_9", "greeting": "g", "instructions": "x"}
+    return _Vendor(
+        {
+            ("PATCH", "/agents/ag_9", WS): _ok(agent),
+            ("PUT", "/agents/ag_9/byok-model", WS): _ok({"error": "not own keys"}, 409),
+            ("GET", "/byok", WS): _ok(status),
+        }
+    )
+
+
+async def test_a_clear_agent_refused_its_model_publishes_when_the_key_runs_that_model() -> None:
+    vendor = _clear_on_old_platform("gemini-2.5-flash-lite")
+    await _engine(vendor).update_agent(
+        f"ag_9@{WS}", _cfg(engine_own_voice_key=False, engine_own_model="gemini-2.5-flash-lite")
+    )
+    assert ("GET", "/byok", None) in vendor.seen
+
+
+async def test_a_clear_agent_refused_another_model_than_the_keys_is_refused() -> None:
+    with pytest.raises(ProblemError) as caught:
+        await _engine(_clear_on_old_platform("gemini-2.5-flash-lite")).update_agent(
+            f"ag_9@{WS}", _cfg(engine_own_voice_key=False, engine_own_model="gemini-2.5-flash")
+        )
+    assert caught.value.code == "engine_own_model_unavailable"
+
+
+async def test_a_studio_agent_refused_its_model_is_refused_whatever_the_key_runs() -> None:
+    with pytest.raises(ProblemError) as caught:
+        await _engine(_clear_on_old_platform("gemini-2.5-flash-lite")).update_agent(
+            f"ag_9@{WS}", _cfg(engine_own_voice_key=True, engine_own_model="gemini-2.5-flash-lite")
+        )
+    assert caught.value.code == "engine_own_model_unavailable"
+
+
+async def test_the_drift_repair_reads_a_clear_agents_409_the_same_way() -> None:
+    vendor = _clear_on_old_platform("gemini-2.5-flash-lite")
+    await _engine(vendor).set_agent_own_keys(
+        f"ag_9@{WS}", own_voice=False, own_model="gemini-2.5-flash-lite"
+    )
+    assert [(m, p) for m, p, _b in vendor.seen] == [
+        ("PATCH", "/agents/ag_9"),
+        ("PUT", "/agents/ag_9/byok-model"),
+        ("GET", "/byok"),
+    ]
+
+
 @pytest.mark.parametrize(
     ("byok", "answer", "own_voice", "model", "readable"),
     [
         ("llm_voice", _ok({"model": "gemini-2.5-flash"}), True, "gemini-2.5-flash", True),
         ("llm", _ok({"model": None}), False, "", True),
-        ("llm", _ok({"error": "x"}, 409), False, "", True),
+        # A Clear agent the platform will not give a model of its own (before ThinnestAI's
+        # 18 Oct release) runs the key's own model, read from `GET /byok`.
+        ("llm", _ok({"error": "x"}, 409), False, "gemini-2.5-flash-lite", True),
+        ("llm_voice", _ok({"error": "x"}, 409), True, "", True),
         ("off", None, False, None, True),
         ("all", None, None, None, False),
     ],
@@ -225,6 +278,7 @@ async def test_the_agents_scope_and_model_are_read_back(
     routes = {
         ("GET", "/agents/ag_9", None): _ok({"id": "ag_9", "instructions": "x", "byok": byok}),
         ("GET", "/agents/ag_9/knowledge", None): _ok({"items": [], "nextCursor": None}),
+        ("GET", "/byok", None): _ok(_OWN_STATUS),
     }
     if answer is not None:
         routes[("GET", "/agents/ag_9/byok-model", None)] = answer

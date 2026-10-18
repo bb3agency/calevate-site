@@ -253,9 +253,11 @@ D-728). Our own model on their voices would be the set-up to price in the same c
    answer has id, name, language, gender and sample, and only the order says "own voices first".
 2. Does `POST /phone-numbers` (rent) honour `Idempotency-Key`? The errors page says keys are kept
    24 hours, but the rent page does not list the header. We now send it (OPERATIONS T-19).
+   **Answered 18 Oct 2026 (Ashutosh, item 17): yes, it is honoured.**
 3. Is `voice.surfaces: []` accepted on an agent with no number? We send it so a new agent does not
-   answer on the website button or WhatsApp; if it is refused we save the agent without it and
-   alarm (`engine_agent_surfaces_refused`).
+   answer on the website button or WhatsApp. **Answered 18 Oct 2026 (item 12): accepted;
+   `phone_number_required` fires only when `phone` is added without a number.** The retry
+   without the field and its alarm `engine_agent_surfaces_refused` were removed.
 
 ## 10. Ashutosh's answer on the automated-call notice (TRAI TCCCPR regulation 4), received 13 Oct 2026
 
@@ -660,7 +662,7 @@ D. **Shared clones.**
    - No copies are made, and the clones count only against our limit.
    - Customers can pick a clone but cannot edit or delete it.
    - Deleting a clone moves its agents to a standard voice.
-   - *Docs:* `sharedFromDeveloper: true` in a customer's `GET /voices`. Whether the id equals the developer workspace's `voiceId` is not stated.
+   - *Docs:* `sharedFromDeveloper: true` in a customer's `GET /voices`. Whether the id equals the developer workspace's `voiceId` is not stated. **Answered 18 Oct 2026 (Ashutosh, item 1): the same id.**
 E. **Deleting one call's content, and shorter retention.**
    - `DELETE /api/v1/calls/{id}/content` deletes one call's recording, transcript, summary and collected fields. The billing record stays.
    - `callRetentionDays` on the workspace (Update Workspace) sets a shorter retention, never longer than the plan's.

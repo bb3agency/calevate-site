@@ -163,6 +163,17 @@ def test_a_price_is_digits_and_a_contact_is_an_indian_mobile() -> None:
         ProfilePatch.model_validate({"contacts": [{"label": "A", "phone_e164": "+14155550100"}]})
 
 
+def test_a_contact_may_not_be_a_140_series_number() -> None:
+    """Promotional calling is dropped and the voice platform will not forward to a 140
+    number (D-815), so a hand-over destination on that series is refused at the form."""
+    with pytest.raises(ValueError, match="140-series"):
+        ProfilePatch.model_validate({"contacts": [{"label": "A", "phone_e164": "+911401234567"}]})
+    accepted = ProfilePatch.model_validate(
+        {"contacts": [{"label": "A", "phone_e164": "+911601234567"}]}
+    )
+    assert accepted.contacts is not None
+
+
 # ------------------------------------------------------------------ every agent, synced
 
 
@@ -211,12 +222,20 @@ async def test_a_live_agent_gets_new_facts_without_anybody_republishing() -> Non
     assert "Implant — ₹30000" in held
 
 
-async def test_the_languages_become_every_agents_extra_languages() -> None:
-    tenant_id, agent_id = await _tenant(profile=True)
-    await _save(tenant_id, {"languages": ["te-IN", "hi-IN"]})
+async def test_the_languages_are_where_new_agents_start_and_leave_existing_ones_alone() -> None:
+    """D-815: the business list is the STARTING reply languages of an agent created from
+    now on; each agent's own list is what is published, and a later save of the business
+    list does not rewrite it."""
+    tenant_id, existing = await _tenant(profile=True)
     async with tenant_session(tenant_id) as session:
-        row = await agents_service._load_agent(session, tenant_id, agent_id)
-    assert list(row["languages_extra"]) == ["te-IN", "hi-IN"]
+        before = await agents_service._load_agent(session, tenant_id, existing)
+    await _save(tenant_id, {"languages": ["te-IN", "hi-IN"]})
+    created = await _second_agent(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        kept = await agents_service._load_agent(session, tenant_id, existing)
+        new = await agents_service._load_agent(session, tenant_id, created)
+    assert kept["languages_extra"] == before["languages_extra"]
+    assert list(new["languages_extra"]) == ["hi-IN"]
 
 
 # ------------------------------------------------------------------ contacts

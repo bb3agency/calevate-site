@@ -108,6 +108,7 @@ from calevate_shared.webhook_signature import (
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import (
     NO_CREDENTIALS_REASON,
     engine_lacks,
@@ -1136,6 +1137,7 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "voice": ("voice.voice",),
     "model": ("model",),
     "language": ("language",),
+    "reply_languages": ("languages",),
     "call_language": ("voice.language",),
     "record_calls": ("voice.recordCalls",),
     "max_call_seconds": ("voice.maxCallSeconds",),
@@ -1177,6 +1179,31 @@ def _same_language(wanted: Any, held: Any) -> bool:
         return False
     name = _DOCUMENTED_LANGUAGES.get(_subtag(held), held)
     return str(wanted).lower() in {held.lower(), name.lower()}
+
+
+def _same_languages(wanted: list[str], held: Any) -> bool:
+    """The `languages` list read back as the one sent, in order (the first is the fallback),
+    each by name or tag. Absent, as from a platform without the field, is not the same."""
+    return (
+        isinstance(held, list)
+        and len(held) == len(wanted)
+        and all(_same_language(w, h) for w, h in zip(wanted, held, strict=True))
+    )
+
+
+def _refuse_unsaved_languages(wanted: dict[str, Any], saved: dict[str, Any]) -> None:
+    """The publish read-back of `languages`, from the agent the write answers with. Sent
+    only while `Settings.thinnest_reply_languages` is on; an answer without the list means
+    the platform did not take it, so the agent may still be on its old language, and the
+    publish is refused rather than reported live."""
+    if "languages" in wanted and not _same_languages(wanted["languages"], saved.get("languages")):
+        log.warning("thinnest_languages_not_saved")
+        raise _business_refusal(
+            "engine_languages_not_saved",
+            title="The voice platform did not save this agent's languages",
+            detail="The languages read back from the voice platform differ from the ones sent.",
+            remediation="Publish again. If it keeps happening, contact us.",
+        )
 
 
 def _field(body: dict[str, Any], key: str) -> tuple[bool, Any]:
@@ -1275,6 +1302,8 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
             present, have = _field(held, key)
             if key in _LANGUAGE_KEYS:
                 same = present and _same_language(want, have)
+            elif key == "languages":
+                same = _same_languages(want, have)
             elif key == "escalation":
                 same = isinstance(have, dict) and all(
                     have.get(flag) is value for flag, value in want.items()
@@ -1540,15 +1569,13 @@ def _subtag(tag: str) -> str:
 
 
 def language_fields(cfg: AgentConfig) -> tuple[str, str | None]:
-    """`(language, voice.language)` for an agent.
+    """`(language, voice.language)` for an agent, as sent while `languages` is off.
 
-    An agent has ONE language: a fixed one is the only language it answers in, and on a call
-    it also tells the speech recogniser what to listen for; `auto` ("Match the customer")
-    works the language out per sentence. "To serve two, leave the agent on Match the
-    customer" — there is no second-language setting, and `secondLanguage` is retired and
-    ignored (snapshots/2026-10-08/pages/channels/voice.md:225-239; agent/behaviour.md:51-60;
-    api-reference/agents/update-agent.md:560-573). `voice.language` takes a language name or
-    null to follow `language`; `auto` there is a 400 (:962-970).
+    `language` is ONE language: a fixed one is the only language the agent answers in, and
+    on a call it also tells the speech recogniser what to listen for; `auto` ("Match the
+    customer") works the language out per sentence (snapshots/2026-10-18/pages/agent/
+    behaviour.md:89-93). `voice.language` takes a language name or null to follow
+    `language`; `auto` there is a 400 (api-reference/agents/update-agent.md:1219-1227).
 
     So a Telugu agent with English as a second language is sent `auto` with the call language
     following it: a fixed Telugu would refuse English replies and mis-hear English callers.
@@ -1556,12 +1583,28 @@ def language_fields(cfg: AgentConfig) -> tuple[str, str | None]:
     A one-language agent is fixed to that language on both fields, which gives the recogniser
     the language rather than leaving it to guess. A primary tag outside the console's list
     is `auto` as well, because no fixed value we could send would be the agent's language.
+    With `Settings.thinnest_reply_languages` on, `language` gives way to `reply_languages`.
     """
     primary = _DOCUMENTED_LANGUAGES.get(_subtag(cfg.language_primary))
     others = {_subtag(tag) for tag in cfg.languages_extra} - {_subtag(cfg.language_primary)}
     if primary is None or others:
         return _AUTO_LANGUAGE, None
     return primary, primary
+
+
+def reply_languages(cfg: AgentConfig) -> list[str]:
+    """The agent's `languages` list: its languages by the English names the console offers,
+    main language first, each once (snapshots/2026-10-18/pages/api-reference/agents/
+    update-agent.md:754-768: `[]` auto, one name that language alone, two to four the
+    languages it expects with the first as fallback; a repeat or a name the console does not
+    offer is a 400). A tag outside the console's list is left out; if that leaves nothing,
+    `[]` sends the agent to auto, as `language_fields` does."""
+    names: list[str] = []
+    for tag in (cfg.language_primary, *cfg.languages_extra):
+        name = _DOCUMENTED_LANGUAGES.get(_subtag(tag))
+        if name is not None and name not in names:
+            names.append(name)
+    return names
 
 
 class ThinnestEngine:
@@ -1652,35 +1695,10 @@ class ThinnestEngine:
                 json=body,
             )
         except EngineRejectedError as exc:
-            voice = body.get("voice")
-            if exc.vendor_status == 400 and isinstance(voice, dict) and voice.get("surfaces") == []:
-                # The docs neither allow nor refuse an empty list (update-agent, read 12 Oct
-                # 2026). If it is refused, every write to an agent without a number would
-                # fail, so the write goes through without the field and an operator settles
-                # it with the vendor; the drift sweep keeps reporting the extra places. A 400
-                # that the write without the field also gets was about another field, so the
-                # first refusal is raised and nothing is said about surfaces.
-                try:
-                    saved = await self._request(
-                        method,
-                        path,
-                        route=route,
-                        workspace=workspace,
-                        json={
-                            **body,
-                            "voice": {k: v for k, v in voice.items() if k != "surfaces"},
-                        },
-                    )
-                except EngineRejectedError:
-                    raise exc from None
-                alert(
-                    "CORE_LOGIC",
-                    "engine_agent_surfaces_refused",
-                    detail="ThinnestAI refused voice.surfaces [] on an agent with no number; "
-                    "the agent was saved without it and may still answer on the website "
-                    "button or WhatsApp. Ask ThinnestAI how to switch those off.",
-                )
-                return saved
+            # `voice.surfaces: []` on an agent with no number is accepted (ThinnestAI's
+            # email of 18 Oct 2026); only adding `phone` without a number is refused, with
+            # the 409 below (snapshots/2026-10-18/pages/api-reference/agents/
+            # update-agent.md:608-622).
             if exc.vendor_status != 409 or exc.vendor_code != PHONE_NUMBER_REQUIRED:
                 raise
             log.warning("thinnest_agent_phone_number_missing", extra={"route": route})
@@ -1876,7 +1894,13 @@ class ThinnestEngine:
                 code="engine_business_line_too_long",
                 what="business line",
             ),
-            "language": language,
+            # `languages` or `language`, never both: both together is a 400, and `language`
+            # alone clears the list (update-agent.md:754-768).
+            **(
+                {"languages": reply_languages(cfg)}
+                if get_settings().thinnest_reply_languages
+                else {"language": language}
+            ),
             "voice": voice,
             # Stated, not left to the defaults: the vendor's own call-back would ring the
             # caller from their side, outside our dial gate and our DNC list, and its lead
@@ -2143,6 +2167,20 @@ class ThinnestEngine:
                 detail="The voice platform did not keep the phone line on the calling agent.",
                 remediation="Try again; if it repeats, check the agent in the platform console.",
             )
+        # Place Call also needs the borrower's Answer calls ON (ThinnestAI's email of
+        # 18 Oct 2026; `voice.answersCalls`, snapshots/2026-10-18/pages/api-reference/agents/
+        # update-agent.md:1206-1208). A
+        # publish always sends it on, so off is our own pause (`override_call_script`) or a
+        # console edit; it is reported rather than switched on, which would lift that pause.
+        if not isinstance(voice, dict) or voice.get("answersCalls") is not True:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_agent_not_answering",
+                title="The agent is not taking calls on the voice platform",
+                detail="The calling agent's line is switched off, so it cannot place a call.",
+                remediation="Publish the agent again; if it repeats, check it in the platform "
+                "console.",
+            )
 
     # --- the forwarding verification call (D-746) --------------------------------------
 
@@ -2318,25 +2356,47 @@ class ThinnestEngine:
     async def _apply_own_model(self, raw: str, workspace: str | None, cfg: AgentConfig) -> None:
         """`PUT /agents/{id}/byok-model` for an agent answering on our model key (D-764): the
         model must be one the key reaches, and the agent then runs it rather than the key's
-        own (`thinnest-findings/mirror/snapshots/2026-10-13/pages/api-reference/agents/
-        set-agent-byok-model.md:410-480`). Always sent, so the agent never silently follows
-        the workspace key's model. The vendor documents its `409` as "not using its own voice
-        key" (:471-478) on a route about the model key; read as the workspace not holding our
-        model key, which a publish switches on before this write."""
+        own (`thinnest-findings/mirror/snapshots/2026-10-18/pages/api-reference/agents/
+        set-agent-byok-model.md:443-525`). Always sent, so the agent never silently follows
+        the workspace key's model.
+
+        A Clear agent (scope `llm`, no voice key of ours) may be answered `409`: the route
+        used to require the workspace's voice key (snapshots/2026-10-13, same page :471-478),
+        and the docs now say a workspace on `llm` can set the model (:514-525) but ThinnestAI
+        wrote on 18 Oct 2026 that the change needs a release. Until it is live such an agent
+        runs the key's own model, so the `409` is accepted when that model, read from
+        `GET /byok` in the same workspace, is the one wanted; otherwise the publish is refused,
+        because the minute would be metered at a model the agent does not run."""
         if not cfg.engine_own_model:
             return
+        await self._put_own_model(
+            raw, workspace, cfg.engine_own_model, own_voice=bool(cfg.engine_own_voice_key)
+        )
+
+    async def _put_own_model(
+        self, raw: str, workspace: str | None, model: str, *, own_voice: bool
+    ) -> None:
+        """The `PUT /agents/{id}/byok-model` of `_apply_own_model`, also used by the drift
+        repair (`set_agent_own_keys`), so both read a Clear agent's `409` the same way."""
         try:
             await self._request(
                 "PUT",
                 f"/agents/{raw}/byok-model",
                 route="/agents/{ref}/byok-model",
                 workspace=workspace,
-                json={"model": cfg.engine_own_model},
+                json={"model": model},
                 extra_refused_statuses=frozenset({409}),
             )
         except EngineRejectedError as exc:
             if exc.vendor_status not in (400, 409):
                 raise
+            if (
+                exc.vendor_status == 409
+                and not own_voice
+                and await self._key_model(workspace) == model
+            ):
+                log.info("thinnest_own_model_runs_key_model")
+                return
             raise _business_refusal(
                 "engine_own_model_unavailable",
                 title="This language model cannot be set on the voice platform",
@@ -2371,10 +2431,20 @@ class ThinnestEngine:
         except EngineRejectedError as exc:
             if exc.vendor_status != 409:
                 raise
-            # On our model key yet the platform will not say which model: read as no model
-            # of ours, so the drift sweep puts the one we publish back.
+            # A Clear agent (`llm`) on a platform without the 18 Oct release runs the key's
+            # own model and has no choice of its own to read (`_apply_own_model`). Any other
+            # agent on our model key that will not say which model: read as no model of
+            # ours, so the drift sweep puts the one we publish back.
+            if agent.get("byok") == "llm":
+                return await self._key_model(workspace) or "", True
             return "", True
         return _str(data.get("model")) or "", True
+
+    async def _key_model(self, workspace: str | None) -> str | None:
+        """The model our language-model key runs by default in `workspace` (`GET /byok`,
+        `credentials[kind=llm].model`), or None when no such key is listed."""
+        data = await self._request("GET", "/byok", route="/byok", workspace=workspace)
+        return _key_state(data).llm_model
 
     async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef:
         """A new agent in the client's OWN workspace (`cfg.engine_workspace`, D-693). Never
@@ -2400,6 +2470,7 @@ class ThinnestEngine:
                 raise _bad_response("The voice platform did not return an agent id.")
         _refuse_unsaved_steps(body, data)
         _refuse_unsaved_reply_length(body, data)
+        _refuse_unsaved_languages(body, data)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_own_model(raw, workspace, cfg)
         await self._apply_built_in_tools(raw, workspace, cfg)
@@ -2412,6 +2483,7 @@ class ThinnestEngine:
         saved = await self._write_agent("PATCH", f"/agents/{raw}", "/agents/{ref}", workspace, body)
         _refuse_unsaved_steps(body, saved)
         _refuse_unsaved_reply_length(body, saved)
+        _refuse_unsaved_languages(body, saved)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_own_model(raw, workspace, cfg)
         await self._apply_built_in_tools(raw, workspace, cfg)
@@ -3407,13 +3479,7 @@ class ThinnestEngine:
             json={"byok": _byok_value(own_voice, own_model)},
         )
         if own_model:
-            await self._request(
-                "PUT",
-                f"/agents/{raw}/byok-model",
-                route="/agents/{ref}/byok-model",
-                workspace=workspace,
-                json={"model": own_model},
-            )
+            await self._put_own_model(raw, workspace, own_model, own_voice=own_voice)
 
     async def disable_own_voice_key(self) -> OwnVoiceKeyState:
         """`PATCH /byok {enabled: false}`, then the state as read back. Every agent on

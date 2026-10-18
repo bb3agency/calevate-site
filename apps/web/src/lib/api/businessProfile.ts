@@ -75,7 +75,7 @@ export const STEPS: readonly StepCopy[] = [
   { id: "staff", title: "Who works with you?", hint: "Names your agents may mention, and how to say them.", short: "Staff names" },
   { id: "booking", title: "How do bookings work?", hint: "Slots, notice, deposits — anything a caller should know.", short: "Booking rules" },
   { id: "contacts", title: "Who can take a call?", hint: "People your agents can put a caller through to. Indian mobiles only.", short: "People who take calls" },
-  { id: "languages", title: "Which languages do you serve?", hint: "Your agents answer in these besides their own language.", short: "Languages" },
+  { id: "languages", title: "Which languages do you serve?", hint: "New agents start out replying in these. This applies to agents you create from now on; to change an existing agent, open that agent.", short: "Languages" },
 ];
 
 export function stepCopy(id: StepId): StepCopy {

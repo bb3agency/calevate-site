@@ -32,7 +32,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from apps.api.agents.languages import PRODUCT_LANGUAGES
+from apps.api.agents.languages import MAX_REPLY_LANGUAGES, PRODUCT_LANGUAGES
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
 #: WHICH WAY AN AGENT'S CALLS GO, as a type rather than as three strings.
@@ -305,6 +305,15 @@ class Agent(PKMixin, TimestampMixin, Base):
         # `tests/product_languages_test.py` holds this constraint to the narrower side.
         CheckConstraint(
             f"language_primary IN {PRODUCT_LANGUAGES!r}", name="language_primary_offered"
+        ),
+        # The reply languages after the main one (migration e3b9d4a7c218): offered ones
+        # only, at most three, never the main language again.
+        CheckConstraint(
+            "languages_extra <@ ARRAY["
+            + ", ".join(f"'{tag}'" for tag in PRODUCT_LANGUAGES)
+            + f"]::text[] AND cardinality(languages_extra) <= {MAX_REPLY_LANGUAGES - 1} "
+            "AND NOT (language_primary = ANY (languages_extra))",
+            name="languages_extra_offered",
         ),
         CheckConstraint(f"status IN {AGENT_STATUSES!r}", name="status_enum"),
         # `archived` and `archived_at` are two spellings of one fact (migration

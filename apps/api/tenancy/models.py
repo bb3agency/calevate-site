@@ -426,8 +426,9 @@ class BusinessProfile(PKMixin, TimestampMixin, Base):
 
     The single source of what every agent of this client says about the business: the
     [T0 FACTS] block of every agent is compiled from it (`agents/t0.py`), the after-hours
-    flag and the handover rota are judged against its hours, and each agent's extra
-    languages are its languages. The client fills it in a skippable setup wizard and edits
+    flag and the handover rota are judged against its hours, and its languages are the
+    reply languages a NEW agent starts with (D-815). The client fills it in a skippable
+    setup wizard and edits
     it later under Settings; an operator edits it through view-as.
 
     `hours` maps a weekday to `{"opens", "closes"}` or to null. Null is CLOSED; an absent
@@ -472,8 +473,8 @@ class BusinessProfile(PKMixin, TimestampMixin, Base):
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     booking_rules: Mapped[str | None] = mapped_column(Text)
-    #: Every language the business serves, primaries included. An agent speaks these
-    #: besides its own primary language.
+    #: Every language the business serves, primaries included: the reply languages an agent
+    #: CREATED from now on starts with (D-815). An existing agent keeps its own list.
     languages: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
     )

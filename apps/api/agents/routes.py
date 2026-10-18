@@ -53,6 +53,7 @@ from calevate_shared.lead_fields import with_core
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi import status as http_status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic.config import JsonDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,7 +64,11 @@ from apps.api.agents import lifecycle, roster, starters
 # the request — pydantic's own "Input should be 'te-IN', ..." is dropped by the validation
 # handler on purpose (`core/errors._LIBRARY_PHRASINGS`), so a bare Literal here refuses
 # `xx-IN` with a field name and no reason.
-from apps.api.agents.languages import OfferedLanguage
+from apps.api.agents.languages import (
+    MAX_REPLY_LANGUAGES,
+    OfferedLanguage,
+    reply_languages_refusal,
+)
 from apps.api.agents.lead_fields import starting_business_fields
 from apps.api.agents.llm_tiers import engine_model_from_client, resolve_tier_choice
 from apps.api.agents.models import (
@@ -382,6 +387,31 @@ async def get_agent(
 # produces an agent without an AI disclosure on file.
 
 
+#: The OpenAPI shape of `reply_languages`. The bounds are checked by
+#: `reply_languages_refusal`, not by `Field(min_length=…)`, so the refusal is a sentence
+#: for the person sending it rather than the library's.
+_REPLY_LANGUAGES_SCHEMA: JsonDict = {
+    "minItems": 1,
+    "maxItems": MAX_REPLY_LANGUAGES,
+    "uniqueItems": True,
+}
+
+
+def _check_reply_languages(languages: list[OfferedLanguage] | None, primary: str | None) -> None:
+    """Refuse a `reply_languages` that cannot be sent. Its first language IS the main
+    language, so a `language_primary` sent beside it must be that one."""
+    if languages is None:
+        return
+    refusal = reply_languages_refusal(languages)
+    if refusal is not None:
+        raise ValueError(refusal)
+    if primary is not None and primary != languages[0]:
+        raise ValueError(
+            "The first reply language is the agent's main language; send the same one "
+            "in both, or send only the reply languages."
+        )
+
+
 class AgentCreateIn(BaseModel):
     """A new agent, in the three facts a business owner actually has at creation time.
 
@@ -411,6 +441,12 @@ class AgentCreateIn(BaseModel):
     #: generated client does not demand a direction the starter already sets.
     direction: AgentDirection | None = None
     language_primary: OfferedLanguage = "te-IN"
+    #: The languages the agent replies in, in order, at most four; the first is its main
+    #: language and the one it falls back to. Omitted: the business profile's languages, else
+    #: the main language, then Telugu and English (`languages.default_extra_languages`).
+    reply_languages: list[OfferedLanguage] | None = Field(
+        default=None, json_schema_extra=_REPLY_LANGUAGES_SCHEMA
+    )
     #: The cost-runaway guard. `null` means the platform default (600s), never unlimited.
     max_call_duration_s: int | None = Field(default=None, ge=CALL_CAP_MIN_S, le=CALL_CAP_MAX_S)
 
@@ -422,7 +458,21 @@ class AgentCreateIn(BaseModel):
         self.name = self.name.strip()
         if not self.name:
             raise ValueError("name must not be blank")
+        sent_primary = (
+            self.language_primary if "language_primary" in self.model_fields_set else None
+        )
+        _check_reply_languages(self.reply_languages, sent_primary)
         return self
+
+    @property
+    def main_language(self) -> OfferedLanguage:
+        """The agent's main language: the first reply language, else `language_primary`."""
+        return self.reply_languages[0] if self.reply_languages else self.language_primary
+
+    @property
+    def extra_languages(self) -> list[OfferedLanguage] | None:
+        """The reply languages after the main one; None when none were sent (the default)."""
+        return self.reply_languages[1:] if self.reply_languages is not None else None
 
 
 class AgentUpdateIn(BaseModel):
@@ -451,6 +501,11 @@ class AgentUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     direction: AgentDirection | None = None
     language_primary: OfferedLanguage | None = None
+    #: The languages the agent replies in, in order, at most four; the first becomes its
+    #: main language. Omitted: unchanged (a new `language_primary` alone keeps the others).
+    reply_languages: list[OfferedLanguage] | None = Field(
+        default=None, json_schema_extra=_REPLY_LANGUAGES_SCHEMA
+    )
     #: The agent's own AI model TIER (D-680); `null` clears it and the agent follows the
     #: account default. The server resolves the tier to a model (`agents/llm_tiers.py`) —
     #: a client never sends or reads a model id.
@@ -460,6 +515,16 @@ class AgentUpdateIn(BaseModel):
     #: clears the choice, with `llm_tier`'s tri-state; checked by `agents/engine_choice.py`.
     engine_voice_id: str | None = Field(default=None, min_length=1, max_length=128)
     engine_model_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+    @property
+    def main_language(self) -> OfferedLanguage | None:
+        """The main language to set: the first reply language, else `language_primary`."""
+        return self.reply_languages[0] if self.reply_languages else self.language_primary
+
+    @property
+    def extra_languages(self) -> list[OfferedLanguage] | None:
+        """The reply languages after the main one; None leaves them as they are."""
+        return self.reply_languages[1:] if self.reply_languages is not None else None
 
     @property
     def set_llm_tier(self) -> bool:
@@ -480,17 +545,18 @@ class AgentUpdateIn(BaseModel):
             self.name = self.name.strip()
             if not self.name:
                 raise ValueError("name must not be blank")
+        _check_reply_languages(self.reply_languages, self.language_primary)
         if (
             self.name is None
             and self.direction is None
-            and self.language_primary is None
+            and self.main_language is None
             and not self.set_llm_tier
             and not self.set_engine_voice_id
             and not self.set_engine_model_id
         ):
             raise ValueError(
-                "name at least one of name, direction, language_primary, llm_tier, "
-                "engine_voice_id, engine_model_id"
+                "name at least one of name, direction, language_primary, reply_languages, "
+                "llm_tier, engine_voice_id, engine_model_id"
             )
         return self
 
@@ -573,7 +639,8 @@ async def create_agent_route(
         tenant_id=principal.tenant_id,
         name=payload.name,
         direction=direction,
-        language_primary=payload.language_primary,
+        language_primary=payload.main_language,
+        languages_extra=payload.extra_languages,
         max_call_duration_s=payload.max_call_duration_s,
         starter=payload.starter,
         created_by=principal.user_id,
@@ -601,6 +668,9 @@ async def create_agent_route(
         "same transaction — including the numbers it answers, so switching a two-way "
         "agent to outbound-only really does stop it picking up — and if that push fails "
         "nothing is saved.\n\n"
+        "`reply_languages` sets the languages the agent replies in, in order, at most four; "
+        "the first becomes its main language and the one it falls back to when it cannot "
+        "tell which language a caller is speaking.\n\n"
         "`llm_tier` is the one field where sending `null` MEANS something: it clears "
         "this agent's own AI model tier so it follows the account default again. Omit the "
         "field entirely to leave the current choice alone. A tier that is not switched on "
@@ -653,7 +723,8 @@ async def update_agent_route(
         agent_id=agent_id,
         name=payload.name,
         direction=payload.direction,
-        language_primary=payload.language_primary,
+        language_primary=payload.main_language,
+        languages_extra=payload.extra_languages,
         llm_model=llm_model,
         set_llm_model=payload.set_llm_tier,
         engine_voice_id=payload.engine_voice_id,

@@ -56,6 +56,9 @@ class AgentOut(BaseModel):
     #: offered` is the constraint, and the screens get an exhaustive union instead of a
     #: string they have to guard (`apps/web/src/lib/agentState.LANGUAGE_NAMES`).
     language_primary: Language
+    #: The languages the agent replies in, in order; the first is `language_primary`, the
+    #: one it falls back to when it cannot tell which language a caller speaks.
+    reply_languages: list[Language]
     # THE LEGACY BUNDLE, kept on the wire for step 1 of D-163's two-step deprecation:
     # both sentences joined whatever the toggles say. Read it as "the notices this agent
     # HAS", never as "what it says" — `opening_line` below is what it says.

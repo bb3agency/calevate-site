@@ -334,6 +334,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # Both are recorded only: `trial_line_lend_failed` and `engine_dial_setup_refused`
     # already raise the alarm for the same failure.
     "engine_agent_phone_not_held": "record",
+    "engine_agent_not_answering": "record",
     "trial_call_not_placed": "record",
     "trial_number_recorded_to_client": "attention",
     "engine_business_details_lapsed": "attention",
@@ -634,7 +635,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # A client's calls-at-once cap did not read back as set on the voice platform. Nobody's
     # call fails; the client may hold more or fewer lines than chosen until it is saved again.
     "engine_call_lines_not_saved": "attention",
-    "engine_agent_surfaces_refused": "attention",
     # A stored or vendor-returned id would have turned one vendor route into another; the
     # request was never sent. Not paged: nothing was changed on the platform.
     "engine_path_refused": "attention",

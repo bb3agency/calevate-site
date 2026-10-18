@@ -3205,6 +3205,8 @@ export interface paths {
          * Rename an agent, change its calling direction or language, or pick its model
          * @description Applies immediately. A live agent is re-published to the voice platform in the same transaction — including the numbers it answers, so switching a two-way agent to outbound-only really does stop it picking up — and if that push fails nothing is saved.
          *
+         *     `reply_languages` sets the languages the agent replies in, in order, at most four; the first becomes its main language and the one it falls back to when it cannot tell which language a caller is speaking.
+         *
          *     `llm_tier` is the one field where sending `null` MEANS something: it clears this agent's own AI model tier so it follows the account default again. Omit the field entirely to leave the current choice alone. A tier that is not switched on yet is refused with `llm_tier_not_available` — `GET /v1/organization/llm-defaults` marks those tiers `is_available: false`. Choosing the tier the agent is already on changes nothing. Where that read says `tier_choosable: false`, any tier is refused with `llm_tier_not_chosen_here` and only `null` is accepted.
          *
          *     `engine_voice_id` and `engine_model_id` choose from the voice platform's own list (`GET /v1/agents/engine-catalogue`, whose model ids are opaque) where it supplies one; `null` clears a choice that has not yet been published. An entry that list marks unavailable is refused with its reason.
@@ -11676,6 +11678,8 @@ export interface components {
             max_call_duration_s?: number | null;
             /** Name */
             name: string;
+            /** Reply Languages */
+            reply_languages?: ("te-IN" | "hi-IN" | "en-IN")[] | null;
             /** Starter */
             starter?: ("answer_calls" | "call_leads") | null;
         };
@@ -11810,6 +11814,8 @@ export interface components {
             recording_notice_enabled: boolean;
             /** Recording Notice Line */
             recording_notice_line: string;
+            /** Reply Languages */
+            reply_languages: ("te-IN" | "hi-IN" | "en-IN")[];
             /**
              * Script Opening Line
              * @default
@@ -11968,6 +11974,8 @@ export interface components {
             llm_tier?: ("standard" | "plus" | "pro") | null;
             /** Name */
             name?: string | null;
+            /** Reply Languages */
+            reply_languages?: ("te-IN" | "hi-IN" | "en-IN")[] | null;
         };
         /**
          * AgentVoiceOut

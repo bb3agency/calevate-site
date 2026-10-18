@@ -244,6 +244,7 @@ export function agentRow(over: Partial<Agent> = {}): Agent {
     status: "live",
     archived_at: null,
     language_primary: "te-IN",
+    reply_languages: ["te-IN"],
     disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
     ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
     ai_disclosure_enabled: true,

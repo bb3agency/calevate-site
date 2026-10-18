@@ -63,6 +63,7 @@ const AGENT: Agent = {
   // Hard rule 5: an agent ALWAYS carries a non-null disclosure line. These fixtures had
   // none — `as unknown as Agent` is why nobody noticed.
   language_primary: "te-IN",
+  reply_languages: ["te-IN"],
   disclosure_line:
     "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   // D-163 split the bundled line into two notices with two switches. The fixture keeps
