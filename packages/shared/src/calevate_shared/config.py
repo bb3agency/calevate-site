@@ -470,9 +470,9 @@ class Settings(BaseSettings):
     #: answers ready; saving it republishes every live agent.
     thinnest_own_model: bool = False
     #: The model of our Google key an agent runs when the switch is on and the agent names
-    #: none of its own. One of the Google models `agents/llm_models.offerable_models` offers
-    #: (selectable, key installed, price attested). Gemini 2.5 Flash-Lite can switch thinking
-    #: off; a Gemini 3 model cannot (`calevate_shared.engine.GoogleDirectModel`).
+    #: none of its own. Saving it is refused unless `agents/llm_models.
+    #: own_model_offerable_models` offers it: permitted on our own-model leg, key installed,
+    #: price attested, and no Google access limit (`THINNEST_OWN_MODEL_DEFAULT`, D-817).
     thinnest_own_model_default: GoogleDirectModel = THINNEST_OWN_MODEL_DEFAULT
     #: Send each agent's reply languages as ThinnestAI's `languages` list (up to four, the
     #: first its fallback; `thinnest-findings/mirror/snapshots/2026-10-18/pages/

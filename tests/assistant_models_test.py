@@ -31,7 +31,6 @@ from calevate_shared.engine import (
     LLM_MODELS,
     OFF_CALL_LLM_MODELS,
     SELECTABLE_LLM_MODELS,
-    THINNEST_OWN_MODEL_DEFAULT,
     GoogleDirectModel,
     keeps_default_temperature,
 )
@@ -42,6 +41,8 @@ from pydantic import ValidationError
 #: Google ids in `engine.py` and the lifecycle registry alone.
 WITHDRAWN = next(m for m in GEMINI_RETIRED_LLMS if m.startswith("gemini-3"))
 DEFAULTS = (COPILOT_FAST_MODEL_DEFAULT, COPILOT_PLANNING_MODEL_DEFAULT)
+#: A model that can switch thinking off, so Pip still sends it a temperature.
+GEMINI_25_FLASH_LITE = "gemini-2.5-flash-lite"
 
 
 @pytest.fixture
@@ -114,15 +115,13 @@ def test_the_defaults_are_assistant_models_and_stay_refused_on_calls() -> None:
         assert entry.retirement.verified
 
 
-def test_the_in_call_default_is_unchanged_and_carries_googles_restriction() -> None:
-    """The in-call model is the founder's decision; this change records the restriction
-    and moves nothing on calls."""
-    assert THINNEST_OWN_MODEL_DEFAULT in SELECTABLE_LLM_MODELS
-    assert Settings.model_fields["thinnest_own_model_default"].default == (
-        THINNEST_OWN_MODEL_DEFAULT
-    )
-    restriction = MODEL_LIFECYCLE[THINNEST_OWN_MODEL_DEFAULT].access_restriction
-    assert restriction and "actively used them in the past" in restriction
+def test_the_25_models_stay_selectable_and_carry_googles_restriction() -> None:
+    """D-786 records the restriction and moves nothing on the 2.5 entries; the in-call
+    default left them (D-817, `own_model_call_cache_test`)."""
+    for model in (GEMINI_25_FLASH_LITE, "gemini-2.5-flash"):
+        assert model in SELECTABLE_LLM_MODELS
+        restriction = MODEL_LIFECYCLE[model].access_restriction
+        assert restriction and "actively used them in the past" in restriction
 
 
 def test_off_call_only_needs_a_model_that_is_not_selectable() -> None:
@@ -187,13 +186,11 @@ def test_pip_sends_no_temperature_to_a_gemini_3_model_and_keeps_it_elsewhere() -
     for model in DEFAULTS:
         assert keeps_default_temperature(model)
         assert service.answer_temperature(_leg(model)) is None
-    assert service.answer_temperature(_leg(THINNEST_OWN_MODEL_DEFAULT)) == (
-        service.ANSWER_TEMPERATURE
-    )
+    assert service.answer_temperature(_leg(GEMINI_25_FLASH_LITE)) == (service.ANSWER_TEMPERATURE)
     assert service.answer_temperature(_leg("an-azure-deployment")) == service.ANSWER_TEMPERATURE
 
 
-@pytest.mark.parametrize("model", [COPILOT_FAST_MODEL_DEFAULT, THINNEST_OWN_MODEL_DEFAULT])
+@pytest.mark.parametrize("model", [COPILOT_FAST_MODEL_DEFAULT, GEMINI_25_FLASH_LITE])
 def test_both_pip_paths_carry_the_models_temperature(
     monkeypatch: pytest.MonkeyPatch, model: str
 ) -> None:

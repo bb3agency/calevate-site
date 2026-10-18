@@ -25,10 +25,15 @@ keeps running, and billing, exactly as before; a workspace whose own keys are of
 on with `llm`, the only scope its own keys then cover (:271-274). A call already running keeps
 its stack (:121-125).
 
-WHICH MODEL. The offerable Google models of `agents/llm_models.offerable_models` (selectable,
-our Google key installed, price attested: hard rule 7), chosen per agent by an operator as
-`byok:<model>` in `agents.engine_model_id`, else `Settings.thinnest_own_model_default`. On
-calls ThinnestAI asks a Gemini 2.5 or 3 model to think less (:167-169).
+WHICH MODEL. The Google models of `agents/llm_models.own_model_offerable_models` (permitted
+on this leg, not limited by Google to earlier users, our Google key installed, price
+attested: hard rule 7), chosen per agent by an operator as `byok:<model>` in
+`agents.engine_model_id`, else `Settings.thinnest_own_model_default`. On calls ThinnestAI asks
+a Gemini 2.5 or 3 model to think less (`snapshots/2026-10-18/.../bring-your-own-keys.md:
+167-169`), which is why `gemini-3.1-flash-lite`, refused where our code runs a call, is
+permitted here (D-817). A console default Google no longer serves to our project (a stored
+Gemini 2.5 value) leaves readiness false and refuses every publish on our model rather than
+placing calls that would fail.
 """
 
 from __future__ import annotations
@@ -38,12 +43,12 @@ from datetime import UTC, datetime
 from typing import Final, cast
 from uuid import UUID
 
-from calevate_shared.engine import GOOGLE_DIRECT_MODELS, VoiceEngine
+from calevate_shared.engine import VoiceEngine
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.llm_models import (
     dashboard_data_use_attested,
-    offerable_models,
+    own_model_offerable_models,
     unofferable_reason,
 )
 from apps.api.billing.engine_minutes import (
@@ -95,7 +100,7 @@ def own_model_on(engine: VoiceEngine) -> bool:
 
 def offerable_own_models() -> tuple[str, ...]:
     """The Google models an agent may run on our key right now, sorted."""
-    return tuple(sorted(m for m in offerable_models() if m in GOOGLE_DIRECT_MODELS))
+    return tuple(sorted(own_model_offerable_models()))
 
 
 def own_model_choice_id(model: str) -> str:
@@ -160,7 +165,7 @@ def refuse_unofferable_own_model(model: str) -> None:
         kind="business_rule",
         code=OWN_MODEL_NOT_OFFERED,
         title="This language model cannot be used",
-        detail=unofferable_reason(model, audience="client")
+        detail=unofferable_reason(model, audience="client", own_model_call=True)
         or "This language model is not available on this account.",
         remediation="Choose another model, or clear the choice to use the default.",
     )
@@ -176,7 +181,8 @@ class OwnModelReadiness:
     switched_on: bool
     default_model: str
     google_key: bool
-    #: The default model is selectable, its key installed and its price attested.
+    #: The default model is `own_model_offerable_models`: permitted on this leg, no Google
+    #: access limit, its key installed and its price attested.
     default_offerable: bool
     #: Why it is not, for an operator; None when it is.
     default_reason: str | None
@@ -219,7 +225,7 @@ class OwnModelReadiness:
 async def own_model_readiness(session: AsyncSession, *, engine: str) -> OwnModelReadiness:
     settings = get_settings()
     default = settings.thinnest_own_model_default
-    reason = unofferable_reason(default)
+    reason = unofferable_reason(default, own_model_call=True)
     attested = (
         await attested_rate_keys(session, engine=engine, at=datetime.now(UTC))
         if engine in ATTESTED_MINUTE_ENGINES
@@ -264,7 +270,8 @@ async def assert_own_model_default_offerable(value: object) -> None:
             kind="validation",
             code=OWN_MODEL_NOT_OFFERED,
             title="That model cannot answer calls on our key",
-            detail=unofferable_reason(value) or "This model is not offered on this deployment.",
+            detail=unofferable_reason(value, own_model_call=True)
+            or "This model is not offered on this deployment.",
             remediation="Install the Google key and attest the model's price first, or choose "
             "another Gemini model.",
         )

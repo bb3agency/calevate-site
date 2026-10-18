@@ -1215,11 +1215,17 @@ DOCUMENT_OCR_MODEL: Final[LlmModelName] = "gemini-3.5-flash-lite"
 COPILOT_FAST_MODEL_DEFAULT: Final[GoogleDirectModel] = "gemini-3.1-flash-lite"
 COPILOT_PLANNING_MODEL_DEFAULT: Final[GoogleDirectModel] = "gemini-3.5-flash-lite"
 
-#: The model our own Google key runs on ThinnestAI when an agent names none (D-764): one that
-#: can switch thinking off, which no Gemini 3 model can. ⚠ Google limits 2.5 to projects that
-#: used it before (D-786), so on a new project this default 404s; it stays until the founder
-#: decides the in-call model, and `thinnest_own_model` is off.
-THINNEST_OWN_MODEL_DEFAULT: Final[GoogleDirectModel] = "gemini-2.5-flash-lite"
+#: The model our own Google key runs on ThinnestAI calls when an agent names none (D-764;
+#: founder, 18 Oct 2026, D-817). Not a Gemini 2.5 model: Google limits 2.5 to projects that
+#: used it before, and our project answers 404 "no longer available to new users" on
+#: `gemini-2.5-flash-lite` and `gemini-2.5-flash` where `gemini-3.1-flash-lite` answers 200
+#: (live test, 18 Oct 2026). Gemini 3 cannot switch thinking off, which is why it is refused
+#: where our code runs a call; on this leg ThinnestAI runs the turn and asks a Gemini 3 model
+#: to think less itself (`LlmModelSpec.own_model_call`). The cheapest model a new project can
+#: call: $0.25 input, $1.50 output, $0.025 cached input per 1M tokens
+#: (ai.google.dev/gemini-api/docs/pricing, updated 2026-10-16); what bills is the operator's
+#: attested figure (hard rule 7).
+THINNEST_OWN_MODEL_DEFAULT: Final[GoogleDirectModel] = "gemini-3.1-flash-lite"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1322,12 +1328,26 @@ class LlmModelSpec:
     #: a dashboard: a thinking floor costs it latency and output tokens, not dead air
     #: (D-786). Only meaningful on a model that is not `selectable`, which already serves both.
     off_call_only: bool = False
+    #: Refused where our code would run the call, permitted on ThinnestAI calls that answer
+    #: on our Google key (D-764's own-model leg, D-817). There ThinnestAI runs the turn and
+    #: itself asks a Gemini 3 model to think less ("On calls, a Google Gemini 2.5 or 3 model
+    #: is asked to think less before it speaks", `thinnest-findings/mirror/snapshots/
+    #: 2026-10-18/pages/api-reference/bring-your-own-keys.md:167-169`), so the trap that
+    #: withholds the model from calls is not ours to mitigate on that leg. Clients still
+    #: choose no model (D-750); an operator puts an agent on it or makes it the console
+    #: default. Only meaningful on a Google model that is not `selectable`.
+    own_model_call: bool = False
 
     def __post_init__(self) -> None:
         if self.off_call_only and self.selectable:
             raise ValueError(
                 f"{self.model!r} is selectable and off_call_only. A selectable model already "
                 "serves the assistant; the flag would hide which of the two decisions holds."
+            )
+        if self.own_model_call and (self.selectable or self.provider != "google"):
+            raise ValueError(
+                f"{self.model!r} is own_model_call and selectable or not a Google model. Our "
+                "own model on calls is a Google key, and a selectable model already serves it."
             )
         if self.selectable and self.withdrawn_reason is not None:
             raise ValueError(
@@ -1600,6 +1620,7 @@ LLM_MODELS: Final[dict[str, LlmModelSpec]] = {
             "neither is ours. docs/evidence/llm-multi-provider-2026-08.md §C.2."
         ),
         off_call_only=True,
+        own_model_call=True,
     ),
     "gemini-3.5-flash-lite": LlmModelSpec(
         model="gemini-3.5-flash-lite",
@@ -1666,6 +1687,16 @@ SELECTABLE_LLM_MODELS: Final[frozenset[str]] = frozenset(
 #: models()`, whose other two conditions (a key, a billable price) are the same as for calls.
 OFF_CALL_LLM_MODELS: Final[frozenset[str]] = frozenset(
     name for name, spec in LLM_MODELS.items() if spec.selectable or spec.off_call_only
+)
+
+#: What ThinnestAI calls on our Google key may run on merit (D-817): every selectable Google
+#: model plus the `own_model_call` ones. Condition (1) of `agents/llm_models.
+#: own_model_offerable_models()`, which adds the key, the billable price and Google's access
+#: limit (`ModelLifecycle.access_restriction`).
+OWN_MODEL_CALL_LLM_MODELS: Final[frozenset[str]] = frozenset(
+    name
+    for name, spec in LLM_MODELS.items()
+    if spec.provider == "google" and (spec.selectable or spec.own_model_call)
 )
 
 #: Gemini identifiers no shipped module may name. `tests/sarvam_model_identifier_test.py`

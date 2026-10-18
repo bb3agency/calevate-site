@@ -173,8 +173,8 @@ and `thinnest_clear_voice_band` (added by D-688, 8 Oct 2026, applies to live age
 clones need ThinnestAI Pro). D-764 (13 Oct 2026) adds `thinnest_own_model` (applies to live
 agents, typed step-up, default off: agents answer on our Gemini model through our Google key,
 Clear on scope `llm` and Studio on `llm_voice`, refused until it is ready) and
-`thinnest_own_model_default` (applies to live agents, default `gemini-2.5-flash-lite`, must be
-offerable). D-769 (14 Oct 2026) adds `thinnest_reply_length` (applies to live agents,
+`thinnest_own_model_default` (applies to live agents, default `gemini-3.1-flash-lite` since D-817, must be
+offerable on the own-model leg: key, attested price, and no Google access limit, so a 2.5 value is refused). D-769 (14 Oct 2026) adds `thinnest_reply_length` (applies to live agents,
 default 300, bounds 100-800: the reply ceiling every agent without its own is published with
 as ThinnestAI `maxReplyTokens`; a reply that reaches it is cut off; an operator sets one
 agent's own on the admin agent page, which clients never see). D-770 (14 Oct 2026) adds `reply_time_target_ms` (live, default 500, bounds 100-10000): how long a caller should wait for a reply; the admin Voice response time screen counts a call over target when its p90 reply time exceeds it. D-687's `thinnest_studio_workspace_id` is removed; each agent

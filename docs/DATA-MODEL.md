@@ -836,7 +836,7 @@ kb_retrieval_logs(id, tenant_id, call_id, query, tier ENUM[t0,t1,t2,t3,t4],
 usage_events(id, tenant_id, call_id NULL, unit_type ENUM[telephony_s,stt_s,stt_min,
   tts_chars,tts_kchars,llm_tok_in,llm_tok_out,llm_ktok_in,llm_ktok_out,platform_min,
   number_rental,other,ai_assist_ktok_in,ai_assist_ktok_out,ai_stt_min,
-  forwarding_test_min,whatsapp_msg,ai_assist_10ktok_cached_in], qty NUMERIC,
+  forwarding_test_min,whatsapp_msg,ai_assist_10ktok_cached_in,llm_10ktok_cached_in], qty NUMERIC,
   unit_cost_paid NUMERIC, occurred_at, meta JSONB)  -- INSERT-only; no UPDATE/DELETE grants
 -- `ai_assist_10ktok_cached_in` (D-816, migration b4d2e9c71a58) — the share of an assist's
 --   input the provider served from its prompt cache, per TEN thousand tokens at the attested
@@ -844,6 +844,10 @@ usage_events(id, tenant_id, call_id NULL, unit_type ENUM[telephony_s,stt_s,stt_m
 --   then carries only the rest. Written only when the provider reported a count AND a rung
 --   is attested; Gemini 3.1 Flash-Lite's $0.025/M is ₹0.0024 per thousand (1.05% off) but
 --   ₹0.0238 per ten thousand.
+-- `llm_10ktok_cached_in` (D-817, migration c8a3f5e19b62) — the same split for a ThinnestAI
+--   call on our own Google key: the call's `cachedInputTokens` at the attested cached rung,
+--   `llm_ktok_in` the rest; written only when ThinnestAI reported a count AND a rung is
+--   attested. `meta.llm_input_tokens` / `meta.llm_cached_input_tokens` keep both counts.
 -- `stt_min` (D-638, migration c5e8a1f47b92) — the STT leg per MINUTE of audio, written
 --   only for an engine that reports a per-leg cost breakdown; a ThinnestAI call is metered
 --   per attested minute (TRD §10.0) and writes none. Per second the Saaras rate (₹30/hour =

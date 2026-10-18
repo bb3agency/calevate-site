@@ -1057,11 +1057,31 @@ def llm_cost_inr_per_minute(minutes: int, *, model: str) -> Decimal:
     Rounded ONCE, at the end. Quantizing per turn would round 6·N times and drift.
     """
     return _reference_call_inr_per_minute(
-        minutes, model=model, prompt_tokens=REFERENCE_CALL["prompt_tokens"]
+        minutes,
+        price=llm_reference_inr_per_ktok(model),
+        prompt_tokens=REFERENCE_CALL["prompt_tokens"],
     )
 
 
-def _reference_call_inr_per_minute(minutes: int, *, model: str, prompt_tokens: int) -> Decimal:
+def own_model_reference_inr_per_ktok(model: str) -> Mapping[str, Decimal]:
+    """`llm_reference_inr_per_ktok` for a model ThinnestAI calls may run on our key (D-817).
+
+    That leg also runs `own_model_call` models no client may choose, which the reference card
+    leaves out because it is held equal to the choosable set (`PRICED_LLM_MODELS`); their
+    figure is derived here from the same catalogue list price by the same conversion. A
+    margin guard, never a charge: what a call costs is metered at `llm_inr_per_ktok`.
+    """
+    spec = LLM_MODELS.get(model)
+    if spec is None or not spec.own_model_call:
+        return llm_reference_inr_per_ktok(model)
+    return _usd_mtok_to_inr_ktok(
+        input_usd=spec.price.input_usd_per_mtok, output_usd=spec.price.output_usd_per_mtok
+    )
+
+
+def _reference_call_inr_per_minute(
+    minutes: int, *, price: Mapping[str, Decimal], prompt_tokens: int
+) -> Decimal:
     """`REFERENCE_CALL` priced with `prompt_tokens` in place of its own prompt: the one
     arithmetic behind TRD §10.1's rows (at the reference prompt) and the own-model floor (at
     our real prompt size, `own_model_floor_inr_per_min`)."""
@@ -1069,7 +1089,6 @@ def _reference_call_inr_per_minute(minutes: int, *, model: str, prompt_tokens: i
         raise ValueError("a reference call is at least one minute")
     if prompt_tokens < 0:
         raise ValueError("a prompt cannot have fewer than zero tokens")
-    price = llm_reference_inr_per_ktok(model)
     turns = minutes * REFERENCE_CALL["turns_per_minute"]
     # Turn k carries the prompt plus everything said before it (k-1 exchanges), so the
     # sum over the call is `turns * prompt + turn_tokens * (0 + 1 + … + turns-1)`.
@@ -2312,13 +2331,18 @@ def own_model_floor_inr_per_min(model: str, *, prompt_tokens: int | None = None)
 
     `prompt_tokens` is the size `billing/own_model_prompt.floor_prompt_basis` resolves
     (measured calls, else the largest published prompt); without one, the engine's prompt
-    ceiling (`own_model_prompt.CEILING_PROMPT_TOKENS`), the most any agent can send."""
+    ceiling (`own_model_prompt.CEILING_PROMPT_TOKENS`), the most any agent can send.
+
+    Every input token is priced at the full input rate, cache hits included: the hit rate is
+    measured per call (D-817) but not promised, and a floor must hold on a cold cache."""
     if prompt_tokens is None:
         from apps.api.billing.own_model_prompt import CEILING_PROMPT_TOKENS
 
         prompt_tokens = CEILING_PROMPT_TOKENS
     return _reference_call_inr_per_minute(
-        OWN_MODEL_FLOOR_CALL_MINUTES, model=model, prompt_tokens=prompt_tokens
+        OWN_MODEL_FLOOR_CALL_MINUTES,
+        price=own_model_reference_inr_per_ktok(model),
+        prompt_tokens=prompt_tokens,
     )
 
 
@@ -2937,6 +2961,7 @@ __all__ = [
     "llm_surcharge_applies",
     "llm_surcharge_billed_inr",
     "own_model_floor_inr_per_min",
+    "own_model_reference_inr_per_ktok",
     "prepaid_billed_inr",
     "pulsed_seconds",
     "rate_is_meterable",

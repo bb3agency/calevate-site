@@ -255,15 +255,24 @@ CLIENT_BILLED_UNIT_TYPES = (
     "tts_kchars",
     "llm_tok_in",
     "llm_tok_out",
-    # The former owned runtime's LLM leg, per thousand tokens (D-592, migration
-    # a3f1c6e82d47). No longer written; kept in the CHECK because `usage_events` is
-    # append-only and rows already written carry it.
+    # Our own model's tokens on a ThinnestAI call that answered on our Google key (D-764),
+    # per thousand (D-592, migration a3f1c6e82d47, first written by the former owned
+    # runtime). `workers/pipeline._own_model_rows` writes them.
     "llm_ktok_in",
     "llm_ktok_out",
     "platform_min",
     "number_rental",
     "other",
+    # The share of that call's input Google served from its prompt cache, at the attested
+    # cached rung, per TEN thousand tokens for `ai_assist_10ktok_cached_in`'s quantum reason
+    # (D-817, migration c8a3f5e19b62). Written only when ThinnestAI reported a cached count
+    # AND a rung is attested; `llm_ktok_in` then carries only the uncached remainder, so a
+    # call's input is `llm_ktok_in * 1000 + llm_10ktok_cached_in * 10000`.
+    "llm_10ktok_cached_in",
 )
+
+#: The cached-input unit of a call on our own model (D-817).
+LLM_CACHED_UNIT_TYPE = "llm_10ktok_cached_in"
 
 #: Units CALEVATE absorbs (D-127 G-3): metered per tenant so "which client is expensive"
 #: stays a query, and excluded from every client-facing rupee figure.
