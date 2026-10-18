@@ -613,21 +613,28 @@ export function ExampleSection({
 export function VariableBar({
   standard,
   custom,
+  direction,
   onInsert,
 }: {
   standard: { key: string; label: string }[];
   custom: { key: string; label: string }[];
+  /** The agent's calls: what fills a field differs, so the hint says which applies. */
+  direction?: string;
   onInsert: (key: string) => void;
 }) {
   const all = [...standard, ...custom.filter((c) => !standard.some((s) => s.key === c.key))];
   if (all.length === 0) return null;
+  const answers = direction === "inbound" || direction === "both";
+  const places = direction !== "inbound";
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="flex items-center gap-1">
-        <span className={FIELD_LABEL}>Insert a merge field</span>
-        <InfoTip label="merge fields" align="start">
-          It goes where your cursor was in the last box you typed in. It is filled in from the
-          lead when the call is placed; if there is no value, it simply disappears.
+        <span className={FIELD_LABEL}>Insert a field</span>
+        <InfoTip label="fields" align="start">
+          It goes where your cursor was in the last box you typed in.
+          {places && " On a call this agent places, it is filled from the lead."}
+          {answers && " On a call it answers, it is filled only when the caller has called before."}
+          {" "}When there is no value, it is left out and the sentence still reads.
         </InfoTip>
       </span>
       <div className="flex flex-wrap gap-2">

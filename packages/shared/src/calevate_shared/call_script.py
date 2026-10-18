@@ -67,17 +67,15 @@ _VARIABLE_PATTERN: Final = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
 #: cannot reach the compiler and become a `{{ }}` that never resolves.
 _VARIABLE_KEY_PATTERN: Final = re.compile(r"^[a-z][a-z0-9_]*$")
 
-#: The four merge fields every agent gets for free (the founder's named set), so a new
-#: script is useful without anyone defining a variable first. They map to `CallContext`
-#: fields / extraction data at dial time — see `substitute_variables`. Clients add their
-#: own on top. Kept here, beside the grammar, so the UI's "insert variable" menu and the
+#: The merge fields every agent is offered: only what a call can actually fill (founder,
+#: 18 Oct 2026). On ThinnestAI a call's variables are `lead_name` (an outbound lead's name,
+#: or an inbound caller we already know, `crm/caller_lookup.ALWAYS_KEYS`) plus whatever the
+#: client's own caller lookup returns (`engine/thinnest.start_outbound_call`), which the
+#: client declares as its own variables. Phone, product interest and delivery location
+#: were offered too and never reached a call (phone is never sent; the other two are one
+#: kind of business's fields, D-722). Kept beside the grammar so the editor's menu and the
 #: dial-time substitution read one list.
-STANDARD_VARIABLES: Final[tuple[tuple[str, str], ...]] = (
-    ("lead_name", "Lead Name"),
-    ("phone", "Phone"),
-    ("product_interest", "Product Interest"),
-    ("delivery_location", "Delivery Location"),
-)
+STANDARD_VARIABLES: Final[tuple[tuple[str, str], ...]] = (("lead_name", "Caller's name"),)
 
 
 def extract_variable_names(text: str) -> list[str]:

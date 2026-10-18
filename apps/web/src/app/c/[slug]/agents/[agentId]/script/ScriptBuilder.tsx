@@ -524,7 +524,12 @@ function Editor({
           <fieldset disabled={!write.allowed} className="min-w-0 max-w-3xl space-y-3">
             <legend className="sr-only">Opening line</legend>
             <OpeningSection value={script.opening_line} onChange={(v) => setField("opening_line", v)} trackFocus={trackFocus} />
-            <VariableBar standard={out.standard_variables} custom={script.variables} onInsert={insertVariable} />
+            <VariableBar
+              standard={out.standard_variables}
+              custom={script.variables}
+              direction={out.context?.direction}
+              onInsert={insertVariable}
+            />
           </fieldset>
 
           <section id="stages" aria-labelledby="call-heading" className="scroll-mt-24 space-y-4">
