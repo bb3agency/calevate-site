@@ -45,6 +45,7 @@ LAYER_LABELS: Final[dict[PromptLayer, str]] = {
     "what_you_can_do": "What the agent can do",
     "confidentiality": "Confidentiality",
     "truthful_answers": "Truthful answers (AI and recording)",
+    "this_call": "Details filled in for each call",
 }
 
 #: The client script's sections as an owner knows them. A header not listed (a v1 or raw

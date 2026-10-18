@@ -894,6 +894,7 @@ def _to_config(
         # onto an agent object every caller shares. The same column also governs
         # auto-reschedule callbacks (D-514): one switch, one reader.
         caller_memory_enabled=bool(agent["caller_memory_enabled"]),
+        caller_memory_in_engine=hosted_agent_limits(engine).remembers_callers,
         models=ModelConfig(
             **_model_legs(agent, engine=engine),
         ),

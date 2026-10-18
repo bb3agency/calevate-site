@@ -1221,8 +1221,10 @@ outside the model, that the instruction is in place.
 1. **Nothing secret is in the prompt.** The composed prompt (`compose_engine_prompt`)
    carries a role sentence naming the business (`role_sentence`, the first line under the
    opening `--- PLATFORM RULES ---`), the platform rules, the speaking rules, the opening notices, the client's script,
-   the `[T0 FACTS]` block and — on a memory-enabled agent — notes about the caller on the
-   line. It carries no credential, key, tenant/agent/call id, internal URL or other
+   the `[T0 FACTS]` block, the per-call values of its last section, THIS CALL (D-814), and —
+   on a memory-enabled agent — notes about the caller on the line (on ThinnestAI the engine
+   adds those itself, fenced after our instructions, and our own section is left out). It
+   carries no credential, key, tenant/agent/call id, internal URL or other
    tenant's data. Escalation phone numbers are deliberately dropped from `[T0 FACTS]`
    (`admin/intake.py`), and the handover destination travels in the tool layer, never the
    prompt. Tool definitions travel as the model's tool schema, not in the prompt text.

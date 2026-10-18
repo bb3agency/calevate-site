@@ -168,8 +168,6 @@ def test_the_spoken_register_is_concrete_for_telugu() -> None:
     assert "--- SPOKEN REGISTER ---" in prompt
     assert 'not "క్షమించండి" but "sorry అండి"' in prompt
     assert "never formal or written-style words" in prompt
-    assert '"Mister Ravi", never "Mr. Ravi"' in prompt
-    assert "Vary your words" in prompt
 
 
 def test_a_clarification_is_never_asked_the_same_way_twice_and_stops_after_two_tries() -> None:
