@@ -143,6 +143,7 @@ SIBLINGS = (
     ("call_place", "agent_test_call"),
     ("lead_set_status", "leads_bulk_update"),
     ("platform_tenants", "admin_client_standing"),
+    ("agent_script_suggest", "agent_tests_fix"),
 )
 
 

@@ -1,7 +1,8 @@
 """Draft a call script from a plain-language business description — the AI writing assist.
 
-The founder's "draft/improve my script from a business description". The owner answers five
-short questions; the builder adds the business type, the calling direction, the call
+The founder's "draft/improve my script from a business description", asked of Pip since D-820
+(`copilot/script_actions.py`). The owner answers five short questions; the brief adds the
+business type, the calling direction, the call
 language and its register, the details the agent collects and the knowledge titles
 (`ScriptBrief`), and the assistant model returns a DRAFT of every script v2 section
 (`calevate_shared.call_script`) — never applied to a live call, always the author's to edit
@@ -26,7 +27,7 @@ here to redact; the redaction guard that governs the re-summarise path protects 
 input. The description is still never logged (hard rule 6): it is business content.
 
 Metering and quota are NOT decided here — `billing/ai_quota` owns both, joined by
-`apps/api/agents/script_assist_service.py` in SUBJECT → GATE → RUN → METER order, exactly
+`workers/script_proposal.py` in SUBJECT → GATE → RUN → METER order, exactly
 as `crm/routes.assist_call` does for re-summarise. This module returns the draft and, for
 an Azure answer Azure counted, its `usage`; it charges nothing.
 """
@@ -245,7 +246,8 @@ _DRAFT_SCHEMA: Final[dict[str, object]] = {
     "additionalProperties": False,
 }
 
-#: The five short questions the builder asks the owner. Keys are the wire's.
+#: The five short questions Pip asks the owner before drafting a whole script. Keys are
+#: `agent_script_suggest`'s `answers` (`copilot/script_actions.py`).
 OWNER_QUESTIONS: Final[dict[str, str]] = {
     "what_you_offer": "What do you sell or do?",
     "customers": "Who calls you, or who will the agent call?",
@@ -934,8 +936,8 @@ async def draft_script(
     ).user_message()
     parse: Parser | None = None
     if edit_of is not None:
-        # The AI helper's "change this" (founder, 10 Oct 2026): the current script with one
-        # change made, section ids kept, so the builder can show it section by section.
+        # "Change this" (founder, 10 Oct 2026): the current script with one change made,
+        # section ids kept, so the Script page can show it section by section.
         instruction = EDIT_INSTRUCTION
         description = (
             f"{description}\nThe owner's change: {change.strip()}\nCurrent script (JSON):\n"

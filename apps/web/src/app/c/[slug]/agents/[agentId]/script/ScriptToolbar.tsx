@@ -8,7 +8,8 @@
  * There is no Save button. The draft saves itself; the line under the title says so in
  * words, and says why when it cannot. The pill beside the title says whether callers hear
  * this draft. No version numbers are shown anywhere. History sits in the ⋯ menu with the
- * other occasional actions, so the bar holds two buttons: the helper and the one primary.
+ * other occasional actions, so the bar holds two buttons: "Let Pip do it" (D-820) and the one
+ * primary.
  *
  * Also here: the "full instructions" drawer, the exact text the calling system reads.
  */
@@ -21,6 +22,8 @@ import { Drawer } from "@/components/console/drawer";
 import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
 import { StatusPill } from "@/components/console/statusPill";
 import { StickyPageBar } from "@/components/console/stickyPageBar";
+import { PipMark } from "@/components/illustration/pip";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
 import type { PartLength } from "@/components/heldBackNotice";
 import type { PreviewOut } from "@/lib/api/script";
@@ -77,11 +80,11 @@ export function ScriptToolbar({
   canWrite,
   writeReason,
   publishing,
-  helperOpen,
+  askOpen,
   live,
   menu,
   onPublish,
-  onHelper,
+  onAsk,
 }: {
   backHref: string;
   agentName: string;
@@ -91,12 +94,12 @@ export function ScriptToolbar({
   canWrite: boolean;
   writeReason: string | null;
   publishing: boolean;
-  helperOpen: boolean;
+  askOpen: boolean;
   /** Whether callers hear this draft, in a word or two. */
   live: { text: string; tone: NoticeTone };
   menu: RowMenuItem[];
   onPublish: () => void;
-  onHelper: () => void;
+  onAsk: () => void;
 }) {
   const warn = save.kind === "held" || save.kind === "conflict" || save.kind === "failed";
   const tooLong = room !== null && room.used > room.limit;
@@ -125,11 +128,12 @@ export function ScriptToolbar({
         <div className="flex w-full items-center gap-2 sm:w-auto">
           <button
             type="button"
-            onClick={onHelper}
-            aria-pressed={helperOpen}
-            className={`${SECONDARY_BUTTON} max-sm:flex-1`}
+            onClick={onAsk}
+            aria-pressed={askOpen}
+            className={`${SECONDARY_BUTTON} inline-flex items-center justify-center gap-1.5 max-sm:flex-1`}
           >
-            AI helper
+            <PipMark size={16} className="shrink-0" />
+            Let {ASSISTANT_NAME} do it
           </button>
           {unpublished && (
             <button

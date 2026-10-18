@@ -2678,6 +2678,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/agents/agent-1/script": SCRIPT,
       "/v1/agents/agent-1/pending": settledPending(),
+      "/v1/agents/agent-1/script/proposal": { proposal: null },
       "/v1/agents/agent-1/script/proposed-rules": [
         {
           id: "rule-1",

@@ -337,10 +337,7 @@ RULES: tuple[Rule, ...] = (
     # the AI allowance, which bounds the money but not the rate: at `client_api` (240/min)
     # one session could queue a model call every quarter second.
     Rule("/v1/calls/*/translation", "costly", _m("POST")),
-    Rule("/v1/agents/*/script/assist", "costly", _m("POST")),
-    Rule("/v1/agents/*/script/convert", "costly", _m("POST")),
     Rule("/v1/agents/*/script/tests", "costly", _m("POST")),
-    Rule("/v1/agents/*/script/tests/*/improve", "costly", _m("POST")),
     Rule("/v1/agents/*/try-chat", "costly", _m("POST")),
     Rule("/v1/agents/*/test-cases/run", "costly", _m("POST")),
     Rule("/v1/kb/teach", "costly", _m("POST")),

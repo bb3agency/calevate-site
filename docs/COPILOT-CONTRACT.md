@@ -9,7 +9,7 @@ A tool is one of four kinds. Pick the kind first; everything else follows from i
 | Kind | What it does | Where it is registered | Runs |
 |---|---|---|---|
 | **Read** | Looks something up. Changes nothing. | `tools.py` `READ_TOOLS` or `console_reads.py` `CONSOLE_READ_TOOLS` (client; composed in that order by `service.realm_read_tools`), or `admin_tools.py` `ADMIN_READ_TOOLS` | at once, many per turn |
-| **Immediate action** | A reversible change that reaches no caller and spends nothing. | `write_tools.py` `WRITE_TOOLS` or a module joined into it (`agent_actions.py`, `console_actions.py`) | at once, with an Undo |
+| **Immediate action** | A reversible change that reaches no caller and spends nothing. | `write_tools.py` `WRITE_TOOLS` or a module joined into it (`agent_actions.py`, `console_actions.py`, `script_actions.py`) | at once, with an Undo |
 | **Confirm action** | An irreversible or costly change. | same registry, `tier="confirm"` | only after a person clicks Confirm (or Approve, in a background job) |
 | **Admin action** | A change to PLATFORM state, by an operator. | `admin_actions.py` `ADMIN_ACTIONS` | confirm only, with the console button's step-up |
 
@@ -361,3 +361,43 @@ A routine is a standing instruction with a schedule in IST (`copilot_routines`, 
   the slot more than an hour late (`routines.LATE_LIMIT`; a 9 am routine is not run at 4 pm).
 * Alarms: `copilot_routines_tick_failed`, `copilot_routine_fire_failed`
   (`runbooks/alarm-index.md`). Tenant erasure deletes both tables.
+
+## 10. Script suggestions (`copilot/script_actions.py`, D-820)
+
+Pip is the one AI assistant: AI help that a person asks for on a screen is a Pip ability
+reached by a "Let Pip do it" button that prefills the ask box (`AskAssistant`), with the
+review kept on the screen where the result lands. The Script page's helper panel is the first
+one moved; `agent_script_suggest` is its tool.
+
+* **Confirm tier**, permission `org:manage` (the Script page's own), object `agent`, audit
+  action `agent.script_assist`. It spends the AI allowance, so it is not `immediate` under
+  §1, and it reaches no caller.
+* **Arguments**: `agent_id`; `mode` — `change` (one change, `change` = the person's words),
+  `whole` (the whole script from `answers`, the five `script_assist.OWNER_QUESTIONS`; the
+  description tells Pip to ask them together first), `steps` (a hand-written script turned
+  into steps). Unused arguments are null; the canonical arguments drop them, strip invisible
+  characters and cap each text at 600 characters.
+* **Planner refusals** (`WriteRefusedError`): steps asked of a stepped script, a change or a
+  whole draft asked of a hand-written one, fewer than 10 characters of request
+  (`script_proposals.MIN_REQUEST_CHARS`), or a request still being written for this agent.
+  Then `require_ai_assist` — a refusal there (used up, paused) is a `ProblemError` Pip
+  relays before any card. The deleted-agent and view-as refusals are the framework's (§3).
+* **Executor**: `require_ai_assist` again, then `script_proposals.request_proposal` records
+  the request on `agents.script_proposal` with the script it is made from and queues
+  `draft_script_proposal` in the same transaction. It never writes the draft.
+* **The job** (`workers/script_proposal.py`) claims the request once, writes it with
+  `script_assist.draft_script` (repair, ladder, disclosure unchanged), meters every paid leg
+  under `script_draft`, and stores the suggestion or a failure note; every write after the
+  request is a compare-and-set on the request's id.
+* **Review** is the Script page's: `GET /v1/agents/{id}/script/proposal` (`agents:read`)
+  and `DELETE /v1/agents/{id}/script/proposal/{proposal_id}` (`org:manage`, after keeping or
+  to discard). Tests: `apps/api/copilot/script_actions_test.py`; tool choice: the
+  `c-script-*` cases in `tests/fixtures/copilot_tool_choice.json`.
+* **`agent_tests_fix`** is the Test section's "Improve my agent" / "Suggest a fix for this",
+  moved the same way: confirm tier, `org:manage`, audit `agent.tests_improvement`,
+  arguments `agent_id` and `test_keys` (null for every failure; keys from the screen's
+  `failed_tests` fact). The planner resolves the latest finished run and signs its id into
+  the canonical arguments, refuses unknown keys, a run with nothing to fix or one already
+  being worked out, then asks the allowance; the executor runs
+  `test_conversations.request_improvement` (the queued job, D-748). Review stays in
+  `ImprovementReview`.

@@ -120,10 +120,10 @@ async def assert_agent_visible(session: AsyncSession, agent_id: UUID) -> None:
     """404 unless `agent_id` names an agent visible to the session's tenant (RLS).
 
     The ownership check the builder's read/write/preview paths get for free from
-    `_agent_or_404`, exposed for the one route that acts on an agent WITHOUT first loading
-    its script — the AI assist, which spends money and writes an audit row and so must
-    refuse a neighbour's id before either happens (hard rule 1). One predicate, so all the
-    `{agent_id}` script routes answer a stranger's id the same way.
+    `_agent_or_404`, exposed for the paths that act on an agent WITHOUT first loading its
+    script (versions, the teach routes, discarding a script suggestion), which must refuse a
+    neighbour's id before they write (hard rule 1). One predicate, so every `{agent_id}`
+    script path answers a stranger's id the same way.
     """
     await _agent_or_404(session, agent_id)
 

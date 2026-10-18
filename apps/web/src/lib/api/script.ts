@@ -231,33 +231,6 @@ export interface PreviewOut {
   script_parts?: SizePart[];
 }
 
-/** The five short questions the owner answers; keys match the server's OWNER_QUESTIONS. */
-export const OWNER_QUESTIONS = [
-  { key: "what_you_offer", label: "What do you sell or do?" },
-  { key: "customers", label: "Who calls you, or who will the agent call?" },
-  { key: "good_outcome", label: "What should a good call end with?" },
-  { key: "common_questions", label: "What do callers ask most often?" },
-  { key: "never_say", label: "Anything the agent must never say or promise?" },
-] as const;
-
-export type OwnerQuestionKey = (typeof OWNER_QUESTIONS)[number]["key"];
-
-interface AssistIn {
-  description?: string;
-  answers: Partial<Record<OwnerQuestionKey, string>>;
-  /** The editor's working copy. With `change`, the answer is this script with only that
-   *  change made and every section id kept. */
-  current?: CallScript | null;
-  /** The owner's request, at most 600 characters. */
-  change?: string;
-}
-
-export interface AssistOut {
-  script: CallScript;
-  disclosure: string | null;
-  metered: boolean;
-}
-
 interface ApplyIn {
   expected_version?: number | null;
 }
@@ -320,20 +293,6 @@ export function usePreviewScript(
       apiRequest<PreviewOut>(session, `${base(agentId)}/preview`, {
         method: "POST",
         body: { script },
-      }),
-  });
-}
-
-/** Draft a script from a plain-language business description (the AI writing assist). */
-export function useAssistScript(
-  session: Session,
-  agentId: string,
-): UseMutationResult<AssistOut, Error, AssistIn> {
-  return useMutation({
-    mutationFn: (payload: AssistIn) =>
-      apiRequest<AssistOut>(session, `${base(agentId)}/assist`, {
-        method: "POST",
-        body: payload,
       }),
   });
 }
@@ -406,15 +365,6 @@ export interface ScriptVersion {
   summary: string | null;
   created_at: string;
   is_live: boolean;
-}
-
-export interface ConvertOut {
-  /** The proposed sections; never saved by the server. */
-  script: CallScript;
-  /** Lines of the hand-written text that appear nowhere in the proposal. */
-  unplaced: string[];
-  disclosure: string | null;
-  metered: boolean;
 }
 
 const versionsKey = (org: string, agentId: string) => ["script-versions", org, agentId] as const;
@@ -491,14 +441,49 @@ export function useRestoreVersion(
   });
 }
 
-/** Propose sections for a hand-written script (AI, on the account's allowance). */
-export function useConvertScript(
+// --- the suggestion Pip prepared (D-820) --------------------------------------------------
+
+/** Mirrors `ScriptProposalOut`. */
+export interface ScriptProposal {
+  id: string;
+  /** `change` (one change), `whole` (from the owner's answers), `steps` (from hand-writing). */
+  mode: "change" | "whole" | "steps";
+  status: "drafting" | "ready" | "failed";
+  request: string | null;
+  /** What it was made from: list the changes against this, apply them to the working copy. */
+  base_script: CallScript;
+  script: CallScript | null;
+  unplaced: string[];
+  disclosure: string | null;
+  note: string | null;
+  requested_at: string;
+}
+
+export const proposalKey = (org: string, agentId: string) => ["script-proposal", org, agentId] as const;
+
+/** The suggestion waiting for review, or null. Polls while it is being written. */
+export function useScriptProposal(
   session: Session,
   agentId: string,
-): UseMutationResult<ConvertOut, Error, { raw_text?: string }> {
+): UseQueryResult<ScriptProposal | null, Error> {
+  return useQuery({
+    queryKey: proposalKey(session.orgSlug, agentId),
+    queryFn: async () =>
+      (await apiRequest<{ proposal: ScriptProposal | null }>(session, `${base(agentId)}/proposal`)).proposal,
+    refetchInterval: (query) => (query.state.data?.status === "drafting" ? 3000 : false),
+  });
+}
+
+/** Clear the suggestion: after its kept parts are in the draft, or to discard it. */
+export function useClearProposal(
+  session: Session,
+  agentId: string,
+): UseMutationResult<void, Error, string> {
+  const client = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { raw_text?: string }) =>
-      apiRequest<ConvertOut>(session, `${base(agentId)}/convert`, { method: "POST", body: payload }),
+    mutationFn: (proposalId: string) =>
+      apiRequest<void>(session, `${base(agentId)}/proposal/${proposalId}`, { method: "DELETE" }),
+    onSuccess: () => client.setQueryData(proposalKey(session.orgSlug, agentId), null),
   });
 }
 
@@ -636,25 +621,6 @@ export function useRunTestConversations(
   return useMutation({
     mutationFn: (body) =>
       apiRequest<TestConversations>(session, `${base(agentId)}/tests`, { method: "POST", body: body ?? {} }),
-    onSuccess: (data) => client.setQueryData(testsKey(session.orgSlug, agentId), data),
-  });
-}
-
-/**
- * "Improve my agent" (all failures) or "Fix this" (`keys`). Queued on the server (202); the
- * run reads `improving` until the proposal arrives, and the tests query polls meanwhile.
- */
-export function useImproveFromTests(
-  session: Session,
-  agentId: string,
-): UseMutationResult<TestConversations, Error, { runId: string; keys?: string[] }> {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ runId, keys }) =>
-      apiRequest<TestConversations>(session, `${base(agentId)}/tests/${runId}/improve`, {
-        method: "POST",
-        body: keys ? { keys } : {},
-      }),
     onSuccess: (data) => client.setQueryData(testsKey(session.orgSlug, agentId), data),
   });
 }

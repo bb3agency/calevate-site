@@ -1,18 +1,19 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { TestSection } from "@/app/c/[slug]/agents/[agentId]/test/TestSection";
+import { FIX_ALL_REQUEST, TestSection } from "@/app/c/[slug]/agents/[agentId]/test/TestSection";
 import { countsOf, languageOf, trendLine } from "@/app/c/[slug]/agents/[agentId]/test/testCopy";
 import type { Agent } from "@/lib/api/agents";
 import type { Me } from "@/lib/api/client";
 import type { TestConversations, TestResult } from "@/lib/api/script";
+import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
 import { renderClientPage } from "./harness";
 
 /**
  * The agent's Test section (D-748), from the founder's screenshot of 11 Oct 2026: a Telugu
- * caller answered in English, a check that a test chat cannot prove, and "Improve my agent"
- * as the next step. Each test names what it guards.
+ * caller answered in English, a check that a test chat cannot prove, and the fixes (asked of
+ * Pip since D-820) as the next step. Each test names what it guards.
  */
 
 const ME: Me = {
@@ -128,20 +129,35 @@ describe("the Test section", () => {
     );
   });
 
-  it("queues Improve my agent and shows it working, with one filled button", async () => {
+  it("asks Pip for the fixes, prefilled and not sent (D-820)", async () => {
+    const asked: AssistantRequest[] = [];
+    function Listener() {
+      useAssistantRequests((request) => asked.push(request));
+      return null;
+    }
+    render(<Listener />);
     const { calls } = await renderClientPage(<TestSection agent={AGENT} slug="acme" />, {
       "/v1/me": ME,
-      "/v1/agents/agent-1/script/tests": tests(),
+      "/v1/agents/agent-1/script/tests": tests({
+        results: [STOP, result({ key: "g1", title: "Asks for a discount", verdict: "needs_fix", reason: "It promised a discount.", fix: "script_step" })],
+      }),
       "/v1/agents/agent-1/test-cases": SAVED,
-      "POST /v1/agents/agent-1/script/tests/run-2/improve": tests({ improving: true }),
     });
-    const improve = await screen.findByRole("button", { name: "Improve my agent" });
-    // "Test again" steps back once a test fails, so fixing is the one filled button.
-    expect(screen.getByRole("button", { name: "Test again" }).className).not.toBe(improve.className);
-    fireEvent.click(improve);
-    await waitFor(() =>
-      expect(calls.some((c) => c.method === "POST" && c.path === "/v1/agents/agent-1/script/tests/run-2/improve")).toBe(true),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Let Pip suggest fixes" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Let Pip suggest a fix" })[0]);
+    expect(asked.map((a) => a.prompt)).toEqual([
+      FIX_ALL_REQUEST,
+      "Suggest a fix for this agent's failed test “Asks for a discount”.",
+    ]);
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
+  it("shows the fixes being worked out", async () => {
+    await renderClientPage(<TestSection agent={AGENT} slug="acme" />, {
+      "/v1/me": ME,
+      "/v1/agents/agent-1/script/tests": tests({ improving: true }),
+      "/v1/agents/agent-1/test-cases": SAVED,
+    });
     expect(await screen.findByText(/Working out fixes for 1 test/)).toBeTruthy();
   });
 

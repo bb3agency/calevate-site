@@ -6,6 +6,10 @@
  * Every change is its own row with its own "Keep" box, all kept to start with; the owner
  * unticks what they do not want and only the rest is applied to their draft (`applyChanges`).
  * Nothing goes live from here: the draft still waits for "Put it live".
+ *
+ * `base` is the script the proposal was made from, when that is not the working copy (a
+ * suggestion Pip wrote earlier, D-820): the changes are listed against it, so an edit the
+ * owner made since is never offered back, and the kept ones are applied to `current`.
  */
 
 import { useMemo, useState, type ReactNode } from "react";
@@ -18,6 +22,7 @@ import { sectionDetail } from "./scriptModel";
 
 export function ProposalReview({
   current,
+  base,
   proposal,
   onApply,
   onDiscard,
@@ -25,6 +30,8 @@ export function ProposalReview({
   children,
 }: {
   current: CallScript;
+  /** What the proposal was made from, when that is not `current`. */
+  base?: CallScript;
   proposal: CallScript;
   onApply: (next: CallScript) => void;
   onDiscard: () => void;
@@ -33,7 +40,7 @@ export function ProposalReview({
   /** Shown above the changes: the server's account of how it was written, unplaced lines. */
   children?: ReactNode;
 }) {
-  const changes = useMemo(() => diffScripts(current, proposal), [current, proposal]);
+  const changes = useMemo(() => diffScripts(base ?? current, proposal), [base, current, proposal]);
   const [kept, setKept] = useState<Set<string>>(() => new Set(changes.map((c) => c.id)));
   const keptCount = changes.filter((c) => kept.has(c.id)).length;
 

@@ -1,52 +1,38 @@
 "use client";
 
 /**
- * WRITING THE SCRIPT BY HAND, and turning it into sections when the owner is ready.
+ * WRITING THE SCRIPT BY HAND, and asking Pip to turn it into steps when the owner is ready.
  *
- * The conversion is a proposal like any other: the AI returns sections, the server lists
- * every line of the hand-written text that appears nowhere in them (`unplaced`), and the
- * owner sees both before anything is replaced. When lines are unplaced, "Keep" waits until
- * the owner says they have read them, so a lost sentence is a decision and never a surprise.
+ * The conversion is Pip's (D-820): the button prefills Pip's ask box, Pip writes the steps,
+ * and they come back to this page as a suggestion (`PipProposal`) that lists every line of
+ * the hand-written text that appears nowhere in them. Nothing is replaced until the owner
+ * keeps it.
  */
 
-import { useState } from "react";
-
-import { FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, ProblemNotice, SECONDARY_BUTTON, formatCount } from "@/components/ui";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
+import { FIELD, FIELD_HINT, FIELD_LABEL, formatCount } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { useActAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
-import { EMPTY_SCRIPT, useConvertScript, type CallScript, type ConvertOut } from "@/lib/api/script";
+import type { CallScript } from "@/lib/api/script";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
-import { ProposalReview } from "./ProposalReview";
+import { STEPS_REQUEST } from "./PipAsk";
 
 const RAW_MAX = 20000;
 
 export function HandWritten({
-  agentId,
   script,
   readOnly,
   onChange,
-  onConverted,
 }: {
-  agentId: string;
   script: CallScript;
   readOnly: boolean;
   onChange: (text: string) => void;
-  onConverted: (next: CallScript) => void;
 }) {
   const session = useClientSession();
-  const convert = useConvertScript(session, agentId);
-  const write = useActAccess(session, "org:manage", "billing.ai_assist", "turn this into steps");
-  const [proposal, setProposal] = useState<ConvertOut | null>(null);
-  const [checked, setChecked] = useState(false);
+  const write = useActAccess(session, "org:manage", "billing.ai_assist", `ask ${ASSISTANT_NAME} to turn this into steps`);
   const text = script.raw_override ?? "";
-
-  // The sections start from an empty structured script that keeps the owner's own switches.
-  const structuredBase: CallScript = {
-    ...EMPTY_SCRIPT,
-    policies: script.policies,
-    variables: script.variables,
-  };
 
   return (
     <div className="space-y-4">
@@ -78,63 +64,17 @@ export function HandWritten({
         </p>
       </div>
 
-      {!proposal && (
-        <div className="space-y-2">
-          <button
-            type="button"
-            className={SECONDARY_BUTTON}
-            disabled={!write.allowed || readOnly || convert.isPending || text.trim().length < 10}
-            title={write.reason ?? undefined}
-            onClick={() => {
-              setChecked(false);
-              convert.mutate({ raw_text: text }, { onSuccess: setProposal });
-            }}
-          >
-            {convert.isPending ? <span className="text-shimmer">Reading your script…</span> : "Turn this into steps"}
-          </button>
-          <p className="text-meta text-ink-muted">
-            You review every step before anything is replaced. Uses your AI allowance.
-          </p>
-        </div>
-      )}
-      {convert.error && <ProblemNotice error={convert.error} />}
-
-      {proposal && (
-        <ProposalReview
-          current={structuredBase}
-          proposal={proposal.script}
-          onApply={(next) => {
-            onConverted(next);
-            setProposal(null);
-          }}
-          onDiscard={() => setProposal(null)}
-          gate={
-            proposal.unplaced.length > 0 && !checked
-              ? "Read the lines that did not fit anywhere first."
-              : null
-          }
-        >
-          {proposal.disclosure && <p className="text-meta text-ink-muted">{proposal.disclosure}</p>}
-          {proposal.unplaced.length === 0 ? (
-            <p className="text-meta text-ink">Every line of your script has a place in these steps.</p>
-          ) : (
-            <NoticeBox tone="warn" title={`${proposal.unplaced.length} ${proposal.unplaced.length === 1 ? "line does" : "lines do"} not appear in the steps`}>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-meta">
-                {proposal.unplaced.map((line, i) => (
-                  <li key={i}>{line}</li>
-                ))}
-              </ul>
-              <p className="mt-2 text-meta">
-                Add them to a step after keeping the changes, or discard and edit your text.
-              </p>
-              <label className="mt-2 flex items-start gap-2 text-meta">
-                <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
-                <span>I have read these lines</span>
-              </label>
-            </NoticeBox>
-          )}
-        </ProposalReview>
-      )}
+      <div className="space-y-2">
+        <AskAssistant
+          label={`Let ${ASSISTANT_NAME} turn it into steps`}
+          prompt={STEPS_REQUEST}
+          size="md"
+          disabled={!write.allowed || readOnly || text.trim().length < 10}
+        />
+        <p className="text-meta text-ink-muted">
+          You review every step on this page before anything is replaced. Uses your AI allowance.
+        </p>
+      </div>
     </div>
   );
 }

@@ -5,7 +5,8 @@
  * the owner reviews (D-724, given its own section by D-748).
  *
  * Order on the screen is the order of the job: what happened (the summary and the trend),
- * what to do next (run again, or get suggested fixes and see each change before keeping it),
+ * what to do next (run again, or ask Pip for suggested fixes and see each change before keeping
+ * it, D-820),
  * then every test as the conversation it was, failures first. Explanations sit behind ⓘ;
  * notices are one quiet line each.
  *
@@ -17,6 +18,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { InfoTip } from "@/components/console/infoTip";
+import { PipMark } from "@/components/illustration/pip";
 import { SavedTests } from "@/components/improvement/SavedTests";
 import {
   NoticeBox,
@@ -29,7 +31,6 @@ import {
 import type { Agent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
-  useImproveFromTests,
   useRunTestConversations,
   useTestConversations,
   type TestResult,
@@ -37,6 +38,8 @@ import {
   type TestTurn,
 } from "@/lib/api/script";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
+import { openAssistant } from "@/lib/copilot/launcher";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
@@ -54,12 +57,15 @@ import {
 
 const PROBE_TAG = "Must answer right";
 
+/** What Pip is asked for the fixes, in the words the owner sees in its ask box (D-820). */
+export const FIX_ALL_REQUEST = "Suggest fixes for the tests this agent failed.";
+export const fixOneRequest = (title: string) => `Suggest a fix for this agent's failed test “${title}”.`;
+
 export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: string }) {
   const session = useClientSession();
   const { href } = useClientRealm();
   const tests = useTestConversations(session, agent.id);
   const run = useRunTestConversations(session, agent.id);
-  const improve = useImproveFromTests(session, agent.id);
   const write = useWriteAccess(session, "org:manage", "test and improve this agent");
   const [auto, setAuto] = useState(false);
   const [closed, setClosed] = useState<string | null>(null);
@@ -70,7 +76,7 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
   const done = latest?.status === "done" ? latest : null;
   const failing = done ? done.results.filter(isFailing) : [];
   const counts = done ? countsOf(done.results) : null;
-  const improving = done?.improving === true || improve.isPending;
+  const improving = done?.improving === true;
   const proposal = done?.improvement ?? null;
   const showReview = done !== null && proposal !== null && !improving && closed !== proposal.created_at;
 
@@ -91,6 +97,10 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
             : "no finished test yet",
       },
       { key: "what_is_here", label: "What this section does", value: "practice callers talk to the agent callers hear now; failures become suggested fixes" },
+      // Pip's `agent_tests_fix` names the failures to fix by these keys.
+      ...(failing.length > 0
+        ? [{ key: "failed_tests", label: "Tests that need a fix (key: title)", value: failing.map((r) => `${r.key}: ${r.title}`).join("; ") }]
+        : []),
     ],
     apply: noFill,
   });
@@ -99,14 +109,15 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
     run.mutate(
       done && failing.length > 0 ? { retest_of: done.id, auto_improve: auto || done.auto_improve } : { auto_improve: auto },
     );
-  const askForFixes = (keys?: string[]) => {
-    if (!done) return;
+  // Pip works the fixes out (D-820): this prefills its ask box, and the fixes come back here.
+  const askForFixes = (key?: string) => {
     setClosed(null);
-    improve.mutate({ runId: done.id, keys });
+    const title = key ? failing.find((r) => r.key === key)?.title : undefined;
+    openAssistant({ prompt: title ? fixOneRequest(title) : FIX_ALL_REQUEST });
   };
 
   const canRun = data?.available === true && write.allowed && !testing;
-  // One filled button per view: once a test fails, the next step is fixing it.
+  // Once a test fails the next step is fixing it, so "Test again" steps back beside it.
   const nextIsFixing = failing.length > 0;
 
   return (
@@ -201,7 +212,6 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
               onReopen={() => setClosed(null)}
             />
           )}
-          {improve.error && <ProblemNotice error={improve.error} />}
 
           {showReview && proposal && (
             <ImprovementReview
@@ -216,7 +226,7 @@ export function TestSection({ agent, slug }: { agent: Pick<Agent, "id">; slug: s
           <Results
             results={done.results}
             canFix={write.allowed && !improving}
-            onFix={(key) => askForFixes([key])}
+            onFix={(key) => askForFixes(key)}
             scriptHref={href(`/c/${slug}/agents/${agent.id}/script`)}
           />
         </>
@@ -307,8 +317,9 @@ function FixPanel({
           {count === 1 ? "1 test needs a fix." : `${count} tests need a fix.`} Get suggested changes and keep the ones you want.
         </p>
         {canWrite && (
-          <button type="button" className={PRIMARY_BUTTON_SM} onClick={onImprove}>
-            Improve my agent
+          <button type="button" className={SECONDARY_BUTTON_SM} onClick={onImprove}>
+            <PipMark size={16} className="shrink-0" />
+            Let {ASSISTANT_NAME} suggest fixes
           </button>
         )}
         {hasProposal && (
@@ -448,7 +459,7 @@ function ResultRow({
                   className="min-h-11 text-meta font-medium text-ink underline underline-offset-2 sm:min-h-0"
                   onClick={() => onFix(result.key)}
                 >
-                  Suggest a fix for this
+                  Let {ASSISTANT_NAME} suggest a fix
                 </button>
               )}
               {result.fix === "script_step" && (

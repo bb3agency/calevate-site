@@ -4004,74 +4004,6 @@
         "title": "AssignOut",
         "type": "object"
       },
-      "AssistIn": {
-        "additionalProperties": false,
-        "description": "The owner's words. Either the five short answers (keys of `OWNER_QUESTIONS`), a\nfree description, or both; at least ten characters in all.",
-        "properties": {
-          "answers": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "maxProperties": 5,
-            "title": "Answers",
-            "type": "object"
-          },
-          "change": {
-            "default": "",
-            "maxLength": 600,
-            "title": "Change",
-            "type": "string"
-          },
-          "current": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CallScript"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "description": {
-            "default": "",
-            "maxLength": 4000,
-            "title": "Description",
-            "type": "string"
-          }
-        },
-        "title": "AssistIn",
-        "type": "object"
-      },
-      "AssistOut": {
-        "additionalProperties": false,
-        "properties": {
-          "disclosure": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Disclosure"
-          },
-          "metered": {
-            "title": "Metered",
-            "type": "boolean"
-          },
-          "script": {
-            "$ref": "#/components/schemas/CallScript"
-          }
-        },
-        "required": [
-          "script",
-          "disclosure",
-          "metered"
-        ],
-        "title": "AssistOut",
-        "type": "object"
-      },
       "AttentionItemOut": {
         "additionalProperties": false,
         "description": "One thing the platform refused to do quietly (crm/attention.py).\n\n`title` and `detail` are already client-safe prose composed by us \u2014 never a vendor\nstring and never transcript text. A blocked lead is named by its captured lead NAME,\nfalling back to its number in full, because \"ring this person\" is the action the row\nexists to prompt (D-436).",
@@ -11030,64 +10962,6 @@
           "instruction"
         ],
         "title": "ConversationStage",
-        "type": "object"
-      },
-      "ConvertIn": {
-        "additionalProperties": false,
-        "properties": {
-          "raw_text": {
-            "anyOf": [
-              {
-                "maxLength": 20000,
-                "minLength": 10,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Raw Text"
-          }
-        },
-        "title": "ConvertIn",
-        "type": "object"
-      },
-      "ConvertOut": {
-        "additionalProperties": false,
-        "properties": {
-          "disclosure": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Disclosure"
-          },
-          "metered": {
-            "title": "Metered",
-            "type": "boolean"
-          },
-          "script": {
-            "$ref": "#/components/schemas/CallScript"
-          },
-          "unplaced": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Unplaced",
-            "type": "array"
-          }
-        },
-        "required": [
-          "script",
-          "unplaced",
-          "disclosure",
-          "metered"
-        ],
-        "title": "ConvertOut",
         "type": "object"
       },
       "CopilotActionOut": {
@@ -20194,28 +20068,6 @@
         "title": "ImpersonationGrantRenewIn",
         "type": "object"
       },
-      "ImproveIn": {
-        "additionalProperties": false,
-        "properties": {
-          "keys": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "maxItems": 30,
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Keys"
-          }
-        },
-        "title": "ImproveIn",
-        "type": "object"
-      },
       "ImprovementOut": {
         "additionalProperties": false,
         "description": "The \"Improve my agent\" proposal, reviewed change by change, never applied by itself.",
@@ -29100,6 +28952,26 @@
         "title": "PendingOut",
         "type": "object"
       },
+      "PendingProposalOut": {
+        "additionalProperties": false,
+        "properties": {
+          "proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScriptProposalOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "proposal"
+        ],
+        "title": "PendingProposalOut",
+        "type": "object"
+      },
       "PerformanceFunnelOut": {
         "additionalProperties": false,
         "description": "Calls \u2192 connected conversations \u2192 LEADS that moved past `new` (crm/performance.py\nstates each definition; `qualified` is lead-level on purpose).",
@@ -34865,6 +34737,107 @@
           }
         },
         "title": "ScriptPolicies",
+        "type": "object"
+      },
+      "ScriptProposalOut": {
+        "additionalProperties": false,
+        "description": "A script suggestion Pip was asked for, reviewed part by part on the Script page.",
+        "properties": {
+          "base_script": {
+            "$ref": "#/components/schemas/CallScript"
+          },
+          "disclosure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclosure"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "change",
+              "whole",
+              "steps"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "script": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallScript"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "drafting",
+              "ready",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unplaced": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unplaced",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "mode",
+          "status",
+          "request",
+          "base_script",
+          "script",
+          "unplaced",
+          "disclosure",
+          "note",
+          "requested_at"
+        ],
+        "title": "ScriptProposalOut",
         "type": "object"
       },
       "ScriptStep": {
@@ -56461,108 +56434,6 @@
         "x-calevate-permission": "org:manage"
       }
     },
-    "/v1/agents/{agent_id}/script/assist": {
-      "post": {
-        "description": "AI writing assist. SUBJECT \u2192 GATE \u2192 RUN \u2192 METER, the crm/routes.assist_call order.\n\nThe SUBJECT is the client's own business description (tenant-authored config, not\ntranscript PII), so there is no transcript to load or redact \u2014 the subject is the\nrequest body, present before the gate. The GATE (`require_ai_assist`) RAISES at the\nceiling before a token is spent; the RUN drafts through the controlled worker path; the\nMETER records the Azure cost (or nothing, for the free Sarvam fallback) in its own\ntransaction. Nothing is persisted to the agent \u2014 a draft is returned for the author to\nedit and then save through `PUT` above.",
-        "operationId": "assist_script_v1_agents__agent_id__script_assist_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AssistIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AssistOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Draft a script from a plain-language business description (AI writing assist)",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/agents/{agent_id}/script/convert": {
-      "post": {
-        "description": "SUBJECT \u2192 GATE \u2192 RUN \u2192 METER, as the assist above, on the client's AI allowance.",
-        "operationId": "convert_script_v1_agents__agent_id__script_convert_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConvertIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConvertOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Propose sections for a hand-written prompt (AI), with what could not be placed",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
     "/v1/agents/{agent_id}/script/draft": {
       "put": {
         "operationId": "save_script_draft_v1_agents__agent_id__script_draft_put",
@@ -56661,6 +56532,89 @@
           "agents"
         ],
         "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/agents/{agent_id}/script/proposal": {
+      "get": {
+        "operationId": "get_script_proposal_v1_agents__agent_id__script_proposal_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingProposalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The script suggestion Pip prepared and the owner has not yet reviewed",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/agents/{agent_id}/script/proposal/{proposal_id}": {
+      "delete": {
+        "operationId": "discard_script_proposal_v1_agents__agent_id__script_proposal__proposal_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Clear the suggestion once its kept parts are in the draft, or to discard it",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/agents/{agent_id}/script/proposed-rules": {
@@ -56922,74 +56876,6 @@
           }
         },
         "summary": "Run test conversations against the agent callers hear now",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/agents/{agent_id}/script/tests/{run_id}/improve": {
-      "post": {
-        "description": "Queues the proposal and answers at once; the run shows `improving` until the\nproposal (or `improve_note`) arrives. It proposes and never writes the script: the owner\nkeeps changes one by one in the review.\n\nA job, not an inline model call, because the proposal is the whole script and two legs\nof it do not fit the request deadline; and because a route that read the allowance and\nthen waited on a model kept its transaction open across the wait (D-748).",
-        "operationId": "improve_from_tests_v1_agents__agent_id__script_tests__run_id__improve_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "run_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Run Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/ImproveIn"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Payload"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TestConversationsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Improve my agent: queue script and fact changes from a run's failures",
         "tags": [
           "agents"
         ],

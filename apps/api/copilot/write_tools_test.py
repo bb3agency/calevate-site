@@ -225,6 +225,9 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "number_release",
         "agent_test_call",
         "business_profile_set",
+        # D-820's script suggestion and test fixes APPEND.
+        "agent_script_suggest",
+        "agent_tests_fix",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]

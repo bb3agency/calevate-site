@@ -23,7 +23,25 @@ const PROPOSAL: CallScript = {
   ],
 };
 
-describe("the AI helper's suggested changes", () => {
+describe("a suggestion's changes, kept one by one", () => {
+  it("lists the changes against the script it was made from and applies them to the working copy", () => {
+    const onApply = vi.fn();
+    // The owner changed the goal after the suggestion was written from CURRENT.
+    const working: CallScript = { ...CURRENT, goal: "Take orders by phone." };
+    render(
+      <ProposalReview
+        current={working}
+        base={CURRENT}
+        proposal={{ ...CURRENT, ending: "Thank them." }}
+        onApply={onApply}
+        onDiscard={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "1 suggested change" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add it to my draft" }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ goal: "Take orders by phone.", ending: "Thank them." }));
+  });
+
   it("counts the changes, names each kind quietly and keeps the action in reach", () => {
     const onApply = vi.fn();
     render(<ProposalReview current={CURRENT} proposal={PROPOSAL} onApply={onApply} onDiscard={() => undefined} />);

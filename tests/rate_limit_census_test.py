@@ -132,10 +132,7 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         # Every one-click LLM or engine round trip a client can start (security pass,
         # 11 Oct 2026): these sat at `client_api`, 240/min.
         ("/v1/calls/{call_id}/translation", "POST", "costly"),
-        ("/v1/agents/{agent_id}/script/assist", "POST", "costly"),
-        ("/v1/agents/{agent_id}/script/convert", "POST", "costly"),
         ("/v1/agents/{agent_id}/script/tests", "POST", "costly"),
-        ("/v1/agents/{agent_id}/script/tests/{run_id}/improve", "POST", "costly"),
         ("/v1/agents/{agent_id}/script/tests", "GET", "client_api"),
         ("/v1/agents/{agent_id}/try-chat", "POST", "costly"),
         ("/v1/agents/{agent_id}/test-cases/run", "POST", "costly"),

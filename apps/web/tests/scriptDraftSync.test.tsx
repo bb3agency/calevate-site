@@ -66,6 +66,7 @@ const routes = (script: unknown, extra: Record<string, unknown> = {}) => ({
   "/v1/agents/agent-1/script/tests": NO_TESTS,
   "POST /v1/agents/agent-1/script/preview": PREVIEW,
   "/v1/agents/agent-1/script/proposed-rules": [],
+  "/v1/agents/agent-1/script/proposal": { proposal: null },
   "/v1/agents/agent-1/pending": settledPending(),
   ...extra,
 });

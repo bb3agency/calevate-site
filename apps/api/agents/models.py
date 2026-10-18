@@ -433,6 +433,9 @@ class Agent(PKMixin, TimestampMixin, Base):
     #: clears it (D-714). NULL when there is nothing unpublished. Never reaches a call.
     script_draft: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     script_draft_saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: The one script change Pip prepared and the owner has not yet kept or discarded
+    #: (D-820, `agents/script_proposals.py`). It never reaches the draft by itself.
+    script_proposal: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # THE SENT VOICE: what `publish_agent` last handed the engine, as opposed to
     # `tts_voice`, which is what an operator CONFIGURED (migration c8b3f14e7a29). The
     # two are allowed to differ — a voice written to the row reaches the engine only at the

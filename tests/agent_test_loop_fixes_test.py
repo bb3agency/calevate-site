@@ -8,8 +8,8 @@
 - "AI help could not write new test callers" said nothing about why;
 - the 500 on "Improve my agent": the allowance read took the tenant's credit lock, the route
   then ran the improver inline and its own session waited on that lock until the statement
-  timeout. The read no longer locks, the route queues a job, and a cancelled statement is a
-  503 "try again", never a 500.
+  timeout. The read no longer locks, the request queues a job (asked of Pip since D-820),
+  and a cancelled statement is a 503 "try again", never a 500.
 """
 
 from __future__ import annotations
@@ -26,10 +26,11 @@ from apps.api.agents.test_conversations import Turn, decide, probe_scenario
 from apps.api.agents.turn_checks import PLATFORM_KINDS, turn_problems
 from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.billing.service import lock_tenant_credits
+from apps.api.copilot import write_tools
+from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError, unhandled_problem_response
 from apps.api.core.settings import get_settings
 from apps.api.db.session import long_running_statements, tenant_session
-from apps.api.main import app
 from apps.api.reliability.engine_actions import ACTION_NAMES, OPT_OUT
 from apps.api.worker.in_call_tools import OPTOUT_DONE_SAY
 from apps.workers import agent_test_ai, chat
@@ -37,7 +38,6 @@ from apps.workers import agent_test_conversations as worker
 from apps.workers.extraction import PROVIDER_UNAVAILABLE_REASON
 from apps.workers.script_assist import ask_json
 from calevate_shared.call_script import CallScript, ConversationStage
-from httpx import ASGITransport, AsyncClient
 from psycopg import errors as pg_errors
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -243,9 +243,10 @@ async def _failed_run(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> uuid.UUID:
 
 
 async def test_improve_answers_at_once_while_another_transaction_holds_the_credit_lock() -> None:
-    """The production 500: 10 s waiting on the credit lock, then QueryCanceled. Now the
-    route queues the proposal and answers 202 with the lock held elsewhere."""
-    tenant_id, slug, token = await _make_tenant()
+    """The production 500: 10 s waiting on the credit lock, then QueryCanceled. "Improve my
+    agent" is asked of Pip now (D-820): its card and its confirm queue the proposal and
+    answer at once with the lock held elsewhere."""
+    tenant_id, _slug, token = await _make_tenant()
     async with tenant_session(tenant_id) as session:
         agent_id = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar_one()
     run_id = await _failed_run(tenant_id, agent_id)
@@ -260,22 +261,28 @@ async def test_improve_answers_at_once_while_another_transaction_holds_the_credi
 
     holder = asyncio.create_task(_hold())
     await held.wait()
+    user_id = uuid.UUID(token.rsplit(":", 1)[1])
+    principal = Principal(realm="client", user_id=user_id, tenant_id=tenant_id, role="owner")
     try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
-            started = time.monotonic()
-            answered = await http.post(
-                f"/v1/agents/{agent_id}/script/tests/{run_id}/improve",
-                json={"keys": ["k1"]},
-                headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+        started = time.monotonic()
+        proposal = await write_tools.plan_write(
+            "agent_tests_fix",
+            json.dumps({"agent_id": str(agent_id), "test_keys": ["k1"]}),
+            actor=write_tools.actor_for(principal),
+        )
+        async with tenant_session(tenant_id) as session:
+            confirmed = await write_tools.confirm(
+                session, proposal.token, principal=principal, ip=None
             )
-            elapsed = time.monotonic() - started
+        elapsed = time.monotonic() - started
     finally:
         release.set()
         await holder
-    assert answered.status_code == 202, answered.text
+    assert confirmed.applied
     assert elapsed < 5
-    latest = answered.json()["latest"]
-    assert latest["id"] == str(run_id) and latest["improving"] is True
+    async with tenant_session(tenant_id) as session:
+        latest = await test_conversations.get_run(session, agent_id, run_id)
+    assert latest.improving
     async with tenant_session(tenant_id) as session:
         queued = (
             await session.execute(

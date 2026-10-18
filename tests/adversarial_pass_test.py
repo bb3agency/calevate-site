@@ -654,19 +654,13 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/integrations/deliveries/{delivery_id}/payload", {}, {}),
     # The call-script builder lane. `{agent_id}` names an agents row; every one resolves it
     # under the caller's RLS (`script_builder._agent_or_404`, `publishing._load`) so a
-    # neighbour's agent is invisible → 404. `assist` used to spend the founder's Azure
-    # rupees and write an audit row against `{agent_id}` WITHOUT loading it first — it now
-    # asserts the agent is visible before the quota gate, so a stranger cannot bill or audit
-    # against another business's agent (hard rule 1).
+    # neighbour's agent is invisible → 404. Clearing a script suggestion (D-820) writes
+    # without loading the script, so it asserts the agent is visible first (hard rule 1).
     ("GET", "/v1/agents/{agent_id}/script", {}, {}),
     ("PUT", "/v1/agents/{agent_id}/script", {"script": {}}, {}),
     ("POST", "/v1/agents/{agent_id}/script/preview", {"script": {}}, {}),
-    (
-        "POST",
-        "/v1/agents/{agent_id}/script/assist",
-        {"description": "draft a friendly clinic reception script"},
-        {},
-    ),
+    ("GET", "/v1/agents/{agent_id}/script/proposal", {}, {}),
+    ("DELETE", "/v1/agents/{agent_id}/script/proposal/{proposal_id}", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/apply", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/undo", {}, {}),
     # The Actions lane. The `{agent_id}` routes all gate on `_assert_agent` (RLS) first, so
@@ -744,16 +738,14 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # Opening the payment for a neighbour's platform fee would put their fee's amount on a
     # Razorpay order this caller pays; RLS must leave zero rows before any order exists.
     ("POST", "/v1/billing/platform-fee/{charge_id}/order", {}, {}),
-    # D-714: the script's tests, draft, versions and conversion, each resolved through the
-    # neighbour's agent under the caller's tenant session.
+    # D-714: the script's tests, draft and versions, each resolved through the neighbour's
+    # agent under the caller's tenant session.
     ("GET", "/v1/agents/{agent_id}/script/tests", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/tests", {}, {}),
-    ("POST", "/v1/agents/{agent_id}/script/tests/{run_id}/improve", {}, {}),
     ("PUT", "/v1/agents/{agent_id}/script/draft", {"script": {}}, {}),
     ("POST", "/v1/agents/{agent_id}/script/publish", {"summary": "Changed the greeting"}, {}),
     ("GET", "/v1/agents/{agent_id}/script/versions", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/versions/{version}/restore", {}, {}),
-    ("POST", "/v1/agents/{agent_id}/script/convert", {"raw_text": "Greet the caller warmly."}, {}),
     # D-715: what a lead's calls captured.
     ("GET", "/v1/leads/{lead_id}/captured", {}, {}),
     # D-719: facts, teachings, waiting rules, saved tests and the try-chat.

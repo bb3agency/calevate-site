@@ -237,7 +237,7 @@ serif was taken (the brand decision wins).
   are a summary list of inline `Disclosure` rows that say what they hold and open in place;
   a row with something to finish says so while closed, and `#anchor` links open their row.
   History, "See what the agent reads" and hand-writing are in the bar's ⋯ menu; the bar holds
-  a live-state pill, AI helper and the one primary, "Put it live". Help is one line plus ⓘ.
+  a live-state pill, "Let Pip do it" (D-820) and the one primary, "Put it live". Help is one line plus ⓘ.
 - **The call transcript is a chat (founder, 11 Oct 2026).** It supersedes the "plain script, no
   bubbles" reading for the Conversation panel only. The agent is on the left beside its initial and
   the caller on the right, in quiet bubbles with the time in small text (`~` when the platform only

@@ -52,6 +52,7 @@ function routes(who: Me, script: ScriptOut = SCRIPT) {
     "POST /v1/agents/agent-1/script/preview": { compiled: "", instructions_chars: 100, instructions_limit: 8000, native_steps: 0 },
     "POST /v1/agents/agent-1/script/publish": { version: 4, live: true },
     "/v1/agents/agent-1/script/proposed-rules": [],
+    "/v1/agents/agent-1/script/proposal": { proposal: null },
     "/v1/agents/agent-1/pending": settledPending(),
     "/v1/agents/agent-1/script/tests": {
       available: false,

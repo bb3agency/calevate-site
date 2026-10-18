@@ -15,10 +15,10 @@ export const VERDICT: Record<TestVerdict, { label: string; tone: string; dot: st
 
 /** What the owner does about a failure, by the kind of fix, in one line. */
 export const WHAT_TO_DO: Record<FixKind, string> = {
-  script_step: "Change the script step it names, or let Improve my agent suggest the change.",
-  knowledge: "Add or correct the fact in Knowledge, or let Improve my agent suggest it.",
+  script_step: "Change the script step it names, or let Pip suggest the change.",
+  knowledge: "Add or correct the fact in Knowledge, or let Pip suggest it.",
   objection: "Add a reply for this push-back to the script.",
-  style: "Let Improve my agent suggest better wording for the script.",
+  style: "Let Pip suggest better wording for the script.",
   settings: "Check this agent's settings.",
   platform: "Ours to fix, not yours: nothing in your script changes this. Contact us if it keeps happening.",
 };

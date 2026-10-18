@@ -3694,54 +3694,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/agents/{agent_id}/script/assist": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Draft a script from a plain-language business description (AI writing assist)
-         * @description AI writing assist. SUBJECT → GATE → RUN → METER, the crm/routes.assist_call order.
-         *
-         *     The SUBJECT is the client's own business description (tenant-authored config, not
-         *     transcript PII), so there is no transcript to load or redact — the subject is the
-         *     request body, present before the gate. The GATE (`require_ai_assist`) RAISES at the
-         *     ceiling before a token is spent; the RUN drafts through the controlled worker path; the
-         *     METER records the Azure cost (or nothing, for the free Sarvam fallback) in its own
-         *     transaction. Nothing is persisted to the agent — a draft is returned for the author to
-         *     edit and then save through `PUT` above.
-         */
-        post: operations["assist_script_v1_agents__agent_id__script_assist_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/script/convert": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Propose sections for a hand-written prompt (AI), with what could not be placed
-         * @description SUBJECT → GATE → RUN → METER, as the assist above, on the client's AI allowance.
-         */
-        post: operations["convert_script_v1_agents__agent_id__script_convert_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/agents/{agent_id}/script/draft": {
         parameters: {
             query?: never;
@@ -3771,6 +3723,40 @@ export interface paths {
         /** Compile a (possibly unsaved) script into the exact engine prompt */
         post: operations["preview_script_v1_agents__agent_id__script_preview_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/proposal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The script suggestion Pip prepared and the owner has not yet reviewed */
+        get: operations["get_script_proposal_v1_agents__agent_id__script_proposal_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/proposal/{proposal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Clear the suggestion once its kept parts are in the draft, or to discard it */
+        delete: operations["discard_script_proposal_v1_agents__agent_id__script_proposal__proposal_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3843,32 +3829,6 @@ export interface paths {
         put?: never;
         /** Run test conversations against the agent callers hear now */
         post: operations["run_test_conversations_v1_agents__agent_id__script_tests_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/script/tests/{run_id}/improve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Improve my agent: queue script and fact changes from a run's failures
-         * @description Queues the proposal and answers at once; the run shows `improving` until the
-         *     proposal (or `improve_note`) arrives. It proposes and never writes the script: the owner
-         *     keeps changes one by one in the review.
-         *
-         *     A job, not an inline model call, because the proposal is the whole script and two legs
-         *     of it do not fit the request deadline; and because a route that read the allowance and
-         *     then waited on a model kept its transaction open across the wait (D-748).
-         */
-        post: operations["improve_from_tests_v1_agents__agent_id__script_tests__run_id__improve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -12221,36 +12181,6 @@ export interface components {
             unsupported: number;
         };
         /**
-         * AssistIn
-         * @description The owner's words. Either the five short answers (keys of `OWNER_QUESTIONS`), a
-         *     free description, or both; at least ten characters in all.
-         */
-        AssistIn: {
-            /** Answers */
-            answers?: {
-                [key: string]: string;
-            };
-            /**
-             * Change
-             * @default
-             */
-            change: string;
-            current?: components["schemas"]["CallScript"] | null;
-            /**
-             * Description
-             * @default
-             */
-            description: string;
-        };
-        /** AssistOut */
-        AssistOut: {
-            /** Disclosure */
-            disclosure: string | null;
-            /** Metered */
-            metered: boolean;
-            script: components["schemas"]["CallScript"];
-        };
-        /**
          * AttentionItemOut
          * @description One thing the platform refused to do quietly (crm/attention.py).
          *
@@ -14796,21 +14726,6 @@ export interface components {
              * @default
              */
             sounds_like: string;
-        };
-        /** ConvertIn */
-        ConvertIn: {
-            /** Raw Text */
-            raw_text?: string | null;
-        };
-        /** ConvertOut */
-        ConvertOut: {
-            /** Disclosure */
-            disclosure: string | null;
-            /** Metered */
-            metered: boolean;
-            script: components["schemas"]["CallScript"];
-            /** Unplaced */
-            unplaced: string[];
         };
         /**
          * CopilotActionOut
@@ -18483,11 +18398,6 @@ export interface components {
             /** Slug */
             slug: string;
         };
-        /** ImproveIn */
-        ImproveIn: {
-            /** Keys */
-            keys?: string[] | null;
-        };
         /**
          * ImprovementOut
          * @description The "Improve my agent" proposal, reviewed change by change, never applied by itself.
@@ -21982,6 +21892,10 @@ export interface components {
             /** Worst Case Call Cost Inr */
             worst_case_call_cost_inr: string | null;
         };
+        /** PendingProposalOut */
+        PendingProposalOut: {
+            proposal: components["schemas"]["ScriptProposalOut"] | null;
+        };
         /**
          * PerformanceFunnelOut
          * @description Calls → connected conversations → LEADS that moved past `new` (crm/performance.py
@@ -24195,6 +24109,42 @@ export interface components {
              * @default true
              */
             take_bookings: boolean;
+        };
+        /**
+         * ScriptProposalOut
+         * @description A script suggestion Pip was asked for, reviewed part by part on the Script page.
+         */
+        ScriptProposalOut: {
+            base_script: components["schemas"]["CallScript"];
+            /** Disclosure */
+            disclosure: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "change" | "whole" | "steps";
+            /** Note */
+            note: string | null;
+            /** Request */
+            request: string | null;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            script: components["schemas"]["CallScript"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "drafting" | "ready" | "failed";
+            /** Unplaced */
+            unplaced: string[];
         };
         /**
          * ScriptStep
@@ -35055,76 +35005,6 @@ export interface operations {
             };
         };
     };
-    assist_script_v1_agents__agent_id__script_assist_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AssistIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssistOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    convert_script_v1_agents__agent_id__script_convert_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ConvertIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConvertOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     save_script_draft_v1_agents__agent_id__script_draft_put: {
         parameters: {
             query?: never;
@@ -35183,6 +35063,67 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PreviewOut"];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_script_proposal_v1_agents__agent_id__script_proposal_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingProposalOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    discard_script_proposal_v1_agents__agent_id__script_proposal__proposal_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -35347,42 +35288,6 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TestConversationsOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    improve_from_tests_v1_agents__agent_id__script_tests__run_id__improve_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["ImproveIn"] | null;
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
                 headers: {
                     [name: string]: unknown;
                 };

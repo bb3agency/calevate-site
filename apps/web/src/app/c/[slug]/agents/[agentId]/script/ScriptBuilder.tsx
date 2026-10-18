@@ -28,7 +28,6 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LayoutList, Plus, Waypoints } from "lucide-react";
 
@@ -41,10 +40,12 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { Drawer } from "@/components/console/drawer";
 import { InfoTip } from "@/components/console/infoTip";
 import { BELOW_PAGE_BAR_STICKY } from "@/components/console/stickyPageBar";
 import { TEXT_ACTION } from "@/components/console/section";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { applyByPaths } from "@/lib/copilot/paths";
@@ -68,7 +69,8 @@ import {
 
 import { OpeningSection, StrictnessSection, VariableBar, type Focusable } from "./ScriptSections";
 import { ScriptParts } from "./ScriptParts";
-import { AssistPanel } from "./AssistPanel";
+import { PipAsk, WHOLE_REQUEST } from "./PipAsk";
+import { PipProposal } from "./PipProposal";
 import { CompiledPrompt, ScriptToolbar, roomFrom, type Room } from "./ScriptToolbar";
 import { HeldBackNotice, TooLongNotice } from "@/components/heldBackNotice";
 import { scriptCopilotFields } from "./scriptSurface";
@@ -120,7 +122,6 @@ export function ScriptBuilder({
   testHref: string;
 }) {
   const session = useClientSession();
-  const startAssist = useSearchParams().get("assist") === "1";
   const loaded = useScript(session, agentId);
   // This route is bookmarkable and every write on a deleted agent is refused
   // (`agent_archived`), so a deleted agent gets no editor.
@@ -177,7 +178,6 @@ export function ScriptBuilder({
           testHref={testHref}
           agentName={agent.data?.name ?? "This agent"}
           agentOn={agent.data ? agent.data.published && agent.data.status === "live" : false}
-          startAssist={startAssist}
         />
       ) : null}
     </div>
@@ -192,7 +192,6 @@ function Editor({
   testHref,
   agentName,
   agentOn,
-  startAssist,
 }: {
   agentId: string;
   out: ScriptOut;
@@ -201,7 +200,6 @@ function Editor({
   testHref: string;
   agentName: string;
   agentOn: boolean;
-  startAssist: boolean;
 }) {
   const session = useClientSession();
   const queryClient = useQueryClient();
@@ -220,7 +218,7 @@ function Editor({
 
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setView] = useState<"flow" | "list">("flow");
-  const [helperOpen, setHelperOpen] = useState(startAssist);
+  const [askOpen, setAskOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [published, setPublished] = useState<{ live: boolean } | null>(null);
@@ -348,11 +346,16 @@ function Editor({
     title: raw ? "Call script (hand-written)" : "Call script",
     realm: "client",
     fields: scriptCopilotFields(script, raw),
-    facts: script.variables.map((variable) => ({
-      key: variable.key,
-      label: `Variable {{${variable.key}}}`,
-      value: variable.label,
-    })),
+    // The agent's id and name first: a request to change this script names the agent by them.
+    facts: [
+      { key: "agent_id", label: "Agent id", value: agentId },
+      { key: "agent_name", label: "Agent", value: agentName },
+      ...script.variables.map((variable) => ({
+        key: variable.key,
+        label: `Variable {{${variable.key}}}`,
+        value: variable.label,
+      })),
+    ],
     apply: (items) =>
       edit((current) =>
         applyByPaths(current, items, (id) =>
@@ -369,7 +372,7 @@ function Editor({
   const keep = (next: CallScript) => {
     setUndoTo(script);
     edit(next);
-    setHelperOpen(false);
+    setAskOpen(false);
   };
 
   const save = saveState({
@@ -421,10 +424,10 @@ function Editor({
         canWrite={write.allowed}
         writeReason={write.reason}
         publishing={putLive.pending}
-        helperOpen={helperOpen}
+        askOpen={askOpen}
         live={live}
         onPublish={() => setPublishing(true)}
-        onHelper={() => setHelperOpen((o) => !o)}
+        onAsk={() => setAskOpen((o) => !o)}
         menu={[
           { id: "history", label: "History", onSelect: () => setHistoryOpen(true) },
           {
@@ -441,6 +444,8 @@ function Editor({
       />
 
       <RestrictionNote reason={write.reason} />
+      {askOpen && <PipAsk handWritten={raw} />}
+      <PipProposal agentId={agentId} script={script} canWrite={write.allowed} onKeep={keep} />
       {conflict && (
         <NoticeBox
           tone="warn"
@@ -508,13 +513,7 @@ function Editor({
           <h3 id="hand-heading" className="text-heading text-ink">
             Written by hand
           </h3>
-          <HandWritten
-            agentId={agentId}
-            script={script}
-            readOnly={!write.allowed}
-            onChange={(text) => setField("raw_override", text)}
-            onConverted={keep}
-          />
+          <HandWritten script={script} readOnly={!write.allowed} onChange={(text) => setField("raw_override", text)} />
         </section>
       ) : (
         <>
@@ -584,9 +583,7 @@ function Editor({
                       <Plus aria-hidden className="h-4 w-4" />
                       Add a step
                     </button>
-                    <button type="button" className={SECONDARY_BUTTON} onClick={() => setHelperOpen(true)}>
-                      Ask the AI helper
-                    </button>
+                    <AskAssistant label={`Let ${ASSISTANT_NAME} draft the whole script`} prompt={WHOLE_REQUEST} size="md" />
                   </div>
                 )}
               </div>
@@ -692,16 +689,6 @@ function Editor({
         </Link>{" "}
         to hear how callers are answered now.
       </p>
-
-      <Drawer
-        open={helperOpen}
-        onClose={() => setHelperOpen(false)}
-        title="AI helper"
-        description="Drafts or changes your script. You review every change."
-        width="md"
-      >
-        <AssistPanel agentId={agentId} script={script} onKeep={keep} />
-      </Drawer>
 
       <Drawer open={historyOpen} onClose={() => setHistoryOpen(false)} title="History" description="Every time the script was put live.">
         <ScriptHistory

@@ -59,6 +59,18 @@
     {"id": "c-knowledge", "realm": "client", "kind": "action", "route": "/c/sunrise/agents/0192f3a4-0000-7000-8000-0000000a9e01", "title": "Agent",
      "facts": [{"key": "agent_id", "label": "Agent id", "value": "0192f3a4-0000-7000-8000-0000000a9e01"}],
      "question": "teach the agent that we deliver free on orders above 500 rupees", "expect": ["propose_knowledge"], "forbid": ["set_fields"]},
+    {"id": "c-script-change", "realm": "client", "kind": "action", "route": "/c/sunrise/agents/0192f3a4-0000-7000-8000-0000000a9e01/script", "title": "Call script",
+     "facts": [{"key": "agent_id", "label": "Agent id", "value": "0192f3a4-0000-7000-8000-0000000a9e01"}],
+     "question": "Change this agent's script: handle callers who say the price is too high", "expect": ["agent_script_suggest"], "forbid": ["set_fields"]},
+    {"id": "c-script-whole-asks-first", "realm": "client", "kind": "action", "route": "/c/sunrise/agents/0192f3a4-0000-7000-8000-0000000a9e01/script", "title": "Call script",
+     "facts": [{"key": "agent_id", "label": "Agent id", "value": "0192f3a4-0000-7000-8000-0000000a9e01"}],
+     "question": "Draft the whole script for this agent", "expect": [], "none_ok": true, "forbid": ["agent_script_suggest", "set_fields"]},
+    {"id": "c-script-steps", "realm": "client", "kind": "action", "route": "/c/sunrise/agents/0192f3a4-0000-7000-8000-0000000a9e01/script", "title": "Call script (hand-written)",
+     "facts": [{"key": "agent_id", "label": "Agent id", "value": "0192f3a4-0000-7000-8000-0000000a9e01"}],
+     "question": "Turn this agent's hand-written script into steps", "expect": ["agent_script_suggest"], "forbid": ["set_fields"]},
+    {"id": "c-tests-fix", "realm": "client", "kind": "action", "route": "/c/sunrise/agents/0192f3a4-0000-7000-8000-0000000a9e01", "title": "Agent: test",
+     "facts": [{"key": "agent_id", "label": "Agent id", "value": "0192f3a4-0000-7000-8000-0000000a9e01"}, {"key": "failed_tests", "label": "Tests that need a fix (key: title)", "value": "k1: Asks for a discount; k2: Wants to talk to a person"}],
+     "question": "Suggest fixes for the tests this agent failed", "expect": ["agent_tests_fix"], "forbid": ["set_fields", "agent_script_suggest"]},
 
     {"id": "c-fill-hours", "realm": "client", "kind": "fill", "route": "/c/sunrise/agents/new", "title": "Build an agent",
      "fields": [

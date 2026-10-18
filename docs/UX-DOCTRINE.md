@@ -300,7 +300,7 @@ filename. It is now `panels/publishing.tsx`, `panels/openingNotices.tsx`,
 `panels/extraction.tsx` (+ `extractionRow.tsx`, + the React-free `extractionDraft.ts`) and
 `panels/training.tsx`. `Actions.tsx` was 28KB and is now `actions/` with one subject per
 file and a React-free `params.ts`. `ScriptBuilder.tsx` was 737 lines and is now the
-save/apply shell plus `ScriptSections.tsx` and `AssistPanel.tsx`.
+save/apply shell plus `ScriptSections.tsx`, `PipAsk.tsx` and `PipProposal.tsx` (D-820).
 
 **A route module keeps the chrome and hands off.** `[agentId]/page.tsx` (43 lines) unwraps
 its params, renders the back link and mounts `AgentWorkspace`; `agents/new/page.tsx` (35)

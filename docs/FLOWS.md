@@ -758,3 +758,47 @@ Owner surfaces: client — `/c/<slug>/billing` (top-up, wallet, lots, transactio
 admin — `/admin/tenants/<id>/credits` (grants, restatements, the audited "sell this lot at
 pack X's rates" override) and `/admin/spend` (Clear vs Studio minutes, revenue from the
 splits, attributed TTS cost beside the plan fee).
+
+## 12. Changing an Agent's Script with Pip (D-820)
+
+Pip is the one AI assistant (founder, 18 Oct 2026). The Script page has no AI panel of its
+own: its "Let Pip do it" controls prefill Pip's ask box, and the owner presses Ask there.
+
+1. **Ask.** On the Script page, "Let Pip do it" opens a short strip: a field ("What should
+   change?"), example requests, and "Let Pip draft the whole script". A hand-written script
+   offers "Let Pip turn it into steps" instead, beside the text box too. Each prefills Pip
+   with a request about this agent ("Change this agent's script: …"); nothing is sent until
+   the owner presses Ask. Pip can be asked the same from any screen, naming the agent.
+2. **Pip proposes, the owner confirms the spend.** Pip calls `agent_script_suggest`
+   (`copilot/script_actions.py`, confirm tier) with the agent, the mode (`change`, `whole`
+   after asking the five owner questions together, or `steps`) and the request. The planner
+   refuses what the model can fix (a hand-written script asked for a change, no answers, a
+   request still being written) and asks the AI allowance (`require_ai_assist`) before the
+   card is shown. The card says it uses the AI allowance and that nothing in the script
+   changes until the owner keeps it.
+3. **Confirm.** The executor records the request on the agent (`agents.script_proposal`,
+   `agents/script_proposals.request_proposal`, with the draft-or-live script it is made
+   from) and queues `draft_script_proposal`; the audit row is `agent.script_assist` with
+   `via: copilot`. Pip says the suggestion is being written and is reviewed on the Script
+   page.
+4. **Write.** The job (`workers/script_proposal.py`) claims the request once, writes it with
+   `script_assist.draft_script` (edit, whole draft from the answers, or conversion), meters
+   it under `script_draft` (a refused paid leg too), and stores it — or a failure note in the
+   owner's words. A request discarded or replaced meanwhile is not written back.
+5. **Review.** The Script page polls while it is written, then shows the tick-to-keep list
+   (`ProposalReview`), listed against the script it was made from so a later edit is never
+   offered back. A conversion lists any hand-written lines that fit nowhere and waits until
+   they are read. "Add N to my draft" puts the kept parts in the working copy (with Undo) and
+   clears the suggestion; Discard clears it. Nothing goes live until "Put it live".
+
+Failure handling: a refusal at the card (allowance used up, AI paused) is relayed by Pip
+with its remediation; a refusal or crash in the job is stored as the suggestion's note and
+shown with Dismiss; a request still `drafting` after ten minutes reads as failed
+(`script_proposals.DRAFTING_STALE_AFTER`). A suggestion that no longer fits (the script was
+switched between steps and hand-writing since) offers Dismiss only.
+
+Owner surfaces: client — Pip's panel and `/c/<slug>/agents/<id>/script`.
+
+The Test section's fixes follow the same path (D-820): "Let Pip suggest fixes" (or "Let Pip
+suggest a fix" on one failed test) prefills Pip; Pip proposes `agent_tests_fix`; confirming
+queues the improve job (D-724/D-748), and the fixes are kept one by one in that section.

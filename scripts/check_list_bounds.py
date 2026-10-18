@@ -655,9 +655,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="one agent's `CallScript`, every list bounded by the `max_length` ceilings in "
         "`calevate_shared.call_script`; `standard_variables` is the `STANDARD_VARIABLES` constant."
     ),
-    "POST /v1/agents/{agent_id}/script/assist": BoundedByConstruction(
-        by="one drafted `CallScript`, whose lists carry the same `calevate_shared.call_script` "
-        "`max_length` ceilings as the loaded script above — never a caller's row count."
+    "GET /v1/agents/{agent_id}/script/proposal": BoundedByConstruction(
+        by="one suggestion: two `CallScript`s under the `call_script` ceilings, and "
+        "`unplaced`, lines of one hand-written script (`raw_override`, at most 20,000 "
+        "characters; only lines of three words or more are listed)."
     ),
     "POST /v1/agents/{agent_id}/script/versions/{version}/restore": BoundedByConstruction(
         by="one version copied into the draft: a `CallScript` under the same "
@@ -668,24 +669,16 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         "`script_parts` one row per `CallScript` section, both fixed sets in "
         "`agents/prompt_size.py`, never a caller's row count."
     ),
-    "POST /v1/agents/{agent_id}/script/convert": BoundedByConstruction(
-        by="one proposed `CallScript` (the `call_script` ceilings) and `unplaced`, lines of "
-        "the one prompt being converted: `ConvertIn.raw_text` is capped at 20,000 "
-        "characters and only lines of three words or more are listed."
-    ),
     "GET /v1/agents/{agent_id}/script/tests": BoundedByConstruction(
         by="one run's `results`, at most `MAX_GENERATED` scenarios plus `MAX_SAVED` saved "
-        "tests and six re-asked failures, each of at most `MAX_TURNS` turns, and `history`, "
-        "at most `HISTORY_RUNS` runs (`agents.test_conversations` constants)."
+        "tests and six re-asked failures, each of at most `MAX_TURNS` turns, `history`, "
+        "at most `HISTORY_RUNS` runs (`agents.test_conversations` constants), and the run's "
+        "improvement: at most 30 changes and 10 facts (`workers/agent_test_ai."
+        "proposal_from_model`) and `for_keys`, the keys of one run's scenarios."
     ),
     "POST /v1/agents/{agent_id}/script/tests": BoundedByConstruction(
         by="the same shape as `GET .../script/tests`: one run's scenarios under "
         "`agents.test_conversations` constants and at most `HISTORY_RUNS` history rows."
-    ),
-    "POST /v1/agents/{agent_id}/script/tests/{run_id}/improve": BoundedByConstruction(
-        by="one proposal: two `CallScript`s under the `call_script` ceilings, at most 30 "
-        "changes and 10 facts (`workers/agent_test_ai.proposal_from_model`), and `for_keys`, "
-        "the keys of one run's scenarios."
     ),
     # Calling setup (D-716): one plan per client.
     "GET /v1/lead-calling": BoundedByConstruction(

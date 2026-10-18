@@ -3,14 +3,19 @@
 import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 
+import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { useClientRealm } from "@/lib/api/session";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
+
+import { wholeRequestFor } from "../[agentId]/script/PipAsk";
 
 /**
  * THE AGENT EXISTS, AND WHAT TO DO NEXT. A plain success state rather than a card: one
  * sentence of state, then the one next step (write what it says) and the quicker route
- * (have it drafted, which the owner chooses and which uses their AI help allowance).
+ * (Pip drafts it, which the owner asks for and which uses their AI help allowance; the draft
+ * waits on the Script page for review, D-820).
  */
 export function CreatedPanel({ agent, slug }: { agent: Agent; slug: string }) {
   const { href } = useClientRealm();
@@ -29,9 +34,7 @@ export function CreatedPanel({ agent, slug }: { agent: Agent; slug: string }) {
         <Link href={script} className={PRIMARY_BUTTON}>
           Write its script
         </Link>
-        <Link href={`${script}${script.includes("?") ? "&" : "?"}assist=1`} className={SECONDARY_BUTTON}>
-          Draft it with AI
-        </Link>
+        <AskAssistant label={`Let ${ASSISTANT_NAME} draft it`} prompt={wholeRequestFor(agent.name)} size="md" />
         <Link href={href(`/c/${slug}/agents/${agent.id}`)} className={SECONDARY_BUTTON}>
           Open {agent.name}
         </Link>

@@ -27,9 +27,10 @@ preview before a bulk change, and a preview is the confirm card.
 ═══ WHAT IS DELIBERATELY NOT HERE ═══
 
 The no-cold-calls pledge, legal acceptance and KYC uploads: no tool may exist (D-694). A
-test call to the owner's own phone: no route exists to call (the trial lane, D-697). Free
-text prompt editing: the console edits a structured script, and the assistant applies or
-discards what was saved there (`agent_changes_apply`) rather than writing a second editor.
+test call to the owner's own phone: no route exists to call (the trial lane, D-697). Writing
+the script directly: the assistant prepares a suggestion the owner reviews on the Script page
+(`script_actions.agent_script_suggest`, D-820), and applies or discards what was saved there
+(`agent_changes_apply`), rather than being a second editor.
 
 ═══ SERVICES THAT OPEN THEIR OWN TRANSACTION ═══
 

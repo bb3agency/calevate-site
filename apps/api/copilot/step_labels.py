@@ -90,6 +90,8 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "number_release": _l("Releasing the number", "Released the number"),
     "agent_test_call": _l("Placing a test call", "Placed a test call"),
     "business_profile_set": _l("Updating your business details", "Updated your business details"),
+    "agent_script_suggest": _l("Preparing a script suggestion", "Prepared a script suggestion"),
+    "agent_tests_fix": _l("Preparing fixes for the tests", "Prepared fixes for the tests"),
     "open_screen": _l("Opening the screen", "Opened the screen"),
     "run_in_background": _l("Starting a background task", "Started a background task"),
     # Operator reads and actions (admin realm).

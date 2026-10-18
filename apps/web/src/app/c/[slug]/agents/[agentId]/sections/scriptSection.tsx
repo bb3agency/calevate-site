@@ -12,14 +12,17 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
-import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
+import { PRIMARY_BUTTON, ProblemNotice, Skeleton } from "@/components/ui";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import type { Agent } from "@/lib/api/agents";
 import { useScript, type ScriptOut } from "@/lib/api/script";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
+import { WHOLE_REQUEST } from "../script/PipAsk";
 import { hasUnpublished, workingCopy } from "../script/scriptDraft";
 
 /** Whether callers hear the script, in plain words. */
@@ -93,9 +96,7 @@ export function ScriptSection({ agent, slug }: { agent: Agent; slug: string }) {
           <ArrowRight aria-hidden className="h-4 w-4" />
         </Link>
         {data && data.version === null && (
-          <Link href={`${builder}${builder.includes("?") ? "&" : "?"}assist=1`} className={SECONDARY_BUTTON}>
-            Draft it with AI
-          </Link>
+          <AskAssistant label={`Let ${ASSISTANT_NAME} draft it`} prompt={WHOLE_REQUEST} size="md" />
         )}
       </div>
     </div>

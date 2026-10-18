@@ -129,6 +129,7 @@ from apps.api.copilot.schemas import (
     CopilotConfirmOut,
     CopilotProposalEvent,
 )
+from apps.api.copilot.script_actions import SCRIPT_ACTIONS
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -947,6 +948,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     # (`console_actions.py`): the Leads, Campaigns, Agents, Calls, Call-backs, Knowledge
     # and phone-number buttons.
     *CONSOLE_ACTIONS,
+    # D-820: the script change the retired Script-page helper made, reviewed on that page.
+    *SCRIPT_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}

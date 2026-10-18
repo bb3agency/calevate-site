@@ -1,4 +1,4 @@
-"""Client-realm structured call-script builder + AI writing assist (D-21 CONFLICT — see below).
+"""Client-realm structured call-script builder (D-21 CONFLICT — see below).
 
 ⚠ **CONFLICT FLAGGED, NOT SILENTLY RESOLVED (CLAUDE.md: "flag the conflict, don't silently
 pick").** D-21 as reflected in `apps/web/.../agents/[agentId]/page.tsx::ScriptNote` and in
@@ -18,15 +18,15 @@ and tenant-scoped through `Depends(db)` + `requires(...)` (the principal's own t
 single prefix fits — unlike `agents/routes.py`, which straddles two realms. Mounted by
 `main.py`.
 
-THE AI ASSIST FOLLOWS SUBJECT → GATE → RUN → METER (crm/routes.assist_call's order), because
-it spends the founder's Azure rupees and must obey the per-tenant ceiling and the platform
-brake exactly as re-summarise does. It reuses `billing/ai_quota` (gate + meter) and
-`crm/assist.meter_assist` (the one metering path), so there is one money path, not two.
+AI WRITING IS PIP'S (D-820). A change, a whole draft or a hand-written script turned into
+steps is asked of Pip (`copilot/script_actions.py`) and written by a job; this router only
+shows the pending proposal (`GET .../proposal`) and clears it once the owner has kept or
+discarded it (`DELETE .../proposal/{id}`). The test routes below still gate on the allowance
+(`require_ai_assist`) because they queue paid AI work of their own.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -43,7 +43,6 @@ from calevate_shared.call_script import (
     STANDARD_VARIABLES,
     CallScript,
     ExampleLine,
-    unplaced_lines,
     upgrade_to_v2,
 )
 from calevate_shared.spoken_style import example_exchange, native_reviewed, style_for
@@ -52,10 +51,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import publishing, script_builder, test_conversations
-from apps.api.agents.assist_leg import account_assist_leg
+from apps.api.agents import publishing, script_builder, script_proposals, test_conversations
 from apps.api.agents.engine_limits import too_long_sentence
-from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
+from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
@@ -63,18 +61,10 @@ from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
-from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.hosted_platform import hosted_agent_limits
 from apps.api.reliability.engine_actions import ACTION_NAMES, CALLBACK, CALLBACK_CANCEL, OPT_OUT
-from apps.workers.script_assist import (
-    CONVERT_INSTRUCTION,
-    OWNER_QUESTIONS,
-    ScriptBrief,
-    ScriptDraft,
-    draft_script,
-)
 
 log = get_logger(__name__)
 
@@ -253,40 +243,6 @@ def preview_out(preview: script_builder.Preview) -> PreviewOut:
     )
 
 
-class AssistIn(BaseModel):
-    """The owner's words. Either the five short answers (keys of `OWNER_QUESTIONS`), a
-    free description, or both; at least ten characters in all."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    description: str = Field(default="", max_length=4000)
-    answers: dict[str, str] = Field(default_factory=dict, max_length=len(OWNER_QUESTIONS))
-    #: The editor's working copy. With `change`, the answer is this script with only that
-    #: change made and every section id kept; nothing is saved.
-    current: CallScript | None = None
-    #: The owner's request, e.g. "make the push-back answer warmer".
-    change: str = Field(default="", max_length=600)
-
-    def has_enough(self) -> bool:
-        written = (
-            self.description.strip()
-            + self.change.strip()
-            + "".join(v.strip() for k, v in self.answers.items() if k in OWNER_QUESTIONS)
-        )
-        return len(written) >= 10
-
-
-class AssistOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    #: A drafted script the builder pre-fills — never saved, always the author's to edit.
-    script: CallScript
-    #: The Sarvam-fallback disclosure (G-6), or None when the preferred model answered.
-    disclosure: str | None
-    #: Whether this draft was billed (an Azure answer Azure counted). Sarvam is free (D-36).
-    metered: bool
-
-
 _STANDARD_VARIABLES = [
     VariableSuggestion(key=key, label=label) for key, label in STANDARD_VARIABLES
 ]
@@ -379,16 +335,6 @@ def _limits() -> ScriptLimitsOut:
     )
 
 
-async def _knowledge_titles(session: AsyncSession) -> tuple[str, ...]:
-    rows = await session.execute(
-        text(
-            "SELECT name FROM kb_sources WHERE is_active AND published_at IS NOT NULL "
-            "ORDER BY published_at DESC LIMIT 20"
-        )
-    )
-    return tuple(str(r[0])[:120] for r in rows)
-
-
 @router.post(
     "/preview",
     response_model=PreviewOut,
@@ -438,138 +384,6 @@ async def save_script(
         summary={"version": saved.version, "staged": saved.staged},
     )
     return SaveScriptOut(version=saved.version, staged=saved.staged)
-
-
-async def _drafted(tenant_id: UUID, run: Awaitable[ScriptDraft]) -> ScriptDraft:
-    """`run`, with the spend of a paid answer that was refused metered before the refusal
-    reaches the owner (hard rule 7, `crm/assist.meter_refusal`)."""
-    try:
-        return await run
-    except ProblemError as refusal:
-        async with tenant_session(tenant_id) as record_session:
-            await crm_assist.meter_refusal(
-                record_session,
-                tenant_id=tenant_id,
-                refusal=refusal,
-                feature=crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT,
-            )
-        raise
-
-
-@router.post(
-    "/assist",
-    response_model=AssistOut,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Draft a script from a plain-language business description (AI writing assist)",
-)
-async def assist_script(
-    agent_id: UUID,
-    payload: AssistIn,
-    session: Session,
-    request: Request,
-    principal: ScriptWriter,
-) -> AssistOut:
-    """AI writing assist. SUBJECT → GATE → RUN → METER, the crm/routes.assist_call order.
-
-    The SUBJECT is the client's own business description (tenant-authored config, not
-    transcript PII), so there is no transcript to load or redact — the subject is the
-    request body, present before the gate. The GATE (`require_ai_assist`) RAISES at the
-    ceiling before a token is spent; the RUN drafts through the controlled worker path; the
-    METER records the Azure cost (or nothing, for the free Sarvam fallback) in its own
-    transaction. Nothing is persisted to the agent — a draft is returned for the author to
-    edit and then save through `PUT` above.
-    """
-    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
-    # Spends the CLIENT'S AI allowance, so a view-as session is refused it for
-    # `crm/routes.assist_call`'s reason and on the same named ground (D-587). Before the
-    # ownership check, because a refusal that costs nothing should cost no query either.
-    assert_view_as_may(principal, "billing.ai_assist")
-    tenant_id = principal.tenant_id
-
-    # OWNERSHIP — the agent must be visible to this tenant (RLS) before a rupee is spent or
-    # an audit row is written against its id. Unlike the load/save/preview routes this one
-    # never loads the agent's script, so without this a neighbour's agent id would bill and
-    # audit under it (hard rule 1). 404 for a stranger's id, indistinguishable from missing.
-    await script_builder.assert_agent_visible(session, agent_id)
-    if not payload.has_enough():
-        raise ProblemError(
-            kind="validation",
-            code="script_assist_too_little",
-            title="Tell us a little more first",
-            detail="Answer at least one of the questions so the draft has something to go on.",
-            fields=[{"name": "answers", "reason": "at least ten characters in all"}],
-        )
-    context = await _context(session, agent_id)
-    business = (
-        await session.execute(
-            text("SELECT name FROM organizations WHERE id = :t"), {"t": tenant_id}
-        )
-    ).scalar()
-    style = style_for(context.language)
-    brief = ScriptBrief(
-        description=payload.description,
-        business_name=str(business or ""),
-        business_type=context.business_type,
-        direction=context.direction,
-        language=context.language,
-        register=(f"{style.register_name}. {style.register}" if style is not None else ""),
-        collect=tuple(f.label for f in context.collect),
-        knowledge_titles=await _knowledge_titles(session),
-        answers=tuple((k, v[:600]) for k, v in payload.answers.items() if k in OWNER_QUESTIONS),
-    )
-
-    # GATE — raises `ai_quota_exceeded` / `ai_paused_platform_wide` before any spend.
-    quota = await require_ai_assist(session, tenant_id=tenant_id)
-
-    # RUN — the model call, on the controlled worker path (never a raw handler call).
-    ref = new_assist_ref()
-    # WHOSE AI DRAFTS. The account's own model where it may serve this leg — read on the
-    # session already open, for `crm/routes.assist_call`'s reason.
-    tenant_leg = await account_assist_leg(session)
-    draft = await _drafted(
-        tenant_id,
-        draft_script(
-            brief,
-            tenant_leg=tenant_leg,
-            quota_exhausted=quota.at_ceiling,
-            edit_of=payload.current if payload.change.strip() else None,
-            change=payload.change,
-        ),
-    )
-
-    # METER — a completed run is money spent; record it in its own transaction so a later
-    # failure cannot roll back the record of a payment already made (crm/assist §4).
-    async with tenant_session(tenant_id) as record_session:
-        charged = await crm_assist.meter_earlier(
-            record_session,
-            tenant_id=tenant_id,
-            earlier=draft.earlier,
-            feature=crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT,
-        )
-        metered = await crm_assist.meter_assist(
-            record_session,
-            tenant_id=tenant_id,
-            ref=ref,
-            result=draft,
-            model=draft.model,
-            feature=crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT,
-        )
-        charged = charged or metered.metered
-        await write_audit(
-            record_session,
-            action="agent.script_assist",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="agent",
-            object_id=str(agent_id),
-            ip=client_request_ip(request),
-            summary={"metered": charged, "provider": draft.capability.provider},
-        )
-    return AssistOut(
-        script=draft.script,
-        disclosure=draft.capability.disclosure,
-        metered=charged,
-    )
 
 
 TestVerdict = Literal["passed", "needs_fix", "failed", "unjudged"]
@@ -912,58 +726,85 @@ async def run_test_conversations(
     return await _tests_out(session, agent_id, principal.tenant_id)
 
 
-class ImproveIn(BaseModel):
+# --- the suggestion Pip prepared (D-820) ------------------------------------------------
+
+
+class ScriptProposalOut(BaseModel):
+    """A script suggestion Pip was asked for, reviewed part by part on the Script page."""
+
     model_config = ConfigDict(extra="forbid")
 
-    #: The tests to fix ("Fix this"); left out, every test that did not pass.
-    keys: list[str] | None = Field(default=None, max_length=30)
+    id: UUID
+    #: `change` (one change), `whole` (the whole script from the owner's answers) or
+    #: `steps` (a hand-written script turned into steps).
+    mode: Literal["change", "whole", "steps"]
+    #: `drafting` until it is written (poll), then `ready`, or `failed` with `note`.
+    status: Literal["drafting", "ready", "failed"]
+    #: The change the person asked for, with `change`.
+    request: str | None
+    #: The script it was made from. List the changes against this, not the working copy,
+    #: so an edit made since is never offered back; apply the kept ones to the working copy.
+    base_script: CallScript
+    #: The suggested script, when `ready`.
+    script: CallScript | None
+    #: Lines of the hand-written script that appear nowhere in the steps (`steps`).
+    unplaced: list[str]
+    #: Set when a fallback model wrote it (D-127 G-6): show it.
+    disclosure: str | None
+    #: Why it could not be written, in the owner's words, when `failed`.
+    note: str | None
+    requested_at: datetime
 
 
-@router.post(
-    "/tests/{run_id}/improve",
-    response_model=TestConversationsOut,
-    status_code=202,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Improve my agent: queue script and fact changes from a run's failures",
+class PendingProposalOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proposal: ScriptProposalOut | None
+
+
+@router.get(
+    "/proposal",
+    response_model=PendingProposalOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="The script suggestion Pip prepared and the owner has not yet reviewed",
 )
-async def improve_from_tests(
-    agent_id: UUID,
-    run_id: UUID,
-    session: Session,
-    request: Request,
-    principal: ScriptWriter,
-    payload: ImproveIn | None = None,
-) -> TestConversationsOut:
-    """Queues the proposal and answers at once; the run shows `improving` until the
-    proposal (or `improve_note`) arrives. It proposes and never writes the script: the owner
-    keeps changes one by one in the review.
-
-    A job, not an inline model call, because the proposal is the whole script and two legs
-    of it do not fit the request deadline; and because a route that read the allowance and
-    then waited on a model kept its transaction open across the wait (D-748).
-    """
-    assert principal.tenant_id is not None
-    assert_view_as_may(principal, "billing.ai_assist")
-    await test_conversations.get_run(session, agent_id, run_id)
-    await require_ai_assist(session, tenant_id=principal.tenant_id)
-    keys = payload.keys if payload else None
-    await test_conversations.request_improvement(
-        session, tenant_id=principal.tenant_id, agent_id=agent_id, run_id=run_id, keys=keys
+async def get_script_proposal(
+    agent_id: UUID, session: Session, _: ScriptReader
+) -> PendingProposalOut:
+    found = await script_proposals.read_proposal(session, agent_id)
+    if found is None:
+        return PendingProposalOut(proposal=None)
+    return PendingProposalOut(
+        proposal=ScriptProposalOut(
+            id=found.id,
+            mode=found.mode,
+            status=found.status,
+            request=found.request,
+            base_script=found.base_script,
+            script=found.script,
+            unplaced=found.unplaced,
+            disclosure=found.disclosure,
+            note=found.note,
+            requested_at=found.requested_at,
+        )
     )
-    await write_audit(
-        session,
-        action="agent.tests_improvement",
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        object_type="agent",
-        object_id=str(agent_id),
-        ip=client_request_ip(request),
-        summary={"run_id": str(run_id), "tests": len(keys) if keys else None},
-    )
-    return await _tests_out(session, agent_id, principal.tenant_id)
 
 
-# --- the autosaved draft, "Put it live", versions, restore, convert (D-714) ------------
+@router.delete(
+    "/proposal/{proposal_id}",
+    status_code=204,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Clear the suggestion once its kept parts are in the draft, or to discard it",
+)
+async def discard_script_proposal(
+    agent_id: UUID, proposal_id: UUID, session: Session, _: ScriptWriter
+) -> None:
+    # Not audited, for the autosave's reason: what reaches the draft is the owner's own edit,
+    # and nothing here reaches a call. A proposal already gone is the same outcome.
+    await script_proposals.discard(session, agent_id=agent_id, proposal_id=proposal_id)
+
+
+# --- the autosaved draft, "Put it live", versions, restore (D-714) ----------------------
 
 
 class SaveDraftIn(BaseModel):
@@ -1111,104 +952,6 @@ async def restore_script_version(
 ) -> DraftOut:
     draft = await script_builder.restore_into_draft(session, agent_id, version)
     return DraftOut(script=draft.script, saved_at=draft.saved_at)
-
-
-class ConvertIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    #: The hand-written prompt; left out, the agent's own text-mode script is used.
-    raw_text: str | None = Field(default=None, min_length=10, max_length=20000)
-
-
-class ConvertOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    #: The proposed sections. Never saved: the owner reviews it and saves it as a draft.
-    script: CallScript
-    #: Lines of the hand-written prompt that appear nowhere in the proposal.
-    unplaced: list[str]
-    disclosure: str | None
-    metered: bool
-
-
-@router.post(
-    "/convert",
-    response_model=ConvertOut,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Propose sections for a hand-written prompt (AI), with what could not be placed",
-)
-async def convert_script(
-    agent_id: UUID,
-    payload: ConvertIn,
-    session: Session,
-    request: Request,
-    principal: ScriptWriter,
-) -> ConvertOut:
-    """SUBJECT → GATE → RUN → METER, as the assist above, on the client's AI allowance."""
-    assert principal.tenant_id is not None
-    assert_view_as_may(principal, "billing.ai_assist")
-    tenant_id = principal.tenant_id
-    raw = payload.raw_text
-    if raw is None:
-        loaded = await script_builder.load_agent_script(session, agent_id)
-        raw = loaded.script.raw_override
-    else:
-        await script_builder.assert_agent_visible(session, agent_id)
-    if not raw or len(raw.strip()) < 10:
-        raise ProblemError.business_rule(
-            "script_nothing_to_convert", "There is no hand-written script to convert."
-        )
-    quota = await require_ai_assist(session, tenant_id=tenant_id)
-    ref = new_assist_ref()
-    tenant_leg = await account_assist_leg(session)
-    context = await _context(session, agent_id)
-    brief = ScriptBrief(
-        description=f"Convert this hand-written prompt:\n{raw}",
-        business_type=context.business_type,
-        direction=context.direction,
-        language=context.language,
-    )
-    draft = await _drafted(
-        tenant_id,
-        draft_script(
-            brief,
-            tenant_leg=tenant_leg,
-            quota_exhausted=quota.at_ceiling,
-            instruction=CONVERT_INSTRUCTION,
-        ),
-    )
-    async with tenant_session(tenant_id) as record_session:
-        charged = await crm_assist.meter_earlier(
-            record_session,
-            tenant_id=tenant_id,
-            earlier=draft.earlier,
-            feature=crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT,
-        )
-        metered = await crm_assist.meter_assist(
-            record_session,
-            tenant_id=tenant_id,
-            ref=ref,
-            result=draft,
-            model=draft.model,
-            feature=crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT,
-        )
-        charged = charged or metered.metered
-        await write_audit(
-            record_session,
-            action="agent.script_convert",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="agent",
-            object_id=str(agent_id),
-            ip=client_request_ip(request),
-            summary={"metered": charged, "provider": draft.capability.provider},
-        )
-    return ConvertOut(
-        script=draft.script,
-        unplaced=unplaced_lines(raw, draft.script),
-        disclosure=draft.capability.disclosure,
-        metered=charged,
-    )
 
 
 class ApplyScriptIn(BaseModel):

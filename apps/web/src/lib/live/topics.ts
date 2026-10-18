@@ -155,6 +155,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "script",
     "script-tests",
     "script-versions",
+    "script-proposal",
     "call-handling",
     "reply-length",
     "voice-tuning",

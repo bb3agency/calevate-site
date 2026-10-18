@@ -1,13 +1,14 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import AgentScriptPage from "@/app/c/[slug]/agents/[agentId]/script/page";
 import { partSummaries } from "@/app/c/[slug]/agents/[agentId]/script/ScriptParts";
 import type { Me } from "@/lib/api/client";
-import { EMPTY_SCRIPT, type CallScript, type ScriptOut } from "@/lib/api/script";
+import { EMPTY_SCRIPT, type CallScript, type ScriptOut, type ScriptProposal } from "@/lib/api/script";
+import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
 import { expectNoA11yViolations } from "./a11y";
-import { renderClientPage } from "./harness";
+import { noContent, renderClientPage } from "./harness";
 import { agentRow, settledPending } from "./fixtures/sharedReads";
 
 /**
@@ -79,6 +80,7 @@ const routes = (script: ScriptOut, extra: Record<string, unknown> = {}) => ({
   "POST /v1/agents/agent-1/script/preview": PREVIEW,
   "/v1/agents/agent-1/script/proposed-rules": [],
   "/v1/agents/agent-1/pending": settledPending(),
+  "/v1/agents/agent-1/script/proposal": { proposal: null },
   ...extra,
 });
 
@@ -203,15 +205,109 @@ describe("accessibility with every part open", () => {
   });
 });
 
-describe("the AI helper's actions", () => {
-  it("keeps the one primary action apart from the other way to ask", async () => {
-    await renderClientPage(page, routes(out(FULL)));
-    fireEvent.click(await screen.findByRole("button", { name: "AI helper" }));
-    const primary = await screen.findByRole("button", { name: "Suggest the change" });
-    const other = screen.getByRole("button", { name: "Or draft the whole script from five questions" });
-    // Two separate controls in one wrapping row, never one run of text.
-    expect(primary).not.toBe(other);
-    expect(primary.parentElement).toBe(other.parentElement);
-    expect(primary.parentElement?.className).toContain("gap-x-4");
+function listenToPip(): AssistantRequest[] {
+  const asked: AssistantRequest[] = [];
+  function Listener() {
+    useAssistantRequests((request) => asked.push(request));
+    return null;
+  }
+  render(<Listener />);
+  return asked;
+}
+
+const PROPOSAL: ScriptProposal = {
+  id: "p1",
+  mode: "change",
+  status: "ready",
+  request: "Make the opening line warmer and shorter",
+  base_script: FULL,
+  script: { ...FULL, opening_line: "Namaskaram andi, Raghava Organics!" },
+  unplaced: [],
+  disclosure: null,
+  note: null,
+  requested_at: "2026-10-18T10:00:00+00:00",
+};
+
+describe("asking Pip to change the script (D-820)", () => {
+  it("prefills Pip with the request and sends nothing itself", async () => {
+    const asked = listenToPip();
+    const { calls } = await renderClientPage(page, routes(out(FULL)));
+    fireEvent.click(await screen.findByRole("button", { name: "Let Pip do it" }));
+    fireEvent.change(screen.getByLabelText("What should change?"), {
+      target: { value: "Offer free delivery when someone asks for a discount" },
+    });
+    fireEvent.submit(screen.getByLabelText("What should change?").closest("form") as HTMLFormElement);
+    fireEvent.click(screen.getByRole("button", { name: /Handle callers who say the price is too high$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Let Pip draft the whole script: / }));
+    expect(asked.map((a) => a.prompt)).toEqual([
+      "Change this agent's script: Offer free delivery when someone asks for a discount",
+      "Change this agent's script: Handle callers who say the price is too high",
+      "Draft the whole script for this agent. Ask me the five questions first.",
+    ]);
+    expect(calls.some((c) => c.method === "POST" && !c.path.endsWith("/preview"))).toBe(false);
+  });
+
+  it("says while Pip is writing", async () => {
+    await renderClientPage(
+      page,
+      routes(out(FULL), { "/v1/agents/agent-1/script/proposal": { proposal: { ...PROPOSAL, status: "drafting", script: null } } }),
+    );
+    expect(await screen.findByText("Pip is writing your suggestion…")).toBeTruthy();
+  });
+
+  it("reviews the suggestion here and keeps it into the draft, not live", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes(out(FULL), {
+        "/v1/agents/agent-1/script/proposal": { proposal: PROPOSAL },
+        "DELETE /v1/agents/agent-1/script/proposal/p1": noContent(),
+      }),
+    );
+    expect(await screen.findByText("You asked: “Make the opening line warmer and shorter”")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "1 suggested change" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add it to my draft" }));
+    await waitFor(() =>
+      expect((screen.getByLabelText("Opening line") as HTMLTextAreaElement).value).toBe(
+        "Namaskaram andi, Raghava Organics!",
+      ),
+    );
+    expect(calls.some((c) => c.method === "DELETE" && c.path.endsWith("/script/proposal/p1"))).toBe(true);
+    expect(calls.some((c) => c.path.endsWith("/script/publish"))).toBe(false);
+    expect(await screen.findByText("Changes not live yet")).toBeTruthy();
+  });
+
+  it("does not offer back an edit made after the suggestion was written", async () => {
+    const edited = { ...FULL, goal: "Take the order, the delivery area and a time." };
+    await renderClientPage(
+      page,
+      routes(out(FULL, edited), { "/v1/agents/agent-1/script/proposal": { proposal: PROPOSAL } }),
+    );
+    expect(await screen.findByRole("heading", { name: "1 suggested change" })).toBeTruthy();
+    const review = screen.getByRole("region", { name: "Pip's suggestion" });
+    expect(within(review).getByText("Opening line")).toBeTruthy();
+    expect(within(review).queryByText("The goal")).toBeNull();
+  });
+
+  it("has no axe violations with the ask open and a suggestion waiting", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes(out(FULL), { "/v1/agents/agent-1/script/proposal": { proposal: PROPOSAL } }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Let Pip do it" }));
+    await screen.findByRole("heading", { name: "1 suggested change" });
+    await expectNoA11yViolations(container, "script page, Pip's ask and suggestion");
+  });
+
+  it("says why a suggestion could not be written", async () => {
+    await renderClientPage(
+      page,
+      routes(out(FULL), {
+        "/v1/agents/agent-1/script/proposal": {
+          proposal: { ...PROPOSAL, status: "failed", script: null, note: "This month's AI help allowance is used up." },
+        },
+      }),
+    );
+    expect(await screen.findByText("Pip could not write that suggestion")).toBeTruthy();
+    expect(screen.getByText("This month's AI help allowance is used up.")).toBeTruthy();
   });
 });
