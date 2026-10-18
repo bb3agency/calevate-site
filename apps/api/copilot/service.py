@@ -1276,31 +1276,37 @@ def cleared_result(name: str) -> str:
     return f"[Earlier result of `{name}` cleared to save space; call `{name}` again if needed.]"
 
 
-def _exchanges(messages: Sequence[chat.ChatMessage]) -> list[int]:
-    return [
-        index
-        for index, message in enumerate(messages)
-        if message.get("role") == "assistant" and message.get("tool_calls")
-    ]
+def _exchange_start(messages: Sequence[chat.ChatMessage]) -> int:
+    """Where the oldest of the latest `KEEP_TOOL_RESULT_EXCHANGES` exchanges begins.
+
+    An exchange is one QUESTION and everything the loop did to answer it, so it starts at a
+    `user` message. Counting each tool-calling turn as an exchange instead cleared what the
+    model had fetched one turn earlier for the SAME question: it fetched it again, lost it
+    again, and ran out of turns ("I could not finish this in one go").
+    """
+    starts = [index for index, message in enumerate(messages) if message.get("role") == "user"]
+    if len(starts) < KEEP_TOOL_RESULT_EXCHANGES:
+        return 0
+    return starts[-KEEP_TOOL_RESULT_EXCHANGES]
 
 
 def clear_old_read_results(
     messages: Sequence[chat.ChatMessage], read_names: frozenset[str]
 ) -> list[chat.ChatMessage]:
-    """`messages` with every READ-tool result older than the latest
+    """`messages` with every READ-tool result from before the latest
     `KEEP_TOOL_RESULT_EXCHANGES` exchanges replaced by `cleared_result`. Deterministic, and
     no model call (Anthropic's context-engineering guidance: clearing a re-fetchable tool
-    result is the cheapest lever, and keeps the record of the call).
+    result is the cheapest lever, and keeps the record of the call). The question being
+    answered keeps every result it fetched.
 
     Only READ results: a refusal or a proposal receipt is not re-fetchable, and clearing it
     would lose the reason the model must act on. The assistant turns are untouched, so their
     tool calls and any Gemini thought signatures they carry are sent back exactly. Results
     pair with their calls by position, never by `tool_call_id`, which may be empty.
     """
-    starts = _exchanges(messages)
-    if len(starts) <= KEEP_TOOL_RESULT_EXCHANGES:
+    cutoff = _exchange_start(messages)
+    if cutoff == 0:
         return list(messages)
-    cutoff = starts[-KEEP_TOOL_RESULT_EXCHANGES]
     out: list[chat.ChatMessage] = []
     pending: list[str] = []
     for index, message in enumerate(messages):
@@ -1317,11 +1323,12 @@ def clear_old_read_results(
 
 def visible_lookups(messages: Sequence[chat.ChatMessage]) -> set[tuple[str, str]]:
     """The (tool, arguments) calls of the exchanges whose results are still sent in full."""
-    starts = _exchanges(messages)
+    cutoff = _exchange_start(messages)
     return {
         (str(call["function"]["name"]), str(call["function"]["arguments"]))
-        for start in starts[-KEEP_TOOL_RESULT_EXCHANGES:]
-        for call in messages[start]["tool_calls"]
+        for message in messages[cutoff:]
+        if message.get("role") == "assistant" and message.get("tool_calls")
+        for call in message["tool_calls"]
     }
 
 

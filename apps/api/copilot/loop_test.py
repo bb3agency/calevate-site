@@ -938,38 +938,47 @@ async def test_two_read_tools_chain_inside_one_answer(
 
     assert len(sent) == 3
     assert [call["name"] for call in seen] == ["leads_search", "calls_recent"]
-    # The second turn saw the first result in full; the last turn sees the latest result in
-    # full and the older one as a line naming its tool (D-816, `clear_old_read_results`).
+    # Every result fetched for the question being answered stays in full until it is
+    # answered: clearing the first lookup here made the model fetch it again, lose it again
+    # and run out of turns in production (D-816).
     assert any("Ramesh" in str(message.get("content")) for message in sent[1])
     contents = [str(message.get("content")) for message in sent[2]]
-    assert not any("Ramesh" in content for content in contents)
-    assert service.cleared_result("leads_search") in contents
+    assert any("Ramesh" in content for content in contents)
     assert any("90s" in content for content in contents)
+    assert service.cleared_result("leads_search") not in contents
     assert [e.text for e in events if e.text] == [
         "Ramesh is your only hot lead; his last call ran 90s."
     ]
 
 
-async def test_a_cleared_lookup_may_be_asked_for_again(
-    azure_only: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A result the model can no longer see is not a repeat: asking for it again runs it."""
-    seen = _fake_tools(
-        monkeypatch,
-        {"leads_search": "1 leads with status hot:\n- Ramesh", "calls_recent": "1 calls:\n- 90s"},
-    )
-    lookup = ("leads_search", '{"status": "hot", "limit": null}')
-    _scripted(
-        monkeypatch,
-        [
-            _tool_turn(lookup),
-            _tool_turn(("calls_recent", '{"limit": 5}')),
-            _tool_turn(lookup),
-            _turn(content="Ramesh is your only hot lead."),
+def _call(name: str, arguments: str) -> chat.ChatMessage:
+    return {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {"id": name, "type": "function", "function": {"name": name, "arguments": arguments}}
         ],
-    )
-    await _drain_with_tools()
-    assert [call["name"] for call in seen] == ["leads_search", "calls_recent", "leads_search"]
+    }
+
+
+def test_only_an_earlier_questions_results_are_cleared_and_may_be_asked_again() -> None:
+    messages: list[chat.ChatMessage] = [
+        {"role": "user", "content": "Who are my hot leads?"},
+        _call("leads_search", '{"status": "hot"}'),
+        {"role": "tool", "tool_call_id": "leads_search", "content": "- Ramesh"},
+        {"role": "assistant", "content": "Ramesh."},
+        {"role": "user", "content": "And my recent calls?"},
+        _call("calls_recent", '{"limit": 5}'),
+        {"role": "tool", "tool_call_id": "calls_recent", "content": "- 90s"},
+    ]
+    read_names = frozenset({"leads_search", "calls_recent"})
+
+    sent = service.clear_old_read_results(messages, read_names)
+
+    assert sent[2]["content"] == service.cleared_result("leads_search")
+    assert sent[6]["content"] == "- 90s"
+    # The earlier question's lookup is not visible any more, so asking again runs it.
+    assert service.visible_lookups(sent) == {("calls_recent", '{"limit": 5}')}
 
 
 async def test_independent_calls_in_one_turn_are_all_run_and_all_answered(
