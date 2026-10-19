@@ -3379,6 +3379,30 @@ class ThinnestEngine:
                 remediation="Check the Google key and the model, then try again.",
             ) from exc
 
+    async def set_own_model_key_model(self, model: str) -> None:
+        """`PATCH /byok/credentials/llm {model}`: the model the workspace's language-model key
+        runs by default, without sending the key again. It must be on the key's `models` list
+        (snapshots/2026-10-18/pages/api-reference/bring-your-own-keys.md:252-262); `400` is
+        a model the key does not reach."""
+        try:
+            await self._request(
+                "PATCH",
+                "/byok/credentials/llm",
+                route="/byok/credentials/llm",
+                workspace=workspace_of(None),
+                json={"model": model},
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_status != 400:
+                raise
+            raise _business_refusal(
+                "engine_model_key_rejected",
+                title="The model provider rejected our key",
+                detail="The voice platform checked the language-model key with the provider, "
+                "which does not offer the chosen model on it.",
+                remediation="Check the Google key and the model, then try again.",
+            ) from exc
+
     async def enable_own_model_key(self) -> OwnVoiceKeyState:
         """`PATCH /byok {enabled: true, scope: "llm"}` in a workspace whose own keys are off,
         then the state as read back. `409` until the model key is added, checked and has a

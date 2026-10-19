@@ -415,18 +415,20 @@ async def _switch_on(
     runs = cast(RunsOwnModel, engine)
     with in_workspace(workspace):
         state = await runs.own_key_state()
-        if own_model_key_ready(state):
+        if not own_model_key_ready(state):
+            if not _holds_own_google_key(state):
+                await _install_google_key(runs)
+            if not state.enabled:
+                unconfirmed = await keep_clear_agents_off(
+                    session, engine, tenant_id=tenant_id, workspace=workspace
+                )
+                if unconfirmed:
+                    raise _agents_not_kept_off(unconfirmed)
+                await runs.enable_own_model_key()
+            state = await runs.own_key_state()
+        if not own_model_key_ready(state):
             return state
-        if not _holds_own_google_key(state):
-            await _install_google_key(runs)
-        if not state.enabled:
-            unconfirmed = await keep_clear_agents_off(
-                session, engine, tenant_id=tenant_id, workspace=workspace
-            )
-            if unconfirmed:
-                raise _agents_not_kept_off(unconfirmed)
-            await runs.enable_own_model_key()
-        return await runs.own_key_state()
+        return await align_key_model(runs, state)
 
 
 async def ensure_own_model_in(
@@ -527,6 +529,7 @@ async def ensure_developer_own_model(
             state = await engine.own_key_state()
             if not own_model_key_ready(state):
                 raise _developer_not_ready(state)
+        state = await align_key_model(engine, state)
     except ProblemError as exc:
         # In a session of its own: the caller's rolls back with the raise, and the console
         # and the switch-on readiness read this record.
@@ -539,11 +542,29 @@ async def ensure_developer_own_model(
     return state
 
 
+async def align_key_model(runs: RunsOwnModel, state: OwnVoiceKeyState) -> OwnVoiceKeyState:
+    """The key of the workspace being acted in runs the console default model, read back.
+
+    A workspace whose default scope is `voice` (our developer workspace, D-727, and a
+    client's Studio workspace, D-717) is refused a per-agent model (`PUT /agents/{id}/
+    byok-model` answers `409`, set-agent-byok-model.md:514-518), so its agents on our key run
+    the KEY's model. A key left on an earlier default after the console default changed would
+    make every such publish refuse, so the key follows the default. Only the default: an
+    operator's per-agent choice is honoured by `PUT byok-model` where the scope allows it."""
+    wanted = get_settings().thinnest_own_model_default
+    if state.llm_model == wanted:
+        return state
+    await runs.set_own_model_key_model(wanted)
+    state = await runs.own_key_state()
+    log.info("own_model_key_model_aligned", extra={"model": state.llm_model})
+    return state
+
+
 async def require_developer_own_model(engine: HostsVoices) -> OwnVoiceKeyState:
-    """A free-trial agent's publish on our model: our developer workspace must answer ready.
-    Read live, never switched on from a client's request (the developer workspace's keys are
-    platform-wide); the operator's set-up and the hourly repair do that. Refused to the client
-    in words naming no vendor."""
+    """A free-trial agent's publish on our model: our developer workspace must answer ready,
+    its key on the console default model (`align_key_model`). The keys are never
+    installed or switched on from a client's request (they are platform-wide); the operator's
+    set-up and the hourly repair do that. Refused to the client in words naming no vendor."""
     if not isinstance(engine, RunsOwnModel):
         raise own_model_account_not_ready()
     state = await engine.own_key_state()
@@ -553,7 +574,7 @@ async def require_developer_own_model(engine: HostsVoices) -> OwnVoiceKeyState:
             extra={"using": state.using, "llm_provider": state.llm_provider},
         )
         raise own_model_account_not_ready()
-    return state
+    return await align_key_model(engine, state)
 
 
 __all__ = [
@@ -563,6 +584,7 @@ __all__ = [
     "OWN_MODEL_NOT_READY",
     "OWN_MODEL_PROVIDER",
     "OwnModelReadiness",
+    "align_key_model",
     "assert_own_model_default_offerable",
     "assert_own_model_ready",
     "ensure_developer_own_model",

@@ -1471,6 +1471,10 @@ class _OwnModelHostingEngine(HostingEngine):
             )
         )
 
+    async def set_own_model_key_model(self, model: str) -> None:
+        state = await self.own_key_state()
+        self._set_state(state.model_copy(update={"llm_model": model}))
+
     async def enable_own_model_key(self) -> Any:
         state = await self.own_key_state()
         self._set_state(state.model_copy(update={"enabled": True, "using": "own", "scope": "llm"}))

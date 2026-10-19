@@ -32,6 +32,7 @@ from arq import Retry
 
 from apps.api.agents.own_model import (
     OWN_MODEL_PROVIDER,
+    align_key_model,
     ensure_developer_own_model,
     ensure_own_model_workspace,
     own_model_key_ready,
@@ -197,6 +198,14 @@ async def check_developer_own_model(engine: RunsOwnModel) -> str:
     except ProblemError as exc:
         log.warning("engine_byok_state_unreadable", extra={"code": exc.code})
         return "failed"
+    if own_model_key_ready(state):
+        try:
+            # A changed console default reaches the key here as well as at the next trial
+            # publish, so the agents already live answer on it from their next call.
+            await align_key_model(engine, state)
+        except ProblemError as exc:
+            log.warning("own_model_developer_key_model_not_aligned", extra={"code": exc.code})
+            return "failed"
     async with untenanted_session() as session:
         if own_model_key_ready(state):
             await record_developer_own_model_check(session, error_code=None)

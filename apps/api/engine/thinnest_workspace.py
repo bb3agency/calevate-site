@@ -72,6 +72,7 @@ WORKSPACE_BYOK_ROUTES: Final[frozenset[tuple[str, str]]] = frozenset(
     {
         ("GET", "/byok"),
         ("PUT", "/byok/credentials"),
+        ("PATCH", "/byok/credentials/llm"),
         ("PATCH", "/byok"),
         ("GET", "/byok/voices"),
         ("POST", "/byok/voices/preview"),

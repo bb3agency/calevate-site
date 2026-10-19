@@ -323,6 +323,9 @@ def _keys_engine() -> Any:
         async def install_own_model_key(self, *, provider: str, api_key: str, model: str) -> None:
             return None
 
+        async def set_own_model_key_model(self, model: str) -> None:
+            return None
+
         async def enable_own_model_key(self) -> Any:
             return self.key_state
 

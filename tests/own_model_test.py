@@ -596,6 +596,10 @@ class _OwnModelEngine(HostingEngine):
             update={"llm_provider": provider, "llm_model": model, "llm_verified": True}
         )
 
+    async def set_own_model_key_model(self, model: str) -> None:
+        self.calls.append(f"key-model:{model}")
+        self.state = self.state.model_copy(update={"llm_model": model})
+
     async def enable_own_model_key(self) -> OwnVoiceKeyState:
         self.calls.append("enable")
         self.state = self.state.model_copy(update={"enabled": True, "using": "own"})
@@ -652,12 +656,34 @@ async def test_a_ready_workspace_is_only_recorded(records: list[str | None]) -> 
         complete=True,
         using="own",
         llm_provider="google",
-        llm_model="gemini-2.5-flash-lite",
+        llm_model=get_settings().thinnest_own_model_default,
         llm_verified=True,
     )
     engine = _OwnModelEngine(ready)
     await ensure_own_model_in(object(), engine, tenant_id=TENANT, workspace=WS)  # type: ignore[arg-type]
     assert engine.calls == [] and records == [None]
+
+
+async def test_a_ready_workspace_whose_key_runs_an_earlier_default_is_moved_onto_it(
+    records: list[str | None],
+) -> None:
+    """A Studio workspace (scope `voice`) refuses per-agent models, so its agents run the
+    key's model; after the console default changes, the key follows it."""
+    ready = OwnVoiceKeyState(
+        enabled=True,
+        scope="voice",
+        complete=True,
+        using="own",
+        voice_provider="cartesia",
+        llm_provider="google",
+        llm_model="gemini-2.0-old",
+        llm_verified=True,
+    )
+    engine = _OwnModelEngine(ready)
+    await ensure_own_model_in(object(), engine, tenant_id=TENANT, workspace=WS)  # type: ignore[arg-type]
+    wanted = get_settings().thinnest_own_model_default
+    assert engine.calls == [f"key-model:{wanted}"] and engine.state.llm_model == wanted
+    assert records == [None]
 
 
 async def test_a_failed_set_up_is_recorded_and_refused_to_a_client_without_a_vendor_name(
@@ -842,6 +868,7 @@ class _PublishingEngine(HostingEngine):
         super().__init__(**kw)
         self.models_held: dict[str, str | None] = {}
         self.model_keys_in: list[str | None] = []
+        self.key_models_set: list[str] = []
 
     async def install_own_model_key(self, *, provider: str, api_key: str, model: str) -> None:
         from apps.api.engine.thinnest_workspace import current_workspace
@@ -853,6 +880,11 @@ class _PublishingEngine(HostingEngine):
                 update={"llm_provider": provider, "llm_model": model, "llm_verified": True}
             )
         )
+
+    async def set_own_model_key_model(self, model: str) -> None:
+        self.key_models_set.append(model)
+        state = await self.own_key_state()
+        self._set_state(state.model_copy(update={"llm_model": model}))
 
     async def enable_own_model_key(self) -> OwnVoiceKeyState:
         state = await self.own_key_state()
@@ -1043,6 +1075,24 @@ async def test_a_free_trial_clear_agent_answers_on_our_model_in_the_developer_wo
     assert engine.model_keys_in == [] and engine.key_state.scope == "voice"
     # The band's minute, as for a paying client's Clear agent on our model (:21-24).
     assert await _route_model(tenant_id, ref) == ("studio", THINNEST_OWN_MODEL_DEFAULT)
+
+
+async def test_a_trial_publish_moves_the_developer_key_onto_a_changed_console_default(
+    own_model_on: set[str], no_webhook: None, hosted_rows: CatalogueRows
+) -> None:
+    """Our developer workspace runs every trial agent on the KEY's model (a per-agent model is
+    refused there, set-agent-byok-model.md:514-518). A key still on an earlier default would
+    refuse every trial publish, so the publish moves the key to the console default first."""
+    tenant_id, agent_id = await _trial_agent()
+    voice = await hosted_rows.add("engine", vendor_id=f"asha-{uuid.uuid4().hex[:6]}")
+    await _set_columns(tenant_id, agent_id, voice, None)
+    on_old_default = _DEVELOPER_ON_OUR_MODEL.model_copy(update={"llm_model": "gemini-2.0-old"})
+    with selected(_PublishingEngine(key_state=on_old_default)) as engine:
+        await _publish(tenant_id, agent_id)
+    assert isinstance(engine, _PublishingEngine)
+    assert engine.key_models_set == [THINNEST_OWN_MODEL_DEFAULT]
+    assert engine.key_state.llm_model == THINNEST_OWN_MODEL_DEFAULT
+    assert engine.model_keys_in == []
 
 
 async def test_a_free_trial_studio_agent_on_our_model_meters_the_own_voice_and_model_minute(
@@ -1257,6 +1307,26 @@ async def test_the_hourly_check_records_a_ready_developer_workspace(
     outcome = await own_model_key.check_developer_own_model(_OwnModelEngine(ready))
     assert outcome == "ok" and developer_check["records"] == [None]
     assert developer_check["alarms"] == [] and developer_check["repairs"] == 0
+
+
+async def test_the_keys_model_is_changed_without_sending_the_key_again() -> None:
+    """bring-your-own-keys.md:252-262 (snapshots/2026-10-18)."""
+    vendor = _Vendor({("PATCH", "/byok/credentials/llm", None): _ok({})})
+    await _engine(vendor).set_own_model_key_model("gemini-3.1-flash-lite")
+    assert vendor.seen == [("PATCH", "/byok/credentials/llm", {"model": "gemini-3.1-flash-lite"})]
+
+
+async def test_the_hourly_check_moves_the_developer_key_onto_the_console_default(
+    developer_check: dict[str, Any],
+) -> None:
+    from apps.workers import own_model_key
+
+    engine = _OwnModelEngine(
+        _DEVELOPER_ON_OUR_MODEL.model_copy(update={"llm_model": "gemini-2.0-old"})
+    )
+    assert await own_model_key.check_developer_own_model(engine) == "ok"
+    assert engine.calls == [f"key-model:{THINNEST_OWN_MODEL_DEFAULT}"]
+    assert developer_check["repairs"] == 0 and developer_check["alarms"] == []
 
 
 async def test_the_hourly_check_leaves_a_developer_workspace_never_set_up(
