@@ -771,6 +771,13 @@ async def _vendor_response(
             # ours. Counting lives HERE, in the one shared ladder, because it is the one
             # place both adapters pass through — which is the whole point of D-240.
             await record_engine_failure(engine, kind="unreachable")
+            # The route template and the transport error's class, never the URL (it carries
+            # ids) or the message: enough to tell a slow reply (ReadTimeout) from a refused
+            # connection (ConnectError) after the fact.
+            log.warning(
+                "engine_unreachable",
+                extra={"engine": engine, "route": route, "error": type(exc).__name__},
+            )
             raise ProblemError(
                 kind="dependency",
                 code="engine_unreachable",

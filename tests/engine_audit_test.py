@@ -1575,6 +1575,9 @@ _VENDOR_ONLY_KEYS = frozenset(
         "callTier",
         # ThinnestAI's reply ceiling on an agent (D-769); ours is `max_reply_tokens`.
         "maxReplyTokens",
+        # ThinnestAI's own-key model of a workspace's key, read on `GET /agents/{id}/
+        # byok-model` (D-834); ours is `engine_own_model`.
+        "workspaceModel",
         # ThinnestAI (D-678): camelCase instants and their list cursor. Ours are
         # `started_at`/`ended_at` and no cursor crosses the adapter boundary.
         "startedAt",
@@ -1654,6 +1657,9 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "reason",
         # D-764: a call's token `usage`, our own word for metered usage too.
         "usage",
+        # D-834: an agent's earlier model choice the key no longer reaches (`GET /agents/{id}/
+        # byok-model`); `stale` is also a bind name in our own queries.
+        "stale",
         # D-796: a call's `billing` and whose `keys` it ran on; both words are ours too
         # (`CallBilling`, `CallBilling.keys`, the billing module).
         "billing",

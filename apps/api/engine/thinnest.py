@@ -664,6 +664,13 @@ def parse_billing(
 STATUS_OPERATIONAL: Final = "operational"
 #: The status read sits inside the healer's tick; a slow answer is no answer.
 STATUS_TIMEOUT_S: Final = 3.0
+#: A test-chat request waits for the agent's whole reply, tools included, and a chat reply
+#: runs at the model's default thinking level, not the minimal one used on calls (ThinnestAI,
+#: email 19 Oct 2026, VENDOR-STATED). Production, 20 Oct 2026: on our Gemini key a reply landed
+#: just after the 10 s `REQUEST_TIMEOUT_S` and the whole test run failed `engine_unreachable`.
+#: 30 s keeps a test round (about 16 messages) inside the worker's 300 s `job_timeout` in the
+#: ordinary case; connecting still gives up at the usual 10 s.
+TEST_CHAT_TIMEOUT: Final = httpx.Timeout(30.0, connect=REQUEST_TIMEOUT_S)
 _STATUS_WORD_RE: Final = re.compile(r"^[a-z_]{1,24}$")
 
 
@@ -2618,6 +2625,7 @@ class ThinnestEngine:
                 workspace=workspace,
                 json=body,
                 extra_refused_statuses=frozenset({409}),
+                timeout=TEST_CHAT_TIMEOUT,
             )
         except EngineRejectedError as exc:
             if exc.vendor_status != 409:
