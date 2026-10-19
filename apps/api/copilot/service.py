@@ -1313,6 +1313,41 @@ def _with_tool_result(
     ]
 
 
+def refused_fill_turn(
+    messages: Sequence[chat.ChatMessage],
+    outcome: chat.ChatOutcome,
+    call: chat.ToolCall,
+    reasons: Sequence[str],
+) -> list[chat.ChatMessage]:
+    """The conversation plus a refused `set_fields`, as the loop sends it back to the model.
+    One function, so the tool-choice eval's second turn reads exactly what production sends."""
+    return _with_tool_result(
+        messages,
+        outcome,
+        call,
+        "The fill was refused and NOTHING was written. "
+        + "; ".join(reasons)
+        + ". Fix these and call set_fields once more, or tell the user what you need.",
+    )
+
+
+def refused_proposal_turn(
+    messages: Sequence[chat.ChatMessage],
+    outcome: chat.ChatOutcome,
+    call: chat.ToolCall,
+    reason: str,
+) -> list[chat.ChatMessage]:
+    """The conversation plus a refused proposal (a write that needs the person's Confirm)."""
+    return _with_tool_result(
+        messages,
+        outcome,
+        call,
+        "NOTHING was proposed and NOTHING was changed. "
+        + reason
+        + ". Fix it and call the tool once more, or tell the user what you need.",
+    )
+
+
 #: How many of the latest tool-calling exchanges keep their read-tool results in full on the
 #: next model turn (founder, 18 Oct 2026, D-816). An older read result is replaced by
 #: `cleared_result`: it is re-fetchable, and resending it would be paid on every turn after.
@@ -1924,15 +1959,7 @@ async def _run_tool_loop(
                 # writable usually fixes it in one more turn, and the alternative —
                 # surfacing the first refusal — makes the copilot fail at the thing it
                 # exists to do whenever it guesses one field id wrong.
-                messages = _with_tool_result(
-                    messages,
-                    outcome,
-                    call,
-                    "The fill was refused and NOTHING was written. "
-                    + "; ".join(refused.reasons)
-                    + ". Fix these and call set_fields once more, or tell the user "
-                    "what you need.",
-                )
+                messages = refused_fill_turn(messages, outcome, call, refused.reasons)
                 continue
 
             yield CopilotEvent(fill=items)
@@ -2044,14 +2071,7 @@ async def _run_tool_loop(
                         call, status="refused", detail=refused.reason, started_at=started_at
                     )
                 )
-                messages = _with_tool_result(
-                    messages,
-                    outcome,
-                    call,
-                    "NOTHING was proposed and NOTHING was changed. "
-                    + refused.reason
-                    + ". Fix it and call the tool once more, or tell the user what you need.",
-                )
+                messages = refused_proposal_turn(messages, outcome, call, refused.reason)
                 continue
             except ProblemError as problem:
                 # A FACT ABOUT THE WORLD THE MODEL CANNOT ARGUE WITH — a 404 agent, a
@@ -2865,6 +2885,8 @@ __all__ = [
     "disclosure_for",
     "job_limits",
     "person_said",
+    "refused_fill_turn",
+    "refused_proposal_turn",
     "run_copilot",
     "streamed_turn",
     "tool_array",

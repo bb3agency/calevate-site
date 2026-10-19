@@ -253,7 +253,7 @@ def test_an_overloaded_vendor_is_retried_rather_than_ending_the_run(
             raise httpx.HTTPStatusError(
                 "overloaded", request=request, response=httpx.Response(503, request=request)
             )
-        call = chat.ToolCall(id="c1", name="set_fields", arguments="{}")
+        call = chat.ToolCall(id="c1", name="leads_search", arguments="{}")
         yield chat.StreamEvent(outcome=chat.ChatOutcome(content="", tool_calls=(call,)))
 
     async def no_wait(_seconds: float) -> None:
@@ -269,10 +269,9 @@ def test_an_overloaded_vendor_is_retried_rather_than_ending_the_run(
     case = harness.load_cases()[0]
 
     async def first_question() -> tuple[str, ...]:
-        calls, _usage, _refused = await choose(case)
-        return calls
+        return (await choose(case)).calls
 
-    assert asyncio.run(first_question()) == ("set_fields",)
+    assert asyncio.run(first_question()) == ("leads_search",)
     assert attempts == 2
 
 
@@ -371,3 +370,71 @@ def test_the_report_counts_wrong_calls_the_server_refuses(
     assert "refused by the server, reaching nobody: 1/2 wrong" in out
     assert "FAIL c-script-after-kept [wrong_fill,forbidden,unwanted] called=['set_fields']" in out
     assert "refused_by_server=['set_fields']" in out
+
+
+def test_a_refused_call_is_handed_back_and_the_next_turn_is_what_is_scored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The production loop returns a refusal to the model and asks again, so the person sees
+    the second turn; the harness asks once more the same way and scores it as `then`."""
+    case = _case("c-script-after-kept")
+    stale = _call(
+        "set_fields",
+        {
+            "because": "make the opening line warmer and shorter",
+            "items": [{"field_id": "script-opening_line", "value": "x"}],
+        },
+    )
+    handed_back: list[str] = []
+
+    async def streamed_turn(
+        _leg: object, messages: Sequence[chat.ChatMessage], _tools: object
+    ) -> AsyncIterator[chat.StreamEvent]:
+        last: Any = messages[-1]
+        if last["role"] == "tool":
+            handed_back.append(str(last["content"]))
+            yield chat.StreamEvent(outcome=chat.ChatOutcome(content="Yes, it is saved."))
+            return
+        yield chat.StreamEvent(outcome=chat.ChatOutcome(content="", tool_calls=(stale,)))
+
+    monkeypatch.setattr(service, "chat_leg", lambda *_a, **_k: object())
+    monkeypatch.setattr(service, "streamed_turn", streamed_turn)
+    choose = harness.model_turn("google", "gemini-3.1-flash-lite")
+    assert choose is not None
+
+    async def ask() -> harness.Choice:
+        return await choose(case)
+
+    chosen = asyncio.run(ask())
+
+    assert chosen.calls == ("set_fields",) and chosen.refused == ("set_fields",)
+    assert chosen.then == ()
+    assert handed_back and handed_back[0].startswith("The fill was refused and NOTHING was written")
+    assert service.UNQUOTED_FILL_REASON in handed_back[0]
+    scored = harness.score(case, chosen.calls, chosen.refused, chosen.then)
+    assert not scored.right and scored.recovered
+
+
+def test_the_report_counts_what_the_person_sees_after_a_refusal(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    record = tmp_path / "run.json"
+    calls = {case.id: list(harness.oracle(case)) for case in harness.load_cases()}
+    calls["c-script-after-kept"] = ["set_fields"]
+    calls["c-script-whole-asks-first"] = ["agent_script_suggest"]
+    body = {
+        "calls": calls,
+        "refused": {
+            "c-script-after-kept": ["set_fields"],
+            "c-script-whole-asks-first": ["agent_script_suggest"],
+        },
+        "then": {"c-script-after-kept": [], "c-script-whole-asks-first": ["agent_script_suggest"]},
+    }
+    record.write_text(json.dumps(body), "utf-8")
+    assert harness.main([f"--replay={record}"]) == 0
+    out = capsys.readouterr().out
+    total = len(harness.load_cases())
+    assert "right on the turn after the refusal: 1/2" in out
+    assert f"right in what the person sees: {total - 1}/{total}" in out
+    assert "then=[] (recovered)" in out
+    assert "then=['agent_script_suggest']\n" in out + "\n"
