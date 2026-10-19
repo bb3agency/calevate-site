@@ -282,8 +282,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "voice-engine",
         "thinnest",
         "Agents answer on our own language model (Gemini on our Google key)",
-        "On: Clear keeps ThinnestAI's speech and voice, Studio our Cartesia voice; both "
-        "answer on our Google key. Refused until Voices shows it ready.",
+        "On: every agent, trial ones included, answers on our Google key; Clear keeps "
+        "ThinnestAI's voice, Studio our Cartesia. Refused until Voices shows it ready.",
         _THINNEST,
     ),
     "thinnest_own_model_default": _m(
@@ -1200,9 +1200,9 @@ HIGH_RISK: Final[dict[str, str]] = {
     "thinnest_clear_voice_band": "Changes which ThinnestAI band clients are sold as Clear.",
     "thinnest_in_call_default_model": "Changes the language model every agent with none of its "
     "own answers calls with, from its next call.",
-    "thinnest_own_model": "Every paying client's live agent is republished onto our Google key "
-    "(on) or back onto ThinnestAI's own model (off), and Studio minutes move to the "
-    "own-voice-and-model rate.",
+    "thinnest_own_model": "Every live agent, free-trial agents in our developer workspace "
+    "included, is republished onto our Google key (on) or back onto ThinnestAI's own model "
+    "(off), and Studio minutes move to the own-voice-and-model rate.",
     "thinnest_own_model_default": "Changes the model every agent with none of its own answers "
     "calls with on our own model, from its next call.",
     "thinnest_developer_workspace_id": "Decides which workspace is ours, not a client's.",

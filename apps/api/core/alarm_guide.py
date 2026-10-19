@@ -296,7 +296,7 @@ ALARM_SUMMARIES: Final[dict[str, AlarmSummary]] = {
         "The platform may keep that client's call recordings and transcripts past its policy.",
     ),
     "own_model_key_push_failed": _s(
-        "A new model key did not reach a client workspace",
+        "A new model key did not reach a workspace",
         "Calls there still use the previous key, and fail if that key was revoked.",
     ),
     "own_model_workspace_drift": _s(

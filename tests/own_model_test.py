@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -37,6 +38,7 @@ from apps.api.core.settings import get_settings
 from apps.api.engine.catalogue import OwnVoiceKeyState
 from apps.api.engine.thinnest import BASE_URL, ThinnestEngine, parse_llm_usage
 from apps.api.engine.thinnest_workspace import in_workspace
+from apps.api.tenancy.engine_workspace import DeveloperOwnModelRecord
 from apps.workers import pipeline
 from calevate_shared.engine import THINNEST_OWN_MODEL_DEFAULT, AgentConfig, AgentSnapshot
 from calevate_shared.events import CallLlmUsage
@@ -185,6 +187,34 @@ async def test_an_agent_on_our_model_is_put_on_its_model_after_every_write() -> 
     await engine.update_agent(ref, cfg)
     puts = [body for m, p, body in vendor.seen if p.endswith("/byok-model")]
     assert puts == [{"model": "gemini-2.5-flash"}, {"model": "gemini-2.5-flash"}]
+
+
+@pytest.mark.parametrize(("own_voice", "scope"), [(False, "llm"), (True, "llm_voice")])
+async def test_a_developer_workspace_agent_is_moved_onto_our_model_by_an_update(
+    own_voice: bool, scope: str
+) -> None:
+    """D-834: a republish of a trial agent (an unscoped ref, our developer workspace) is one
+    `PATCH /agents/{id}` naming the scope and one `PUT .../byok-model`, with no workspace
+    header, on the same vendor agent."""
+    agent = {"id": "ag_7", "greeting": "g", "instructions": "x"}
+    vendor = _Vendor(
+        {
+            ("PATCH", "/agents/ag_7", None): _ok(agent),
+            ("PUT", "/agents/ag_7/byok-model", None): _ok({"model": "gemini-3.1-flash-lite"}),
+            ("PUT", "/agents/ag_7/byok-voice", None): _ok({"voice": "v"}),
+        }
+    )
+    cfg = _cfg(
+        engine_own_voice_key=own_voice,
+        engine_own_model="gemini-3.1-flash-lite",
+        engine_byok_voice_id="v" if own_voice else None,
+    )
+    await _engine(vendor).update_agent("ag_7", cfg)
+    patch = next(body for m, p, body in vendor.seen if m == "PATCH" and p == "/agents/ag_7")
+    assert patch["byok"] == scope
+    puts = [body for m, p, body in vendor.seen if p == "/agents/ag_7/byok-model"]
+    assert puts == [{"model": "gemini-3.1-flash-lite"}]
+    assert not any(m in ("POST", "DELETE") and p.startswith("/agents") for m, p, _b in vendor.seen)
 
 
 async def test_an_agent_off_our_model_sends_no_model_of_our_key() -> None:
@@ -444,7 +474,11 @@ def test_a_call_that_never_reached_the_model_meters_nothing() -> None:
 @pytest.fixture
 def readiness_inputs(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Every readiness input, all satisfied; a test turns one off."""
-    state: dict[str, Any] = {"attested": frozenset({"byok_llm_voice"}), "data_use": {"google"}}
+    state: dict[str, Any] = {
+        "attested": frozenset({"byok_llm_voice"}),
+        "data_use": {"google"},
+        "developer": DeveloperOwnModelRecord(datetime.now(UTC), datetime.now(UTC), None),
+    }
 
     async def _attested(_session: Any, *, engine: str, at: Any) -> frozenset[str]:
         return frozenset(state["attested"])
@@ -452,8 +486,12 @@ def readiness_inputs(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     async def _workspaces() -> list[Any]:
         return []
 
+    async def _developer(_session: Any) -> DeveloperOwnModelRecord:
+        return state["developer"]
+
     monkeypatch.setattr(own_model, "attested_rate_keys", _attested)
     monkeypatch.setattr(own_model, "own_model_workspaces", _workspaces)
+    monkeypatch.setattr(own_model, "read_developer_own_model", _developer)
     monkeypatch.setattr(own_model, "dashboard_data_use_attested", lambda: state["data_use"])
     monkeypatch.setattr(own_model, "unofferable_reason", lambda model, **_: None)
     monkeypatch.setattr(
@@ -471,7 +509,7 @@ async def test_our_model_may_be_switched_on_once_everything_is_in_place(
     await own_model.assert_own_model_ready(object(), True)  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize("gap", ["key", "data_use", "minute"])
+@pytest.mark.parametrize("gap", ["key", "data_use", "minute", "developer", "developer_failed"])
 async def test_switching_our_model_on_is_refused_naming_what_is_missing(
     readiness_inputs: dict[str, Any], monkeypatch: pytest.MonkeyPatch, gap: str
 ) -> None:
@@ -479,12 +517,24 @@ async def test_switching_our_model_on_is_refused_naming_what_is_missing(
         monkeypatch.setattr(get_settings(), "gemini_api_key", None)
     elif gap == "data_use":
         readiness_inputs["data_use"] = set()
+    elif gap == "developer":
+        readiness_inputs["developer"] = DeveloperOwnModelRecord(None, None, None)
+    elif gap == "developer_failed":
+        readiness_inputs["developer"] = DeveloperOwnModelRecord(
+            datetime.now(UTC), datetime.now(UTC), "engine_model_key_rejected"
+        )
     else:
         readiness_inputs["attested"] = frozenset()
     with pytest.raises(ProblemError) as caught:
         await own_model.assert_own_model_ready(object(), True)  # type: ignore[arg-type]
     assert caught.value.code == OWN_MODEL_NOT_READY
-    words = {"key": "Google (Gemini) API key", "data_use": "gate 41", "minute": "byok_llm_voice"}
+    words = {
+        "key": "Google (Gemini) API key",
+        "data_use": "gate 41",
+        "minute": "byok_llm_voice",
+        "developer": "developer workspace",
+        "developer_failed": "last error: engine_model_key_rejected",
+    }
     assert words[gap] in (caught.value.detail or "")
     # Switching off is never refused.
     await own_model.assert_own_model_ready(object(), False)  # type: ignore[arg-type]
@@ -608,6 +658,89 @@ async def test_agents_that_would_follow_the_workspace_are_kept_off_before_it_swi
         )
     assert caught.value.code == "own_model_agents_not_kept_off"
     assert "enable" not in engine.calls
+
+
+# --- our developer workspace (D-834) --------------------------------------------------------
+
+_DEVELOPER_STUDIO = OwnVoiceKeyState(
+    enabled=True, scope="voice", complete=True, using="own", voice_provider="cartesia"
+)
+
+
+@pytest.fixture
+def developer_records(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
+    seen: dict[str, list[Any]] = {"records": [], "kept_off": []}
+
+    async def _record(_session: Any, *, error_code: str | None) -> None:
+        seen["records"].append(error_code)
+
+    async def _kept_off(_session: Any, _engine: Any) -> int:
+        seen["kept_off"].append(True)
+        return 0
+
+    monkeypatch.setattr(own_model, "record_developer_own_model_check", _record)
+    monkeypatch.setattr(studio_module, "keep_inheriting_agents_off", _kept_off)
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "AIza-test")
+    return seen
+
+
+async def test_the_developer_workspace_on_studio_only_gains_our_key_and_keeps_scope_voice(
+    developer_records: dict[str, list[Any]],
+) -> None:
+    """D-727 left the developer workspace on `scope: voice`; our Google key is added beside
+    the Cartesia key and the default is never moved, so nothing that follows the workspace
+    changes (bring-your-own-keys.md:82-97,186-190)."""
+    engine = _OwnModelEngine(_DEVELOPER_STUDIO)
+    state = await own_model.ensure_developer_own_model(object(), engine)  # type: ignore[arg-type]
+    assert engine.calls == [f"install:google:{get_settings().thinnest_own_model_default}"]
+    assert state.scope == "voice" and own_model_key_ready(state)
+    assert developer_records == {"records": [None], "kept_off": []}
+
+
+async def test_a_developer_workspace_with_its_keys_off_keeps_followers_off_then_goes_on(
+    developer_records: dict[str, list[Any]],
+) -> None:
+    engine = _OwnModelEngine(_KEYS_OFF)
+    await own_model.ensure_developer_own_model(object(), engine)  # type: ignore[arg-type]
+    assert engine.calls == [f"install:google:{get_settings().thinnest_own_model_default}", "enable"]
+    assert developer_records == {"records": [None], "kept_off": [True]}
+
+
+async def test_a_ready_developer_workspace_is_only_recorded(
+    developer_records: dict[str, list[Any]],
+) -> None:
+    ready = _DEVELOPER_STUDIO.model_copy(
+        update={
+            "llm_provider": "google",
+            "llm_model": "gemini-3.1-flash-lite",
+            "llm_verified": True,
+        }
+    )
+    engine = _OwnModelEngine(ready)
+    await own_model.ensure_developer_own_model(object(), engine)  # type: ignore[arg-type]
+    assert engine.calls == [] and developer_records["records"] == [None]
+
+
+async def test_a_failed_developer_set_up_is_recorded_and_raised_with_its_cause(
+    developer_records: dict[str, list[Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "gemini_api_key", None)
+    engine = _OwnModelEngine(_DEVELOPER_STUDIO)
+    with pytest.raises(ProblemError) as caught:
+        await own_model.ensure_developer_own_model(object(), engine)  # type: ignore[arg-type]
+    assert caught.value.code == "own_model_key_missing"
+    assert developer_records["records"] == ["own_model_key_missing"]
+
+
+async def test_a_trial_publish_never_switches_the_developer_workspace_on(
+    developer_records: dict[str, list[Any]],
+) -> None:
+    engine = _OwnModelEngine(_DEVELOPER_STUDIO)
+    with pytest.raises(ProblemError) as caught:
+        await own_model.require_developer_own_model(engine)
+    assert caught.value.code == "own_model_account_not_ready"
+    assert "Google" not in (caught.value.detail or "")
+    assert engine.calls == []
 
 
 # --- the console switch -------------------------------------------------------------------
@@ -823,12 +956,21 @@ async def test_switching_our_model_off_puts_the_agent_back_on_the_platforms_mode
     assert await _route_model(tenant_id, ref) == ("studio", None)
 
 
-async def test_a_free_trial_agent_stays_on_the_platforms_model_with_our_model_on(
-    own_model_on: set[str], no_webhook: None, hosted_rows: CatalogueRows
-) -> None:
-    """A trial agent lives in our developer workspace (D-697), where our model key would
-    reach every client without keys of its own: it is published on the platform's model,
-    and no key of ours is installed anywhere."""
+#: Our developer workspace after Studio ready (D-727) and Set up developer workspace (D-834).
+_DEVELOPER_ON_OUR_MODEL = OwnVoiceKeyState(
+    enabled=True,
+    scope="voice",
+    complete=True,
+    using="own",
+    voice_provider="cartesia",
+    llm_provider="google",
+    llm_model=THINNEST_OWN_MODEL_DEFAULT,
+    llm_verified=True,
+)
+
+
+async def _trial_agent() -> tuple[Any, Any]:
+    """A free-trial account's agent, which lives in our developer workspace (D-697)."""
     from apps.api.billing.trials import start_trial
     from apps.api.db.session import tenant_session
     from sqlalchemy import text
@@ -845,16 +987,115 @@ async def test_a_free_trial_agent_stays_on_the_platforms_model_with_our_model_on
             ),
             {"a": agent_id},
         )
+    return tenant_id, agent_id
+
+
+async def test_a_free_trial_clear_agent_answers_on_our_model_in_the_developer_workspace(
+    own_model_on: set[str], no_webhook: None, hosted_rows: CatalogueRows
+) -> None:
+    """D-834: a trial agent is sent our model like a paying client's, in our developer
+    workspace, which the publish only verifies: no key is installed and no switch moved."""
+    tenant_id, agent_id = await _trial_agent()
     voice = await hosted_rows.add("engine", vendor_id=f"asha-{uuid.uuid4().hex[:6]}")
     await _set_columns(tenant_id, agent_id, voice, None)
-    with selected(_PublishingEngine(key_state=OFF_KEY)) as engine:
+    with selected(_PublishingEngine(key_state=_DEVELOPER_ON_OUR_MODEL)) as engine:
         ref = await _publish(tenant_id, agent_id)
     assert isinstance(engine, _PublishingEngine)
     sent = engine.sent[-1]
     assert sent.engine_workspace is None
-    assert (sent.engine_own_voice_key, sent.engine_own_model) == (False, None)
-    assert engine.model_keys_in == []
-    assert await _route_model(tenant_id, ref) == ("studio", None)
+    assert (sent.engine_own_voice_key, sent.engine_own_model) == (False, THINNEST_OWN_MODEL_DEFAULT)
+    assert engine.model_keys_in == [] and engine.key_state.scope == "voice"
+    # The band's minute, as for a paying client's Clear agent on our model (:21-24).
+    assert await _route_model(tenant_id, ref) == ("studio", THINNEST_OWN_MODEL_DEFAULT)
+
+
+async def test_a_free_trial_studio_agent_on_our_model_meters_the_own_voice_and_model_minute(
+    own_model_on: set[str],
+    no_webhook: None,
+    hosted_rows: CatalogueRows,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "cartesia_api_key", "sk_car_test")
+    tenant_id, agent_id = await _trial_agent()
+    voice = await hosted_rows.add("byok")
+    await _set_columns(tenant_id, agent_id, voice, None)
+    with selected(_PublishingEngine(key_state=_DEVELOPER_ON_OUR_MODEL)) as engine:
+        ref = await _publish(tenant_id, agent_id)
+    assert isinstance(engine, _PublishingEngine)
+    sent = engine.sent[-1]
+    assert (sent.engine_own_voice_key, sent.engine_own_model) == (True, THINNEST_OWN_MODEL_DEFAULT)
+    assert await _route_model(tenant_id, ref) == ("byok_llm_voice", THINNEST_OWN_MODEL_DEFAULT)
+
+
+async def test_a_free_trial_agent_is_refused_while_the_developer_workspace_lacks_our_key(
+    own_model_on: set[str], no_webhook: None, hosted_rows: CatalogueRows
+) -> None:
+    tenant_id, agent_id = await _trial_agent()
+    voice = await hosted_rows.add("engine", vendor_id=f"asha-{uuid.uuid4().hex[:6]}")
+    await _set_columns(tenant_id, agent_id, voice, None)
+    developer_without_google = _DEVELOPER_ON_OUR_MODEL.model_copy(
+        update={"llm_provider": None, "llm_model": None, "llm_verified": False}
+    )
+    with (
+        selected(_PublishingEngine(key_state=developer_without_google)) as engine,
+        pytest.raises(ProblemError) as caught,
+    ):
+        await _publish(tenant_id, agent_id)
+    assert caught.value.code == "own_model_account_not_ready"
+    assert isinstance(engine, _PublishingEngine)
+    assert engine.sent == [] and engine.model_keys_in == []
+
+
+async def test_a_free_trial_agent_stays_off_our_model_while_the_switch_is_off(
+    own_model_on: set[str],
+    no_webhook: None,
+    hosted_rows: CatalogueRows,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The switch off: a trial Clear agent is sent `off` (False, no model) and a trial Studio
+    agent `workspace` (True, no model), exactly as before D-834."""
+    monkeypatch.setattr(get_settings(), "thinnest_own_model", False)
+    monkeypatch.setattr(get_settings(), "cartesia_api_key", "sk_car_test")
+    clear_tenant, clear_agent = await _trial_agent()
+    clear = await hosted_rows.add("engine", vendor_id=f"asha-{uuid.uuid4().hex[:6]}")
+    await _set_columns(clear_tenant, clear_agent, clear, None)
+    studio_tenant, studio_agent = await _trial_agent()
+    studio = await hosted_rows.add("byok")
+    await _set_columns(studio_tenant, studio_agent, studio, None)
+    with selected(_PublishingEngine(key_state=_DEVELOPER_ON_OUR_MODEL)) as engine:
+        clear_ref = await _publish(clear_tenant, clear_agent)
+        studio_ref = await _publish(studio_tenant, studio_agent)
+    assert isinstance(engine, _PublishingEngine)
+    sent = [(cfg.engine_own_voice_key, cfg.engine_own_model) for cfg in engine.sent]
+    assert sent == [(False, None), (True, None)]
+    assert await _route_model(clear_tenant, clear_ref) == ("studio", None)
+    assert await _route_model(studio_tenant, studio_ref) == ("byok_voice", None)
+
+
+async def test_an_existing_trial_agent_moves_onto_our_model_by_a_republish_in_place(
+    own_model_on: set[str],
+    no_webhook: None,
+    hosted_rows: CatalogueRows,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An agent published before the switch is moved by the republish the switch queues: the
+    same vendor agent is updated (no delete, no new id) with our model's scope and model."""
+    tenant_id, agent_id = await _trial_agent()
+    voice = await hosted_rows.add("engine", vendor_id=f"asha-{uuid.uuid4().hex[:6]}")
+    await _set_columns(tenant_id, agent_id, voice, None)
+    engine = _PublishingEngine(key_state=_DEVELOPER_ON_OUR_MODEL)
+    with selected(engine):
+        monkeypatch.setattr(get_settings(), "thinnest_own_model", False)
+        ref = await _publish(tenant_id, agent_id)
+        monkeypatch.setattr(get_settings(), "thinnest_own_model", True)
+        again = await _publish(tenant_id, agent_id)
+    assert again == ref and engine.deleted == []
+    assert [(c.engine_own_voice_key, c.engine_own_model) for c in engine.sent] == [
+        (False, None),
+        (False, THINNEST_OWN_MODEL_DEFAULT),
+    ]
+    assert engine.models_held[ref] == THINNEST_OWN_MODEL_DEFAULT
+    assert await _route_model(tenant_id, ref) == ("studio", THINNEST_OWN_MODEL_DEFAULT)
 
 
 # --- D-769: per-agent scope kept, and both Studio keys before the write --------------------
@@ -931,3 +1172,104 @@ async def test_a_studio_agent_on_our_model_is_refused_when_the_voice_key_is_gone
         await _publish(tenant_id, agent_id)
     assert caught.value.code == studio_module.STUDIO_ACCOUNT_NOT_READY
     assert isinstance(engine, _VoiceKeyLostEngine) and engine.sent == []
+
+
+# --- the hourly check of our developer workspace (D-834) -----------------------------------
+
+
+@pytest.fixture
+def developer_check(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    from apps.workers import own_model_key
+
+    seen: dict[str, Any] = {
+        "record": DeveloperOwnModelRecord(datetime.now(UTC), None, None),
+        "records": [],
+        "alarms": [],
+        "repairs": 0,
+    }
+
+    async def _read(_session: Any) -> DeveloperOwnModelRecord:
+        return seen["record"]
+
+    async def _record(_session: Any, *, error_code: str | None) -> None:
+        seen["records"].append(error_code)
+
+    async def _repair(_session: Any, engine: Any) -> OwnVoiceKeyState:
+        seen["repairs"] += 1
+        if seen.get("repair_fails"):
+            raise ProblemError(
+                kind="business_rule", code="own_model_key_missing", title="x", detail="x"
+            )
+        return engine.state
+
+    monkeypatch.setattr(own_model_key, "read_developer_own_model", _read)
+    monkeypatch.setattr(own_model_key, "record_developer_own_model_check", _record)
+    monkeypatch.setattr(own_model_key, "ensure_developer_own_model", _repair)
+    monkeypatch.setattr(
+        own_model_key, "alert", lambda _stage, code, **_kw: seen["alarms"].append(code)
+    )
+    return seen
+
+
+async def test_the_hourly_check_records_a_ready_developer_workspace(
+    developer_check: dict[str, Any],
+) -> None:
+    from apps.workers import own_model_key
+
+    ready = _DEVELOPER_ON_OUR_MODEL
+    outcome = await own_model_key.check_developer_own_model(_OwnModelEngine(ready))
+    assert outcome == "ok" and developer_check["records"] == [None]
+    assert developer_check["alarms"] == [] and developer_check["repairs"] == 0
+
+
+async def test_the_hourly_check_leaves_a_developer_workspace_never_set_up(
+    developer_check: dict[str, Any],
+) -> None:
+    from apps.workers import own_model_key
+
+    developer_check["record"] = DeveloperOwnModelRecord(None, None, None)
+    outcome = await own_model_key.check_developer_own_model(_OwnModelEngine(_DEVELOPER_STUDIO))
+    assert outcome == "not_set_up"
+    assert developer_check["repairs"] == 0 and developer_check["alarms"] == []
+
+
+@pytest.mark.parametrize(
+    ("fails", "outcome", "alarm"),
+    [
+        (False, "repaired", "own_model_developer_repaired"),
+        (True, "failed", "own_model_developer_drift"),
+    ],
+)
+async def test_the_hourly_check_repairs_a_developer_workspace_off_our_key_and_alarms(
+    developer_check: dict[str, Any], fails: bool, outcome: str, alarm: str
+) -> None:
+    from apps.workers import own_model_key
+
+    developer_check["repair_fails"] = fails
+    result = await own_model_key.check_developer_own_model(_OwnModelEngine(_DEVELOPER_STUDIO))
+    assert result == outcome and developer_check["repairs"] == 1
+    assert developer_check["alarms"] == [alarm]
+
+
+async def test_a_rotation_replaces_the_developer_workspaces_google_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.workers import own_model_key
+
+    async def _key() -> str:
+        return "AIza-rotated"
+
+    async def _none() -> list[Any]:
+        return []
+
+    engine = _OwnModelEngine(_DEVELOPER_ON_OUR_MODEL)
+    monkeypatch.setattr(own_model_key, "_runs_own_model", lambda: engine)
+    monkeypatch.setattr(own_model_key, "_current_key", _key)
+    monkeypatch.setattr(own_model_key, "own_model_workspaces", _none)
+    assert await own_model_key.push_own_model_key({}, {}) == "developer=pushed workspaces=0"
+    assert engine.calls == [f"install:google:{THINNEST_OWN_MODEL_DEFAULT}"]
+    # A developer workspace holding no Google key is not set up by a rotation.
+    bare = _OwnModelEngine(_DEVELOPER_STUDIO)
+    monkeypatch.setattr(own_model_key, "_runs_own_model", lambda: bare)
+    assert await own_model_key.push_own_model_key({}, {}) == "developer=not_held workspaces=0"
+    assert bare.calls == []

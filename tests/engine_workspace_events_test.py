@@ -310,6 +310,10 @@ class Checks:
         self.ran.append(("developer", None))
         return "ok"
 
+    async def developer_own_model(self, _engine: Any) -> str:
+        self.ran.append(("developer_own_model", None))
+        return "ok"
+
 
 def _keys_engine() -> Any:
     """A voice-hosting engine that also runs our own model (`RunsOwnModel`)."""
@@ -338,6 +342,7 @@ def checks(monkeypatch: pytest.MonkeyPatch) -> Checks:
     monkeypatch.setattr(events, "check_studio_workspace", recorder.studio)
     monkeypatch.setattr(events, "check_own_model_workspace", recorder.own_model)
     monkeypatch.setattr(events, "check_developer_studio", recorder.developer)
+    monkeypatch.setattr(events, "check_developer_own_model", recorder.developer_own_model)
     return recorder
 
 
@@ -380,10 +385,16 @@ async def test_byok_changed_in_a_workspace_holding_none_of_our_keys_writes_nothi
     assert checks.ran == []
 
 
-async def test_byok_changed_in_our_developer_workspace_checks_it(checks: Checks) -> None:
+async def test_byok_changed_in_our_developer_workspace_checks_both_our_keys(
+    checks: Checks,
+) -> None:
+    """Our Cartesia key (D-727) and our Google key (D-834) both live there."""
     _tenant, ref = await _route(None)
-    assert await events.ingest_engine_workspace_event({}, _job(ref, _byok())) == "developer=ok"
-    assert checks.ran == [("developer", None)]
+    assert (
+        await events.ingest_engine_workspace_event({}, _job(ref, _byok()))
+        == "developer=ok own_model=ok"
+    )
+    assert checks.ran == [("developer", None), ("developer_own_model", None)]
 
 
 async def test_a_workspace_no_longer_active_or_not_ours_is_left_alone(checks: Checks) -> None:

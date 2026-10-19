@@ -352,6 +352,60 @@ async def developer_studio_ready(session: AsyncSession) -> bool:
     return bool(value)
 
 
+@dataclass(frozen=True, slots=True)
+class DeveloperOwnModelRecord:
+    """What our developer workspace last answered about our Google key (D-834)."""
+
+    enabled_at: datetime | None
+    checked_at: datetime | None
+    error_code: str | None
+
+    @property
+    def ready(self) -> bool:
+        """Confirmed on at least once, and the last check did not fail."""
+        return self.enabled_at is not None and self.error_code is None
+
+
+async def record_developer_own_model_check(
+    session: AsyncSession, *, error_code: str | None
+) -> None:
+    """`record_own_model_check` for our developer workspace, on `platform_state`: a pass
+    stamps `checked_at` (and `enabled_at` the first time) and clears the error; a failure
+    records only the error."""
+    if error_code is None:
+        await session.execute(
+            text(
+                "UPDATE platform_state SET own_model_developer_enabled_at = "
+                "COALESCE(own_model_developer_enabled_at, now()), "
+                "own_model_developer_checked_at = now(), own_model_developer_error_code = NULL, "
+                "updated_at = now() WHERE id = 1"
+            )
+        )
+        return
+    await session.execute(
+        text(
+            "UPDATE platform_state SET own_model_developer_error_code = :code, "
+            "updated_at = now() WHERE id = 1"
+        ),
+        {"code": error_code[:64]},
+    )
+
+
+async def read_developer_own_model(session: AsyncSession) -> DeveloperOwnModelRecord:
+    """The developer workspace's last own-model answer; all None until the first."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT own_model_developer_enabled_at, own_model_developer_checked_at, "
+                "own_model_developer_error_code FROM platform_state WHERE id = 1"
+            )
+        )
+    ).first()
+    if row is None:
+        return DeveloperOwnModelRecord(enabled_at=None, checked_at=None, error_code=None)
+    return DeveloperOwnModelRecord(enabled_at=row[0], checked_at=row[1], error_code=row[2])
+
+
 async def own_model_workspaces(*, limit: int = 1000) -> list[StudioWorkspace]:
     """Every ACTIVE client workspace where our Google (model) key was confirmed on (D-764),
     the earliest first. A rotation of the key reaches each and the hourly check verifies
@@ -546,6 +600,7 @@ __all__ = [
     "PROVISION_JOB",
     "WORKSPACE_ENGINES",
     "WORKSPACE_PREFIX",
+    "DeveloperOwnModelRecord",
     "RetentionRecord",
     "StudioWorkspace",
     "WorkspaceRow",
@@ -561,9 +616,11 @@ __all__ = [
     "own_workspace",
     "queue_workspace_offboarding",
     "queue_workspace_provisioning",
+    "read_developer_own_model",
     "read_developer_retention",
     "read_retention_record",
     "read_workspace_state",
+    "record_developer_own_model_check",
     "record_developer_retention",
     "record_developer_studio_check",
     "record_own_model_check",

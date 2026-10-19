@@ -59,7 +59,7 @@ from apps.api.tenancy.engine_workspace import (
     studio_enabled,
     tenant_for_workspace,
 )
-from apps.workers.own_model_key import check_own_model_workspace
+from apps.workers.own_model_key import check_developer_own_model, check_own_model_workspace
 from apps.workers.studio_voice_key import (
     check_developer_studio,
     check_studio_workspace,
@@ -202,10 +202,18 @@ async def _byok_changed(
         return "coalesced"
     try:
         if tenant is None:
-            return f"developer={await check_developer_studio(engine)}"
+            return await _check_developer(engine)
         return await _check_client(engine, tenant)
     finally:
         await release_lease(redis, lease, token)
+
+
+async def _check_developer(engine: Any) -> str:
+    """Our developer workspace holds our Cartesia key (D-727) and our Google key (D-834)."""
+    studio = f"developer={await check_developer_studio(engine)}"
+    if not isinstance(engine, RunsOwnModel):
+        return studio
+    return f"{studio} own_model={await check_developer_own_model(engine)}"
 
 
 async def _check_client(engine: Any, tenant: UUID) -> str:

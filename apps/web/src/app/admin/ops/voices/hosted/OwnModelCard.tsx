@@ -18,16 +18,23 @@ import {
   formatCount,
   formatRupeeRate,
 } from "@/components/ui";
-import { useEnableOwnModelWorkspace, useOwnModel, type OwnModel } from "@/lib/api/opsHostedVoices";
+import {
+  useEnableOwnModelDeveloper,
+  useEnableOwnModelWorkspace,
+  useOwnModel,
+  type OwnModel,
+} from "@/lib/api/opsHostedVoices";
 
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KEYS_HREF = "/admin/ops/config?section=credentials";
 const CONFIG_HREF = "/admin/ops/config";
+const DEVELOPER_STEP = "developer";
 
-type Step = { id: string; label: string; done: boolean; detail: string; href: string; go: string };
+/** A step with `href: null` is done on this card (the developer workspace set-up). */
+type Step = { id: string; label: string; done: boolean; detail: string; href: string | null; go: string };
 
 /**
- * The four steps before our own model may be switched on, in the order an operator does them,
+ * The five steps before our own model may be switched on, in the order an operator does them,
  * from the server's booleans (`OwnModelOut`). Runbook: runbooks/thinnest-own-model.md §1.
  */
 export function ownModelSteps(data: OwnModel): Step[] {
@@ -64,17 +71,30 @@ export function ownModelSteps(data: OwnModel): Step[] {
       href: CONFIG_HREF,
       go: "Open prices",
     },
+    {
+      id: DEVELOPER_STEP,
+      label: "Set up our developer workspace",
+      done: data.developer_ready,
+      detail: data.developer_error_code
+        ? `Free-trial agents answer there. Last error: ${data.developer_error_code}.`
+        : "Free-trial agents answer there: our Google key installed and read back.",
+      href: null,
+      go: "Set up developer workspace",
+    },
   ];
 }
 
 /**
- * Our own model (D-764): agents answer on Gemini through our Google key, in each paying client's
- * own workspace. The switch itself is the ops setting `thinnest_own_model`; this card says what
- * it still needs, which clients are on our key, and installs the key for one client ahead of time.
+ * Our own model (D-764, D-834): every agent, free-trial ones included, answers on Gemini through
+ * our Google key. The switch itself is the ops setting `thinnest_own_model`; this card says what
+ * it still needs, sets up our developer workspace (where free-trial agents live), says which
+ * clients are on our key, and can install the key for one paying client ahead of its publish.
  */
 export function OwnModelCard() {
   const own = useOwnModel(true);
   const enable = useEnableOwnModelWorkspace();
+  const developer = useEnableOwnModelDeveloper();
+  const [confirmingDeveloper, setConfirmingDeveloper] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [tenantId, setTenantId] = useState("");
   const tenantField = useId();
@@ -100,7 +120,18 @@ export function OwnModelCard() {
     label: step.label,
     state: step.done ? "done" : "todo",
     detail: step.done ? undefined : step.detail,
-    action: step.done ? undefined : (
+    action: step.done ? undefined : step.href == null ? (
+      <button
+        type="button"
+        className={step === next ? PRIMARY_BUTTON_SM : TEXT_ACTION}
+        onClick={() => {
+          developer.reset();
+          setConfirmingDeveloper(true);
+        }}
+      >
+        {step.go}
+      </button>
+    ) : (
       <Link href={step.href} className={step === next ? PRIMARY_BUTTON_SM : TEXT_ACTION}>
         {step.go}
       </Link>
@@ -118,7 +149,8 @@ export function OwnModelCard() {
         <InfoTip label="Our own model">{data.explanation}</InfoTip>
         <p className="w-full text-meta tabular-nums text-ink-muted sm:ml-auto sm:w-auto">
           {formatCount(data.workspaces.length)} client{" "}
-          {data.workspaces.length === 1 ? "workspace" : "workspaces"} on our key
+          {data.workspaces.length === 1 ? "workspace" : "workspaces"} on our key · developer workspace{" "}
+          {data.developer_ready ? "on our key" : "not set up"}
         </p>
       </div>
 
@@ -171,6 +203,25 @@ export function OwnModelCard() {
         Install our key for a client now
       </button>
 
+      {confirmingDeveloper && (
+        <ConfirmDialog
+          title="Set up our developer workspace?"
+          confirmLabel="Set up"
+          pendingLabel="Working…"
+          pending={developer.isPending}
+          error={developer.error}
+          onCancel={() => setConfirmingDeveloper(false)}
+          onConfirm={() => developer.mutate(undefined, { onSuccess: () => setConfirmingDeveloper(false) })}
+        >
+          <p>
+            This installs our Google key in our ThinnestAI developer workspace, where free-trial agents
+            live, and reads it back. If that workspace&rsquo;s own keys are off, every agent that would
+            follow them is kept off first. Its default key scope is left as it is. You may be asked to
+            confirm it is still you.
+          </p>
+        </ConfirmDialog>
+      )}
+
       {confirming && (
         <ConfirmDialog
           title="Install our Google key for a client?"
@@ -185,9 +236,10 @@ export function OwnModelCard() {
           }}
         >
           <p>
-            This installs our Google key in the client&rsquo;s own workspace and switches its own keys on
-            there if they are off, agents that would follow them kept off first. A publish on our model
-            does the same; this only does it ahead of time. You may be asked to confirm it is still you.
+            Optional: publishing does this automatically. A paying client&rsquo;s first publish on our
+            model installs our Google key in its own workspace. This pre-installs it for one paying
+            client now, switching that workspace&rsquo;s own keys on if they are off, agents that would
+            follow them kept off first. You may be asked to confirm it is still you.
           </p>
           <label htmlFor={tenantField} className={`mt-3 ${FIELD_LABEL}`}>
             Paying client, account id

@@ -176,8 +176,16 @@ async def test_a_stored_25_default_reads_not_ready_and_no_call_is_placed_on_it(
     async def _workspaces() -> list[Any]:
         return []
 
+    async def _developer(_session: Any) -> Any:
+        from datetime import UTC, datetime
+
+        from apps.api.tenancy.engine_workspace import DeveloperOwnModelRecord
+
+        return DeveloperOwnModelRecord(datetime.now(UTC), datetime.now(UTC), None)
+
     monkeypatch.setattr(own_model, "attested_rate_keys", _attested)
     monkeypatch.setattr(own_model, "own_model_workspaces", _workspaces)
+    monkeypatch.setattr(own_model, "read_developer_own_model", _developer)
     monkeypatch.setattr(own_model, "dashboard_data_use_attested", lambda: {"google"})
     monkeypatch.setattr(get_settings(), "gemini_api_key", "AIza-test")
     monkeypatch.setattr(get_settings(), "thinnest_own_model_default", THINNEST_OWN_MODEL_DEFAULT)

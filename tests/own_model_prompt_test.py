@@ -173,6 +173,11 @@ async def test_the_hourly_sweep_refreshes_the_basis(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(own_model_key, "get_engine", lambda: engine)
     monkeypatch.setattr(own_model_key, "own_model_workspaces", no_workspaces)
     monkeypatch.setattr(own_model_key, "refresh_prompt_basis", refresh)
+
+    async def developer(_engine: Any) -> str:
+        return "not_set_up"
+
+    monkeypatch.setattr(own_model_key, "check_developer_own_model", developer)
     result = await own_model_key.sweep_own_model_workspaces({})
     assert refreshed == [engine]
     assert result.endswith("prompt=ceiling")

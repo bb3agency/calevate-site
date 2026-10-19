@@ -92,7 +92,11 @@ from apps.api.agents.hosted_voices import (
     sync_hosted_voices,
     withdraw_hosted_voice,
 )
-from apps.api.agents.own_model import ensure_own_model_workspace, own_model_readiness
+from apps.api.agents.own_model import (
+    ensure_developer_own_model,
+    ensure_own_model_workspace,
+    own_model_readiness,
+)
 from apps.api.agents.shared_clones import forget_clone
 from apps.api.agents.studio_voices import (
     StudioReadiness,
@@ -1461,14 +1465,17 @@ async def enable_studio(
 
 #: The step-up string for switching our Google key on in one client's workspace.
 OWN_MODEL_ENABLE_CONFIRMATION: Final = "enable_own_model_workspace"
+#: The step-up string for switching our Google key on in our developer workspace (D-834).
+OWN_MODEL_DEVELOPER_CONFIRMATION: Final = "enable_own_model_developer"
 
 OWN_MODEL_EXPLAINED: Final = (
-    "With our own model on, a paying client's Clear agents keep ThinnestAI's speech and voice "
-    "and answer on our Google key (billed at the voice band's minute), and its Studio agents "
-    "keep our Cartesia voice and answer on our Google key (billed at the attested "
-    "own-voice-and-model minute). Our key goes into each client's own workspace at its first "
-    "publish, never into our developer workspace, so free-trial agents stay on ThinnestAI's "
-    "model. Every agent names its own key scope; a workspace's default is left as it is."
+    "With our own model on, every agent, free-trial ones included, answers on our Google key: "
+    "Clear agents keep ThinnestAI's speech and voice (billed at the voice band's minute), and "
+    "Studio agents keep our Cartesia voice (billed at the attested own-voice-and-model "
+    "minute). Free-trial agents live in our developer workspace, which Set up developer "
+    "workspace prepares before the switch goes on; a paying client's own workspace gets our "
+    "key automatically at its first publish. Every agent names its own key scope; a "
+    "workspace's default is left as it is."
 )
 
 
@@ -1489,6 +1496,13 @@ class OwnModelOut(Strict):
     data_use_attested: bool
     #: The `byok_llm_voice` per-minute rate is attested.
     llm_voice_minute_attested: bool
+    #: Our developer workspace, where free-trial agents live, last answered on our Google key
+    #: (D-834).
+    developer_ready: bool
+    #: When it last read back on our key; null until it has.
+    developer_checked_at: datetime | None
+    #: Our code for the last failure to set it up or verify it, or null.
+    developer_error_code: str | None
     #: The Google models an agent may run on our key now.
     offerable_models: list[str]
     #: What an operator still has to do, in order.
@@ -1527,8 +1541,9 @@ async def _own_model_out(session: AsyncSession, engine: HostsVoices) -> OwnModel
         note = "Not ready: " + " ".join(readiness.missing())
     elif readiness.switched_on:
         note = (
-            f"On: {len(readiness.workspaces)} client workspace(s) answer on our Google key, "
-            "and a paying client's workspace gets it at its next publish."
+            f"On: our developer workspace and {len(readiness.workspaces)} client workspace(s) "
+            "answer on our Google key, and a paying client's workspace gets it at its next "
+            "publish."
         )
     else:
         note = "Ready to switch on (ops config: thinnest_own_model)."
@@ -1541,6 +1556,9 @@ async def _own_model_out(session: AsyncSession, engine: HostsVoices) -> OwnModel
         default_reason=readiness.default_reason,
         data_use_attested=readiness.data_use_attested,
         llm_voice_minute_attested=readiness.llm_voice_minute_attested,
+        developer_ready=readiness.developer.ready,
+        developer_checked_at=readiness.developer.checked_at,
+        developer_error_code=readiness.developer.error_code,
         offerable_models=list(readiness.offerable_models),
         missing=readiness.missing(),
         workspaces=[
@@ -1619,8 +1637,44 @@ async def enable_own_model_workspace(
     return await _own_model_out(session, engine)
 
 
+@router.post(
+    "/own-model/developer",
+    response_model=OwnModelOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Install our Google key in our developer workspace (step-up)",
+    description=(
+        "Installs our Google key in our developer workspace, where free-trial agents live "
+        "(D-834), unless a checked one of its own is there; when its own keys are off, every "
+        "agent that would follow them is confirmed off first and they are switched on with "
+        "`llm`; a default scope already set is kept. Then reads it back and records the "
+        "answer, which the switch-on of our own model requires. Idempotent. Requires "
+        "`X-Confirm-Action: enable_own_model_developer`."
+    ),
+)
+async def enable_own_model_developer(
+    session: GlobalSession,
+    request: Request,
+    principal: VoiceCurator,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
+) -> OwnModelOut:
+    step_up.require(x_confirm_action, OWN_MODEL_DEVELOPER_CONFIRMATION)
+    engine = _hosting_engine()
+    await ensure_developer_own_model(session, engine)
+    await _audit(
+        session,
+        request,
+        principal,
+        action="ops.own_model_developer_enabled",
+        voice_id=None,
+        summary={},
+    )
+    return await _own_model_out(session, engine)
+
+
 __all__ = [
     "CLONE_CONFIRMATION",
+    "OWN_MODEL_DEVELOPER_CONFIRMATION",
     "OWN_MODEL_ENABLE_CONFIRMATION",
     "STUDIO_ENABLE_CONFIRMATION",
     "consent_confirmation",

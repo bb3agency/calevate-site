@@ -2299,11 +2299,12 @@ class ThinnestEngine:
 
         A Clear agent (scope `llm`, no voice key of ours) may be answered `409`: the route
         used to require the workspace's voice key (snapshots/2026-10-13, same page :471-478),
-        and the docs now say a workspace on `llm` can set the model (:514-525) but ThinnestAI
-        wrote on 18 Oct 2026 that the change needs a release. Until it is live such an agent
-        runs the key's own model, so the `409` is accepted when that model, read from
-        `GET /byok` in the same workspace, is the one wanted; otherwise the publish is refused,
-        because the minute would be metered at a model the agent does not run."""
+        and the docs now say a workspace on `llm` can set the model (:514-525); ThinnestAI
+        wrote on 19 Oct 2026 that this release is live (VENDOR-STATED, email). The `409` is
+        still tolerated, for a platform that answers it anyway: such an agent runs the key's
+        own model, so it is accepted when that model, read from `GET /byok` in the same
+        workspace, is the one wanted; otherwise the publish is refused, because the minute
+        would be metered at a model the agent does not run."""
         if not cfg.engine_own_model:
             return
         await self._put_own_model(

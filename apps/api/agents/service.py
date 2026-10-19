@@ -153,6 +153,7 @@ from apps.api.agents.own_model import (
     own_model_on,
     own_model_rate_key,
     refuse_unofferable_own_model,
+    require_developer_own_model,
 )
 from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
 from apps.api.agents.reply_length import resolve_max_reply_tokens
@@ -2261,7 +2262,7 @@ def own_model_unpriced() -> ProblemError:
     )
 
 
-async def _own_model_in_client_workspace(
+async def _own_model_in_workspace(
     session: AsyncSession,
     engine: VoiceEngine,
     *,
@@ -2269,15 +2270,18 @@ async def _own_model_in_client_workspace(
     rate_key: EngineRateKey,
     config: AgentConfig,
 ) -> tuple[AgentConfig, EngineRateKey]:
-    """An agent on OUR model (D-764) answers on our Google key in its client's own workspace,
-    switched on there and read back before the vendor write, because the agent's `byok`
-    scope is refused with `409` in a workspace without the key (bring-your-own-keys.md:
-    92-97). Its rate key moves to the own-voice-and-model minute on a Studio voice, and must
-    be attested (hard rule 7). An agent in our developer workspace (a free trial) stays on
-    the engine's model: a key there would reach every client without keys of its own."""
+    """An agent on OUR model (D-764) answers on our Google key in the workspace it lives in,
+    checked before the vendor write, because the agent's `byok` scope is refused with `409`
+    in a workspace without the key (bring-your-own-keys.md:92-97). A paying client's own
+    workspace is switched on here and read back; our developer workspace, where a free-trial
+    agent lives (D-697), is only verified (D-834), as a trial Studio publish verifies our
+    Cartesia key there (D-727). Its rate key moves to the own-voice-and-model minute on a
+    Studio voice, and must be attested (hard rule 7), a trial's minute too: the developer
+    workspace's calls are billed to our balance at the plan's rate (ThinnestAI email, 18 Oct
+    2026, item 3), so its cost is recorded like any other."""
     if config.engine_own_model is None:
         return config, rate_key
-    if config.engine_workspace is None or not isinstance(engine, HostsVoices):
+    if not isinstance(engine, HostsVoices):
         return config.model_copy(update={"engine_own_model": None}), rate_key
     refuse_unofferable_own_model(config.engine_own_model)
     own_rate = own_model_rate_key(rate_key)
@@ -2285,9 +2289,12 @@ async def _own_model_in_client_workspace(
         session, engine=engine.name, at=datetime.now(UTC)
     ):
         raise own_model_unpriced()
-    state = await ensure_own_model_in(
-        session, engine, tenant_id=tenant_id, workspace=config.engine_workspace
-    )
+    if config.engine_workspace is None:
+        state = await require_developer_own_model(engine)
+    else:
+        state = await ensure_own_model_in(
+            session, engine, tenant_id=tenant_id, workspace=config.engine_workspace
+        )
     if own_rate != rate_key:
         # A Studio agent on our model names `llm_voice`, which the vendor refuses unless the
         # workspace holds BOTH keys verified (bring-your-own-keys.md:92-97). The Cartesia key
@@ -2662,7 +2669,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     await _studio_in_client_workspace(
         session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config, trial=trial_account
     )
-    config, rate_key = await _own_model_in_client_workspace(
+    config, rate_key = await _own_model_in_workspace(
         session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config
     )
     existing_ref = agent["engine_agent_ref"]
@@ -2953,7 +2960,7 @@ def _engine_voice_fields(agent: AgentRow, *, engine: VoiceEngine) -> _EngineVoic
     states_key = not (byok_in_force(engine) or engine.capabilities.is_ours("tts"))
     own_voice_key = (ref is not None and ref.source == "byok") if states_key else None
     # OUR model (D-764): the agent's own choice of a Google model, else the console default.
-    # A free-trial agent's config has it stripped at publish (`_own_model_for_publish`).
+    # A free-trial agent gets it too (D-834): its publish verifies our developer workspace.
     own_model = (
         own_model_for(agent.get("engine_model_id")) if states_key and own_model_on(engine) else None
     )
@@ -3108,7 +3115,7 @@ async def publish_variant(
     await _studio_in_client_workspace(
         session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config, trial=False
     )
-    config, rate_key = await _own_model_in_client_workspace(
+    config, rate_key = await _own_model_in_workspace(
         session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config
     )
     # An arm made in our developer workspace is recreated in the client's own, as its agent
