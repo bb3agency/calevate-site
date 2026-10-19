@@ -156,7 +156,7 @@ def test_a_change_naming_several_tests_is_kept_not_a_crash() -> None:
                 {
                     "op": "set_objection",
                     "objection": "Too costly",
-                    "text": "సరే అండి.",
+                    "text": "Accept it politely and thank them.",
                     "because": ["k2", "k1"],
                     "why": "x",
                 }

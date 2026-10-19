@@ -14,7 +14,7 @@ import { sectionsOf, type Section } from "./scriptModel";
  * The same comparison writes the one-line "what changed" note for "Put it live".
  */
 
-type PartKey =
+export type PartKey =
   | "business_line"
   | "identity"
   | "goal"
@@ -45,7 +45,7 @@ export type Change =
   | { id: string; kind: "section-removed"; label: string; before: Section }
   | { id: string; kind: "section-changed"; label: string; before: Section; after: Section };
 
-function partText(script: CallScript, key: PartKey): string {
+export function partText(script: CallScript, key: PartKey): string {
   switch (key) {
     case "style": {
       const s = script.style;
@@ -136,9 +136,35 @@ export function diffScripts(before: CallScript, after: CallScript): Change[] {
  * The owner's script with only the kept changes applied. Ways out that point at a section
  * the result does not have are dropped (a discarded addition, a kept removal), so the
  * result is always a script the server accepts.
+ *
+ * `edited` is the proposal as the owner changed it in the review: which changes exist and
+ * how sections match is still read from `proposal`, so renaming a suggested step cannot
+ * turn it into a different change; only the values come from `edited`.
  */
-export function applyChanges(current: CallScript, proposal: CallScript, kept: ReadonlySet<string>): CallScript {
+export function applyChanges(
+  current: CallScript,
+  proposal: CallScript,
+  kept: ReadonlySet<string>,
+  edited: CallScript = proposal,
+): CallScript {
+  return applyTraced(current, proposal, kept, edited).script;
+}
+
+/**
+ * `applyChanges`, plus where each kept suggested section landed: result section id ->
+ * the section's id in the proposal, so a problem the builder's validation finds in the
+ * result can be shown on the row that suggested it.
+ */
+export function applyTraced(
+  current: CallScript,
+  proposal: CallScript,
+  kept: ReadonlySet<string>,
+  edited: CallScript = proposal,
+): { script: CallScript; from: Map<string, string> } {
   const changes = diffScripts(current, proposal).filter((c) => kept.has(c.id));
+  const editedSections = new Map(sectionsOf(edited).map((s) => [s.id, s]));
+  const valueOf = (s: Section) => editedSections.get(s.id) ?? s;
+  const from = new Map<string, string>();
   let next: CallScript = { ...current };
   let sections = sectionsOf(current);
   // proposal id -> id in the result, so a kept branch between proposed sections lands right.
@@ -149,23 +175,25 @@ export function applyChanges(current: CallScript, proposal: CallScript, kept: Re
   for (const change of changes) {
     if (change.kind === "part") {
       const part = change.part;
-      next = { ...next, [part]: proposal[part] } as CallScript;
+      next = { ...next, [part]: edited[part] } as CallScript;
     } else if (change.kind === "section-removed") {
       sections = sections.filter((s) => s.id !== change.before.id);
     }
   }
   for (const change of changes) {
     if (change.kind === "section-changed") {
+      from.set(change.before.id, change.after.id);
       sections = sections.map((s) =>
-        s.id === change.before.id ? { ...change.after, id: s.id, position: s.position } : s,
+        s.id === change.before.id ? { ...valueOf(change.after), id: s.id, position: s.position } : s,
       );
     } else if (change.kind === "section-added") {
       let id = change.after.id;
       const taken = new Set(sections.map((s) => s.id));
       for (let n = 2; taken.has(id); n += 1) id = `${change.after.id.slice(0, 36)}-${n}`;
       idMap.set(change.after.id, id);
+      from.set(id, change.after.id);
       const at = Math.min(change.index, sections.length);
-      sections = [...sections.slice(0, at), { ...change.after, id, position: null }, ...sections.slice(at)];
+      sections = [...sections.slice(0, at), { ...valueOf(change.after), id, position: null }, ...sections.slice(at)];
     }
   }
   const ids = new Set(sections.map((s) => s.id));
@@ -183,12 +211,19 @@ export function applyChanges(current: CallScript, proposal: CallScript, kept: Re
     }),
   }));
   const exampleKept = kept.has("part:example_exchange");
+  // An example the owner rewrote is their own reading of it, as in the builder.
+  const exampleTouched = JSON.stringify(edited.example_exchange) !== JSON.stringify(proposal.example_exchange);
   return {
-    ...next,
-    stages: sections,
-    schema_version: 2,
-    raw_override: null,
-    example_needs_review: exampleKept ? proposal.example_needs_review : current.example_needs_review,
+    script: {
+      ...next,
+      stages: sections,
+      schema_version: 2,
+      raw_override: null,
+      example_needs_review: exampleKept
+        ? proposal.example_needs_review && !exampleTouched
+        : current.example_needs_review,
+    },
+    from,
   };
 }
 
