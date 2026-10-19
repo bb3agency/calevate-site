@@ -559,13 +559,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "saving it moves every live agent with no model of its own onto it while our own "
         f"model is switched on{_NOW}",
     ),
-    # How an agent's reply languages are sent is stamped at publish; the settings sweep also
-    # repairs an agent whose languages read back different.
-    "thinnest_reply_languages": AppliesRule(
-        LIVE_AGENTS,
-        "saving it republishes every live agent with its languages sent as a list (on) or "
-        f"as one language (off){_NOW}",
-    ),
     # Each agent's `maxReplyTokens` is stamped at publish (D-769), so saving it republishes
     # every live agent; the settings sweep repairs one whose ceiling moved.
     "thinnest_reply_length": AppliesRule(

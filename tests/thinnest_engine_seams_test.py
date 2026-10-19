@@ -857,21 +857,6 @@ async def test_under_byok_a_published_choice_may_be_cleared(attested: set[str], 
             )
 
 
-async def test_a_telugu_agent_is_sent_telugu_and_an_unmapped_one_follows_the_caller() -> None:
-    bodies: list[dict[str, Any]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if _path(request).endswith("/tools"):
-            return _tools_echo(request)
-        bodies.append(json.loads(request.content))
-        return httpx.Response(200, json={"id": "ag_1"})
-
-    engine = _engine(handler)
-    await engine.update_agent("ag_1", _cfg(language_primary="te-IN"))
-    await engine.update_agent("ag_1", _cfg(language_primary="xx-YY"))
-    assert [b["language"] for b in bodies] == ["Telugu", "auto"]
-
-
 async def test_a_studio_voice_is_refused_while_our_voice_keys_synthesis_is_unpriced(
     attested: set[str],
     hosted_rows: CatalogueRows,

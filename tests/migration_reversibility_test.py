@@ -112,6 +112,11 @@ DATA_ONLY_REPAIRS: dict[str, str] = {
         "declared since D-642; no DDL, the DELETE is a no-op once done, and restoring the "
         "row would only bring back the platform_config_row_unmanaged log line"
     ),
+    "b7e4c2d9f1a3": (
+        "deletes the one platform_settings row stored under thinnest_reply_languages, which "
+        "Settings no longer declares since D-830; no DDL, the DELETE is a no-op once done, "
+        "and restoring the row would make earlier code send a list the founder withdrew"
+    ),
 }
 
 #: What a schema change looks like in a migration's source. A revision claiming to be a

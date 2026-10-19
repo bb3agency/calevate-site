@@ -143,13 +143,13 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
     body = _body(_agent_write(seen))
     assert "Ee call record avutundi." in body["instructions"]
     assert body["greeting"] == "Idi AI assistant. Ee call record avutundi."
-    # One language: fixed on the agent and on calls (snapshots/2026-10-08/pages/channels/
-    # voice.md:225-239); `secondLanguage` is retired and not sent.
-    assert body["language"] == "Telugu" and "secondLanguage" not in body
+    # Every agent follows the caller, one language included (D-830): `auto` on the agent and
+    # null on calls; `secondLanguage` is retired and not sent.
+    assert body["language"] == "auto" and "secondLanguage" not in body
     assert body["voice"] == {
         "answersCalls": True,
         "unavailableMessage": None,
-        "language": "Telugu",
+        "language": None,
         "recordCalls": True,
         "maxCallSeconds": 600,
         "detectMachines": False,

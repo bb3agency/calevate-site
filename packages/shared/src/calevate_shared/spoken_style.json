@@ -751,7 +751,7 @@
       "candidate_prompt_examples": {
         "review": "needs_founder_review",
         "drafted_on": "2026-10-19",
-        "note": "More in-call examples carrying the spoken words the agent tests miss (thanks, help, sorry, details, quantity), drafted for D-829. Measured by scripts/register_eval (--variant examples) and never read by a prompt: they join prompt_examples only after the founder approves them.",
+        "note": "More in-call examples carrying the spoken words the agent tests miss (thanks, help, sorry, details, quantity), drafted for D-829. Measured by scripts/register_eval (--variants examples) and never read by a prompt: they join prompt_examples only after the founder approves them.",
         "exchanges": [
           [
             [
@@ -793,6 +793,44 @@
               "half kg కావాలా, one kg కావాలా?"
             ]
           ]
+        ]
+      },
+      "language_pack": {
+        "review": "needs_founder_review",
+        "drafted_on": "2026-10-19",
+        "note": "D-830 language pack: the one platform block for how an agent speaks Telugu, full when Telugu is the primary language, compact (the first say_english, avoid and exchanges) when it is an extra. AI-drafted, measured by scripts/register_eval (--variants pack-en,pack-native,...); no prompt reads it until review is founder_approved and ship names the form the eval chose, e.g. {\"form\": \"native\", \"avoid\": \"none\"}. avoid lists the list words the 19 Oct 2026 production eval saw most, most frequent first.",
+        "ship": null,
+        "talk_en": "Everyday spoken Telugu as people talk on the phone, neutral for Telangana and Andhra, in Telugu script, never bookish or newsreader Telugu. అండి and గారు by situation, not in every sentence.",
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"],
+        "say_spoken": [["ఉంది", "available"], ["ఇప్పుడు", "now"], ["ఇంకా", "and"], ["కావాలి", "need"], ["చేస్తాం", "we will do"]],
+        "avoid": ["వివరాలు", "మరియు", "ధర", "ధన్యవాదాలు", "క్షమించండి", "దయచేసి", "ప్రస్తుతం", "సమాచారం", "అందుబాటులో ఉంది", "ఉత్పత్తులు", "నాణ్యత", "సహాయం", "పరిమాణం", "అవసరం", "యొక్క"],
+        "native": {
+          "talk": [
+            "మనం phone లో మామూలుగా ఎలా మాట్లాడతామో అలాగే మాట్లాడండి, రోజూ మాట్లాడే simple Telugu లో.",
+            "Telangana వాళ్ళకీ Andhra వాళ్ళకీ ఒకేలా అర్థమయ్యేలా చెప్పండి.",
+            "Telugu మాటలు Telugu అక్షరాల్లో, English మాటలు English letters లోనే రాయండి.",
+            "అండి, గారు అప్పుడప్పుడు వాడండి, ప్రతి sentence లో కాదు.",
+            "పుస్తకంలో రాసినట్టు, news చదివినట్టు మాట్లాడకండి."
+          ],
+          "say": "ఈ మాటలు మనం English లోనే అంటాం, English letters లోనే అనండి: ",
+          "say_spoken": "Telugu లో ఇలా అనండి: ",
+          "avoid": "ఈ పుస్తకం మాటలు phone లో ఎవరూ అనరు, మీరూ అనకండి: ",
+          "pairs": "ఈ పుస్తకం మాటలు అనకండి, వాటి బదులు brackets లో ఉన్నది అనండి: ",
+          "leave_out": "(వదిలేయండి)",
+          "facts": "మీకు English లో ఇచ్చిన facts లో ఉన్న పేర్లు, మాటలు English లోనే చెప్పండి, Telugu లోకి translate చేయకండి.",
+          "examples": "మాట్లాడే తీరు ఇలా ఉంటుంది, ఈ lines అలాగే copy చేయకండి:",
+          "you": "మీరు",
+          "when_extra": "caller Telugu లో మాట్లాడితే:"
+        },
+        "exchanges": [
+          [["caller", "దీని rate ఎంత అండి?"], ["agent", "ఒక్క సెకండ్ అండి, price చూసి చెప్తాను."]],
+          [["caller", "ఆ item stock లో ఉందా?"], ["agent", "హా అండి, ఉంది. ఎంత కావాలి?"]],
+          [["caller", "నా order ఇంకా రాలేదు."], ["agent", "అయ్యో, sorry అండి. Order details ఒకసారి చెప్తారా?"]],
+          [["caller", "మీ products గురించి details చెప్తారా?"], ["agent", "తప్పకుండా అండి, ఏ product గురించి కావాలి?"]],
+          [["caller", "quality ఎలా ఉంటుంది?"], ["agent", "ఏ item గురించి అడుగుతున్నారు అండి? దాని details చూసి చెప్తాను."]],
+          [["caller", "ఓకే, thanks అండి."], ["agent", "సరే అండి, ఇంకేమైనా కావాలంటే call చేయండి."]],
+          [["caller", "order ఇవ్వాలి."], ["agent", "సరే అండి, ఏ item, ఎంత quantity కావాలి?"]],
+          [["caller", "నాకు delivery కావాలి."], ["agent", "సరే అండి, మీది ఏ area?"]]
         ]
       }
     },
@@ -1182,7 +1220,7 @@
       "candidate_prompt_examples": {
         "review": "needs_founder_review",
         "drafted_on": "2026-10-19",
-        "note": "More in-call examples carrying the spoken words (thank you, help, sorry, details, quantity), drafted for D-829. Measured by scripts/register_eval (--variant examples) and never read by a prompt: they join prompt_examples only after the founder approves them.",
+        "note": "More in-call examples carrying the spoken words (thank you, help, sorry, details, quantity), drafted for D-829. Measured by scripts/register_eval (--variants examples) and never read by a prompt: they join prompt_examples only after the founder approves them.",
         "exchanges": [
           [
             [
@@ -1224,6 +1262,43 @@
               "half kg चाहिए या one kg?"
             ]
           ]
+        ]
+      },
+      "language_pack": {
+        "review": "needs_founder_review",
+        "drafted_on": "2026-10-19",
+        "note": "D-830 language pack for Hindi, full when Hindi is the primary language and compact when it is an extra (a Telugu agent's Hindi caller). AI-drafted, measured by scripts/register_eval; no prompt reads it until review is founder_approved and ship names the form the eval chose. avoid lists the list words the 19 Oct 2026 production eval saw first, then the rest of the prompt swaps.",
+        "ship": null,
+        "talk_en": "Everyday spoken Hindi as people talk on the phone, in Devanagari, never shuddh or bookish. Polite with जी and आप; prefer we forms (बताते हैं) so no gender is assumed.",
+        "say_english": ["details", "price", "rate", "thank you", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"],
+        "say_spoken": [["ज़रूरत", "need"], ["और", "and"], ["अभी", "now"]],
+        "avoid": ["जानकारी", "उपलब्ध है", "धन्यवाद", "क्षमा करें", "कृपया", "आवश्यकता", "मूल्य", "उत्पाद", "सहायता", "भुगतान", "तथा"],
+        "native": {
+          "talk": [
+            "फ़ोन पर जैसे हम रोज़ बात करते हैं, वैसे ही बोलिए, आसान बोलचाल की Hindi में।",
+            "Hindi के शब्द Devanagari में और English के शब्द English letters में ही लिखिए।",
+            "जी और आप लगाकर बात कीजिए; हम वाली बात रखिए, जैसे बताते हैं, ताकि gender का अंदाज़ा न लगाना पड़े।",
+            "किताब या news जैसी भाषा मत बोलिए।"
+          ],
+          "say": "ये शब्द हम English में ही बोलते हैं, English letters में ही बोलिए: ",
+          "say_spoken": "और ऐसे बोलिए: ",
+          "avoid": "ये किताबी शब्द फ़ोन पर कोई नहीं बोलता, आप भी मत बोलिए: ",
+          "pairs": "ये किताबी शब्द मत बोलिए, उनकी जगह brackets वाला बोलिए: ",
+          "leave_out": "(छोड़ दीजिए)",
+          "facts": "आपको English में दिए गए facts के नाम और शब्द English में ही बोलिए, Hindi में translate मत कीजिए।",
+          "examples": "बात ऐसे होती है, ये lines वैसी की वैसी copy मत कीजिए:",
+          "you": "आप",
+          "when_extra": "जब caller Hindi में बात करे:"
+        },
+        "exchanges": [
+          [["caller", "इसका rate क्या है जी?"], ["agent", "एक minute जी, price देखकर बताते हैं।"]],
+          [["caller", "वो item stock में है?"], ["agent", "हाँ जी, available है। कितना चाहिए?"]],
+          [["caller", "मेरा order अभी तक नहीं आया।"], ["agent", "अरे, sorry जी। Order की details एक बार बताएँगे?"]],
+          [["caller", "आपके products की details बताएँगे?"], ["agent", "बिल्कुल जी, कौन से product की details चाहिए?"]],
+          [["caller", "quality कैसी है?"], ["agent", "कौन सा item पूछ रहे हैं जी? उसकी details देखकर बताते हैं।"]],
+          [["caller", "ठीक है, thank you जी।"], ["agent", "ठीक है जी, और कुछ चाहिए तो call कर लीजिए।"]],
+          [["caller", "order देना है।"], ["agent", "ठीक है जी, कौन सा item और कितनी quantity चाहिए?"]],
+          [["caller", "मुझे delivery चाहिए।"], ["agent", "ठीक है जी, आपका area कौन सा है?"]]
         ]
       }
     },
@@ -1438,7 +1513,7 @@
       "candidate_prompt_examples": {
         "review": "needs_founder_review",
         "drafted_on": "2026-10-19",
-        "note": "More in-call examples (thanks, help, sorry, quantity), drafted for D-829. Measured by scripts/register_eval (--variant examples) and never read by a prompt: they join prompt_examples only after the founder approves them.",
+        "note": "More in-call examples (thanks, help, sorry, quantity), drafted for D-829. Measured by scripts/register_eval (--variants examples) and never read by a prompt: they join prompt_examples only after the founder approves them.",
         "exchanges": [
           [
             [
@@ -1481,6 +1556,23 @@
             ]
           ]
         ]
+      },
+      "language_pack": {
+        "review": "needs_founder_review",
+        "drafted_on": "2026-10-19",
+        "note": "D-830 language pack for Indian English. English has no native form apart from the English one. AI-drafted; no prompt reads it until review is founder_approved and ship names the form the eval chose.",
+        "ship": null,
+        "avoid": ["Kindly", "revert", "do the needful"],
+        "exchanges": [
+          [["caller", "What's the rate for this?"], ["agent", "One second, let me check the price."]],
+          [["caller", "Is that in stock?"], ["agent", "Yes, it's available. How much do you need?"]],
+          [["caller", "My order hasn't come yet."], ["agent", "Oh, sorry about that. Can you tell me the order details?"]],
+          [["caller", "Can you tell me about your products?"], ["agent", "Sure, which product would you like details on?"]],
+          [["caller", "How's the quality?"], ["agent", "Which item are you asking about? I'll check its details."]],
+          [["caller", "Okay, thanks."], ["agent", "Sure, call us any time you need something."]],
+          [["caller", "I want to place an order."], ["agent", "Sure, which item and how much do you need?"]],
+          [["caller", "I need it delivered."], ["agent", "Okay, which area are you in?"]]
+        ]
       }
     },
     "ta-IN": {
@@ -1504,7 +1596,14 @@
           ]
         ]
       },
-      "word_swaps": []
+      "word_swaps": [],
+      "language_pack": {
+        "review": "needs_founder_review",
+        "drafted_on": "2026-10-19",
+        "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
+        "ship": null,
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+      }
     },
     "kn-IN": {
       "review": "needs_native_review",
@@ -1527,7 +1626,14 @@
           ]
         ]
       },
-      "word_swaps": []
+      "word_swaps": [],
+      "language_pack": {
+        "review": "needs_founder_review",
+        "drafted_on": "2026-10-19",
+        "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
+        "ship": null,
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+      }
     },
     "ml-IN": {
       "review": "needs_native_review",
@@ -1550,7 +1656,14 @@
           ]
         ]
       },
-      "word_swaps": []
+      "word_swaps": [],
+      "language_pack": {
+        "review": "needs_founder_review",
+        "drafted_on": "2026-10-19",
+        "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
+        "ship": null,
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+      }
     },
     "mr-IN": {
       "review": "needs_native_review",
@@ -1573,7 +1686,14 @@
           ]
         ]
       },
-      "word_swaps": []
+      "word_swaps": [],
+      "language_pack": {
+        "review": "needs_founder_review",
+        "drafted_on": "2026-10-19",
+        "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
+        "ship": null,
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+      }
     },
     "bn-IN": {
       "review": "needs_native_review",
@@ -1596,7 +1716,14 @@
           ]
         ]
       },
-      "word_swaps": []
+      "word_swaps": [],
+      "language_pack": {
+        "review": "needs_founder_review",
+        "drafted_on": "2026-10-19",
+        "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
+        "ship": null,
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+      }
     },
     "gu-IN": {
       "review": "needs_native_review",
@@ -1619,7 +1746,14 @@
           ]
         ]
       },
-      "word_swaps": []
+      "word_swaps": [],
+      "language_pack": {
+        "review": "needs_founder_review",
+        "drafted_on": "2026-10-19",
+        "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
+        "ship": null,
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+      }
     },
     "pa-IN": {
       "review": "needs_native_review",
@@ -1642,7 +1776,14 @@
           ]
         ]
       },
-      "word_swaps": []
+      "word_swaps": [],
+      "language_pack": {
+        "review": "needs_founder_review",
+        "drafted_on": "2026-10-19",
+        "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
+        "ship": null,
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+      }
     },
     "or-IN": {
       "review": "needs_native_review",
@@ -1665,7 +1806,14 @@
           ]
         ]
       },
-      "word_swaps": []
+      "word_swaps": [],
+      "language_pack": {
+        "review": "needs_founder_review",
+        "drafted_on": "2026-10-19",
+        "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
+        "ship": null,
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+      }
     }
   }
 }

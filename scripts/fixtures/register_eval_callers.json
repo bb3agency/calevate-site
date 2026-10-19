@@ -1,5 +1,5 @@
 {
-  "about": "Fixed caller lines for scripts/register_eval (D-829): each is played as the caller's first line after the agent's greeting, to the retail starter of the reference shop in that language with its pinned facts. Written the way callers in Hyderabad speak, mixing English words in, with no real customer data. positive_extra names spoken_style.json word_swaps (by their formal word) that the positive variant lists beside prompt_swaps: the textbook words the 19 Oct 2026 agent tests and phone calls showed.",
+  "about": "Fixed caller lines for scripts/register_eval (D-829): each is played as the caller's first line after the agent's greeting, to the retail starter of the reference shop in that language with its pinned facts. Written the way callers in Hyderabad speak, mixing English words in, with no real customer data. positive_extra names spoken_style.json word_swaps (by their formal word) that the positive variant lists beside prompt_swaps: the textbook words the 19 Oct 2026 agent tests and phone calls showed. cross (D-830) plays the first `lines` caller lines of one language to the retail agent of another primary language, with or without the caller's language as an extra: every agent follows the caller, so the right reply is in the caller's language, scored with that language's word list.",
   "business": "Raghava Organics",
   "collect": [
     {"label": "Name", "required": true},
@@ -23,6 +23,11 @@
     "hi-IN": ["सहायता", "मूल्य", "उत्पाद", "संपर्क करें", "भुगतान", "तथा"],
     "en-IN": []
   },
+  "cross": [
+    {"primary": "te-IN", "extra": ["hi-IN"], "callers": "hi-IN", "lines": 10},
+    {"primary": "te-IN", "extra": [], "callers": "hi-IN", "lines": 10},
+    {"primary": "hi-IN", "extra": ["te-IN"], "callers": "te-IN", "lines": 10}
+  ],
   "callers": {
     "te-IN": [
       "హలో, మీ దగ్గర కారం పొడి ఉందా?",

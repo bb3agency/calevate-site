@@ -383,6 +383,218 @@ def _exchanges(tag: str, block: Mapping[str, Any]) -> tuple[tuple[ExampleTurn, .
     return tuple(exchanges)
 
 
+# --- language packs (D-830) ------------------------------------------------------------------
+#
+# A language pack is the one platform block that says how an agent speaks a language: how
+# people talk on the phone in it, the words to say (the English loanwords included), the
+# words not to say, example exchanges, and that a fact's English nouns stay English. The
+# primary language gets the full pack; each extra language a compact one (its top words and
+# `COMPACT_EXCHANGES` exchanges), so a caller who switches still hears everyday speech. The
+# business's own content never goes in a pack.
+#
+# Packs are measured by `scripts/register_eval` before any of them ships. A pack reaches a
+# live prompt only when its `review` is `founder_approved` AND its `ship` names the form the
+# eval chose; until then `compose_engine_prompt` keeps the register section it had.
+
+#: How a pack's instructions are written: `en`, English with the language's own examples;
+#: `native`, in the everyday, code-mixed language itself.
+PackForm = Literal["en", "native"]
+PACK_FORMS: Final[tuple[PackForm, ...]] = get_args(PackForm)
+#: How a pack names the words not to say: a plain list, each with what to say instead, or
+#: not at all. A word named in a prompt can come back more often (Mann et al., Nov 2025,
+#: arXiv:2511.12381); the founder asked for the list, so the eval decides.
+AvoidForm = Literal["list", "pairs", "none"]
+AVOID_FORMS: Final[tuple[AvoidForm, ...]] = get_args(AvoidForm)
+#: What an extra language's compact pack carries.
+COMPACT_SAY: Final = 8
+COMPACT_AVOID: Final = 5
+COMPACT_EXCHANGES: Final = 3
+PACK_APPROVED: Final = "founder_approved"
+
+
+@dataclass(frozen=True, slots=True)
+class PackChoice:
+    """Which form of a pack a prompt carries."""
+
+    form: PackForm
+    avoid: AvoidForm
+
+
+@dataclass(frozen=True, slots=True)
+class NativeLeads:
+    """A pack's instruction sentences written in the language itself (the `native` form)."""
+
+    talk: tuple[str, ...]
+    say: str
+    say_spoken: str
+    avoid: str
+    pairs: str
+    leave_out: str
+    facts: str
+    examples: str
+    you: str
+    when_extra: str
+
+
+@dataclass(frozen=True, slots=True)
+class LanguagePack:
+    tag: str
+    review: str
+    #: The form the founder approved from the eval; None until then.
+    ship: PackChoice | None
+    #: Concepts said as the English word, in English letters.
+    say_english: tuple[str, ...]
+    #: (what to say, its English meaning): the language's own spoken forms.
+    say_spoken: tuple[tuple[str, str], ...]
+    #: Formal words not to say, most frequent first; each is a `word_swaps` formal word.
+    avoid: tuple[str, ...]
+    exchanges: tuple[tuple[ExampleTurn, ...], ...]
+    native: NativeLeads | None
+    #: How the language is spoken, in English, for the `en` form; the register line without it.
+    talk_en: str | None = None
+
+
+#: The English form's sentences. The native form's are the pack's `NativeLeads`.
+_EN_SAY: Final = "Say in English letters, as callers do: "
+_EN_SAY_SPOKEN: Final = "and say "
+_EN_AVOID: Final = "Never say: "
+_EN_PAIRS: Final = "Never say these; say what follows each instead: "
+#: Said once per prompt, after every language's lines.
+PACK_FACTS_RULE: Final = (
+    "Facts you are given in English keep their English nouns when you say them; never "
+    "translate a noun."
+)
+
+
+def language_pack(tag: str | None) -> LanguagePack | None:
+    """A language's pack as the file holds it, whatever its review, or None without one."""
+    language = find_language(tag) if tag else None
+    key = language.bcp47 if language is not None else tag or ""
+    row = _raw()["languages"].get(key)
+    block = row.get("language_pack") if row is not None else None
+    if not block:
+        return None
+    ship = block.get("ship")
+    native = block.get("native")
+    return LanguagePack(
+        tag=key,
+        review=str(block["review"]),
+        ship=PackChoice(form=ship["form"], avoid=ship["avoid"]) if ship else None,
+        say_english=tuple(block.get("say_english", ())),
+        say_spoken=tuple((said, meaning) for said, meaning in block.get("say_spoken", ())),
+        avoid=tuple(block.get("avoid", ())),
+        exchanges=_exchanges(key, block) if block.get("exchanges") else (),
+        native=NativeLeads(**{**native, "talk": tuple(native["talk"])}) if native else None,
+        talk_en=block.get("talk_en"),
+    )
+
+
+def shipped_pack_choice(tag: str | None) -> PackChoice | None:
+    """The pack form live prompts carry for this primary language: only a founder-approved
+    pack with its form chosen. Read from the file alone, like `prompt_examples`, so it changes
+    only with a reviewed deploy, which moves the platform-prompt revision."""
+    pack = language_pack(tag)
+    if pack is None or pack.review != PACK_APPROVED:
+        return None
+    return pack.ship
+
+
+def _with_meanings(pack: LanguagePack) -> str:
+    return ", ".join(f"{said} ({meaning})" for said, meaning in pack.say_spoken)
+
+
+def _pack_say(pack: LanguagePack, form: PackForm, compact: bool) -> str | None:
+    english = pack.say_english[:COMPACT_SAY] if compact else pack.say_english
+    leads = pack.native if form == "native" else None
+    parts: list[str] = []
+    if english:
+        parts.append((leads.say if leads else _EN_SAY) + ", ".join(english))
+    if pack.say_spoken and not compact:
+        parts.append((leads.say_spoken if leads else _EN_SAY_SPOKEN) + _with_meanings(pack))
+    return "; ".join(parts) + "." if parts else None
+
+
+def _pack_avoid(pack: LanguagePack, choice: PackChoice, compact: bool) -> str | None:
+    words = pack.avoid[:COMPACT_AVOID] if compact else pack.avoid
+    if choice.avoid == "none" or not words:
+        return None
+    leads = pack.native if choice.form == "native" else None
+    if choice.avoid == "list":
+        return (leads.avoid if leads else _EN_AVOID) + ", ".join(words) + "."
+    style = style_for(pack.tag)
+    spoken = dict(style.word_swaps) if style is not None else {}
+    leave_out = leads.leave_out if leads else "(leave it out)"
+
+    def pair(word: str) -> str:
+        said = spoken.get(word, "")
+        if said and not said.startswith("("):
+            return f"{word} ({said})"
+        # An instruction such as "(join with ఇంకా, or leave it out)" is English; the
+        # native form says only its own "leave it out".
+        return f"{word} {said if said and leads is None else leave_out}"
+
+    return (leads.pairs if leads else _EN_PAIRS) + ", ".join(map(pair, words)) + "."
+
+
+def _pack_examples(pack: LanguagePack, form: PackForm, compact: bool) -> str | None:
+    exchanges = pack.exchanges[:COMPACT_EXCHANGES] if compact else pack.exchanges
+    if not exchanges:
+        return None
+    leads = pack.native if form == "native" else None
+    if leads is None:
+        return example_sentence(exchanges)
+    who = {"caller": "caller", "agent": leads.you}
+    said = "; ".join(
+        ", ".join(f'{who[turn.speaker]} "{turn.text}"' for turn in exchange)
+        for exchange in exchanges
+    )
+    return f"{leads.examples} {said}."
+
+
+def pack_lines(tag: str, choice: PackChoice, *, compact: bool = False) -> list[str]:
+    """One language's pack lines in `choice`'s form: the full pack, or the compact one an
+    extra language gets. Empty for a language with no pack or style row. A pack without
+    native leads is written in English whatever the form."""
+    pack, style = language_pack(tag), style_for(tag)
+    if pack is None or style is None:
+        return []
+    form: PackForm = choice.form if pack.native is not None else "en"
+    choice = PackChoice(form=form, avoid=choice.avoid)
+    name = _language_name(tag)
+    leads = pack.native if form == "native" else None
+    lines: list[str] = []
+    if compact:
+        when = leads.when_extra if leads else "when the caller speaks it:"
+        words = [_pack_say(pack, form, compact=True), _pack_avoid(pack, choice, compact=True)]
+        lines.append(" ".join([f"{name}, {when}", *(w for w in words if w)]))
+    else:
+        talk = " ".join(leads.talk) if leads else pack.talk_en or style.register
+        lines.append(f"{name}: {talk}")
+        for said in (
+            _pack_say(pack, form, compact=False),
+            _pack_avoid(pack, choice, compact=False),
+        ):
+            if said:
+                lines.append(said)
+    examples = _pack_examples(pack, form, compact)
+    if examples:
+        lines.append(examples)
+    return lines
+
+
+def pack_facts_rule(tag: str, choice: PackChoice) -> str:
+    """The keep-English-nouns rule, once, in the primary pack's form."""
+    pack = language_pack(tag)
+    if choice.form == "native" and pack is not None and pack.native is not None:
+        return pack.native.facts
+    return PACK_FACTS_RULE
+
+
+def _language_name(tag: str) -> str:
+    language = find_language(tag)
+    return language.english_name if language is not None else tag
+
+
 @cache
 def _table() -> dict[str, LanguageStyle]:
     return {tag: _build(tag, row) for tag, row in _raw()["languages"].items()}
@@ -542,16 +754,28 @@ def caller_guidance(tag: str | None, business_type: str | None = None) -> str:
 
 
 __all__ = [
+    "AVOID_FORMS",
+    "COMPACT_AVOID",
+    "COMPACT_EXCHANGES",
+    "COMPACT_SAY",
     "DEFAULT_EXAMPLES",
     "ENTRY_KINDS",
     "OPENING_KEYS",
+    "PACK_APPROVED",
+    "PACK_FACTS_RULE",
+    "PACK_FORMS",
     "PRICE_WORDS",
     "PROMPT_EXAMPLES_APPROVED",
     "REGISTER_KEY",
+    "AvoidForm",
     "EntryKind",
     "ExampleTurn",
     "Filler",
+    "LanguagePack",
     "LanguageStyle",
+    "NativeLeads",
+    "PackChoice",
+    "PackForm",
     "PublishedEntry",
     "PublishedLanguage",
     "ReviewStatus",
@@ -563,13 +787,17 @@ __all__ = [
     "example_exchange",
     "example_sentence",
     "install_published",
+    "language_pack",
     "languages",
     "merged_entries",
     "native_reviewed",
     "normalize_value",
     "opening_in",
+    "pack_facts_rule",
+    "pack_lines",
     "prompt_example_line",
     "register_guidance",
+    "shipped_pack_choice",
     "style_for",
     "writer_guidance",
 ]

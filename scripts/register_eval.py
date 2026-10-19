@@ -1,10 +1,10 @@
-"""How often the in-call model's replies break the speaking checks, offline (D-829).
+"""How often the in-call model's replies break the speaking checks, offline (D-829, D-830).
 
-    uv run python -m scripts.register_eval --dry-run                      # sizes only, no model
-    uv run python -m scripts.register_eval --spend --out /ci/reg/base.json
-    uv run python -m scripts.register_eval --spend --variant positive+late --language te-IN \
-        --out /ci/reg/positive-late.json
-    uv run python -m scripts.register_eval --compare /ci/reg/base.json /ci/reg/positive-late.json
+    uv run python -m scripts.register_eval --dry-run                     # sizes and cost
+    uv run python -m scripts.register_eval --spend --out /reg/run.json   # every variant
+    uv run python -m scripts.register_eval --spend --variants current,pack-native \
+        --language te-IN --no-cross --runs 3 --out /reg/small.json
+    uv run python -m scripts.register_eval --compare /reg/base.json /reg/run.json
 
 The agent test runs mix three things that make a before-and-after unreadable: the callers
 change between runs, each line is tried once, and a reply fails on any one of a dozen checks.
@@ -15,6 +15,10 @@ This measures one thing, the speaking register, on a fixed set:
   language, followed by ThinnestAI's own speaking rules, which it reads to the model after
   our instructions (`docs/vendor/thinnest-speaking-rules-2026-10-18.md`, VENDOR-STATED);
 - the agent's real first words, then one fixed caller line, each line asked `--runs` times;
+- the cross-language cases of the fixture's `cross` section: a caller speaking another
+  language than the agent's main one, with and without it among the agent's languages.
+  Every agent follows the caller (founder, 19 Oct 2026), so the right reply is in the
+  caller's language, and `wrong_language` there means a reply in any other;
 - the in-call model (`Settings.thinnest_own_model_default`, or `--model`) on our Google key
   through the same OpenAI-compatible endpoint and transport the platform uses
   (`google_openai_compat_base_url`, `apps/workers/chat.complete`), with the agent's reply
@@ -22,11 +26,16 @@ This measures one thing, the speaking register, on a fixed set:
 - every reply scored by `agents/turn_checks.turn_problems`, the checks the test loop fails a
   reply on, so this harness and the product agree on what a problem is.
 
-It reports, per language, the share of replies showing each kind of problem. `--variant`
-composes a candidate register layer instead of the shipped one (`VARIANT_FEATURES`); the
-confidentiality and truthful-answer layers are never touched, and `--dry-run` prints each
-variant's size against the platform budget so a candidate that does not fit is visible before
-it costs anything.
+One invocation runs several variants (`--variants`, `current` always first) under one
+`--max-inr` budget and prints one table per language case: each variant's share of replies
+showing each kind of problem, its change against `current` with a 95% interval, and `WINS`
+where the textbook-word interval is wholly below zero and neither the wrong-language nor the
+too-long share went up. A variant is either a register candidate built here
+(`VARIANT_FEATURES`, combined with `+`) or a language-pack form (`pack-en`, `pack-native`,
+with `-pairs` or `-noavoid` for how the words not to say are named), composed by the same
+`engine_prompt_layers` code that ships it (`spoken_style.language_pack`). The
+confidentiality and truthful-answer layers are never touched. `--dry-run` prints each
+variant's size against the platform budget and the run's estimated cost.
 
 What it does not reproduce: the script's stages, which ThinnestAI holds as separate steps in a
 form it does not publish, and its knowledge search (no tool is offered, so a question the
@@ -34,7 +43,8 @@ pinned facts do not answer is answered without one).
 
 Hard rule 6: stdout and `--out` carry counts, check kinds, the spoken-style list words a
 reply used and token counts, never a reply's text. `--out` belongs in a scratch directory.
-It spends real money: it refuses without `--spend` and stops at `--max-inr`.
+It spends real money: it refuses without `--spend`, refuses when the estimate is over
+`--max-inr`, and stops at `--max-inr`.
 """
 
 from __future__ import annotations
@@ -43,9 +53,10 @@ import argparse
 import asyncio
 import json
 import math
+import re
 import sys
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Final
@@ -66,6 +77,7 @@ from calevate_shared.call_script import (
 )
 from calevate_shared.engine import (
     LAYER_SEPARATOR,
+    THINNEST_OWN_MODEL_DEFAULT,
     AgentConfig,
     DisclosurePosture,
     compose_first_utterance,
@@ -75,8 +87,11 @@ from calevate_shared.engine import (
 )
 from calevate_shared.languages import find_language
 from calevate_shared.spoken_style import (
+    AVOID_FORMS,
+    PACK_FORMS,
     PROMPT_FILLERS,
     LanguageStyle,
+    PackChoice,
     candidate_prompt_examples,
     example_sentence,
     register_guidance,
@@ -88,6 +103,8 @@ FIXTURE: Final = ROOT / "scripts" / "fixtures" / "register_eval_callers.json"
 VENDOR_RULES: Final = ROOT / "docs" / "vendor" / "thinnest-speaking-rules-2026-10-18.md"
 
 LANGUAGES: Final = ("te-IN", "hi-IN", "en-IN")
+#: English replies were clean on production (19 Oct 2026), so it runs only when asked.
+DEFAULT_LANGUAGES: Final = ("te-IN", "hi-IN")
 CANNOT_RUN: Final = 2
 #: The check kinds the report always lists, in this order; any other kind seen is added after.
 REPORTED_KINDS: Final = (
@@ -100,6 +117,8 @@ REPORTED_KINDS: Final = (
     "too_long",
     "several_questions",
 )
+#: A variant WINS only if its textbook-word share falls and none of these rises.
+MUST_NOT_RISE: Final = ("wrong_language", "too_long")
 #: Concurrent requests: enough to finish a run in minutes, few enough not to meet a rate limit.
 CONCURRENCY: Final = 4
 TIMEOUT_S: Final = 30.0
@@ -115,11 +134,35 @@ RETRIES: Final = 3
 #: last, and ThinnestAI's speaking rules follow everything we send.
 VARIANT_FEATURES: Final = ("positive", "persona", "examples", "late")
 CURRENT: Final = "current"
+PACK_PREFIX: Final = "pack-"
+#: The suffix that names each way of listing the words not to say; none means a plain list.
+AVOID_SUFFIX: Final = {"list": "", "pairs": "-pairs", "none": "-noavoid"}
+#: The founder's two questions (19 Oct 2026), crossed: which instruction language the model
+#: follows, and whether naming the words not to say helps or primes them.
+DEFAULT_VARIANTS: Final = (
+    CURRENT,
+    *(f"{PACK_PREFIX}{form}{AVOID_SUFFIX[avoid]}" for form in PACK_FORMS for avoid in AVOID_FORMS),
+)
 PERSONA_LINE: Final = (
     "Talk like the shop's own staff talking to a regular customer on the phone: the everyday "
     "words and English words callers use, never the written or newsreader form."
 )
 REGISTER_HEADER: Final = "--- SPOKEN REGISTER ---"
+
+#: The cost estimate before a run (an ESTIMATE, not a price): characters per input token and
+#: output tokens per reply, from the production run of 19 Oct 2026 (founder-relayed: a Telugu
+#: request was about 2.2k tokens for 8.4k characters, and 300 replies cost about ₹17).
+#: Rounded towards a higher estimate.
+CHARS_PER_TOKEN: Final = Decimal("3.8")
+OUTPUT_TOKENS_PER_REPLY: Final = 80
+
+
+@dataclass(frozen=True, slots=True)
+class CrossCase:
+    primary: str
+    extra: tuple[str, ...]
+    callers: str
+    lines: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +172,7 @@ class Fixture:
     pinned: tuple[tuple[str, str], ...]
     positive_extra: Mapping[str, tuple[str, ...]]
     callers: Mapping[str, tuple[str, ...]]
+    cross: tuple[CrossCase, ...] = ()
 
 
 def load_fixture(path: Path = FIXTURE) -> Fixture:
@@ -139,6 +183,10 @@ def load_fixture(path: Path = FIXTURE) -> Fixture:
         pinned=tuple((q, a) for q, a in raw["pinned"]),
         positive_extra={tag: tuple(words) for tag, words in raw["positive_extra"].items()},
         callers={tag: tuple(lines) for tag, lines in raw["callers"].items()},
+        cross=tuple(
+            CrossCase(c["primary"], tuple(c["extra"]), c["callers"], int(c["lines"]))
+            for c in raw.get("cross", ())
+        ),
     )
 
 
@@ -153,9 +201,9 @@ def vendor_rules(path: Path = VENDOR_RULES) -> str:
 # --- the reference agents -------------------------------------------------------------------
 
 
-def reference_agent(language: str, fixture: Fixture) -> AgentConfig:
+def reference_agent(language: str, fixture: Fixture, extra: Sequence[str] = ()) -> AgentConfig:
     """The retail inbound starter in `language`, as a shop would publish it on day one, with
-    its pinned facts and both notices on."""
+    its pinned facts, both notices on, and `extra` as its other languages."""
     script: CallScript = starter_for("retail", "answer_calls").call_script(
         business=fixture.business, language=language
     )
@@ -173,6 +221,7 @@ def reference_agent(language: str, fixture: Fixture) -> AgentConfig:
         business=fixture.business,
         direction="inbound",
         language_primary=language,
+        languages_extra=list(extra),
         system_prompt=without_outline(body),
         opening_line=compose_opening_line(posture, call_is_recorded=True),
         call_is_recorded=True,
@@ -203,15 +252,44 @@ def platform_only(language: str, extra: Sequence[str] = ()) -> AgentConfig:
 # --- variants -------------------------------------------------------------------------------
 
 
-def parse_variant(spec: str) -> frozenset[str]:
-    """`current`, or features joined with `+`; ValueError names an unknown one."""
+@dataclass(frozen=True, slots=True)
+class Variant:
+    """`current`, a register candidate built from `features`, or a language-pack form."""
+
+    name: str
+    features: frozenset[str] = frozenset()
+    pack: PackChoice | None = None
+
+
+def parse_variant(spec: str) -> Variant:
+    """`current`, `pack-<form>[-pairs|-noavoid]`, or features joined with `+`; ValueError
+    names what is unknown."""
+    spec = spec.strip()
     if spec == CURRENT:
-        return frozenset()
+        return Variant(CURRENT)
+    if spec.startswith(PACK_PREFIX):
+        for form in PACK_FORMS:
+            for avoid, suffix in AVOID_SUFFIX.items():
+                if spec == f"{PACK_PREFIX}{form}{suffix}":
+                    return Variant(spec, pack=PackChoice(form=form, avoid=avoid))  # type: ignore[arg-type]
+        raise ValueError(f"unknown pack variant {spec!r}; choose from {DEFAULT_VARIANTS[1:]}")
     features = frozenset(part.strip() for part in spec.split("+") if part.strip())
     unknown = sorted(features - set(VARIANT_FEATURES))
     if unknown or not features:
         raise ValueError(f"unknown variant feature(s) {unknown}; choose from {VARIANT_FEATURES}")
-    return features
+    return Variant(variant_name(features), features=features)
+
+
+def parse_variants(spec: str) -> list[Variant]:
+    """A comma list, `current` first whether named or not, each once."""
+    variants = [parse_variant(part) for part in spec.split(",") if part.strip()]
+    names: list[str] = []
+    out: list[Variant] = [Variant(CURRENT)]
+    for variant in variants:
+        if variant.name != CURRENT and variant.name not in names:
+            names.append(variant.name)
+            out.append(variant)
+    return out
 
 
 def variant_name(features: Iterable[str]) -> str:
@@ -277,21 +355,64 @@ def _after_style(names: Sequence[str]) -> int:
     return max(style_layers, default=-1) + 1
 
 
-def compose_variant(cfg: AgentConfig, features: frozenset[str], fixture: Fixture) -> str:
-    """`compose_engine_prompt(cfg)` with the register layer replaced and, for `late`, moved
-    to just before the confidentiality block. Every other layer is the shipped text."""
+def compose_variant(cfg: AgentConfig, variant: Variant, fixture: Fixture) -> str:
+    """`compose_engine_prompt(cfg)` as `variant` changes it. A pack form is composed by the
+    shipping code itself; a register candidate replaces the register layer and, for `late`,
+    moves it to just before the confidentiality block. Every other layer is the shipped
+    text."""
+    if variant.pack is not None:
+        return LAYER_SEPARATOR.join(
+            text for _l, text in engine_prompt_layers(cfg, pack=variant.pack)
+        )
     layers = list(engine_prompt_layers(cfg))
-    if not features:
+    if not variant.features:
         return LAYER_SEPARATOR.join(text for _layer, text in layers)
-    register = register_layer(cfg, features, fixture)
+    register = register_layer(cfg, variant.features, fixture)
     names = [name for name, _text in layers]
     at = names.index("spoken_register") if "spoken_register" in names else _after_style(names)
     layers = [(name, text) for name, text in layers if name != "spoken_register"]
-    if "late" in features:
+    if "late" in variant.features:
         at = [name for name, _text in layers].index("confidentiality")
     if register:
         layers.insert(at, ("spoken_register", register))
     return LAYER_SEPARATOR.join(text for _layer, text in layers)
+
+
+# --- the cases ------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Case:
+    """One set of caller lines played to one agent: the agent's own language, or a caller in
+    another language (`cross`)."""
+
+    id: str
+    primary: str
+    extra: tuple[str, ...]
+    caller_language: str
+    lines: tuple[str, ...]
+
+    @property
+    def cross(self) -> bool:
+        return self.caller_language != self.primary or bool(self.extra)
+
+
+def cases_for(fixture: Fixture, languages: Sequence[str], *, cross: bool) -> list[Case]:
+    """One case per language, then the fixture's cross-language cases."""
+    out = [Case(tag, tag, (), tag, fixture.callers[tag]) for tag in languages]
+    if cross:
+        for c in fixture.cross:
+            with_extra = "+".join((c.primary, *c.extra))
+            out.append(
+                Case(
+                    f"{with_extra}>{c.callers}",
+                    c.primary,
+                    c.extra,
+                    c.callers,
+                    fixture.callers[c.callers][: c.lines],
+                )
+            )
+    return out
 
 
 # --- scoring --------------------------------------------------------------------------------
@@ -301,8 +422,9 @@ def compose_variant(cfg: AgentConfig, features: frozenset[str], fixture: Fixture
 class Reply:
     """One scored reply. No text: the kinds it showed and the list words it used."""
 
-    language: str
-    case: int
+    variant: str
+    case: str
+    line: int
     run: int
     kinds: tuple[str, ...] = ()
     formal: tuple[str, ...] = ()
@@ -313,10 +435,27 @@ class Reply:
     error: str | None = None
 
 
+_LETTERS: Final = {"te": re.compile("[ఀ-౿]"), "hi": re.compile("[ऀ-ॿ]")}
+
+
+def reply_language(text: str) -> str:
+    """The language a reply is in by its letters: Telugu or Devanagari script, whichever it
+    has more of, else English. A code-mixed reply keeps its language's letters."""
+    counts = {tag: len(pattern.findall(text)) for tag, pattern in _LETTERS.items()}
+    tag, count = max(counts.items(), key=lambda kv: kv[1])
+    return tag if count else "en"
+
+
 def score_reply(
-    text: str, *, caller_said: str, language: str
+    text: str, *, caller_said: str, language: str, cross: bool = False
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """The check kinds `text` shows (each once) and the spoken-style list words it used."""
+    """The check kinds `text` shows (each once) and the spoken-style list words it used.
+
+    `language` is the caller's. In a cross-language case a reply in another language is
+    `wrong_language` and nothing else, because the other checks read the caller's word list
+    and would find nothing to fault in a reply that is not in it."""
+    if cross and reply_language(text) != language.split("-")[0]:
+        return ("wrong_language",), ()
     kinds = sorted(
         {p.kind for p in turn_problems(text, caller_said=caller_said, language=language)}
     )
@@ -334,12 +473,12 @@ class Tally:
     formal_words: dict[str, int] = field(default_factory=dict)
 
 
-def tally(replies: Iterable[Reply]) -> dict[str, Tally]:
-    """Per language: replies scored, failed requests, replies cut at the ceiling, replies
-    with no problem, and per kind and per list word the replies showing it."""
-    out: dict[str, Tally] = {}
+def tally(replies: Iterable[Reply]) -> dict[str, dict[str, Tally]]:
+    """Per variant and case: replies scored, failed requests, replies cut at the ceiling,
+    replies with no problem, and per kind and per list word the replies showing it."""
+    out: dict[str, dict[str, Tally]] = {}
     for reply in replies:
-        t = out.setdefault(reply.language, Tally())
+        t = out.setdefault(reply.variant, {}).setdefault(reply.case, Tally())
         if reply.error is not None:
             t.errors += 1
             continue
@@ -436,62 +575,82 @@ def google_ask(api_key: str, model: str) -> Ask:
 
 @dataclass(frozen=True, slots=True)
 class Plan:
-    language: str
+    variant: str
+    case: Case
     system: str
     first_words: str
     max_tokens: int
-    lines: tuple[str, ...]
+    #: How many times each line is asked.
+    runs: int
 
 
 def plan_for(
-    language: str, features: frozenset[str], fixture: Fixture, *, with_vendor: bool
+    case: Case, variant: Variant, fixture: Fixture, *, with_vendor: bool, runs: int
 ) -> Plan:
-    cfg = reference_agent(language, fixture)
-    system = compose_variant(cfg, features, fixture)
+    cfg = reference_agent(case.primary, fixture, case.extra)
+    system = compose_variant(cfg, variant, fixture)
     if with_vendor:
         system = f"{system}{LAYER_SEPARATOR}{vendor_rules()}"
     return Plan(
-        language=language,
+        variant=variant.name,
+        case=case,
         system=system,
         first_words=compose_first_utterance(cfg),
         max_tokens=cfg.max_reply_tokens,
-        lines=fixture.callers[language],
+        runs=runs,
     )
 
 
+def estimate_inr(plans: Sequence[Plan], price: Price) -> Decimal:
+    """What the run should cost, from its prompts' sizes (an ESTIMATE: `CHARS_PER_TOKEN`,
+    `OUTPUT_TOKENS_PER_REPLY`), at the uncached input rate."""
+    total = Decimal(0)
+    for plan in plans:
+        for line in plan.case.lines:
+            chars = len(plan.system) + len(plan.first_words) + len(line)
+            tokens_in = Decimal(chars) / CHARS_PER_TOKEN
+            per_reply = tokens_in * price.input + OUTPUT_TOKENS_PER_REPLY * price.output
+            total += per_reply * plan.runs / Decimal(1000)
+    return total
+
+
 async def run(
-    plans: Sequence[Plan], ask: Ask, *, runs: int, price: Price, max_inr: Decimal
+    plans: Sequence[Plan], ask: Ask, *, price: Price, max_inr: Decimal
 ) -> tuple[list[Reply], bool]:
-    """Every line of every plan `runs` times; the second value is True when the budget
-    stopped the run early."""
+    """Every line of every plan its `runs` times, a whole run of every plan before the next,
+    so a budget stop cuts every variant alike; the second value is True when it stopped."""
     gate = asyncio.Semaphore(CONCURRENCY)
     replies: list[Reply] = []
     stopped = False
 
-    async def one(plan: Plan, case: int, attempt: int) -> None:
+    async def one(plan: Plan, line_at: int, attempt: int) -> None:
         nonlocal stopped
         async with gate:
             if cost_inr(replies, price) >= max_inr:
                 stopped = True
                 return
-            line = plan.lines[case]
+            line = plan.case.lines[line_at]
             messages = [
                 {"role": "system", "content": plan.system},
                 {"role": "assistant", "content": plan.first_words},
                 {"role": "user", "content": line},
             ]
+            reply = Reply(plan.variant, plan.case.id, line_at, attempt)
             try:
                 outcome = await ask(messages, plan.max_tokens)
             except Exception as exc:  # one failed request is a count, not the end of the run
-                replies.append(Reply(plan.language, case, attempt, error=type(exc).__name__))
+                replies.append(replace(reply, error=type(exc).__name__))
                 return
-            kinds, formal = score_reply(outcome.content, caller_said=line, language=plan.language)
+            kinds, formal = score_reply(
+                outcome.content,
+                caller_said=line,
+                language=plan.case.caller_language,
+                cross=plan.case.cross,
+            )
             usage = outcome.usage or TokenUsage(prompt_tokens=0, output_tokens=0)
             replies.append(
-                Reply(
-                    plan.language,
-                    case,
-                    attempt,
+                replace(
+                    reply,
                     kinds=kinds,
                     formal=formal,
                     finish_reason=outcome.finish_reason,
@@ -503,10 +662,11 @@ async def run(
 
     await asyncio.gather(
         *(
-            one(plan, case, attempt)
-            for attempt in range(runs)
+            one(plan, line_at, attempt)
+            for attempt in range(max((p.runs for p in plans), default=0))
             for plan in plans
-            for case in range(len(plan.lines))
+            if attempt < plan.runs
+            for line_at in range(len(plan.case.lines))
         )
     )
     return replies, stopped
@@ -520,65 +680,126 @@ def _kinds_seen(tallies: Iterable[Tally]) -> list[str]:
     return [*REPORTED_KINDS, *sorted(seen - set(REPORTED_KINDS))]
 
 
-def render(record: Mapping[str, Any]) -> str:
-    tallies = {lang: Tally(**t) for lang, t in record["tally"].items()}
-    lines = [
-        f"variant {record['variant']} | model {record['model']} | runs {record['runs']} | "
-        f"vendor rules {'on' if record['vendor_rules'] else 'off'}"
-    ]
-    for lang, t in tallies.items():
-        lines.append(
-            f"{lang}: {t.replies} replies, {t.errors} failed, {t.cut_off} cut at the ceiling, "
-            f"clean {rate(t.clean, t.replies):.0%}"
+def wins(reference: Tally, candidate: Tally) -> bool:
+    """The textbook-word share fell (its interval wholly below zero) and nothing in
+    `MUST_NOT_RISE` rose (no interval wholly above zero)."""
+
+    def interval(kind: str) -> tuple[float, float, float]:
+        return difference_interval(
+            reference.kinds.get(kind, 0),
+            reference.replies,
+            candidate.kinds.get(kind, 0),
+            candidate.replies,
         )
-        for kind in _kinds_seen([t]):
-            count = t.kinds.get(kind, 0)
-            lines.append(f"  {kind:<18} {count:>3}  {rate(count, t.replies):6.1%}")
-        if t.formal_words:
-            top = sorted(t.formal_words.items(), key=lambda kv: (-kv[1], kv[0]))
-            lines.append("  list words: " + ", ".join(f"{w} {n}" for w, n in top))
-    lines.append(
-        f"tokens in {record['tokens_in']} (cached {record['tokens_cached']}), out "
-        f"{record['tokens_out']}; cost ₹{record['cost_inr']} at the {record['price_basis']}"
-        + ("; STOPPED AT THE BUDGET" if record["stopped_at_budget"] else "")
-    )
-    return "\n".join(lines)
+
+    if interval("formal_words")[2] >= 0:
+        return False
+    return all(interval(kind)[1] <= 0 for kind in MUST_NOT_RISE)
 
 
-def render_compare(before: Mapping[str, Any], after: Mapping[str, Any]) -> str:
-    """Per language and kind: the two rates and the change with its 95% interval. A change
-    whose whole interval is below zero is marked `down`, above zero `UP`."""
-    lines = [f"{before['variant']} -> {after['variant']} (runs {before['runs']} / {after['runs']})"]
-    for lang in sorted(set(before["tally"]) & set(after["tally"])):
-        a, b = Tally(**before["tally"][lang]), Tally(**after["tally"][lang])
-        lines.append(f"{lang}: {a.replies} -> {b.replies} replies")
-        for kind in _kinds_seen([a, b]):
-            ca, cb = a.kinds.get(kind, 0), b.kinds.get(kind, 0)
-            diff, low, high = difference_interval(ca, a.replies, cb, b.replies)
-            mark = "down" if high < 0 else "UP" if low > 0 else ""
+def normalized(record: Mapping[str, Any]) -> dict[str, Any]:
+    """A record as {variants, tally[variant][case]}; a D-829 record held one variant's
+    tally keyed by language."""
+    if "variants" in record:
+        return dict(record)
+    return {
+        **record,
+        "variants": [record["variant"]],
+        "tally": {record["variant"]: record["tally"]},
+    }
+
+
+def render(record: Mapping[str, Any]) -> str:
+    """One table per case: each kind, each variant's share, and every variant but the first
+    against the first, with a 95% interval; `down`/`UP` where the interval excludes zero,
+    and the variants that WIN."""
+    record = normalized(record)
+    variants: list[str] = list(record["variants"])
+    tallies = {
+        v: {case: Tally(**t) for case, t in record["tally"].get(v, {}).items()} for v in variants
+    }
+    cases: list[str] = []
+    for v in variants:
+        cases += [c for c in tallies[v] if c not in cases]
+    lines = [
+        f"model {record.get('model', '?')} | runs {record.get('runs', '?')} | vendor rules "
+        f"{'on' if record.get('vendor_rules', True) else 'off'} | reference {variants[0]}"
+    ]
+    width = max(len(v) for v in variants) + 2
+    for case in cases:
+        present = [v for v in variants if case in tallies[v]]
+        ref = tallies[variants[0]].get(case)
+        lines.append("")
+        lines.append(f"== {case} ==")
+        for v in present:
+            t = tallies[v][case]
+            mark = "  WINS" if ref is not None and v != variants[0] and wins(ref, t) else ""
             lines.append(
-                f"  {kind:<18} {rate(ca, a.replies):6.1%} -> {rate(cb, b.replies):6.1%}  "
-                f"{diff:+.1%} [{low:+.1%}, {high:+.1%}] {mark}"
+                f"  {v:<{width}} {t.replies} replies, {t.errors} failed, {t.cut_off} cut, "
+                f"clean {rate(t.clean, t.replies):.0%}{mark}"
             )
+        for kind in _kinds_seen(tallies[v][case] for v in present):
+            lines.append(f"  {kind}")
+            for v in present:
+                t = tallies[v][case]
+                count = t.kinds.get(kind, 0)
+                cell = f"    {v:<{width}} {rate(count, t.replies):6.1%}"
+                if ref is not None and v != variants[0]:
+                    diff, low, high = difference_interval(
+                        ref.kinds.get(kind, 0), ref.replies, count, t.replies
+                    )
+                    flag = "down" if high < 0 else "UP" if low > 0 else ""
+                    cell += f"  {diff:+.1%} [{low:+.1%}, {high:+.1%}] {flag}"
+                lines.append(cell.rstrip())
+        for v in present:
+            words = tallies[v][case].formal_words
+            if words:
+                top = sorted(words.items(), key=lambda kv: (-kv[1], kv[0]))
+                lines.append(f"  list words, {v}: " + ", ".join(f"{w} {n}" for w, n in top))
+    if "cost_inr" in record:
+        lines.append("")
+        lines.append(
+            f"tokens in {record['tokens_in']} (cached {record['tokens_cached']}), out "
+            f"{record['tokens_out']}; cost ₹{record['cost_inr']} at the {record['price_basis']}"
+            + ("; STOPPED AT THE BUDGET" if record["stopped_at_budget"] else "")
+        )
     return "\n".join(lines)
+
+
+def merged(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Several records as one, for `--compare`: variants in the order given, a later
+    record's variant of the same name renamed with its file position."""
+    out: dict[str, Any] = {"variants": [], "tally": {}}
+    for at, record in enumerate(map(normalized, records)):
+        for v in record["variants"]:
+            name = v if v not in out["tally"] else f"{v}#{at + 1}"
+            out["variants"].append(name)
+            out["tally"][name] = record["tally"][v]
+        out.setdefault("model", record.get("model"))
+        out.setdefault("runs", record.get("runs"))
+        out.setdefault("vendor_rules", record.get("vendor_rules", True))
+    return out
 
 
 def record_of(
     replies: Sequence[Reply],
     *,
-    variant: str,
+    variants: Sequence[str],
     model: str,
     runs: int,
     vendor: bool,
     price: Price,
     stopped: bool,
 ) -> dict[str, Any]:
+    tallies = tally(replies)
     return {
-        "variant": variant,
+        "variants": list(variants),
         "model": model,
         "runs": runs,
         "vendor_rules": vendor,
-        "tally": {lang: asdict(t) for lang, t in sorted(tally(replies).items())},
+        "tally": {
+            v: {case: asdict(t) for case, t in sorted(tallies.get(v, {}).items())} for v in variants
+        },
         "tokens_in": sum(r.tokens_in for r in replies),
         "tokens_cached": sum(r.tokens_cached for r in replies),
         "tokens_out": sum(r.tokens_out for r in replies),
@@ -591,18 +812,29 @@ def record_of(
     }
 
 
-def sizes(fixture: Fixture, variants: Sequence[frozenset[str]]) -> str:
-    """Characters per variant: each reference agent, and the platform layers alone with one
-    and three languages (the two budget guards)."""
-    lines = ["variant | " + " | ".join(LANGUAGES) + " | platform te | platform te+hi+en"]
-    for features in variants:
+def sizes(fixture: Fixture, variants: Sequence[Variant]) -> str:
+    """Characters per variant: each reference agent, the Telugu agent with Hindi as an extra
+    language, and the platform layers alone with one and three languages (the two budget
+    guards)."""
+    lines = [
+        "variant | "
+        + " | ".join(LANGUAGES)
+        + " | te+hi | platform te | platform te+hi | platform te+hi+en"
+    ]
+    for variant in variants:
         agents = [
-            len(compose_variant(reference_agent(t, fixture), features, fixture)) for t in LANGUAGES
+            len(compose_variant(reference_agent(t, fixture), variant, fixture)) for t in LANGUAGES
         ]
-        one = len(compose_variant(platform_only("te-IN"), features, fixture))
-        three = len(compose_variant(platform_only("te-IN", ("hi-IN", "en-IN")), features, fixture))
+        with_hindi = len(
+            compose_variant(reference_agent("te-IN", fixture, ("hi-IN",)), variant, fixture)
+        )
+        one = len(compose_variant(platform_only("te-IN"), variant, fixture))
+        two = len(compose_variant(platform_only("te-IN", ("hi-IN",)), variant, fixture))
+        three = len(compose_variant(platform_only("te-IN", ("hi-IN", "en-IN")), variant, fixture))
         lines.append(
-            f"{variant_name(features)} | " + " | ".join(map(str, agents)) + f" | {one} | {three}"
+            f"{variant.name} | "
+            + " | ".join(map(str, agents))
+            + f" | {with_hindi} | {one} | {two} | {three}"
         )
     return "\n".join(lines)
 
@@ -621,68 +853,125 @@ async def _prepare() -> tuple[str | None, str]:
     return settings.gemini_api_key or None, settings.thinnest_own_model_default
 
 
+def _languages(values: Sequence[str] | None) -> list[str]:
+    chosen = [t.strip() for v in values or () for t in v.split(",") if t.strip()]
+    unknown = sorted(set(chosen) - set(LANGUAGES))
+    if unknown:
+        raise ValueError(f"unknown language(s) {unknown}; choose from {LANGUAGES}")
+    return list(dict.fromkeys(chosen)) or list(DEFAULT_LANGUAGES)
+
+
+def _estimate_line(plans: Sequence[Plan], price: Price) -> str:
+    replies = sum(p.runs * len(p.case.lines) for p in plans)
+    estimate = estimate_inr(plans, price).quantize(Decimal("0.01"), rates.ROUNDING)
+    return (
+        f"{replies} replies over {len({p.variant for p in plans})} variant(s) and "
+        f"{len({p.case.id for p in plans})} case(s); estimated ₹{estimate} at the "
+        f"{price.basis} (ESTIMATE)"
+    )
+
+
+async def evaluate(
+    plans: Sequence[Plan],
+    ask: Ask,
+    *,
+    price: Price,
+    max_inr: Decimal,
+    model: str,
+    vendor: bool,
+    say: Callable[[str], None] = print,
+) -> dict[str, Any] | str:
+    """The whole invocation under one budget: the estimate first, a refusal when it is over
+    `max_inr`, else every plan and the record of what came back."""
+    say(_estimate_line(plans, price))
+    if estimate_inr(plans, price) > max_inr:
+        return f"CANNOT RUN: the estimate is over --max-inr {max_inr}"
+    replies, stopped = await run(plans, ask, price=price, max_inr=max_inr)
+    return record_of(
+        replies,
+        variants=list(dict.fromkeys(p.variant for p in plans)),
+        model=model,
+        runs=max((p.runs for p in plans), default=0),
+        vendor=vendor,
+        price=price,
+        stopped=stopped,
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="scripts.register_eval", description=__doc__)
     parser.add_argument(
-        "--variant", default=CURRENT, help=f"{CURRENT} or {'+'.join(VARIANT_FEATURES)}"
+        "--variants",
+        default=",".join(DEFAULT_VARIANTS),
+        help="comma list; current is always run first",
     )
     parser.add_argument(
-        "--language", action="append", choices=LANGUAGES, help="repeatable; default all"
+        "--language",
+        action="append",
+        help=f"comma list or repeatable, from {LANGUAGES}; default {','.join(DEFAULT_LANGUAGES)}",
     )
-    parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--no-cross", action="store_true", help="skip the cross-language cases")
+    parser.add_argument("--runs", type=int, default=5)
+    parser.add_argument("--cross-runs", type=int, default=2, help="runs of each cross case")
     parser.add_argument("--model", help="default: the console's in-call model")
     parser.add_argument("--no-vendor-rules", action="store_true")
     parser.add_argument("--spend", action="store_true", help="required: the run calls a paid model")
-    parser.add_argument("--max-inr", type=Decimal, default=Decimal(20))
+    parser.add_argument("--max-inr", type=Decimal, default=Decimal(80))
     parser.add_argument("--out", type=Path, help="write the record (counts only) here")
-    parser.add_argument("--dry-run", action="store_true", help="print sizes per variant, no model")
-    parser.add_argument("--compare", type=Path, nargs=2, help="two records side by side")
+    parser.add_argument("--dry-run", action="store_true", help="sizes and the estimate, no model")
+    parser.add_argument("--compare", type=Path, nargs="+", help="records side by side")
     args = parser.parse_args(argv)
 
     if args.compare is not None:
-        before, after = (json.loads(p.read_text(encoding="utf-8")) for p in args.compare)
-        print(render_compare(before, after))
+        records = [json.loads(p.read_text(encoding="utf-8")) for p in args.compare]
+        print(render(merged(records)))
         return 0
     try:
-        features = parse_variant(args.variant)
+        variants = parse_variants(args.variants)
+        languages = _languages(args.language)
     except ValueError as exc:
         print(exc)
         return CANNOT_RUN
     fixture = load_fixture()
+    vendor = not args.no_vendor_rules
+    plans = [
+        plan_for(
+            case,
+            variant,
+            fixture,
+            with_vendor=vendor,
+            runs=args.cross_runs if case.cross else args.runs,
+        )
+        for variant in variants
+        for case in cases_for(fixture, languages, cross=not args.no_cross)
+    ]
     if args.dry_run:
-        singles = [frozenset({f}) for f in VARIANT_FEATURES]
-        print(sizes(fixture, [frozenset(), *singles, frozenset(VARIANT_FEATURES), features]))
+        print(sizes(fixture, variants))
+        print(_estimate_line(plans, price_for(args.model or THINNEST_OWN_MODEL_DEFAULT)))
         return 0
     if not args.spend:
         print("CANNOT RUN: every reply is a paid model call; add --spend")
         return CANNOT_RUN
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    vendor = not args.no_vendor_rules
-    plans = [plan_for(t, features, fixture, with_vendor=vendor) for t in args.language or LANGUAGES]
 
-    async def spend() -> dict[str, Any] | None:
+    async def spend() -> dict[str, Any] | str:
         key, default_model = await _prepare()
         if key is None:
-            return None
+            return "CANNOT RUN: no Google key in this environment or the ops console"
         model = args.model or default_model
-        price = price_for(model)
-        replies, stopped = await run(
-            plans, google_ask(key, model), runs=args.runs, price=price, max_inr=args.max_inr
-        )
-        return record_of(
-            replies,
-            variant=variant_name(features),
+        return await evaluate(
+            plans,
+            google_ask(key, model),
+            price=price_for(model),
+            max_inr=args.max_inr,
             model=model,
-            runs=args.runs,
             vendor=vendor,
-            price=price,
-            stopped=stopped,
         )
 
     record = asyncio.run(spend())
-    if record is None:
-        print("CANNOT RUN: no Google key in this environment or the ops console")
+    if isinstance(record, str):
+        print(record)
         return CANNOT_RUN
     print(render(record))
     if args.out is not None:
