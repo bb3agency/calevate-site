@@ -31,7 +31,7 @@ from apps.api.agents.own_model import (
     own_model_rate_key,
     refuse_own_model_choice,
 )
-from apps.api.agents.verification import _own_voice_key_verdict
+from apps.api.agents.verification import _own_model_verdict, judge
 from apps.api.billing import engine_minutes, rates
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -310,6 +310,30 @@ async def test_the_drift_repair_reads_a_clear_agents_409_the_same_way() -> None:
         # brings no model key) runs the key's own model, read from `GET /byok`.
         ("llm", _ok({"error": "x"}, 409), False, "gemini-2.5-flash-lite", True),
         ("llm_voice", _ok({"error": "x"}, 409), True, "gemini-2.5-flash-lite", True),
+        # Production, 20 Oct 2026: an agent with no choice of its own reads `model: null` and
+        # runs the key's model, `workspaceModel` (get-agent-byok-model.md:543-552). Read as
+        # "no model of ours", it failed the publish read-back on a correctly applied agent.
+        (
+            "llm_voice",
+            _ok({"model": None, "workspaceModel": "gemini-3.1-flash-lite", "stale": None}),
+            True,
+            "gemini-3.1-flash-lite",
+            True,
+        ),
+        # A stale choice is answered by the key's model (get-agent-byok-model.md:7).
+        (
+            "llm",
+            _ok(
+                {
+                    "model": "gemini-2.0",
+                    "workspaceModel": "gemini-3.1-flash-lite",
+                    "stale": "gemini-2.0",
+                }
+            ),
+            False,
+            "gemini-3.1-flash-lite",
+            True,
+        ),
         ("off", None, False, None, True),
         ("all", None, None, None, False),
     ],
@@ -366,7 +390,7 @@ def test_the_calls_tokens_are_read_in_our_names() -> None:
         (None, False, "gemini-2.5-flash", None),
     ],
 )
-def test_the_model_of_our_key_is_part_of_the_key_verdict(
+def test_the_model_of_our_key_is_judged_on_its_own(
     held_model: str | None, readable: bool, wanted: str | None, verdict: bool | None
 ) -> None:
     snapshot = AgentSnapshot(
@@ -377,7 +401,7 @@ def test_the_model_of_our_key_is_part_of_the_key_verdict(
         engine_own_model_readable=readable,
     )
     cfg = _cfg(engine_own_voice_key=False, engine_own_model=wanted)
-    assert _own_voice_key_verdict(cfg, snapshot) is verdict
+    assert _own_model_verdict(cfg, snapshot) is verdict
 
 
 # --- choice and price -----------------------------------------------------------------
@@ -1124,7 +1148,8 @@ async def test_a_studio_agent_whose_scope_the_platform_did_not_keep_is_refused(h
     }
     snapshot = await _engine(_Vendor(routes)).get_agent("ag_9")
     cfg = _cfg(engine_own_voice_key=True, engine_own_model="gemini-2.5-flash-lite")
-    assert _own_voice_key_verdict(cfg, snapshot) is False
+    assert _own_model_verdict(cfg, snapshot) is False
+    assert "language model setting" in (judge(_engine(_Vendor({})), cfg, snapshot).detail or "")
 
 
 class _KeysAtWriteEngine(_PublishingEngine):

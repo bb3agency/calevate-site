@@ -256,15 +256,21 @@ def _voice_verdict(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapsho
 
 
 def _own_voice_key_verdict(cfg: AgentConfig, snapshot: AgentSnapshot) -> bool | None:
-    """Does the engine hold the agent on our own keys exactly as we asked: our voice key
-    (D-688) and our model key with its model (D-764)? True when we asked nothing; None when
-    the engine did not report it."""
+    """Does the engine hold the agent on our voice key exactly as we asked (D-688)? True when
+    we asked nothing; None when the engine did not report it."""
     if cfg.engine_own_voice_key is None:
         return True
     if snapshot.engine_own_voice_key is None:
         return None
-    if snapshot.engine_own_voice_key != cfg.engine_own_voice_key:
-        return False
+    return snapshot.engine_own_voice_key == cfg.engine_own_voice_key
+
+
+def _own_model_verdict(cfg: AgentConfig, snapshot: AgentSnapshot) -> bool | None:
+    """Does the engine run the agent on our model key with the model we asked (D-764), or on
+    no model of ours when we asked none? Judged apart from the voice key so a refusal names
+    which of the two did not hold. True when we stated no keys; None when unreported."""
+    if cfg.engine_own_voice_key is None:
+        return True
     if not snapshot.engine_own_model_readable:
         # An engine that reports no model key leaves only the voice key to compare.
         return None if cfg.engine_own_model else True
@@ -381,7 +387,17 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     confidential = snapshot.every_prompt_carries(CONFIDENTIALITY_MARKER)
     handoff = _handoff_verdict(engine, cfg, snapshot)
     voice = _voice_verdict(engine, cfg, snapshot)
-    own_key = _own_voice_key_verdict(cfg, snapshot)
+    own_voice = _own_voice_key_verdict(cfg, snapshot)
+    own_model = _own_model_verdict(cfg, snapshot)
+    # One stored verdict for both keys, as the drift record and repair read it: false when
+    # either is, unknown when either is, else true.
+    own_key = (
+        False
+        if False in (own_voice, own_model)
+        else None
+        if None in (own_voice, own_model)
+        else True
+    )
 
     # THE PROMPT COPY IS NOT IN `checked`, and that is a decision. The greeting is the
     # utterance; the prompt copy is a second belt on the same trousers, and an engine
@@ -395,7 +411,8 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
         ("confidentiality rule", confidential),
         ("script", prompt),
         ("voice", voice),
-        ("voice key setting", own_key),
+        ("voice key setting", own_voice),
+        ("language model setting", own_model),
         ("handover destination", handoff),
     )
     mismatched = [name for name, verdict in checked if verdict is False]

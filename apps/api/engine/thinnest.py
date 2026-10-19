@@ -1519,6 +1519,17 @@ def _own_voice_key_of(agent: dict[str, Any]) -> bool | None:
     return None if scope is None else scope[0]
 
 
+def _effective_own_model(data: dict[str, Any]) -> str:
+    """The model an agent on our key actually runs, from `GET /agents/{id}/byok-model`:
+    its own choice, else the key's (`workspaceModel`). `model` is null when the agent runs the
+    key's model, and a `stale` choice is answered by the key's model too (snapshots/2026-10-18/
+    pages/api-reference/agents/get-agent-byok-model.md:7,543-560). "" when neither is given."""
+    chosen = _str(data.get("model"))
+    if chosen and not _str(data.get("stale")):
+        return chosen
+    return _str(data.get("workspaceModel")) or ""
+
+
 def _own_model_scope_of(agent: dict[str, Any]) -> bool | None:
     """Does the agent's `byok` put it on our language-model key? None when unreported."""
     value = agent.get("byok")
@@ -2369,7 +2380,7 @@ class ThinnestEngine:
             # `voice`), an agent on our key runs the key's own model and has no choice of its
             # own to read (`_apply_own_model`).
             return await self._key_model(workspace) or "", True
-        return _str(data.get("model")) or "", True
+        return _effective_own_model(data), True
 
     async def _key_model(self, workspace: str | None) -> str | None:
         """The model our language-model key runs by default in `workspace` (`GET /byok`,
