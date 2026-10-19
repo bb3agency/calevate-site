@@ -288,6 +288,9 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "POST /v1/admin/tenants/{tenant_id}/kb/{source_id}/publish": None,
     "POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute": None,
     "POST /v1/ops/tenants/{tenant_id}/calls/{call_id}/recording/recopy": None,
+    # The client's AI-written examples (D-827).
+    "GET /v1/admin/tenants/{tenant_id}/business-copy": None,
+    "POST /v1/admin/tenants/{tenant_id}/business-copy/refresh": None,
 }
 
 

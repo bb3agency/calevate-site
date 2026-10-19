@@ -582,7 +582,9 @@ def record_of(
         "tokens_in": sum(r.tokens_in for r in replies),
         "tokens_cached": sum(r.tokens_cached for r in replies),
         "tokens_out": sum(r.tokens_out for r in replies),
-        "cost_inr": str(cost_inr(replies, price).quantize(Decimal("0.01"))),
+        "cost_inr": str(
+            cost_inr(replies, price).quantize(Decimal("0.01"), rounding=rates.ROUNDING)
+        ),
         "price_basis": price.basis,
         "stopped_at_budget": stopped,
         "replies": [asdict(r) for r in replies],

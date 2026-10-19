@@ -138,12 +138,20 @@ def test_the_worker_reads_every_cron_field_as_ist() -> None:
     assert worker.timezone is CRON_TIMEZONE
 
 
+#: Crons created after D-709, scheduled in IST from the start: each slot and the decision
+#: that set it. They have no UTC slot to have moved from, so they are not in IST_SLOTS.
+BORN_IST_SLOTS: dict[str, tuple[int, int, str]] = {
+    "cron:sweep_business_copies": (10, 44, "D-827"),
+}
+
+
 def test_every_daily_or_weekly_cron_sits_at_its_documented_ist_slot() -> None:
     timed = {job.name: job for job in WorkerSettings.cron_jobs if job.hour is not None}
-    assert set(timed) == set(IST_SLOTS), (
-        "a cron with an hour was added or removed; give it a row in IST_SLOTS and in D-709"
+    assert set(timed) == set(IST_SLOTS) | set(BORN_IST_SLOTS), (
+        "a cron with an hour was added or removed; give it a row in BORN_IST_SLOTS (new) "
+        "or IST_SLOTS (moved by D-709)"
     )
-    for name, (hour, minute, _was) in IST_SLOTS.items():
+    for name, (hour, minute, _source) in (IST_SLOTS | BORN_IST_SLOTS).items():
         assert timed[name].hour == {hour} and timed[name].minute == {minute}, name
 
 
