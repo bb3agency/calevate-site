@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 from apps.api.billing.trials import start_trial
+from apps.api.core.rbac import ROLE_PERMISSIONS
 from apps.api.db.session import tenant_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
@@ -44,3 +45,24 @@ async def test_an_account_not_on_a_trial_says_so_on_the_dashboard() -> None:
     dashboard, panel = await _reads(token, slug)
     assert dashboard["trial"] == panel
     assert dashboard["trial"]["on_trial"] is False
+
+
+async def test_a_member_who_may_not_read_the_account_gets_no_trial_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The card is what `GET /v1/trial` answers, so a role holding `calls:read` without
+    `org:read` reads the dashboard and not the card. No shipped role is shaped that way
+    today, so one is made for the test by withholding `org:read` from staff."""
+    tenant_id, slug, token = await _make_tenant(role="staff")
+    async with tenant_session(tenant_id) as session:
+        await start_trial(session, tenant_id=tenant_id, days=7, actor_user_id=None)
+    monkeypatch.setitem(
+        ROLE_PERMISSIONS, "staff", ROLE_PERMISSIONS["staff"] - frozenset({"org:read"})
+    )
+    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        dashboard = await http.get("/v1/dashboard", headers=headers)
+        panel = await http.get("/v1/trial", headers=headers)
+    assert dashboard.status_code == 200, dashboard.text
+    assert dashboard.json()["trial"] is None
+    assert panel.status_code == 403

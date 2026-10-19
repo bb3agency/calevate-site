@@ -581,6 +581,15 @@ def test_the_words_match_across_punctuation_case_and_script() -> None:
     assert not spoken_consent.words_were_said("", ["yes"])
 
 
+def test_the_words_may_be_trimmed_or_reordered_and_a_silent_turn_is_passed_over() -> None:
+    """A turn that is only punctuation says nothing and the next turn is still read; and
+    the model may reorder or trim the caller's words, so most of them in one turn is enough
+    where the exact phrase is not there."""
+    assert spoken_consent.words_were_said("haan bhej do", ["...", "do bhej haan"])
+    assert spoken_consent.words_were_said("yes please send it", ["yes send it"])
+    assert not spoken_consent.words_were_said("yes please send it", ["send", "?!"])
+
+
 def test_a_whatsapp_action_asks_the_question_and_declares_the_answer() -> None:
     names = [p.name for p in engine_actions.WHATSAPP_CONSENT_PARAMS]
     assert names == [CALLER_AGREED_ARG, CALLER_WORDS_ARG]

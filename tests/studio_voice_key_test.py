@@ -303,9 +303,22 @@ async def test_the_key_is_read_from_the_store_and_falls_back_to_settings(
         get_settings.cache_clear()
 
 
-async def test_saving_the_cartesia_key_enqueues_one_push_per_version(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("key", "job", "dedupe"),
+    [
+        (
+            secret_routes.STUDIO_VOICE_SECRET,
+            secret_routes.PUSH_STUDIO_VOICE_KEY_JOB,
+            "studio-voice-key",
+        ),
+        (secret_routes.OWN_MODEL_SECRET, secret_routes.PUSH_OWN_MODEL_KEY_JOB, "own-model-key"),
+    ],
+)
+async def test_saving_a_key_the_voice_platform_holds_enqueues_one_push_per_version(
+    monkeypatch: pytest.MonkeyPatch, key: str, job: str, dedupe: str
 ) -> None:
+    """Our Cartesia key (D-717) and our Google key (D-764) are each copied into the voice
+    platform, so a new version of either reaches it through the outbox, once per version."""
     from apps.api.ops import secret_routes as routes_module
 
     admin_id = uuid.uuid4()
@@ -322,7 +335,7 @@ async def test_saving_the_cartesia_key_enqueues_one_push_per_version(
     version = 900_000 + uuid.uuid4().int % 99_999
 
     async def _stored(session: Any, *, key: str, value: str, actor_id: Any) -> SecretRecord:
-        # Not the real store: a stored Cartesia key would reach every later test's settings.
+        # Not the real store: a stored key would reach every later test's settings.
         return SecretRecord(
             key=key,
             env_var=key.upper(),
@@ -346,20 +359,20 @@ async def test_saving_the_cartesia_key_enqueues_one_push_per_version(
     monkeypatch.setattr(routes_module, "alert", lambda *a, **k: None)
     headers = {
         "Authorization": f"Bearer dev:admin:{admin_id}",
-        "X-Confirm-Action": f"set_secret:{secret_routes.STUDIO_VOICE_SECRET}",
+        "X-Confirm-Action": f"set_secret:{key}",
     }
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
         response = await http.put(
-            f"/v1/ops/secrets/{secret_routes.STUDIO_VOICE_SECRET}",
+            f"/v1/ops/secrets/{key}",
             headers=headers,
-            json={"value": f"sk_car_{uuid.uuid4().hex}", "reason": "rotation test"},
+            json={"value": f"test_{uuid.uuid4().hex}", "reason": "rotation test"},
         )
     assert response.status_code == 200, response.text
     async with admin_session() as session:
         jobs = (
             await session.execute(
                 text("DELETE FROM outbox_messages WHERE dedupe_key = :k RETURNING job"),
-                {"k": f"studio-voice-key:{version}"},
+                {"k": f"{dedupe}:{version}"},
             )
         ).all()
-    assert [row[0] for row in jobs] == [secret_routes.PUSH_STUDIO_VOICE_KEY_JOB]
+    assert [row[0] for row in jobs] == [job]

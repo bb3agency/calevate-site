@@ -630,3 +630,50 @@ async def test_below_the_brake_an_operator_is_served() -> None:
     async with untenanted_session() as session:
         await platform_ai.require_platform_ai(session)  # must not raise
         await session.execute(text("DELETE FROM platform_ai_spend WHERE month = :m"), {"m": month})
+
+
+async def test_a_partial_usage_total_is_metered_flagged_and_alarmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A platform answer some piece of which reported no usage is recorded at what was
+    reported, marked incomplete on every row, and raised to an operator by ids alone.
+
+    FAILS IF: a partial total reaches `platform_ai_usage` with nothing saying it is partial.
+    """
+    from apps.api.billing import ai_quota
+
+    fired: list[tuple[str, dict[str, str]]] = []
+    monkeypatch.setattr(ai_quota, "alert", lambda _stage, code, **kw: fired.append((code, kw)))
+    admin_id = await _make_admin()
+    ref = new_assist_ref()
+    async with untenanted_session() as session:
+        metered = await platform_ai.record_platform_ai_usage(
+            session,
+            admin_user_id=admin_id,
+            viewing_tenant_id=None,
+            ref=ref,
+            tokens_in=1000,
+            tokens_out=100,
+            model="gpt-4o-mini",
+            feature=ASSIST_FEATURE_ADMIN_COPILOT,
+            usage_incomplete=True,
+        )
+        metas = (
+            (
+                await session.execute(
+                    text("SELECT meta FROM platform_ai_usage WHERE ref = :r"), {"r": ref}
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert metered.recorded is True and metered.cost_inr > 0
+    metas = [json.loads(m) if isinstance(m, str) else m for m in metas]
+    assert len(metas) == 2 and {m.get("usage_incomplete") for m in metas} == {"true"}
+    assert [code for code, _ in fired] == [ai_quota.USAGE_INCOMPLETE_ALARM]
+    assert {k: v for k, v in fired[0][1].items() if k != "detail"} == {
+        "actor": str(admin_id),
+        "ref": ref,
+        "model": "gpt-4o-mini",
+        "feature": ASSIST_FEATURE_ADMIN_COPILOT,
+    }

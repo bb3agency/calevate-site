@@ -222,3 +222,95 @@ async def test_a_tenant_yields_its_live_agents_prompts_and_its_own_model_calls()
     assert sample.measured == [Decimal(prompt)]
     assert sample.published == [omp.prompt_tokens_of(compose_engine_prompt(cfg))]
     assert sample.published[0] > rates.REFERENCE_CALL["prompt_tokens"]
+
+
+async def test_a_live_agent_with_no_script_is_left_out_of_the_published_sizes() -> None:
+    """A live agent the publish path cannot compose now would be refused at its next
+    publish too, so its size is not read; the tenant's other agents still count."""
+    from apps.api.agents import lifecycle as agent_lifecycle
+
+    tenant_id, agent_id = await _agent_with_script("[BUSINESS]\nశ్రీ Organics\n\n[GOAL]\nBook.")
+    engine = _thinnest()
+    async with tenant_session(tenant_id) as session:
+        unscripted = await agent_lifecycle.create_agent(
+            session,
+            tenant_id=tenant_id,
+            name="Never written",
+            direction="inbound",
+            language_primary="te-IN",
+        )
+        await session.execute(
+            text("UPDATE agents SET status = 'live' WHERE id IN (:a, :b)"),
+            {"a": agent_id, "b": unscripted},
+        )
+        sample = await omp.sample_tenant(session, tenant_id=tenant_id, engine=engine)
+        cfg = await publish_config(session, tenant_id=tenant_id, agent_id=agent_id, engine=engine)
+    assert sample.published == [omp.prompt_tokens_of(compose_engine_prompt(cfg))]
+
+
+async def test_the_basis_walks_every_tenant_not_deleted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One sample per tenant in the directory, pooled into one basis; a deleted tenant is not
+    asked."""
+    from contextlib import asynccontextmanager
+
+    from apps.api.admin import service as admin_service
+
+    async def _org() -> uuid.UUID:
+        created = await admin_service.create_organization(
+            name="Basis Walk",
+            slug=f"bw-{uuid.uuid4().hex[:8]}",
+            vertical_template="real_estate",
+            billing_email=None,
+            language="te-IN",
+            created_by=None,
+        )
+        return uuid.UUID(str(created["id"]))
+
+    live, deleted = await _org(), await _org()
+    async with tenant_session(deleted) as session:
+        await session.execute(
+            text("UPDATE organizations SET status = 'churned', deleted_at = now() WHERE id = :t"),
+            {"t": deleted},
+        )
+
+    asked: list[uuid.UUID] = []
+
+    @asynccontextmanager
+    async def _session_of(tenant_id: uuid.UUID) -> Any:
+        yield tenant_id
+
+    async def _sample(session: Any, *, tenant_id: uuid.UUID, engine: Any) -> omp.TenantPrompts:
+        asked.append(tenant_id)
+        if tenant_id == live:
+            return omp.TenantPrompts(measured=[Decimal(5_000)], published=[7_777])
+        return omp.TenantPrompts(measured=[], published=[])
+
+    monkeypatch.setattr(omp, "tenant_session", _session_of)
+    monkeypatch.setattr(omp, "sample_tenant", _sample)
+    basis = await omp.compute_prompt_basis(_thinnest())
+
+    assert live in asked and deleted not in asked
+    assert (basis.source, basis.prompt_tokens, basis.calls, basis.agents) == (
+        "published",
+        7_777,
+        1,
+        1,
+    )
+    assert basis.computed_at is not None
+
+
+async def test_an_unreadable_cache_reads_as_the_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ceiling only raises a floor, so Redis being down cannot make a card cheaper."""
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
+    class _Down:
+        async def get(self, _key: str) -> None:
+            raise RedisConnectionError("redis is down")
+
+    monkeypatch.setattr(omp, "get_redis", lambda: _Down())
+    assert await omp.current_prompt_basis() == omp.CEILING_BASIS
+
+
+def test_a_floor_is_never_struck_at_a_negative_prompt() -> None:
+    with pytest.raises(ValueError, match="fewer than zero tokens"):
+        rates.own_model_floor_inr_per_min(MODEL, prompt_tokens=-1)

@@ -105,6 +105,32 @@ def test_no_rung_or_no_report_prices_every_input_token_in_full(no_cached_rung: N
     assert len(rows) == 2 and _cost(rows) == full
 
 
+def test_a_rupee_billed_models_cached_rung_comes_from_its_rupee_attestation() -> None:
+    """A vendor that invoices in rupees is attested in rupees and never crosses the exchange
+    rate; with no cached rung on file its input is priced in full. Test figures only."""
+
+    def _inr(cached: Decimal | None) -> rates.InrLlmPriceAttestation:
+        return rates.InrLlmPriceAttestation(
+            model="inr-test-model",
+            in_inr_per_mtok=Decimal("30"),
+            cached_in_inr_per_mtok=cached,
+            out_inr_per_mtok=Decimal("90"),
+            attested_by="founder",
+            source="test figures",
+        )
+
+    held = rates._inr_attestation_reader
+    try:
+        rates.install_inr_llm_price_attestations(lambda: {"inr-test-model": _inr(Decimal("15"))})
+        # ₹15 per million is ₹0.15 per ten thousand.
+        assert rates.cached_input_rate_exact("inr-test-model") == Decimal("0.15")
+        assert rates.cached_input_inr_per_unit("inr-test-model") == Decimal("0.1500")
+        rates.install_inr_llm_price_attestations(lambda: {"inr-test-model": _inr(None)})
+        assert rates.cached_input_rate_exact("inr-test-model") is None
+    finally:
+        rates.install_inr_llm_price_attestations(held)
+
+
 def test_a_reported_count_is_told_apart_from_a_missing_one() -> None:
     body = {"usage": {"prompt_tokens": 100, "completion_tokens": 5}}
     assert usage_from_body(body) == TokenUsage(prompt_tokens=100, output_tokens=5)
