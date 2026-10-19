@@ -18,9 +18,10 @@ in our developer workspace before D-693; it is addressed there until its next pu
 recreates it. Customer workspaces inherit the developer workspace's voice-only BYOK with
 our Cartesia key (`snapshots/2026-10-08/pages/api-reference/bring-your-own-keys.md:128-133`),
 and each agent says whether it follows that (D-688):
-`byok: "workspace"` speaks a Cartesia voice (Studio), `byok: "off"` stays on ThinnestAI's own
-voices and models at their normal rate (Clear). The field is sent on every create and update,
-never left to its `workspace` default (LIVE-DOCS `docs.thinnest.ai/api-reference/agents/
+`byok: "voice"` speaks a Cartesia voice (Studio), `byok: "off"` stays on ThinnestAI's own
+voices and models at their normal rate (Clear), and `llm`/`llm_voice` answer on our model
+(D-764). The field is sent on every create and update as a named scope, never left to its
+`workspace` default (LIVE-DOCS `docs.thinnest.ai/api-reference/agents/
 update-agent`, read 8 Oct 2026; evaluation §12 item 1).
 
 Three properties of the vendor shape the adapter more than any field name does:
@@ -1026,22 +1027,24 @@ def _key_state(data: dict[str, Any]) -> OwnVoiceKeyState:
 
 
 def _byok_value(on: bool, own_model: str | None = None) -> str:
-    """The agent's `byok` for our two switches. Without our model: `workspace` follows the
-    workspace's voice-only BYOK (our Cartesia key, Studio) and `off` keeps the agent on
-    ThinnestAI's own voices and models at their normal rate. With our model (D-764) the scope
-    is named outright, whatever the workspace default: `llm_voice` (our model and our voice)
-    or `llm` (our model, their voice) (`thinnest-findings/mirror/snapshots/2026-10-13/pages/
-    api-reference/agents/update-agent.md:746-768`; bring-your-own-keys.md:80-90)."""
+    """The agent's `byok` for our two switches, always a scope named outright rather than
+    `workspace`, so an agent never depends on the workspace's default: `voice` (our Cartesia
+    key, Studio, on their model), `off` (ThinnestAI's own voices and models at their normal
+    rate), and with our model (D-764) `llm_voice` (our model and our voice) or `llm` (our
+    model, their voice) (`thinnest-findings/mirror/snapshots/2026-10-18/pages/api-reference/
+    bring-your-own-keys.md:82-90`). `workspace` was sent for Studio until 20 Oct 2026; a
+    workspace whose default became `llm` (our model switched on there, then off) would have
+    moved such an agent onto our model and off our voice."""
     if own_model:
         return "llm_voice" if on else "llm"
-    return "workspace" if on else "off"
+    return "voice" if on else "off"
 
 
 #: An agent's `byok` read back as (speaks on our voice key, answers on our model key).
 #: `all` is the three-key mode `engine_choice` refuses to sell, so it reads as unknown.
-#: `voice` is never sent, but it is a documented read-back (get-agent.md:658-673) with one
-#: meaning, so an agent the vendor holds on it is compared, not left unread: sent `llm_voice`
-#: and read back `voice` is the per-agent scope not kept, and refuses the publish.
+#: `workspace` is no longer sent (`_byok_value`) but an agent published before 20 Oct 2026
+#: still holds it, and on our voice-only workspaces it means our voice. Sent `llm_voice` and
+#: read back `voice` or `workspace` is the per-agent scope not kept, and refuses the publish.
 _BYOK_SCOPES: Final[dict[str, tuple[bool, bool]]] = {
     "workspace": (True, False),
     "voice": (True, False),

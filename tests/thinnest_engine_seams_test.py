@@ -249,7 +249,7 @@ async def test_a_studio_voice_is_set_through_the_own_key_route() -> None:
     assert tools[:2] == ("PATCH", "/agents/ag_9/tools")
     assert listing[:3] == ("GET", "/agents", "org_c9")
     assert create[:3] == ("POST", "/agents", "org_c9")
-    assert "voice" not in create[3]["voice"] and create[3]["byok"] == "workspace"
+    assert "voice" not in create[3]["voice"] and create[3]["byok"] == "voice"
     assert voice == ("PUT", "/agents/ag_9/byok-voice", "org_c9", {"voice": "cv-1"})
 
 

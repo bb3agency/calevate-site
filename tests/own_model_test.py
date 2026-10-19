@@ -116,7 +116,7 @@ def _cfg(**over: Any) -> AgentConfig:
     ("own_voice", "model", "sent"),
     [
         (False, None, "off"),
-        (True, None, "workspace"),
+        (True, None, "voice"),
         (False, "gemini-2.5-flash-lite", "llm"),
         (True, "gemini-2.5-flash-lite", "llm_voice"),
     ],

@@ -477,7 +477,7 @@ def _cfg(**over: Any) -> AgentConfig:
     return AgentConfig.model_validate({**base, **over})
 
 
-@pytest.mark.parametrize(("on", "sent"), [(True, "workspace"), (False, "off")])
+@pytest.mark.parametrize(("on", "sent"), [(True, "voice"), (False, "off")])
 def test_every_agent_body_states_its_own_voice_key_switch(on: bool, sent: str) -> None:
     body = _engine(_Vendor({}))._agent_body(_cfg(engine_own_voice_key=on))
     assert body["byok"] == sent
@@ -516,7 +516,7 @@ async def test_an_agent_is_created_and_updated_in_its_clients_own_workspace() ->
     )
     await engine.update_agent(ref, _cfg(engine_own_voice_key=True, engine_byok_voice_id="cv-1"))
     assert ref == f"ag_9@{ws}"
-    assert [b["byok"] for b in bodies] == ["off", "workspace"]
+    assert [b["byok"] for b in bodies] == ["off", "voice"]
     own_key_voice = next(r for r in vendor.seen if r.url.path.endswith("/byok-voice"))
     assert json.loads(own_key_voice.content) == {"voice": "cv-1"}
     assert all(r.headers.get(WORKSPACE_HEADER) == ws for r in vendor.seen)
@@ -542,7 +542,7 @@ async def test_the_agents_switch_is_read_back_and_set_alone() -> None:
     assert (await engine.get_agent("ag_9")).engine_own_voice_key is False
     assert await engine.agent_own_voice_key("ag_9") is False
     await engine.set_agent_own_voice_key("ag_9", on=True)
-    assert json.loads(vendor.seen[-1].content) == {"byok": "workspace"}
+    assert json.loads(vendor.seen[-1].content) == {"byok": "voice"}
 
 
 @pytest.mark.parametrize(("value", "held"), [("workspace", True), ("other", None), (None, None)])
