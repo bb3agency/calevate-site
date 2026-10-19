@@ -62,6 +62,7 @@ from pathlib import Path
 from typing import Any, Final
 from uuid import UUID
 
+import httpx
 from apps.api.billing.ai_quota import assist_ledger_rows
 from apps.api.copilot import model_tiers, service
 from apps.api.copilot.prompt import SET_FIELDS_TOOL_NAME, assert_screen_fits, render_screen
@@ -78,6 +79,9 @@ FIXTURE: Final = (
 
 ORACLE: Final = "oracle"
 CANNOT_RUN: Final = 2
+#: Attempts per question when the vendor answers 429 or 5xx, with 2 s and 4 s pauses between.
+RETRIES: Final = 3
+TRANSIENT: Final = frozenset({429, 500, 502, 503, 504})
 
 #: What one model turn chose: the tool names, in call order, and what it cost.
 Choice = tuple[tuple[str, ...], TokenUsage | None]
@@ -212,7 +216,7 @@ def model_turn(provider: str, model: str | None) -> ChooseTurn | None:
     if leg is None:
         return None
 
-    async def choose(case: Case) -> Choice:
+    async def turn(case: Case) -> Choice:
         messages = service.build_messages(case.payload, "", case.realm)
         outcome = None
         async for event in service.streamed_turn(leg, messages, tools_for(case)):
@@ -220,6 +224,18 @@ def model_turn(provider: str, model: str | None) -> ChooseTurn | None:
         if outcome is None:
             return (), None
         return tuple(call.name for call in outcome.tool_calls), outcome.usage
+
+    async def choose(case: Case) -> Choice:
+        # A rate limit or an overloaded model is the vendor's moment, not the model's
+        # choice: retried with backoff, as register_eval does, rather than ending the run.
+        for attempt in range(RETRIES):
+            try:
+                return await turn(case)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code not in TRANSIENT or attempt == RETRIES - 1:
+                    raise
+            await asyncio.sleep(2 ** (attempt + 1))
+        raise RuntimeError("unreachable")
 
     return choose
 

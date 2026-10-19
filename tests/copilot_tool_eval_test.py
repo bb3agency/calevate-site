@@ -14,6 +14,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from apps.api.copilot import service
 from apps.api.copilot.admin_prompt import ADMIN_SYSTEM_PROMPT
@@ -235,3 +236,40 @@ def test_a_language_question_after_a_kept_suggestion_is_answered_in_words(
     calls: tuple[str, ...], failures: set[str]
 ) -> None:
     assert set(harness.score(_case("c-talk-language-after-kept"), calls).failures) == failures
+
+
+def test_an_overloaded_vendor_is_retried_rather_than_ending_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Google answered 503 on the VPS (19 Oct 2026) and the run died on its first question."""
+    attempts = 0
+
+    async def streamed_turn(*_args: Any, **_kwargs: Any) -> AsyncIterator[chat.StreamEvent]:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            request = httpx.Request("POST", "https://example.invalid")
+            raise httpx.HTTPStatusError(
+                "overloaded", request=request, response=httpx.Response(503, request=request)
+            )
+        call = chat.ToolCall(id="c1", name="set_fields", arguments="{}")
+        yield chat.StreamEvent(outcome=chat.ChatOutcome(content="", tool_calls=(call,)))
+
+    async def no_wait(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(service, "chat_leg", lambda *_a, **_k: object())
+    monkeypatch.setattr(service, "build_messages", lambda *_a, **_k: [])
+    monkeypatch.setattr(service, "streamed_turn", streamed_turn)
+    monkeypatch.setattr(asyncio, "sleep", no_wait)
+
+    choose = harness.model_turn("google", "gemini-3.1-flash-lite")
+    assert choose is not None
+    case = harness.load_cases()[0]
+
+    async def first_question() -> tuple[str, ...]:
+        calls, _usage = await choose(case)
+        return calls
+
+    assert asyncio.run(first_question()) == ("set_fields",)
+    assert attempts == 2
