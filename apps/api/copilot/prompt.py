@@ -537,7 +537,16 @@ def function_tool(*, name: str, description: str, parameters: dict[str, Any]) ->
 
 
 def set_fields_tool() -> dict[str, Any]:
-    """THE tool definition. One tool, one array argument, stable key order, no screen in it.
+    """THE tool definition. One tool, stable key order, no screen in it.
+
+    **`because` IS A QUOTE OF THE LATEST MESSAGE, CHECKED SERVER-SIDE (D-833).** A fill that
+    rests on an earlier turn's request ("make the opening line warmer", answered already)
+    was the one wrong fill a production eval found after the prompt said to act only on the
+    latest message. `service.validate_fill` refuses a `because` that is not words of
+    `payload.question` (`quotes.quoted_in`). It precedes `items` so the model writes the
+    request down before the values. A keyword classifier of change verbs was the rejected
+    alternative: it needs a word list per language and refuses a bare answer such as "10 to
+    8, closed Sundays" to Pip's own question, which a quote accepts.
 
     **WHY THE `value` IS NOT AN ENUM AND THE SELECT OPTIONS LIVE IN THE PROMPT.** Under
     Structured Outputs a schema `enum` is the strongest anti-invention lever available —
@@ -574,18 +583,22 @@ def set_fields_tool() -> dict[str, Any]:
     return function_tool(
         name=SET_FIELDS_TOOL_NAME,
         description=(
-            "Write values into form fields on the screen the user is looking at. Call "
-            "this ONCE per turn with every field you want to set. The values go into "
-            "the form only; the screen's saves attribute says how they are kept.\n"
-            "ONLY for the form in front of the user, and ONLY for the fields their "
-            "request is actually about. This is NOT how you create, rename, publish, "
-            "launch, or change anything — each of those has its own tool. If what they "
-            "asked for is not one of the fields listed in SCREEN STATE, do not call this "
-            "at all: use the right tool, or say you cannot do that here."
+            "Write values into form fields on the screen the user is looking at, ONCE per "
+            "turn with every field to set; the screen's saves attribute says how they are "
+            "kept. ONLY for fields in SCREEN STATE that the LATEST message asks to change. "
+            "NOT how you create, rename, publish, launch or change anything else: use its "
+            "own tool, or say you cannot do that here."
         ),
         parameters={
             "type": "object",
             "properties": {
+                "because": {
+                    "type": "string",
+                    "description": (
+                        "The words of the person's LATEST message that ask for this, "
+                        "copied exactly. Words from an earlier message are refused."
+                    ),
+                },
                 "items": {
                     "type": "array",
                     "description": "Every field to set, in one array.",
@@ -616,9 +629,9 @@ def set_fields_tool() -> dict[str, Any]:
                         "required": ["field_id", "value"],
                         "additionalProperties": False,
                     },
-                }
+                },
             },
-            "required": ["items"],
+            "required": ["because", "items"],
             "additionalProperties": False,
         },
     )

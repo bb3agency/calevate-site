@@ -85,7 +85,9 @@ def test_a_filled_value_is_stripped_before_it_reaches_the_browser() -> None:
         fields=[{"id": "hours", "label": "Monday opens", "type": "text", "writable": True}]
     )
     items = service.validate_fill(
-        payload, f'{{"items": [{{"field_id": "hours", "value": "09:{ZERO_WIDTH}00"}}]}}'
+        payload,
+        '{"because": "the opening line", '
+        f'"items": [{{"field_id": "hours", "value": "09:{ZERO_WIDTH}00"}}]}}',
     )
     assert items == (CopilotFillItem(field_id="hours", value="09:00"),)
 

@@ -64,6 +64,7 @@ from apps.api.copilot.identity import (
     identity_answer,
     question_touches_model_identity,
 )
+from apps.api.copilot.quotes import quoted_in
 from apps.api.copilot.sanitize import clean_value, strip_invisible
 from apps.api.copilot.schemas import (
     CopilotActionEvent,
@@ -498,6 +499,15 @@ _MAX_REASON_ID: Final[int] = max(
 )
 
 
+#: A fill whose `because` is not words of the latest message (D-833, `prompt.set_fields_tool`).
+#: Names no value: the reason reaches a log line, the next turn and, if turns run out, the
+#: person's panel.
+UNQUOTED_FILL_REASON: Final = (
+    "`because` is not words of the person's latest message, so that message did not ask for "
+    "this: answer it instead, and fill only if it asks for a change, copying its words exactly"
+)
+
+
 class FillRefusedError(Exception):
     """The model asked for a write this request does not permit.
 
@@ -642,6 +652,12 @@ def spoken_line_problem(field: CopilotField, value: object, question: str) -> st
     return f"is a line callers hear and uses textbook words they do not say: {textbook_note(swaps)}"
 
 
+def person_said(payload: CopilotAskIn) -> tuple[str, ...]:
+    """The person's own messages in this conversation, latest last: what a tool's
+    `grounded` check reads (D-833). Pip's turns are left out; they are not the person's."""
+    return (*(turn.content for turn in payload.history if turn.role == "user"), payload.question)
+
+
 def validate_fill(payload: CopilotAskIn, arguments: str) -> tuple[CopilotFillItem, ...]:
     """The model's `set_fields` arguments, re-checked against THIS REQUEST. Raises
     `FillRefusedError` naming every item that failed.
@@ -658,6 +674,9 @@ def validate_fill(payload: CopilotAskIn, arguments: str) -> tuple[CopilotFillIte
     apply — write the six that were fine, drop the one that was not — gives the person a
     form in a state neither they nor the copilot described, and one Undo that only undoes
     part of it. One call, one outcome, one Undo.
+
+    `because` must be words of `payload.question` (D-833, `prompt.set_fields_tool`): a fill
+    resting on an earlier, answered request is refused with the rest of the reasons.
 
     EVERY REASON NAMES ITS FIELD, because the refusal is fed back to the model on the next
     turn and "one of your fields was wrong" is not something it can act on. Field IDS are
@@ -679,6 +698,8 @@ def validate_fill(payload: CopilotAskIn, arguments: str) -> tuple[CopilotFillIte
     by_id = {field.id: field for field in payload.fields}
     items: list[CopilotFillItem] = []
     reasons: list[str] = []
+    if not quoted_in(parsed.get("because"), (payload.question,)):
+        reasons.append(UNQUOTED_FILL_REASON)
     seen: set[str] = set()
     for raw in raw_items:
         if not isinstance(raw, dict):
@@ -1971,7 +1992,11 @@ async def _run_tool_loop(
                         )
                         continue
                     staged = await write_tools.stage_for_approval(
-                        call.name, call.arguments, principal=principal, job_id=limits.job_id
+                        call.name,
+                        call.arguments,
+                        principal=principal,
+                        job_id=limits.job_id,
+                        said=person_said(payload),
                     )
                     actions_run += 1
                     yield CopilotEvent(
@@ -1998,7 +2023,9 @@ async def _run_tool_loop(
                         viewing_tenant_id=None if tool_context is None else tool_context.tenant_id,
                     )
                     if is_admin_action
-                    else await write_tools.plan_write(call.name, call.arguments, actor=actor)
+                    else await write_tools.plan_write(
+                        call.name, call.arguments, actor=actor, said=person_said(payload)
+                    )
                 )
             except write_tools.WriteRefusedError as refused:
                 refusal_reasons = (refused.reason,)
@@ -2828,6 +2855,7 @@ __all__ = [
     "STREAM_IDLE_S",
     "TOTAL_BUDGET_S",
     "TRUNCATED_MESSAGE",
+    "UNQUOTED_FILL_REASON",
     "CopilotEvent",
     "CopilotSpend",
     "FillRefusedError",
@@ -2836,6 +2864,7 @@ __all__ = [
     "chat_leg",
     "disclosure_for",
     "job_limits",
+    "person_said",
     "run_copilot",
     "streamed_turn",
     "tool_array",

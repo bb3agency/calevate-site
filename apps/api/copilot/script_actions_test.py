@@ -194,6 +194,71 @@ async def test_the_allowance_refusal_reaches_the_person_before_the_card(
     assert refused.value.code == "ai_quota_exceeded"
 
 
+# --- a whole script rests on the owner's own answers (D-833) ----------------------------
+
+#: The production eval's case `c-script-whole-asks-first`: nothing answered yet.
+ASKED_ONLY = ("Draft the whole script for this agent",)
+ANSWERED = (
+    "Draft the whole script for this agent. Ask me the five questions first.",
+    "Organic groceries. Home cooks call to order. Never promise same-day delivery.",
+)
+
+
+async def _propose_in_conversation(
+    tenant_id: UUID, token: str, args: dict[str, Any], said: tuple[str, ...]
+) -> CopilotProposalEvent:
+    return await write_tools.plan_write(
+        TOOL,
+        json.dumps(args),
+        actor=write_tools.actor_for(_principal(tenant_id, _user_of(token))),
+        said=said,
+    )
+
+
+@pytest.mark.parametrize(
+    ("answers", "reason"),
+    [
+        (None, "five questions first"),
+        ({"what_you_offer": "Organic groceries", "customers": "Home cooks"}, "`what_you_offer`"),
+    ],
+    ids=["no-answers", "invented-answers"],
+)
+async def test_a_whole_script_before_the_owner_answered_is_refused(
+    answers: dict[str, str] | None, reason: str
+) -> None:
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    with pytest.raises(WriteRefusedError) as refused:
+        await _propose_in_conversation(
+            tenant_id, token, _args(agent_id, mode="whole", answers=answers), ASKED_ONLY
+        )
+    assert reason in refused.value.reason
+
+
+async def test_a_whole_script_from_answers_the_owner_typed_is_proposed() -> None:
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    answers = dict.fromkeys(OWNER_QUESTIONS) | {
+        "what_you_offer": "Organic groceries.",
+        "customers": "home cooks call to order",
+        "never_say": "Never promise same-day delivery",
+    }
+    proposal = await _propose_in_conversation(
+        tenant_id, token, _args(agent_id, mode="whole", answers=answers), ANSWERED
+    )
+    assert "Organic groceries" in proposal.proposed
+
+
+async def test_a_change_is_not_held_to_the_owners_exact_words() -> None:
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    await _set_draft(tenant_id, agent_id, _stepped())
+    proposal = await _propose_in_conversation(
+        tenant_id, token, _args(agent_id, change="Make the greeting friendlier"), ("be nicer",)
+    )
+    assert proposal.proposed == "Make the greeting friendlier"
+
+
 # --- confirm, the job, the Script page --------------------------------------------------
 
 

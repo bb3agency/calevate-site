@@ -65,6 +65,14 @@
     {"id": "c-script-whole-asks-first", "realm": "client", "kind": "action", "route": "/c/sunrise/agents/0192f3a4-0000-7000-8000-0000000a9e01/script", "title": "Call script",
      "facts": [{"key": "agent_id", "label": "Agent id", "value": "0192f3a4-0000-7000-8000-0000000a9e01"}],
      "question": "Draft the whole script for this agent", "expect": [], "none_ok": true, "forbid": ["agent_script_suggest", "set_fields"]},
+    {"id": "c-script-whole-answered", "realm": "client", "kind": "action", "route": "/c/sunrise/agents/0192f3a4-0000-7000-8000-0000000a9e01/script", "title": "Call script",
+     "facts": [{"key": "agent_id", "label": "Agent id", "value": "0192f3a4-0000-7000-8000-0000000a9e01"}],
+     "history": [
+       {"role": "user", "content": "Draft the whole script for this agent. Ask me the five questions first."},
+       {"role": "assistant", "content": "Happy to. What do you sell, who calls you, what should the agent collect, what should it never promise, and how should a call end?"}
+     ],
+     "question": "Organic groceries. Home cooks call to order. Take their name and area. Never promise same-day delivery. End by confirming the order.",
+     "expect": ["agent_script_suggest"], "forbid": ["set_fields"]},
     {"id": "c-script-steps", "realm": "client", "kind": "action", "route": "/c/sunrise/agents/0192f3a4-0000-7000-8000-0000000a9e01/script", "title": "Call script (hand-written)",
      "facts": [{"key": "agent_id", "label": "Agent id", "value": "0192f3a4-0000-7000-8000-0000000a9e01"}],
      "question": "Turn this agent's hand-written script into steps", "expect": ["agent_script_suggest"], "forbid": ["set_fields"]},
@@ -95,6 +103,24 @@
        {"id": "intake-business-kind", "label": "Kind of business", "type": "text", "value": "Hair salon", "writable": true}
      ],
      "question": "write a warm opening line for me", "expect": ["set_fields"]},
+    {"id": "c-fill-answer-only", "realm": "client", "kind": "fill", "route": "/c/sunrise/agents/new", "title": "Build an agent",
+     "fields": [
+       {"id": "intake-hours-open", "label": "Opens at", "type": "text", "value": null, "writable": true},
+       {"id": "intake-hours-close", "label": "Closes at", "type": "text", "value": null, "writable": true},
+       {"id": "intake-closed-days", "label": "Closed on", "type": "text", "value": null, "writable": true}
+     ],
+     "history": [
+       {"role": "user", "content": "fill in my hours"},
+       {"role": "assistant", "content": "What time do you open and close, and which day are you closed?"}
+     ],
+     "question": "10 to 8, closed on Sundays", "expect": ["set_fields"]},
+    {"id": "c-fill-hours-telugu", "realm": "client", "kind": "fill", "route": "/c/sunrise/agents/new", "title": "Build an agent",
+     "fields": [
+       {"id": "intake-hours-open", "label": "Opens at", "type": "text", "value": null, "writable": true},
+       {"id": "intake-hours-close", "label": "Closes at", "type": "text", "value": null, "writable": true},
+       {"id": "intake-closed-days", "label": "Closed on", "type": "text", "value": null, "writable": true}
+     ],
+     "question": "టైమింగ్స్ నింపండి: ఉదయం 10 నుండి రాత్రి 8 వరకు, ఆదివారం సెలవు", "expect": ["set_fields"]},
     {"id": "c-create-on-form", "realm": "client", "kind": "action", "route": "/c/sunrise/agents/new", "title": "Build an agent",
      "fields": [
        {"id": "intake-name", "label": "Agent name", "type": "text", "value": null, "writable": true},

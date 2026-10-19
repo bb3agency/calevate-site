@@ -155,11 +155,14 @@ def test_there_is_exactly_one_tool_and_it_takes_an_array() -> None:
     """OWASP LLM01 #8's Rule of Two: untrusted input + sensitive data + state change is
     the combination to avoid, and this design drops the third by having no tool that
     submits, dials, launches, persists or spends. The array is what makes one call one
-    atomic Undo and one audit row."""
+    atomic Undo and one audit row. `because` comes first, so the model writes down which
+    words of the latest message ask for the fill before it writes the values (D-833)."""
     tool = prompt_module.set_fields_tool()
     assert tool["function"]["name"] == "set_fields"
     parameters = tool["function"]["parameters"]
-    assert list(parameters["properties"]) == ["items"]
+    assert list(parameters["properties"]) == ["because", "items"]
+    assert parameters["required"] == ["because", "items"]
+    assert parameters["properties"]["because"]["type"] == "string"
     assert parameters["properties"]["items"]["type"] == "array"
 
 
