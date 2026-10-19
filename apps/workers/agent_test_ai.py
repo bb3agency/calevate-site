@@ -25,13 +25,13 @@ from __future__ import annotations
 
 import hashlib
 import random
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any, Final
 
 from calevate_shared.call_script import MAX_SCRIPT_STAGES, CallScript
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
-from calevate_shared.spoken_style import caller_guidance
+from calevate_shared.spoken_guard import generation_guidance, textbook_problem
 
 from apps.api.agents.assist_leg import google_assist_leg
 from apps.api.agents.script_edits import (
@@ -43,6 +43,7 @@ from apps.api.agents.script_edits import (
     apply_edit,
     clip,
     describe,
+    language_problem,
 )
 from apps.api.agents.test_conversations import (
     CATEGORIES,
@@ -122,7 +123,7 @@ def brief_text(brief: AgentBrief, *, history: bool = True, script: bool = True) 
             + "; ".join(f"{a} -> {b}" for a, b in brief.word_swaps)
         )
     # The founder's reviewed spoken style (D-744), so test callers talk like real ones.
-    callers = caller_guidance(brief.language, brief.business_type)
+    callers = generation_guidance(brief.language, brief.business_type, side="caller")
     if callers:
         lines.append(callers)
     if script:
@@ -238,18 +239,41 @@ def _strict(name: str, schema: dict[str, object]) -> dict[str, object]:
     return {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}}
 
 
-def scenarios_from_model(raw: dict[str, Any], *, round_key: str) -> list[Scenario] | None:
-    """The model's scenarios, cleaned; None when it gave none usable."""
+def scenarios_from_model(
+    raw: dict[str, Any],
+    *,
+    round_key: str,
+    language: str | None = None,
+    send_back_language: bool = False,
+) -> list[Scenario] | None:
+    """The model's scenarios, cleaned; None when it gave none usable.
+
+    A caller line with a textbook word no real caller says (`spoken_guard.textbook_problem`)
+    sends the answer back once with `send_back_language`; on the repaired answer that
+    scenario is left out instead."""
     rows = raw.get("scenarios")
     if not isinstance(rows, list):
         return None
     out: list[Scenario] = []
+    wording: list[str] = []
     for index, row in enumerate(rows):
         if not isinstance(row, dict):
             continue
         turns = clean_turns(row.get("caller_turns"))
         title = " ".join(str(row.get("title") or "").split())[:120]
         if not turns or not title:
+            continue
+        worded = [
+            problem
+            for line, said in enumerate(turns)
+            if (
+                problem := textbook_problem(
+                    f"scenarios.{index}.caller_turns.{line}", said, language
+                )
+            )
+        ]
+        if worded:
+            wording += worded
             continue
         probe = row.get("probe")
         category = row.get("category")
@@ -263,7 +287,27 @@ def scenarios_from_model(raw: dict[str, Any], *, round_key: str) -> list[Scenari
                 probe=probe if probe in PROBES else None,
             )
         )
+    if wording and send_back_language:
+        raise UnusableAnswerError("; ".join(wording[:8]))
     return out[: MAX_GENERATED + 4] or None
+
+
+def _send_back_once[T](
+    parse: Callable[[dict[str, Any], bool], T],
+) -> Callable[[dict[str, Any]], T]:
+    """`parse` told to send the answer back for its language problems on the first answer
+    only (`ask_json` repairs once): the repaired answer leaves out what is still wrong rather
+    than losing every scenario or edit with it."""
+    first = [True]
+
+    def once(raw: dict[str, Any]) -> T:
+        try:
+            return parse(raw, first[0])
+        except UnusableAnswerError:
+            first[0] = False
+            raise
+
+    return once
 
 
 async def generate_scenarios(
@@ -279,7 +323,11 @@ async def generate_scenarios(
     return await ask_json(
         brief_text(brief),
         GENERATE_INSTRUCTION.format(count=count),
-        parse=lambda raw: scenarios_from_model(raw, round_key=round_key),
+        parse=_send_back_once(
+            lambda raw, send_back: scenarios_from_model(
+                raw, round_key=round_key, language=brief.language, send_back_language=send_back
+            )
+        ),
         azure_format=_strict("calevate_agent_tests", _GENERATE_SCHEMA),
         tenant_leg=tenant_leg,
         quota_exhausted=quota_exhausted,
@@ -517,13 +565,15 @@ IMPROVE_INSTRUCTION: Final = (
     "- add_step: a new step named `name` with the instruction `text`, placed after the "
     "step `step_id` (empty: at the end). Only when no existing step can hold the fix; a "
     f"script has at most {MAX_SCRIPT_STAGES} steps.\n"
-    "- set_objection: when the caller says `objection`, the agent answers `text`. Naming "
-    "an existing objection replaces its answer.\n"
+    "- set_objection: when the caller says `objection`, `text` is how the agent answers it, "
+    "as a plain-English instruction. Naming an existing objection replaces its answer.\n"
     "- set_part: the script part `part` (opening_line, ending, identity, goal, "
     "business_line or outbound_purpose) becomes `text`.\n"
     "Give every field; a field the edit does not use is an empty string. because: the key "
-    "of the test it fixes. why: one plain-English sentence for the owner. Instructions are "
-    "plain English; words the agent says are in the call language as people speak it, "
+    "of the test it fixes. why: one plain-English sentence for the owner. Instructions (a "
+    "step's, an objection's answer, every part but opening_line) are in plain English "
+    "letters, never the call language's script; the opening_line is said, so it is "
+    "in the call language as people speak it, "
     "with the English words they use, never textbook words. Keep a step's instruction under "
     "500 characters.\n"
     "facts: when a test failed for a missing or wrong fact, the fact to pin: action (add, "
@@ -676,8 +726,15 @@ def proposal_from_model(
     current: CallScript,
     keys: set[str],
     fact_ids: set[str],
+    language: str | None = None,
+    send_back_language: bool = False,
 ) -> dict[str, Any] | None:
     """The improver's answer as the proposal the owner reviews, one entry per edit.
+
+    An edit that breaks the language rules (`script_edits.language_problem`: an instruction
+    not in English, a spoken line with a textbook word) is dropped like any edit that does
+    not fit; with `send_back_language` the whole answer is first sent back once to fix them,
+    because a dropped edit is a lost fix.
 
     Each edit is validated on its own by applying it to the script built so far
     (`script_edits.apply_edit`): one that does not fit, or a second edit of something already
@@ -691,6 +748,7 @@ def proposal_from_model(
     script = current
     edits: list[dict[str, Any]] = []
     problems: list[str] = []
+    wording: list[str] = []
     targets: set[str] = set()
     for index, row in enumerate(rows):
         if not isinstance(row, dict):
@@ -712,16 +770,26 @@ def proposal_from_model(
                 raise EditRejectedError("op", "same_target_twice")
             if len(edits) >= MAX_EDITS:
                 raise EditRejectedError("op", "too_many_edits")
+            worded = language_problem(edit, script, language, where=f"edits.{index}.text")
+            if worded is not None:
+                wording.append(worded)
+                raise EditRejectedError("text", "language")
             script = apply_edit(script, edit)
         except EditRejectedError as refused:
             log.info(
                 "agent_tests_edit_dropped",
                 extra={"op": edit.op[:20], "field": refused.field, "rule": refused.rule},
             )
-            problems.append(f"edits.{index}.{refused.field}: {refused.rule}")
+            problems.append(
+                wording[-1]
+                if refused.rule == "language"
+                else f"edits.{index}.{refused.field}: {refused.rule}"
+            )
             continue
         targets.add(edit.target)
         edits.append({**edit.as_dict(), **describe(edit, current)})
+    if wording and send_back_language:
+        raise UnusableAnswerError("; ".join(wording[:8]))
     if problems and not edits:
         raise UnusableAnswerError("; ".join(problems[:8]))
     return {
@@ -742,10 +810,21 @@ async def propose_improvement(
     """Small script edits and facts to pin, with their reasons, for these failed tests."""
     keys = {str(r.get("key")) for r in failures}
     fact_ids = {fid for fid, _q, _a in brief.pinned_facts}
+    parse = _send_back_once(
+        lambda raw, send_back: proposal_from_model(
+            raw,
+            current=current,
+            keys=keys,
+            fact_ids=fact_ids,
+            language=brief.language,
+            send_back_language=send_back,
+        )
+    )
+
     return await ask_json(
         improve_request(brief, current, failures),
         IMPROVE_INSTRUCTION,
-        parse=lambda raw: proposal_from_model(raw, current=current, keys=keys, fact_ids=fact_ids),
+        parse=parse,
         azure_format=_strict("calevate_agent_test_edits", _IMPROVE_SCHEMA),
         tenant_leg=tenant_leg,
         quota_exhausted=quota_exhausted,

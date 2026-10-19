@@ -161,6 +161,16 @@ describe("AI proposals, kept part by part", () => {
     expect(diffScripts(current, proposal).map((c) => c.id)).toEqual(["change:price"]);
   });
 
+  it("applies the owner's rewording of a suggestion without changing which change it is", () => {
+    // The AI re-minted the id, so the section is matched by name; renaming it in the review
+    // must not turn the change into an addition and a removal.
+    const proposal = script(stage("greet", "Greet"), stage("x2", "Price", { instruction: "Say the price" }));
+    const edited = updateSection(proposal, "x2", { name: "Prices", instruction: "Say the price slowly" });
+    const kept = applyChanges(current, proposal, new Set(["change:price"]), edited);
+    expect(ids(kept)).toEqual(["greet", "price"]);
+    expect(sectionsOf(kept)[1]).toMatchObject({ name: "Prices", instruction: "Say the price slowly" });
+  });
+
   it("writes the history note from what changed", () => {
     const draft = updateSection(current, "price", { instruction: "new" });
     expect(changeSummary(current, draft)).toBe('Changed "Price"');

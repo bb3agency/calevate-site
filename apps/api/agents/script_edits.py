@@ -27,6 +27,7 @@ from calevate_shared.call_script import (
     ConversationStage,
     Objection,
 )
+from calevate_shared.spoken_guard import english_problem, textbook_problem
 from pydantic import ValidationError
 
 EditOp = Literal["set_step", "add_step", "set_objection", "set_part"]
@@ -208,6 +209,23 @@ def apply_edit(script: CallScript, edit: ScriptEdit) -> CallScript:
     return _validated(script, {edit.part: edit.text})
 
 
+def language_problem(
+    edit: ScriptEdit, script: CallScript, language: str | None, *, where: str
+) -> str | None:
+    """What breaks the language rules in an edit the AI proposed (D-831), or None.
+
+    The new words are an instruction (plain English) unless they are said: the opening line
+    and a "say" step, which must not use a textbook word. Only for the improver's answer:
+    `apply_edit` applies the owner's kept edits and never judges their language."""
+    spoken = edit.op == "set_part" and edit.part == "opening_line"
+    if edit.op == "set_step":
+        stage = next((s for s in script.stages if s.id == edit.step_id), None)
+        spoken = stage is not None and stage.mode == "say"
+    if spoken:
+        return textbook_problem(where, edit.text, language)
+    return english_problem(where, edit.text)
+
+
 def apply_edits(
     script: CallScript, edits: list[ScriptEdit]
 ) -> tuple[CallScript, list[str], list[tuple[ScriptEdit, EditRejectedError]]]:
@@ -268,4 +286,5 @@ __all__ = [
     "apply_edits",
     "clip",
     "describe",
+    "language_problem",
 ]

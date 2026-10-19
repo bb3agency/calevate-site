@@ -384,7 +384,11 @@ def test_a_proposal_is_small_edits_each_checked_on_its_own() -> None:
             "edits": [
                 _edit("set_step", step_id="s1", text="Greet them and ask what they need."),
                 _edit("set_step", step_id="nope", text="x"),
-                _edit("set_objection", objection="Not interested", text="సరే అండి, thanks."),
+                _edit(
+                    "set_objection",
+                    objection="Not interested",
+                    text="Accept it politely and thank them.",
+                ),
                 _edit("set_step", step_id="s1", text="A second change to the same step."),
                 _edit("add_step", step_id="s1", name="Price", text="Give the pinned price."),
                 _edit("set_part", part="ending", text="Thank them and say goodbye."),
@@ -807,7 +811,13 @@ async def test_improving_needs_a_failure_and_the_allowance(
         _model(
             [
                 {
-                    "edits": [_edit("set_objection", objection="Not interested", text="సరే అండి.")],
+                    "edits": [
+                        _edit(
+                            "set_objection",
+                            objection="Not interested",
+                            text="Accept it politely and thank them.",
+                        )
+                    ],
                     "facts": [],
                 }
             ]
@@ -816,7 +826,7 @@ async def test_improving_needs_a_failure_and_the_allowance(
     stop, record = await worker.improve_run(tenant_id, agent_id, run_id, keys=["k1"])
     assert stop == "completed" and record is not None
     assert record["edits"][0]["because"] == "k1"
-    assert record["edits"][0]["after"] == "సరే అండి."
+    assert record["edits"][0]["after"] == "Accept it politely and thank them."
     async with tenant_session(tenant_id) as session:
         stored = await test_conversations.get_run(session, agent_id, run_id)
         improve_rows = (

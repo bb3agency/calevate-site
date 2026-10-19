@@ -31,6 +31,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final, Literal, Protocol
 
+from calevate_shared.spoken_guard import textbook_note, textbook_words
 from calevate_shared.spoken_style import style_for
 
 Kind = Literal[
@@ -241,9 +242,6 @@ _LATIN_WORD: Final = re.compile(r"[A-Za-z]{2,}")
 _THIRD_PERSON: Final = re.compile(
     r"\bthe caller(?:['\u2019]s)?\b|\bthe customer['\u2019]s\b", re.IGNORECASE
 )
-#: Indic letters carry combining marks, so `\b` does not mark a word start: a formal word
-#: counts when it opens the reply or follows a space or punctuation.
-_WORD_START: Final = r"(?:^|(?<=[\s,.!?;:\"'(।]))"
 
 
 def sentences(reply: str) -> list[str]:
@@ -255,19 +253,6 @@ def sentences(reply: str) -> list[str]:
         elif piece:
             out.append(piece)
     return out
-
-
-def formal_swaps(reply: str, language: str) -> list[tuple[str, str]]:
-    """(formal word, what people say instead) for each word of the language's spoken-style
-    list (`spoken_style.json`) this reply used, in the list's order."""
-    style = style_for(language)
-    if style is None or not reply:
-        return []
-    return [
-        (formal, spoken)
-        for formal, spoken in style.word_swaps
-        if re.search(_WORD_START + re.escape(formal), reply)
-    ]
 
 
 def _is_question(sentence: str) -> bool:
@@ -389,15 +374,17 @@ def _symbol_problems(reply: str) -> list[TurnProblem]:
     return found
 
 
+#: The spoken-style list's matcher, shared with every AI writer of spoken lines (D-831).
+formal_swaps = textbook_words
+
+
 def _formal_problem(reply: str, language: str) -> TurnProblem | None:
     swaps = formal_swaps(reply, language)
     if not swaps:
         return None
-    said = "; ".join(
-        f"“{formal}” ({spoken.strip('()') if spoken.startswith('(') else f'say “{spoken}”'})"
-        for formal, spoken in swaps
+    return TurnProblem(
+        "formal_words", f"It used textbook words callers do not say: {textbook_note(swaps)}."
     )
-    return TurnProblem("formal_words", f"It used textbook words callers do not say: {said}.")
 
 
 def _question_problems(parts: list[str]) -> list[TurnProblem]:

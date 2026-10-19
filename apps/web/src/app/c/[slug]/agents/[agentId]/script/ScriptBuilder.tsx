@@ -653,7 +653,14 @@ function Editor({
       <div className={twoColumns ? "grid gap-8 xl:grid-cols-[minmax(0,1fr)_340px]" : ""}>
         <div className="min-w-0 space-y-8">
           <div className="max-w-3xl space-y-8">
-          <PipProposal agentId={agentId} script={script} canWrite={write.allowed} onKeep={keep} />
+          <PipProposal
+            agentId={agentId}
+            script={script}
+            canWrite={write.allowed}
+            onKeep={keep}
+            limits={limits}
+            language={context?.language}
+          />
           {raw ? (
             <section aria-labelledby="hand-heading" className="space-y-3">
               <h3 id="hand-heading" className="text-heading text-ink">

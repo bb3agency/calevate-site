@@ -65,7 +65,7 @@ from calevate_shared.engine import (
     google_openai_compat_base_url,
     keeps_default_temperature,
 )
-from calevate_shared.spoken_style import writer_guidance
+from calevate_shared.spoken_guard import english_problem, generation_guidance, textbook_problem
 from pydantic import ValidationError
 
 from apps.api.core import provider_health
@@ -107,8 +107,12 @@ _SYSTEM_INSTRUCTION = (
     "the business type, whether the agent answers or places calls, the call language and "
     "its spoken register, the details the agent must collect, the titles of the business's "
     "knowledge documents, and the owner's own short answers. Fill EVERY section.\n"
-    "Write instructions (identity, goal, stage instructions and exit conditions, "
-    "objections, ending) in plain English. Write the words the agent will SAY (opening_line, "
+    "Write instructions (business_line, identity, goal, outbound_purpose, tone, "
+    "address_form, stage instructions and exit conditions, objection responses, ending) in "
+    "plain English letters, never in the call language's script, even when the call is in "
+    "Telugu or Hindi. identity is one plain-English sentence describing the agent's job, "
+    'for example "Answers calls for the shop: products, prices, orders and delivery", '
+    "never just the business name. Write the words the agent will SAY (opening_line, "
     "sounds_like, sample_phrases, example_exchange) in the call language as people really "
     "speak it on the phone, in the script that language is normally written in, with the "
     "English words they use kept in English letters (order, delivery, booking, price), "
@@ -165,7 +169,9 @@ EDIT_INSTRUCTION = (
     "the call are the `stages` list; leave the `steps` list exactly as it is. A field the "
     "change does not need stays exactly as it is, and an EMPTY field stays empty: do not fill "
     "in parts the owner did not ask about. Instructions "
-    "stay in plain English; words the agent says stay in the call language, spoken, with "
+    "(business_line, identity, goal, outbound_purpose, tone, address_form, stage "
+    "instructions, objection responses, ending) stay in plain English letters, never in the "
+    "call language's script; words the agent says stay in the call language, spoken, with "
     "the English words people use, following the spoken-style guide in the brief (spoken "
     "words, never their formal forms; its number and punctuation rules). Never invent "
     "prices or facts. Do not write about being "
@@ -196,9 +202,103 @@ def _stages_where_they_belong(fields: dict[str, Any], current: CallScript) -> di
     return moved
 
 
-def edited_script(raw: dict[str, Any], current: CallScript) -> CallScript | None:
+def _instruction_fields(script: CallScript) -> list[tuple[str, str]]:
+    """(path, text) of every field that instructs the in-call model and is never heard.
+
+    A step in "say" mode is said as written, so its instruction is a spoken line. A step's
+    name, an objection's caller side, the facts and the legacy `steps` are not here: the
+    first two are the caller's words or the owner's label, and the AI writes none of the rest
+    as instructions."""
+    fields = [
+        ("business_line", script.business_line),
+        ("identity", script.identity),
+        ("goal", script.goal),
+        ("outbound_purpose", script.outbound_purpose),
+        ("style.tone", script.style.tone),
+        ("style.address_form", script.style.address_form),
+        ("ending", script.ending),
+    ]
+    fields += [(f"objections.{i}.response", o.response) for i, o in enumerate(script.objections)]
+    for i, stage in enumerate(script.stages):
+        if stage.mode == "guide":
+            fields.append((f"stages.{i}.instruction", stage.instruction))
+        fields += [(f"stages.{i}.branches.{j}.when", b.when) for j, b in enumerate(stage.branches)]
+    return fields
+
+
+def _spoken_fields(script: CallScript) -> list[tuple[str, str]]:
+    """(path, text) of every line the agent says, or that shows how a caller sounds."""
+    fields = [("opening_line", script.opening_line)]
+    for i, stage in enumerate(script.stages):
+        fields.append((f"stages.{i}.sounds_like", stage.sounds_like))
+        if stage.mode == "say":
+            fields.append((f"stages.{i}.instruction", stage.instruction))
+    fields += [(f"style.sample_phrases.{i}", p) for i, p in enumerate(script.style.sample_phrases)]
+    fields += [
+        (f"example_exchange.{i}.text", e.text) for i, e in enumerate(script.example_exchange)
+    ]
+    return fields
+
+
+def language_problems(
+    script: CallScript,
+    language: str | None,
+    *,
+    before: CallScript | None = None,
+    allowed: str = "",
+    instructions: bool = True,
+) -> list[str]:
+    """What the model must fix in a script it wrote (D-831): an instruction in an Indic
+    script, and a spoken line with a textbook word (`spoken_guard`).
+
+    Only the model's own writing is judged: with `before` (an edit), a field whose text the
+    script already held is the owner's and is skipped, and a textbook word that appears in
+    `allowed` (the owner's own words the script was written from) is theirs. `instructions`
+    False skips the English rule, for a conversion that keeps the owner's sentences."""
+    kept = (
+        {text for _, text in (*_instruction_fields(before), *_spoken_fields(before))}
+        if before is not None
+        else set()
+    )
+    problems: list[str] = []
+    if instructions:
+        problems += [
+            problem
+            for path, text in _instruction_fields(script)
+            if text not in kept and (problem := english_problem(path, text))
+        ]
+    problems += [
+        problem
+        for path, text in _spoken_fields(script)
+        if text not in kept and (problem := textbook_problem(path, text, language, allowed=allowed))
+    ]
+    return problems
+
+
+def drafted_script(
+    raw: dict[str, Any], *, language: str | None, allowed: str = "", instructions: bool = True
+) -> CallScript:
+    """A whole draft (or a conversion) as `_script_from_model_json` reads it, refused with
+    the language problems for the one repair when it breaks the language rules."""
+    script = _script_from_model_json(raw)
+    problems = language_problems(script, language, allowed=allowed, instructions=instructions)
+    if problems:
+        log.warning("script_assist_language_unusable", extra={"count": len(problems)})
+        raise UnusableAnswerError("; ".join(problems[:12]))
+    return script
+
+
+def edited_script(
+    raw: dict[str, Any],
+    current: CallScript,
+    *,
+    language: str | None = None,
+    allowed: str = "",
+) -> CallScript | None:
     """The model's edited script, validated like any save; None when it is not a valid
-    script (the edit is then reported as no draft rather than half applied)."""
+    script (the edit is then reported as no draft rather than half applied). A field the
+    model changed must keep the language rules (`language_problems`); what the owner already
+    had is never judged."""
     fields = _stages_where_they_belong(
         {k: v for k, v in raw.items() if k in CallScript.model_fields}, current
     )
@@ -219,6 +319,10 @@ def edited_script(raw: dict[str, Any], current: CallScript) -> CallScript | None
         )
         log.warning("script_assist_edit_unusable", extra={"where": where, "count": len(errors)})
         raise UnusableAnswerError("; ".join(problems)) from invalid
+    problems = language_problems(edited, language, before=current, allowed=allowed)
+    if problems:
+        log.warning("script_assist_language_unusable", extra={"count": len(problems)})
+        raise UnusableAnswerError("; ".join(problems[:12]))
     return edited.model_copy(update={"raw_override": None, "schema_version": 2})
 
 
@@ -316,7 +420,7 @@ class ScriptBrief:
         # The spoken-style guide for the call language (D-744): every swap, the tags and
         # fillers, the number and punctuation rules and example exchanges, so draft,
         # convert and edit all write the founder's reviewed style.
-        guide = writer_guidance(self.language, self.business_type)
+        guide = generation_guidance(self.language, self.business_type)
         if guide:
             lines.append(f"Spoken-style guide for {self.language}:\n{guide}")
         elif self.register:
@@ -683,10 +787,10 @@ async def _json_via_sarvam(
     return _RawJson(data=_first_json_object(outcome.content) or None, usage=outcome.usage)
 
 
-def _draft_format(parse: Parser | None) -> dict[str, object]:
+def _draft_format(*, edit: bool) -> dict[str, object]:
     # An edit returns the whole current script, whose shape the strict draft schema does
     # not describe, so it asks for plain JSON and is validated by `CallScript` instead.
-    if parse is None:
+    if not edit:
         return _strict("calevate_script_draft", _DRAFT_SCHEMA)
     return {"type": "json_object"}
 
@@ -697,7 +801,7 @@ async def _draft_via_azure(
     parse: Parser | None = None,
 ) -> _RawDraft | None:
     """One Azure draft, or None if Azure holds no credential or did not answer."""
-    raw = await _json_via_azure(description, instruction, _draft_format(parse))
+    raw = await _json_via_azure(description, instruction, _draft_format(edit=parse is not None))
     if raw is None:
         return None
     if raw.data is None:
@@ -980,10 +1084,9 @@ async def draft_script(
     model, passed in the same way and for the same reason — it is a row.
     """
     # A bare string is the old one-box description; the builder now sends a full brief.
-    description = (
-        ScriptBrief(description=brief) if isinstance(brief, str) else brief
-    ).user_message()
-    parse: Parser | None = None
+    full = ScriptBrief(description=brief) if isinstance(brief, str) else brief
+    description = full.user_message()
+    parse: Parser
     if edit_of is not None:
         # "Change this" (founder, 10 Oct 2026): the current script with one change made,
         # section ids kept, so the Script page can show it section by section.
@@ -992,12 +1095,22 @@ async def draft_script(
             f"{description}\nThe owner's change: {change.strip()}\nCurrent script (JSON):\n"
             f"{edit_of.model_dump_json(exclude={'raw_override'})}"
         )
-        parse = partial(edited_script, current=edit_of)
+        parse = partial(edited_script, current=edit_of, language=full.language, allowed=change)
+    else:
+        # A conversion keeps the owner's own sentences, in whatever language they wrote them,
+        # so only a textbook word the owner did not write is the model's to fix.
+        converting = instruction == CONVERT_INSTRUCTION
+        parse = partial(
+            drafted_script,
+            language=full.language,
+            allowed=full.description if converting else "",
+            instructions=not converting,
+        )
     answer = await ask_json(
         description,
         instruction,
-        parse=parse or _script_from_model_json,
-        azure_format=_draft_format(parse),
+        parse=parse,
+        azure_format=_draft_format(edit=edit_of is not None),
         tenant_leg=tenant_leg,
         quota_exhausted=quota_exhausted,
     )
@@ -1022,5 +1135,7 @@ __all__ = [
     "UnusableAnswerError",
     "ask_json",
     "draft_script",
+    "drafted_script",
     "edited_script",
+    "language_problems",
 ]

@@ -37,7 +37,7 @@ from typing import Any, Final, cast
 from uuid import UUID
 
 from calevate_shared.languages import find_language
-from calevate_shared.spoken_style import writer_guidance
+from calevate_shared.spoken_guard import generation_guidance
 from pydantic import ValidationError
 from sqlalchemy import text
 
@@ -254,7 +254,7 @@ def instruction_for(inputs: Inputs) -> str:
         + "\nReady-made scripts: "
         + starters
         + "\n"
-        + writer_guidance(inputs.language, inputs.vertical)
+        + generation_guidance(inputs.language, inputs.vertical)
     )
 
 
@@ -269,7 +269,7 @@ def parse_answer(raw: dict[str, Any], *, inputs: Inputs) -> GeneratedCopy:
             for error in invalid.errors(include_input=False, include_url=False)
         ]
         raise _unusable(problems) from None
-    problems = copy_problems(copy, clinic=inputs.clinic)
+    problems = copy_problems(copy, clinic=inputs.clinic, language=inputs.language)
     for job, count in inputs.starter_counts.items():
         given = len(getattr(copy.starter_lines, job))
         if given != count:

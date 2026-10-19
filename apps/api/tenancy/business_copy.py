@@ -29,6 +29,7 @@ from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import SOUNDS_LIKE_MAX, STAGE_TITLE_MAX
+from calevate_shared.spoken_guard import textbook_problem
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -200,8 +201,9 @@ def _strings(copy: GeneratedCopy) -> list[tuple[str, str, bool]]:
     return out
 
 
-def copy_problems(copy: GeneratedCopy, *, clinic: bool) -> list[str]:
-    """Every rule a string breaks, as `path: rule`. Names paths and rules, never the text,
+def copy_problems(copy: GeneratedCopy, *, clinic: bool, language: str | None = None) -> list[str]:
+    """Every rule a string breaks, as `path: rule`. Names paths, rules and the spoken-style
+    list's own words (an example line's textbook words, in `language`), never the text,
     so the list can go back to the model and into a log (hard rule 6)."""
     problems: list[str] = []
     for path, value, spoken in _strings(copy):
@@ -219,6 +221,8 @@ def copy_problems(copy: GeneratedCopy, *, clinic: bool) -> list[str]:
             problems.append(f"{path}: names a technology company")
         if not clinic and CLINIC_WORDS.search(value):
             problems.append(f"{path}: medical words, and this business is of another type")
+        if spoken and (worded := textbook_problem(path, value, language)):
+            problems.append(worded)
         if spoken and _NOT_SPOKEN.search(value):
             problems.append(f"{path}: numbers in words, no digits, rupee signs or slashes")
     return problems

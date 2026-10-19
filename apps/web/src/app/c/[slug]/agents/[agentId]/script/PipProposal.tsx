@@ -22,6 +22,8 @@ import { EMPTY_SCRIPT, useClearProposal, useScriptProposal, type CallScript } fr
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
 import { ProposalReview } from "./ProposalReview";
+import { DEFAULT_LIMITS, type Limits } from "./scriptModel";
+import { languageName } from "./sectionParts";
 
 /** Steps made from a hand-written script start empty, keeping the owner's own switches. */
 export function structuredBase(script: CallScript): CallScript {
@@ -33,12 +35,18 @@ export function PipProposal({
   script,
   canWrite,
   onKeep,
+  limits = DEFAULT_LIMITS,
+  language,
 }: {
   agentId: string;
   /** The editor's working copy. */
   script: CallScript;
   canWrite: boolean;
   onKeep: (next: CallScript) => void;
+  /** The builder's limits, which a reworded suggestion is held to. */
+  limits?: Limits;
+  /** The agent's language code. */
+  language?: string;
 }) {
   const session = useClientSession();
   const pending = useScriptProposal(session, agentId);
@@ -100,6 +108,8 @@ export function PipProposal({
         onApply={(next) => clear.mutate(proposal.id, { onSuccess: () => onKeep(next) })}
         onDiscard={() => clear.mutate(proposal.id)}
         gate={steps && unplaced.length > 0 && !read ? "Read the lines that did not fit anywhere first." : null}
+        limits={limits}
+        language={languageName(language)}
       >
         {proposal.request && <p className="text-meta text-ink-muted">You asked: “{proposal.request}”</p>}
         {proposal.mode === "whole" && <p className="text-meta text-ink-muted">Drafted from your answers.</p>}
