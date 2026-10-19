@@ -114,6 +114,7 @@ export function CallsScreen({ slug }: { slug: string }) {
     route: "/c/{slug}/calls",
     title: "Call log",
     realm: "client",
+    saves: "view",
     fields: [
       {
         id: "calls-outcome",

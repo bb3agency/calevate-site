@@ -624,3 +624,81 @@ def test_the_prompt_sets_a_read_tool_budget_and_an_early_stop() -> None:
     `MAX_TURNS` bounds cost, the sentence keeps the model from spending it on one question."""
     assert "use at most three for one question" in prompt_module.SYSTEM_PROMPT
     assert "say what you did not check" in prompt_module.SYSTEM_PROMPT
+
+
+# --- the latest message, the present screen, how edits are kept (D-832) --------------------
+
+#: The founder's conversation (19 Oct 2026): Pip had prepared a whole-script suggestion, the
+#: owner kept it and the draft saved, then "yes thanks pip can you talk in telugu?" was
+#: answered with two field fills. Nothing told the model that the earlier request was done
+#: or that a question about its own language is not a request to change the screen.
+AFTER_KEPT = CopilotAskIn.model_validate(
+    {
+        "screen": {
+            "route": "/c/sunrise/agents/{id}",
+            "title": "Agent: script",
+            "realm": "client",
+            "saves": "autosave",
+            "live_step": "Put it live",
+        },
+        "question": "yes thanks pip can you talk in telugu?",
+        "fields": [
+            {
+                "id": "script-opening_line",
+                "label": "Opening line",
+                "type": "textarea",
+                "value": "Hello",
+                "writable": True,
+                "spoken_language": "te-IN",
+            }
+        ],
+        "facts": [
+            {
+                "key": "pip_suggestion",
+                "label": "Pip's script suggestion",
+                "value": "None waiting. The last one was added to the draft.",
+            }
+        ],
+        "history": [
+            {"role": "user", "content": "Draft the whole script for this agent."},
+            {"role": "assistant", "content": "I am drafting the whole script now."},
+        ],
+    }
+)
+
+
+def test_only_the_latest_message_is_a_request_in_both_realms() -> None:
+    """FAILS IF the rule that an earlier, answered request is not acted on again leaves the
+    prefix or the restated rules, where it sits last for the model to resolve against an
+    earlier turn."""
+    from apps.api.copilot.admin_prompt import ADMIN_CLOSING_RULES
+
+    system = prompt_module.SYSTEM_PROMPT
+    assert "Act only on the latest message; earlier ones were answered" in system
+    assert "Asked how you talk (a language, shorter replies), just switch" in system
+    for closing in (prompt_module.CLOSING_RULES, ADMIN_CLOSING_RULES):
+        assert "Act only on the latest message" in closing
+        assert "the screen is current" in closing
+
+
+def test_the_present_screen_follows_the_stale_turn_and_the_rule_follows_both() -> None:
+    """The earlier "I am drafting" turn comes first, then the screen saying the suggestion
+    was kept, then the rule saying the screen wins: the order a model resolves them in."""
+    messages = prompt_module.build_messages(AFTER_KEPT)
+    assert messages[2] == {"role": "assistant", "content": "I am drafting the whole script now."}
+    last = str(messages[-1]["content"])
+    kept = last.index("The last one was added to the draft.")
+    assert kept < last.index("Act only on the latest message") < last.index("The person asks")
+
+
+def test_the_screen_says_how_it_keeps_edits_and_which_lines_are_spoken() -> None:
+    rendered = prompt_module.render_screen(AFTER_KEPT)
+    assert 'saves="autosave" live_step="Put it live">' in rendered
+    assert 'spoken_language="te-IN">' in rendered
+    system = prompt_module.SYSTEM_PROMPT
+    assert "autosave, as a draft at once, live only via live_step (never say press" in system
+
+
+def test_a_screen_that_does_not_say_renders_as_before() -> None:
+    rendered = prompt_module.render_screen(PAYLOAD)
+    assert "saves=" not in rendered and "spoken_language=" not in rendered

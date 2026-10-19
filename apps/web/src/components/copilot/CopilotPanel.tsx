@@ -13,6 +13,7 @@ import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/com
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
 import type { Session } from "@/lib/api/client";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
+import { filledNotice, panelNotice } from "@/lib/copilot/keeping";
 import type { SurfaceHolder } from "@/lib/copilot/registry";
 import { unsavedWork } from "@/lib/copilot/unsaved";
 import { openingLine, suggestedQuestions } from "@/lib/copilot/suggestions";
@@ -411,7 +412,7 @@ export function CopilotPanel({
               </ul>
             )}
             <p className="text-meta text-ink-muted">
-              {surface.fields.length > 0 ? "Nothing is saved until you press this screen's own save button. " : ""}
+              {panelNotice(surface)}
               {realm === "admin"
                 ? "Any platform change waits for you to confirm."
                 : "Small changes happen at once and can be undone; anything that calls someone, costs money or can't be undone waits for you."}
@@ -598,10 +599,7 @@ export function CopilotPanel({
               Filled {batch.labels.length} {batch.labels.length === 1 ? "field" : "fields"}
             </p>
             <p className="mt-0.5 text-xs text-ink-muted">{batch.labels.join(", ")}</p>
-            <p className="mt-1 text-xs text-ink-faint">
-              Nothing has been saved. Check the values, then use this screen&apos;s own
-              save button.
-            </p>
+            <p className="mt-1 text-xs text-ink-faint">{filledNotice(surface)}</p>
             <button
               type="button"
               onClick={conversation.undo}

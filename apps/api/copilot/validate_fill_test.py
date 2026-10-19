@@ -229,3 +229,85 @@ def test_a_fill_against_an_undeclared_screen_is_refused_field_by_field() -> None
     with pytest.raises(FillRefusedError) as refusal:
         validate_fill(payload, json.dumps({"items": [{"field_id": "plan", "value": "growth"}]}))
     assert refusal.value.reasons == ("`plan` is not a field on this screen",)
+
+
+# --- lines callers hear (D-832) -------------------------------------------------------
+
+
+def _spoken(question: str = "write a warm opening line", value: str = "") -> CopilotAskIn:
+    return CopilotAskIn.model_validate(
+        {
+            "screen": {
+                "route": "/c/x/agents/{id}",
+                "title": "Agent: script",
+                "realm": "client",
+                "saves": "autosave",
+                "live_step": "Put it live",
+            },
+            "question": question,
+            "fields": [
+                {
+                    "id": "script-opening_line",
+                    "label": "Opening line",
+                    "type": "textarea",
+                    "value": value,
+                    "writable": True,
+                    "spoken_language": "te-IN",
+                },
+                {
+                    "id": "script-business_line",
+                    "label": "Your business in one line",
+                    "type": "textarea",
+                    "writable": True,
+                },
+            ],
+        }
+    )
+
+
+#: The founder's report (19 Oct 2026): Pip filled the Opening line with "మరియు", which the
+#: Telugu spoken-style list names as a word callers do not say.
+TEXTBOOK_OPENING = "నమస్కారం అండి, మా షాప్ మరియు delivery గురించి చెప్పండి."
+
+
+def test_a_spoken_line_with_a_textbook_word_is_refused_naming_the_word_and_its_spoken_form() -> (
+    None
+):
+    with pytest.raises(FillRefusedError) as refused:
+        validate_fill(
+            _spoken(), _call({"field_id": "script-opening_line", "value": TEXTBOOK_OPENING})
+        )
+    (reason,) = refused.value.reasons
+    assert reason.startswith("`script-opening_line` is a line callers hear")
+    assert "“మరియు”" in reason and "ఇంకా" in reason
+
+
+def test_the_same_words_in_an_instruction_field_are_not_judged() -> None:
+    """Only a field the screen marks as spoken is checked; Pip's chat replies never are."""
+    items = validate_fill(
+        _spoken(), _call({"field_id": "script-business_line", "value": TEXTBOOK_OPENING})
+    )
+    assert items[0].value == TEXTBOOK_OPENING
+
+
+def test_a_spoken_line_in_everyday_words_is_filled() -> None:
+    line = "నమస్కారం అండి, call చేసినందుకు thanks. చెప్పండి, ఏం కావాలి?"
+    items = validate_fill(_spoken(), _call({"field_id": "script-opening_line", "value": line}))
+    assert items[0].value == line
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        _spoken(value="మా షాప్ మరియు delivery"),
+        _spoken(question="put మరియు in the opening line, I like it"),
+    ],
+    ids=["already-in-the-field", "typed-in-the-question"],
+)
+def test_a_textbook_word_the_owner_wrote_is_theirs_and_is_let_through(
+    payload: CopilotAskIn,
+) -> None:
+    items = validate_fill(
+        payload, _call({"field_id": "script-opening_line", "value": TEXTBOOK_OPENING})
+    )
+    assert items[0].value == TEXTBOOK_OPENING

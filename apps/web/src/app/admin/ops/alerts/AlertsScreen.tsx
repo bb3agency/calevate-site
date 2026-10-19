@@ -83,6 +83,7 @@ export function AlertsScreen() {
     route: "/admin/ops/alerts",
     title: "Alerts",
     realm: "admin",
+    saves: "view",
     fields: [
       {
         id: "alerts-window-days",

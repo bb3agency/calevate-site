@@ -9,6 +9,7 @@ import type {
   CopilotJobFrame,
   CopilotNavigation,
   CopilotProposal,
+  CopilotSaves,
   CopilotStep,
 } from "./types";
 import type { WireFact, WireField } from "./redaction";
@@ -36,7 +37,14 @@ import type { WireFact, WireField } from "./redaction";
 
 /** The request body — snake_case because it IS the wire, per the agreed contract. */
 export interface CopilotAskBody {
-  screen: { route: string; title: string; realm: "client" | "admin" };
+  screen: {
+    route: string;
+    title: string;
+    realm: "client" | "admin";
+    /** How the screen keeps what is filled (D-832); omitted on a screen with no fields. */
+    saves?: CopilotSaves;
+    live_step?: string;
+  };
   question: string;
   fields: WireField[];
   facts: WireFact[];

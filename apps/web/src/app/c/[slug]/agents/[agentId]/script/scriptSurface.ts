@@ -1,7 +1,8 @@
 "use client";
 
-import type { CopilotField } from "@/lib/copilot/types";
-import type { CallScript } from "@/lib/api/script";
+import type { CopilotFact, CopilotField } from "@/lib/copilot/types";
+import type { CallScript, ScriptProposal } from "@/lib/api/script";
+import type { SaveState } from "./scriptDraft";
 
 /**
  * The call-script screen, declared to the screen assistant — the FIELDS half.
@@ -93,7 +94,7 @@ export const STEP_COPILOT_HELP =
  * quick-fact row. Ids are `script-<path-with-dots-as-dashes>`, the derivation
  * `ScriptBuilder`'s `apply` reverses (the same idea as `intakeFieldId`).
  */
-export function scriptCopilotFields(script: CallScript, raw: boolean): CopilotField[] {
+export function scriptCopilotFields(script: CallScript, raw: boolean, language?: string): CopilotField[] {
   if (raw) {
     return [
       {
@@ -113,15 +114,17 @@ export function scriptCopilotFields(script: CallScript, raw: boolean): CopilotFi
     value,
     ...(help ? { help } : {}),
   });
+  // The lines callers hear, as against the instructions the in-call model reads (D-832).
+  const spoken = (field: CopilotField): CopilotField => (language ? { ...field, spokenLanguage: language } : field);
   return [
     text("script-business_line", "Your business in one line", script.business_line),
     text("script-identity", "The agent's role", script.identity, IDENTITY_COPILOT_HELP),
     text("script-goal", "What a good call achieves", script.goal),
     text("script-outbound_purpose", "Why you are calling", script.outbound_purpose),
-    text("script-opening_line", "Opening line", script.opening_line, OPENING_LINE_COPILOT_HELP),
+    spoken(text("script-opening_line", "Opening line", script.opening_line, OPENING_LINE_COPILOT_HELP)),
     ...script.stages.flatMap((stage, index) => [
       text(`script-stages-${index}-instruction`, `Stage ${index + 1}`, stage.instruction, STEP_COPILOT_HELP),
-      text(`script-stages-${index}-sounds_like`, `How stage ${index + 1} sounds`, stage.sounds_like ?? ""),
+      spoken(text(`script-stages-${index}-sounds_like`, `How stage ${index + 1} sounds`, stage.sounds_like ?? "")),
     ]),
     ...script.objections.flatMap((o, index) => [
       text(`script-objections-${index}-objection`, `Push-back ${index + 1}`, o.objection),
@@ -134,3 +137,63 @@ export function scriptCopilotFields(script: CallScript, raw: boolean): CopilotFi
     ]),
   ];
 }
+
+/** What the Script tab shows besides its fields, as the facts Pip reads (D-832). */
+export interface ScriptScreenState {
+  /** The suggestion waiting on this screen; null when none; undefined while it loads. */
+  proposal: Pick<ScriptProposal, "status"> | null | undefined;
+  /** The owner added the last suggestion to the draft on this screen, and none is waiting since. */
+  keptSuggestion: boolean;
+  save: SaveState;
+  /** Something in the draft is not live yet. */
+  unpublished: boolean;
+  liveStep: string;
+}
+
+/**
+ * THE PRESENT, SO AN EARLIER TURN CANNOT STAND IN FOR IT. Pip's own earlier answer ("I am
+ * drafting your script") is replayed as history; without these facts that was the latest
+ * thing Pip knew, so after the owner had kept the suggestion and the draft had saved, Pip
+ * offered to prepare it again and filled fields nobody asked about (founder, 19 Oct 2026).
+ */
+export function scriptCopilotFacts(state: ScriptScreenState): CopilotFact[] {
+  const facts: CopilotFact[] = [];
+  const suggestion = suggestionLine(state);
+  if (suggestion) facts.push({ key: "pip_suggestion", label: "Pip's script suggestion", value: suggestion });
+  facts.push({ key: "draft", label: "The draft", value: draftLine(state) });
+  return facts;
+}
+
+function suggestionLine({ proposal, keptSuggestion }: ScriptScreenState): string | null {
+  if (proposal === undefined) return null;
+  if (proposal === null) {
+    return keptSuggestion ? "None waiting. The last one was added to the draft." : "None waiting.";
+  }
+  if (proposal.status === "drafting") return "Being written. It appears on this screen in about half a minute.";
+  if (proposal.status === "failed") return "Could not be written. It can be asked for again.";
+  return "Waiting on this screen for review: the owner adds the changes they want to the draft, or dismisses it.";
+}
+
+function draftLine({ save, unpublished, liveStep }: ScriptScreenState): string {
+  const live = unpublished
+    ? `Changes not live yet: they go live when ${liveStep} is pressed.`
+    : "Nothing waiting to go live.";
+  switch (save.kind) {
+    case "clean":
+      return `Saved as a draft. ${live}`;
+    case "waiting":
+    case "saving":
+      return `Being saved as a draft by itself. ${live}`;
+    case "held":
+      return save.reason;
+    case "conflict":
+      return "Changed in another window; this copy is not saved until the owner picks which to keep.";
+    case "failed":
+      return "Could not be saved; the owner can try again.";
+    case "read-only":
+      return "This person can read the script but not change it.";
+  }
+}
+
+/** The toolbar's control that puts the draft live (`ScriptToolbar`, `PutLive`). */
+export const PUT_LIVE = "Put it live";

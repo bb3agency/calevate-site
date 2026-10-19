@@ -98,6 +98,7 @@ export function PerformanceScreen() {
     route: "/c/{slug}/performance",
     title: "How your agent is doing",
     realm: "client",
+    saves: "view",
     fields: [
       {
         id: "performance-days",

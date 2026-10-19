@@ -167,6 +167,7 @@ export function BillingScreen({ slug }: { slug: string }) {
     route: "/c/{slug}/billing",
     title: "Credits & billing",
     realm: "client",
+    saves: "view",
     fields: [
       {
         id: "billing-tab",

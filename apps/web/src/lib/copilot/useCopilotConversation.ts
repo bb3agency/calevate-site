@@ -18,6 +18,7 @@ import {
   useConversation,
 } from "./conversation";
 import { clearFilled, markFilled } from "./highlight";
+import { keepingOnWire } from "./keeping";
 import { redactForWire } from "./redaction";
 import { askCopilot, type CopilotAskBody } from "./stream";
 import type {
@@ -596,7 +597,7 @@ export function useCopilotConversation(
 
       const pass = redactForWire(surface.fields, surface.facts ?? []);
       const body: CopilotAskBody = {
-        screen: { route: surface.route, title: surface.title, realm: surface.realm },
+        screen: { route: surface.route, title: surface.title, realm: surface.realm, ...keepingOnWire(surface) },
         question: asked,
         fields: pass.fields,
         facts: pass.facts,
