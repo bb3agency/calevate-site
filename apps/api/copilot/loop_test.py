@@ -18,7 +18,7 @@ import httpx
 import pytest
 from calevate_shared.engine import GOOGLE_DIRECT_MODELS, google_openai_compat_base_url
 
-from apps.api.copilot import navigation, service, write_tools
+from apps.api.copilot import navigation, script_actions, service, write_tools
 from apps.api.copilot import tools as tools_module
 from apps.api.copilot.sanitize import has_invisible
 from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
@@ -150,7 +150,14 @@ async def test_a_valid_set_fields_stops_the_loop_immediately(
     sent = _scripted(
         monkeypatch,
         [
-            _turn(arguments=json.dumps({"items": [{"field_id": "open", "value": "09:00"}]})),
+            _turn(
+                arguments=json.dumps(
+                    {
+                        "because": "set the opening time",
+                        "items": [{"field_id": "open", "value": "09:00"}],
+                    }
+                )
+            ),
             _turn(content="should never run"),
         ],
     )
@@ -167,7 +174,11 @@ async def test_only_the_first_set_fields_call_of_a_turn_is_honoured(
     """OpenAI documents rare incorrectness in PARALLEL tool calls. Honouring two would
     apply as two changes what the person asked for as one, and give them an Undo that
     reverses half of it."""
-    turn = _turn(arguments=json.dumps({"items": [{"field_id": "open", "value": "09:00"}]}))
+    turn = _turn(
+        arguments=json.dumps(
+            {"because": "set the opening time", "items": [{"field_id": "open", "value": "09:00"}]}
+        )
+    )
     outcome = turn[-1].outcome
     assert outcome is not None
     turn[-1] = chat.StreamEvent(
@@ -178,7 +189,12 @@ async def test_only_the_first_set_fields_call_of_a_turn_is_honoured(
                 chat.ToolCall(
                     id="call-2",
                     name="set_fields",
-                    arguments=json.dumps({"items": [{"field_id": "open", "value": "10:00"}]}),
+                    arguments=json.dumps(
+                        {
+                            "because": "set the opening time",
+                            "items": [{"field_id": "open", "value": "10:00"}],
+                        }
+                    ),
                 ),
             ),
             finish_reason="tool_calls",
@@ -200,8 +216,22 @@ async def test_a_refused_fill_goes_back_to_the_model_and_the_correction_is_appli
     sent = _scripted(
         monkeypatch,
         [
-            _turn(arguments=json.dumps({"items": [{"field_id": "status", "value": "live"}]})),
-            _turn(arguments=json.dumps({"items": [{"field_id": "open", "value": "09:00"}]})),
+            _turn(
+                arguments=json.dumps(
+                    {
+                        "because": "set the opening time",
+                        "items": [{"field_id": "status", "value": "live"}],
+                    }
+                )
+            ),
+            _turn(
+                arguments=json.dumps(
+                    {
+                        "because": "set the opening time",
+                        "items": [{"field_id": "open", "value": "09:00"}],
+                    }
+                )
+            ),
         ],
     )
     events = await _drain()
@@ -227,7 +257,11 @@ async def test_the_loop_is_capped_and_says_so_rather_than_spinning(
     unbounded loop hangs the test rather than failing it — which is why the assertion is on
     the CALL COUNT as well as on the message.
     """
-    refusal = _turn(arguments=json.dumps({"items": [{"field_id": "status", "value": "live"}]}))
+    refusal = _turn(
+        arguments=json.dumps(
+            {"because": "set the opening time", "items": [{"field_id": "status", "value": "live"}]}
+        )
+    )
     sent = _scripted(monkeypatch, [refusal for _ in range(service.MAX_TURNS + 2)])
     events = await _drain()
 
@@ -313,11 +347,21 @@ async def test_a_multi_turn_answer_is_metered_as_one_summed_quantity(
         monkeypatch,
         [
             _turn(
-                arguments=json.dumps({"items": [{"field_id": "status", "value": "x"}]}),
+                arguments=json.dumps(
+                    {
+                        "because": "set the opening time",
+                        "items": [{"field_id": "status", "value": "x"}],
+                    }
+                ),
                 usage=chat.TokenUsage(prompt_tokens=100, output_tokens=10),
             ),
             _turn(
-                arguments=json.dumps({"items": [{"field_id": "open", "value": "09:00"}]}),
+                arguments=json.dumps(
+                    {
+                        "because": "set the opening time",
+                        "items": [{"field_id": "open", "value": "09:00"}],
+                    }
+                ),
                 usage=chat.TokenUsage(prompt_tokens=150, output_tokens=20),
             ),
         ],
@@ -337,11 +381,21 @@ async def test_one_unreported_turn_records_the_reported_part_marked_incomplete(
         monkeypatch,
         [
             _turn(
-                arguments=json.dumps({"items": [{"field_id": "status", "value": "x"}]}),
+                arguments=json.dumps(
+                    {
+                        "because": "set the opening time",
+                        "items": [{"field_id": "status", "value": "x"}],
+                    }
+                ),
                 usage=chat.TokenUsage(prompt_tokens=100, output_tokens=10),
             ),
             _turn(
-                arguments=json.dumps({"items": [{"field_id": "open", "value": "09:00"}]}),
+                arguments=json.dumps(
+                    {
+                        "because": "set the opening time",
+                        "items": [{"field_id": "open", "value": "09:00"}],
+                    }
+                ),
                 usage=None,
             ),
         ],
@@ -581,7 +635,12 @@ async def test_the_gemini_leg_fills_a_field_non_streamed_on_the_accounts_own_mod
                     chat.ToolCall(
                         id="c1",
                         name="set_fields",
-                        arguments=json.dumps({"items": [{"field_id": "open", "value": "09:00"}]}),
+                        arguments=json.dumps(
+                            {
+                                "because": "set the opening time",
+                                "items": [{"field_id": "open", "value": "09:00"}],
+                            }
+                        ),
                     ),
                 ),
                 finish_reason="tool_calls",
@@ -658,7 +717,12 @@ async def test_every_gemini_turn_carries_the_output_ceiling(
                         id="c1",
                         name="set_fields",
                         # `status` is not writable, so the loop refuses it and goes round.
-                        arguments=json.dumps({"items": [{"field_id": "status", "value": "x"}]}),
+                        arguments=json.dumps(
+                            {
+                                "because": "set the opening time",
+                                "items": [{"field_id": "status", "value": "x"}],
+                            }
+                        ),
                     ),
                 ),
                 finish_reason="tool_calls",
@@ -756,7 +820,9 @@ async def test_a_leg_that_dies_after_a_paid_turn_is_still_metered(
     paid = chat.TokenUsage(prompt_tokens=800, output_tokens=40)
     first_turn = _turn(
         # A refused fill, so the loop legitimately goes round to a second turn.
-        arguments=json.dumps({"items": [{"field_id": "status", "value": "live"}]}),
+        arguments=json.dumps(
+            {"because": "set the opening time", "items": [{"field_id": "status", "value": "live"}]}
+        ),
         usage=paid,
     )
     turns_served = 0
@@ -795,7 +861,9 @@ async def test_a_leg_that_dies_after_text_was_shown_still_meters_its_paid_turns(
     paid = chat.TokenUsage(prompt_tokens=800, output_tokens=40)
     first_turn = _turn(
         content="Let me check. ",
-        arguments=json.dumps({"items": [{"field_id": "status", "value": "live"}]}),
+        arguments=json.dumps(
+            {"because": "set the opening time", "items": [{"field_id": "status", "value": "live"}]}
+        ),
         usage=paid,
     )
     turns_served = 0
@@ -1110,7 +1178,15 @@ async def test_a_turn_that_asks_for_a_write_and_a_lookup_is_still_the_write(
         [
             _tool_turn(
                 ("leads_search", "{}"),
-                ("set_fields", json.dumps({"items": [{"field_id": "open", "value": "09:00"}]})),
+                (
+                    "set_fields",
+                    json.dumps(
+                        {
+                            "because": "set the opening time",
+                            "items": [{"field_id": "open", "value": "09:00"}],
+                        }
+                    ),
+                ),
             ),
             _turn(content="should never run"),
         ],
@@ -1497,7 +1573,15 @@ async def test_a_turn_that_fills_a_field_and_opens_a_screen_does_neither(
         monkeypatch,
         [
             _tool_turn(
-                ("set_fields", json.dumps({"items": [{"field_id": "open", "value": "09:00"}]})),
+                (
+                    "set_fields",
+                    json.dumps(
+                        {
+                            "because": "set the opening time",
+                            "items": [{"field_id": "open", "value": "09:00"}],
+                        }
+                    ),
+                ),
                 ("open_screen", '{"screen": "Leads"}'),
             ),
             _turn(content="I've set the opening time."),
@@ -1531,3 +1615,41 @@ async def test_the_admin_realm_opens_only_its_own_screens(
 
     assert [event.navigate for event in events if event.navigate is not None] == []
     assert any(message["role"] == "tool" for message in sent[1])
+
+
+# --- a proposal is checked against what the person wrote (D-833) -------------------------
+
+
+async def test_a_proposal_is_planned_against_the_persons_own_messages(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The loop hands the planner the person's messages (not Pip's), latest last, and a
+    grounding refusal goes back to the model rather than to a card."""
+    payload = CopilotAskIn.model_validate(
+        {
+            "screen": {"route": "/c/x/agents/a/script", "title": "Script", "realm": "client"},
+            "question": "Draft the whole script for this agent",
+            "history": [
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "Hi, how can I help?"},
+            ],
+        }
+    )
+    said: list[Any] = []
+
+    async def _plan(name: str, arguments: str, **kwargs: Any) -> Any:
+        said.append(kwargs["said"])
+        raise write_tools.WriteRefusedError(script_actions.NO_ANSWERS_REASON)
+
+    monkeypatch.setattr(write_tools, "plan_write", _plan)
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("agent_script_suggest", '{"mode": "whole"}')),
+            _turn(content="What do you sell?"),
+        ],
+    )
+    events = [event async for event in service.run_copilot(payload, tool_context=TOOL_CONTEXT)]
+    assert said == [("hello", "Draft the whole script for this agent")]
+    assert script_actions.NO_ANSWERS_REASON in json.dumps(sent[1][-1])
+    assert not [event for event in events if event.proposal is not None]

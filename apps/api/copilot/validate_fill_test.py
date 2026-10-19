@@ -19,7 +19,7 @@ import json
 import pytest
 
 from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
-from apps.api.copilot.service import FillRefusedError, validate_fill
+from apps.api.copilot.service import UNQUOTED_FILL_REASON, FillRefusedError, validate_fill
 
 PAYLOAD = CopilotAskIn.model_validate(
     {
@@ -43,8 +43,8 @@ PAYLOAD = CopilotAskIn.model_validate(
 )
 
 
-def _call(*items: dict[str, object]) -> str:
-    return json.dumps({"items": list(items)})
+def _call(*items: dict[str, object], because: object = "fill it in") -> str:
+    return json.dumps({"because": because, "items": list(items)})
 
 
 def _reasons(arguments: str) -> tuple[str, ...]:
@@ -196,7 +196,9 @@ def test_a_malformed_tool_call_is_a_named_refusal_and_never_an_exception(
 
 def test_an_item_that_is_not_an_object_or_names_no_field_is_refused() -> None:
     assert _reasons(_call({"value": "09:00"})) == ("one item named no field",)
-    assert _reasons(json.dumps({"items": ["open"]})) == ("one item was not an object",)
+    assert _reasons(json.dumps({"because": "fill it in", "items": ["open"]})) == (
+        "one item was not an object",
+    )
 
 
 def test_a_fill_against_an_undeclared_screen_is_refused_field_by_field() -> None:
@@ -227,7 +229,7 @@ def test_a_fill_against_an_undeclared_screen_is_refused_field_by_field() -> None
         }
     )
     with pytest.raises(FillRefusedError) as refusal:
-        validate_fill(payload, json.dumps({"items": [{"field_id": "plan", "value": "growth"}]}))
+        validate_fill(payload, _call({"field_id": "plan", "value": "growth"}, because="the plan"))
     assert refusal.value.reasons == ("`plan` is not a field on this screen",)
 
 
@@ -275,7 +277,7 @@ def test_a_spoken_line_with_a_textbook_word_is_refused_naming_the_word_and_its_s
 ):
     with pytest.raises(FillRefusedError) as refused:
         validate_fill(
-            _spoken(), _call({"field_id": "script-opening_line", "value": TEXTBOOK_OPENING})
+            _spoken(), _said({"field_id": "script-opening_line", "value": TEXTBOOK_OPENING})
         )
     (reason,) = refused.value.reasons
     assert reason.startswith("`script-opening_line` is a line callers hear")
@@ -285,14 +287,14 @@ def test_a_spoken_line_with_a_textbook_word_is_refused_naming_the_word_and_its_s
 def test_the_same_words_in_an_instruction_field_are_not_judged() -> None:
     """Only a field the screen marks as spoken is checked; Pip's chat replies never are."""
     items = validate_fill(
-        _spoken(), _call({"field_id": "script-business_line", "value": TEXTBOOK_OPENING})
+        _spoken(), _said({"field_id": "script-business_line", "value": TEXTBOOK_OPENING})
     )
     assert items[0].value == TEXTBOOK_OPENING
 
 
 def test_a_spoken_line_in_everyday_words_is_filled() -> None:
     line = "నమస్కారం అండి, call చేసినందుకు thanks. చెప్పండి, ఏం కావాలి?"
-    items = validate_fill(_spoken(), _call({"field_id": "script-opening_line", "value": line}))
+    items = validate_fill(_spoken(), _said({"field_id": "script-opening_line", "value": line}))
     assert items[0].value == line
 
 
@@ -308,6 +310,78 @@ def test_a_textbook_word_the_owner_wrote_is_theirs_and_is_let_through(
     payload: CopilotAskIn,
 ) -> None:
     items = validate_fill(
-        payload, _call({"field_id": "script-opening_line", "value": TEXTBOOK_OPENING})
+        payload, _said({"field_id": "script-opening_line", "value": TEXTBOOK_OPENING})
     )
     assert items[0].value == TEXTBOOK_OPENING
+
+
+def _said(*items: dict[str, object]) -> str:
+    """A fill quoting words both `_spoken` questions share."""
+    return _call(*items, because="opening line")
+
+
+# --- a fill quotes the latest message (D-833) ------------------------------------------
+
+
+def _asked(question: str, history: list[dict[str, str]] | None = None) -> CopilotAskIn:
+    return CopilotAskIn.model_validate(
+        {
+            "screen": {"route": "/c/x/agents/new", "title": "Build", "realm": "client"},
+            "question": question,
+            "history": history or [],
+            "fields": [{"id": "open", "label": "Opens", "type": "text", "writable": True}],
+        }
+    )
+
+
+#: The production eval's failure (19 Oct 2026, `c-script-after-kept`): the change was asked
+#: one message earlier and already answered; the latest message only asks about it.
+EARLIER = [
+    {"role": "user", "content": "Change this agent's script: make the opening line warmer"},
+    {"role": "assistant", "content": "I am preparing that change."},
+]
+
+
+@pytest.mark.parametrize(
+    "because",
+    [None, "", "   ", 42, "make the opening line warmer", "set the closing time"],
+    ids=["missing", "empty", "blank", "not-text", "an-earlier-message", "invented"],
+)
+def test_a_fill_that_does_not_quote_the_latest_message_is_refused(because: object) -> None:
+    payload = _asked("is my script ready now?", EARLIER)
+    with pytest.raises(FillRefusedError) as refused:
+        validate_fill(payload, _call({"field_id": "open", "value": "09:00"}, because=because))
+    assert refused.value.reasons == (UNQUOTED_FILL_REASON,)
+
+
+def test_the_refusal_is_reported_with_the_field_refusals_in_one_go() -> None:
+    with pytest.raises(FillRefusedError) as refused:
+        validate_fill(
+            _asked("is it ready?"), _call({"field_id": "status", "value": "x"}, because="nope")
+        )
+    assert refused.value.reasons == (UNQUOTED_FILL_REASON, "`status` is not a field on this screen")
+
+
+@pytest.mark.parametrize(
+    ("question", "because"),
+    [
+        ("set the opening time to 9", "set the opening time"),
+        ("Set the OPENING time, please!", "set the opening time please"),
+        # An answer to Pip's own question carries no change verb, and is still the request.
+        ("10 to 8, closed on Sundays", "10 to 8, closed on Sundays"),
+        ("yes", "yes"),
+        ("టైమింగ్స్ నింపండి: ఉదయం 10 నుండి రాత్రి 8 వరకు", "టైమింగ్స్ నింపండి"),
+        ("खुलने का समय सुबह 9 बजे भर दो", "खुलने का समय सुबह 9 बजे भर दो"),
+    ],
+    ids=["english", "case-and-punctuation", "answer-only", "yes", "telugu", "hindi"],
+)
+def test_words_of_the_latest_message_carry_the_fill(question: str, because: str) -> None:
+    items = validate_fill(
+        _asked(question, EARLIER), _call({"field_id": "open", "value": "09:00"}, because=because)
+    )
+    assert items == (CopilotFillItem(field_id="open", value="09:00"),)
+
+
+def test_part_of_a_word_is_not_a_quote() -> None:
+    with pytest.raises(FillRefusedError):
+        validate_fill(_asked("fill this"), _call({"field_id": "open", "value": "9"}, because="ill"))

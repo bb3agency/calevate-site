@@ -374,9 +374,10 @@ one moved; `agent_script_suggest` is its tool.
   §1, and it reaches no caller.
 * **Arguments**: `agent_id`; `mode` — `change` (one change, `change` = the person's words),
   `whole` (the whole script from `answers`, the five `script_assist.OWNER_QUESTIONS`; the
-  description tells Pip to ask them together first), `steps` (a hand-written script turned
-  into steps). Unused arguments are null; the canonical arguments drop them, strip invisible
-  characters and cap each text at 600 characters.
+  description tells Pip to ask them together first, and each answer must be the person's own
+  words, §14), `steps` (a hand-written script turned into steps). Unused arguments are null;
+  the canonical arguments drop them, strip invisible characters and cap each text at 600
+  characters.
 * **Planner refusals** (`WriteRefusedError`): steps asked of a stepped script, a change or a
   whole draft asked of a hand-written one, fewer than 10 characters of request
   (`script_proposals.MIN_REQUEST_CHARS`), or a request still being written for this agent.
@@ -486,3 +487,39 @@ reviewed. No model is called, so nothing is metered and no allowance is checked.
   loop's own check), naming the word and what people say; a word the field already held or
   the person typed is theirs and passes. The refusal goes back to the model like any refused
   fill. Pip's chat replies are never checked.
+
+## 14. A request rests on the person's own words (D-833)
+
+* **The screen is already last.** The per-request SCREEN STATE, live block, attachments,
+  closing rules and question are one user message after the replayed history
+  (`prompt.build_messages`, `admin_prompt.build_admin_messages`). The system prompt and tool
+  array come first and are the same bytes on every request of a surface, which is the
+  implicitly cached prefix (`prompt_budget_test`). Nothing per-request sits in it.
+* **A fill quotes the latest message.** `set_fields` takes `because` before `items`: the
+  words of the person's latest message that ask for the fill, copied exactly.
+  `service.validate_fill` refuses the whole call when `because` is not a run of whole words
+  of `payload.question` (`quotes.quoted_in`: NFKC, casefold, invisibles out, punctuation and
+  symbols by Unicode category to spaces). The refusal (`UNQUOTED_FILL_REASON`) goes back to
+  the model like any refused fill. It works in any language and accepts a bare answer to
+  Pip's own question ("10 to 8, closed on Sundays"). It cannot tell whether the quoted words
+  ask for a change; it stops a fill that rests on an earlier, answered request.
+* **An action may declare `grounded`.** `ActionTool.grounded(arguments, said)` checks the
+  model's arguments against the person's messages in this conversation
+  (`service.person_said`: the user turns of the history, then the question). `plan_write`
+  and `stage_for_approval` run it, given `said`, after the permission and deleted-agent
+  checks and before the planner; the loop always passes `said`. An approval re-plans with
+  no conversation and does not run it: the person's click on a card that showed the
+  arguments is their own word. `write_tools.grounding_problem` is the pure form the
+  tool-choice eval asks.
+* **`agent_script_suggest` mode `whole`** is grounded: at least one answer, and each answer
+  copied from the person's words. Otherwise it is refused with "ask the person the five
+  questions" (`script_actions._whole_rests_on_the_owner`). Modes `change` and `steps` are not
+  held to exact words.
+* **Only these two.** The other write tools carry no `because`: each is either a confirm
+  card the person clicks or an immediate act with an Undo shown in the panel, and a quote
+  argument on every write schema would push the client prefix past its budget
+  (`prompt_budget_test.PREFIX_BUDGET_TOKENS`).
+* **The eval reports what the server refuses.** `scripts/copilot_tool_eval.py` scores the
+  model's first-turn choice as before, and puts each call through these database-free
+  checks: a wrong call the server refuses is listed `refused_by_server` and counted on the
+  "refused by the server, reaching nobody" line.

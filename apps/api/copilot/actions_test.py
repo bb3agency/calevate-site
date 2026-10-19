@@ -872,7 +872,13 @@ def test_a_screen_with_no_writable_fields_cannot_be_filled_at_all() -> None:
     )
     with pytest.raises(service.FillRefusedError) as refused:
         service.validate_fill(
-            payload, json.dumps({"items": [{"field_id": "variable_1_name", "value": "x"}]})
+            payload,
+            json.dumps(
+                {
+                    "because": "create an outbound agent",
+                    "items": [{"field_id": "variable_1_name", "value": "x"}],
+                }
+            ),
         )
     assert refused.value.reasons == ("`variable_1_name` is not a field on this screen",)
 
@@ -894,7 +900,9 @@ def test_a_fill_is_all_or_nothing_so_one_unasked_field_discards_the_whole_batch(
     )
     items = [{"field_id": "note", "value": "ok"}, {"field_id": "agent_name", "value": "Raghava"}]
     with pytest.raises(service.FillRefusedError) as refused:
-        service.validate_fill(payload, json.dumps({"items": items}))
+        service.validate_fill(
+            payload, json.dumps({"because": "create a new agent", "items": items})
+        )
     assert refused.value.reasons == ("`agent_name` is not a field on this screen",)
 
 

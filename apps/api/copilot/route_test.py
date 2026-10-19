@@ -210,7 +210,9 @@ async def test_a_fill_reaches_the_browser_and_is_metered_at_the_published_price(
     _fake_provider(
         monkeypatch,
         content="Nine in the morning.",
-        arguments=json.dumps({"items": [{"field_id": "open", "value": "09:00"}]}),
+        arguments=json.dumps(
+            {"because": "set the opening time", "items": [{"field_id": "open", "value": "09:00"}]}
+        ),
         usage=chat.TokenUsage(prompt_tokens=1200, output_tokens=800),
     )
 
@@ -250,7 +252,9 @@ async def test_the_audit_row_records_the_act_and_the_log_line_carries_no_content
     _fake_provider(
         monkeypatch,
         content="Done.",
-        arguments=json.dumps({"items": [{"field_id": "open", "value": "09:00"}]}),
+        arguments=json.dumps(
+            {"because": "set the opening time", "items": [{"field_id": "open", "value": "09:00"}]}
+        ),
         usage=chat.TokenUsage(prompt_tokens=10, output_tokens=10),
     )
     with caplog.at_level(logging.INFO, logger="apps.api.compliance.audit"):
@@ -297,10 +301,11 @@ async def test_a_number_reaches_the_browser_as_an_integer_and_a_bool_as_a_bool(
         content="",
         arguments=json.dumps(
             {
+                "because": "set the opening time",
                 "items": [
                     {"field_id": "seats", "value": 12},
                     {"field_id": "sms", "value": True},
-                ]
+                ],
             }
         ),
         usage=chat.TokenUsage(prompt_tokens=10, output_tokens=10),
@@ -460,7 +465,9 @@ async def test_a_tool_call_naming_a_non_writable_field_reaches_the_browser_as_no
     _fake_provider(
         monkeypatch,
         content="",
-        arguments=json.dumps({"items": [{"field_id": "status", "value": "live"}]}),
+        arguments=json.dumps(
+            {"because": "set the opening time", "items": [{"field_id": "status", "value": "live"}]}
+        ),
         usage=chat.TokenUsage(prompt_tokens=10, output_tokens=10),
     )
     async with _client() as http:
@@ -498,7 +505,9 @@ async def test_a_select_value_outside_its_options_never_reaches_the_browser(
     _fake_provider(
         monkeypatch,
         content="",
-        arguments=json.dumps({"items": [{"field_id": "lang", "value": "hi-IN"}]}),
+        arguments=json.dumps(
+            {"because": "set the opening time", "items": [{"field_id": "lang", "value": "hi-IN"}]}
+        ),
         usage=chat.TokenUsage(prompt_tokens=10, output_tokens=10),
     )
     async with _client() as http:
@@ -563,7 +572,9 @@ async def test_the_conversation_lands_in_copilot_memories_and_nowhere_else(
     _fake_provider(
         monkeypatch,
         content=f"answer-{marker}",
-        arguments=json.dumps({"items": [{"field_id": "open", "value": f"value-{marker}"}]}),
+        arguments=json.dumps(
+            {"because": marker, "items": [{"field_id": "open", "value": f"value-{marker}"}]}
+        ),
         usage=chat.TokenUsage(prompt_tokens=10, output_tokens=10),
     )
     body = {**BODY, "question": f"question-{marker}"}
@@ -646,7 +657,12 @@ async def test_no_invisible_character_survives_into_the_bytes_that_leave(
     _fake_provider(
         monkeypatch,
         content=f"Nine{tag} in the morning.",
-        arguments=json.dumps({"items": [{"field_id": "open", "value": f"09{tag}:00"}]}),
+        arguments=json.dumps(
+            {
+                "because": "set the opening time",
+                "items": [{"field_id": "open", "value": f"09{tag}:00"}],
+            }
+        ),
         usage=chat.TokenUsage(prompt_tokens=10, output_tokens=10),
     )
 

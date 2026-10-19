@@ -1044,8 +1044,33 @@ async def _refuse_a_deleted_agent(
         ) from exc
 
 
+def grounding_problem(name: str, arguments: Mapping[str, Any], said: Sequence[str]) -> str | None:
+    """Why this call's arguments do not rest on what the person wrote, or None (D-833).
+
+    `said` is the person's own messages in this conversation, latest last. Pure, so the
+    tool-choice eval asks it too (`scripts/copilot_tool_eval.py`)."""
+    tool = _BY_NAME.get(name)
+    if tool is None or tool.grounded is None:
+        return None
+    return tool.grounded(arguments, said)
+
+
+def _refuse_ungrounded(
+    tool: WriteTool, arguments: Mapping[str, Any], said: Sequence[str] | None
+) -> None:
+    if said is None:
+        return
+    problem = grounding_problem(tool.name, arguments, said)
+    if problem is not None:
+        raise WriteRefusedError(problem)
+
+
 async def plan_write(
-    name: str, raw_arguments: str, *, actor: ToolActor | None
+    name: str,
+    raw_arguments: str,
+    *,
+    actor: ToolActor | None,
+    said: Sequence[str] | None = None,
 ) -> CopilotProposalEvent:
     """One write tool call → one signed proposal. READS ONLY.
 
@@ -1063,6 +1088,10 @@ async def plan_write(
     and it fails in the safe direction: a Tier 1 action mis-routed to this function
     produces no token and no change, where the reverse mistake would produce a change with
     no click.
+
+    `said` is the person's messages in the conversation the call came from; the loop always
+    passes it, and a tool's `grounded` check runs against it before the planner. `None`
+    means no conversation is behind the call, so there is nothing to check against.
     """
     tool = _BY_NAME.get(name)
     if tool is None:  # pragma: no cover - the loop only routes registered names here
@@ -1100,6 +1129,7 @@ async def plan_write(
                 f"this person's role may not do what `{name}` proposes, so do not offer it"
             )
         await _refuse_a_deleted_agent(session, tool, parsed_arguments)
+        _refuse_ungrounded(tool, parsed_arguments, said)
         plan = await tool.plan(session, actor, parsed_arguments)
 
     issued_at = datetime.now(UTC)
@@ -1801,7 +1831,12 @@ class StagedApproval:
 
 
 async def stage_for_approval(
-    name: str, raw_arguments: str, *, principal: Principal, job_id: UUID
+    name: str,
+    raw_arguments: str,
+    *,
+    principal: Principal,
+    job_id: UUID,
+    said: Sequence[str] | None = None,
 ) -> StagedApproval:
     """Any action inside a background job: plan it, and park it in the inbox (D-694, D-729).
 
@@ -1842,6 +1877,7 @@ async def stage_for_approval(
                 f"this person's role may not do what `{name}` does, so do not stage it"
             )
         await _refuse_a_deleted_agent(session, tool, parsed_arguments)
+        _refuse_ungrounded(tool, parsed_arguments, said)
         plan = await tool.plan(session, actor, parsed_arguments)
         action_id = await action_log.insert(
             session,
@@ -2018,6 +2054,7 @@ __all__ = [
     "burn_proposal",
     "confirm",
     "conversation_seed",
+    "grounding_problem",
     "immediate_tool_names",
     "is_write_tool",
     # Exported because the EXECUTORS re-parse the signed arguments through it, so it is

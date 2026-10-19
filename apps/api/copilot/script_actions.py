@@ -27,7 +27,7 @@ function that section's button called, and the fixes are reviewed there
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Annotated, Any, Final
 from uuid import UUID
 
@@ -54,6 +54,7 @@ from apps.api.copilot.actions import (
     parse_args,
 )
 from apps.api.copilot.identity import ASSISTANT_NAME
+from apps.api.copilot.quotes import quoted_in
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.db.ownership import assert_visible
 from apps.workers.script_assist import OWNER_QUESTIONS
@@ -98,6 +99,40 @@ async def _agent_name(session: AsyncSession, agent_id: UUID) -> str:
         await session.execute(text("SELECT name FROM agents WHERE id = :aid"), {"aid": agent_id})
     ).scalar()
     return strip_invisible(str(name or "This agent"))
+
+
+NO_ANSWERS_REASON: Final = "no answers were given, so ask the person the five questions first"
+
+
+def _whole_rests_on_the_owner(args: Mapping[str, Any], said: Sequence[str]) -> str | None:
+    """A whole script is drafted only from answers the owner typed (D-820, D-833).
+
+    The tool description asks Pip to put the five questions first; a production eval
+    (19 Oct 2026) saw it call `whole` on "Draft the whole script for this agent" anyway.
+    Each answer must be words the person wrote in this conversation (`quotes.quoted_in`),
+    so answers Pip made up, or none at all, send it back to ask."""
+    if args.get("mode") != "whole":
+        return None
+    answers = args.get("answers")
+    given = (
+        {
+            key: value
+            for key, value in answers.items()
+            if key in OWNER_QUESTIONS and isinstance(value, str) and value.strip()
+        }
+        if isinstance(answers, Mapping)
+        else {}
+    )
+    if not given:
+        return NO_ANSWERS_REASON
+    invented = [key for key, value in given.items() if not quoted_in(value, said)]
+    if not invented:
+        return None
+    return (
+        f"the answers to {', '.join(f'`{key}`' for key in invented)} are not the person's own "
+        "words, so ask the person the five questions together and copy each answer from "
+        "what they wrote"
+    )
 
 
 def _canonical(parsed: _ScriptSuggestArgs) -> dict[str, Any]:
@@ -150,7 +185,7 @@ async def _plan_script_suggest(
         raise WriteRefusedError(
             {
                 "change": "the change was missing or too short, so ask the person what to change",
-                "whole": "no answers were given, so ask the person the five questions first",
+                "whole": NO_ANSWERS_REASON,
                 "steps": "this agent has no hand-written script to turn into steps",
             }[parsed.mode]
         )
@@ -236,8 +271,9 @@ AGENT_SCRIPT_SUGGEST: Final = ActionTool(
         "Write a suggested change to an agent's call script; the person reviews it on its "
         "Script tab. For rewriting, adding to or drafting the script; `set_fields` only types "
         "a dictated value into a field on screen. `change`: one change in their words. "
-        "`whole`: from the five answers; ask the five questions together first. `steps`: a "
-        "hand-written script into steps. Failed tests: `agent_tests_fix`." + PROPOSES_ONLY,
+        "`whole`: ask the five questions together first, then copy each answer from their "
+        "words. `steps`: a hand-written script into steps. Failed tests: `agent_tests_fix`."
+        + PROPOSES_ONLY,
         {
             "agent_id": {
                 "type": "string",
@@ -261,6 +297,7 @@ AGENT_SCRIPT_SUGGEST: Final = ActionTool(
     ),
     plan=_plan_script_suggest,
     execute=_execute_script_suggest,
+    grounded=_whole_rests_on_the_owner,
 )
 
 # --- fixes for the tests an agent failed (D-724's "Improve my agent", asked of Pip) -------

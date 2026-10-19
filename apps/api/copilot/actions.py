@@ -66,7 +66,7 @@ infer a missing agent id.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, Literal
 from uuid import UUID
@@ -287,6 +287,9 @@ Planner = Callable[[AsyncSession, "ToolActor", Mapping[str, Any]], Awaitable[Pla
 #: A tool's write half. Reached from `confirm` (tier 2) or `run_immediate` (tier 1) and
 #: from nowhere else.
 Executor = Callable[[AsyncSession, "ToolActor", Mapping[str, Any]], Awaitable[Executed]]
+#: Checks the model's arguments against what the person wrote in this conversation (their
+#: own messages, latest last) and returns why they do not rest on it, or None (D-833).
+Grounding = Callable[[Mapping[str, Any], Sequence[str]], str | None]
 
 
 class UndoRefusedError(Exception):
@@ -387,6 +390,10 @@ class ActionTool:
     #: failure later in `confirm` keeps the token spent rather than letting the same card
     #: pay again (D-821; the route it replaced held its idempotency claim for this reason).
     external_spend: bool = False
+    #: Run when a call is proposed or staged in a conversation, before the planner (D-833).
+    #: Not at approval: the re-plan there has no conversation, and the person's click on a
+    #: card that showed the arguments is their own word for them.
+    grounded: Grounding | None = None
 
     def __post_init__(self) -> None:
         if self.tier == "immediate" and self.undo is None:

@@ -18,6 +18,7 @@ import httpx
 import pytest
 from apps.api.copilot import service
 from apps.api.copilot.admin_prompt import ADMIN_SYSTEM_PROMPT
+from apps.api.copilot.prompt import SCREEN_OPEN
 from apps.api.copilot.schemas import CopilotStepEvent
 from apps.workers import chat
 from scripts import copilot_tool_eval as harness
@@ -268,8 +269,105 @@ def test_an_overloaded_vendor_is_retried_rather_than_ending_the_run(
     case = harness.load_cases()[0]
 
     async def first_question() -> tuple[str, ...]:
-        calls, _usage = await choose(case)
+        calls, _usage, _refused = await choose(case)
         return calls
 
     assert asyncio.run(first_question()) == ("set_fields",)
     assert attempts == 2
+
+
+# --- the server's own checks beside the model's choice (D-833) ---------------------------
+
+
+def _call(name: str, arguments: dict[str, Any]) -> chat.ToolCall:
+    return chat.ToolCall(id="c", name=name, arguments=json.dumps(arguments, ensure_ascii=False))
+
+
+@pytest.mark.parametrize("case_id", ["c-script-after-kept", "c-talk-language-after-kept"])
+def test_the_screen_and_question_follow_the_history_and_the_prefix_ignores_them(
+    case_id: str,
+) -> None:
+    """The screen is per-request and sits in the last message, after the replayed turns; the
+    system prompt is the same bytes for any screen, so the cached prefix is unchanged."""
+    case = _case(case_id)
+    messages = service.build_messages(case.payload, "", case.realm)
+    assert [m["role"] for m in messages[:2]] == ["system", "user"]
+    assert all(SCREEN_OPEN not in str(m["content"]) for m in messages[:-1])
+    assert SCREEN_OPEN in str(messages[-1]["content"])
+    assert str(messages[-1]["content"]).endswith(f"The person asks: {case.payload.question}")
+    other = _case("c-lead-count")
+    assert messages[0] == service.build_messages(other.payload, "", other.realm)[0]
+
+
+def test_a_fill_resting_on_the_earlier_request_is_refused_by_the_server() -> None:
+    """The production failure (19 Oct 2026): the opening line filled again because an
+    earlier message asked for it."""
+    case = _case("c-script-after-kept")
+    fill = {"field_id": "script-opening_line", "value": "నమస్కారం అండి, thanks."}
+    stale = _call(
+        "set_fields", {"because": "make the opening line warmer and shorter", "items": [fill]}
+    )
+    assert harness.server_refuses(case, stale)
+    scored = harness.score(case, ("set_fields",), ("set_fields",))
+    assert scored.caught and not scored.right
+
+
+def test_an_answer_to_pips_own_question_is_a_fill_the_server_accepts() -> None:
+    case = _case("c-fill-answer-only")
+    call = _call(
+        "set_fields",
+        {
+            "because": "10 to 8, closed on Sundays",
+            "items": [
+                {"field_id": "intake-hours-open", "value": "10:00"},
+                {"field_id": "intake-hours-close", "value": "20:00"},
+                {"field_id": "intake-closed-days", "value": "Sunday"},
+            ],
+        },
+    )
+    assert not harness.server_refuses(case, call)
+
+
+def _whole(answers: dict[str, str | None]) -> dict[str, Any]:
+    return {
+        "agent_id": "0192f3a4-0000-7000-8000-0000000a9e01",
+        "mode": "whole",
+        "change": None,
+        "answers": answers,
+    }
+
+
+def test_a_whole_script_before_the_five_answers_is_refused_by_the_server() -> None:
+    case = _case("c-script-whole-asks-first")
+    invented = _whole({"what_you_offer": "Organic groceries", "customers": "Home cooks"})
+    assert harness.server_refuses(case, _call("agent_script_suggest", invented))
+    assert harness.server_refuses(case, _call("agent_script_suggest", _whole({})))
+
+
+def test_a_whole_script_from_the_owners_typed_answers_is_accepted() -> None:
+    case = _case("c-script-whole-answered")
+    answers = _whole(
+        {
+            "what_you_offer": "Organic groceries",
+            "customers": "Home cooks call to order",
+            "good_outcome": "Take their name and area.",
+            "never_say": "Never promise same-day delivery",
+        }
+    )
+    assert not harness.server_refuses(case, _call("agent_script_suggest", answers))
+
+
+def test_the_report_counts_wrong_calls_the_server_refuses(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    record = tmp_path / "run.json"
+    calls = {case.id: list(harness.oracle(case)) for case in harness.load_cases()}
+    calls["c-script-after-kept"] = ["set_fields"]
+    calls["c-thanks"] = ["business_snapshot"]
+    body = {"calls": calls, "refused": {"c-script-after-kept": ["set_fields"]}}
+    record.write_text(json.dumps(body), "utf-8")
+    assert harness.main([f"--replay={record}"]) == 0
+    out = capsys.readouterr().out
+    assert "refused by the server, reaching nobody: 1/2 wrong" in out
+    assert "FAIL c-script-after-kept [wrong_fill,forbidden,unwanted] called=['set_fields']" in out
+    assert "refused_by_server=['set_fields']" in out

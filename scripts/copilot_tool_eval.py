@@ -32,6 +32,12 @@ What a case scores:
 Only the FIRST turn is scored. Later turns need the tools executed against a database, and
 a question's correct first move is what the tool array and the prompt decide.
 
+The score is the model's choice. Beside it, each call is put through the checks the server
+makes without a database (`service.validate_fill`, including D-833's quote of the latest
+message, and each write tool's `grounded` check): a wrong call the server refuses goes back
+to the model as a refusal and reaches nobody, so the report counts those apart
+(`refused_by_server`).
+
 **THE LIVE RUN** answers each question in full through `service.run_copilot`, the production
 loop, on the production model tiers (`model_tiers.route_tier`), with the read tools executed
 against this deployment's database — `--tenant` names the account the client cases and the
@@ -64,11 +70,12 @@ from uuid import UUID
 
 import httpx
 from apps.api.billing.ai_quota import assist_ledger_rows
-from apps.api.copilot import model_tiers, service
+from apps.api.copilot import model_tiers, service, write_tools
 from apps.api.copilot.prompt import SET_FIELDS_TOOL_NAME, assert_screen_fits, render_screen
 from apps.api.copilot.schemas import CopilotAskIn, CopilotRealm
 from apps.api.core.settings import get_settings
 from apps.api.ops.pricing_snapshot import install_pricing_readers, refresh_pricing_snapshot
+from apps.workers import chat
 from apps.workers.chat import TokenUsage
 from apps.workers.extraction import AZURE_PROVIDER, GOOGLE_PROVIDER
 from apps.workers.redaction import redact
@@ -83,8 +90,9 @@ CANNOT_RUN: Final = 2
 RETRIES: Final = 3
 TRANSIENT: Final = frozenset({429, 500, 502, 503, 504})
 
-#: What one model turn chose: the tool names, in call order, and what it cost.
-Choice = tuple[tuple[str, ...], TokenUsage | None]
+#: What one model turn chose: the tool names in call order, what it cost, and the names of
+#: the calls the server would refuse.
+Choice = tuple[tuple[str, ...], TokenUsage | None, tuple[str, ...]]
 ChooseTurn = Callable[["Case"], Awaitable[Choice]]
 
 
@@ -108,10 +116,17 @@ class Score:
     case: Case
     calls: tuple[str, ...]
     failures: list[str] = field(default_factory=list)
+    refused: tuple[str, ...] = ()
 
     @property
     def right(self) -> bool:
         return not self.failures
+
+    @property
+    def caught(self) -> bool:
+        """Wrong, but every call the case did not expect is one the server refuses."""
+        unexpected = set(self.calls) - self.case.expect
+        return not self.right and bool(unexpected) and unexpected <= set(self.refused)
 
 
 def load_cases(path: Path = FIXTURE) -> list[Case]:
@@ -175,8 +190,26 @@ def fixture_problems(cases: Sequence[Case]) -> list[str]:
     return problems
 
 
-def score(case: Case, calls: Sequence[str]) -> Score:
-    result = Score(case=case, calls=tuple(calls))
+def server_refuses(case: Case, call: chat.ToolCall) -> bool:
+    """Whether the server's database-free checks refuse this call on this case."""
+    if call.name == SET_FIELDS_TOOL_NAME:
+        try:
+            service.validate_fill(case.payload, call.arguments or "")
+        except service.FillRefusedError:
+            return True
+        return False
+    try:
+        arguments = json.loads(call.arguments or "")
+    except ValueError:
+        return True
+    if not isinstance(arguments, dict):
+        return True
+    said = service.person_said(case.payload)
+    return write_tools.grounding_problem(call.name, arguments, said) is not None
+
+
+def score(case: Case, calls: Sequence[str], refused: Sequence[str] = ()) -> Score:
+    result = Score(case=case, calls=tuple(calls), refused=tuple(refused))
     called = set(calls)
     if not called:
         if not case.none_ok:
@@ -222,8 +255,9 @@ def model_turn(provider: str, model: str | None) -> ChooseTurn | None:
         async for event in service.streamed_turn(leg, messages, tools_for(case)):
             outcome = event.outcome or outcome
         if outcome is None:
-            return (), None
-        return tuple(call.name for call in outcome.tool_calls), outcome.usage
+            return (), None, ()
+        refused = tuple(call.name for call in outcome.tool_calls if server_refuses(case, call))
+        return tuple(call.name for call in outcome.tool_calls), outcome.usage, refused
 
     async def choose(case: Case) -> Choice:
         # A rate limit or an overloaded model is the vendor's moment, not the model's
@@ -241,14 +275,16 @@ def model_turn(provider: str, model: str | None) -> ChooseTurn | None:
 
 
 async def oracle_turn(case: Case) -> Choice:
-    return oracle(case), None
+    return oracle(case), None, ()
 
 
 def replay_turn(path: Path) -> ChooseTurn:
-    recorded: Mapping[str, Sequence[str]] = json.loads(path.read_text(encoding="utf-8"))["calls"]
+    body = json.loads(path.read_text(encoding="utf-8"))
+    recorded: Mapping[str, Sequence[str]] = body["calls"]
+    refused: Mapping[str, Sequence[str]] = body.get("refused", {})
 
     async def choose(case: Case) -> Choice:
-        return tuple(recorded.get(case.id, ())), None
+        return tuple(recorded.get(case.id, ())), None, tuple(refused.get(case.id, ()))
 
     return choose
 
@@ -256,8 +292,8 @@ def replay_turn(path: Path) -> ChooseTurn:
 async def run(cases: Sequence[Case], choose: ChooseTurn) -> tuple[list[Score], list[TokenUsage]]:
     scores, usage = [], []
     for case in cases:
-        calls, spent = await choose(case)
-        scores.append(score(case, calls))
+        calls, spent, refused = await choose(case)
+        scores.append(score(case, calls, refused))
         if spent is not None:
             usage.append(spent)
     return scores, usage
@@ -285,11 +321,17 @@ def render(scores: Sequence[Score], usage: Sequence[TokenUsage], label: str) -> 
         lines.append(
             f"tokens: prompt={prompt} cached={cached} output={output} over {len(usage)} turns"
         )
+    wrong = [s for s in scores if not s.right]
+    if wrong:
+        lines.append(
+            f"refused by the server, reaching nobody: {sum(s.caught for s in wrong)}"
+            f"/{len(wrong)} wrong"
+        )
     lines += [
         f"FAIL {s.case.id} [{','.join(s.failures)}] called={list(s.calls)} "
         f"expected={sorted(s.case.expect)}"
-        for s in scores
-        if not s.right
+        + (f" refused_by_server={list(s.refused)}" if s.refused else "")
+        for s in wrong
     ]
     return "\n".join(lines)
 
@@ -485,6 +527,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         recorded: dict[str, Any] = {
             "label": label,
             "calls": {s.case.id: list(s.calls) for s in scores},
+            "refused": {s.case.id: list(s.refused) for s in scores if s.refused},
         }
         args.record.write_text(json.dumps(recorded, indent=1, ensure_ascii=False) + "\n", "utf-8")
     share = sum(s.right for s in scores) / max(len(scores), 1)
