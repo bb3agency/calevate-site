@@ -1455,3 +1455,48 @@ async def test_a_clone_is_recorded_in_the_studio_band_and_sold_only_on_studio(
     assert row.band == "studio" and not row.sold
     monkeypatch.setattr(hosted_voices, "sold_hosted_band", lambda: "studio")
     assert row.sold
+
+
+# --- our own model in the developer workspace (D-834) --------------------------------------
+
+
+class _OwnModelHostingEngine(HostingEngine):
+    """`HostingEngine` that also takes our Google key, as the vendor would hold it."""
+
+    async def install_own_model_key(self, *, provider: str, api_key: str, model: str) -> None:
+        state = await self.own_key_state()
+        self._set_state(
+            state.model_copy(
+                update={"llm_provider": provider, "llm_model": model, "llm_verified": True}
+            )
+        )
+
+    async def enable_own_model_key(self) -> Any:
+        state = await self.own_key_state()
+        self._set_state(state.model_copy(update={"enabled": True, "using": "own", "scope": "llm"}))
+        return await self.own_key_state()
+
+    async def set_agent_own_keys(self, ref: str, *, own_voice: bool, own_model: str | None) -> None:
+        return None
+
+
+async def test_set_up_developer_workspace_installs_our_google_key_and_keeps_scope_voice(
+    admin: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "AIza-test")
+    engine = _OwnModelHostingEngine(key_state=READY_KEY)
+    with selected(engine):
+        async with _client() as http:
+            refused = await http.post("/v1/ops/voices/own-model/developer", headers=admin)
+            done = await http.post(
+                "/v1/ops/voices/own-model/developer",
+                headers={**admin, "X-Confirm-Action": routes.OWN_MODEL_DEVELOPER_CONFIRMATION},
+            )
+    assert refused.json()["type"].rsplit("/", 1)[-1] == "step_up_required"
+    assert done.status_code == 200, done.text
+    body = done.json()
+    assert body["developer_ready"] is True and body["developer_error_code"] is None
+    assert engine.key_state.llm_provider == "google" and engine.key_state.scope == "voice"
+    assert await _audits("ops.own_model_developer_enabled") >= 1

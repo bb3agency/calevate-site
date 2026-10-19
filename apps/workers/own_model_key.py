@@ -1,18 +1,21 @@
-"""Our Google key in every client workspace that answers on our model, kept on (D-764).
+"""Our Google key in every workspace that answers on our model, kept on (D-764, D-834).
 
 Agents on our own model answer on our Google key, installed in each paying client's own
-ThinnestAI workspace by `agents/own_model.ensure_own_model_in`. There is no backup model on
+ThinnestAI workspace by `agents/own_model.ensure_own_model_in`, and in our developer workspace,
+where free-trial agents live, by `ensure_developer_own_model`. There is no backup model on
 our own keys: "if your key fails, the caller hears our apology and the call is flagged, and
 we do not answer on our model" (`thinnest-findings/mirror/snapshots/2026-10-13/pages/
 api-reference/bring-your-own-keys.md:171-178`). So, as `studio_voice_key.py` does for our
 Cartesia key:
 
 * `push_own_model_key` — a rotation, enqueued through the outbox by
-  `ops/secret_routes.set_secret_route` in the transaction that stores the new version. It fans
+  `ops/secret_routes.set_secret_route` in the transaction that stores the new version. It
+  replaces the key in the developer workspace (when a Google key is held there) and fans
   out one `push_own_model_key_to_workspace` per own-model workspace, each with its own retries
   and alarm. Replacing a key of the same provider keeps its model (:239), and the key is read
   from the store, never logged.
-* `sweep_own_model_workspaces` — hourly. Every own-model workspace must answer `GET /byok`
+* `sweep_own_model_workspaces` — hourly. The developer workspace (`check_developer_own_model`,
+  once it was set up) and every own-model client workspace must answer `GET /byok`
   with our checked Google key in use (`own_model_key_ready`); one that does not is REPAIRED by
   the steps a publish runs and alarmed either way, because an agent whose `byok` scope names
   a key the workspace no longer serves falls back to the workspace's scope at its next call
@@ -29,6 +32,7 @@ from arq import Retry
 
 from apps.api.agents.own_model import (
     OWN_MODEL_PROVIDER,
+    ensure_developer_own_model,
     ensure_own_model_workspace,
     own_model_key_ready,
 )
@@ -46,6 +50,8 @@ from apps.api.ops.secret_service import resolve_secrets
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.engine_workspace import (
     own_model_workspaces,
+    read_developer_own_model,
+    record_developer_own_model_check,
     record_own_model_check,
     workspace_for_tenant,
 )
@@ -73,37 +79,63 @@ def _runs_own_model() -> RunsOwnModel | None:
     return engine
 
 
-def _push_failed(code: str, *, tenant_id: str) -> None:
+def _push_failed(code: str, *, where: str, tenant_id: str | None = None) -> None:
     log.warning("own_model_key_push_failed", extra={"reason": code, "tenant_id": tenant_id})
     alert(
         "CORE_LOGIC",
         "own_model_key_push_failed",
         detail=(
-            f"The rotated Google key could not be installed in a client's voice workspace "
-            f"({code}), so calls there still answer on the previous key and the caller hears "
-            "an apology once it is revoked. Test the key from the ops console Secrets panel, "
-            "then save it again, which retries every push."
+            f"The rotated Google key could not be installed in {where} ({code}), so calls "
+            "there still answer on the previous key and the caller hears an apology once it "
+            "is revoked. Test the key from the ops console Secrets panel, then save it again, "
+            "which retries every push."
         ),
         reason=code,
-        tenant_id=tenant_id,
+        tenant_id=tenant_id or "",
     )
 
 
+async def _push_to_developer(engine: RunsOwnModel, key: str) -> str:
+    """Replace the developer workspace's Google key, keeping its model, when one is held
+    there: `pushed`, `failed` or `not_held`. A workspace never set up is not set up here;
+    the operator's act and the hourly repair do that."""
+    try:
+        state = await engine.own_key_state()
+        if state.llm_provider != OWN_MODEL_PROVIDER:
+            return "not_held"
+        await engine.install_own_model_key(
+            provider=OWN_MODEL_PROVIDER,
+            api_key=key,
+            model=state.llm_model or get_settings().thinnest_own_model_default,
+        )
+    except ProblemError as exc:
+        _push_failed(exc.code, where="our developer workspace")
+        return "failed"
+    return "pushed"
+
+
 async def push_own_model_key(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    """Fan out one push per own-model client workspace. Returns what it did."""
+    """Replace the developer workspace's key and fan out one push per own-model client
+    workspace. Returns what it did."""
     del ctx, payload  # the store holds the key; the payload only names the version
-    if _runs_own_model() is None:
+    engine = _runs_own_model()
+    if engine is None:
         return "not_hosted"
-    if not await _current_key():
+    key = await _current_key()
+    if not key:
         return "no_key"
+    developer = await _push_to_developer(engine, key)
     workspaces = await own_model_workspaces()
     async with untenanted_session() as session:
         for row in workspaces:
             await enqueue_outbox(
                 session, job=PUSH_TO_WORKSPACE_JOB, payload={"tenant_id": str(row.tenant_id)}
             )
-    log.info("own_model_key_fanned_out", extra={"workspaces": len(workspaces)})
-    return f"workspaces={len(workspaces)}"
+    log.info(
+        "own_model_key_fanned_out",
+        extra={"developer": developer, "workspaces": len(workspaces)},
+    )
+    return f"developer={developer} workspaces={len(workspaces)}"
 
 
 async def push_own_model_key_to_workspace(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -132,25 +164,82 @@ async def push_own_model_key_to_workspace(ctx: dict[str, Any], payload: dict[str
         permanent = exc.kind in ("validation", "business_rule")
         if not permanent and attempt < WORKER_MAX_TRIES:
             raise Retry(defer=_RETRY_AFTER_S[min(attempt, len(_RETRY_AFTER_S)) - 1]) from exc
-        _push_failed(exc.code, tenant_id=str(tenant_id))
+        _push_failed(exc.code, where="a client's voice workspace", tenant_id=str(tenant_id))
         return "failed"
     log.info("own_model_key_pushed", extra={"tenant_id": str(tenant_id)})
     return "pushed"
 
 
 async def sweep_own_model_workspaces(ctx: dict[str, Any]) -> str:
-    """Hourly: every own-model client workspace verified on our Google key, repaired when
-    not."""
+    """Hourly: our developer workspace and every own-model client workspace verified on our
+    Google key, repaired when not."""
     del ctx
     engine = _runs_own_model()
     if engine is None:
         return "not_hosted"
+    developer = await check_developer_own_model(engine)
     tally = dict.fromkeys(("ok", "repaired", "failed"), 0)
     for row in await own_model_workspaces():
         tally[await _check_workspace(engine, row.tenant_id, row.workspace_id)] += 1
     alarm_own_model_tally(tally)
     basis = await refresh_prompt_basis(get_engine())
-    return " ".join(f"{k}={v}" for k, v in tally.items()) + f" prompt={basis.source}"
+    summary = " ".join(f"{k}={v}" for k, v in tally.items())
+    return f"developer={developer} {summary} prompt={basis.source}"
+
+
+async def check_developer_own_model(engine: RunsOwnModel) -> str:
+    """The developer workspace's half of the hourly check: `ok`, `repaired`, `failed`, or
+    `not_set_up` while it was never confirmed on our key. Free-trial agents on our model
+    answer there (D-834), so a workspace once set up and found off is repaired by
+    `ensure_developer_own_model` and alarmed either way; an unreadable one changes nothing."""
+    try:
+        state = await engine.own_key_state()
+    except ProblemError as exc:
+        log.warning("engine_byok_state_unreadable", extra={"code": exc.code})
+        return "failed"
+    async with untenanted_session() as session:
+        if own_model_key_ready(state):
+            await record_developer_own_model_check(session, error_code=None)
+            return "ok"
+        if (await read_developer_own_model(session)).enabled_at is None:
+            return "not_set_up"
+    log.warning(
+        "own_model_developer_drift",
+        extra={
+            "enabled": state.enabled,
+            "scope": state.scope,
+            "using": state.using,
+            "llm_provider": state.llm_provider,
+        },
+    )
+    try:
+        async with untenanted_session() as session:
+            await ensure_developer_own_model(session, cast(HostsVoices, engine))
+    except ProblemError as exc:
+        log.warning("own_model_developer_repair_failed", extra={"reason": exc.code})
+        alert(
+            "CORE_LOGIC",
+            "own_model_developer_drift",
+            detail=(
+                "Our developer workspace is not on our Google key and could not be switched "
+                f"back on ({exc.code}), so free-trial agents on our model are refused at "
+                "publish and fall back to the workspace's own scope at their next call. Run "
+                "Set up developer workspace from Voices, Our own model; "
+                "runbooks/thinnest-own-model.md says what each code means."
+            ),
+            reason=exc.code,
+        )
+        return "failed"
+    alert(
+        "CORE_LOGIC",
+        "own_model_developer_repaired",
+        detail=(
+            "Our developer workspace was no longer on our Google key and was switched back "
+            "on, every agent that would follow its keys confirmed off first. Find out who "
+            "changed it on the voice platform."
+        ),
+    )
+    return "repaired"
 
 
 async def check_own_model_workspace(engine: RunsOwnModel, tenant_id: UUID, workspace: str) -> str:
@@ -223,6 +312,7 @@ __all__ = [
     "GOOGLE_KEY",
     "PUSH_TO_WORKSPACE_JOB",
     "alarm_own_model_tally",
+    "check_developer_own_model",
     "check_own_model_workspace",
     "push_own_model_key",
     "push_own_model_key_to_workspace",

@@ -1,6 +1,7 @@
-"""Our own language model on ThinnestAI calls (D-764): Gemini on our Google key.
+"""Our own language model on ThinnestAI calls (D-764, D-834): Gemini on our Google key.
 
-THE TWO SET-UPS (founder, 13 Oct 2026), both switched OFF until `Settings.thinnest_own_model`:
+THE TWO SET-UPS (founder, 13 Oct 2026; every agent, free-trial ones included, 19 Oct 2026,
+D-834), both switched OFF until `Settings.thinnest_own_model`:
 
 * **Clear**: ThinnestAI's speech-to-text and voice, our model. The agent's `byok` is `llm`,
   billed at the voice band's own minute ("You pay the same per-minute voice plan as any other
@@ -11,14 +12,23 @@ THE TWO SET-UPS (founder, 13 Oct 2026), both switched OFF until `Settings.thinne
 
 WHERE THE KEY LIVES. In each paying client's own workspace, installed and read back by
 `ensure_own_model_in` the first time that client publishes on our model, in the order
-`studio_voices.ensure_studio_in` uses for our Cartesia key (D-717). Never in our developer
-workspace: a customer workspace without keys of its own inherits the developer's (:180-184),
-so a key there would reach every client that has none. Free-trial agents, which live in the
-developer workspace (D-697), stay on ThinnestAI's model.
+`studio_voices.ensure_studio_in` uses for our Cartesia key (D-717). And in our developer
+workspace, where free-trial agents live (D-697), by `ensure_developer_own_model`: the
+operator's "Set up developer workspace" act, the hourly repair and a key rotation; a trial
+publish only verifies it (`require_developer_own_model`), as a trial Studio publish verifies
+our Cartesia key there (D-727). A customer workspace without a complete set of its own
+inherits the developer's keys under the developer's DEFAULT scope (`thinnest-findings/
+mirror/snapshots/2026-10-18/pages/api-reference/bring-your-own-keys.md:186-190`), and a
+default already set is never moved here: it stays `voice` once Studio ready has run, so our
+Google key there changes no agent that follows a workspace. Only an agent naming `llm` or
+`llm_voice` uses it, and every agent we publish names its scope. A developer workspace whose
+keys are off is switched on with `llm` after every agent that would follow it is set `off`,
+as for a client workspace; Studio ready later moves that default to `voice`.
 
 THE WORKSPACE SCOPE RULE. One workspace may hold Clear and Studio agents at once. A scope is
-per agent ("one agent can run on `llm` ... while another runs on `llm_voice`", :88-90) and
-needs only that the workspace holds checked keys for it (:92-97); the workspace default
+per agent ("one agent can run on `llm` ... while another runs on `llm_voice`", 2026-10-18
+snapshot :82-90) and needs only that the workspace holds checked keys for it (:92-97); the
+workspace default
 applies only to an agent that follows it. So every agent names its scope and the default is
 left as it is: a Studio workspace stays on `voice`, so a Studio agent not yet republished
 keeps running, and billing, exactly as before; a workspace whose own keys are off is switched
@@ -61,12 +71,15 @@ from apps.api.billing.engine_minutes import (
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
-from apps.api.db.session import joined_tenant_session
+from apps.api.db.session import joined_tenant_session, untenanted_session
 from apps.api.engine.catalogue import HostsVoices, OwnVoiceKeyState, RunsOwnModel
 from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.tenancy.engine_workspace import (
+    DeveloperOwnModelRecord,
     StudioWorkspace,
     own_model_workspaces,
+    read_developer_own_model,
+    record_developer_own_model_check,
     record_own_model_check,
 )
 
@@ -191,6 +204,11 @@ class OwnModelReadiness:
     data_use_attested: bool
     #: The `byok_llm_voice` minute a Studio call on our model bills at is attested.
     llm_voice_minute_attested: bool
+    #: What our developer workspace last answered about our Google key (D-834): free-trial
+    #: agents answer on it there, and the switch-on republishes them.
+    developer: DeveloperOwnModelRecord = field(
+        default_factory=lambda: DeveloperOwnModelRecord(None, None, None)
+    )
     offerable_models: tuple[str, ...] = ()
     workspaces: tuple[StudioWorkspace, ...] = field(default_factory=tuple)
 
@@ -201,6 +219,7 @@ class OwnModelReadiness:
             and self.default_offerable
             and self.data_use_attested
             and self.llm_voice_minute_attested
+            and self.developer.ready
         )
 
     def missing(self) -> list[str]:
@@ -219,6 +238,14 @@ class OwnModelReadiness:
             )
         if not self.llm_voice_minute_attested:
             steps.append("Attest the own-voice-and-model (byok_llm_voice) per-minute rate.")
+        if not self.developer.ready:
+            failed = (
+                f" (last error: {self.developer.error_code})" if self.developer.error_code else ""
+            )
+            steps.append(
+                "Set up our Google key in the developer workspace, where free-trial agents "
+                f"live (Voices, Our own model, Set up developer workspace){failed}."
+            )
         return steps
 
 
@@ -239,6 +266,7 @@ async def own_model_readiness(session: AsyncSession, *, engine: str) -> OwnModel
         default_reason=reason,
         data_use_attested=OWN_MODEL_PROVIDER in dashboard_data_use_attested(),
         llm_voice_minute_attested=BYOK_LLM_VOICE_RATE_KEY in attested,
+        developer=await read_developer_own_model(session),
         offerable_models=offerable_own_models(),
         workspaces=tuple(await own_model_workspaces()),
     )
@@ -352,6 +380,30 @@ def _workspace_not_ready(state: OwnVoiceKeyState) -> ProblemError:
     )
 
 
+def _holds_own_google_key(state: OwnVoiceKeyState) -> bool:
+    """A checked Google key the workspace runs as its OWN. `using` decides ownership because a
+    customer workspace inheriting from our developer workspace answers `using: developer`
+    (bring-your-own-keys.md:225-227), and the page does not say whether it then lists the
+    inherited credentials; installing again replaces a key of the same provider, keeping its
+    model, so a needless install costs one request."""
+    return (
+        state.llm_provider == OWN_MODEL_PROVIDER
+        and state.llm_verified
+        and (state.using == "own" or (not state.enabled and state.using == "none"))
+    )
+
+
+async def _install_google_key(runs: RunsOwnModel) -> None:
+    settings = get_settings()
+    if not settings.gemini_api_key:
+        raise _no_google_key()
+    await runs.install_own_model_key(
+        provider=OWN_MODEL_PROVIDER,
+        api_key=settings.gemini_api_key,
+        model=settings.thinnest_own_model_default,
+    )
+
+
 async def _switch_on(
     session: AsyncSession, engine: HostsVoices, *, tenant_id: UUID, workspace: str
 ) -> OwnVoiceKeyState:
@@ -365,15 +417,8 @@ async def _switch_on(
         state = await runs.own_key_state()
         if own_model_key_ready(state):
             return state
-        if not (state.llm_provider == OWN_MODEL_PROVIDER and state.llm_verified):
-            settings = get_settings()
-            if not settings.gemini_api_key:
-                raise _no_google_key()
-            await runs.install_own_model_key(
-                provider=OWN_MODEL_PROVIDER,
-                api_key=settings.gemini_api_key,
-                model=settings.thinnest_own_model_default,
-            )
+        if not _holds_own_google_key(state):
+            await _install_google_key(runs)
         if not state.enabled:
             unconfirmed = await keep_clear_agents_off(
                 session, engine, tenant_id=tenant_id, workspace=workspace
@@ -427,6 +472,90 @@ async def ensure_own_model_workspace(
         )
 
 
+# --- our developer workspace: free-trial agents (D-834) ----------------------------------
+
+
+def _developer_not_ready(state: OwnVoiceKeyState) -> ProblemError:
+    log.warning(
+        "own_model_developer_not_ready",
+        extra={
+            "enabled": state.enabled,
+            "scope": state.scope,
+            "using": state.using,
+            "llm_provider": state.llm_provider,
+            "llm_verified": state.llm_verified,
+        },
+    )
+    return ProblemError(
+        kind="dependency",
+        code="own_model_developer_not_ready",
+        title="Our model key did not switch on in our developer workspace",
+        detail="The voice platform did not report our Google key as checked, with a model and "
+        "in use in our developer workspace, where free-trial agents live.",
+        remediation="Run Set up developer workspace again (Voices, Our own model). If it keeps "
+        "failing, check the developer workspace's own keys on the voice platform.",
+    )
+
+
+async def ensure_developer_own_model(
+    session: AsyncSession, engine: HostsVoices
+) -> OwnVoiceKeyState:
+    """Our Google key installed, checked and in use in our developer workspace, read back.
+    IDEMPOTENT: a workspace that already answers ready is only recorded as checked.
+
+    In this order: install our key unless the workspace runs a checked Google key of its own;
+    if its own keys are off, set every published agent that would follow them `off` and read
+    each back (`studio_voices.keep_inheriting_agents_off`: the developer workspace's and
+    those of customer workspaces that inherit it, :186-190), then switch them on with `llm`;
+    read back. A switch already on keeps its default scope. `session` must see every tenant's
+    routes (an operator's or a worker's untenanted session). The outcome is recorded on
+    `platform_state` either way; a failure is raised with its cause, for an operator."""
+    from apps.api.agents.studio_voices import keep_inheriting_agents_off
+
+    if not isinstance(engine, RunsOwnModel):
+        raise own_model_account_not_ready()
+    try:
+        state = await engine.own_key_state()
+        if not own_model_key_ready(state):
+            if not _holds_own_google_key(state):
+                await _install_google_key(engine)
+            if not state.enabled:
+                unconfirmed = await keep_inheriting_agents_off(session, engine)
+                if unconfirmed:
+                    raise _agents_not_kept_off(unconfirmed)
+                await engine.enable_own_model_key()
+            state = await engine.own_key_state()
+            if not own_model_key_ready(state):
+                raise _developer_not_ready(state)
+    except ProblemError as exc:
+        # In a session of its own: the caller's rolls back with the raise, and the console
+        # and the switch-on readiness read this record.
+        async with untenanted_session() as own:
+            await record_developer_own_model_check(own, error_code=exc.code)
+        log.warning("own_model_developer_enable_failed", extra={"reason": exc.code})
+        raise
+    await record_developer_own_model_check(session, error_code=None)
+    log.info("own_model_developer_ready")
+    return state
+
+
+async def require_developer_own_model(engine: HostsVoices) -> OwnVoiceKeyState:
+    """A free-trial agent's publish on our model: our developer workspace must answer ready.
+    Read live, never switched on from a client's request (the developer workspace's keys are
+    platform-wide); the operator's set-up and the hourly repair do that. Refused to the client
+    in words naming no vendor."""
+    if not isinstance(engine, RunsOwnModel):
+        raise own_model_account_not_ready()
+    state = await engine.own_key_state()
+    if not own_model_key_ready(state):
+        log.warning(
+            "own_model_trial_publish_developer_not_ready",
+            extra={"using": state.using, "llm_provider": state.llm_provider},
+        )
+        raise own_model_account_not_ready()
+    return state
+
+
 __all__ = [
     "OWN_MODEL_ACCOUNT_NOT_READY",
     "OWN_MODEL_CHOICE_PREFIX",
@@ -436,6 +565,7 @@ __all__ = [
     "OwnModelReadiness",
     "assert_own_model_default_offerable",
     "assert_own_model_ready",
+    "ensure_developer_own_model",
     "ensure_own_model_in",
     "ensure_own_model_workspace",
     "offerable_own_models",
@@ -450,4 +580,5 @@ __all__ = [
     "own_model_readiness",
     "refuse_own_model_choice",
     "refuse_unofferable_own_model",
+    "require_developer_own_model",
 ]

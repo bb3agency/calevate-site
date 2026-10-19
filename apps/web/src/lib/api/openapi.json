@@ -28308,6 +28308,33 @@
             ],
             "title": "Default Reason"
           },
+          "developer_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Developer Checked At"
+          },
+          "developer_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Developer Error Code"
+          },
+          "developer_ready": {
+            "title": "Developer Ready",
+            "type": "boolean"
+          },
           "explanation": {
             "title": "Explanation",
             "type": "string"
@@ -28391,6 +28418,9 @@
           "default_reason",
           "data_use_attested",
           "llm_voice_minute_attested",
+          "developer_ready",
+          "developer_checked_at",
+          "developer_error_code",
           "offerable_models",
           "missing",
           "workspaces",
@@ -74042,6 +74072,53 @@
           }
         },
         "summary": "Whether agents can answer on our own model, and which client workspaces do",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voices/own-model/developer": {
+      "post": {
+        "description": "Installs our Google key in our developer workspace, where free-trial agents live (D-834), unless a checked one of its own is there; when its own keys are off, every agent that would follow them is confirmed off first and they are switched on with `llm`; a default scope already set is kept. Then reads it back and records the answer, which the switch-on of our own model requires. Idempotent. Requires `X-Confirm-Action: enable_own_model_developer`.",
+        "operationId": "enable_own_model_developer_v1_ops_voices_own_model_developer_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnModelOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Install our Google key in our developer workspace (step-up)",
         "tags": [
           "ops"
         ],

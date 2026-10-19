@@ -21,6 +21,7 @@
  *   POST   /v1/ops/voices/studio-voices/enable    Studio ready: switch our key on (step-up, D-727)
  *   GET    /v1/ops/voices/own-model               our own model: readiness, workspaces (D-764)
  *   POST   /v1/ops/voices/own-model/enable        our Google key into one client workspace (step-up)
+ *   POST   /v1/ops/voices/own-model/developer     our Google key into our developer workspace (step-up)
  *
  * The Voices page reads the hosted list and branches on `available`: an engine that hosts no
  * voices of its own (the fake engine in tests) answers `available: false`, and the server, not
@@ -77,6 +78,8 @@ export const STUDIO_ENABLE_CONFIRMATION = "enable_studio_voices";
 export const OPS_OWN_MODEL_PATH = "/v1/ops/voices/own-model";
 export const OPS_OWN_MODEL_ENABLE_PATH = "/v1/ops/voices/own-model/enable";
 export const OWN_MODEL_ENABLE_CONFIRMATION = "enable_own_model_workspace";
+export const OPS_OWN_MODEL_DEVELOPER_PATH = "/v1/ops/voices/own-model/developer";
+export const OWN_MODEL_DEVELOPER_CONFIRMATION = "enable_own_model_developer";
 export const deleteCloneConfirmation = (voiceId: string) => `delete_voice_clone:${voiceId}`;
 export const consentConfirmation = (voiceId: string) => `record_voice_consent:${voiceId}`;
 export const personCloneConfirmation = (voiceId: string) => `set_voice_person_clone:${voiceId}`;
@@ -391,6 +394,21 @@ export function useEnableOwnModelWorkspace(): UseMutationResult<OwnModel, Error,
         method: "POST",
         body,
         confirmAction: OWN_MODEL_ENABLE_CONFIRMATION,
+      }),
+    onSuccess: (data) => {
+      client.setQueryData(hostedVoiceKeys.ownModel, data);
+    },
+  });
+}
+
+/** Installs our Google key in our developer workspace, where free-trial agents live (D-834). */
+export function useEnableOwnModelDeveloper(): UseMutationResult<OwnModel, Error, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<OwnModel>(adminSession(), OPS_OWN_MODEL_DEVELOPER_PATH, {
+        method: "POST",
+        confirmAction: OWN_MODEL_DEVELOPER_CONFIRMATION,
       }),
     onSuccess: (data) => {
       client.setQueryData(hostedVoiceKeys.ownModel, data);

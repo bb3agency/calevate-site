@@ -17,6 +17,7 @@ import {
   OPS_DISPLAY_NAME_PATH,
   OPS_HOSTED_AGENTS_PATH,
   OPS_HOSTED_PATH,
+  OPS_OWN_MODEL_DEVELOPER_PATH,
   OPS_OWN_MODEL_ENABLE_PATH,
   OPS_OWN_MODEL_PATH,
   OPS_PERSON_CLONE_PATH,
@@ -232,6 +233,9 @@ const OWN_MODEL_ON: OwnModel = {
   default_reason: null,
   data_use_attested: true,
   llm_voice_minute_attested: true,
+  developer_ready: true,
+  developer_checked_at: "2026-10-19T10:00:00Z",
+  developer_error_code: null,
   offerable_models: ["gemini-2.5-flash-lite"],
   missing: [],
   workspaces: [],
@@ -250,6 +254,8 @@ const OWN_MODEL_OFF: OwnModel = {
   ready: false,
   google_key_configured: false,
   data_use_attested: false,
+  developer_ready: false,
+  developer_checked_at: null,
   missing: ["Save the Google (Gemini) API key in the ops console Secrets panel."],
   note: "Not ready: Save the Google (Gemini) API key in the ops console Secrets panel.",
 };
@@ -929,20 +935,42 @@ describe("Studio setup", () => {
 
 
 describe("our own model card (D-764)", () => {
-  it("lists the four steps from the server's booleans", () => {
+  it("lists the five steps from the server's booleans", () => {
     expect(ownModelSteps(OWN_MODEL_OFF).map((s) => [s.id, s.done])).toEqual([
       ["key", false],
       ["model", true],
       ["data-use", false],
       ["minute", true],
+      ["developer", false],
     ]);
+  });
+
+  it("sets up our developer workspace behind a step-up confirmation (D-834)", async () => {
+    const ready = { ...OWN_MODEL_OFF, google_key_configured: true, data_use_attested: true };
+    const { calls } = renderAdminPage(
+      <VoicesPage />,
+      routes({
+        [`GET ${OPS_OWN_MODEL_PATH}`]: ready,
+        [`POST ${OPS_OWN_MODEL_DEVELOPER_PATH}`]: OWN_MODEL_ON,
+      }),
+    );
+    const card = (await screen.findByRole("heading", { name: "Our own model" })).closest("section")!;
+    expect(within(card).getByText(/developer workspace not set up/)).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Set up developer workspace" }));
+    const dialog = await screen.findByRole("dialog", { name: "Set up our developer workspace?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Set up" }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "POST" && c.path === OPS_OWN_MODEL_DEVELOPER_PATH)).toBe(true),
+    );
+    const write = calls.find((c) => c.method === "POST" && c.path === OPS_OWN_MODEL_DEVELOPER_PATH)!;
+    expect(write.headers["X-Confirm-Action"]).toBe("enable_own_model_developer");
   });
 
   it("says what is missing and links the next step", async () => {
     renderAdminPage(<VoicesPage />, routes({ [`GET ${OPS_OWN_MODEL_PATH}`]: OWN_MODEL_OFF }));
     const card = (await screen.findByRole("heading", { name: "Our own model" })).closest("section")!;
     expect(within(card).getByText("Not ready")).toBeTruthy();
-    expect(within(card).getByText("2 of 4 done")).toBeTruthy();
+    expect(within(card).getByText("2 of 5 done")).toBeTruthy();
     expect(within(card).getByRole("link", { name: "Open keys" }).getAttribute("href")).toBe(
       "/admin/ops/config?section=credentials",
     );

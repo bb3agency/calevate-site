@@ -623,6 +623,14 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # D-764: a client workspace is off our Google key and could not be switched back on, so
     # its agents on our model run on another stack at another price. Pages.
     "own_model_workspace_drift": "page",
+    # D-834: our developer workspace, where free-trial agents answer on our Google key, was
+    # found off it and switched back on, or could not be. Trial agents only: paying clients'
+    # own workspaces are unaffected, so attention, like `studio_developer_drift`.
+    "own_model_developer_repaired": "attention",
+    "own_model_developer_drift": "attention",
+    # D-834: Set up developer workspace finished but did not read back ready; the operator
+    # read the refusal, and the hourly check carries a persisting state.
+    "own_model_developer_not_ready": "record",
     # D-764: a refused switch-on of our Google key is a refusal to one publish; the hourly
     # check and `own_model_workspace_drift` carry it when it persists.
     "own_model_account_not_ready": "record",

@@ -10458,6 +10458,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/voices/own-model/developer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Install our Google key in our developer workspace (step-up)
+         * @description Installs our Google key in our developer workspace, where free-trial agents live (D-834), unless a checked one of its own is there; when its own keys are off, every agent that would follow them is confirmed off first and they are switched on with `llm`; a default scope already set is kept. Then reads it back and records the answer, which the switch-on of our own model requires. Idempotent. Requires `X-Confirm-Action: enable_own_model_developer`.
+         */
+        post: operations["enable_own_model_developer_v1_ops_voices_own_model_developer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/voices/own-model/enable": {
         parameters: {
             query?: never;
@@ -21661,6 +21681,12 @@ export interface components {
             default_offerable: boolean;
             /** Default Reason */
             default_reason: string | null;
+            /** Developer Checked At */
+            developer_checked_at: string | null;
+            /** Developer Error Code */
+            developer_error_code: string | null;
+            /** Developer Ready */
+            developer_ready: boolean;
             /** Explanation */
             explanation: string;
             /** Floor Model Inr Per Min */
@@ -47287,6 +47313,37 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnModelOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    enable_own_model_developer_v1_ops_voices_own_model_developer_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };

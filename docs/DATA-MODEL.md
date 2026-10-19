@@ -1594,6 +1594,8 @@ platform_state(id PK CHECK (id = 1), load_shed_mode
   tm_id TEXT, tm_registered_at, tm_verified_at,
   developer_retention_days INT NULL, developer_retention_plan_days INT NULL,
   developer_retention_checked_at NULL,
+  own_model_developer_enabled_at NULL, own_model_developer_checked_at NULL,
+  own_model_developer_error_code TEXT NULL,
   CHECK (tm_registration_status <> 'active'
          OR (tm_id IS NOT NULL AND tm_registered_at IS NOT NULL)))
   -- Single-row global switchboard: the load-shed mode AND the big red switch.
@@ -1612,6 +1614,10 @@ platform_state(id PK CHECK (id = 1), load_shed_mode
   -- `GET /workspace` (`callRetentionDays`, `planRetentionDays`, when read), written by
   -- the hourly retention sweep (migration c5f6e1202331, D-809) and read by the
   -- missing-recording sweep for calls held there; NULL until first read.
+  -- own_model_developer_* = what our developer workspace last answered about our Google
+  -- key (D-834, migration e3a7c1d9b524): first pass, last pass, last failure's code.
+  -- Free-trial agents answer on that key there; the own-model switch-on readiness and
+  -- the hourly repair read it.
   -- BACKEND-PATTERNS §6 requires the load-shed mode to be DURABLE in Postgres (Redis is
   -- only its cache) so a Redis flush cannot silently re-open a service an operator shut.
   -- The outbound halt shares the row because it answers the same question — "is the

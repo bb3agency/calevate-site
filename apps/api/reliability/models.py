@@ -288,6 +288,13 @@ class PlatformState(Base):
     developer_retention_days: Mapped[int | None] = mapped_column(Integer)
     developer_retention_plan_days: Mapped[int | None] = mapped_column(Integer)
     developer_retention_checked_at: Mapped[datetime | None]
+    # Not a switch: what our developer workspace last answered about our Google key (D-834),
+    # written by `tenancy/engine_workspace.record_developer_own_model_check`, as
+    # `tenant_engine_workspaces.own_model_*` is for a client workspace. Free-trial agents
+    # answer on that key there, so the switch-on readiness and the hourly repair read it.
+    own_model_developer_enabled_at: Mapped[datetime | None]
+    own_model_developer_checked_at: Mapped[datetime | None]
+    own_model_developer_error_code: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
     )

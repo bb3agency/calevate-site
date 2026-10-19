@@ -1,7 +1,8 @@
 # Our own language model on ThinnestAI: switching it on, and keeping it on
 
-D-764 (founder's target set-ups, 13 Oct 2026). With the ops console switch `thinnest_own_model`
-on, a paying client's agents answer on **our** Gemini model through our Google key:
+D-764 (founder's target set-ups, 13 Oct 2026) and D-834 (every agent, 19 Oct 2026). With the ops
+console switch `thinnest_own_model` on, every agent, free-trial agents included, answers on
+**our** Gemini model through our Google key:
 
 - **Clear** agents keep ThinnestAI's speech-to-text and voice; their `byok` is `llm` and the
   minute is billed at the voice band's own rate, so the rate card and the Clear cost are
@@ -15,13 +16,23 @@ whatever the workspace default (:80-103, `agents/update-agent.md:746-768`), the 
 with `PUT /byok/credentials` kind `llm` (:224-245), the agent's model with `PUT
 /agents/{id}/byok-model` (:311-330), and no backup model when our key fails (:171-178).
 
-Free-trial agents (our developer workspace) stay on ThinnestAI's model: a key there would be
-inherited by every client workspace without keys of its own (:180-184). Our Google key goes
-only into each paying client's own workspace, at its first publish on our model.
+Where the key lives (D-834). Free-trial agents live in our developer workspace (D-697), so our
+Google key goes there too, by **Set up developer workspace** (§1 step 5), and into each paying
+client's own workspace automatically at its first publish on our model. A per-agent scope
+(`llm`, `llm_voice`) needs only that the workspace holds checked keys for it; the workspace
+default applies only to agents that follow it (`snapshots/2026-10-18/pages/api-reference/
+bring-your-own-keys.md:82-97`). A customer workspace without a complete set of its own inherits
+the developer's keys under the developer's default scope (:186-190), and our code never moves
+a default already set: the developer workspace stays on `voice` (Studio ready, D-727), so our
+Google key there changes nothing for an agent that follows a workspace. Every agent we publish
+names its scope. A trial publish never installs a key or flips a switch; it only verifies the
+developer workspace and is refused (`own_model_account_not_ready`) when it is not ready. The
+Gemini tokens of a free-trial call are absorbed by us; trial limits cap them and the client is
+never charged (founder, 19 Oct 2026).
 
 ## 1. Before it can be switched on (founder)
 
-Voices, "Our own model" card lists what is still missing. All four are required; saving the
+Voices, "Our own model" card lists what is still missing. All five are required; saving the
 switch is refused (`own_model_not_ready`) until they are done.
 
 1. Save the Google (Gemini) API key in the ops console Secrets panel (`gemini_api_key`). Test it
@@ -36,6 +47,13 @@ switch is refused (`own_model_not_ready`) until they are done.
    this key on every turn of every call.
 4. Attest the `byok_llm_voice` per-minute rate (ops console, Per-minute rates; VENDOR-PUBLISHED
    ₹1.00/min, `bring-your-own-keys.md:26-29`).
+5. Press **Set up developer workspace** on the card (`POST /v1/ops/voices/own-model/developer`,
+   step-up `enable_own_model_developer`). It installs our Google key in our developer workspace
+   unless a checked one of its own is there; if that workspace's own keys are off, every agent
+   that would follow them (there and in customer workspaces that inherit them) is confirmed
+   `off` first and the keys go on with scope `llm`; a default already set (`voice` after Studio
+   ready) is kept. It reads the state back and records it on `platform_state`; the card then
+   shows "developer workspace on our key". Idempotent: press it again after any failure.
 
 ### The card says the default model is "no longer available to new users"
 
@@ -52,12 +70,12 @@ the same 2.5 value again is refused. Agents an operator put on a 2.5 model of th
 
 ## 2. Switch it on
 
-**Not before ThinnestAI confirms per-agent scopes are live** (D-769). Their reply of 14 Oct 2026
-says each agent's own `llm` / `llm_voice` takes effect "with our next release", and that they
-will confirm. Until then an agent's scope may not take effect: our publish read-back refuses an
-agent whose `byok` does not come back as sent, so switching on early fails every publish rather
-than silently billing a different set-up. Switch on only once ThinnestAI has confirmed and a
-test call on each set-up (step 3) passes (OPERATIONS §2 gate T-29).
+ThinnestAI wrote that per-agent `byok` is live in every workspace (email 18 Oct 2026, item 7)
+and that a Clear agent on `llm` can now have its own model through `PUT
+/agents/{id}/byok-model` (email 19 Oct 2026); both are VENDOR-STATED and untested live by us. Our
+publish read-back still refuses an agent whose `byok` does not come back as sent, so a scope the
+platform does not keep fails the publish rather than silently billing a different set-up. The
+test calls in step 3 close OPERATIONS §2 gate T-29.
 
 1. Optional, recommended for a client with many live agents: prepare its workspace first with
    `POST /v1/ops/voices/own-model/enable {tenant_id}` (step-up `enable_own_model_workspace`).
@@ -65,11 +83,14 @@ test call on each set-up (step 3) passes (OPERATIONS §2 gate T-29).
    they are off (agents that would follow the workspace confirmed `off` first), and reads it
    back. A Studio workspace keeps its default scope `voice`.
 2. Set `thinnest_own_model` on in the ops console (typed confirmation). Saving it republishes
-   every live agent: each paying client's agents move to `llm` (Clear) or `llm_voice` (Studio),
-   with `PUT /agents/{id}/byok-model` naming the model, and their routes are stamped with the
-   model and rate key the meter reads. The live-apply run lists any agent not applied.
-3. Place one test call on a Clear agent and one on a Studio agent of a paying client
-   (OPERATIONS §2 gate T-29). On each: the reply comes from Gemini (the call's usage shows
+   every live agent IN PLACE, free-trial agents in the developer workspace included: each agent
+   is updated (`PATCH /agents/{id}` with `byok` `llm` for Clear or `llm_voice` for Studio, then
+   `PUT /agents/{id}/byok-model` naming the model) under the same vendor id, and its route is
+   stamped with the model and rate key the meter reads. Nothing is deleted or recreated
+   (founder, 19 Oct 2026). The live-apply run lists any agent not applied; an agent that is not
+   live (a draft) moves at its next publish, so press **Publish** on it.
+3. Place one test call on a Clear agent and one on a Studio agent, a free-trial one and a paying
+   client's (OPERATIONS §2 gate T-29). On each: the reply comes from Gemini (the call's usage shows
    tokens), the usage rows show `llm_ktok_in` / `llm_ktok_out` with a cost (plus
    `llm_10ktok_cached_in` when the cache was hit and its rung is attested), and the
    `platform_min` row's `meta.engine_rate_key` is the band's (Clear) or `byok_llm_voice`
@@ -78,13 +99,17 @@ test call on each set-up (step 3) passes (OPERATIONS §2 gate T-29).
 ## 3. Keeping it on
 
 - **Rotation.** Saving a new `gemini_api_key` enqueues `push_own_model_key`, which replaces the
-  key in every client workspace on our model, keeping each workspace's model.
-  `own_model_key_push_failed` (page) names a client whose push failed: test the key and save it
-  again.
-- **Hourly check** (`sweep_own_model_workspaces`, minute 41). Each workspace must answer `GET
-  /byok` with our checked Google key in use; one that does not is switched back on and alarmed
-  `own_model_workspace_repaired` (attention), or `own_model_workspace_drift` (page) when it
-  could not be. The card lists each client's last error code.
+  key in our developer workspace (when a Google key is held there) and in every client
+  workspace on our model, keeping each workspace's model. `own_model_key_push_failed` (page)
+  names a client whose push failed, or none for the developer workspace: test the key and save
+  it again.
+- **Hourly check** (`sweep_own_model_workspaces`, minute 41). The developer workspace (once set
+  up) and each client workspace must answer `GET /byok` with our checked Google key in use; one
+  that does not is switched back on and alarmed `own_model_developer_repaired` /
+  `own_model_workspace_repaired` (attention), or `own_model_developer_drift` (attention) /
+  `own_model_workspace_drift` (page) when it could not be. A `byok.changed` event runs the same
+  check at once. The card shows the developer workspace's state and each client's last error
+  code.
 - **Per agent.** The drift sweep reads each agent's `byok` and its model of our key back and
   puts them back when they moved (`engine_agent_voice_key_repaired`).
 - **A key failure on a call** arrives as `call.problem` `byok_failed` and alarms
@@ -120,8 +145,9 @@ test call on each set-up (step 3) passes (OPERATIONS §2 gate T-29).
 ## 4. Switching it off
 
 Set `thinnest_own_model` off. Every live agent is republished back to `off` (Clear) or
-`workspace` (Studio, our voice key), its route's model cleared. The Google key stays installed
-in each client workspace and costs nothing while no agent names a model scope.
+`workspace` (Studio, our voice key), its route's model cleared, free-trial agents included. The
+Google key stays installed in the developer workspace and each client workspace and costs
+nothing while no agent names a model scope.
 
 ## Error codes
 
@@ -133,7 +159,8 @@ in each client workspace and costs nothing while no agent names a model scope.
 | `engine_model_key_not_ready` | ThinnestAI would not switch the keys on: the key is not checked or has no model. | Retry the enable; check the workspace's keys on ThinnestAI. |
 | `own_model_agents_not_kept_off` | An agent that would follow the workspace could not be confirmed `off`. | Republish that agent, then retry. |
 | `own_model_workspace_not_ready` | The read-back did not show our checked Google key in use. | Retry; read the workspace's keys on ThinnestAI. |
-| `own_model_account_not_ready` | A client's publish was refused for one of the above (the client saw no vendor name). | Retry with the enable route. |
+| `own_model_account_not_ready` | A client's publish was refused for one of the above (the client saw no vendor name); for a free-trial agent, our developer workspace was not on our Google key. | Paying client: retry with the enable route. Free trial: §1 step 5. |
+| `own_model_developer_not_ready` | Set up developer workspace finished, but the read-back did not show our checked Google key in use there. | Retry; read the developer workspace's keys on ThinnestAI. |
 | `own_model_minute_unpriced` | A Studio publish on our model with `byok_llm_voice` unattested. | §1 step 4. |
 | `own_model_not_offered` | An agent named a Gemini model that is not offerable (no key, no attested price, or one Google limits to earlier users, such as 2.5), or our model is off. | Attest the model's price, or choose another; for a 2.5 default see §1. |
 | `engine_own_model_unavailable` | ThinnestAI refused the agent's model (`PUT /agents/{id}/byok-model`). | Choose a model our key reaches. |

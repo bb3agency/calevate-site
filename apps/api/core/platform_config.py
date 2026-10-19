@@ -551,8 +551,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # rate key are all stamped at publish, so saving either republishes every live agent.
     "thinnest_own_model": AppliesRule(
         LIVE_AGENTS,
-        "saving it republishes every live agent of a paying client onto our model (on) or "
-        f"back onto the voice platform's own (off){_NOW}",
+        "saving it republishes every live agent, free-trial agents included, onto our model "
+        f"(on) or back onto the voice platform's own (off){_NOW}",
     ),
     "thinnest_own_model_default": AppliesRule(
         LIVE_AGENTS,

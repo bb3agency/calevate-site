@@ -180,7 +180,7 @@ async def keep_clear_agents_off(
     return unconfirmed
 
 
-async def _keep_inheriting_agents_off(session: AsyncSession, engine: HostsVoices) -> int:
+async def keep_inheriting_agents_off(session: AsyncSession, engine: HostsVoices) -> int:
     """Before the developer workspace's switch goes on: set every published non-Studio agent
     that would follow it to `byok: off` and read each back. That is every such agent in the
     developer workspace, and in each customer workspace not on a key of its own, which
@@ -358,7 +358,7 @@ async def ensure_developer_studio(
     if own_voice_key_ready(state):
         await record_developer_studio_check(session, ready=True)
         return state
-    unconfirmed = await _keep_inheriting_agents_off(session, engine)
+    unconfirmed = await keep_inheriting_agents_off(session, engine)
     if unconfirmed:
         raise _agents_not_kept_off(unconfirmed)
     if state.voice_provider != STUDIO_VOICE_PROVIDER:
@@ -538,6 +538,7 @@ __all__ = [
     "ensure_studio_in",
     "ensure_studio_workspace",
     "keep_clear_agents_off",
+    "keep_inheriting_agents_off",
     "prepare_studio",
     "published_routes",
     "require_developer_studio",
