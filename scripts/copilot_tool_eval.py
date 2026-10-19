@@ -198,6 +198,14 @@ def oracle(case: Case) -> tuple[str, ...]:
     return (sorted(case.expect)[0],)
 
 
+async def _load_console_settings() -> None:
+    """The keys an operator saved on the ops console, as Pip reads them in production. On a
+    host whose Gemini key lives only there, `chat_leg` would otherwise find no credential."""
+    from apps.api.core.platform_config import refresh
+
+    await refresh(force=True)
+
+
 def model_turn(provider: str, model: str | None) -> ChooseTurn | None:
     """One production turn on a named leg, or None when this machine holds no credential."""
     leg = service.chat_leg(provider, model=model)
@@ -448,6 +456,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.provider == GOOGLE_PROVIDER and not args.model:
             print("--provider=google needs --model=<gemini id>")
             return CANNOT_RUN
+        asyncio.run(_load_console_settings())
         live = model_turn(args.provider, args.model)
         if live is None:
             print(f"CANNOT RUN: no credential for `{args.provider}` on this machine")
