@@ -47,7 +47,7 @@
     {"id": "c-agent-create", "realm": "client", "kind": "action", "route": "/c/sunrise/dashboard", "title": "Dashboard",
      "question": "create an outbound agent called Sales Desk that speaks Telugu", "expect": ["agent_create"], "forbid": ["set_fields"]},
     {"id": "c-agent-create-missing", "realm": "client", "kind": "action", "route": "/c/sunrise/dashboard", "title": "Dashboard",
-     "question": "make me a new agent", "expect": [], "none_ok": true, "forbid": ["agent_create", "set_fields"]},
+     "question": "make me a new agent", "expect": ["agents_list"], "none_ok": true, "forbid": ["agent_create", "set_fields"]},
     {"id": "c-agent-publish-no-id", "realm": "client", "kind": "action", "route": "/c/sunrise/dashboard", "title": "Dashboard",
      "question": "put the Reception agent live", "expect": ["agents_list"], "forbid": ["set_fields"]},
     {"id": "c-campaign-pause", "realm": "client", "kind": "action", "route": "/c/sunrise/campaigns/0192f3a4-0000-7000-8000-00000000c001", "title": "Campaign",

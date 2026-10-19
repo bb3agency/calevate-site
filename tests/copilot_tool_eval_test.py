@@ -438,3 +438,30 @@ def test_the_report_counts_what_the_person_sees_after_a_refusal(
     assert f"right in what the person sees: {total - 1}/{total}" in out
     assert "then=[] (recovered)" in out
     assert "then=['agent_script_suggest']\n" in out + "\n"
+
+
+def test_a_second_wrong_turn_the_server_refuses_again_is_reported_as_held(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    record = tmp_path / "run.json"
+    calls = {case.id: list(harness.oracle(case)) for case in harness.load_cases()}
+    calls["c-script-after-kept"] = ["set_fields"]
+    body = {
+        "calls": calls,
+        "refused": {"c-script-after-kept": ["set_fields"]},
+        "then": {"c-script-after-kept": ["set_fields"]},
+        "then_refused": {"c-script-after-kept": ["set_fields"]},
+    }
+    record.write_text(json.dumps(body), "utf-8")
+    assert harness.main([f"--replay={record}"]) == 0
+    out = capsys.readouterr().out
+    assert "right on the turn after the refusal: 0/1" in out
+    assert "wrong again and refused again, so still nothing reached the person: 1" in out
+    assert "then=['set_fields'] then_refused_by_server=['set_fields']" in out
+
+
+def test_a_read_before_asking_what_a_new_agent_should_do_is_fine() -> None:
+    case = _case("c-agent-create-missing")
+    assert harness.score(case, ("agents_list",)).right
+    assert harness.score(case, ()).right
+    assert not harness.score(case, ("agent_create",)).right
