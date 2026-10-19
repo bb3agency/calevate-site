@@ -269,10 +269,22 @@ async def test_a_clear_agent_refused_another_model_than_the_keys_is_refused() ->
     assert caught.value.code == "engine_own_model_unavailable"
 
 
-async def test_a_studio_agent_refused_its_model_is_refused_whatever_the_key_runs() -> None:
+async def test_a_studio_agent_refused_its_model_publishes_when_the_key_runs_that_model() -> None:
+    """Production, 20 Oct 2026: a free-trial Studio agent in our developer workspace, whose
+    default scope is `voice`, was answered `409` (set-agent-byok-model.md:514-518 in
+    snapshots/2026-10-18) and its publish refused. Its own `llm_voice` scope still runs our
+    key, on the key's model."""
+    vendor = _clear_on_old_platform("gemini-2.5-flash-lite")
+    await _engine(vendor).update_agent(
+        f"ag_9@{WS}", _cfg(engine_own_voice_key=True, engine_own_model="gemini-2.5-flash-lite")
+    )
+    assert ("GET", "/byok", None) in vendor.seen
+
+
+async def test_a_studio_agent_refused_another_model_than_the_keys_is_refused() -> None:
     with pytest.raises(ProblemError) as caught:
         await _engine(_clear_on_old_platform("gemini-2.5-flash-lite")).update_agent(
-            f"ag_9@{WS}", _cfg(engine_own_voice_key=True, engine_own_model="gemini-2.5-flash-lite")
+            f"ag_9@{WS}", _cfg(engine_own_voice_key=True, engine_own_model="gemini-2.5-flash")
         )
     assert caught.value.code == "engine_own_model_unavailable"
 
@@ -294,10 +306,10 @@ async def test_the_drift_repair_reads_a_clear_agents_409_the_same_way() -> None:
     [
         ("llm_voice", _ok({"model": "gemini-2.5-flash"}), True, "gemini-2.5-flash", True),
         ("llm", _ok({"model": None}), False, "", True),
-        # A Clear agent the platform will not give a model of its own (before ThinnestAI's
-        # 18 Oct release) runs the key's own model, read from `GET /byok`.
+        # An agent the platform will not give a model of its own (a workspace whose default
+        # brings no model key) runs the key's own model, read from `GET /byok`.
         ("llm", _ok({"error": "x"}, 409), False, "gemini-2.5-flash-lite", True),
-        ("llm_voice", _ok({"error": "x"}, 409), True, "", True),
+        ("llm_voice", _ok({"error": "x"}, 409), True, "gemini-2.5-flash-lite", True),
         ("off", None, False, None, True),
         ("all", None, None, None, False),
     ],

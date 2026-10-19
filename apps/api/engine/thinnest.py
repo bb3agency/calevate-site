@@ -2297,14 +2297,13 @@ class ThinnestEngine:
         set-agent-byok-model.md:443-525`). Always sent, so the agent never silently follows
         the workspace key's model.
 
-        A Clear agent (scope `llm`, no voice key of ours) may be answered `409`: the route
-        used to require the workspace's voice key (snapshots/2026-10-13, same page :471-478),
-        and the docs now say a workspace on `llm` can set the model (:514-525); ThinnestAI
-        wrote on 19 Oct 2026 that this release is live (VENDOR-STATED, email). The `409` is
-        still tolerated, for a platform that answers it anyway: such an agent runs the key's
-        own model, so it is accepted when that model, read from `GET /byok` in the same
-        workspace, is the one wanted; otherwise the publish is refused, because the minute
-        would be metered at a model the agent does not run."""
+        `409` means the WORKSPACE's default scope brings no language-model key, `voice` or
+        none (snapshots/2026-10-18, same page :514-518). Our developer workspace is on `voice`
+        (D-727), so every free-trial agent on our model meets it, Clear and Studio alike
+        (D-834). The agent's own scope still runs on our key (bring-your-own-keys.md:82-90),
+        on the key's own model, so the `409` is accepted when that model, read from
+        `GET /byok` in the same workspace, is the one wanted; otherwise the publish is
+        refused, because the minute would be metered at a model the agent does not run."""
         if not cfg.engine_own_model:
             return
         await self._put_own_model(
@@ -2315,7 +2314,8 @@ class ThinnestEngine:
         self, raw: str, workspace: str | None, model: str, *, own_voice: bool
     ) -> None:
         """The `PUT /agents/{id}/byok-model` of `_apply_own_model`, also used by the drift
-        repair (`set_agent_own_keys`), so both read a Clear agent's `409` the same way."""
+        repair (`set_agent_own_keys`), so both read a `409` the same way. `own_voice` is
+        kept for the callers' signature; the `409` reading does not depend on it."""
         try:
             await self._request(
                 "PUT",
@@ -2328,11 +2328,7 @@ class ThinnestEngine:
         except EngineRejectedError as exc:
             if exc.vendor_status not in (400, 409):
                 raise
-            if (
-                exc.vendor_status == 409
-                and not own_voice
-                and await self._key_model(workspace) == model
-            ):
+            if exc.vendor_status == 409 and await self._key_model(workspace) == model:
                 log.info("thinnest_own_model_runs_key_model")
                 return
             raise _business_refusal(
@@ -2369,13 +2365,10 @@ class ThinnestEngine:
         except EngineRejectedError as exc:
             if exc.vendor_status != 409:
                 raise
-            # A Clear agent (`llm`) on a platform without the 18 Oct release runs the key's
-            # own model and has no choice of its own to read (`_apply_own_model`). Any other
-            # agent on our model key that will not say which model: read as no model of
-            # ours, so the drift sweep puts the one we publish back.
-            if agent.get("byok") == "llm":
-                return await self._key_model(workspace) or "", True
-            return "", True
+            # In a workspace whose default brings no model key (our developer workspace,
+            # `voice`), an agent on our key runs the key's own model and has no choice of its
+            # own to read (`_apply_own_model`).
+            return await self._key_model(workspace) or "", True
         return _str(data.get("model")) or "", True
 
     async def _key_model(self, workspace: str | None) -> str | None:
