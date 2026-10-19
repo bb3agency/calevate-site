@@ -27,7 +27,8 @@ import {
 
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KEYS_HREF = "/admin/ops/config?section=credentials";
-const CONFIG_HREF = "/admin/ops/config";
+const MODELS_HREF = "/admin/ops/config?section=language-models";
+const VOICE_ENGINE_HREF = "/admin/ops/config?section=voice-engine";
 const DEVELOPER_STEP = "developer";
 
 /** A step with `href: null` is done on this card (the developer workspace set-up). */
@@ -52,7 +53,7 @@ export function ownModelSteps(data: OwnModel): Step[] {
       label: `Price ${data.default_model}`,
       done: data.default_offerable,
       detail: data.default_reason ?? "Attest the model's price from the Google invoice.",
-      href: CONFIG_HREF,
+      href: MODELS_HREF,
       go: "Open prices",
     },
     {
@@ -60,7 +61,7 @@ export function ownModelSteps(data: OwnModel): Step[] {
       label: "Attest how Google uses call data",
       done: data.data_use_attested,
       detail: "Paid tier, log sharing off: caller speech goes through this key on every turn.",
-      href: CONFIG_HREF,
+      href: MODELS_HREF,
       go: "Open models",
     },
     {
@@ -68,7 +69,7 @@ export function ownModelSteps(data: OwnModel): Step[] {
       label: "Attest the Studio minute on our model",
       done: data.llm_voice_minute_attested,
       detail: "The own-voice-and-model (byok_llm_voice) per-minute rate.",
-      href: CONFIG_HREF,
+      href: VOICE_ENGINE_HREF,
       go: "Open prices",
     },
     {
@@ -164,7 +165,7 @@ export function OwnModelCard() {
       <p className="text-meta text-ink-muted">
         {data.note}{" "}
         {data.ready && !data.switched_on && (
-          <Link href={CONFIG_HREF} className={TEXT_ACTION}>
+          <Link href={VOICE_ENGINE_HREF} className={TEXT_ACTION}>
             Switch it on in the settings
           </Link>
         )}
