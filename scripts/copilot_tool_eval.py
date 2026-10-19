@@ -11,7 +11,9 @@
         --record=before.json
     uv run python -m scripts.copilot_tool_eval --compare before.json after.json
 
-Each case in `tests/fixtures/copilot_tool_choice.json` is one question on one screen. The
+Each case in `tests/fixtures/copilot_tool_choice.json` is one question on one screen, after
+the earlier turns its optional `history` replays (D-832: a follow-up must not redo what an
+earlier message asked for). The
 harness builds the surface's real message list and tool array (`service.build_messages`,
 `service.tool_array`), sends ONE turn through the production request
 (`service.streamed_turn`: same temperature, `tool_choice` and token ceiling), executes
@@ -117,10 +119,17 @@ def load_cases(path: Path = FIXTURE) -> list[Case]:
             kind=row["kind"],
             payload=CopilotAskIn.model_validate(
                 {
-                    "screen": {"route": row["route"], "title": row["title"], "realm": row["realm"]},
+                    "screen": {
+                        "route": row["route"],
+                        "title": row["title"],
+                        "realm": row["realm"],
+                        "saves": row.get("saves"),
+                        "live_step": row.get("live_step"),
+                    },
                     "question": row["question"],
                     "fields": row.get("fields", []),
                     "facts": row.get("facts", []),
+                    "history": row.get("history", []),
                 }
             ),
             expect=frozenset(row["expect"]),

@@ -70,6 +70,7 @@ export function QualityScreen() {
     route: "/c/{slug}/quality",
     title: "Quality report",
     realm: "client",
+    saves: "view",
     fields: [
       {
         id: "quality-month",

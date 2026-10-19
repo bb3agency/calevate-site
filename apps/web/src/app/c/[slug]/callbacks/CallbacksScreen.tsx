@@ -89,6 +89,7 @@ export function CallbacksScreen() {
     route: "/c/{slug}/callbacks",
     title: "Call-backs",
     realm: "client",
+    saves: "view",
     fields: [
       {
         id: "callbacks-view",

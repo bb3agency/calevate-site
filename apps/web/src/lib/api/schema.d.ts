@@ -15149,6 +15149,8 @@ export interface components {
              * @default false
              */
             redacted: boolean;
+            /** Spoken Language */
+            spoken_language?: string | null;
             /**
              * Type
              * @enum {string}
@@ -15364,6 +15366,8 @@ export interface components {
          *     session, not from a body a caller composes.
          */
         CopilotScreen: {
+            /** Live Step */
+            live_step?: string | null;
             /**
              * Realm
              * @enum {string}
@@ -15371,6 +15375,8 @@ export interface components {
             realm: "client" | "admin";
             /** Route */
             route: string;
+            /** Saves */
+            saves?: ("button" | "autosave" | "immediate" | "view") | null;
             /** Title */
             title: string;
         };

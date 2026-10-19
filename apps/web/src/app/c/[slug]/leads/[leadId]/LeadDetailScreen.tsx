@@ -101,6 +101,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
     route: "/c/{slug}/leads/{leadId}",
     title: "Lead",
     realm: "client",
+    saves: "immediate",
     fields: [
       {
         id: "lead-status",

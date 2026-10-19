@@ -11889,6 +11889,19 @@
             "title": "Redacted",
             "type": "boolean"
           },
+          "spoken_language": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spoken Language"
+          },
           "type": {
             "enum": [
               "text",
@@ -12428,6 +12441,18 @@
         "additionalProperties": false,
         "description": "Where the person is. Used for the prompt and for the audit row \u2014 never for\nauthorization, which is `requires(\"org:manage\")`'s job and is decided from the\nsession, not from a body a caller composes.",
         "properties": {
+          "live_step": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Step"
+          },
           "realm": {
             "enum": [
               "client",
@@ -12441,6 +12466,23 @@
             "pattern": "^/[^\\x00-\\x1f\\x7f]*$",
             "title": "Route",
             "type": "string"
+          },
+          "saves": {
+            "anyOf": [
+              {
+                "enum": [
+                  "button",
+                  "autosave",
+                  "immediate",
+                  "view"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saves"
           },
           "title": {
             "maxLength": 200,

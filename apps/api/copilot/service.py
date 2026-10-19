@@ -43,6 +43,7 @@ from calevate_shared.engine import (
     keeps_default_temperature,
 )
 
+from apps.api.agents.turn_checks import formal_swaps
 from apps.api.copilot import (
     action_log,
     admin_actions,
@@ -623,6 +624,28 @@ def _value_is_legal(field: CopilotField, value: object) -> str | None:
     return None
 
 
+def spoken_line_problem(field: CopilotField, value: object, question: str) -> str | None:
+    """Why this value may not go into a line callers hear, or None (D-832).
+
+    The check is the test loop's own reply check (`turn_checks.formal_swaps`, the language's
+    spoken-style list), so a word added to the list is refused here too. A textbook word
+    that the field already held or the person typed in their question is theirs, not
+    Pip's, and is let through: only Pip's own writing is judged.
+    """
+    if field.spoken_language is None or not isinstance(value, str):
+        return None
+    language = field.spoken_language
+    theirs = set(formal_swaps(f"{field.value or ''}\n{question}", language))
+    swaps = [swap for swap in formal_swaps(value, language) if swap not in theirs]
+    if not swaps:
+        return None
+    words = "; ".join(
+        f"“{formal}” ({spoken.strip('()') if spoken.startswith('(') else f'say “{spoken}”'})"
+        for formal, spoken in swaps
+    )
+    return f"is a line callers hear and uses textbook words they do not say: {words}"
+
+
 def validate_fill(payload: CopilotAskIn, arguments: str) -> tuple[CopilotFillItem, ...]:
     """The model's `set_fields` arguments, re-checked against THIS REQUEST. Raises
     `FillRefusedError` naming every item that failed.
@@ -691,7 +714,9 @@ def validate_fill(payload: CopilotAskIn, arguments: str) -> tuple[CopilotFillIte
             reasons.append(f"`{field_id}` is not writable")
             continue
         value = raw.get("value")
-        problem = _value_is_legal(field, value)
+        problem = _value_is_legal(field, value) or spoken_line_problem(
+            field, value, payload.question
+        )
         if problem is not None:
             reasons.append(f"`{field_id}` {problem}")
             continue

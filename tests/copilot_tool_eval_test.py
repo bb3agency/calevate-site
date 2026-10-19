@@ -208,3 +208,30 @@ def test_two_live_records_compare_side_by_side(
         path.write_text(json.dumps(body), "utf-8")
     assert harness.main(["--compare", *map(str, paths)]) == 0
     assert "a-roster | leads_search -> leads_search" in capsys.readouterr().out
+
+
+# --- a follow-up does not redo an earlier request (D-832) --------------------------------
+
+
+def test_a_case_replays_its_history_before_the_screen_that_shows_the_present() -> None:
+    case = _case("c-talk-language-after-kept")
+    messages = service.build_messages(case.payload, "", case.realm)
+    roles = [message["role"] for message in messages]
+    assert roles == ["system", "user", "assistant", "user", "assistant", "user"]
+    assert "I am drafting the whole script now" in messages[4]["content"]
+    assert 'saves="autosave"' in messages[-1]["content"]
+    assert "None waiting. The last one was added to the draft." in messages[-1]["content"]
+
+
+@pytest.mark.parametrize(
+    ("calls", "failures"),
+    [
+        (("set_fields",), {"wrong_fill", "forbidden", "unwanted"}),
+        (("agent_script_suggest",), {"forbidden", "unwanted"}),
+        ((), set()),
+    ],
+)
+def test_a_language_question_after_a_kept_suggestion_is_answered_in_words(
+    calls: tuple[str, ...], failures: set[str]
+) -> None:
+    assert set(harness.score(_case("c-talk-language-after-kept"), calls).failures) == failures

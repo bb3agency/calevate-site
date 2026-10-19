@@ -457,3 +457,32 @@ reviewed. No model is called, so nothing is metered and no allowance is checked.
 * **Not retired.** The GET and POST routes are the review form's own reads and save.
 * Tests: `tests/call_test_prepare_test.py`, `apps/api/copilot/assist_actions_test.py`, web
   `teachLoop`.
+
+## 13. The latest message, the present screen, and how fills are kept (D-832)
+
+* **Only the latest message is a request.** History replays text only (no fill, proposal or
+  confirm is in it), so an earlier "I am drafting your script" is the last thing Pip would
+  otherwise know. The client prompt and both realms' closing rules say: act only on the latest
+  message; a "yes" or "thanks" with a new question answers that question; a question about
+  how Pip talks (a language, shorter replies) changes nothing on the screen; where an earlier
+  turn and the SCREEN STATE disagree, the screen is current. Tool-choice cases may carry a
+  `history` (`c-talk-language-after-kept`, `c-script-after-kept`, `c-talk-language`).
+* **A screen states the present.** A screen whose state can move under the conversation
+  declares it as facts. The Script tab sends `pip_suggestion` (none waiting / kept into the
+  draft / being written / waiting for review / could not be written) and `draft` (saved as a
+  draft, not live until "Put it live", or why it is not saved), from `scriptSurface.
+  scriptCopilotFacts`.
+* **How fills are kept.** `CopilotScreen.saves` is `button` (held until the screen's save
+  button; the default when a surface does not say), `autosave` (kept as a draft at once;
+  `live_step` names the control that puts it live), `immediate` (each change saved as it is
+  made) or `view` (a filter). The browser sends it only when the screen has a writable field
+  (`lib/copilot/keeping.ts`), the prompt renders it on `<screen>`, and the panel's notices
+  read it (`filledNotice`, `panelNotice`). Script tab: `autosave`. Lead page: `immediate`.
+  Filters (calls, leads, callbacks, billing, performance, quality, attention, lead sources,
+  admin alerts, reply times, QA queue): `view`. Every other filling screen: `button`.
+* **Lines callers hear.** `CopilotField.spoken_language` marks one (the Script tab's opening
+  line and each step's example line). `service.spoken_line_problem` refuses a fill of it that
+  uses a word from the language's spoken-style list (`turn_checks.formal_swaps`, the test
+  loop's own check), naming the word and what people say; a word the field already held or
+  the person typed is theirs and passes. The refusal goes back to the model like any refused
+  fill. Pip's chat replies are never checked.

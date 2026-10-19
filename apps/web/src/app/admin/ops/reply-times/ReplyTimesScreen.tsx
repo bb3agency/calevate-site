@@ -35,6 +35,7 @@ export function ReplyTimesScreen() {
     route: "/admin/ops/reply-times",
     title: "Voice response time",
     realm: "admin",
+    saves: "view",
     fields: [
       {
         id: "reply-window-days",

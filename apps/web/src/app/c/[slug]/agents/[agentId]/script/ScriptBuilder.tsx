@@ -67,6 +67,7 @@ import {
   usePreviewScript,
   useSaveDraft,
   useScript,
+  useScriptProposal,
   withDraft,
   type CallScript,
   type ScriptOut,
@@ -78,7 +79,7 @@ import { PipAsk, WHOLE_REQUEST } from "./PipAsk";
 import { PipProposal } from "./PipProposal";
 import { CompiledPrompt, ScriptToolbar, roomFrom, type Room } from "./ScriptToolbar";
 import { HeldBackNotice, TooLongNotice } from "@/components/heldBackNotice";
-import { scriptCopilotFields } from "./scriptSurface";
+import { PUT_LIVE, scriptCopilotFacts, scriptCopilotFields } from "./scriptSurface";
 import {
   AUTOSAVE_DELAY_MS,
   hasUnpublished,
@@ -345,15 +346,33 @@ function Editor({
     [edit],
   );
 
+  const save = saveState({
+    dirty,
+    saving: pendingSave,
+    canWrite: write.allowed,
+    conflict,
+    failed: saveFailed,
+    issueCount: issues.length,
+    savedAt: base.savedAt,
+  });
+
+  // The suggestion's state for Pip: the same cached read `PipProposal` shows.
+  const proposal = useScriptProposal(session, agentId).data;
+  const [keptSuggestion, setKeptSuggestion] = useState(false);
+  if (proposal && keptSuggestion) setKeptSuggestion(false);
+
   useCopilotSurface({
     route: "/c/{slug}/agents/{id}",
     title: raw ? "Agent: script (hand-written)" : "Agent: script",
     realm: "client",
-    fields: scriptCopilotFields(script, raw),
+    saves: "autosave",
+    liveStep: PUT_LIVE,
+    fields: scriptCopilotFields(script, raw, context?.language),
     // The agent's id and name first: a request to change this script names the agent by them.
     facts: [
       { key: "agent_id", label: "Agent id", value: agentId },
       { key: "agent_name", label: "Agent", value: agentName },
+      ...scriptCopilotFacts({ proposal, keptSuggestion, save, unpublished, liveStep: PUT_LIVE }),
       ...script.variables.map((variable) => ({
         key: variable.key,
         label: `Variable {{${variable.key}}}`,
@@ -375,18 +394,9 @@ function Editor({
   };
   const keep = (next: CallScript) => {
     setUndoTo(script);
+    setKeptSuggestion(true);
     edit(next);
   };
-
-  const save = saveState({
-    dirty,
-    saving: pendingSave,
-    canWrite: write.allowed,
-    conflict,
-    failed: saveFailed,
-    issueCount: issues.length,
-    savedAt: base.savedAt,
-  });
 
   const selectedIndex = sections.findIndex((s) => s.id === selected);
   const selectedSection = selectedIndex >= 0 ? sections[selectedIndex] : null;

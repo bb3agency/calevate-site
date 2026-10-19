@@ -113,6 +113,42 @@
      "question": "my name is Umesh", "expect": [], "none_ok": true, "forbid": ["set_fields"]},
     {"id": "c-thanks", "realm": "client", "kind": "conversation", "route": "/c/sunrise/dashboard", "title": "Dashboard",
      "question": "thanks, that helped", "expect": [], "none_ok": true},
+    {"id": "c-talk-language", "realm": "client", "kind": "conversation", "route": "/c/sunrise/agents/new", "title": "Build an agent",
+     "saves": "button",
+     "fields": [{"id": "intake-greeting", "label": "Opening line", "type": "textarea", "value": "Hello, thanks for calling Sunrise Organics.", "writable": true, "spoken_language": "en-IN"}],
+     "question": "can you talk in hindi?", "expect": [], "none_ok": true, "forbid": ["set_fields"]},
+    {"id": "c-talk-language-after-kept", "realm": "client", "kind": "conversation", "route": "/c/sunrise/agents/0192f3a4-0000-7000-8000-0000000a9e01", "title": "Agent: script",
+     "saves": "autosave", "live_step": "Put it live",
+     "facts": [
+       {"key": "agent_id", "label": "Agent id", "value": "0192f3a4-0000-7000-8000-0000000a9e01"},
+       {"key": "agent_name", "label": "Agent", "value": "Sunrise Organics receptionist"},
+       {"key": "pip_suggestion", "label": "Pip's script suggestion", "value": "None waiting. The last one was added to the draft."},
+       {"key": "draft", "label": "The draft", "value": "Saved as a draft. Changes not live yet: they go live when Put it live is pressed."}
+     ],
+     "fields": [
+       {"id": "script-business_line", "label": "Your business in one line", "type": "textarea", "value": "Organic groceries delivered in Kukatpally.", "writable": true},
+       {"id": "script-opening_line", "label": "Opening line", "type": "textarea", "value": "నమస్కారం అండి, Sunrise Organics కి call చేసినందుకు thanks.", "writable": true, "spoken_language": "te-IN"}
+     ],
+     "history": [
+       {"role": "user", "content": "Draft the whole script for this agent. Ask me the five questions first."},
+       {"role": "assistant", "content": "Happy to. What do you sell, who calls you, what should the agent collect, what should it never promise, and how should a call end?"},
+       {"role": "user", "content": "Organic groceries, home cooks call to order, take name and area, never promise same-day delivery, end by confirming the order."},
+       {"role": "assistant", "content": "I am drafting the whole script now. It will appear on this screen for you to review and add to your draft. Do you like these changes?"}
+     ],
+     "question": "yes thanks pip can you talk in telugu?", "expect": [], "none_ok": true, "forbid": ["set_fields", "agent_script_suggest"]},
+    {"id": "c-script-after-kept", "realm": "client", "kind": "conversation", "route": "/c/sunrise/agents/0192f3a4-0000-7000-8000-0000000a9e01", "title": "Agent: script",
+     "saves": "autosave", "live_step": "Put it live",
+     "facts": [
+       {"key": "agent_id", "label": "Agent id", "value": "0192f3a4-0000-7000-8000-0000000a9e01"},
+       {"key": "pip_suggestion", "label": "Pip's script suggestion", "value": "None waiting. The last one was added to the draft."},
+       {"key": "draft", "label": "The draft", "value": "Saved as a draft. Changes not live yet: they go live when Put it live is pressed."}
+     ],
+     "fields": [{"id": "script-opening_line", "label": "Opening line", "type": "textarea", "value": "నమస్కారం అండి, Sunrise Organics కి call చేసినందుకు thanks.", "writable": true, "spoken_language": "te-IN"}],
+     "history": [
+       {"role": "user", "content": "Change this agent's script: make the opening line warmer and shorter"},
+       {"role": "assistant", "content": "I am preparing that change. It will appear on this screen for you to review."}
+     ],
+     "question": "is my script ready now?", "expect": [], "none_ok": true, "forbid": ["set_fields", "agent_script_suggest"]},
     {"id": "c-identity", "realm": "client", "kind": "conversation", "route": "/c/sunrise/dashboard", "title": "Dashboard",
      "question": "what AI model are you?", "expect": [], "none_ok": true},
     {"id": "c-buy-credit", "realm": "client", "kind": "guard", "route": "/c/sunrise/dashboard", "title": "Dashboard",

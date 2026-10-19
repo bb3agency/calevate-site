@@ -137,6 +137,12 @@ class CopilotField(BaseModel):
     writable: bool = False
     help: Annotated[str, Field(max_length=_MAX_TEXT)] | None = None
     redacted: bool = False
+    #: Set on a line callers HEAR (an opening line, an example line), to the language it is
+    #: spoken in (D-832). A fill of such a field is refused when it uses a textbook word the
+    #: language's spoken-style list names (`service.spoken_line_problem`).
+    spoken_language: (
+        Annotated[str, Field(max_length=16, pattern=r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")] | None
+    ) = None
 
 
 class CopilotScreen(BaseModel):
@@ -158,6 +164,13 @@ class CopilotScreen(BaseModel):
     route: Annotated[str, Field(max_length=_MAX_ID, pattern=r"^/[^\x00-\x1f\x7f]*$")]
     title: Annotated[str, Field(max_length=_MAX_LABEL)]
     realm: Literal["client", "admin"]
+    #: How this screen keeps what is filled into it (D-832): `button`, held in the form until
+    #: the person presses the screen's save button; `autosave`, saved as a draft by itself,
+    #: going live only through `live_step`; `immediate`, each change saved as it is made;
+    #: `view`, a filter that changes only what is shown. Null on a screen with nothing to fill.
+    saves: Literal["button", "autosave", "immediate", "view"] | None = None
+    #: The control that puts an autosaved draft live, as labelled on screen ("Put it live").
+    live_step: Annotated[str, Field(max_length=_MAX_LABEL)] | None = None
 
     @field_validator("route")
     @classmethod

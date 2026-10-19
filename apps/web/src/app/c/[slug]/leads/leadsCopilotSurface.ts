@@ -79,6 +79,7 @@ export function useLeadsCopilotSurface({
     route: "/c/{slug}/leads",
     title: "Leads",
     realm: "client",
+    saves: "view",
     fields: [
       {
         id: "leads-status",

@@ -60,7 +60,21 @@ export interface CopilotField {
   help?: string | null;
   /** Set when the value is personal data. See `redaction.ts` — this is D-127 G-2's seam. */
   personal?: PersonalKind;
+  /**
+   * The language a line callers HEAR is spoken in ("te-IN"), on an opening line or an
+   * example line (D-832). The server refuses a fill of it that uses a textbook word the
+   * language's spoken-style list names.
+   */
+  spokenLanguage?: string;
 }
+
+/**
+ * How a screen keeps what is filled into it (D-832), which is what the panel tells the
+ * person after a fill: `button`, held until the screen's save button; `autosave`, kept as a
+ * draft at once and live only through `liveStep`; `immediate`, saved as each change is
+ * made; `view`, a filter that changes only what is shown.
+ */
+export type CopilotSaves = "button" | "autosave" | "immediate" | "view";
 
 /** Something loaded on the screen that is not editable but is worth knowing. */
 export interface CopilotFact {
@@ -114,6 +128,10 @@ export interface CopilotSurface {
   tenantId?: string;
   fields: CopilotField[];
   facts?: CopilotFact[];
+  /** How this screen keeps filled values. Undefined reads as `button`, the common case. */
+  saves?: CopilotSaves;
+  /** With `autosave`: the control that puts the draft live, as labelled ("Put it live"). */
+  liveStep?: string;
   /**
    * Put these values into the screen. Called once per batch, never per field: a screen
    * with one draft object must be able to apply six fields in ONE state update, because

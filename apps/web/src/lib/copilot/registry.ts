@@ -241,11 +241,15 @@ export function mergeSurfaces(own: ScopeOwn, parts: CopilotSurface[]): CopilotSu
   }
   const said = parts.flatMap((part) => (part.unsaved === undefined ? [] : [part.unsaved]));
   const tenantId = parts.find((part) => part.tenantId !== undefined)?.tenantId;
+  // How filled values are kept belongs to the part that holds fields; the first one that
+  // says is the screen's answer (a tab's parts are all saved the same way).
+  const keeper = parts.find((part) => part.saves !== undefined && part.fields.length > 0);
   return {
     route: own.route,
     title: own.title,
     realm: own.realm,
     ...(tenantId !== undefined ? { tenantId } : {}),
+    ...(keeper ? { saves: keeper.saves, ...(keeper.liveStep ? { liveStep: keeper.liveStep } : {}) } : {}),
     fields,
     facts,
     apply: (items) => {

@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   OPENING_LINE_COPILOT_HELP,
   RAW_SCRIPT_COPILOT_HELP,
+  PUT_LIVE,
   STEP_COPILOT_HELP,
+  scriptCopilotFacts,
   scriptCopilotFields,
 } from "@/app/c/[slug]/agents/[agentId]/script/scriptSurface";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
@@ -109,5 +111,41 @@ describe("the structured-mode steer", () => {
       "script-opening_line",
       "script-ending",
     ]);
+  });
+});
+
+describe("the lines callers hear, and the screen's present state (D-832)", () => {
+  it("marks the opening line and each example line as spoken in the agent's language, and nothing else", () => {
+    const fields = scriptCopilotFields(STRUCTURED, false, "te-IN");
+    const spoken = fields.filter((f) => f.spokenLanguage === "te-IN").map((f) => f.id);
+    expect(spoken).toEqual(["script-opening_line", "script-stages-0-sounds_like", "script-stages-1-sounds_like"]);
+    expect(scriptCopilotFields(STRUCTURED, false).some((f) => f.spokenLanguage)).toBe(false);
+  });
+
+  it("says a kept suggestion is no longer waiting and the draft is saved but not live", () => {
+    const facts = scriptCopilotFacts({
+      proposal: null,
+      keptSuggestion: true,
+      save: { kind: "clean", savedAt: "2026-10-19T10:05:00+00:00" },
+      unpublished: true,
+      liveStep: PUT_LIVE,
+    });
+    expect(facts).toEqual([
+      { key: "pip_suggestion", label: "Pip's script suggestion", value: "None waiting. The last one was added to the draft." },
+      {
+        key: "draft",
+        label: "The draft",
+        value: "Saved as a draft. Changes not live yet: they go live when Put it live is pressed.",
+      },
+    ]);
+  });
+
+  it("says a suggestion is being written or waiting, and leaves it out while it loads", () => {
+    const base = { keptSuggestion: false, save: { kind: "saving" as const }, unpublished: false, liveStep: PUT_LIVE };
+    const value = (status: "drafting" | "ready") =>
+      scriptCopilotFacts({ ...base, proposal: { status } }).find((f) => f.key === "pip_suggestion")?.value;
+    expect(value("drafting")).toMatch(/^Being written/);
+    expect(value("ready")).toMatch(/^Waiting on this screen for review/);
+    expect(scriptCopilotFacts({ ...base, proposal: undefined }).map((f) => f.key)).toEqual(["draft"]);
   });
 });

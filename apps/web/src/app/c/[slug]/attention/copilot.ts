@@ -32,6 +32,7 @@ export function useAttentionCopilot(
     route: "/c/{slug}/attention",
     title: "Needs your attention",
     realm: "client",
+    saves: "view",
     fields: filterShown
       ? [
           {

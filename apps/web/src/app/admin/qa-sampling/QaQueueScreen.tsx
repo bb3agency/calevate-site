@@ -81,6 +81,7 @@ export function QaQueueScreen() {
     route: QUEUE_ROUTE,
     title: "Call quality checks",
     realm: "admin",
+    saves: "view",
     fields: [
       {
         id: "qa-filter-status",

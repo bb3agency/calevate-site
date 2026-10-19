@@ -58,6 +58,7 @@ export function useLeadSourcesCopilot({
     route: "/c/{slug}/lead-sources",
     title: "Where your leads come from",
     realm: "client",
+    saves: "view",
     fields: [
       {
         id: "lead-source-test-source",

@@ -44,6 +44,8 @@ export interface WireField {
   writable: boolean;
   help: string | null;
   redacted: boolean;
+  /** Present only on a line callers hear (`CopilotField.spokenLanguage`). */
+  spoken_language?: string;
 }
 
 export interface WireFact {
@@ -106,6 +108,7 @@ export function redactForWire(fields: CopilotField[], facts: CopilotFact[]): Red
       writable: field.writable ?? true,
       help: field.help ?? null,
       redacted: personal,
+      ...(field.spokenLanguage ? { spoken_language: field.spokenLanguage } : {}),
     };
   });
 
