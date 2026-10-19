@@ -113,7 +113,8 @@ def test_an_agent_with_extras_is_told_which_languages_it_may_answer_in() -> None
     assert prompt.endswith(truthful_answer_directive(call_is_recorded=True))
     assert TRUTHFUL_ANSWER_MARKER in prompt
     assert "in any language" in prompt
-    assert "Every rule here applies in each of them." in prompt
+    assert "Every rule here applies in every language." in prompt
+    assert "Reply in the language the caller speaks and switch when they do." in prompt
     # The spoken-output rules are unchanged.
     assert "No markdown" in prompt
 

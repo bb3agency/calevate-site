@@ -294,14 +294,6 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "refuses it to our project); needs our Google key and an attested price.",
         _THINNEST,
     ),
-    "thinnest_reply_languages": _m(
-        "voice-engine",
-        "thinnest",
-        "Send agents' reply languages as a list",
-        "Turn on only once ThinnestAI confirms its `languages` field is live. Off: an agent "
-        "with several languages follows the caller; one language is kept.",
-        _THINNEST,
-    ),
     "thinnest_reply_length": _m(
         "voice-engine",
         "thinnest",
@@ -1213,8 +1205,6 @@ HIGH_RISK: Final[dict[str, str]] = {
     "own-voice-and-model rate.",
     "thinnest_own_model_default": "Changes the model every agent with none of its own answers "
     "calls with on our own model, from its next call.",
-    "thinnest_reply_languages": "Every live agent is republished; on, a publish fails if "
-    "ThinnestAI does not keep the languages list.",
     "thinnest_developer_workspace_id": "Decides which workspace is ours, not a client's.",
     "self_serve_inr_per_min": "Every client is charged this price.",
     "platform_fee_enabled": "Decides whether every client is asked for a monthly fee.",

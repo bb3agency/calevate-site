@@ -41,8 +41,6 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         "voice",
         "model",
         "language",
-        # The ordered reply languages, sent instead of `language` once the console says so.
-        "reply_languages",
         "call_language",
         "record_calls",
         "max_call_seconds",

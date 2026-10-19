@@ -108,7 +108,6 @@ from calevate_shared.webhook_signature import (
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import (
     NO_CREDENTIALS_REASON,
     engine_lacks,
@@ -308,10 +307,18 @@ PAUSED_LINE_MESSAGE: Final = "Sorry, we cannot take your call right now. Please 
 #: (snapshots/2026-10-07/pages/api-reference/usage/list-call-log.md:533-540).
 _MICRO_PER_UNIT: Final = Decimal(1_000_000)
 
-# The agent's `language` is `auto` or one of the 37 English names the console offers
-# (snapshots/2026-10-08/pages/api-reference/agents/create-agent.md:603-614); keyed here by our
-# BCP-47 primary subtag. A tag outside this map is sent as `auto` (follow the caller).
+#: Every agent's `language`, one language or several: `auto` ("Match the customer") replies in
+#: whatever language the caller speaks (founder, 19 Oct 2026: follow the caller). The
+#: trade-off is the vendor's own: auto works the language out afresh for every sentence, so a
+#: short or mixed reply can be heard as another language, where one fixed language would also
+#: tell the recogniser what to listen for (snapshots/2026-10-18/pages/agent/
+#: behaviour.md:89-103). The opening line is still composed in the main language, so a call
+#: starts in it. `languages`, the list that would restrict replies to the agent's own, is not
+#: sent: under auto it would be `[]`, which `language: auto` already says.
 _AUTO_LANGUAGE: Final = "auto"
+#: The console's 37 English language names (snapshots/2026-10-08/pages/api-reference/agents/
+#: create-agent.md:603-614) by our BCP-47 primary subtag, for reading a language back by name
+#: or tag.
 _DOCUMENTED_LANGUAGES: Final[dict[str, str]] = {
     "en": "English",
     "hi": "Hindi",
@@ -1137,7 +1144,6 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "voice": ("voice.voice",),
     "model": ("model",),
     "language": ("language",),
-    "reply_languages": ("languages",),
     "call_language": ("voice.language",),
     "record_calls": ("voice.recordCalls",),
     "max_call_seconds": ("voice.maxCallSeconds",),
@@ -1179,31 +1185,6 @@ def _same_language(wanted: Any, held: Any) -> bool:
         return False
     name = _DOCUMENTED_LANGUAGES.get(_subtag(held), held)
     return str(wanted).lower() in {held.lower(), name.lower()}
-
-
-def _same_languages(wanted: list[str], held: Any) -> bool:
-    """The `languages` list read back as the one sent, in order (the first is the fallback),
-    each by name or tag. Absent, as from a platform without the field, is not the same."""
-    return (
-        isinstance(held, list)
-        and len(held) == len(wanted)
-        and all(_same_language(w, h) for w, h in zip(wanted, held, strict=True))
-    )
-
-
-def _refuse_unsaved_languages(wanted: dict[str, Any], saved: dict[str, Any]) -> None:
-    """The publish read-back of `languages`, from the agent the write answers with. Sent
-    only while `Settings.thinnest_reply_languages` is on; an answer without the list means
-    the platform did not take it, so the agent may still be on its old language, and the
-    publish is refused rather than reported live."""
-    if "languages" in wanted and not _same_languages(wanted["languages"], saved.get("languages")):
-        log.warning("thinnest_languages_not_saved")
-        raise _business_refusal(
-            "engine_languages_not_saved",
-            title="The voice platform did not save this agent's languages",
-            detail="The languages read back from the voice platform differ from the ones sent.",
-            remediation="Publish again. If it keeps happening, contact us.",
-        )
 
 
 def _field(body: dict[str, Any], key: str) -> tuple[bool, Any]:
@@ -1302,8 +1283,6 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
             present, have = _field(held, key)
             if key in _LANGUAGE_KEYS:
                 same = present and _same_language(want, have)
-            elif key == "languages":
-                same = _same_languages(want, have)
             elif key == "escalation":
                 same = isinstance(have, dict) and all(
                     have.get(flag) is value for flag, value in want.items()
@@ -1568,45 +1547,6 @@ def _subtag(tag: str) -> str:
     return tag.split("-")[0].lower()
 
 
-def language_fields(cfg: AgentConfig) -> tuple[str, str | None]:
-    """`(language, voice.language)` for an agent, as sent while `languages` is off.
-
-    `language` is ONE language: a fixed one is the only language the agent answers in, and
-    on a call it also tells the speech recogniser what to listen for; `auto` ("Match the
-    customer") works the language out per sentence (snapshots/2026-10-18/pages/agent/
-    behaviour.md:89-93). `voice.language` takes a language name or null to follow
-    `language`; `auto` there is a 400 (api-reference/agents/update-agent.md:1219-1227).
-
-    So a Telugu agent with English as a second language is sent `auto` with the call language
-    following it: a fixed Telugu would refuse English replies and mis-hear English callers.
-    Its opening line is still the Telugu greeting we compose, so the call starts in Telugu.
-    A one-language agent is fixed to that language on both fields, which gives the recogniser
-    the language rather than leaving it to guess. A primary tag outside the console's list
-    is `auto` as well, because no fixed value we could send would be the agent's language.
-    With `Settings.thinnest_reply_languages` on, `language` gives way to `reply_languages`.
-    """
-    primary = _DOCUMENTED_LANGUAGES.get(_subtag(cfg.language_primary))
-    others = {_subtag(tag) for tag in cfg.languages_extra} - {_subtag(cfg.language_primary)}
-    if primary is None or others:
-        return _AUTO_LANGUAGE, None
-    return primary, primary
-
-
-def reply_languages(cfg: AgentConfig) -> list[str]:
-    """The agent's `languages` list: its languages by the English names the console offers,
-    main language first, each once (snapshots/2026-10-18/pages/api-reference/agents/
-    update-agent.md:754-768: `[]` auto, one name that language alone, two to four the
-    languages it expects with the first as fallback; a repeat or a name the console does not
-    offer is a 400). A tag outside the console's list is left out; if that leaves nothing,
-    `[]` sends the agent to auto, as `language_fields` does."""
-    names: list[str] = []
-    for tag in (cfg.language_primary, *cfg.languages_extra):
-        name = _DOCUMENTED_LANGUAGES.get(_subtag(tag))
-        if name is not None and name not in names:
-            names.append(name)
-    return names
-
-
 class ThinnestEngine:
     """Implements `VoiceEngine` against ThinnestAI's REST API. One httpx client per process."""
 
@@ -1803,7 +1743,6 @@ class ThinnestEngine:
                     f"{CALL_SECONDS_MAX // 60} minutes, then publish again."
                 ),
             )
-        language, call_language = language_fields(cfg)
         # snapshots/2026-10-08/pages/api-reference/agents/update-agent.md:940-1016.
         # `answersCalls` true and `unavailableMessage` null on every publish: a publish is
         # what lifts a pause (`override_call_script`), so it must switch the line back on.
@@ -1823,7 +1762,9 @@ class ThinnestEngine:
         voice: dict[str, Any] = {
             "answersCalls": True,
             "unavailableMessage": None,
-            "language": call_language,
+            # Null follows the agent's `language`; `auto` here is a 400
+            # (update-agent.md:1219-1227).
+            "language": None,
             "recordCalls": True,
             "maxCallSeconds": seconds,
             "detectMachines": cfg.detect_machines,
@@ -1894,13 +1835,9 @@ class ThinnestEngine:
                 code="engine_business_line_too_long",
                 what="business line",
             ),
-            # `languages` or `language`, never both: both together is a 400, and `language`
-            # alone clears the list (update-agent.md:754-768).
-            **(
-                {"languages": reply_languages(cfg)}
-                if get_settings().thinnest_reply_languages
-                else {"language": language}
-            ),
+            # Every agent follows the caller (`_AUTO_LANGUAGE`); `language` alone also clears
+            # any `languages` list an earlier publish sent (update-agent.md:754-768).
+            "language": _AUTO_LANGUAGE,
             "voice": voice,
             # Stated, not left to the defaults: the vendor's own call-back would ring the
             # caller from their side, outside our dial gate and our DNC list, and its lead
@@ -2470,7 +2407,6 @@ class ThinnestEngine:
                 raise _bad_response("The voice platform did not return an agent id.")
         _refuse_unsaved_steps(body, data)
         _refuse_unsaved_reply_length(body, data)
-        _refuse_unsaved_languages(body, data)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_own_model(raw, workspace, cfg)
         await self._apply_built_in_tools(raw, workspace, cfg)
@@ -2483,7 +2419,6 @@ class ThinnestEngine:
         saved = await self._write_agent("PATCH", f"/agents/{raw}", "/agents/{ref}", workspace, body)
         _refuse_unsaved_steps(body, saved)
         _refuse_unsaved_reply_length(body, saved)
-        _refuse_unsaved_languages(body, saved)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_own_model(raw, workspace, cfg)
         await self._apply_built_in_tools(raw, workspace, cfg)

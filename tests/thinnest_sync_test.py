@@ -27,7 +27,6 @@ from apps.api.engine import thinnest, vendor_http
 from apps.api.engine.thinnest import (
     PAUSED_LINE_MESSAGE,
     ThinnestEngine,
-    language_fields,
 )
 from apps.api.engine.vendor_http import (
     LINES_BUSY_CODE,
@@ -295,22 +294,6 @@ def test_the_handover_screen_states_where_transfer_works() -> None:
 # --- (13) language, (14) the pause, (16) null resets, caller memory --------------------------
 
 
-@pytest.mark.parametrize(
-    ("primary", "extra", "expected"),
-    [
-        ("te-IN", [], ("Telugu", "Telugu")),
-        ("te-IN", ["en-IN"], ("auto", None)),
-        ("te-IN", ["te"], ("Telugu", "Telugu")),
-        ("kn-IN", [], ("Kannada", "Kannada")),
-        ("xx-YY", [], ("auto", None)),
-    ],
-)
-def test_one_language_is_fixed_and_two_follow_the_caller(
-    primary: str, extra: list[str], expected: tuple[str, str | None]
-) -> None:
-    assert language_fields(_cfg(language_primary=primary, languages_extra=extra)) == expected
-
-
 def test_the_paused_line_speaks_the_credit_stop_sentence() -> None:
     assert PAUSED_LINE_MESSAGE == CREDIT_STOP_MESSAGE
 
@@ -361,7 +344,7 @@ def _held_agent(body: dict[str, Any], **changes: Any) -> dict[str, Any]:
 async def test_settings_in_step_report_nothing() -> None:
     engine = ThinnestEngine(api_key="x")
     cfg = _cfg(engine_own_voice_key=False, engine_voice_id="priya")
-    held = _held_agent(engine._agent_body(cfg), voice__language="te-IN")
+    held = _held_agent(engine._agent_body(cfg), language="Auto")
     handler, _ = _recorder({("GET", "/agents/ag_1"): httpx.Response(200, json=held)})
     assert await _engine(handler).settings_drift("ag_1", cfg) == []
     assert isinstance(_engine(handler), ReconcilesAgentSettings)

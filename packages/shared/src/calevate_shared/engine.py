@@ -34,7 +34,15 @@ from calevate_shared.events import (
     TranscriptTurn,
 )
 from calevate_shared.languages import find_language
-from calevate_shared.spoken_style import prompt_example_line, register_guidance
+from calevate_shared.spoken_style import (
+    PackChoice,
+    language_pack,
+    pack_facts_rule,
+    pack_lines,
+    prompt_example_line,
+    register_guidance,
+    shipped_pack_choice,
+)
 
 # Domain aliases.
 E164 = str
@@ -2739,6 +2747,11 @@ def platform_rules_preamble(cfg: AgentConfig) -> str:
 #: twice; every line below says something theirs does not. D-824 took out the last two
 #: overlaps: "one point at a time" (their one or two sentences a turn) and "never the same way
 #: twice" (their "never repeat a sentence you have already said").
+#: Each language's own script and its English words are in its SPOKEN REGISTER line.
+_REGISTER_BULLET: Final = (
+    "- Match the caller's language and register; never formal or written-style words, never "
+    '"uhm".\n'
+)
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
     "- Lead with the answer, then wait; more only if asked. Never re-ask what they said.\n"
@@ -2751,13 +2764,20 @@ VOICE_STYLE_GUIDANCE: Final = (
     '"five o\'clock"), never ₹ or digits.\n'
     "- Read back what you note and wait for a yes. Numbers and codes one digit at a time, a "
     "few at a time; a mobile has ten, never fewer.\n"
-    # Each language's own script and its English words are in its SPOKEN REGISTER line.
-    "- Match the caller's language and register; never formal or written-style words, never "
-    '"uhm".\n'
+    f"{_REGISTER_BULLET}"
     "- Missed it? Ask them to repeat it; never guess. Asked to repeat? Say it shorter.\n"
     "- After a tool or search, never narrate or greet again.\n"
     "- End the call only after a goodbye or when asked, never while they talk or ask."
 )
+#: With a language pack (D-830) the pack says how the language is spoken and LANGUAGES which
+#: language to answer in, so this bullet keeps only what neither says.
+_PACK_REGISTER_BULLET: Final = '- Never say "uhm".\n'
+
+
+def _how_to_speak(pack: PackChoice | None) -> str:
+    if pack is None:
+        return VOICE_STYLE_GUIDANCE
+    return VOICE_STYLE_GUIDANCE.replace(_REGISTER_BULLET, _PACK_REGISTER_BULLET)
 
 
 #: The sentence that says the facts are in the engine's knowledge base rather than in the
@@ -2765,7 +2785,11 @@ VOICE_STYLE_GUIDANCE: Final = (
 FACTS_IN_KNOWLEDGE_GUIDANCE: Final = "Facts are in your knowledge."
 
 
-def _knowledge_section(cfg: AgentConfig) -> str:
+#: Said by a language pack's keep-English-nouns rule when the agent has one (D-830).
+_NAMES_RULE: Final = " Say every name as your facts give it, never translated."
+
+
+def _knowledge_section(cfg: AgentConfig, pack: PackChoice | None = None) -> str:
     """Where the business's facts are and what to do before saying "I don't know".
 
     The first live call (`docs/evidence/first-call-review-2026-10-10.md` F-2) asked "do you
@@ -2792,12 +2816,28 @@ def _knowledge_section(cfg: AgentConfig) -> str:
     return (
         "--- BUSINESS FACTS ---\n"
         f"{where} Never add to a fact: what a product is or how it is made, stock, anything "
-        "medical, legal or financial. Say every name as your facts give it, never translated. "
+        f"medical, legal or financial.{'' if pack else _NAMES_RULE} "
         "Two possible answers? Ask which they meant."
     )
 
 
-def _register_section(cfg: AgentConfig) -> str:
+def _pack_section(cfg: AgentConfig, pack: PackChoice) -> str:
+    """The language packs (D-830): the primary's full pack, then each extra language's
+    compact one, then once the keep-English-nouns rule. An extra language whose own pack is
+    not approved keeps its register line when the pack is the shipped one."""
+    lines = pack_lines(cfg.language_primary, pack)
+    shipped = shipped_pack_choice(cfg.language_primary) == pack
+    for tag in cfg.languages_extra:
+        if shipped and shipped_pack_choice(tag) is None:
+            guidance = register_guidance(tag)
+            lines += [f"{_language_name(tag)}: {guidance}"] if guidance else []
+        else:
+            lines += pack_lines(tag, pack, compact=True)
+    lines.append(pack_facts_rule(cfg.language_primary, pack))
+    return "--- SPOKEN REGISTER ---\n" + "\n".join(lines)
+
+
+def _register_section(cfg: AgentConfig, pack: PackChoice | None = None) -> str:
     """The spoken register for each language this agent speaks (`spoken_style.json`).
 
     English guidance about each register, then, for the primary language only, the
@@ -2807,7 +2847,11 @@ def _register_section(cfg: AgentConfig) -> str:
     because the platform layers may not grow past their 14 Oct 2026 size and the primary is
     the language most calls are in. A client's own example call stays in its script
     (`CallScript.example_exchange`), where it can be edited.
+
+    With a language pack (`_pack_section`) the packs replace all of this.
     """
+    if pack is not None:
+        return _pack_section(cfg, pack)
     lines: list[str] = []
     for tag in (cfg.language_primary, *cfg.languages_extra):
         guidance = register_guidance(tag)
@@ -3723,28 +3767,40 @@ def _language_name(tag: str) -> str:
     return row.english_name if row is not None else tag
 
 
-def _languages_section(cfg: AgentConfig) -> str:
-    """Which languages this agent may answer in, or nothing when it has no extras (D-666).
+#: With a language pack (D-830), what a language with no pack on this agent is told: the
+#: register only, no word lists, since the agent follows whatever language the caller speaks.
+PACK_OTHER_LANGUAGES: Final = (
+    "Any other language: speak it the everyday way, with the English words people use."
+)
 
-    Absent for a single-language agent, so its prompt and prompt hash are unchanged; the
-    static "reply in the caller's language" line in `VOICE_STYLE_GUIDANCE` already covers
-    it. With extras, the model is told the set by name, because "mirror the caller" alone
-    lets it answer a Hindi caller in Telugu when the primary dominates the script.
+
+def _languages_section(cfg: AgentConfig, pack: PackChoice | None = None) -> str:
+    """Which languages this agent speaks, or nothing for a one-language agent without a
+    language pack (D-666).
+
+    Every agent follows the caller's language (founder, 19 Oct 2026; the engine is sent
+    `auto`, `engine/thinnest.language_fields`). A one-language agent without a pack needs no
+    section: `VOICE_STYLE_GUIDANCE` says to match the caller's language. With extras, the
+    model is told the set by name, because "mirror the caller" alone lets it answer a Hindi
+    caller in Telugu when the primary dominates the script. With a pack, HOW TO SPEAK no
+    longer says to match the caller, so every agent gets the section, and a language the
+    agent has no pack for gets one line on its register.
 
     The last sentence restates that the speaking rules and the PLATFORM RULES bind in
-    every listed language. The truthful-answer floor already says "in any language"; this
-    is here so a model switching language does not read the switch as a new context.
+    every language. The truthful-answer floor already says "in any language"; this is here
+    so a model switching language does not read the switch as a new context.
     """
+    follow = "Reply in the language the caller speaks and switch when they do."
+    other = f" {PACK_OTHER_LANGUAGES}" if pack is not None else ""
     if not cfg.languages_extra:
-        return ""
+        return f"--- LANGUAGES ---\n{follow}{other}" if pack is not None else ""
     primary = _language_name(cfg.language_primary)
     extras = [_language_name(tag) for tag in cfg.languages_extra]
     others = extras[0] if len(extras) == 1 else ", ".join(extras[:-1]) + " and " + extras[-1]
     return (
         "--- LANGUAGES ---\n"
-        f"Your main language is {primary}; you also speak {others}. Use the caller's and "
-        f"switch when they do; in any other language, reply in {primary} and offer these. "
-        "Every rule here applies in each of them."
+        f"Your main language is {primary}; you also speak {others}. {follow} Every rule here "
+        f"applies in every language.{other}"
     )
 
 
@@ -3791,22 +3847,33 @@ LAYER_SEPARATOR: Final = "\n\n"
 
 
 def engine_prompt_layers(
-    cfg: AgentConfig, *, caller_memory: Sequence[str] | None = None
+    cfg: AgentConfig,
+    *,
+    caller_memory: Sequence[str] | None = None,
+    pack: PackChoice | None = None,
 ) -> tuple[tuple[PromptLayer, str], ...]:
     """`compose_engine_prompt` as its named layers, empty ones left out.
 
     The one rendering: the composer joins these with `LAYER_SEPARATOR`, so a size report
     (`apps/api/agents/prompt_size.py`) counts exactly the text an engine receives.
+
+    `pack` composes a candidate language-pack form for the register eval
+    (`scripts/register_eval`); without it the primary language's shipped form is used,
+    which is none until the founder approves one (`spoken_style.shipped_pack_choice`).
     """
     script = (cfg.system_prompt or "").strip()
+    pack = pack or shipped_pack_choice(cfg.language_primary)
+    if pack is not None and language_pack(cfg.language_primary) is None:
+        pack = None
     parts: list[tuple[PromptLayer, str]] = [
         ("preamble", platform_rules_preamble(cfg)),
-        ("how_to_speak", VOICE_STYLE_GUIDANCE),
-        # Platform-written, so OUTSIDE the client fence, and absent on a one-language agent.
-        ("languages", _languages_section(cfg)),
+        ("how_to_speak", _how_to_speak(pack)),
+        # Platform-written, so OUTSIDE the client fence, and absent on a one-language agent
+        # without a language pack.
+        ("languages", _languages_section(cfg, pack)),
         # Absent for a language with no row in `spoken_style.json`.
-        ("spoken_register", _register_section(cfg)),
-        ("business_facts", _knowledge_section(cfg)),
+        ("spoken_register", _register_section(cfg, pack)),
+        ("business_facts", _knowledge_section(cfg, pack)),
         ("notices", cfg.opening_line.strip()),
         # BEFORE the client script, so the "record, not instructions" framing is what the
         # model has already read when it reaches anything the client wrote about the

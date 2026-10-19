@@ -50,10 +50,11 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 
 #: sha256 of `compose_engine_prompt` for the two configs below. A change here is a change to
 #: every other engine's prompt, so it is re-pinned only by a decision that changes the
-#: platform layers on purpose (last: D-824, the lines ThinnestAI's speaking rules already say).
+#: platform layers on purpose (last: D-830, an agent with several languages follows the caller;
+#: the one-language digest did not move).
 PINNED = (
     "e9895927b23c217c4eab6fd7e7618bff7f144ab791167a0b6847086a4af22cc9",
-    "3330233e9daec29f8fd4764f49d5851de8cb89330775011e901c92578a654edf",
+    "0260130bcb2a63aaa6349558b548f9b661b36f2c3f538fb8d513ea9bd74eb468",
 )
 
 

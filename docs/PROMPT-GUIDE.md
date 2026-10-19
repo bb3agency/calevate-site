@@ -239,7 +239,7 @@ invitation to trim guardrails.
   real composed prompt of the retail starter (Telugu, Hindi, English) followed by ThinnestAI's
   speaking rules, on the in-call model and our key, and scores every reply with
   `agents/turn_checks.turn_problems`; `--compare` gives each kind's change with a 95%
-  interval. Candidates (`--variant`, combined with `+`): `positive` (only the words to say;
+  interval. Candidates (`--variants`, features combined with `+`): `positive` (only the words to say;
   a forbidden word named in a prompt can come back more often, Mann et al., arXiv:2511.12381,
   Nov 2025; "say what to do", S17), `persona`, `examples` (the drafts in
   `candidate_prompt_examples`, `needs_founder_review`, measured but never quoted live) and
@@ -248,6 +248,29 @@ invitation to trim guardrails.
   current 4,871 / 5,879 (both at the D-824 guard), positive 4,626 / 5,468, persona +163,
   examples +304, late +0. The baseline is not yet measured: no Google key was reachable
   where D-829 was built, so the shipped register is unchanged.
+- **Language packs (D-830), off until the founder approves one.** Production (19 Oct 2026,
+  gemini-3.1-flash-lite, founder's run) measured textbook words in 46% of Telugu and 22% of
+  Hindi replies; four drafted examples cut Hindi to 10% and left Telugu unchanged. A pack is
+  the one block for how the agent speaks a language: how people talk on the phone, the words
+  to say (the English loanwords, in English letters), the words not to say, eight example
+  exchanges and "facts given in English keep their English nouns". The primary language
+  gets the full pack, each extra language a compact one, and LANGUAGES one line for any
+  other language, since every agent follows the caller (founder, 19 Oct 2026; ThinnestAI is
+  sent `auto`, `agent/behaviour.md:89-103`). `register_eval --variants` measures the forms in
+  one run: English instructions (`pack-en`) or instructions in the language itself
+  (`pack-native`), with the avoided words as a list, as pairs (`-pairs`) or absent
+  (`-noavoid`), plus Hindi-to-Telugu and Telugu-to-Hindi cross cases. Why these forms:
+  Google's prompting strategies recommend always giving few-shot examples and say clear
+  examples can replace instructions (ai.google.dev/gemini-api/docs/prompting-strategies,
+  read 19 Oct 2026); naming a forbidden word can make it more likely (Mann et al.,
+  arXiv:2511.12381); English facts are translated as the agent answers when knowledge is
+  kept in English (ThinnestAI `guides/multilingual.md:15-30`, 18 Oct snapshot), which is
+  where written-register words come from, hence the keep-English-nouns rule; the words to
+  say in English are the founder's (a native Telugu speaker: callers say "details" far more
+  often than వివరాలు). Whether instructions in the target language steer better is not
+  settled by a source read here (arXiv:2512.02841 does not compare them), so the eval
+  decides. A pack ships by setting its `review` to `founder_approved` and `ship` to the
+  winning form in `spoken_style.json`; nothing else changes.
 - Proper nouns: spell client/staff/locality names phonetically in [T0 FACTS]
   (pronunciation hints), e.g., "Dr. Sowmya (సౌమ్య)".
 - Numbers, times, addresses: read slowly, confirm back ("మీ నంబర్ 98… కరెక్టేనా?").

@@ -238,9 +238,10 @@ copilot-eval:  ## make copilot-eval [PROVIDER=google MODEL=<gemini id> | PROVIDE
 	uv run python -m scripts.copilot_tool_eval $(if $(PROVIDER),--provider=$(PROVIDER)) $(if $(MODEL),--model=$(MODEL)) $(if $(RECORD),--record=$(RECORD))
 
 # The in-call spoken register (D-829): the real composed prompt, the in-call model on our
-# Google key, every reply scored by the test loop's checks. Paid: under ₹20 a full run.
-register-eval:  ## make register-eval OUT=<scratch>/run.json [VARIANT=positive+late] [LANGUAGE=te-IN]
-	uv run python -m scripts.register_eval --spend --out=$(OUT) $(if $(VARIANT),--variant=$(VARIANT)) $(if $(LANGUAGE),--language=$(LANGUAGE))
+# Google key, every reply scored by the test loop's checks (D-830: several variants and the
+# cross-language cases in one run). Paid: it states its estimate and stops at --max-inr (₹80).
+register-eval:  ## make register-eval OUT=<scratch>/run.json [VARIANTS=current,pack-native] [LANGUAGE=te-IN,hi-IN]
+	uv run python -m scripts.register_eval --spend --out=$(OUT) $(if $(VARIANTS),--variants=$(VARIANTS)) $(if $(LANGUAGE),--language=$(LANGUAGE))
 
 # G3 ships this to every client monthly, so VERTICAL is required for the same reason
 # CLIENT is: a clinic's report listing property calls is not the asset it is sold as,
