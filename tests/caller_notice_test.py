@@ -103,6 +103,7 @@ async def _publish(
     fields: list[dict[str, object]] | None = None,
     ai_disclosure: bool = True,
     recording_notice: bool = True,
+    direction: str = "inbound",
 ) -> None:
     """Put the agent in the state a caller can actually reach, with a schema attached."""
     schema_id = uuid.uuid4()
@@ -126,7 +127,7 @@ async def _publish(
                 "s": schema_id,
                 "ai": ai_disclosure,
                 "rec": recording_notice,
-                "dir": "inbound",
+                "dir": direction,
                 "a": agent_id,
             },
         )
@@ -360,6 +361,25 @@ async def test_the_draft_states_the_truthful_answer_floor_whatever_the_switches_
 
     assert "it will tell you the truth" in draft.markdown  # type: ignore[attr-defined]
     assert "cannot be switched off" in draft.markdown  # type: ignore[attr-defined]
+
+
+async def test_a_client_that_calls_out_is_told_the_telecom_rules_are_its_own() -> None:
+    """An agent that dials (`outbound` or `both`) brings consent, calling hours and the
+    do-not-call registers into the client's list; an inbound-only client is not given a
+    question about calls it never makes."""
+    inbound_tenant, inbound_agent, _, _ = await _tenant()
+    await _publish(inbound_tenant, inbound_agent)
+    for direction in ("outbound", "both"):
+        tenant_id, agent_id, _, _ = await _tenant()
+        await _publish(tenant_id, agent_id, direction=direction)
+
+        questions = (await _draft(tenant_id)).open_questions  # type: ignore[attr-defined]
+
+        telecom = [q for q in questions if "do-not-call registers" in q]
+        assert len(telecom) == 1, direction
+        assert questions[-1] == telecom[0], "the telecom question closes the list"
+    inbound = (await _draft(inbound_tenant)).open_questions  # type: ignore[attr-defined]
+    assert not [q for q in inbound if "do-not-call registers" in q]
 
 
 async def test_the_disclaimer_travels_with_the_text_and_the_blanks_are_visible() -> None:

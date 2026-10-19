@@ -33,6 +33,7 @@ from uuid import UUID
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle as agent_lifecycle
+from apps.api.callbacks.service import GRACE
 from apps.api.compliance import consent
 from apps.api.compliance.consent_policy import read_policy, write_policy
 from apps.api.compliance.service import (
@@ -436,3 +437,125 @@ async def test_an_account_this_session_cannot_see_is_a_404_and_not_a_permissive_
             await write_policy(session, enabled=True)
     assert read_refusal.value.status == 404
     assert write_refusal.value.status == 404
+
+
+# --- a call-back the caller asked for in a call (`record_callback_request_consent`) --------
+
+
+async def _call(tenant_id: UUID, agent_id: UUID) -> UUID:
+    call_id = uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
+                "created_at, updated_at) VALUES (:id, :t, :a, :e, 'inbound', 'in_progress', "
+                "now(), now())"
+            ),
+            {"id": call_id, "t": tenant_id, "a": agent_id, "e": f"exec_{call_id.hex}"},
+        )
+        await session.commit()
+    return call_id
+
+
+async def _callback_request(
+    tenant_id: UUID, call_id: UUID, phone: str, at: datetime
+) -> tuple[bool, list[tuple[str, str, datetime | None]]]:
+    """Ask for the call-back's consent, then read every `callback` row for the person."""
+    async with tenant_session(tenant_id) as session:
+        written = await consent.record_callback_request_consent(
+            session,
+            tenant_id=tenant_id,
+            phone_e164=phone,
+            call_id=call_id,
+            callback_id=uuid7(),
+            callback_at=at,
+        )
+        await session.commit()
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT status, consent_source, expires_at FROM consent_ledger "
+                    "WHERE phone_e164 = :p AND purpose = 'callback' ORDER BY captured_at, id"
+                ),
+                {"p": phone},
+            )
+        ).all()
+    return written, [(str(r[0]), str(r[1]), r[2]) for r in rows]
+
+
+async def test_a_callback_request_is_the_consent_an_account_that_requires_one_needs() -> None:
+    """On a D-624 account nothing on file refuses the dial, so the caller's spoken request
+    is written as a grant that lapses `GRACE` after the promised time, and the gate then
+    lets that call through."""
+    tenant_id, agent_id = await _tenant()
+    await _set_policy(tenant_id, enabled=True)
+    phone = _fresh_phone()
+    at = datetime.now(UTC) + timedelta(days=1)
+
+    written, rows = await _callback_request(tenant_id, await _call(tenant_id, agent_id), phone, at)
+
+    assert written is True
+    assert rows == [("granted", "inbound_call_verbal", at + GRACE)]
+    assert (await _gate(tenant_id, agent_id, phone)).allowed is True
+
+
+async def test_a_callback_request_lifts_an_earlier_refusal() -> None:
+    """The request is the affirmative act; the newest row is what the gate reads, so a
+    grant is appended over the refusal and the refusal stays on the ledger."""
+    tenant_id, agent_id = await _tenant()
+    phone = _fresh_phone()
+    async with tenant_session(tenant_id) as session:
+        await consent.record_call_consent(
+            session,
+            tenant_id=tenant_id,
+            raw_phone=phone,
+            status="declined",
+            source="staff_recorded_request",
+        )
+        await session.commit()
+
+    at = datetime.now(UTC) + timedelta(hours=3)
+    written, rows = await _callback_request(tenant_id, await _call(tenant_id, agent_id), phone, at)
+
+    assert written is True
+    assert [(status, expires) for status, _, expires in rows] == [
+        ("declined", None),
+        ("granted", at + GRACE),
+    ]
+
+
+async def test_a_callback_request_never_narrows_a_wider_grant() -> None:
+    """A grant with no end date already lets the call through, so a short grant over it
+    would only narrow it: nothing is written. A grant that ends before the promised call
+    does not cover it, so the request's own grant is appended."""
+    tenant_id, agent_id = await _tenant()
+    call_id = await _call(tenant_id, agent_id)
+    at = datetime.now(UTC) + timedelta(days=2)
+
+    open_ended = _fresh_phone()
+    await _record_grant(tenant_id, open_ended, expires_at=None)
+    written, rows = await _callback_request(tenant_id, call_id, open_ended, at)
+    assert written is False
+    assert [(status, expires) for status, _, expires in rows] == [("granted", None)]
+
+    ends_first = _fresh_phone()
+    soon = datetime.now(UTC) + timedelta(hours=1)
+    await _record_grant(tenant_id, ends_first, expires_at=soon)
+    written, rows = await _callback_request(tenant_id, call_id, ends_first, at)
+    assert written is True
+    assert [expires for _, _, expires in rows] == [soon, at + GRACE]
+
+
+async def _record_grant(tenant_id: UUID, phone: str, *, expires_at: datetime | None) -> None:
+    async with tenant_session(tenant_id) as session:
+        await consent.record_call_consent(
+            session,
+            tenant_id=tenant_id,
+            raw_phone=phone,
+            status="granted",
+            source="web_form_optin",
+            evidence={"form": "site enquiry", "field": "call_me"},
+            expires_at=expires_at,
+        )
+        await session.commit()

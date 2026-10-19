@@ -33,7 +33,7 @@ from apps.api.billing.razorpay_api import (
     ProviderRefundRow,
     RazorpayApi,
 )
-from apps.api.billing.service import get_balance, remove_credit_from_lots
+from apps.api.billing.service import get_balance, record_entry, remove_credit_from_lots
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
@@ -425,6 +425,39 @@ async def test_the_refundable_amount_is_the_unspent_credit_of_that_payment() -> 
         assert await payments.unspent_credit_of_payment(
             session, tenant_id=tenant_id, payment_id=payment_id, entry_id=entry.entry_id
         ) == Decimal("700.00")
+
+
+async def test_a_payment_that_only_repaid_an_overdraft_has_nothing_to_refund() -> None:
+    """₹300 onto a wallet at -₹500 repays debt and opens no lot (plan §0 Q5): every rupee of
+    it bought minutes already spoken, so none of it is refundable."""
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal("-500"),
+            reason="usage",
+            ref=str(uuid.uuid4()),
+            allow_negative=True,
+        )
+    payment_id = _id("pay")
+    await _fund(tenant_id, payment_id, "300.00")
+    async with tenant_session(tenant_id) as session:
+        entry = await payments.find_topup(session, tenant_id=tenant_id, ref=payment_id)
+        assert entry is not None
+        assert await payments.unspent_credit_of_payment(
+            session, tenant_id=tenant_id, payment_id=payment_id, entry_id=entry.entry_id
+        ) == Decimal("0.00")
+        with pytest.raises(ProblemError) as refused:
+            await payments.claim_refund(
+                session,
+                tenant_id=tenant_id,
+                payment_id=payment_id,
+                amount_inr=Decimal("1.00"),
+                payment_total_inr=Decimal("300.00"),
+                topup_entry_id=entry.entry_id,
+            )
+    assert refused.value.code == "refund_exceeds_unspent"
 
 
 # --- disputes ------------------------------------------------------------------------

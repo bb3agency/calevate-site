@@ -65,3 +65,17 @@ def test_configure_logging_drops_arqs_handler_and_withholds_job_detail() -> None
     assert filters[0].filter(failed)
     assert "9876543210" not in failed.getMessage()
     assert "ValidationError" in failed.getMessage() and "extract:1" in failed.getMessage()
+
+
+def test_an_arq_line_of_another_shape_is_passed_through_untouched() -> None:
+    """Only the two templates carry a payload or an exception message; another four-argument
+    line of arq's is left as it was."""
+    configure_logging()
+    [withholding] = [
+        f
+        for f in logging.getLogger("arq.worker").filters
+        if isinstance(f, core_logging._ArqJobDetailFilter)
+    ]
+    other = _record("%6.2fs ← %s ● %s %s", (0.5, "extract:1", "ok", "done"))
+    assert withholding.filter(other)
+    assert other.args == (0.5, "extract:1", "ok", "done")

@@ -356,6 +356,50 @@ async def test_an_unsettled_contact_or_call_keeps_the_task_open(
         assert not await settle_voice_engine_task(session, task_id=task_id)
 
 
+async def test_a_contact_still_held_back_keeps_the_task_open_until_it_is_erased(
+    monkeypatch: pytest.MonkeyPatch, vendor: ContentVendor
+) -> None:
+    """A contact whose DELETE waits for our copy of its recordings (D-810) has erased
+    nothing yet, so the task stays open even with every call's content gone and every other
+    contact settled; once that contact reports its last recording gone, the task closes."""
+    tenant_id, request_id, _call_id, _ecid, payload = await _erasure(monkeypatch)
+    await jobs.delete_engine_call_content({}, payload)
+    async with tenant_session(tenant_id) as session:
+        task_id = (
+            await session.execute(
+                text(
+                    "UPDATE processor_erasure_tasks SET status = 'requested', "
+                    "vendor_reference = 'cust_a=0,cust_h=held' WHERE request_ref = :r "
+                    "RETURNING id"
+                ),
+                {"r": request_id},
+            )
+        ).scalar_one()
+        assert not await settle_voice_engine_task(session, task_id=task_id)
+    assert await _task_status(tenant_id, request_id) == ("requested", "cust_a=0,cust_h=held")
+    async with tenant_session(tenant_id) as session:
+        assert await record_contact_erased(session, contact_id="cust_h") == [task_id]
+    assert (await _task_status(tenant_id, request_id))[0] == "confirmed"
+
+
+async def test_a_task_naming_no_platform_call_has_none_awaiting_our_copy() -> None:
+    """A contact erasure whose task names no call of the platform's has nothing it must wait
+    for, and asks the database nothing to say so."""
+
+    class _NoReads:
+        async def execute(self, *_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("an empty list of calls needs no read")
+
+    assert (
+        await engine_content.calls_awaiting_our_copy(
+            _NoReads(),  # type: ignore[arg-type]
+            raw_call_ids=[],
+            workspace="org_any",
+        )
+        == 0
+    )
+
+
 # --- the retention sweep -------------------------------------------------------------------
 
 

@@ -329,6 +329,32 @@ async def test_an_engine_that_refused_before_dialling_goes_back_on_the_ladder(
     assert row["attempts"] == 0
 
 
+async def test_busy_lines_defer_the_callback_under_their_own_rule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every outbound line in use is a refusal waiting lifts, and the client is told that
+    rather than the generic dial failure."""
+    from apps.api.engine.dial_lines import LINES_BUSY_RULE
+    from apps.api.engine.vendor_http import lines_busy_error
+    from apps.workers.callbacks import LINES_BUSY_REASON
+
+    tenant_id, agent_id = await _dialable_tenant()
+    callback_id = await _book(tenant_id, agent_id)
+
+    async def _busy(*_args: object, **_kwargs: object) -> None:
+        raise lines_busy_error()
+
+    monkeypatch.setattr(get_engine(), "start_outbound_call", _busy)
+    outcome = await dispatch_due_callbacks(tenant_id, slots=5)
+    assert outcome == {"dialled": 0, "blocked": 1, "settled": 0}
+
+    row = await _row(tenant_id, callback_id)
+    assert row["status"] == "scheduled"
+    assert row["last_refusal_rule"] == LINES_BUSY_RULE
+    assert row["last_refusal_reason"] == LINES_BUSY_REASON
+    assert row["attempts"] == 0
+
+
 async def test_a_dialled_callback_is_settled_by_the_call_it_became() -> None:
     """`settle_dialled` reads OUR `calls` row rather than hooking the post-call pipeline,
     so it settles a call-back whose call the RECONCILIATION POLLER discovered as well as

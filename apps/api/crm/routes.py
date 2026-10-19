@@ -99,8 +99,11 @@ async def get_dashboard(
     session: Session, principal: Principal = Depends(requires("calls:read"))
 ) -> DashboardOut:
     out = await service.dashboard(session)
-    if principal.tenant_id is None or principal.role is None:
-        return out
+    # `Session` resolves through `tenant_of`, which refuses a principal with no account, and
+    # `requires` refuses one with no role, so neither can be None here.
+    assert principal.tenant_id is not None and principal.role is not None
+    # The trial card is what `GET /v1/trial` answers, so it goes only to whom that route
+    # would give it.
     if not role_has(principal.role, "org:read"):
         return out
     trial = await read_trial_panel(session, tenant_id=principal.tenant_id)

@@ -823,6 +823,40 @@ async def test_switching_our_model_off_puts_the_agent_back_on_the_platforms_mode
     assert await _route_model(tenant_id, ref) == ("studio", None)
 
 
+async def test_a_free_trial_agent_stays_on_the_platforms_model_with_our_model_on(
+    own_model_on: set[str], no_webhook: None, hosted_rows: CatalogueRows
+) -> None:
+    """A trial agent lives in our developer workspace (D-697), where our model key would
+    reach every client without keys of its own: it is published on the platform's model,
+    and no key of ours is installed anywhere."""
+    from apps.api.billing.trials import start_trial
+    from apps.api.db.session import tenant_session
+    from sqlalchemy import text
+
+    tenant_id, agent_id = await _agent()
+    async with tenant_session(tenant_id) as session:
+        await start_trial(session, tenant_id=tenant_id, days=7, actor_user_id=None)
+        # A trial agent places test calls and answers nothing (D-697), and an outgoing call
+        # opens on its announcement.
+        await session.execute(
+            text(
+                "UPDATE agents SET direction = 'outbound', ai_disclosure_enabled = true "
+                "WHERE id = :a"
+            ),
+            {"a": agent_id},
+        )
+    voice = await hosted_rows.add("engine", vendor_id=f"asha-{uuid.uuid4().hex[:6]}")
+    await _set_columns(tenant_id, agent_id, voice, None)
+    with selected(_PublishingEngine(key_state=OFF_KEY)) as engine:
+        ref = await _publish(tenant_id, agent_id)
+    assert isinstance(engine, _PublishingEngine)
+    sent = engine.sent[-1]
+    assert sent.engine_workspace is None
+    assert (sent.engine_own_voice_key, sent.engine_own_model) == (False, None)
+    assert engine.model_keys_in == []
+    assert await _route_model(tenant_id, ref) == ("studio", None)
+
+
 # --- D-769: per-agent scope kept, and both Studio keys before the write --------------------
 
 
