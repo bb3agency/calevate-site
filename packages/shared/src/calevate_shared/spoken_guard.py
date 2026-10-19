@@ -26,7 +26,14 @@ import re
 from collections.abc import Sequence
 from typing import Final, Literal
 
-from calevate_shared.spoken_style import caller_guidance, style_for, writer_guidance
+from calevate_shared.spoken_style import (
+    caller_guidance,
+    pack_facts_rule,
+    pack_lines,
+    shipped_pack_choice,
+    style_for,
+    writer_guidance,
+)
 
 #: Indic letters carry combining marks, so `\b` does not mark a word start: a word counts when
 #: it opens the text or follows a space or punctuation.
@@ -95,6 +102,15 @@ def generation_guidance(
     Empty for a language with no style row."""
     if side == "caller":
         return caller_guidance(tag, business_type)
+    # A founder-approved language pack (D-830) is the one statement of how the language is
+    # spoken, so the agent-side writers follow it once it ships, in the form the live prompt
+    # carries. Until a pack is approved, `shipped_pack_choice` is None and writers keep the
+    # register guidance.
+    choice = shipped_pack_choice(tag)
+    if tag is not None and choice is not None:
+        lines = pack_lines(tag, choice)
+        if lines:
+            return "\n".join([*lines, pack_facts_rule(tag, choice)])
     return writer_guidance(tag, business_type)
 
 

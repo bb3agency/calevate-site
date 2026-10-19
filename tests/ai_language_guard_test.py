@@ -28,7 +28,14 @@ from apps.workers.extraction import TenantModelLeg
 from apps.workers.script_assist import ScriptBrief, UnusableAnswerError
 from calevate_shared import spoken_guard
 from calevate_shared.call_script import CallScript, ConversationStage
-from calevate_shared.spoken_style import caller_guidance, style_for, writer_guidance
+from calevate_shared.spoken_style import (
+    PackChoice,
+    caller_guidance,
+    pack_facts_rule,
+    pack_lines,
+    style_for,
+    writer_guidance,
+)
 from tests.business_copy_test import _inputs, copy_dict
 from tests.conftest import accept_agreements
 
@@ -435,3 +442,18 @@ async def test_the_owners_own_telugu_in_an_instruction_saves() -> None:
         await script_builder.save_draft(session, agent_id, owner)
         draft = await script_builder.read_draft(session, agent_id)
     assert draft is not None and draft.script.identity == ROLE_TE
+
+
+def test_writers_follow_the_language_pack_only_once_it_is_approved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert spoken_guard.generation_guidance("te-IN") == writer_guidance("te-IN", None)
+
+    choice = PackChoice(form="en", avoid="none")
+    monkeypatch.setattr(spoken_guard, "shipped_pack_choice", lambda tag: choice)
+    guidance = spoken_guard.generation_guidance("te-IN")
+    expected = [*pack_lines("te-IN", choice), pack_facts_rule("te-IN", choice)]
+    assert guidance == "\n".join(expected)
+    assert spoken_guard.generation_guidance("te-IN", side="caller") == caller_guidance(
+        "te-IN", None
+    )

@@ -42,8 +42,8 @@ from calevate_shared.engine import (
     google_openai_compat_base_url,
     keeps_default_temperature,
 )
+from calevate_shared.spoken_guard import textbook_note, textbook_words
 
-from apps.api.agents.turn_checks import formal_swaps
 from apps.api.copilot import (
     action_log,
     admin_actions,
@@ -627,7 +627,7 @@ def _value_is_legal(field: CopilotField, value: object) -> str | None:
 def spoken_line_problem(field: CopilotField, value: object, question: str) -> str | None:
     """Why this value may not go into a line callers hear, or None (D-832).
 
-    The check is the test loop's own reply check (`turn_checks.formal_swaps`, the language's
+    The check is the shared spoken guard (`spoken_guard.textbook_words`, the language's
     spoken-style list), so a word added to the list is refused here too. A textbook word
     that the field already held or the person typed in their question is theirs, not
     Pip's, and is let through: only Pip's own writing is judged.
@@ -635,15 +635,11 @@ def spoken_line_problem(field: CopilotField, value: object, question: str) -> st
     if field.spoken_language is None or not isinstance(value, str):
         return None
     language = field.spoken_language
-    theirs = set(formal_swaps(f"{field.value or ''}\n{question}", language))
-    swaps = [swap for swap in formal_swaps(value, language) if swap not in theirs]
+    theirs = set(textbook_words(f"{field.value or ''}\n{question}", language))
+    swaps = [swap for swap in textbook_words(value, language) if swap not in theirs]
     if not swaps:
         return None
-    words = "; ".join(
-        f"“{formal}” ({spoken.strip('()') if spoken.startswith('(') else f'say “{spoken}”'})"
-        for formal, spoken in swaps
-    )
-    return f"is a line callers hear and uses textbook words they do not say: {words}"
+    return f"is a line callers hear and uses textbook words they do not say: {textbook_note(swaps)}"
 
 
 def validate_fill(payload: CopilotAskIn, arguments: str) -> tuple[CopilotFillItem, ...]:
