@@ -30,6 +30,7 @@ import {
 import { TEXT_ACTION } from "@/components/console/section";
 import { ApiProblem } from "@/lib/api/client";
 import { useClientSession } from "@/lib/api/session";
+import { lookup } from "@/lib/lookup";
 import {
   tuningNumber,
   useClientVoiceTuning,
@@ -78,7 +79,7 @@ const EMOTION_LABELS: Record<string, string> = {
 };
 
 function emotionLabel(emotion: string): string {
-  return EMOTION_LABELS[emotion] ?? emotion.charAt(0).toUpperCase() + emotion.slice(1);
+  return lookup(EMOTION_LABELS, emotion) ?? emotion.charAt(0).toUpperCase() + emotion.slice(1);
 }
 
 interface Draft {
