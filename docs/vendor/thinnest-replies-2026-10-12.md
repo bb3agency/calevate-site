@@ -1152,3 +1152,20 @@ standard voice rate all along.
   read that text.
 - The exact wording of the hand-over rule with one trigger on (we send `onRequest` alone when
   a hand-over destination is on duty) was not given.
+
+## 19. Draft of the next email (20 Oct 2026, unsent; the founder sends)
+
+Two sentences ThinnestAI adds to every agent's prompt contradict our scripts (§18.0, item 5;
+`docs/evidence/thinnest-reply-2026-10-19.md` rows 124-125):
+
+1. We send `captureLeads: false` because our own extraction records what the caller gives, and
+   we do not want your marketing-consent tool running outside our consent records. With it off,
+   the agent is told "Do not ask for names, emails or phone numbers. This business does not
+   collect them here.", while our scripts ask for a name. Can `captureLeads: false` add no lead
+   sentence at all, or can we turn off only the follow-up offer and the marketing-consent ask
+   while keeping name collection allowed?
+2. With no one on duty for a hand-over we send both escalation triggers off, and the agent is
+   told "Never promise that someone will follow up.", while our scripts say the business will
+   get back to the caller (we do call back, through our own in-call action). Can that sentence
+   be left out when the agent has a call-back action of its own, or replaced with a neutral
+   "You cannot transfer this call"?
