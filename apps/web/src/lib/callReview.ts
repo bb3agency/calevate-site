@@ -7,7 +7,8 @@
  * back booked, Answered, Transferred, Hung up early, Missed. The server derives the tag
  * (`crm/outcomes.derive_outcome`); the words and the one-line reason are this module's
  * job, and every wire string is read through `lookup` so an unknown one shows rather than
- * vanishing.
+ * vanishing. Beside it each agent has outcomes of its own business (D-836), which the
+ * server sends as a label (`business_outcome_label`) and `outcomeWords` places.
  */
 
 import { formatIST, formatPhone } from "@/components/ui";
@@ -65,6 +66,26 @@ export function outcomeLabel(tag: string | null | undefined): string | null {
   return lookup(OUTCOME_WORDS, tag)?.label ?? unknown.charAt(0).toUpperCase() + unknown.slice(1);
 }
 
+type OutcomeFields = Pick<CallSummary, "outcome_tag"> & { business_outcome_label?: string | null };
+
+/**
+ * The words a call is filed under (D-836). What happened on the call comes first — Needs
+ * you, Call back booked, Transferred, Hung up early, Missed — because those are facts the
+ * owner acts on. Otherwise the agent's own outcome for the business ("Wants to buy"), and
+ * only then the general "Answered". Null when nothing is known yet.
+ */
+export function outcomeWords(call: OutcomeFields): string | null {
+  if (call.outcome_tag && call.outcome_tag !== "answered") return outcomeLabel(call.outcome_tag);
+  return call.business_outcome_label?.trim() || outcomeLabel(call.outcome_tag);
+}
+
+/** The agent's own outcome when a fact heads the call, so the owner reads both; else null. */
+export function businessOutcomeAside(call: OutcomeFields): string | null {
+  const label = call.business_outcome_label?.trim();
+  if (!label) return null;
+  return outcomeWords(call) === label ? null : label;
+}
+
 /** Statuses that end a call with no conversation, in an owner's words. */
 const STATUS_WORDS: Record<string, string> = {
   no_answer: "No answer",
@@ -82,13 +103,16 @@ const STATUS_WORDS: Record<string, string> = {
  * to notice and the general "needs you" sentence would hide it.
  */
 export function outcomeReason(
-  call: Pick<CallDetail, "outcome_tag" | "callback_requested" | "callback" | "summary_state" | "status">,
+  call: Pick<CallDetail, "outcome_tag" | "callback_requested" | "callback" | "summary_state" | "status"> & {
+    business_outcome_label?: string | null;
+  },
 ): string {
   if (call.outcome_tag === "needs_you" && call.callback_requested && !call.callback) {
     return "The caller asked to be called back, and no call back was booked.";
   }
   const words = lookup(OUTCOME_WORDS, call.outcome_tag);
   if (words) return words.reason;
+  if (call.business_outcome_label?.trim()) return "Sorted by what the caller said on the call.";
   if (call.status === "in_progress") return "The call is still going.";
   if (call.status !== "completed") return "The call ended before anyone spoke.";
   if (call.summary_state === "pending") return "We are still reading this call.";
@@ -100,7 +124,10 @@ export function outcomeReason(
  * the status that says why there is none.
  */
 export function callResultWords(
-  call: Pick<CallSummary, "status" | "outcome_tag"> & { summary_state?: CallSummary["summary_state"] },
+  call: Pick<CallSummary, "status" | "outcome_tag"> & {
+    summary_state?: CallSummary["summary_state"];
+    business_outcome_label?: string | null;
+  },
 ): string {
   // A status this build has never heard of is the one worth reading: it wins over any
   // outcome rather than being hidden behind one.
@@ -110,7 +137,7 @@ export function callResultWords(
     return unknown.charAt(0).toUpperCase() + unknown.slice(1);
   }
   if (call.status === "in_progress") return "On the line";
-  const outcome = outcomeLabel(call.outcome_tag);
+  const outcome = outcomeWords(call);
   if (outcome) return outcome;
   if (call.status === "completed") return call.summary_state === "pending" ? "Being read" : "No outcome";
   return known ?? call.status;

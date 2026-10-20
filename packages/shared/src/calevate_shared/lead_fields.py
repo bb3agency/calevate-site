@@ -104,6 +104,7 @@ OUTPUT_KEYS: Final[frozenset[str]] = frozenset(
         "next_step",
         "sentiment",
         "outcome_tag",
+        "business_outcome",
         "out_of_scope",
         "callback_requested",
     }

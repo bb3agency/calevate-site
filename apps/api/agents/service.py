@@ -120,7 +120,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import assignment
+from apps.api.agents import assignment, call_outcomes
 from apps.api.agents import handoff as handoff_module
 from apps.api.agents.call_handling import (
     AGENT_SETTING_COLUMNS,
@@ -2776,6 +2776,9 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
                     "still needed."
                 ),
             )
+        # D-836: its own call outcomes, drafted once, queued in this transaction so a failed
+        # publish queues nothing. A no-op for an agent that has them or was drafted before.
+        await call_outcomes.queue_draft(session, tenant_id=tenant_id, agent_id=agent_id)
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

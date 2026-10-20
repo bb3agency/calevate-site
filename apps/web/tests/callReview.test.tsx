@@ -2,6 +2,7 @@ import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import CallDetailPage from "@/app/c/[slug]/calls/[callId]/page";
+import { callResultWords, outcomeWords } from "@/lib/callReview";
 import type { CallDetail, Me } from "@/lib/api/client";
 
 import { NeverAnswers, renderClientPage } from "./harness";
@@ -348,5 +349,41 @@ describe("the rest of the screen", () => {
     const summary = await screen.findByText("A second reading of this call");
     expect(summary.closest("details")?.hasAttribute("open")).toBe(false);
     expect(container.querySelector(".lucide-sparkles")).toBeNull();
+  });
+});
+
+describe("the business's own outcome (D-836)", () => {
+  it("files a plain call under the agent's outcome, and a fact above it", () => {
+    expect(outcomeWords({ outcome_tag: "answered", business_outcome_label: "Wants to buy" })).toBe("Wants to buy");
+    expect(outcomeWords({ outcome_tag: null, business_outcome_label: "Wants to buy" })).toBe("Wants to buy");
+    expect(outcomeWords({ outcome_tag: "needs_you", business_outcome_label: "Wants to buy" })).toBe("Needs you");
+    expect(outcomeWords({ outcome_tag: "answered", business_outcome_label: null })).toBe("Answered");
+    expect(outcomeWords({ outcome_tag: null })).toBeNull();
+  });
+
+  it("no longer says No outcome for a call the model sorted but could not put a fact on", () => {
+    expect(
+      callResultWords({ status: "completed", outcome_tag: null, summary_state: "ready", business_outcome_label: "Wants to buy" }),
+    ).toBe("Wants to buy");
+    expect(callResultWords({ status: "completed", outcome_tag: null, summary_state: "ready" })).toBe("No outcome");
+  });
+
+  it("heads the verdict with the fact and names the business outcome under it", async () => {
+    await renderClientPage(
+      page,
+      routes(detail({ outcome_tag: "call_back_booked", business_outcome: "wants_to_buy", business_outcome_label: "Wants to buy" })),
+    );
+    await screen.findByRole("heading", { name: "Call back booked" });
+    expect(screen.getByText("Wants to buy")).toBeTruthy();
+    expect(screen.getByText(/For your business:/)).toBeTruthy();
+  });
+
+  it("heads the verdict with the business outcome on a call that only answered", async () => {
+    await renderClientPage(
+      page,
+      routes(detail({ outcome_tag: "answered", business_outcome: "wants_to_buy", business_outcome_label: "Wants to buy" })),
+    );
+    await screen.findByRole("heading", { name: "Wants to buy" });
+    expect(screen.queryByText(/For your business:/)).toBeNull();
   });
 });

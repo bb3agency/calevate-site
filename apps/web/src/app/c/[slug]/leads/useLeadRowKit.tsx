@@ -21,7 +21,7 @@ import { InlineName } from "./InlineName";
 import { RowFailure } from "./RowFailure";
 import { StatusSelect } from "./StatusSelect";
 import { INLINE_EDIT, cellValue } from "./leadsTable";
-import { needsAttention, outcomeLabel } from "@/lib/callReview";
+import { needsAttention, outcomeWords } from "@/lib/callReview";
 import { leadNextStep, sourceLabel, stageSetBy } from "@/lib/leadLabels";
 import type { LeadRowKit } from "./leadRowKit";
 
@@ -127,7 +127,12 @@ export function useLeadRowKit({
    * the outcome in words when not; the warning tone only when the call needs a person.
    */
   const lastCallCell = (lead: Lead) => {
-    const words = lead.last_call_headline ?? outcomeLabel(lead.last_call_outcome);
+    const words =
+      lead.last_call_headline ??
+      outcomeWords({
+        outcome_tag: lead.last_call_outcome ?? null,
+        business_outcome_label: lead.last_call_business_outcome_label,
+      });
     if (!words) return "—";
     const warn = needsAttention({ outcome_tag: lead.last_call_outcome ?? null, callback: null });
     if (!lead.last_call_id) return words;

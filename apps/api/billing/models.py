@@ -196,6 +196,11 @@ ASSIST_FEATURE_BUSINESS_COPY = "business_copy"
 #: The same run when it is ours to pay for (D-827): a trial account's first generation at
 #: signup, and a refresh an operator asked for.
 ASSIST_FEATURE_BUSINESS_COPY_ABSORBED = "business_copy_absorbed"
+#: The one AI draft of an agent's call outcomes (D-836), billed as the D-827 copy is: against
+#: the monthly allowance at the tokens it used...
+ASSIST_FEATURE_BUSINESS_OUTCOMES = "business_outcomes_draft"
+#: ...and ours on a trial account.
+ASSIST_FEATURE_BUSINESS_OUTCOMES_ABSORBED = "business_outcomes_draft_absorbed"
 #: Features whose cost is OURS: excluded from the allowance like `FREE_ASSIST_FEATURES`, and
 #: unlike them not counted by the fair-use cap, which limits what a person asks for.
 ABSORBED_ASSIST_FEATURES = (
@@ -206,6 +211,7 @@ ABSORBED_ASSIST_FEATURES = (
     ASSIST_FEATURE_LEAD_FIELDS,
     ASSIST_FEATURE_BUSINESS_TYPE,
     ASSIST_FEATURE_BUSINESS_COPY_ABSORBED,
+    ASSIST_FEATURE_BUSINESS_OUTCOMES_ABSORBED,
 )
 
 # WHO PAYS FOR A ROW OF THIS UNIT — the one question every reader of `usage_events` has

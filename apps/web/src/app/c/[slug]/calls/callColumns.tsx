@@ -21,7 +21,7 @@ export function isLive(call: Pick<CallSummary, "status">): boolean {
 export function CallResult({
   call,
 }: {
-  call: Pick<CallSummary, "status" | "outcome_tag" | "callback" | "summary_state">;
+  call: Pick<CallSummary, "status" | "outcome_tag" | "callback" | "summary_state" | "business_outcome_label">;
 }) {
   const overdue = callbackOverdue(call.callback);
   const warn = needsAttention(call);
@@ -132,7 +132,8 @@ export function callColumns({
     id: "status",
     header: "Outcome",
     hideBelow: "md",
-    flash: (call) => `${call.status}|${call.outcome_tag ?? ""}|${call.callback?.status ?? ""}`,
+    flash: (call) =>
+      `${call.status}|${call.outcome_tag ?? ""}|${call.business_outcome_label ?? ""}|${call.callback?.status ?? ""}`,
     sort: compact ? undefined : { value: (call) => callResultWords(call) },
     cell: (call) => <CallResult call={call} />,
   };

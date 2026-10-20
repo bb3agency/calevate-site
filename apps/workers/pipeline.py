@@ -38,6 +38,7 @@ from typing import Any, Final, Literal, NoReturn
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.business_outcomes import BusinessOutcome, LeadMove
 from calevate_shared.cut_off import UNHEARD_LABEL, likely_cut_off
 from calevate_shared.engine import (
     SARVAM_DEFAULT_LLM,
@@ -59,6 +60,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
+from apps.api.agents import call_outcomes as agent_outcomes
 from apps.api.agents.lead_fields import business_type_label
 from apps.api.agents.llm_models import resolve_llm_model
 from apps.api.agents.turn_checks import claims_done
@@ -1358,6 +1360,7 @@ async def _post_call_stages(
     # the stage most likely to own the missing minutes — a 30s extraction timeout
     # (EXTRACTION_TIMEOUT_S) plus an ARQ retry is a lead that arrives late with nothing
     # in the logs to say why. `input_bytes` is the transcript's SIZE, never its text.
+    business_outcomes = await _agent_business_outcomes(tenant_id, agent_id)
     with span(
         "pipeline.extract",
         call_id=str(call_id),
@@ -1384,13 +1387,14 @@ async def _post_call_stages(
             extractor = extraction_module.get_extractor()
             # Key moments ride in the SAME request (founder, 11 Oct 2026): no second model
             # call, only the extra output tokens, metered below with the rest.
-            brief = await _load_moments_brief(tenant_id, agent_id)
+            brief = await load_moments_brief(tenant_id, agent_id)
             extraction = await extract_call(
                 spec,
                 transcript_text,
                 extractor=extractor,
                 moments=brief,
                 languages=await _agent_languages(tenant_id, agent_id),
+                outcomes=business_outcomes,
             )
             extraction_model = extractor.model_name
             await _meter_extraction(
@@ -1493,7 +1497,13 @@ async def _post_call_stages(
     # read it and the CRM fan-out (8) that publishes it.
     with span("pipeline.outcome", call_id=str(call_id)) as stage:
         call_outcome = await _record_outcome(tenant_id, call_id, snapshot)
-        set_span_attributes(stage, outcome=call_outcome or "unknown")
+        # What it came to for THIS business (D-836), beside the fact above, never instead.
+        business_outcome = await _record_business_outcome(tenant_id, call_id, business_outcomes)
+        set_span_attributes(
+            stage,
+            outcome=call_outcome or "unknown",
+            business_outcome=business_outcome.key if business_outcome else "none",
+        )
 
     # STEP 4 — lead upsert (+ repeat-caller flag on phone match).
     with span("pipeline.lead_upsert", call_id=str(call_id), agent_id=str(agent_id)) as stage:
@@ -1507,6 +1517,7 @@ async def _post_call_stages(
             schema_version=schema_version,
             outcome=call_outcome,
             reading=extraction if extraction is not None and model_answered(extraction) else None,
+            business_move=business_outcome.lead_status if business_outcome else None,
         )
         set_span_attributes(stage, lead_id=str(lead_id) if lead_id else "none")
 
@@ -1940,7 +1951,7 @@ def _brief_text(value: Any, limit: int) -> str:
     return line if len(line) <= limit else line[: limit - 1].rsplit(" ", 1)[0] + "…"
 
 
-async def _load_moments_brief(tenant_id: UUID, agent_id: UUID) -> MomentsBrief:
+async def load_moments_brief(tenant_id: UUID, agent_id: UUID) -> MomentsBrief:
     """What the key-moments half of the extraction prompt knows about the business.
 
     The business type is the account's CONFIRMED one (`vertical_template`) or nothing: an
@@ -2114,7 +2125,7 @@ async def _settled_extraction(
                 text(
                     "SELECT ce.data, ce.valid, ce.errors, ce.needs_review, "
                     "       c.summary, c.sentiment, ce.outcome_hint, ce.out_of_scope, "
-                    "       c.callback_requested, c.headline, c.next_step "
+                    "       c.callback_requested, c.headline, c.next_step, ce.business_outcome "
                     "FROM call_extractions ce "
                     "JOIN calls c ON c.id = ce.call_id AND c.tenant_id = ce.tenant_id "
                     "WHERE ce.call_id = :cid AND ce.tenant_id = :tid "
@@ -2137,6 +2148,7 @@ async def _settled_extraction(
         callback_requested,
         headline,
         next_step,
+        business_outcome,
     ) = row
     errors = errors if isinstance(errors, dict) else {}
     if MODEL_FAILURE in errors:
@@ -2150,6 +2162,7 @@ async def _settled_extraction(
         next_step=str(next_step or ""),
         sentiment=sentiment if sentiment in ("positive", "neutral", "negative") else "neutral",
         outcome_tag=hint_of(hint),
+        business_outcome=str(business_outcome) if business_outcome else None,
         out_of_scope=bool(out_of_scope),
         callback_requested=bool(callback_requested),
         valid=bool(valid),
@@ -2193,14 +2206,15 @@ async def _persist_extraction(
             text(
                 "INSERT INTO call_extractions (id, tenant_id, call_id, schema_version, data, "
                 "model, valid, errors, needs_review, moments, outcome_hint, out_of_scope, "
-                "created_at, updated_at) VALUES "
+                "business_outcome, created_at, updated_at) VALUES "
                 "(:id, :tid, :cid, :ver, CAST(:data AS jsonb), :model, :valid, "
                 "CAST(:errors AS jsonb), CAST(:needs_review AS jsonb), "
-                "CAST(:moments AS jsonb), :hint, :out_of_scope, now(), now()) "
+                "CAST(:moments AS jsonb), :hint, :out_of_scope, :business, now(), now()) "
                 "ON CONFLICT (tenant_id, call_id) DO UPDATE SET "
                 "  schema_version = EXCLUDED.schema_version, "
                 "  model = COALESCE(EXCLUDED.model, call_extractions.model), "
                 "  outcome_hint = EXCLUDED.outcome_hint, "
+                "  business_outcome = EXCLUDED.business_outcome, "
                 "  out_of_scope = EXCLUDED.out_of_scope, "
                 "  data = EXCLUDED.data, "
                 "  valid = EXCLUDED.valid, "
@@ -2218,6 +2232,7 @@ async def _persist_extraction(
                 "model": model,
                 "hint": extraction.outcome_tag if model_answered(extraction) else None,
                 "out_of_scope": extraction.out_of_scope if model_answered(extraction) else None,
+                "business": extraction.business_outcome if model_answered(extraction) else None,
                 "valid": extraction.valid,
                 "errors": _json(extraction.errors) if extraction.errors else None,
                 # NULL when there is nothing to flag, matching `errors` and `moments`: an
@@ -2496,6 +2511,63 @@ async def _record_outcome(
     return outcome
 
 
+async def _agent_business_outcomes(tenant_id: UUID, agent_id: UUID) -> list[BusinessOutcome]:
+    """The outcomes this agent's calls are read against (D-836), and its one AI draft queued
+    when it has neither outcomes of its own nor a draft yet: the path an agent published
+    before D-836 takes to get one."""
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT business_outcomes, business_outcomes_draft FROM agents "
+                    "WHERE id = :aid AND tenant_id = :tid"
+                ),
+                {"aid": agent_id, "tid": tenant_id},
+            )
+        ).first()
+        if row is None:
+            return []
+        if row[0] is None and row[1] is None:
+            await agent_outcomes.queue_draft(session, tenant_id=tenant_id, agent_id=agent_id)
+    outcomes, _starting = agent_outcomes.outcomes_in_use(row[0])
+    return outcomes
+
+
+async def _record_business_outcome(
+    tenant_id: UUID, call_id: UUID, outcomes: list[BusinessOutcome]
+) -> BusinessOutcome | None:
+    """STEP 3e, second half: write `calls.business_outcome` and its label from the stored
+    model choice. A key the agent no longer offers (the owner removed it before a re-drive)
+    leaves what the call already says alone, so a past call keeps its label."""
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT ce.business_outcome FROM call_extractions ce "
+                    "WHERE ce.call_id = :cid AND ce.tenant_id = :tid"
+                ),
+                {"cid": call_id, "tid": tenant_id},
+            )
+        ).first()
+        key = row[0] if row is not None else None
+        chosen = next((o for o in outcomes if o.key == key), None)
+        if key is not None and chosen is None:
+            return None
+        await session.execute(
+            text(
+                "UPDATE calls SET business_outcome = :key, business_outcome_label = :label, "
+                "updated_at = now() WHERE id = :cid AND tenant_id = :tid"
+            ),
+            {
+                "key": chosen.key if chosen else None,
+                "label": chosen.label if chosen else None,
+                "cid": call_id,
+                "tid": tenant_id,
+            },
+        )
+    return chosen
+
+
 #: The after-call status ladder (founder decision 8). A lead only ever moves UP it, only
 #: from a status the system set, and `won`/`lost` are a person's verdicts it never reaches.
 _LEAD_STATUS_RANK: Final[dict[str, int]] = {"new": 0, "contacted": 1, "interested": 2, "hot": 3}
@@ -2507,14 +2579,27 @@ def after_call_status(
     connected: bool,
     callback_requested: bool,
     sentiment: str | None,
+    business_move: LeadMove | None = None,
 ) -> str | None:
     """Where one call moves its lead: `interested` on a booked or requested call back or a
-    caller who sounded keen; `contacted` on any call that reached somebody; else nowhere."""
+    caller who sounded keen; `contacted` on any call that reached somebody; else nowhere.
+
+    `business_move` is how far the agent's own outcome for this call moves it (D-836): the
+    higher of it and the rules above wins, and only on a call that connected.
+    """
     if outcome == "call_back_booked" or callback_requested:
-        return "interested"
-    if sentiment == "positive" and outcome in ("answered", "needs_you", "transferred"):
-        return "interested"
-    return "contacted" if connected else None
+        target: str | None = "interested"
+    elif sentiment == "positive" and outcome in ("answered", "needs_you", "transferred"):
+        target = "interested"
+    else:
+        target = "contacted" if connected else None
+    if (
+        connected
+        and business_move is not None
+        and _LEAD_STATUS_RANK[business_move] > _LEAD_STATUS_RANK[target or "new"]
+    ):
+        target = business_move
+    return target
 
 
 async def _advance_lead_status(session: AsyncSession, lead_id: UUID, target: str) -> bool:
@@ -2769,6 +2854,7 @@ async def _upsert_lead(
     schema_version: int,
     outcome: OutcomeTag | None = None,
     reading: ExtractionOutput | None = None,
+    business_move: LeadMove | None = None,
 ) -> UUID | None:
     """One lead per (tenant, phone, agent). A second call from the same number updates
     the lead and flips `is_repeat_caller` — that flag is what makes the repeat-caller
@@ -2912,6 +2998,7 @@ async def _upsert_lead(
                 connected=snapshot.status == "completed",
                 callback_requested=reading.callback_requested if reading else False,
                 sentiment=reading.sentiment if reading else None,
+                business_move=business_move,
             )
             if target is not None:
                 await _advance_lead_status(session, resolved_id, target)
@@ -5267,6 +5354,7 @@ __all__ = [
     "ReconcileVerdict",
     "callable_tenants",
     "ingest_engine_event",
+    "load_moments_brief",
     "reconcile_executions",
     "reconcile_outstanding_calls",
     "run_post_call_pipeline",

@@ -66,6 +66,7 @@ AiLeg = Literal[
     "lead_fields",
     "teach",
     "business_copy",
+    "business_outcomes",
 ]
 
 ALARM_CODE: Final = "ai_provider_degraded"

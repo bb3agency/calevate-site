@@ -121,6 +121,10 @@ class Call(PKMixin, TimestampMixin, Base):
             name="outcome_enum",
         ),
         CheckConstraint(
+            "(business_outcome IS NULL) = (business_outcome_label IS NULL)",
+            name="business_outcome_labelled",
+        ),
+        CheckConstraint(
             f"summary_source IS NULL OR summary_source IN {SUMMARY_SOURCES!r}",
             name="summary_source_enum",
         ),
@@ -292,6 +296,11 @@ class Call(PKMixin, TimestampMixin, Base):
     consent_recording: Mapped[str | None] = mapped_column(String)
     #: The client-facing outcome, DERIVED from facts by `crm/outcomes.derive_outcome`.
     outcome_tag: Mapped[str | None] = mapped_column(String)
+    #: What the call came to for THIS business (D-836): the key of the agent's outcome the
+    #: extraction model chose, and its label as it read then, so an owner's later rename or
+    #: removal never rewrites a past call. Both NULL, or both set.
+    business_outcome: Mapped[str | None] = mapped_column(Text)
+    business_outcome_label: Mapped[str | None] = mapped_column(Text)
     sentiment: Mapped[str | None] = mapped_column(String)
     #: The English summary. Precedence (`workers/pipeline._summaries`): the engine's own
     #: when it is written in Latin script, else the extraction model's.
@@ -466,6 +475,9 @@ class CallExtraction(PKMixin, TimestampMixin, Base):
     #: asked for something the agent could not handle. Kept so a re-drive derives the same
     #: `calls.outcome_tag` without paying for the model again.
     outcome_hint: Mapped[str | None] = mapped_column(Text)
+    #: The key of the agent's business outcome the model chose (D-836), kept for the same
+    #: re-drive reason as `outcome_hint`.
+    business_outcome: Mapped[str | None] = mapped_column(Text)
     out_of_scope: Mapped[bool | None] = mapped_column(Boolean)
     valid: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     errors: Mapped[dict[str, object] | None] = mapped_column(JSONB)

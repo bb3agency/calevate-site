@@ -394,6 +394,21 @@ e.g., status hot OR urgency=emergency ⇒ WhatsApp+email to owner within 2 min) 
 resolve_campaign_contact → outbound_sync(call.completed via the outbox, D-23).
 The pipeline's first stage copies ThinnestAI's expiring `recording.url` into our storage
 (`engine/recording_source.py`, §3 step 5).
+
+**What a call came to (D-836).** Two readings, stored side by side. `calls.outcome_tag` is
+decided from facts (`crm/outcomes.derive_outcome`: missed, call_back_booked, transferred,
+needs_you, hung_up_early, else the model's hint, usually answered) and is the same for every
+business. `calls.business_outcome` (+ its label) is the extraction model's pick from THAT
+agent's own outcomes, listed in the same extraction request (`build_extraction_prompt(...,
+outcomes=)`, still the first pass on Sarvam): a shop's "Wants to buy", a garage's "Wants a
+pickup booked". Each own outcome moves the lead up the after-call ladder to its
+`lead_status` (contacted, interested or hot; never won or lost) through the same CAS as the
+rules (`pipeline.after_call_status`). Screens show the fact first, the agent's outcome when
+the fact is only "answered" or unknown, and the agent's outcome beside a fact on the call
+page. An agent's outcomes are drafted ONCE by AI from the business details and its script
+(`workers/business_outcomes_draft`, queued at publish or by its first call after D-836, on the
+AI allowance or absorbed for a trial) and edited by the owner on Settings, Lead details; until
+then the neutral starting set is offered.
 `embed_if_resolved(call corpus)` is M3, NOT in the shipped pipeline
 (`apps/workers/pipeline.py` stops at outbound sync).
 Retry budget: **3 attempts** — one number, `WORKER_MAX_TRIES` in
