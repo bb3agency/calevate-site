@@ -275,6 +275,15 @@ function card(
     notice_recipients: 3,
     earliest_effective_from: "2026-10-08T09:44:00Z",
     own_model_prompt_basis: null,
+    floor_inputs: {
+      speaking_rate_basis: "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12)",
+      chars_per_call_minute: "540",
+      usd_inr: "95",
+      usd_inr_source: "typed",
+      wallet_fee_percent: "2.36",
+      gateway_fee_percent: null,
+      unattested: ["razorpay_topup_fee"],
+    },
     ...over,
   };
 }
@@ -509,6 +518,15 @@ describe("the rate card an operator is about to date", () => {
     expect(container.textContent).toContain("₹5.0000");
     expect(container.textContent).toContain("₹4.1211");
     expect(container.textContent).toContain("₹5.5899");
+  });
+
+  it("says what the floors are struck at and names a fee they leave out (D-840)", async () => {
+    const { container } = renderOps(routes({ [OPS_RATE_CARD_PATH]: card() }));
+    await screen.findByText("17.60%");
+    expect(container.textContent).toContain("with the wallet top-up fee at 2.36%");
+    expect(container.textContent).toContain(
+      "Not recorded, so left out of every floor: the payment gateway's fee on a client's top-up",
+    );
   });
 
   it("names the prompt size the floors add our own model at while it answers calls", async () => {

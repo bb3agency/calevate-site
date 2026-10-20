@@ -132,6 +132,7 @@ from apps.workers.copilot_transcript import (
     TRANSCRIPT_SWEEP_MINUTE,
     sweep_ended_conversations,
 )
+from apps.workers.credit_expiry import expire_credit_lots
 from apps.workers.dial_recall import recall_queued_dials
 from apps.workers.dispatcher import (
     ERASURE_PROBE_MINUTE,
@@ -1031,6 +1032,16 @@ CRON_JOBS = [
         walk=fleet_wide("one tenant_session per organization, then one per client-priced number"),
         hour={7},
         minute={46},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # PACK CREDIT PAST ITS EXPIRY (D-840): daily, keyed per lot, so a missed tick lapses the
+    # credit a day late and a doubled one lapses nothing twice. :11 shares its minute with
+    # no other fleet walk.
+    _cron(
+        traced_job(expire_credit_lots),
+        walk=fleet_wide("one tenant_session per organization, then one per due lot"),
+        hour={8},
+        minute={11},
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE WEEKLY QA SPOT-CHECK (SURFACES §1): 5% of every client's calls, drawn so the

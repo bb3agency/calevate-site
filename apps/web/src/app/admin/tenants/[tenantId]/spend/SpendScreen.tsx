@@ -266,6 +266,16 @@ function SpendBoard({ data }: { data: TenantSpend }) {
         </div>
       )}
 
+      {data.unpriced_rows > 0 && (
+        <div className="border-l-2 border-warn py-1 pl-3 text-meta text-ink">
+          {formatCount(data.unpriced_rows)} usage{" "}
+          {data.unpriced_rows === 1 ? "row has" : "rows have"} no cost this month because a rate
+          or fee was not recorded, so the cost above is a floor and the margin a ceiling.
+        </div>
+      )}
+
+      {data.charge_variance && <ChargeVariance variance={data.charge_variance} />}
+
       {data.unattributed && (
         <div className="border-l-2 border-line py-1 pl-3 text-meta text-ink-muted">
           {formatINR(data.unattributed.cost_inr)} of cost this month belongs to no call
@@ -333,5 +343,39 @@ function SpendBoard({ data }: { data: TenantSpend }) {
 
       <Breakdown data={data} />
     </div>
+  );
+}
+
+/**
+ * WHAT THE VOICE PLATFORM CHARGED AGAINST WHAT WE METERED (D-840), over this month's settled
+ * calls: its charge with the wallet top-up fee beside our metered minute. A variance means an
+ * attested rate no longer matches the invoice; it is shown here and never written back.
+ */
+function ChargeVariance({ variance }: { variance: NonNullable<TenantSpend["charge_variance"]> }) {
+  return (
+    <section className="border-y border-line py-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-meta font-semibold text-ink">Charged by the voice platform vs metered</h3>
+        <p className="text-heading tabular-nums text-ink">{formatINR(variance.variance_inr)}</p>
+      </div>
+      <p className="mt-1 text-meta text-ink-muted">
+        {formatCount(variance.calls)} settled {variance.calls === 1 ? "call" : "calls"}: charged{" "}
+        {formatINR(variance.vendor_inr)} with the top-up fee, metered{" "}
+        {formatINR(variance.metered_inr)}. Positive means we metered more than we were charged.
+      </p>
+      {variance.largest.length > 0 && (
+        <ul className="mt-2 divide-y divide-line text-meta">
+          {variance.largest.map((call) => (
+            <li key={call.call_id} className="flex flex-wrap justify-between gap-2 py-1.5">
+              <span className="font-mono text-ink-muted">{call.call_id}</span>
+              <span className="tabular-nums text-ink">
+                {formatINR(call.vendor_inr)} charged · {formatINR(call.metered_inr)} metered ·{" "}
+                <span className="font-medium">{formatINR(call.variance_inr)}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

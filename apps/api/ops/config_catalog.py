@@ -572,6 +572,13 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "The list price per calling minute every client pays on the first pack. Recording "
         "a rate card rewrites it.",
     ),
+    "credit_pack_expiry_months": _m(
+        "billing",
+        "prices",
+        "Credit expires after (months)",
+        "Credit bought in a pack lapses this many months after purchase. Empty: it does not. "
+        "Refused until the Terms that say so are published.",
+    ),
     "platform_fee_enabled": _m(
         "billing",
         "prices",
@@ -1162,6 +1169,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "pe_verification_max_age_days": ControlHint(unit="days", help="0 turns the check off."),
     "self_serve_trial_days": ControlHint(unit="days"),
     "self_serve_trial_free_minutes": ControlHint(unit="minutes"),
+    "credit_pack_expiry_months": ControlHint(unit="months"),
     "razorpay_reconciliation_days": ControlHint(unit="days"),
     "trial_daily_call_cap": ControlHint(unit="calls a day"),
     "trial_studio_minutes": ControlHint(unit="minutes"),

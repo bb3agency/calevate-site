@@ -4,14 +4,18 @@ import { describe, expect, it } from "vitest";
 import {
   EngineMinutePricePanel,
   allInNote,
+  costValue,
   feeSentence,
   saleNote,
 } from "@/app/admin/ops/EngineMinutePricePanel";
 import { groupFields } from "@/app/admin/ops/config/configSections";
 import type { ConfigField } from "@/lib/api/opsConfig";
 import {
+  COST_ATTESTATIONS_PATH,
   ENGINE_MINUTE_PRICES_PATH,
+  attestCostConfirmation,
   attestEngineMinuteConfirmation,
+  type CostAttestation,
   type EngineMinutePrice,
 } from "@/lib/api/engineMinutePricing";
 
@@ -38,7 +42,6 @@ function row(overrides: Partial<EngineMinutePrice>): EngineMinutePrice {
     billable: false,
     sold_as: null,
     topup_fee_percent: "2.36",
-    topup_fee_plan: "every plan",
     inr_per_min_with_fee: null,
     ...overrides,
   };
@@ -60,14 +63,42 @@ const ROWS: EngineMinutePrice[] = [
   row({ rate_key: "studio" }),
 ];
 
-const FEES = [{ plan: "every plan", percent: "2.36" }];
+const COSTS: CostAttestation[] = [
+  {
+    subject: "thinnest_topup_fee",
+    label: "ThinnestAI wallet top-up fee",
+    unit: "percent",
+    value: "2.36",
+    effective_from: "1970-01-01T00:00:00Z",
+    attested_at: "2026-10-20T00:00:00Z",
+    source_note: "ThinnestAI email, 12 Oct 2026",
+  },
+  {
+    subject: "razorpay_topup_fee",
+    label: "Razorpay fee on a client's top-up",
+    unit: "percent",
+    value: null,
+    effective_from: null,
+    attested_at: null,
+    source_note: null,
+  },
+  {
+    subject: "thinnest_number_month",
+    label: "ThinnestAI number rent, per month",
+    unit: "inr_per_month",
+    value: null,
+    effective_from: null,
+    attested_at: null,
+    source_note: null,
+  },
+];
 
 const ALLOWED = { allowed: true, reason: null };
 
 describe("EngineMinutePricePanel", () => {
   it("warns that nothing is sold while the platform minute is unrecorded", async () => {
     renderAdminPage(<EngineMinutePricePanel access={ALLOWED} />, {
-      [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, topup_fees: FEES, as_of: "2026-10-07T06:30:00Z" },
+      [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, costs: COSTS, as_of: "2026-10-07T06:30:00Z" },
     });
     expect(
       await screen.findByText("No platform rate recorded. No minute on it can be sold"),
@@ -78,7 +109,7 @@ describe("EngineMinutePricePanel", () => {
 
   it("records a rate as a decimal string under the route's step-up", async () => {
     const { calls } = renderAdminPage(<EngineMinutePricePanel access={ALLOWED} />, {
-      [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, topup_fees: FEES, as_of: "2026-10-07T06:30:00Z" },
+      [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, costs: COSTS, as_of: "2026-10-07T06:30:00Z" },
       [`POST ${ENGINE_MINUTE_PRICES_PATH}/thinnest/platform`]: row({
         inr_per_min: "1.000000",
         billable: true,
@@ -110,7 +141,7 @@ describe("EngineMinutePricePanel", () => {
   it("disables recording for an operator without the permission, and says why", async () => {
     renderAdminPage(
       <EngineMinutePricePanel access={{ allowed: false, reason: "Needs platform:config." }} />,
-      { [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, topup_fees: FEES, as_of: "2026-10-07T06:30:00Z" } },
+      { [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, costs: COSTS, as_of: "2026-10-07T06:30:00Z" } },
     );
     const buttons = await screen.findAllByRole("button", { name: /Record a/ });
     for (const button of buttons) expect((button as HTMLButtonElement).disabled).toBe(true);
@@ -118,27 +149,51 @@ describe("EngineMinutePricePanel", () => {
   });
 });
 
-describe("the top-up fee", () => {
-  it("says the rate is posted before the fee, names the fee from the server, shows the all-in figure", async () => {
+describe("the top-up fee and the costs beside the minute", () => {
+  it("says the rate is posted before the fee, names the attested fee, shows the all-in figure", async () => {
     renderAdminPage(<EngineMinutePricePanel access={ALLOWED} />, {
-      [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, topup_fees: FEES, as_of: "2026-10-07T06:30:00Z" },
+      [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, costs: COSTS, as_of: "2026-10-07T06:30:00Z" },
     });
     expect(
-      await screen.findByText(/posted rate per billed minute, before its wallet top-up fee — we add the fee \(2\.36% on every plan\)/),
+      await screen.findByText(/posted rate per billed minute, before its wallet top-up fee — we add the fee \(2\.36%\)/),
     ).toBeTruthy();
-    expect(screen.getByText(/₹2\.5590 with the 2\.36% top-up fee, every plan/)).toBeTruthy();
+    expect(screen.getByText(/₹2\.5590 with the 2\.36% top-up fee/)).toBeTruthy();
+    expect(screen.getAllByText("Not recorded — left out of costs")).toHaveLength(2);
   });
 
-  it("builds its sentence and the all-in note from the server's figures only", () => {
-    expect(feeSentence(FEES)).toBe("2.36% on every plan");
-    expect(feeSentence([{ plan: "pay-as-you-go", percent: "10" }, { plan: "Pro", percent: "9" }])).toBe(
-      "10% on pay-as-you-go, 9% on Pro",
-    );
+  it("builds its sentences from the server's figures only", () => {
+    expect(feeSentence(COSTS)).toBe("2.36%");
+    expect(feeSentence(COSTS.slice(1))).toMatch(/no fee recorded/);
     expect(
       allInNote(row({ inr_per_min: "2.50", inr_per_min_with_fee: "2.5590" })),
-    ).toBe("₹2.5590 with the 2.36% top-up fee, every plan");
+    ).toBe("₹2.5590 with the 2.36% top-up fee");
     expect(allInNote(row({}))).toBeNull();
-    expect(allInNote(row({ inr_per_min_with_fee: "2.50", topup_fee_percent: "0", topup_fee_plan: null }))).toBeNull();
+    expect(allInNote(row({ inr_per_min_with_fee: "2.50", topup_fee_percent: null }))).toBeNull();
+    expect(costValue(COSTS[0])).toBe("2.36%");
+    expect(costValue({ ...COSTS[2], value: "349" })).toBe("₹349 a month");
+    expect(costValue(COSTS[1])).toBe("Not recorded");
+  });
+
+  it("records the gateway fee in percent under its own step-up", async () => {
+    const { calls } = renderAdminPage(<EngineMinutePricePanel access={ALLOWED} />, {
+      [ENGINE_MINUTE_PRICES_PATH]: { prices: ROWS, costs: COSTS, as_of: "2026-10-07T06:30:00Z" },
+      [`POST ${COST_ATTESTATIONS_PATH}/razorpay_topup_fee`]: { ...COSTS[1], value: "2" },
+    });
+    const buttons = await screen.findAllByRole("button", { name: "Record a figure" });
+    fireEvent.click(buttons[0]);
+    fireEvent.change(screen.getByLabelText(/^Percent/), { target: { value: "2" } });
+    fireEvent.change(screen.getAllByLabelText(/Read from/)[0], {
+      target: { value: "Razorpay settlement, Oct 2026" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Record the figure" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    const post = calls.find((c) => c.method === "POST");
+    expect(post?.path).toBe(`${COST_ATTESTATIONS_PATH}/razorpay_topup_fee`);
+    expect(JSON.parse(post?.body ?? "null")).toEqual({
+      value: "2",
+      source_note: "Razorpay settlement, Oct 2026",
+    });
+    expect(post?.headers["X-Confirm-Action"]).toBe(attestCostConfirmation("razorpay_topup_fee"));
   });
 });
 

@@ -586,6 +586,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "whatsapp_message_inr": AppliesRule(LIVE),
     "self_serve_trial_days": AppliesRule(LIVE),  # tenancy/signup, per signup
     "self_serve_trial_free_minutes": AppliesRule(LIVE),
+    # Read when a pack purchase opens its lot (D-840).
+    "credit_pack_expiry_months": AppliesRule(LIVE),
     # Where ThinnestAI's in-call actions call us. Written into each action at publish
     # (`reliability/engine_actions.py`); the drift check repairs a live agent's actions on
     # its next pass, and a republish does it at once.

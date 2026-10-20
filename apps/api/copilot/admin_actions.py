@@ -820,7 +820,7 @@ async def _plan_healer_attest(
         PRICED_RATE_KEYS,
         attested_minute_prices,
         cost_with_fee,
-        topup_fee,
+        required_wallet_fee,
     )
     from apps.api.core.settings import get_settings
     from apps.api.healer.money import ist
@@ -861,7 +861,7 @@ async def _plan_healer_attest(
     held = (await attested_minute_prices(session, engine=engine, at=datetime.now(UTC))).get(
         parsed.rate_key
     )
-    fee = topup_fee(engine)
+    fee = (await required_wallet_fee(session, engine=engine, at=effective)).fee
     titles = "; ".join(f"“{_incident_words(i)}”" for i in closing)
     return Plan(
         object_id=f"{engine}:{parsed.rate_key}",

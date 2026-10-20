@@ -52,6 +52,8 @@ from apps.api.billing.rates import (
     ROUNDING,
     SELF_SERVE_COST_FLOOR_INR_PER_MIN,
     TTS_ASSUMED_CHARS_PER_CALL_MINUTE,
+    FloorInputs,
+    SpeakingRateBasis,
     cartesia_cheapest_plan,
     cartesia_cost_floor_inr_per_min_at,
     cartesia_cost_inr_per_call_minute,
@@ -66,6 +68,7 @@ from apps.api.billing.rates import (
     gross_margin_ratio,
     llm_cost_inr_per_minute,
     stt_rate_inr_per_minute,
+    thinnest_studio_tts_inr_per_min,
     tts_inr_per_call_minute,
 )
 
@@ -726,51 +729,72 @@ def test_the_modelled_cartesia_curve_rounds_exactly_once_like_the_measured_one()
 # --- THE FLOORS OF THE ENGINE THE DEPLOYMENT RUNS (D-681) ----------------------------
 
 
-def test_the_thinnest_floors_are_the_vendor_minutes_plus_the_top_up_fee() -> None:
-    """D-687, D-688. Clear follows the band it is sold on: ₹2.50 Premium x 1.0236 = ₹2.5590, or
-    ₹3.00 Studio x 1.0236 = ₹3.0708, the 2.36% top-up fee on every plan (ThinnestAI email of
-    12 Oct 2026). Studio: ₹1.50 own voice key x 1.0236, plus Cartesia's synthesis at its
-    dearest marginal plan rate at the frozen evidence rate — the TTS half of the Cartesia floor,
-    not the whole of it (their stack hears and answers the call). VENDOR-STATED minute rates,
-    evaluation §10 item 7."""
+def _inputs(
+    *,
+    chars: str = "540",
+    usd_inr: str = "95",
+    wallet_fee: str | None = "0.0236",
+    gateway_fee: str | None = None,
+) -> FloorInputs:
+    """Floor inputs at a named speaking rate and dollar, as `billing/floor_inputs` builds them."""
+    return FloorInputs(
+        speaking_rate=SpeakingRateBasis(
+            chars_per_call_minute=Decimal(chars),
+            measured=chars != "540",
+            calls=0,
+            minimum_calls=0,
+            window=None if chars == "540" else "2026-10",
+        ),
+        usd_inr=Decimal(usd_inr),
+        usd_inr_source="test",
+        wallet_fee=None if wallet_fee is None else Decimal(wallet_fee),
+        gateway_fee=None if gateway_fee is None else Decimal(gateway_fee),
+    )
+
+
+def test_the_thinnest_floors_are_the_vendor_minutes_plus_the_attested_fee() -> None:
+    """D-687, D-688, D-840. Clear follows the band it is sold on: ₹2.50 Premium or ₹3.00 Studio
+    with the attested wallet fee (2.36% here); Studio is ₹1.50 own voice key with the fee plus
+    Cartesia's dearest overage per character times the speaking rate at the dollar passed."""
     from apps.api.billing.rates import (
-        PLANNING_USD_INR,
-        THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN,
         THINNEST_OWN_VOICE_INR_PER_MIN,
         THINNEST_STUDIO_BAND_INR_PER_MIN,
-        THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN,
-        THINNEST_TOPUP_FEE,
-        _worst_marginal_tts,
-        ex_tts_cost_inr_per_min_at,
     )
 
     assert Decimal("3.00") == THINNEST_STUDIO_BAND_INR_PER_MIN
     assert Decimal("1.50") == THINNEST_OWN_VOICE_INR_PER_MIN
-    assert Decimal("0.0236") == THINNEST_TOPUP_FEE
-    assert Decimal("3.0708") == THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN
-    assert cost_floor_inr_per_min("clear", engine="thinnest", clear_band="studio") == Decimal(
-        "3.0708"
-    )
+    at = _inputs()
+    assert cost_floor_inr_per_min(
+        "clear", engine="thinnest", clear_band="studio", inputs=at
+    ) == Decimal("3.0708")
     # Unnamed, the band is the one Clear is sold on by default (D-792): Studio.
-    assert cost_floor_inr_per_min("clear", engine="thinnest") == Decimal("3.0708")
-    assert cost_floor_inr_per_min("clear", engine="thinnest", clear_band="premium") == Decimal(
-        "2.5590"
-    )
-    tts = _worst_marginal_tts(PLANNING_USD_INR)
-    assert (Decimal("1.5354") + tts).quantize(
-        Decimal("0.0001")
-    ) == THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN
-    assert cost_floor_inr_per_min("studio", engine="thinnest") == (
-        THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN
-    )
-    # Their speech and model legs replace ours: the floor differs from the Cartesia floor by
-    # exactly the ex-TTS legs swapped for the own-voice minute with its fee.
-    assert abs(
-        THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN
-        - CARTESIA_COST_FLOOR_INR_PER_MIN
-        + ex_tts_cost_inr_per_min_at(PLANNING_USD_INR)
-        - Decimal("1.5354")
-    ) <= Decimal("0.0002")
+    assert cost_floor_inr_per_min("clear", engine="thinnest", inputs=at) == Decimal("3.0708")
+    assert cost_floor_inr_per_min(
+        "clear", engine="thinnest", clear_band="premium", inputs=at
+    ) == Decimal("2.5590")
+    # ₹1.5354 + $65/1M x ₹95 x 540 chars = ₹1.5354 + ₹3.3345.
+    assert cost_floor_inr_per_min("studio", engine="thinnest", inputs=at) == Decimal("4.8699")
+
+
+def test_the_studio_floor_moves_with_the_measured_speaking_rate_and_the_live_dollar() -> None:
+    """D-840: the frozen 540 characters and ₹95 under-stated what a Studio minute costs once the
+    fleet speaks more and the dollar moves; the floor is struck at what the caller measured."""
+    measured = _inputs(chars="735", usd_inr="88")
+    # ₹1.5354 + $65/1M x ₹88 x 735 = ₹1.5354 + ₹4.2042.
+    assert cost_floor_inr_per_min("studio", engine="thinnest", inputs=measured) == Decimal("5.7396")
+    assert thinnest_studio_tts_inr_per_min(measured) == Decimal("4.20420")
+
+
+def test_a_thinnest_floor_without_its_inputs_is_refused() -> None:
+    with pytest.raises(ValueError, match="FloorInputs"):
+        cost_floor_inr_per_min("studio", engine="thinnest")
+
+
+def test_an_unattested_fee_is_left_out_and_named() -> None:
+    bare = _inputs(wallet_fee=None)
+    assert cost_floor_inr_per_min("clear", engine="thinnest", inputs=bare) == Decimal("3.0000")
+    assert bare.unattested == ("thinnest_topup_fee", "razorpay_topup_fee")
+    assert _inputs(gateway_fee="0.02").unattested == ()
 
 
 def test_an_engine_without_floors_of_its_own_is_judged_at_the_base_pair() -> None:
@@ -786,7 +810,8 @@ def test_the_card_is_judged_at_the_deployments_engine() -> None:
     otherwise; the card in force clears COST on every engine (thin cells are warned)."""
     from apps.api.billing.credit_packs import card_margins
 
-    thinnest = {(p, v): m for p, v, m in card_margins(PACK_CATALOGUE, engine="thinnest")}
+    at = _inputs()
+    thinnest = {(p, v): m for p, v, m in card_margins(PACK_CATALOGUE, engine="thinnest", inputs=at)}
     # Clear sold on the Studio band by default (D-792): ₹3.00 with the 2.36% fee.
     assert thinnest[("starter", "clear")].cost == Decimal("3.0708")
     # 31.76% at the ₹4.50 Clear rate on the Studio band, above the 20% target.
@@ -794,5 +819,20 @@ def test_the_card_is_judged_at_the_deployments_engine() -> None:
     assert not thinnest[("max", "clear")].below_cost
     assert not thinnest[("max", "studio")].below_cost
 
-    for engine in ("thinnest", "fake"):
-        assert card_refusals(PACK_CATALOGUE, engine=engine) == [], engine
+    assert card_refusals(PACK_CATALOGUE, engine="thinnest", inputs=at) == []
+    assert card_refusals(PACK_CATALOGUE, engine="fake") == []
+
+
+def test_the_six_rupee_studio_card_clears_cost_at_the_measured_cost_and_shows_its_margin() -> None:
+    """Founder, 20 Oct 2026: Studio stays ₹6.00. At a measured fleet (735 characters a minute,
+    ₹88) with the gateway's fee counted the ₹6.00 minute is NOT refused, and its thin margin is
+    what the verdict reports."""
+
+    studio_six = next(pack for pack in PACK_CATALOGUE if pack.studio_inr_per_min == Decimal("6.00"))
+    at = _inputs(chars="735", usd_inr="88", gateway_fee="0.0236")
+    verdict = pack_rate_margin(studio_six, voice="studio", engine="thinnest", inputs=at)
+    # ₹5.7396 floor + 2.36% of ₹6.00 (₹0.1416) = ₹5.8812.
+    assert verdict.cost == Decimal("5.8812")
+    assert not verdict.below_cost
+    assert verdict.below_target
+    assert card_refusals((studio_six,), engine="thinnest", inputs=at) == []

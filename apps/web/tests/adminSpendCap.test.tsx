@@ -105,6 +105,7 @@ function caps(over: Partial<Caps> = {}): Caps {
 
 /** The month's spend, so the page around the panel renders; its figures are not under test. */
 const SPEND: TenantSpend = {
+  unpriced_rows: 0,
   month: "2026-08",
   plan_tier: "prepaid",
   charge_basis: "wallet_debit",

@@ -108,6 +108,7 @@ const CLIENT_SPEND: Spend = {
 };
 
 const TENANT_SPEND: TenantSpend = {
+  unpriced_rows: 0,
   ...CLIENT_SPEND,
   plan_tier: "managed",
   revenue_inr: "1020899.00",
@@ -155,6 +156,7 @@ const TENANT_SPEND: TenantSpend = {
 };
 
 const FLEET: FleetSpend = {
+  unpriced_rows: 0,
   // No vendor row: the API omits a month nobody has attested rather than sending a zero
   // fee, and the board renders that absence in words (D-547 Phase D.3).
   tts_plan: [],
@@ -187,6 +189,7 @@ const FLEET: FleetSpend = {
       margin_pct: null,
       ai_absorbed_inr: "0.81",
       ai_requests: 3,
+      unpriced_rows: 0,
       trial_cost_inr: "0.00",
       trial_in_month: false,
       paid_cost_inr: "184100.00",
@@ -206,6 +209,7 @@ const FLEET: FleetSpend = {
       margin_pct: "0.00",
       ai_absorbed_inr: "0.00",
       ai_requests: 0,
+      unpriced_rows: 0,
       trial_cost_inr: "0.00",
       trial_in_month: false,
       paid_cost_inr: "1015900.10",
@@ -1016,6 +1020,64 @@ describe("the operator's half", () => {
     });
     await screen.findByText("Vasavi Dental");
     expect(container.textContent).not.toContain("not in the totals above");
+  });
+
+  it("counts usage the costs leave out and shows each client's charge variance (D-840)", async () => {
+    const fleet = {
+      ...FLEET,
+      unpriced_rows: 3,
+      tenants: FLEET.tenants.map((tenant, index) =>
+        index === 0 ? { ...tenant, unpriced_rows: 3, charge_variance_inr: "0.51" } : tenant,
+      ),
+    };
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: fleet,
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
+    await screen.findByText("Vasavi Dental");
+    const text = container.textContent ?? "";
+    expect(text).toContain("3 usage rows have no cost this month");
+    expect(text).toContain("costs above are floors and the margins are ceilings");
+    expect(text).toContain("3 not priced");
+    expect(text).toContain("₹0.51 vs charged");
+  });
+
+  it("says nothing about unpriced usage when every row is priced", async () => {
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: FLEET,
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
+    await screen.findByText("Vasavi Dental");
+    expect(container.textContent).not.toContain("have no cost this month");
+  });
+
+  it("shows the voice platform's charge against what we metered for one client", async () => {
+    const { container } = await renderAdminRoute(tenantPage, {
+      ...TENANT_PAGE_READS,
+      [TENANT_ROUTE]: {
+        ...TENANT_SPEND,
+        unpriced_rows: 1,
+        charge_variance: {
+          calls: 1,
+          vendor_inr: "2.55",
+          metered_inr: "3.07",
+          variance_inr: "0.51",
+          largest: [
+            {
+              call_id: "0192f0aa-7777-7000-8000-000000000001",
+              vendor_inr: "2.55",
+              metered_inr: "3.07",
+              variance_inr: "0.51",
+            },
+          ],
+        },
+      },
+    });
+    await screen.findByText("₹7,20,899.00");
+    const text = container.textContent ?? "";
+    expect(text).toContain("1 usage row has no cost this month");
+    expect(text).toContain("Charged by the voice platform vs metered");
+    expect(text).toContain("₹2.55 charged · ₹3.07 metered");
   });
 
   it("refuses out loud when the walk fails, and reports no fleet total", async () => {

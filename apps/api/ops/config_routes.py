@@ -61,7 +61,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.llm_models import ASSISTANT_MODEL_SETTINGS, unofferable_reason
-from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, card_margins, card_refusals
+from apps.api.billing.credit_packs import (
+    PACK_CATALOGUE,
+    CreditPack,
+    card_margins,
+    card_refusals,
+    deployment_engine,
+)
+from apps.api.billing.floor_inputs import floor_inputs
 from apps.api.billing.list_rates import (
     CARD_NOTICE_DAYS,
     PACK_RATE_KEY_PREFIX,
@@ -91,6 +98,7 @@ from apps.api.billing.rates import (
     VOICE_TIERS,
     CartesiaPlan,
     ClearCostFloor,
+    FloorInputs,
     VoiceTier,
     cartesia_best_marginal_cost_inr_per_min,
     cartesia_cheapest_plan,
@@ -104,9 +112,9 @@ from apps.api.billing.rates import (
     rate_margin,
     voice_tier_label,
 )
-from apps.api.billing.tts_speaking_rate import fleet_speaking_rate
 from apps.api.billing.tts_volume import CartesiaVolume, fleet_cartesia_volume
 from apps.api.compliance.audit import write_audit
+from apps.api.core.alerting import alert
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, global_db
@@ -1024,8 +1032,9 @@ async def _record_card(
     # price moved at this instant.
     in_force = card_with_rates(await card_at(session, at=datetime.now(UTC)))
     prompt_tokens = tokens_of(await floor_prompt_basis())
-    _refuse_bad_card(in_force, own_model_prompt_tokens=prompt_tokens)
-    _log_margins(in_force, own_model_prompt_tokens=prompt_tokens)
+    inputs = await _deployment_floor_inputs(session)
+    _refuse_bad_card(in_force, own_model_prompt_tokens=prompt_tokens, inputs=inputs)
+    _log_margins(in_force, own_model_prompt_tokens=prompt_tokens, inputs=inputs)
     settings, _ = project(_projected_overrides(result))
     await record_card(
         session,
@@ -1036,14 +1045,23 @@ async def _record_card(
     )
 
 
-def _refuse_bad_card(card: tuple[CreditPack, ...], *, own_model_prompt_tokens: int | None) -> None:
+async def _deployment_floor_inputs(
+    session: AsyncSession, *, fx: UsdInrRate | None = None
+) -> FloorInputs:
+    """The floor inputs of the engine this deployment runs, now (D-840)."""
+    return await floor_inputs(session, engine=deployment_engine(), at=datetime.now(UTC), fx=fx)
+
+
+def _refuse_bad_card(
+    card: tuple[CreditPack, ...], *, own_model_prompt_tokens: int | None, inputs: FloorInputs
+) -> None:
     """`card_refusals` as a 409 an operator can act on. THE ONE VETO, both write paths.
 
     Shared by the setting path above and by the card write route below rather than written
     twice, because the two refusing on different rules is exactly how a card that CI's own
     pack guard would fail reaches the table through the other door.
     """
-    refusals = card_refusals(card, own_model_prompt_tokens=own_model_prompt_tokens)
+    refusals = card_refusals(card, own_model_prompt_tokens=own_model_prompt_tokens, inputs=inputs)
     if refusals:
         raise ProblemError(
             kind="conflict",
@@ -1062,15 +1080,29 @@ def _refuse_bad_card(card: tuple[CreditPack, ...], *, own_model_prompt_tokens: i
         )
 
 
-def _log_margins(card: tuple[CreditPack, ...], *, own_model_prompt_tokens: int | None) -> None:
+def _log_margins(
+    card: tuple[CreditPack, ...], *, own_model_prompt_tokens: int | None, inputs: FloorInputs
+) -> None:
     """The twelve verdicts, beside the act that published them. Thin at `warning`.
 
     The operator who pressed Save has the number in the same log stream as the write, and
     it is the SAME function CI scores (`credit_packs.card_margins`) and the same one the
-    read route renders — three surfaces, one arithmetic.
+    read route renders — three surfaces, one arithmetic. A card recorded while a floor input
+    is unattested alarms: its margins read better than they are by that input.
     """
+    if inputs.unattested:
+        alert(
+            "CORE_LOGIC",
+            "cost_floor_input_unattested",
+            detail=(
+                "a rate card was recorded while these cost-floor inputs are unattested, so "
+                "its margins leave them out: "
+                + ", ".join(inputs.unattested)
+                + ". Attest them in the ops engine-minute panel."
+            ),
+        )
     for pack_id, voice, verdict in card_margins(
-        card, own_model_prompt_tokens=own_model_prompt_tokens
+        card, own_model_prompt_tokens=own_model_prompt_tokens, inputs=inputs
     ):
         log.log(
             logging.WARNING if verdict.below_target else logging.INFO,
@@ -1337,6 +1369,41 @@ class CartesiaVolumeOut(BaseModel):
     ladder: list[CartesiaLadderPointOut]
 
 
+class FloorInputsOut(BaseModel):
+    """What the cells' cost floors are struck at on an engine priced by attested minute
+    (D-840): the speaking rate, the dollar, and the two attested fees. A fee that is null is
+    unattested and the floors leave it out, which `unattested` names."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    speaking_rate_basis: str
+    chars_per_call_minute: str
+    usd_inr: str
+    usd_inr_source: str
+    #: The voice platform's wallet top-up fee in percent, or null while unattested.
+    wallet_fee_percent: str | None
+    #: The payment gateway's fee on a client's top-up in percent, or null while unattested.
+    gateway_fee_percent: str | None
+    #: The subjects the floors had to leave out (`billing/cost_attestations`).
+    unattested: list[str]
+
+
+def _fee_percent(fee: Decimal | None) -> str | None:
+    return None if fee is None else format((fee * 100).normalize(), "f")
+
+
+def _floor_inputs_out(inputs: FloorInputs) -> FloorInputsOut:
+    return FloorInputsOut(
+        speaking_rate_basis=inputs.speaking_rate.label,
+        chars_per_call_minute=str(inputs.speaking_rate.chars_per_call_minute),
+        usd_inr=str(inputs.usd_inr),
+        usd_inr_source=inputs.usd_inr_source,
+        wallet_fee_percent=_fee_percent(inputs.wallet_fee),
+        gateway_fee_percent=_fee_percent(inputs.gateway_fee),
+        unattested=list(inputs.unattested),
+    )
+
+
 class SpeakingRateOut(BaseModel):
     """**WHAT THE CLEAR COLUMN'S COST IS STRUCK AT, AND WHETHER ANYONE MEASURED IT (D-557).**
 
@@ -1416,6 +1483,8 @@ class RateCardOut(BaseModel):
     #: saying whether the number behind it was measured is the defect D-556 and D-557 both
     #: exist to remove.
     speaking_rate: SpeakingRateOut
+    #: What every cell's cost floor is struck at, the attested fees included (D-840).
+    floor_inputs: FloorInputsOut
     #: How many clients would be emailed if a card were recorded now — the prepaid book,
     #: counted with the fan-out's own predicate (`_NOTICE_RECIPIENTS`). Published on the
     #: READ rather than only echoed on the write because the number an operator needs is
@@ -1494,7 +1563,8 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
     # one read of THIS route into 8,480 session checkouts, and the paragraph above is the
     # scar. The basis is resolved ONCE here and threaded through every Clear cost below, for
     # the reason `fx` is: a screen whose rows were struck at two bases does not add up.
-    clear_floor = clear_cost_floor_at((await fleet_speaking_rate(session)).basis())
+    inputs = await _deployment_floor_inputs(session, fx=fx)
+    clear_floor = clear_cost_floor_at(inputs.speaking_rate)
     measured_cost = cartesia_measured_cost_inr_per_call_minute(
         characters=volume.characters, call_minutes=volume.call_minutes, usd_inr=fx.rate
     )
@@ -1522,6 +1592,7 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
             fx=fx,
             clear=clear_floor,
             own_model_prompt_tokens=prompt_tokens,
+            inputs=inputs,
         ),
         pending=[
             PendingCardOut(
@@ -1532,12 +1603,14 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
                     fx=fx,
                     clear=clear_floor,
                     own_model_prompt_tokens=prompt_tokens,
+                    inputs=inputs,
                 ),
             )
             for card in scheduled
         ],
         cartesia_volume=_cartesia_volume_out(volume, fx=fx),
         speaking_rate=_speaking_rate_out(clear_floor),
+        floor_inputs=_floor_inputs_out(inputs),
         notice_days=CARD_NOTICE_DAYS,
         earliest_effective_from=(now + timedelta(days=CARD_NOTICE_DAYS)).isoformat(),
         notice_recipients=recipients,
@@ -1584,6 +1657,7 @@ def _cells_out(
     fx: UsdInrRate,
     clear: ClearCostFloor,
     own_model_prompt_tokens: int | None,
+    inputs: FloorInputs,
 ) -> list[RateCardCellOut]:
     """One card as twelve rendered cells, verdicts included — TWICE OVER since 9 Sep 2026.
 
@@ -1606,11 +1680,13 @@ def _cells_out(
     the card that is currently live and no card could be recorded at all. That is the
     founder's own resolution of the tension between his two decisions of 9 Sep 2026 (the
     rate card does not change; the margin is judged at actual volume), recorded at D-556.
+    On ThinnestAI the first verdict is itself struck at the measured speaking rate, the live
+    dollar and the attested fees (`inputs`, D-840).
     """
     amounts = {pack.pack_id: pack.amount_inr for pack in card}
     cells: list[RateCardCellOut] = []
     for pack_id, voice, verdict in card_margins(
-        card, own_model_prompt_tokens=own_model_prompt_tokens
+        card, own_model_prompt_tokens=own_model_prompt_tokens, inputs=inputs
     ):
         at_volume_cost = _volume_cost(voice, measured_cost, clear)
         at_volume = (
@@ -1968,7 +2044,9 @@ async def record_rate_card(
         )
     card = _posted_card(payload.cells)
     prompt_tokens = tokens_of(await floor_prompt_basis())
-    _refuse_bad_card(card, own_model_prompt_tokens=prompt_tokens)
+    fx = usd_inr_rate_now()
+    inputs = await _deployment_floor_inputs(session, fx=fx)
+    _refuse_bad_card(card, own_model_prompt_tokens=prompt_tokens, inputs=inputs)
     if await card_is_scheduled(session, effective_from=payload.effective_from):
         raise ProblemError(
             kind="conflict",
@@ -1983,7 +2061,7 @@ async def record_rate_card(
                 "been priced at it), then record this one; or choose a different instant."
             ),
         )
-    _log_margins(card, own_model_prompt_tokens=prompt_tokens)
+    _log_margins(card, own_model_prompt_tokens=prompt_tokens, inputs=inputs)
     at = await record_card(
         session,
         card=card,
@@ -2038,9 +2116,10 @@ async def record_rate_card(
         cells=_cells_out(
             card,
             measured_cost=None,
-            fx=usd_inr_rate_now(),
-            clear=clear_cost_floor_at((await fleet_speaking_rate(session)).basis()),
+            fx=fx,
+            clear=clear_cost_floor_at(inputs.speaking_rate),
             own_model_prompt_tokens=prompt_tokens,
+            inputs=inputs,
         ),
         clients_notified=notified is not None,
     )

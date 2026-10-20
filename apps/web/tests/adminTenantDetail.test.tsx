@@ -446,6 +446,7 @@ describe("the client detail screen", () => {
       knowledge_requests: 0,
     };
     const spend: TenantSpend = {
+      unpriced_rows: 0,
       month: currentISTMonth(),
       plan_tier: "prepaid",
       charge_basis: "wallet_debit",

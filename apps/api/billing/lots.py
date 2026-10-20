@@ -114,7 +114,7 @@ _MAX_CAS_ATTEMPTS = 8
 _LOT_COLUMNS = """
 SELECT id, tenant_id, source, pack_id, override_of_pack_id, credits_total,
        credits_remaining, clear_inr_per_min, studio_inr_per_min, opened_at,
-       closed_at
+       closed_at, expires_at
 FROM credit_lots
 """
 
@@ -149,11 +149,11 @@ _INSERT_LOT = """
 INSERT INTO credit_lots
     (id, tenant_id, source, pack_id, override_of_pack_id, credits_total,
      credits_remaining, clear_inr_per_min, studio_inr_per_min, ledger_entry_id,
-     opened_at, created_at, updated_at)
+     opened_at, expires_at, created_at, updated_at)
 VALUES (:id, :tid, :source, :pack_id, :override_of_pack_id, :credits, :credits,
         :clear, :studio, :ledger_entry_id,
-        COALESCE(CAST(:opened_at AS timestamptz), clock_timestamp()), clock_timestamp(),
-        clock_timestamp())
+        COALESCE(CAST(:opened_at AS timestamptz), clock_timestamp()),
+        CAST(:expires_at AS timestamptz), clock_timestamp(), clock_timestamp())
 """
 
 #: CLOSE A LOT WITHOUT SPENDING IT — the first half of a re-price (D-547 Q6, close-and-
@@ -221,6 +221,8 @@ class OpenLot:
     #: value on the by-id read, which `service.reprice_lot` uses to tell "this credit is
     #: already spent" (a sentence an operator can act on) from "no such lot" (a 404).
     closed_at: datetime | None
+    #: When the credit left on this lot lapses (D-840); None for credit that does not expire.
+    expires_at: datetime | None = None
 
     def rate_for(self, voice_tier: VoiceTier) -> Decimal:
         """What a minute of `voice_tier` costs out of THIS lot.
@@ -406,6 +408,7 @@ def _lot_of(row: RowMapping) -> OpenLot:
         studio_inr_per_min=Decimal(str(row["studio_inr_per_min"])),
         opened_at=row["opened_at"],
         closed_at=row["closed_at"],
+        expires_at=row["expires_at"],
     )
 
 
@@ -443,6 +446,7 @@ async def open_lot(
     ledger_entry_id: UUID,
     override_of_pack_id: str | None = None,
     opened_at: datetime | None = None,
+    expires_at: datetime | None = None,
 ) -> UUID:
     """Open one lot for credits that have just been added, and return its id.
 
@@ -501,6 +505,7 @@ async def open_lot(
             "studio": _money(studio_inr_per_min),
             "ledger_entry_id": ledger_entry_id,
             "opened_at": opened_at,
+            "expires_at": expires_at,
         },
     )
     return lot_id

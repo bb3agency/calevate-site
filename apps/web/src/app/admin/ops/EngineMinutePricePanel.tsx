@@ -21,8 +21,10 @@ import {
   formatRupeeRate,
 } from "@/components/ui";
 import {
+  useAttestCost,
   useAttestEngineMinutePrice,
   useEngineMinutePrices,
+  type CostAttestation,
   type EngineMinutePrice,
   type EngineMinutePrices,
 } from "@/lib/api/engineMinutePricing";
@@ -55,19 +57,25 @@ export function saleNote(row: EngineMinutePrice): string {
 }
 
 /**
- * "2.36% on every plan", from the server's fee list rather than typed here, so
- * the sentence moves with the fee the meter actually adds.
+ * The wallet top-up fee the meter adds, from the server's attested figure (D-840), or the
+ * plain statement that none is attested — never a number typed here.
  */
-export function feeSentence(fees: EngineMinutePrices["topup_fees"]): string {
-  return fees.map((fee) => `${fee.percent}% on ${fee.plan}`).join(", ");
+export function feeSentence(costs: EngineMinutePrices["costs"]): string {
+  const fee = costs.find((cost) => cost.subject === "thinnest_topup_fee");
+  return fee?.value ? `${fee.value}%` : "no fee recorded, so every minute is metered unpriced";
 }
 
 /** The all-in figure beside a posted rate: what a billed minute is metered at. */
 export function allInNote(row: EngineMinutePrice): string | null {
   if (!row.inr_per_min_with_fee) return null;
-  if (row.topup_fee_percent === "0") return null;
-  const plan = row.topup_fee_plan ? `, ${row.topup_fee_plan}` : "";
-  return `${formatRupeeRate(row.inr_per_min_with_fee)} with the ${row.topup_fee_percent}% top-up fee${plan}`;
+  if (!row.topup_fee_percent || row.topup_fee_percent === "0") return null;
+  return `${formatRupeeRate(row.inr_per_min_with_fee)} with the ${row.topup_fee_percent}% top-up fee`;
+}
+
+/** How a cost input reads beside its label: "2.36%", "₹349.00 a month", or not recorded. */
+export function costValue(cost: CostAttestation): string {
+  if (!cost.value) return "Not recorded";
+  return cost.unit === "percent" ? `${cost.value}%` : `${formatRupeeRate(cost.value)} a month`;
 }
 
 function rowId(row: EngineMinutePrice): string {
@@ -104,7 +112,7 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
   }
 
   const rows = prices.data ? prices.data.prices : null;
-  const fees = prices.data ? feeSentence(prices.data.topup_fees) : null;
+  const fees = prices.data ? feeSentence(prices.data.costs) : null;
   const platformUnpriced = Boolean(
     rows?.some((row) => row.rate_key === "platform" && !row.billable),
   );
@@ -233,7 +241,7 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
                 {valid.error("inr_per_min")}
                 <span className={FIELD_HINT}>
                   The posted rate, before the top-up fee
-                  {editing.topup_fee_percent !== "0"
+                  {editing.topup_fee_percent && editing.topup_fee_percent !== "0"
                     ? `; we add ${editing.topup_fee_percent}%`
                     : ""}
                   .
@@ -278,7 +286,138 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
             </div>
           </form>
         )}
+
+        {prices.data && <CostInputs costs={prices.data.costs} access={access} />}
       </div>
     </Section>
+  );
+}
+
+/** Rupees a month, or a percentage below 100 with up to four decimals. The server re-checks. */
+const PERCENT = "^(?:\\d{1,2}(?:\\.\\d{1,4})?)$";
+
+/**
+ * The fees and the number rent beside the minute (D-840). The wallet top-up fee is added to
+ * every metered minute and rented number; the gateway fee on a client's top-up is counted in
+ * the rate card's cost floor; the rent prices each number rented in the platform's console.
+ * Until one is recorded, what depends on it is metered unpriced or left out of the floor.
+ */
+function CostInputs({ costs, access }: { costs: CostAttestation[]; access: Access }) {
+  const attest = useAttestCost();
+  const valid = useFormValidation();
+  const [editing, setEditing] = useState<CostAttestation | null>(null);
+  const [value, setValue] = useState("");
+  const [source, setSource] = useState("");
+
+  return (
+    <div className="space-y-3 border-t border-line pt-4">
+      <p className="text-body font-medium text-ink">Fees and number rent</p>
+      <ul className="divide-y divide-line border-y border-line">
+        {costs.map((cost) => (
+          <li key={cost.subject} className="flex flex-wrap items-start gap-3 px-3 py-2.5 text-body">
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-ink">{cost.label}</p>
+              {cost.value ? (
+                <p className="text-meta text-ink-muted">
+                  {costValue(cost)} · {cost.source_note ?? "—"}
+                  {cost.effective_from ? ` · from ${formatIST(cost.effective_from)}` : ""}
+                </p>
+              ) : (
+                <p className="text-meta font-medium text-warn">Not recorded — left out of costs</p>
+              )}
+            </div>
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_SM}
+              disabled={!access.allowed || attest.isPending}
+              title={access.reason ?? undefined}
+              onClick={() => {
+                setEditing(cost);
+                setValue("");
+                setSource("");
+                valid.reset();
+              }}
+            >
+              {cost.value ? "Record a new figure" : "Record a figure"}
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {attest.error && <WriteFailure error={attest.error} actionLabel="Record the figure" />}
+
+      {editing && (
+        <form
+          className="space-y-3"
+          noValidate
+          onSubmit={valid.onSubmit(() => {
+            attest.mutate(
+              { subject: editing.subject, value: value.trim(), sourceNote: source.trim() },
+              { onSuccess: () => setEditing(null) },
+            );
+          })}
+        >
+          <p className="text-body font-medium text-ink">{editing.label}</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="block">
+              <span className={FIELD_LABEL}>
+                {editing.unit === "percent" ? "Percent" : "Rupees a month"}
+              </span>
+              <input
+                {...valid.field(
+                  "cost_value",
+                  editing.unit === "percent"
+                    ? "Enter a percentage, like 2.36."
+                    : "Enter rupees a month, like 349.00.",
+                )}
+                required
+                inputMode="decimal"
+                pattern={editing.unit === "percent" ? PERCENT : RUPEES_PER_MIN}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                disabled={!access.allowed}
+                className={`${FIELD} font-mono`}
+              />
+              {valid.error("cost_value")}
+            </label>
+            <label className="block sm:col-span-2">
+              <span className={FIELD_LABEL}>Read from</span>
+              <input
+                {...valid.field("cost_source", "Name the invoice or statement (at least 3 characters).")}
+                required
+                minLength={3}
+                maxLength={500}
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+                disabled={!access.allowed}
+                className={FIELD}
+              />
+              {valid.error("cost_source")}
+              <span className={FIELD_HINT}>The invoice or statement, and its date.</span>
+            </label>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="submit"
+              disabled={!access.allowed || attest.isPending}
+              className={PRIMARY_BUTTON}
+            >
+              {attest.isPending ? "Recording…" : "Record the figure"}
+            </button>
+            <button
+              type="button"
+              disabled={attest.isPending}
+              onClick={() => {
+                setEditing(null);
+                valid.reset();
+              }}
+              className={SECONDARY_BUTTON}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }

@@ -9,16 +9,17 @@ call's cost is
     cost           = billed minutes x the ₹/min attested for that call's rate key
                      x (1 + the wallet top-up fee), at `MONEY_Q`
 
-THE FEE IS OURS TO ADD, NOT THE OPERATOR'S. The attested rate is the platform's posted price
-per billed minute, which is what its price page and its per-call charge (`costMicro`) both
-state, and neither includes the payment gateway's charge on every rupee loaded into the
-wallet: 2.36% on every plan (`billing/rates.THINNEST_TOPUP_FEE`, VENDOR-STATED in
-ThinnestAI's email of 12 Oct 2026). Every rupee a minute costs passed through that wallet
-first, so the fee is part of the minute's cost on every rate key, `byok_voice` included.
-Cartesia's synthesis on a Studio call is billed to our own key and never enters the wallet,
-so its `tts_kchars` row carries no fee.
-`topup_fee` is the one helper; the charge reconciler (`apps/workers/engine_charges.py`) uses
-the same one, so what we meter and what we compare against cannot drift apart.
+THE FEE IS ADDED BY THE METER, NOT FOLDED INTO THE RATE. The attested rate is the platform's
+posted price per billed minute, which is what its price page and its per-call charge
+(`costMicro`) both state, and neither includes the payment gateway's charge on every rupee
+loaded into the wallet. That fee is attested separately and effective-dated
+(`billing/cost_attestations`, subject `thinnest_topup_fee`; D-840), and read at the minute's
+own instant. Every rupee a minute costs passed through that wallet first, so the fee is part
+of the minute's cost on every rate key, `byok_voice` included. Cartesia's synthesis on a
+Studio call is billed to our own key and never enters the wallet, so its `tts_kchars` row
+carries no fee. `wallet_topup_fee` is the one reader; the charge reconciler
+(`apps/workers/engine_charges.py`) uses the same one, so what we meter and what we compare
+against cannot drift apart.
 
 Hard rule 7's structural form, exactly as `ops/model_pricing.tts_price_is_billable` keeps
 it for a voice: the ONLY figure that reaches `unit_cost_paid` is one an operator attested
@@ -56,6 +57,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing import rates
+from apps.api.billing.cost_attestations import WALLET_TOPUP_FEE_SUBJECTS, attested_cost
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 
@@ -99,29 +101,70 @@ OWN_VOICE_RATE_KEYS: Final[frozenset[str]] = frozenset({"byok_voice", "byok_llm_
 BAND_SOLD_ENGINES: Final = frozenset({"thinnest"})
 
 #: Engines paid from a prepaid wallet that charges a fee on each top-up.
-WALLET_TOPUP_ENGINES: Final = frozenset({"thinnest"})
+WALLET_TOPUP_ENGINES: Final = frozenset(WALLET_TOPUP_FEE_SUBJECTS)
 
 #: `usage_events.meta` key on a metered minute row: the top-up fee its cost includes. A row
 #: without it was metered before the fee was added.
 TOPUP_FEE_META_KEY: Final = "topup_fee"
 
-#: Which plans each top-up fee applies to, for a sentence an operator reads. One fee on
-#: every plan since ThinnestAI's email of 12 Oct 2026.
-TOPUP_FEE_PLAN_LABELS: Final[Mapping[Decimal, str]] = MappingProxyType(
-    {rates.THINNEST_TOPUP_FEE: "every plan"}
-)
+#: `meta.kind` of the compensating row that adds the top-up fee to a minute metered without it
+#: (`apps/workers/engine_charges.restate_minutes_without_fee`).
+FEE_RESTATEMENT_META_KIND: Final = "engine_topup_fee_restatement"
+#: `meta.kind` of the compensating row that takes back a fee costed above the stated one.
+FEE_CORRECTION_META_KIND: Final = "engine_topup_fee_correction"
 
 
-def thinnest_topup_fee() -> Decimal:
-    """ThinnestAI's wallet top-up fee as a fraction: the payment gateway's charge, the same
-    on every plan and every voice band (`billing/rates.THINNEST_TOPUP_FEE`)."""
-    return rates.THINNEST_TOPUP_FEE
+def minute_cost_rows(prefix: str = "") -> str:
+    """The rows a call's engine-minute cost is: its metered minute, any fee restatement and
+    any fee correction. One spelling for the reconciler and the margin screen."""
+    return (
+        f"({prefix}unit_type = 'platform_min' OR ({prefix}unit_type = 'other' "
+        f"AND {prefix}meta->>'kind' IN ('{FEE_RESTATEMENT_META_KIND}', "
+        f"'{FEE_CORRECTION_META_KIND}')))"
+    )
 
 
-def topup_fee(engine: str) -> Decimal:
-    """The fee on the rupees that pay for this engine's minutes, as a fraction; zero for an
-    engine not paid from a topped-up wallet."""
-    return thinnest_topup_fee() if engine in WALLET_TOPUP_ENGINES else Decimal(0)
+@dataclass(frozen=True, slots=True)
+class WalletFee:
+    """The top-up fee in force for an engine at an instant, and from when."""
+
+    fee: Decimal
+    #: When this figure took effect; None for an engine not paid from a topped-up wallet.
+    effective_from: datetime | None
+
+
+async def wallet_fee(session: AsyncSession, *, engine: str, at: datetime) -> WalletFee | None:
+    """The fee on the rupees that pay for this engine's minutes at `at`, as a fraction: zero
+    for an engine not paid from a topped-up wallet, None while the fee is unattested."""
+    subject = WALLET_TOPUP_FEE_SUBJECTS.get(engine)
+    if subject is None:
+        return WalletFee(fee=Decimal(0), effective_from=None)
+    attested = await attested_cost(session, subject=subject, at=at)
+    if attested is None:
+        return None
+    # A fraction below one, so `normalize` cannot produce an exponent: "0.0236", not "0.023600".
+    return WalletFee(fee=attested.value.normalize(), effective_from=attested.effective_from)
+
+
+async def wallet_topup_fee(session: AsyncSession, *, engine: str, at: datetime) -> Decimal | None:
+    """`wallet_fee`'s figure alone."""
+    found = await wallet_fee(session, engine=engine, at=at)
+    return None if found is None else found.fee
+
+
+async def required_wallet_fee(session: AsyncSession, *, engine: str, at: datetime) -> WalletFee:
+    """`wallet_fee` for a reader that cannot proceed without one (a reconciliation, a quote):
+    an unattested fee is refused rather than read as zero."""
+    found = await wallet_fee(session, engine=engine, at=at)
+    if found is None:
+        raise ProblemError(
+            kind="business_rule",
+            code="wallet_topup_fee_unattested",
+            title="The voice platform's top-up fee is not attested",
+            detail=f"No wallet top-up fee is attested for {engine} at {at.isoformat()}.",
+            remediation="Attest the fee in the ops engine-minute panel.",
+        )
+    return found
 
 
 def cost_with_fee(amount: Decimal, *, fee: Decimal) -> Decimal:
@@ -363,8 +406,9 @@ class MinuteCost:
     #: The attested posted rate, before the top-up fee. None when the rate key is
     #: unattested: the minute is UNPRICED, not free.
     inr_per_min: Decimal | None
-    #: The top-up fee `cost` includes, as a fraction.
-    topup_fee: Decimal
+    #: The top-up fee `cost` includes, as a fraction; None while the fee is unattested,
+    #: which leaves the minute UNPRICED like a missing rate.
+    topup_fee: Decimal | None
     cost: CostBreakdown
     #: The rate key the CLIENT rung is read from: the agent's own, also on a carrier-only call.
     client_rate_key: str = ""
@@ -373,7 +417,7 @@ class MinuteCost:
 
     @property
     def priced(self) -> bool:
-        return self.inr_per_min is not None
+        return self.inr_per_min is not None and self.topup_fee is not None
 
 
 async def _on_brought_number(session: AsyncSession, *, tenant_id: UUID, call_id: UUID) -> bool:
@@ -446,7 +490,7 @@ async def engine_minute_cost(
         rate_key = route_key
     pulse = CARRIER_BLOCK_SECONDS[engine] if carrier_only else PULSE_SECONDS[engine]
     minutes = billed_minutes(seconds, pulse_s=pulse)
-    fee = topup_fee(engine)
+    fee = await wallet_topup_fee(session, engine=engine, at=at)
     if forwarded and await _on_brought_number(session, tenant_id=tenant_id, call_id=call_id):
         return MinuteCost(
             rate_key=rate_key,
@@ -454,7 +498,7 @@ async def engine_minute_cost(
             own_model=own_model,
             billed_minutes=minutes,
             inr_per_min=Decimal(0),
-            topup_fee=fee,
+            topup_fee=Decimal(0) if fee is None else fee,
             cost=CostBreakdown(
                 total_inr=Decimal(0),
                 platform_inr=Decimal(0),
@@ -463,13 +507,13 @@ async def engine_minute_cost(
             ),
         )
     price = (await attested_minute_prices(session, engine=engine, at=at)).get(rate_key)
-    if price is None:
+    if price is None or fee is None:
         return MinuteCost(
             rate_key=rate_key,
             client_rate_key=route_key,
             own_model=own_model,
             billed_minutes=minutes,
-            inr_per_min=None,
+            inr_per_min=None if price is None else price.inr_per_min,
             topup_fee=fee,
             cost=CostBreakdown(total_inr=Decimal(0), source_currency="INR", currency_stated=True),
         )
@@ -496,16 +540,18 @@ __all__ = [
     "CARRIER_BLOCK_SECONDS",
     "CARRIER_RATE_KEY",
     "ENGINE_RATE_KEYS",
+    "FEE_CORRECTION_META_KIND",
+    "FEE_RESTATEMENT_META_KIND",
     "FORWARD_WITHOUT_AGENT_RATE_KEY",
     "OWN_VOICE_RATE_KEYS",
     "PRICED_RATE_KEYS",
     "PULSE_SECONDS",
     "TOPUP_FEE_META_KEY",
-    "TOPUP_FEE_PLAN_LABELS",
     "WALLET_TOPUP_ENGINES",
     "EngineMinutePrice",
     "EngineRateKey",
     "MinuteCost",
+    "WalletFee",
     "attest_engine_minute_price",
     "attested_minute_prices",
     "attested_rate_keys",
@@ -515,7 +561,9 @@ __all__ = [
     "cost_with_fee",
     "engine_minute_cost",
     "engine_minute_is_billable",
+    "minute_cost_rows",
     "record_engine_rate_key",
-    "thinnest_topup_fee",
-    "topup_fee",
+    "required_wallet_fee",
+    "wallet_fee",
+    "wallet_topup_fee",
 ]

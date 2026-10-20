@@ -417,26 +417,20 @@ async def _balance(tenant_id: UUID) -> Decimal:
         )
 
 
-async def test_an_inbound_call_on_an_empty_wallet_is_metered_and_not_debited() -> None:
-    """Both halves, and they are not the same claim.
-
-    METERED: we paid the vendor for the call, so `usage_events` carries it with its real
-    `unit_cost_paid` (hard rule 7) — a cost nobody records is a cost nobody can see.
-    NOT DEBITED: the founder's rule is that inbound accrues no further debt, and this is
-    the only place that can hold it, because `record_entry` is called with
-    `allow_negative=True` here and correctly so.
-    """
+async def test_an_inbound_call_on_an_empty_wallet_is_metered_and_billed_into_overdraft() -> None:
+    """D-840 (founder, 20 Oct 2026): an answered inbound call on an empty wallet is owed like
+    an outbound one. METERED: `usage_events` carries it with its real `unit_cost_paid`.
+    BILLED: the wallet goes negative by the call, and the next top-up repays it first."""
     tenant_id, agent_id = await _tenant()
     rows = await _meter_one_minute(tenant_id, agent_id, direction="inbound")
     assert rows > 0, "the call was not metered at all, so its supplier cost is invisible"
-    assert await _balance(tenant_id) == Decimal("0"), (
-        "an inbound call deepened an already-negative wallet — the unbounded overdraft"
+    assert await _balance(tenant_id) < Decimal("0"), (
+        "an answered inbound call on an empty wallet was given away instead of owed"
     )
 
 
 async def test_an_inbound_call_on_a_funded_wallet_is_charged_normally() -> None:
-    """The bound is on FURTHER debt, not on inbound billing. A client with credit pays
-    for the calls they answer exactly as before."""
+    """A client with credit pays for the calls they answer."""
     tenant_id, agent_id = await _tenant()
     await _topup(tenant_id, "500")
     await _meter_one_minute(tenant_id, agent_id, direction="inbound")
@@ -446,9 +440,7 @@ async def test_an_inbound_call_on_a_funded_wallet_is_charged_normally() -> None:
 
 
 async def test_an_outbound_call_on_an_empty_wallet_is_still_charged() -> None:
-    """One call's worth of overdraft is unavoidable in either direction — the call already
-    happened — and the arm added here must not have widened into "prepaid calls are free
-    once the wallet is empty"."""
+    """The call already happened, so it is owed whatever the balance."""
     tenant_id, agent_id = await _tenant()
     await _meter_one_minute(tenant_id, agent_id, direction="outbound")
     assert await _balance(tenant_id) < Decimal("0")

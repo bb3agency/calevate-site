@@ -2258,9 +2258,9 @@ def voice_tier_label(voice: TtsProvider | VoiceTier) -> str:
 # * Clear is sold on the voice band `Settings.thinnest_clear_voice_band` names: Studio,
 #   ₹3.00 a minute, by default (D-792; Studio voices need Pro), or Premium, ₹2.50.
 # * Studio is our Cartesia key on their stack: ₹1.50 a minute plus Cartesia's own synthesis
-#   at its worst marginal plan rate (the TTS half of `CARTESIA_COST_FLOOR_INR_PER_MIN`).
-# * Every ThinnestAI rupee carries the 2.36% wallet top-up fee (`THINNEST_TOPUP_FEE`):
-#   ₹2.5590, ₹3.0708 and ₹1.5354 a minute.
+#   at its worst marginal plan rate, at the fleet's measured speaking rate and the live
+#   dollar (`FloorInputs`, D-840).
+# * Every ThinnestAI rupee carries the attested wallet top-up fee (`billing/cost_attestations`).
 #
 # The minute rates are VENDOR-STATED (ThinnestAI's email of 7 Oct 2026, evaluation §10
 # item 7; the ₹1.50 is also published, bring-your-own-keys.md:19-24 in the 07b snapshot),
@@ -2292,35 +2292,66 @@ THINNEST_OWN_VOICE_AND_MODEL_INR_PER_MIN: Final[Decimal] = Decimal("1.00")
 #: `agents/llm_models.QUOTED_CALL_MINUTES` quotes a model's per-minute cost at.
 OWN_MODEL_FLOOR_CALL_MINUTES: Final = 5
 
-#: ThinnestAI's wallet top-up fee, as a fraction, on every plan: VENDOR-STATED, ThinnestAI
-#: email of 12 Oct 2026, "Top-ups carry only the payment gateway's charge, 2.36% in INR, the
-#: same for everyone". It replaces the console reading of 6 Oct (10% pay-as-you-go, 9% Pro,
-#: D-723); `apps/workers/engine_charges.correct_overstated_fees` corrects rows costed at those.
-THINNEST_TOPUP_FEE: Final[Decimal] = Decimal("0.0236")
-
-#: The Clear floor on ENGINE=thinnest for each band Clear may be sold on (D-688): the band's
-#: minute with the top-up fee. Derived.
-THINNEST_CLEAR_COST_FLOOR_BY_BAND: Final[Mapping[str, Decimal]] = MappingProxyType(
-    {
-        "premium": (
-            THINNEST_PREMIUM_BAND_INR_PER_MIN * (Decimal("1") + THINNEST_TOPUP_FEE)
-        ).quantize(MONEY_Q, rounding=ROUNDING),
-        "studio": (THINNEST_STUDIO_BAND_INR_PER_MIN * (Decimal("1") + THINNEST_TOPUP_FEE)).quantize(
-            MONEY_Q, rounding=ROUNDING
-        ),
-    }
+#: The band minute Clear may be sold on (D-688), VENDOR-STATED as above. Derived.
+THINNEST_BAND_INR_PER_MIN: Final[Mapping[str, Decimal]] = MappingProxyType(
+    {"premium": THINNEST_PREMIUM_BAND_INR_PER_MIN, "studio": THINNEST_STUDIO_BAND_INR_PER_MIN}
 )
 
-#: ₹3.0708 — the Clear floor on ENGINE=thinnest when Clear is sold on the Studio band. Derived.
-THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN: Final[Decimal] = THINNEST_CLEAR_COST_FLOOR_BY_BAND["studio"]
 
-#: The Studio floor on ENGINE=thinnest: the own-voice minute with the fee, plus Cartesia's
-#: synthesis per call-minute at its dearest marginal plan rate and the frozen evidence rate
-#: (the same TTS half `CARTESIA_COST_FLOOR_INR_PER_MIN` carries). Derived.
-THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN: Final[Decimal] = (
-    THINNEST_OWN_VOICE_INR_PER_MIN * (Decimal("1") + THINNEST_TOPUP_FEE)
-    + _worst_marginal_tts(PLANNING_USD_INR)
-).quantize(MONEY_Q, rounding=ROUNDING)
+@dataclass(frozen=True, slots=True)
+class FloorInputs:
+    """The inputs of a ThinnestAI floor that move, resolved once by the caller
+    (`billing/floor_inputs.floor_inputs`) so every figure on one screen or one refusal is
+    struck at the same basis.
+
+    Founder, 20 Oct 2026 (D-840): the ThinnestAI floor is judged at what the fleet actually
+    speaks and at the live dollar, not at TRD §10.1's assumed band and `PLANNING_USD_INR`, and
+    it counts the payment gateway's fee on a client's top-up. That replaces, for this engine,
+    the frozen refusal D-556 kept for the base pair: a ₹6.00 Studio minute judged at the frozen
+    540 characters and ₹95 read a margin the measured fleet did not earn.
+    """
+
+    #: Characters of agent speech per call-minute the Studio voice's synthesis is struck at.
+    speaking_rate: SpeakingRateBasis
+    #: USD->INR the synthesis overage converts at, and which rung of the rate ladder said so.
+    usd_inr: Decimal
+    usd_inr_source: str
+    #: The engine's attested wallet top-up fee as a fraction; None while unattested, when the
+    #: floor omits it and `unattested` names it.
+    wallet_fee: Decimal | None
+    #: The payment gateway's attested fee on a client's top-up, as a fraction of the sale;
+    #: None while unattested, with the same consequence.
+    gateway_fee: Decimal | None
+
+    @property
+    def unattested(self) -> tuple[str, ...]:
+        """The inputs the floor had to leave out, by subject."""
+        missing: list[str] = []
+        if self.wallet_fee is None:
+            missing.append("thinnest_topup_fee")
+        if self.gateway_fee is None:
+            missing.append("razorpay_topup_fee")
+        return tuple(missing)
+
+
+def _with_wallet_fee(minute_inr: Decimal, inputs: FloorInputs) -> Decimal:
+    return minute_inr * (Decimal("1") + (inputs.wallet_fee or Decimal("0")))
+
+
+def thinnest_studio_tts_inr_per_min(inputs: FloorInputs) -> Decimal:
+    """Cartesia's synthesis per call-minute on a Studio call: the dearest plan's overage per
+    character, at the live dollar, times the fleet's speaking rate. EXACT."""
+    per_char = max(plan.overage_inr_per_character(inputs.usd_inr) for plan in CARTESIA_PLANS)
+    return per_char * inputs.speaking_rate.chars_per_call_minute
+
+
+def gateway_fee_inr_per_min(rate: Decimal, inputs: FloorInputs | None) -> Decimal:
+    """The payment gateway's fee on the rupees a client paid for one minute sold at `rate`:
+    a fraction of the SALE, so it belongs beside the cost floor rather than inside it. Zero
+    while unattested (`FloorInputs.unattested` names it) or with no inputs. EXACT."""
+    if inputs is None or inputs.gateway_fee is None:
+        return Decimal("0")
+    return rate * inputs.gateway_fee
 
 
 def own_model_floor_inr_per_min(model: str, *, prompt_tokens: int | None = None) -> Decimal:
@@ -2361,6 +2392,7 @@ def cost_floor_inr_per_min(
     clear_band: str | None = None,
     own_model: str | None = None,
     own_model_prompt_tokens: int | None = None,
+    inputs: FloorInputs | None = None,
 ) -> Decimal:
     """THE ONE DOOR to a per-minute cost floor, by the TIER's name and the ENGINE's.
 
@@ -2374,40 +2406,49 @@ def cost_floor_inr_per_min(
     The base Clear floor is struck at the per-character figure `TTS_INR_PER_10K_CHARS`, a
     cost-model input that no minute is metered at.
 
-    On ThinnestAI the Clear floor follows the band Clear is sold on: `clear_band`, or when
-    omitted `Settings.thinnest_clear_voice_band` (D-688). While our own model is switched on
-    (`Settings.thinnest_own_model`, D-764) both floors add that model's cost per minute
-    (`own_model`, or when omitted the console default), and the Studio minute is the
-    own-voice-and-model one. That cost is struck at `own_model_prompt_tokens`, which a caller
-    holding the deployment's prompt basis passes; omitted, it is the engine's prompt ceiling.
+    On ThinnestAI the floor is struck at `inputs` (D-840), which the caller resolves from the
+    store and the fleet: the band minute (Clear) or the own-voice minute plus Cartesia's
+    synthesis at the measured speaking rate and the live dollar (Studio), each minute with the
+    attested wallet top-up fee. ThinnestAI without `inputs` raises: there is no frozen
+    ThinnestAI floor any more. The Clear floor follows the band Clear is sold on:
+    `clear_band`, or when omitted `Settings.thinnest_clear_voice_band` (D-688). While our own
+    model is switched on (`Settings.thinnest_own_model`, D-764) both floors add that model's
+    cost per minute (`own_model`, or when omitted the console default), and the Studio minute
+    is the own-voice-and-model one. That cost is struck at `own_model_prompt_tokens`, which a
+    caller holding the deployment's prompt basis passes; omitted, it is the engine's prompt
+    ceiling. The gateway's fee is a fraction of the SALE and is added beside this floor
+    (`gateway_fee_inr_per_min`), not inside it.
     """
     if voice not in (VALUE_VOICE_TIER, PREMIUM_VOICE_TIER):
         raise ValueError(f"no cost floor for voice tier {voice!r}")
-    base = (
-        SELF_SERVE_COST_FLOOR_INR_PER_MIN
-        if voice == VALUE_VOICE_TIER
-        else CARTESIA_COST_FLOOR_INR_PER_MIN
+    if engine != "thinnest":
+        return (
+            SELF_SERVE_COST_FLOOR_INR_PER_MIN
+            if voice == VALUE_VOICE_TIER
+            else CARTESIA_COST_FLOOR_INR_PER_MIN
+        )
+    if inputs is None:
+        raise ValueError("a ThinnestAI cost floor is struck at FloorInputs; none were passed")
+    model = own_model or _thinnest_own_model()
+    model_half = (
+        Decimal("0")
+        if model is None
+        else own_model_floor_inr_per_min(model, prompt_tokens=own_model_prompt_tokens)
     )
-    if engine == "thinnest":
-        model = own_model or _thinnest_own_model()
-        if voice != VALUE_VOICE_TIER:
-            if model is None:
-                return THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN
-            return (
-                THINNEST_OWN_VOICE_AND_MODEL_INR_PER_MIN * (Decimal("1") + THINNEST_TOPUP_FEE)
-                + _worst_marginal_tts(PLANNING_USD_INR)
-                + own_model_floor_inr_per_min(model, prompt_tokens=own_model_prompt_tokens)
-            ).quantize(MONEY_Q, rounding=ROUNDING)
+    if voice != VALUE_VOICE_TIER:
+        minute = (
+            THINNEST_OWN_VOICE_INR_PER_MIN
+            if model is None
+            else THINNEST_OWN_VOICE_AND_MODEL_INR_PER_MIN
+        )
+        floor = _with_wallet_fee(minute, inputs) + thinnest_studio_tts_inr_per_min(inputs)
+    else:
         if clear_band is None:
             from apps.api.core.settings import get_settings
 
             clear_band = get_settings().thinnest_clear_voice_band
-        floor = THINNEST_CLEAR_COST_FLOOR_BY_BAND[clear_band]
-        if model is None:
-            return floor
-        model_half = own_model_floor_inr_per_min(model, prompt_tokens=own_model_prompt_tokens)
-        return (floor + model_half).quantize(MONEY_Q, rounding=ROUNDING)
-    return base
+        floor = _with_wallet_fee(THINNEST_BAND_INR_PER_MIN[clear_band], inputs)
+    return (floor + model_half).quantize(MONEY_Q, rounding=ROUNDING)
 
 
 # --- THE ONE GROSS-MARGIN FLOOR, AND THE ONE FORMULA (hoisted from credit_packs) ------
@@ -2901,14 +2942,11 @@ __all__ = [
     "SARVAM_PRICED_LLM",
     "SELF_SERVE_COST_FLOOR_INR_PER_MIN",
     "STT_INR_PER_HOUR",
-    "THINNEST_CLEAR_COST_FLOOR_BY_BAND",
-    "THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN",
+    "THINNEST_BAND_INR_PER_MIN",
     "THINNEST_OWN_VOICE_AND_MODEL_INR_PER_MIN",
     "THINNEST_OWN_VOICE_INR_PER_MIN",
     "THINNEST_PREMIUM_BAND_INR_PER_MIN",
     "THINNEST_STUDIO_BAND_INR_PER_MIN",
-    "THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN",
-    "THINNEST_TOPUP_FEE",
     "TTS_ASSUMED_CHARS_PER_CALL_MINUTE",
     "TTS_INR_PER_10K_CHARS",
     "VALUE_VOICE_TIER",
@@ -2917,6 +2955,7 @@ __all__ = [
     "CartesiaPlan",
     "ClearCostFloor",
     "CommittedPlanMargin",
+    "FloorInputs",
     "InrLlmPriceAttestation",
     "InrLlmPriceAttestationReader",
     "LlmPriceAttestation",
@@ -2948,6 +2987,7 @@ __all__ = [
     "committed_plan_margin",
     "cost_floor_inr_per_min",
     "ex_tts_cost_inr_per_min_at",
+    "gateway_fee_inr_per_min",
     "gross_margin_ratio",
     "inr_llm_inr_per_ktok",
     "install_inr_llm_price_attestations",
@@ -2970,6 +3010,7 @@ __all__ = [
     "stored_voice_tier",
     "stt_rate_inr_per_minute",
     "surchargeable_models_are_dearer",
+    "thinnest_studio_tts_inr_per_min",
     "tts_inr_per_call_minute",
     "usd_mtok_to_inr_ktok_exact",
     "value_rung_tts_inr_per_char",

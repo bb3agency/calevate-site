@@ -594,6 +594,11 @@ async def set_value(
     # and never holds the per-key lock. Only this one key carries the gate.
     if key == _RESOURCE_KEY:
         _assert_resource_attested(stored)
+    # Credit may be set to expire only once the Terms that say so are published (D-840).
+    if key == "credit_pack_expiry_months":
+        from apps.api.billing.credit_expiry import assert_expiry_may_switch_on
+
+        assert_expiry_may_switch_on(stored)
     # THE SHARED TRIAL NUMBER must be one the developer workspace holds and no client has
     # recorded (D-697), read live from the voice platform; the console offers only those.
     if key == "trial_caller_number":

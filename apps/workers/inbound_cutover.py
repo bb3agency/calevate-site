@@ -114,9 +114,9 @@ async def apply_inbound_credit_state(ctx: dict[str, Any], payload: dict[str, Any
             detail=(
                 f"the {engine.name} adapter cannot override an agent's script, so nothing "
                 "changes what a caller hears when a client's credit runs out: inbound is "
-                "still answered normally. The client is not billed for it "
-                "(workers/pipeline.py), so no overdraft accrues — but calls this client "
-                "cannot pay for are still being served."
+                "still answered normally. Each answered call is billed into the client's "
+                "overdraft (workers/pipeline.py), so the debt keeps growing until the "
+                "client tops up."
             ),
             tenant_id=str(tenant_id),
         )

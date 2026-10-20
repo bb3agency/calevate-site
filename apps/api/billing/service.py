@@ -1215,6 +1215,11 @@ async def apply_credit_to_lots(
         return CreditedLot(
             lot_id=restate_lot_id, credits_inr=remainder, repaid_overdraft_inr=repaid
         )
+    # A PURCHASE's credit lapses on the term in force now (D-840); a grant, a migration and
+    # an override carry none. Imported here: `credit_expiry` imports this module.
+    from apps.api.billing.credit_expiry import credit_expiry_months, expires_at_for
+
+    months = credit_expiry_months() if source == "topup" else None
     lot_id = await credit_lots.open_lot(
         session,
         tenant_id=tenant_id,
@@ -1225,6 +1230,7 @@ async def apply_credit_to_lots(
         pack_id=pack_id,
         ledger_entry_id=ledger_entry_id,
         override_of_pack_id=override_of_pack_id,
+        expires_at=None if months is None else expires_at_for(datetime.now(UTC), months=months),
     )
     return CreditedLot(lot_id=lot_id, credits_inr=remainder, repaid_overdraft_inr=repaid)
 
@@ -1669,6 +1675,8 @@ async def reprice_lot(
         ledger_entry_id=marker.entry_id,
         override_of_pack_id=pack.pack_id,
         opened_at=lot.opened_at,
+        # The credit keeps the expiry it was bought with (D-840).
+        expires_at=lot.expires_at,
     )
     log.info(
         "credit_lot_repriced",
@@ -3624,12 +3632,11 @@ async def margin_for_tenant(
     time with the fx rate it used, so a later rate move cannot rewrite history.
 
     **`cost_inr` IS THE SUM OF THE LEGS THAT COULD BE PRICED.** A leg nobody could honestly
-    price was recorded as a `call_metering_refusals` row instead of a `usage_events` row
-    (the former owned runtime's metering, D-595), so `legs_unpriced` counts those rows
-    beside the figure.
-    It is a COUNT and not a rupee estimate, deliberately — the whole reason those legs have
-    no `usage_events` row is that nobody can honestly price them, so totalling them would be
-    the fabrication the refusal exists instead of. A non-zero count means `cost_inr` is a
+    price is metered with a NULL `unit_cost_paid` (an unattested rate or fee), so
+    `legs_unpriced` counts those rows beside the figure (`unpriced_usage_rows`, D-840).
+    It is a COUNT and not a rupee estimate, deliberately — the whole reason those legs carry
+    no cost is that nobody can honestly price them, so totalling them would be the
+    fabrication the NULL exists instead of. A non-zero count means `cost_inr` is a
     floor rather than a total, and `margin_pct` is therefore a ceiling. This is the number
     D-12 says G2 gates on, and a founder pricing against a margin has to know which legs
     are in it.
@@ -3691,18 +3698,7 @@ async def margin_for_tenant(
     revenue += rental
     margin = to_paise(revenue - cost_inr)
     pct = margin_pct(margin_inr=margin, revenue_inr=revenue)
-    # THE LEGS THAT COULD NOT BE PRICED, counted over the SAME month window the cost above
-    # is summed over — a count taken over a different window would make the two figures
-    # describe different periods, which is worse than not publishing it.
-    unpriced = (
-        await session.execute(
-            text(
-                "SELECT count(*) FROM call_metering_refusals r JOIN calls c ON c.id = "
-                "r.call_id WHERE c.started_at >= :month_from AND c.started_at < :month_to"
-            ),
-            _month_bounds(usage["month"]),
-        )
-    ).scalar_one()
+    unpriced = await unpriced_usage_rows(session, tenant_id=tenant_id, month=str(usage["month"]))
     return {
         "month": usage["month"],
         "minutes_used": usage["minutes_used"],
@@ -3712,8 +3708,28 @@ async def margin_for_tenant(
         "cost_inr": cost_inr,
         "margin_inr": margin,
         "margin_pct": pct,
-        "legs_unpriced": int(unpriced),
+        "legs_unpriced": unpriced,
     }
+
+
+#: The usage rows of a month the meter wrote with no cost (an unattested rate or fee), over
+#: exactly the rows `_tier_totals` sums our cost from. `_ROW_COST_SQL` counts them at ₹0, so
+#: a non-zero count makes that cost a floor and the margin a ceiling.
+_UNPRICED_ROWS_SQL: Final = (
+    "SELECT count(*) FROM usage_events WHERE tenant_id = :tid "
+    f"AND {_IST_MONTH_WINDOW} AND {_NOT_AI_UNITS} AND unit_cost_paid IS NULL"
+)
+
+
+async def unpriced_usage_rows(session: AsyncSession, *, tenant_id: UUID, month: str) -> int:
+    """How many of this client's usage rows in `month` carry no cost (D-840)."""
+    return int(
+        (
+            await session.execute(
+                text(_UNPRICED_ROWS_SQL), {"tid": tenant_id, **_month_bounds(month)}
+            )
+        ).scalar_one()
+    )
 
 
 __all__ = [
@@ -3796,6 +3812,7 @@ __all__ = [
     "split_overage",
     "tier_usage",
     "to_paise",
+    "unpriced_usage_rows",
     "usage_summary",
     "voice_tier_usage",
 ]

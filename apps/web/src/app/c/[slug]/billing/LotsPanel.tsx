@@ -111,7 +111,12 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
                         : null}
                     </td>
                   ))}
-                  <td className="py-3.5 text-right text-ink-muted">{formatIST(lot.opened_at)}</td>
+                  <td className="py-3.5 text-right text-ink-muted">
+                    {formatIST(lot.opened_at)}
+                    {lot.expires_at ? (
+                      <span className="block text-meta">Expires {formatIST(lot.expires_at)}</span>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
             </tbody>

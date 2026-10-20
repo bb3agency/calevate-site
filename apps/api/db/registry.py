@@ -722,6 +722,16 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "id and a source note — no PII, no credential, no tenant data. Append-only (see "
         "APPEND_ONLY_TABLES)."
     ),
+    "platform_cost_attestations": (
+        "platform-scoped, admin realm only (D-840). The operator-attested cost inputs that are "
+        "not a per-minute engine price — the voice platform's wallet top-up fee, the payment "
+        "gateway's fee on a client's top-up, the monthly rent of a number rented in the voice "
+        "platform's console — effective-dated, for one engine account and one gateway account, "
+        "so it carries no tenant_id. `billing/cost_attestations.attest_cost` is the only writer "
+        "and requires a step-up-confirmed caller writing the audit row on the same session. "
+        "Holds a subject word, one NUMERIC figure, an attester id and a source note — no PII, no "
+        "credential, no tenant data. Append-only (see APPEND_ONLY_TABLES)."
+    ),
     "platform_engine_model_bands": (
         "platform-scoped, admin realm only. The per-minute band (`none` or `premium`) an "
         "operator recorded for one of an ENGINE's own models, read off its console because "
@@ -1118,6 +1128,9 @@ APPEND_ONLY_TABLES = [
     # The attested per-minute engine price (D-678). Append-only for `platform_tts_prices`'
     # reason: an editable figure would silently re-price minutes already metered against it.
     "platform_engine_minute_prices",
+    # The attested fees and number rent (D-840). Append-only for
+    # `platform_engine_minute_prices`' reason: they are multiplied into rows already metered.
+    "platform_cost_attestations",
     # The recorded per-minute band of an engine's own model. Append-only for
     # `platform_engine_minute_prices`' reason: the band decides which rate a minute is sold at,
     # and an editable row would rewrite what a past publish was priced against.

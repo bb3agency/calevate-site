@@ -473,14 +473,21 @@ def test_cost_micro_is_rupees_without_a_float() -> None:
 
 
 @pytest.mark.parametrize("band", ["studio", "premium"])
-def test_the_top_up_fee_is_one_fee_whatever_the_band(
+async def test_the_top_up_fee_is_one_fee_whatever_the_band(
     band: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """2.36% on every plan (ThinnestAI email of 12 Oct 2026): the band no longer moves it."""
+    """2.36% on every plan (ThinnestAI email of 12 Oct 2026), attested (D-840): the band does
+    not move it."""
+    from datetime import UTC, datetime
+
+    from apps.api.billing.engine_minutes import wallet_topup_fee
     from apps.api.core.settings import get_settings
+    from apps.api.db.session import untenanted_session
 
     monkeypatch.setattr(get_settings(), "thinnest_clear_voice_band", band)
-    assert engine_charges.thinnest_topup_fee() == Decimal("0.0236")
+    async with untenanted_session() as session:
+        fee = await wallet_topup_fee(session, engine="thinnest", at=datetime.now(UTC))
+    assert fee == Decimal("0.0236")
     assert engine_charges.cost_with_fee(Decimal("3.00"), fee=Decimal("0.0236")) == Decimal("3.0708")
 
 

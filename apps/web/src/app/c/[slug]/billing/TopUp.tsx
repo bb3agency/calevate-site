@@ -364,6 +364,13 @@ export function TopUp({ session }: { session: Session }) {
         )}
       </form>
 
+      {packs.data?.credit_expiry_months ? (
+        <p className="text-body text-ink-muted">
+          Credit you buy now expires {packs.data.credit_expiry_months} months after you buy it.
+          Credit you already hold keeps the terms it was bought on.
+        </p>
+      ) : null}
+
       {order && (
         <div className="rounded-md border border-line px-4 py-3 text-body text-ink-muted">
           {/* The amount the SERVER priced, as it sent it — this is the figure a bank

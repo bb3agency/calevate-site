@@ -9267,6 +9267,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/cost-attestations/{subject}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attest a fee or a number rent (step-up confirmed, audited)
+         * @description Records one cost input as a NEW effective-dated row: the voice platform's wallet top-up fee or the payment gateway's fee on a client's top-up, in PERCENT, or the monthly rent of a number rented in the voice platform's console, in rupees. Requires `X-Confirm-Action: attest_cost:<subject>`. Rows already metered are not re-priced.
+         */
+        post: operations["attest_cost_input_v1_ops_cost_attestations__subject__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/dashboard-data-use": {
         parameters: {
             query?: never;
@@ -9381,7 +9401,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every engine priced by the minute, and each rate's attested price */
+        /** Every engine priced by the minute, each rate's attested price, and the fees */
         get: operations["list_engine_minute_prices_v1_ops_engine_minute_prices_get"];
         put?: never;
         post?: never;
@@ -9402,7 +9422,7 @@ export interface paths {
         put?: never;
         /**
          * Attest one engine rate per billed minute (step-up confirmed, audited)
-         * @description Records the voice platform's posted rate per billed minute, before its wallet top-up fee, as a NEW effective-dated row. We add the fee when metering (2.36% on every plan; each row's `topup_fee_percent` says what is added, and `inr_per_min_with_fee` is the figure metered). Requires `X-Confirm-Action: attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it are not offered and any that run are metered with no cost and alarmed.
+         * @description Records the voice platform's posted rate per billed minute, before its wallet top-up fee, as a NEW effective-dated row. We add the attested fee when metering (each row's `topup_fee_percent` says what is added, and `inr_per_min_with_fee` is the figure metered). Requires `X-Confirm-Action: attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it are not offered and any that run are metered with no cost and alarmed.
          */
         post: operations["attest_engine_minute_v1_ops_engine_minute_prices__engine___rate_key__post"];
         delete?: never;
@@ -13567,6 +13587,21 @@ export interface components {
              */
             translation_state: "pending" | "ready" | "failed" | "not_needed" | "unavailable";
         };
+        /**
+         * CallVarianceOut
+         * @description One settled call: the voice platform's figure (its charge with the wallet top-up fee)
+         *     against what we metered. `variance_inr` is metered minus theirs.
+         */
+        CallVarianceOut: {
+            /** Call Id */
+            call_id: string;
+            /** Metered Inr */
+            metered_inr: string;
+            /** Variance Inr */
+            variance_inr: string;
+            /** Vendor Inr */
+            vendor_inr: string;
+        };
         /** CallbackEligibilityOut */
         CallbackEligibilityOut: {
             /** Eligible */
@@ -14101,6 +14136,23 @@ export interface components {
              * @enum {string}
              */
             status: "pending" | "captured" | "failed";
+        };
+        /**
+         * ChargeVarianceOut
+         * @description The month's settled calls, compared (`billing/charge_variance.py`, D-840). Shown and
+         *     never corrected: a rate variance writes no compensating row.
+         */
+        ChargeVarianceOut: {
+            /** Calls */
+            calls: number;
+            /** Largest */
+            largest: components["schemas"]["CallVarianceOut"][];
+            /** Metered Inr */
+            metered_inr: string;
+            /** Variance Inr */
+            variance_inr: string;
+            /** Vendor Inr */
+            vendor_inr: string;
         };
         /** CheckIn */
         CheckIn: {
@@ -15633,6 +15685,35 @@ export interface components {
              */
             status: "ready";
         };
+        /** CostAttestIn */
+        CostAttestIn: {
+            /** Effective From */
+            effective_from?: string | null;
+            /** Source Note */
+            source_note: string;
+            /** Value */
+            value: string;
+        };
+        /** CostAttestationOut */
+        CostAttestationOut: {
+            /** Attested At */
+            attested_at: string | null;
+            /** Effective From */
+            effective_from: string | null;
+            /** Label */
+            label: string;
+            /** Source Note */
+            source_note: string | null;
+            /** Subject */
+            subject: string;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "percent" | "inr_per_month";
+            /** Value */
+            value: string | null;
+        };
         /**
          * CostBreakdownOut
          * @description `CostBreakdown` on the wire, admin realm only: every figure is `unit_cost_paid`.
@@ -15970,6 +16051,8 @@ export interface components {
         CreditPacksOut: {
             /** Clear Tier Label */
             clear_tier_label: string;
+            /** Credit Expiry Months */
+            credit_expiry_months?: number | null;
             /** From Clear Inr Per Min */
             from_clear_inr_per_min: string;
             /** From Inr Per Min */
@@ -17039,18 +17122,16 @@ export interface components {
             /** Source Note */
             source_note: string | null;
             /** Topup Fee Percent */
-            topup_fee_percent: string;
-            /** Topup Fee Plan */
-            topup_fee_plan: string | null;
+            topup_fee_percent: string | null;
         };
         /** EngineMinutePricesOut */
         EngineMinutePricesOut: {
             /** As Of */
             as_of: string;
+            /** Costs */
+            costs: components["schemas"]["CostAttestationOut"][];
             /** Prices */
             prices: components["schemas"]["EngineMinutePriceOut"][];
-            /** Topup Fees */
-            topup_fees: components["schemas"]["TopUpFeeOut"][];
         };
         /** EngineModelBandIn */
         EngineModelBandIn: {
@@ -17880,6 +17961,11 @@ export interface components {
             tts_plan: components["schemas"]["TtsPlanSpendOut"][];
             /** Undecidable */
             undecidable: components["schemas"]["FleetUndecidableOut"][];
+            /**
+             * Unpriced Rows
+             * @default 0
+             */
+            unpriced_rows: number;
         };
         /**
          * FleetTenantOut
@@ -17892,6 +17978,8 @@ export interface components {
             ai_requests: number;
             /** Calls */
             calls: number;
+            /** Charge Variance Inr */
+            charge_variance_inr?: string | null;
             /** Cost Inr */
             cost_inr: string;
             /** Margin Inr */
@@ -17920,6 +18008,11 @@ export interface components {
             trial_cost_inr: string;
             /** Trial In Month */
             trial_in_month: boolean;
+            /**
+             * Unpriced Rows
+             * @default 0
+             */
+            unpriced_rows: number;
         };
         /**
          * FleetUndecidableOut
@@ -17947,6 +18040,28 @@ export interface components {
             slug: string;
             /** Tenant Id */
             tenant_id: string;
+        };
+        /**
+         * FloorInputsOut
+         * @description What the cells' cost floors are struck at on an engine priced by attested minute
+         *     (D-840): the speaking rate, the dollar, and the two attested fees. A fee that is null is
+         *     unattested and the floors leave it out, which `unattested` names.
+         */
+        FloorInputsOut: {
+            /** Chars Per Call Minute */
+            chars_per_call_minute: string;
+            /** Gateway Fee Percent */
+            gateway_fee_percent: string | null;
+            /** Speaking Rate Basis */
+            speaking_rate_basis: string;
+            /** Unattested */
+            unattested: string[];
+            /** Usd Inr */
+            usd_inr: string;
+            /** Usd Inr Source */
+            usd_inr_source: string;
+            /** Wallet Fee Percent */
+            wallet_fee_percent: string | null;
         };
         /** ForwardingOut */
         ForwardingOut: {
@@ -23213,6 +23328,7 @@ export interface components {
             earliest_effective_from: string;
             /** Effective From */
             effective_from: string | null;
+            floor_inputs: components["schemas"]["FloorInputsOut"];
             /** Notice Days */
             notice_days: number;
             /** Notice Recipients */
@@ -26337,6 +26453,7 @@ export interface components {
              * @enum {string}
              */
             charge_basis: "wallet_debit" | "allocated";
+            charge_variance?: components["schemas"]["ChargeVarianceOut"] | null;
             cost_all_in?: components["schemas"]["CostBreakdownOut"] | null;
             /** Cost Currency */
             cost_currency: string | null;
@@ -26390,6 +26507,11 @@ export interface components {
             /** Trial Minutes */
             trial_minutes: string;
             unattributed: components["schemas"]["UnattributedSpendOut"] | null;
+            /**
+             * Unpriced Rows
+             * @default 0
+             */
+            unpriced_rows: number;
         };
         /** TenantSummary */
         TenantSummary: {
@@ -27124,13 +27246,6 @@ export interface components {
             online_payments_available: boolean;
             /** Provider Orders Available */
             provider_orders_available: boolean;
-        };
-        /** TopUpFeeOut */
-        TopUpFeeOut: {
-            /** Percent */
-            percent: string;
-            /** Plan */
-            plan: string;
         };
         /** TopUpIn */
         TopUpIn: {
@@ -28419,6 +28534,8 @@ export interface components {
             clear_inr_per_min: string;
             /** Credits Remaining */
             credits_remaining: string;
+            /** Expires At */
+            expires_at?: string | null;
             /**
              * Lot Id
              * Format: uuid
@@ -45313,6 +45430,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    attest_cost_input_v1_ops_cost_attestations__subject__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                subject: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CostAttestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostAttestationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -3405,9 +3405,14 @@ async def _engine_minute_cost(
             "WORKER_TERMINAL",
             "engine_minute_rate_unattested",
             detail=(
-                f"engine={snapshot.engine} rate_key={priced.rate_key}: no attested per-minute "
-                "price, so this call's minutes were metered with no cost. Attest the rate in "
-                "the ops model-pricing panel; the margin on this call reads better than it is."
+                f"engine={snapshot.engine} rate_key={priced.rate_key}: "
+                + (
+                    "no attested per-minute price"
+                    if priced.inr_per_min is None
+                    else "no attested wallet top-up fee"
+                )
+                + ", so this call's minutes were metered with no cost. Attest it in the ops "
+                "engine-minute panel; the margin on this call reads better than it is."
             ),
             call_id=str(call_id),
             tenant_id=str(tenant_id),
@@ -3623,7 +3628,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 # them apart would let an operator's edit land between them and stamp a
                 # row whose two halves describe different configurations.
                 text(
-                    "SELECT a.tts_voice, a.llm_model, o.default_llm_model, c.direction "
+                    "SELECT a.tts_voice, a.llm_model, o.default_llm_model "
                     "FROM calls c "
                     "LEFT JOIN agents a ON a.id = c.agent_id AND a.tenant_id = c.tenant_id "
                     "LEFT JOIN organizations o ON o.id = c.tenant_id "
@@ -3637,8 +3642,8 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # produce, so it is spelled as one absent triple rather than as a `None` guard
         # repeated at each use — three guards is three chances for one of them to answer
         # differently about the same row.
-        voice_id, agent_model, organization_model, call_direction = (
-            config_row if config_row is not None else (None, None, None, None)
+        voice_id, agent_model, organization_model = (
+            config_row if config_row is not None else (None, None, None)
         )
         # THE RUNG A CALL IS METERED ON. There is one voice quality now (the single-tier
         # voice decision), so every call bills at the plan's BASE overage rate — a single
@@ -3800,7 +3805,11 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                         "inr_per_min": str(minute_cost.inr_per_min)
                         if minute_cost.inr_per_min is not None
                         else None,
-                        TOPUP_FEE_META_KEY: str(minute_cost.topup_fee),
+                        **(
+                            {TOPUP_FEE_META_KEY: str(minute_cost.topup_fee)}
+                            if minute_cost.topup_fee is not None
+                            else {}
+                        ),
                     }
                     if minute_cost is not None
                     else {}
@@ -4063,50 +4072,23 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         on_us = await trial_covers(
             session, tenant_id=tenant_id, at=snapshot.ended_at or datetime.now(UTC)
         )
-        # AND NOTHING FOR AN INBOUND CALL ON A WALLET THAT IS ALREADY EMPTY (8 Sep 2026).
-        #
-        # THE DEFECT THIS CLOSES, in this file's own former words: "the gate is
-        # outbound-only, so inbound still meters". `compliance.check_dispatch` refuses an
-        # outbound dial at a balance of zero or below and an inbound call passes through
-        # none of it, so a clinic answering at Rs.0 went on being debited every answered
-        # minute against a wallet that could only get more negative. NOTHING bounded it —
-        # `record_entry` is called with `allow_negative=True` here, correctly, because the
-        # call already happened and refusing to record a real cost would hide it. The bound
-        # has to be a decision not to CHARGE, and this is it.
-        #
-        # THE RULE IS EXACT AND IT IS THE FOUNDER'S: at a balance of zero or below, inbound
-        # accrues NO FURTHER DEBT. So the wallet can still be taken negative — once — by an
-        # inbound call that was answered while there was credit to answer it, and can never
-        # be taken further negative by the next one. That single call's worth of overdraft
-        # is unavoidable and is the same one an outbound call leaves; what is gone is the
-        # unbounded accrual behind it.
-        #
-        # ⚠ **`usage_events` IS UNTOUCHED, AND THAT IS THE POINT** (hard rule 7). Every
-        # minute and its real `unit_cost_paid` is still metered, because we still PAID the
-        # vendor for this call and a cost nobody recorded is a cost nobody can see. What
-        # does not happen is the wallet debit — the same division `on_us` above makes, for
-        # a different reason, and the reason the two are separate booleans rather than one:
-        # a trial call is a gift the client is shown (`trial_absorbed_inr`) and is not
-        # gated by the wallet at all, while this one is a debt the wallet refuses to grow.
+        # AN INBOUND CALL ON AN EMPTY WALLET IS BILLED INTO OVERDRAFT (D-840, founder 20 Oct
+        # 2026, replacing the 8 Sep rule that charged it nothing). The call was answered, so
+        # its minutes are owed like an outbound call's last minutes; `charge_for_call`
+        # records the debit with `allow_negative=True` and the next top-up repays it first
+        # (`apply_credit_to_lots`). What bounds the debt is the cutover below, which stops
+        # the agents answering once the wallet is empty.
         #
         # THE PREDICATE IS `credits_exhausted`, ASKED AND NEVER RE-DERIVED — the same one
-        # the dial gate, the campaign launch gate and the client's own credits screen ask,
-        # so there is one definition of "this account has run out" and a change to it moves
-        # every surface at once. Read UNDER THE CREDIT LOCK, taken here rather than left to
-        # `charge_for_call`: a balance read outside it is a check-then-write, and two
-        # inbound calls settling at once would both see credit and both charge. The lock is
-        # re-entrant within the transaction, so `charge_for_call` re-taking it costs
-        # nothing, and the order (call lock, then credit, then `spend_state`) is unchanged.
-        # ASKED ONLY OF A WALLET MOTION. `credits_exhausted` answers False for a managed
-        # tenant anyway (they are invoiced against a retainer), so the tier test buys no
-        # correctness — it buys the LOCK: a managed client's calls have no credit write to
-        # serialize, and taking a per-tenant advisory lock on every one of them would
-        # serialize their whole metering behind a question whose answer is fixed.
+        # the dial gate, the campaign launch gate and the client's own credits screen ask.
+        # Read UNDER THE CREDIT LOCK: the lock is re-entrant within the transaction, so
+        # `charge_for_call` re-taking it costs nothing, and the order (call lock, then
+        # credit, then `spend_state`) is unchanged. Asked only of a wallet motion: a managed
+        # client's calls have no credit write to serialize.
         exhausted = False
         if tier in PREPAID_TIERS:
             await lock_tenant_credits(session, tenant_id)
             exhausted = await credits_exhausted(session, tenant_id=tenant_id)
-        inbound_at_zero = exhausted and str(call_direction) == "inbound"
         if exhausted:
             # THE BACKSTOP FOR THE ONE EDGE THE LEDGER CANNOT SEE. The cutover is normally
             # driven by `record_entry`'s crossing of zero, which covers every movement of
@@ -4139,7 +4121,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # applies, and the list rate as the fallback for a wallet with no lots left — and
         # reads the price back.
         charged_inr = Decimal("0")
-        if tier in PREPAID_TIERS and not on_us and not inbound_at_zero:
+        if tier in PREPAID_TIERS and not on_us:
             charged_inr = await charge_for_call(
                 session,
                 tenant_id=tenant_id,

@@ -559,8 +559,12 @@ class Settings(BaseSettings):
     whatsapp_message_inr: Decimal | None = Field(default=None, ge=0, le=Decimal("10"))
     #: The free trial a business gets the moment it signs itself up (D-703); an operator
     #: still sets each managed client's trial by hand. Bounded like `billing/trials`.
-    self_serve_trial_days: int = Field(default=7, ge=1, le=365)
-    self_serve_trial_free_minutes: int = Field(default=30, ge=1, le=1000)
+    self_serve_trial_days: int = Field(default=14, ge=1, le=365)
+    self_serve_trial_free_minutes: int = Field(default=300, ge=1, le=1000)
+    #: Months after purchase that credit bought in a pack lapses (D-840); unset, credit does
+    #: not expire. Applies only once a Terms revision stating it is published
+    #: (`billing/credit_expiry.TERMS_REVISION_STATING_EXPIRY`), and only to credit bought after.
+    credit_pack_expiry_months: int | None = Field(default=None, ge=1, le=60)
     #: Simultaneous calls on an engine with no call ceiling of its own (the fake engine), inbound
     #: and outbound together. An engine with its own ceiling uses that instead
     #: (`engine/dial_lines.outbound_line_pool`).
