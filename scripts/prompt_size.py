@@ -41,7 +41,7 @@ _LIVE = (
 )
 
 
-def _reason(exc: Exception) -> str:
+def reason_code(exc: Exception) -> str:
     """Our refusal code, or the exception's class: never its message, which may quote a
     script or a stored value."""
     return exc.code if isinstance(exc, ProblemError) else type(exc).__name__
@@ -53,7 +53,7 @@ async def _prepare() -> None:
     await refresh_spoken_style()
 
 
-async def _tenant_of(agent_id: UUID) -> UUID | None:
+async def tenant_of(agent_id: UUID) -> UUID | None:
     async with admin_session() as directory:
         tenants = [UUID(str(t)) for t in (await directory.execute(text(_DIRECTORY))).scalars()]
     for tenant_id in tenants:
@@ -73,14 +73,14 @@ async def _measure(tenant_id: UUID, agent_id: UUID) -> PromptSize:
 
 async def one(agent_id: UUID) -> int:
     await _prepare()
-    tenant_id = await _tenant_of(agent_id)
+    tenant_id = await tenant_of(agent_id)
     if tenant_id is None:
         print(f"agent {agent_id}: not found")
         return 2
     try:
         size = await _measure(tenant_id, agent_id)
     except Exception as exc:  # report the reason, never a traceback with values in it
-        print(f"agent {agent_id}: cannot be measured ({_reason(exc)})")
+        print(f"agent {agent_id}: cannot be measured ({reason_code(exc)})")
         return 2
     print(f"agent {agent_id} (engine {get_engine().name})")
     for line in lines(size):
@@ -104,7 +104,7 @@ async def all_live() -> int:
             try:
                 size = await _measure(tenant_id, agent_id)
             except Exception as exc:  # one agent's state must not stop the listing
-                print(f"{agent_id!s:<36}  cannot be measured ({_reason(exc)})")
+                print(f"{agent_id!s:<36}  cannot be measured ({reason_code(exc)})")
                 worst = max(worst, 2)
                 continue
             limit = "-" if size.limit is None else f"{size.limit}"

@@ -1602,6 +1602,7 @@ class ThinnestEngine:
         client: httpx.AsyncClient | None = None,
         signing_secret_for: SigningSecretResolver | None = None,
         status_transport: httpx.AsyncBaseTransport | None = None,
+        compose_instructions: Callable[[AgentConfig], str] = compose_engine_prompt,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url
@@ -1609,6 +1610,11 @@ class ThinnestEngine:
         self._signing_secret_for = signing_secret_for
         #: The status read goes out without our key, so it never uses `client`.
         self._status_transport = status_transport
+        #: What an agent's `instructions` are composed with. Always `compose_engine_prompt`
+        #: on every path that serves a client (`build_engine` passes nothing); the Telugu
+        #: register eval (`scripts/register_chat_eval`, D-837) passes a variant of it so its
+        #: temporary agents get every other field of the body exactly as a publish sends it.
+        self._compose_instructions = compose_instructions
 
     def holds_credentials(self) -> bool:
         return bool(self._api_key) or self._client is not None
@@ -1755,7 +1761,7 @@ class ThinnestEngine:
     def _agent_body(self, cfg: AgentConfig) -> dict[str, Any]:
         self._refuse_what_this_engine_cannot_carry(cfg)
         instructions = self._within(
-            compose_engine_prompt(cfg),
+            self._compose_instructions(cfg),
             INSTRUCTIONS_MAX_CHARS,
             code="engine_prompt_too_long",
             what="agent's script, with the platform rules added",
@@ -2621,6 +2627,32 @@ class ThinnestEngine:
             workspace=workspace,
             absent_is_success=True,
         )
+
+    async def developer_agents_named(self, prefix: str) -> list[EngineAgentRef]:
+        """Our agents in the developer workspace whose name, without our tag, starts with
+        `prefix`: the eval agents a crashed `scripts/register_chat_eval` run left behind. A
+        name without our tag is someone else's and is never returned. Refuses an incomplete
+        listing, as `_find_agent` does, so a sweep never reports "none left" on a short read."""
+        if not prefix:
+            raise ValueError("a prefix is required")
+        rows, reason, _ = await self._walk("/agents", route="/agents", workspace=None)
+        if reason is not None:
+            log.warning("thinnest_agent_listing_incomplete", extra={"reason": reason})
+            raise ProblemError(
+                kind="dependency",
+                code="engine_listing_incomplete",
+                title="The voice platform's agent list could not be read in full",
+                detail="We could not list every agent on the platform.",
+                remediation="Try again. If it keeps failing, contact us.",
+            )
+        out: list[EngineAgentRef] = []
+        for row in rows:
+            name, raw = _str(row.get("name")), _str(row.get("id"))
+            if name is None or raw is None or not _NAME_TAG_RE.search(name):
+                continue
+            if (_our_name(name) or "").startswith(prefix):
+                out.append(scoped_handle(raw, None))
+        return out
 
     async def test_chat(
         self, ref: EngineAgentRef, message: str, *, session: str | None = None
