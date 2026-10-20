@@ -2,13 +2,23 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { FIX_ALL_REQUEST, TestSection } from "@/app/c/[slug]/agents/[agentId]/test/TestSection";
-import { countsOf, headlineOf, isFixable, languageOf, triesLine } from "@/app/c/[slug]/agents/[agentId]/test/testCopy";
+import {
+  countsOf,
+  fixGroups,
+  headlineOf,
+  isFixable,
+  languageOf,
+  nextStepOf,
+  progressOf,
+  triesLine,
+} from "@/app/c/[slug]/agents/[agentId]/test/testCopy";
 import type { Agent } from "@/lib/api/agents";
 import type { Me } from "@/lib/api/client";
 import type { TestConversations, TestResult, TestRun } from "@/lib/api/script";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
-import { renderClientPage } from "./harness";
+import { expectNoA11yViolations } from "./a11y";
+import { problem, renderClientPage } from "./harness";
 
 /**
  * The practice tests (D-828), from the founder's screenshot of 19 Oct 2026: "0 of 13" after
@@ -175,9 +185,9 @@ describe("the practice tests in Training", () => {
     await page(tests(run(), { waiting_update: "Your agreements are waiting." }));
     // One headline: right every time on 1 of the 2 tests the script decides.
     expect(await screen.findByRole("heading", { name: "Right every time on 1 of your 2 tests." })).toBeTruthy();
-    expect(screen.getByText("1 right every time, 1 need a fix")).toBeTruthy();
-    // The rule we failed is ours: in "On our side", never under the owner's attention.
-    const attention = screen.getByRole("heading", { name: /Needs your attention/ }).closest("section");
+    expect(screen.getByRole("list", { name: "Your score" }).textContent).toBe("1 right every time1 needs a fix");
+    // The rule we failed is ours: in "On our side", never under what the owner fixes.
+    const attention = screen.getByRole("heading", { name: /Your agent is missing an answer/ }).closest("section");
     expect(attention?.textContent).toContain("Asked on a real call: Delivery");
     expect(attention?.textContent).not.toContain("Asks not to be called again");
     expect(screen.getByText(/1 test failed on a rule we keep for every agent/)).toBeTruthy();
@@ -236,7 +246,7 @@ describe("the practice tests in Training", () => {
     const { calls } = await page(tests(compared), {
       "POST /v1/agents/agent-1/script/versions/11/restore": { script: { schema_version: 2, stages: [] }, saved_at: "2026-10-19T10:10:00Z" },
     });
-    expect(await screen.findByRole("heading", { name: "1 fixed, 1 newly broken." })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "1 fixed, 1 newly broken since the last test." })).toBeTruthy();
     expect(screen.getByText("Fixed")).toBeTruthy();
     expect(screen.getByText("Newly broken")).toBeTruthy();
     // Undo is the one primary action while a change broke a test.
@@ -313,6 +323,63 @@ describe("the practice tests in Training", () => {
     expect((await screen.findAllByText("Marked wrong")).length).toBeGreaterThan(0);
     expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/results/real_1/wrong"))).toBe(true);
   });
+
+  it("answers a Test again with nothing changed as guidance in the server's words, not an error", async () => {
+    await page(tests(run({ results: [PRICE, HOURS] })), {
+      "POST /v1/agents/agent-1/script/tests": problem(422, {
+        type: "https://calevate.tech/problems/agent_tests_nothing_changed",
+        title: "We cannot do that",
+        kind: "business_rule",
+        detail: "Nothing has changed since that test: the same tests would fail again.",
+        remediation: "Keep a suggested fix and put it live. Then test again.",
+      }),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Test again" }));
+    const said = await screen.findByText("Nothing has changed since that test: the same tests would fail again.");
+    const notice = said.closest("[data-notice]");
+    expect(notice?.getAttribute("data-notice")).toBe("neutral");
+    expect(notice?.getAttribute("role")).toBe("status");
+    expect(notice?.textContent).toContain("Keep a suggested fix and put it live.");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("We cannot do that")).toBeNull();
+    // The way forward is still the one primary action.
+    expect(screen.getByRole("button", { name: "Let Pip suggest fixes" })).toBeTruthy();
+  });
+
+  it("shows the judge's reason on the closed row, and what a good answer does when opened", async () => {
+    await page(tests(run({ results: [{ ...PRICE, expect: "Says delivery is free above ₹500." }, HOURS] })));
+    const row = (await screen.findByText("Asked on a real call: Delivery")).closest("details");
+    expect(row?.open).toBe(false);
+    expect(row?.querySelector("summary")?.textContent).toContain("It made up a delivery charge.");
+    expect(row?.querySelector("summary")?.textContent).toContain("Wrong all 3 times");
+    expect(row?.textContent).toContain("A good answer: Says delivery is free above ₹500.");
+  });
+
+  it("tests a changed script first, and shows the same tests over time", async () => {
+    const entry = (id: string, passed: number) => ({
+      id,
+      created_at: "2026-10-19T10:00:00Z",
+      prompt_version: 12,
+      round: 1,
+      score: { passed, judged: 2, total: 4 },
+      set_version: 2,
+    });
+    await page(tests(run({ is_current: false }), { history: [entry("run-2", 1), entry("run-1", 0)] }));
+    expect(await screen.findByText(/The script has changed since this test/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Test again" }).className).toContain("bg-brand-strong");
+    expect(screen.queryByRole("button", { name: "Let Pip suggest fixes" })).toBeNull();
+    const overTime = screen.getByRole("list", { name: "These tests over time" });
+    expect(overTime.textContent).toContain("0 of 2");
+    expect(overTime.textContent).toContain("This test1 of 2");
+  });
+
+  it("has no accessibility violations with every group open", async () => {
+    const OFF = { ...PERSON, key: "off", owner: "setting" as const, fix: "settings", standing: "setting" as const, setting: { area: "handover" as const, reason: "Hand-over is off." } };
+    const { container } = await page(tests(run({ results: [PRICE, FLAKY, OFF, STOP, PERSON, HOURS] })));
+    await screen.findByText("Asked on a real call: Delivery");
+    container.querySelectorAll("details").forEach((d) => (d.open = true));
+    await expectNoA11yViolations(container, "practice tests");
+  });
 });
 
 describe("test copy", () => {
@@ -350,6 +417,54 @@ describe("test copy", () => {
     expect(headlineOf(run()).title).toBe("Right every time on 1 of your 2 tests.");
     expect(headlineOf(run({ results: [HOURS] })).title).toBe("Right every time on your one test.");
     const same = run({ comparison: { with_run: "a", with_version: 12, fixed: 0, broken: 0, still: 1, same: 1, new: 0, same_script: true } });
-    expect(headlineOf(same).title).toBe("No change on the same tests.");
+    expect(headlineOf(same).title).toBe("No change since the last test.");
+  });
+
+  it("groups failures by what fixes them, in the order the owner acts on them", () => {
+    const OFF = { ...PRICE, key: "off", owner: "setting" as const, standing: "setting" as const };
+    const groups = fixGroups([OFF, HOURS, PRICE, FLAKY, STOP, PERSON]);
+    expect(groups.map((g) => [g.group, g.rows.map((r) => r.key)])).toEqual([
+      ["script", ["real_2"]],
+      ["knowledge", ["real_1"]],
+      ["setting", ["off"]],
+    ]);
+  });
+
+  it("keeps progress to runs of the same tests, oldest first", () => {
+    const entry = (id: string, set: number, passed: number) => ({
+      id,
+      created_at: "2026-10-19T10:00:00Z",
+      prompt_version: 1,
+      round: 1,
+      score: { passed, judged: 4, total: 5 },
+      set_version: set,
+    });
+    const history = [entry("run-2", 2, 3), entry("run-1b", 2, 1), entry("run-0", 1, 4)];
+    expect(progressOf(history, { id: "run-2", set_version: 2 })?.map((p) => [p.id, p.passed, p.latest])).toEqual([
+      ["run-1b", 1, false],
+      ["run-2", 3, true],
+    ]);
+    expect(progressOf(history, { id: "run-0", set_version: 1 })).toBeNull();
+    expect(progressOf(history, { id: "run-2", set_version: null })).toBeNull();
+  });
+
+  it("picks one next step, most urgent first", () => {
+    const base = {
+      canWrite: true,
+      broke: false,
+      restored: false,
+      hasProposal: false,
+      isCurrent: true,
+      fixable: 0,
+      settings: 0,
+      failing: 0,
+    };
+    expect(nextStepOf({ ...base, broke: true, fixable: 2 })).toBe("undo");
+    expect(nextStepOf({ ...base, broke: true, canWrite: false, hasProposal: true })).toBe("review");
+    expect(nextStepOf({ ...base, isCurrent: false, fixable: 2 })).toBe("retest");
+    expect(nextStepOf({ ...base, fixable: 2, settings: 1, failing: 3 })).toBe("fix");
+    expect(nextStepOf({ ...base, settings: 1, failing: 1 })).toBe("setting");
+    expect(nextStepOf({ ...base, failing: 1 })).toBe("hold");
+    expect(nextStepOf(base)).toBe("done");
   });
 });
