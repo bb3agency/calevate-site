@@ -55,7 +55,7 @@ from apps.api.billing.engine_minutes import (
     attested_minute_prices,
     billed_minutes,
     cost_with_fee,
-    topup_fee,
+    wallet_topup_fee,
 )
 from apps.api.billing.models import FORWARDING_TEST_UNIT_TYPE
 from apps.api.billing.rates import MONEY_Q, ROUNDING
@@ -643,9 +643,10 @@ async def _price_leg_seconds(
     engine = get_settings().engine
     minutes = billed_minutes(Decimal(seconds), pulse_s=PULSE_SECONDS.get(engine, 60))
     price = (await attested_minute_prices(session, engine=engine, at=at)).get(BASE_RATE_KEY)
-    if price is None:
+    fee = await wallet_topup_fee(session, engine=engine, at=at)
+    if price is None or fee is None:
         return minutes, None
-    return minutes, cost_with_fee(minutes * price.inr_per_min, fee=topup_fee(engine))
+    return minutes, cost_with_fee(minutes * price.inr_per_min, fee=fee)
 
 
 async def settle_test(tenant_id: UUID, test_id: UUID) -> str:

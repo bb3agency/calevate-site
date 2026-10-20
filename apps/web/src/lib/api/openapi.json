@@ -7761,6 +7761,36 @@
         "title": "CallTranslationOut",
         "type": "object"
       },
+      "CallVarianceOut": {
+        "additionalProperties": false,
+        "description": "One settled call: the voice platform's figure (its charge with the wallet top-up fee)\nagainst what we metered. `variance_inr` is metered minus theirs.",
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "metered_inr": {
+            "title": "Metered Inr",
+            "type": "string"
+          },
+          "variance_inr": {
+            "title": "Variance Inr",
+            "type": "string"
+          },
+          "vendor_inr": {
+            "title": "Vendor Inr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_id",
+          "vendor_inr",
+          "metered_inr",
+          "variance_inr"
+        ],
+        "title": "CallVarianceOut",
+        "type": "object"
+      },
       "CallbackEligibilityOut": {
         "additionalProperties": false,
         "properties": {
@@ -9028,6 +9058,44 @@
           "settled_at"
         ],
         "title": "ChargeOut",
+        "type": "object"
+      },
+      "ChargeVarianceOut": {
+        "additionalProperties": false,
+        "description": "The month's settled calls, compared (`billing/charge_variance.py`, D-840). Shown and\nnever corrected: a rate variance writes no compensating row.",
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "largest": {
+            "items": {
+              "$ref": "#/components/schemas/CallVarianceOut"
+            },
+            "title": "Largest",
+            "type": "array"
+          },
+          "metered_inr": {
+            "title": "Metered Inr",
+            "type": "string"
+          },
+          "variance_inr": {
+            "title": "Variance Inr",
+            "type": "string"
+          },
+          "vendor_inr": {
+            "title": "Vendor Inr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "calls",
+          "vendor_inr",
+          "metered_inr",
+          "variance_inr",
+          "largest"
+        ],
+        "title": "ChargeVarianceOut",
         "type": "object"
       },
       "CheckIn": {
@@ -12893,6 +12961,116 @@
         "title": "CopilotUploadOut",
         "type": "object"
       },
+      "CostAttestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "effective_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "source_note": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Source Note",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 32,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_note",
+          "value"
+        ],
+        "title": "CostAttestIn",
+        "type": "object"
+      },
+      "CostAttestationOut": {
+        "additionalProperties": false,
+        "properties": {
+          "attested_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested At"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "source_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Note"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          },
+          "unit": {
+            "enum": [
+              "percent",
+              "inr_per_month"
+            ],
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "subject",
+          "label",
+          "unit",
+          "value",
+          "effective_from",
+          "attested_at",
+          "source_note"
+        ],
+        "title": "CostAttestationOut",
+        "type": "object"
+      },
       "CostBreakdownOut": {
         "additionalProperties": false,
         "description": "`CostBreakdown` on the wire, admin realm only: every figure is `unit_cost_paid`.\n\nRupees are exact strings through `to_paise`, like every other rupee the admin money\nscreens publish. `total_inr` is computed once here so no screen adds strings together.",
@@ -13685,6 +13863,17 @@
           "clear_tier_label": {
             "title": "Clear Tier Label",
             "type": "string"
+          },
+          "credit_expiry_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Expiry Months"
           },
           "from_clear_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -16127,8 +16316,8 @@
           }
         },
         "required": [
-          "inr_per_min",
-          "source_note"
+          "source_note",
+          "inr_per_min"
         ],
         "title": "EngineMinutePriceAttestIn",
         "type": "object"
@@ -16215,10 +16404,6 @@
             "title": "Source Note"
           },
           "topup_fee_percent": {
-            "title": "Topup Fee Percent",
-            "type": "string"
-          },
-          "topup_fee_plan": {
             "anyOf": [
               {
                 "type": "string"
@@ -16227,7 +16412,7 @@
                 "type": "null"
               }
             ],
-            "title": "Topup Fee Plan"
+            "title": "Topup Fee Percent"
           }
         },
         "required": [
@@ -16235,7 +16420,6 @@
           "rate_key",
           "inr_per_min",
           "topup_fee_percent",
-          "topup_fee_plan",
           "inr_per_min_with_fee",
           "effective_from",
           "attested_at",
@@ -16253,24 +16437,24 @@
             "title": "As Of",
             "type": "string"
           },
+          "costs": {
+            "items": {
+              "$ref": "#/components/schemas/CostAttestationOut"
+            },
+            "title": "Costs",
+            "type": "array"
+          },
           "prices": {
             "items": {
               "$ref": "#/components/schemas/EngineMinutePriceOut"
             },
             "title": "Prices",
             "type": "array"
-          },
-          "topup_fees": {
-            "items": {
-              "$ref": "#/components/schemas/TopUpFeeOut"
-            },
-            "title": "Topup Fees",
-            "type": "array"
           }
         },
         "required": [
           "prices",
-          "topup_fees",
+          "costs",
           "as_of"
         ],
         "title": "EngineMinutePricesOut",
@@ -18467,6 +18651,11 @@
             },
             "title": "Undecidable",
             "type": "array"
+          },
+          "unpriced_rows": {
+            "default": 0,
+            "title": "Unpriced Rows",
+            "type": "integer"
           }
         },
         "required": [
@@ -18503,6 +18692,17 @@
           "calls": {
             "title": "Calls",
             "type": "integer"
+          },
+          "charge_variance_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Charge Variance Inr"
           },
           "cost_inr": {
             "title": "Cost Inr",
@@ -18573,6 +18773,11 @@
           "trial_in_month": {
             "title": "Trial In Month",
             "type": "boolean"
+          },
+          "unpriced_rows": {
+            "default": 0,
+            "title": "Unpriced Rows",
+            "type": "integer"
           }
         },
         "required": [
@@ -18630,6 +18835,68 @@
           "reason"
         ],
         "title": "FleetUndecidableOut",
+        "type": "object"
+      },
+      "FloorInputsOut": {
+        "additionalProperties": false,
+        "description": "What the cells' cost floors are struck at on an engine priced by attested minute\n(D-840): the speaking rate, the dollar, and the two attested fees. A fee that is null is\nunattested and the floors leave it out, which `unattested` names.",
+        "properties": {
+          "chars_per_call_minute": {
+            "title": "Chars Per Call Minute",
+            "type": "string"
+          },
+          "gateway_fee_percent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gateway Fee Percent"
+          },
+          "speaking_rate_basis": {
+            "title": "Speaking Rate Basis",
+            "type": "string"
+          },
+          "unattested": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unattested",
+            "type": "array"
+          },
+          "usd_inr": {
+            "title": "Usd Inr",
+            "type": "string"
+          },
+          "usd_inr_source": {
+            "title": "Usd Inr Source",
+            "type": "string"
+          },
+          "wallet_fee_percent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wallet Fee Percent"
+          }
+        },
+        "required": [
+          "speaking_rate_basis",
+          "chars_per_call_minute",
+          "usd_inr",
+          "usd_inr_source",
+          "wallet_fee_percent",
+          "gateway_fee_percent",
+          "unattested"
+        ],
+        "title": "FloorInputsOut",
         "type": "object"
       },
       "ForwardingOut": {
@@ -32465,6 +32732,9 @@
             ],
             "title": "Effective From"
           },
+          "floor_inputs": {
+            "$ref": "#/components/schemas/FloorInputsOut"
+          },
           "notice_days": {
             "title": "Notice Days",
             "type": "integer"
@@ -32508,6 +32778,7 @@
           "earliest_effective_from",
           "cartesia_volume",
           "speaking_rate",
+          "floor_inputs",
           "notice_recipients",
           "own_model_prompt_basis"
         ],
@@ -40040,6 +40311,16 @@
             "title": "Charge Basis",
             "type": "string"
           },
+          "charge_variance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChargeVarianceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "cost_all_in": {
             "anyOf": [
               {
@@ -40194,6 +40475,11 @@
                 "type": "null"
               }
             ]
+          },
+          "unpriced_rows": {
+            "default": 0,
+            "title": "Unpriced Rows",
+            "type": "integer"
           }
         },
         "required": [
@@ -42164,25 +42450,6 @@
           "provider_orders_available"
         ],
         "title": "TopUpCapabilityOut",
-        "type": "object"
-      },
-      "TopUpFeeOut": {
-        "additionalProperties": false,
-        "properties": {
-          "percent": {
-            "title": "Percent",
-            "type": "string"
-          },
-          "plan": {
-            "title": "Plan",
-            "type": "string"
-          }
-        },
-        "required": [
-          "plan",
-          "percent"
-        ],
-        "title": "TopUpFeeOut",
         "type": "object"
       },
       "TopUpIn": {
@@ -45563,6 +45830,18 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Credits Remaining",
             "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
           },
           "lot_id": {
             "format": "uuid",
@@ -71011,6 +71290,74 @@
         "x-calevate-permission": "platform:config"
       }
     },
+    "/v1/ops/cost-attestations/{subject}": {
+      "post": {
+        "description": "Records one cost input as a NEW effective-dated row: the voice platform's wallet top-up fee or the payment gateway's fee on a client's top-up, in PERCENT, or the monthly rent of a number rented in the voice platform's console, in rupees. Requires `X-Confirm-Action: attest_cost:<subject>`. Rows already metered are not re-priced.",
+        "operationId": "attest_cost_input_v1_ops_cost_attestations__subject__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subject",
+            "required": true,
+            "schema": {
+              "maxLength": 40,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "title": "Subject",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CostAttestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostAttestationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Attest a fee or a number rent (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
     "/v1/ops/dashboard-data-use": {
       "get": {
         "description": "Lists every declared LLM leg with whether the in-app AI assistant may run on it, the ground if it may not, and the latest operator attestation about that vendor's data-use terms. Eligibility needs BOTH an attestation and a dashboard leg this platform can actually build \u2014 `dashboard_leg_built` says whether the second is true, so attesting a provider whose leg is not built is not mistaken for enabling it. This surface does not govern the in-call leg, which sends raw caller speech.",
@@ -71348,7 +71695,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Every engine priced by the minute, and each rate's attested price",
+        "summary": "Every engine priced by the minute, each rate's attested price, and the fees",
         "tags": [
           "ops"
         ],
@@ -71357,7 +71704,7 @@
     },
     "/v1/ops/engine-minute-prices/{engine}/{rate_key}": {
       "post": {
-        "description": "Records the voice platform's posted rate per billed minute, before its wallet top-up fee, as a NEW effective-dated row. We add the fee when metering (2.36% on every plan; each row's `topup_fee_percent` says what is added, and `inr_per_min_with_fee` is the figure metered). Requires `X-Confirm-Action: attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it are not offered and any that run are metered with no cost and alarmed.",
+        "description": "Records the voice platform's posted rate per billed minute, before its wallet top-up fee, as a NEW effective-dated row. We add the attested fee when metering (each row's `topup_fee_percent` says what is added, and `inr_per_min_with_fee` is the figure metered). Requires `X-Confirm-Action: attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it are not offered and any that run are metered with no cost and alarmed.",
         "operationId": "attest_engine_minute_v1_ops_engine_minute_prices__engine___rate_key__post",
         "parameters": [
           {

@@ -433,8 +433,8 @@ class CallMeteringRefusal(PKMixin, Base):
     STOPS the board for a completed call with no usage rows; this is what tells an operator
     WHICH leg and WHAT to do about it.
 
-    **NO LONGER WRITTEN.** Its writer was the former owned runtime's metering; the rows it
-    left are still counted (`billing/service.margin_for_tenant`'s `legs_unpriced`), and the
+    **NO LONGER WRITTEN OR READ.** Its writer was the former owned runtime's metering; the
+    margin panel counts unpriced usage rows instead (D-840), and the
     table is kept until it is dropped (hard rule 8).
 
     **APPEND-ONLY** (`db/registry.APPEND_ONLY_TABLES`). A refusal is evidence about ONE
@@ -875,6 +875,10 @@ class CreditLot(PKMixin, TimestampMixin, Base):
     #: restatement puts credits back on it. NULL is the whole of "open" — the FIFO index
     #: is partial on it, so a lot's state is a fact the query planner can use.
     closed_at: Mapped[datetime | None] = mapped_column()
+    #: When the credit still on this lot lapses (D-840): set at opening on a pack purchase
+    #: while `Settings.credit_pack_expiry_months` is set, NULL otherwise and on every lot
+    #: opened before it was. Frozen like the other terms.
+    expires_at: Mapped[datetime | None] = mapped_column()
 
 
 class PlatformAiSpend(Base):

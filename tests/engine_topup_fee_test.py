@@ -25,8 +25,7 @@ from apps.api.billing.engine_minutes import (
     attest_engine_minute_price,
     cost_with_fee,
     engine_minute_cost,
-    thinnest_topup_fee,
-    topup_fee,
+    wallet_topup_fee,
 )
 from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.billing.service import LEDGER_RUNG_KEY, record_entry
@@ -94,9 +93,11 @@ async def test_a_minute_is_metered_at_the_posted_rate_plus_the_one_fee(
     fee = "0.0236"
     expected = ("1.2795", "3.8385", "2.5590")
     on_band(band)
-    assert thinnest_topup_fee() == topup_fee("thinnest") == Decimal(fee)
-    assert topup_fee("fake") == 0
     at = await _attest_platform("2.50")
+    async with untenanted_session() as session:
+        # The attested fee (D-840), carried over from the 12 Oct 2026 email.
+        assert await wallet_topup_fee(session, engine="thinnest", at=at) == Decimal(fee)
+        assert await wallet_topup_fee(session, engine="fake", at=at) == 0
     tenant_id, _agent = await _seed_tenant(f"fee_{uuid.uuid4().hex[:10]}")
     for (seconds, _qty, _cost, _charge), want in zip(PRODUCTION_CALLS, expected, strict=True):
         async with tenant_session(tenant_id) as session:
@@ -119,9 +120,8 @@ async def test_a_minute_is_metered_at_the_posted_rate_plus_the_one_fee(
 def test_the_reconciler_and_the_meter_share_one_fee_helper() -> None:
     from apps.api.billing import engine_minutes
 
-    assert engine_charges.thinnest_topup_fee is engine_minutes.thinnest_topup_fee
+    assert engine_charges.required_wallet_fee is engine_minutes.required_wallet_fee
     assert engine_charges.cost_with_fee is engine_minutes.cost_with_fee
-    assert engine_charges.topup_fee is engine_minutes.topup_fee
 
 
 # --- the compensating rows -----------------------------------------------------------------
@@ -358,7 +358,7 @@ async def test_the_sweep_alarms_once_then_clears_after_the_fee_is_restated(
         return 0
 
     async def _correct_this_tenant(engine_name: str) -> int:
-        written = await engine_charges.correct_tenant_fees(tenant_id, fee=topup_fee(engine_name))
+        written = await engine_charges.correct_tenant_fees(tenant_id, fee=Decimal("0.0236"))
         return len(written)
 
     # As on 12 Oct 2026: D-723 restated the three calls at 10%. Two now cost more than their
@@ -411,11 +411,11 @@ async def test_a_minute_never_restated_is_restated_at_the_stated_fee(
 
     async def _only_this_tenant(engine_name: str) -> int:
         assert await real_restate("fake") == 0
-        written = await engine_charges.restate_tenant_minutes(tenant_id, fee=topup_fee(engine_name))
+        written = await engine_charges.restate_tenant_minutes(tenant_id, fee=Decimal("0.0236"))
         return len(written)
 
     async def _correct_this_tenant(engine_name: str) -> int:
-        written = await engine_charges.correct_tenant_fees(tenant_id, fee=topup_fee(engine_name))
+        written = await engine_charges.correct_tenant_fees(tenant_id, fee=Decimal("0.0236"))
         return len(written)
 
     monkeypatch.setattr(workspace_walk, "active_workspaces", _no_clients)

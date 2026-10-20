@@ -707,15 +707,18 @@ async def test_an_operator_can_run_the_smoke_call_path(
 # --- Studio minutes on a trial (D-727) ----------------------------------------------------
 
 
-async def _on_studio(tenant_id: uuid.UUID, agent_id: uuid.UUID, *, studio: bool = True) -> None:
-    """Stamp the agent's live route with the Studio rate key, as a Studio publish does."""
+async def _on_studio(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID, *, studio: bool = True, key: str = "byok_voice"
+) -> None:
+    """Stamp the agent's live route with a Studio rate key, as a Studio publish does: `byok_voice`,
+    or `byok_llm_voice` once the agent answers on our own model (`own_model_rate_key`)."""
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "UPDATE engine_agent_routes SET engine_rate_key = :key "
                 "WHERE agent_id = :aid AND active"
             ),
-            {"key": "byok_voice" if studio else None, "aid": agent_id},
+            {"key": key if studio else None, "aid": agent_id},
         )
 
 
@@ -730,12 +733,13 @@ async def _refusal(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str | None:
     return None
 
 
+@pytest.mark.parametrize("key", ["byok_voice", "byok_llm_voice"])
 async def test_studio_test_calls_stop_at_the_trials_studio_minutes(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, key: str
 ) -> None:
     monkeypatch.setattr(get_settings(), "trial_studio_minutes", 2)
     tenant_id, agent_id = await _trial_tenant()
-    await _on_studio(tenant_id, agent_id)
+    await _on_studio(tenant_id, agent_id, key=key)
     await _trial_call_row(tenant_id, agent_id, status="completed", seconds=60)
     assert await _refusal(tenant_id, agent_id) is None
     await _trial_call_row(tenant_id, agent_id, status="completed", seconds=60)

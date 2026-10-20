@@ -64,16 +64,21 @@ from __future__ import annotations
 import json
 from collections import Counter
 from dataclasses import asdict
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER
 from sqlalchemy import text
 
+from apps.api.billing.cost_attestations import ENGINE_NUMBER_RENT_SUBJECTS, attested_cost
+from apps.api.billing.engine_minutes import wallet_topup_fee
 from apps.api.billing.number_rental import (
     collect_number_rental,
     ist_date,
+    record_engine_number_rental,
     record_number_rental,
     rental_period_start,
     today_ist,
@@ -90,7 +95,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.db.session import admin_session, tenant_session
+from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.engine import get_engine
 
 log = get_logger(__name__)
@@ -100,12 +105,29 @@ log = get_logger(__name__)
 #: Read inside a `tenant_session`, so the policy answers it rather than being worked around.
 _LIVE_BOUGHT = (
     "SELECT id, provider, monthly_rental_usd, engine_number_ref "
-    "FROM phone_numbers WHERE engine_owned AND released_at IS NULL "
-    # A number rented in ThinnestAI's console carries no USD quote: that vendor charges its
-    # rental from the workspace balance (`campaigns/engine_numbers.py`). Metering it here
-    # would alarm `number_rental_price_missing` every month for a cost this meter cannot read.
-    "AND provider IS DISTINCT FROM 'thinnest' ORDER BY created_at, id"
+    "FROM phone_numbers WHERE engine_owned AND released_at IS NULL ORDER BY created_at, id"
 )
+
+#: The engine whose own console rents each number provider's numbers (ThinnestAI, D-691).
+#: Such a number carries no USD quote: the engine charges its rent from the wallet, so it is
+#: metered at the operator-attested rent with the wallet's top-up fee (D-840).
+_CONSOLE_ENGINE_OF_PROVIDER: Final[dict[str, str]] = {
+    provider: engine for engine, provider in ENGINE_NUMBER_PROVIDER.items()
+}
+
+
+async def _console_rent(provider: str) -> tuple[Decimal, Decimal] | None:
+    """The attested monthly rent and the wallet fee for a number rented in an engine's own
+    console, now; None while either is unattested."""
+    engine = _CONSOLE_ENGINE_OF_PROVIDER[provider]
+    at = datetime.now(UTC)
+    async with untenanted_session() as session:
+        rent = await attested_cost(session, subject=ENGINE_NUMBER_RENT_SUBJECTS[engine], at=at)
+        fee = await wallet_topup_fee(session, engine=engine, at=at)
+    if rent is None or fee is None:
+        return None
+    return rent.value, fee
+
 
 #: The directory, and the only statement in this module that runs as the admin role.
 #: `ORDER BY id` is load-bearing rather than tidy, for `qa_sampling._DIRECTORY`'s reason:
@@ -139,9 +161,17 @@ async def meter_number_rentals(ctx: dict[str, Any]) -> str:
     """Write one `number_rental` usage event per bought number for the current IST month."""
     month = current_billing_month()
     rows = await _bought_numbers()
+    rents = {
+        provider: await _console_rent(provider)
+        for provider in {row[2] for row in rows if row[2] in _CONSOLE_ENGINE_OF_PROVIDER}
+        if provider is not None
+    }
     metered = replayed = unpriced = failed = 0
     for number_id, tenant_id, provider, rental_usd, _ref in rows:
-        if rental_usd is None or rental_usd <= 0:
+        console = provider is not None and provider in _CONSOLE_ENGINE_OF_PROVIDER
+        rent = rents.get(provider) if console and provider is not None else None
+        priced = rent is not None if console else rental_usd is not None and rental_usd > 0
+        if not priced:
             unpriced += 1
             alert(
                 "CORE_LOGIC",
@@ -150,20 +180,38 @@ async def meter_number_rentals(ctx: dict[str, Any]) -> str:
                     "a phone number bought through the voice platform has no monthly "
                     "rental on file, so its recurring cost is not being recorded. It is "
                     "still being charged to us every month."
+                    + (
+                        " Attest the number rent and the wallet top-up fee in the ops "
+                        "engine-minute panel."
+                        if console
+                        else ""
+                    )
                 ),
                 number_id=str(number_id),
             )
             continue
         try:
             async with tenant_session(UUID(str(tenant_id))) as scoped:
-                outcome = await record_number_rental(
-                    scoped,
-                    tenant_id=UUID(str(tenant_id)),
-                    number_id=UUID(str(number_id)),
-                    month=month,
-                    monthly_rental_usd=rental_usd,
-                    provider=provider,
-                )
+                if rent is not None and provider is not None:
+                    outcome = await record_engine_number_rental(
+                        scoped,
+                        tenant_id=UUID(str(tenant_id)),
+                        number_id=UUID(str(number_id)),
+                        month=month,
+                        inr_per_month=rent[0],
+                        topup_fee=rent[1],
+                        provider=provider,
+                    )
+                else:
+                    assert rental_usd is not None
+                    outcome = await record_number_rental(
+                        scoped,
+                        tenant_id=UUID(str(tenant_id)),
+                        number_id=UUID(str(number_id)),
+                        month=month,
+                        monthly_rental_usd=rental_usd,
+                        provider=provider,
+                    )
             metered += 1 if outcome.recorded else 0
             replayed += 0 if outcome.recorded else 1
         except Exception as exc:

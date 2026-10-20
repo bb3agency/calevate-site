@@ -25,7 +25,6 @@ from apps.api.billing.engine_minutes import (
     attested_minute_prices,
     billed_minutes,
     engine_minute_is_billable,
-    thinnest_topup_fee,
 )
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
@@ -287,7 +286,7 @@ async def test_an_inbound_call_settles_from_its_signed_delivery(thinnest: dict[s
     assert qty == Decimal("3.0333")  # 182 s as minutes, at the column's four decimals
     # 182 s is seven 30-second pulses: 3.5 billed minutes at ₹1.00 = ₹3.50 posted, plus the
     # wallet's top-up fee on the rupees that paid for them.
-    fee = thinnest_topup_fee()
+    fee = Decimal("0.0236")
     assert (qty * unit).quantize(Decimal("0.01")) == (Decimal("3.50") * (1 + fee)).quantize(
         Decimal("0.01")
     )

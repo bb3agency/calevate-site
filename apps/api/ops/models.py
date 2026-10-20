@@ -405,6 +405,26 @@ class PlatformEngineMinutePrice(Base):
     source_note: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class PlatformCostAttestation(Base):
+    """A cost input that is not a per-minute engine price, attested by an operator (D-840):
+    the voice platform's wallet top-up fee, the payment gateway's fee on a client's top-up,
+    the monthly rent of a number rented in the voice platform's console. The subject names
+    the unit (`billing/cost_attestations.COST_SUBJECTS`). Append-only, effective-dated and
+    platform-scoped for `PlatformEngineMinutePrice`'s reasons. `attested_by` is NULL only on
+    the row migration `d8a4c2e7f150` carried over from the code constant it replaced."""
+
+    __tablename__ = "platform_cost_attestations"
+
+    subject: Mapped[str] = mapped_column(Text, primary_key=True)
+    effective_from: Mapped[datetime] = mapped_column(primary_key=True)
+    value: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False)
+    attested_by: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id")
+    )
+    attested_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    source_note: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class PlatformEngineModelBand(Base):
     """The per-minute band an operator recorded for one of an engine's own models.
 

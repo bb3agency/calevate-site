@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { CalendarClock, Save, TriangleAlert, Undo2 } from "lucide-react";
 
 import { MonoValue } from "@/app/admin/ops/opsLanguage";
+import { lookup } from "@/lib/lookup";
 import { VOICE_TIERS, unpricedTier, type VoiceTier } from "@/lib/api/rateCard";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { useFormValidation } from "@/components/formValidation";
@@ -195,6 +196,7 @@ function RateCardTable({ card }: { card: RateCard }) {
 
       <CartesiaVolumeNotice volume={volume} />
       {speakingRate !== null ? <SpeakingRateNotice rate={speakingRate} /> : null}
+      {card.floor_inputs ? <FloorInputsNotice inputs={card.floor_inputs} /> : null}
       {card.own_model_prompt_basis ? (
         <p className="border-l-2 border-line py-1 pl-3 text-meta text-ink-muted">
           Calls answer on our own model, so every cost floor above adds the model&apos;s cost
@@ -582,6 +584,41 @@ function SpeakingRateNotice({ rate }: { rate: SpeakingRate }) {
           </span>
         ) : null}
       </p>
+    </div>
+  );
+}
+
+/** The subject words of `billing/cost_attestations`, as an operator reads them. */
+const UNATTESTED_LABELS: Record<string, string> = {
+  thinnest_topup_fee: "the voice platform's wallet top-up fee",
+  razorpay_topup_fee: "the payment gateway's fee on a client's top-up",
+};
+
+/**
+ * What every cell's cost floor is struck at on an engine priced by attested minute (D-840):
+ * the fleet's speaking rate, the dollar, and the two attested fees. A fee nobody recorded is
+ * left out of the floor, so the margins above read better than they are by that fee.
+ */
+function FloorInputsNotice({ inputs }: { inputs: RateCard["floor_inputs"] }) {
+  return (
+    <div className="space-y-1 border-l-2 border-line py-1 pl-3 text-meta">
+      <p className="text-ink">
+        Cost floors are struck at <MonoValue>{inputs.chars_per_call_minute}</MonoValue>{" "}
+        characters a call-minute ({inputs.speaking_rate_basis}) and ₹
+        <MonoValue>{inputs.usd_inr}</MonoValue> to the dollar ({inputs.usd_inr_source}), with
+        the wallet top-up fee at{" "}
+        {inputs.wallet_fee_percent === null ? "—" : `${inputs.wallet_fee_percent}%`} and the
+        payment gateway&apos;s fee at{" "}
+        {inputs.gateway_fee_percent === null ? "—" : `${inputs.gateway_fee_percent}%`} of the
+        minute&apos;s price.
+      </p>
+      {inputs.unattested.length > 0 ? (
+        <p className="font-semibold text-warn">
+          Not recorded, so left out of every floor:{" "}
+          {inputs.unattested.map((subject) => lookup(UNATTESTED_LABELS, subject) ?? subject).join(", ")}
+          . Record it under Per-minute rates.
+        </p>
+      ) : null}
     </div>
   );
 }

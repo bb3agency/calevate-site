@@ -71,6 +71,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.admin.service import tenant_exists
 from apps.api.agents.hosted_voices import rungs_awaiting_setup
 from apps.api.agents.studio_voices import studio_open_to
+from apps.api.billing.credit_expiry import credit_expiry_months
 from apps.api.billing.credit_packs import (
     CreditPack,
     pack_by_id,
@@ -438,6 +439,9 @@ class CreditPacksOut(Strict):
     #: payment (D-707), or `null` while the platform-wide switch is off or unpriced. Read
     #: live from the ops console, so a page never quotes a fee nobody is charged.
     platform_fee_inr_per_month: Decimal | None = None
+    #: How many months after purchase the credit bought today lapses, stated wherever a pack
+    #: is sold (D-840); null while credit does not expire.
+    credit_expiry_months: int | None = None
 
 
 class WebhookAck(Strict):
@@ -673,6 +677,7 @@ async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
         voice_not_offered_notice=not_offered[1] if not_offered else None,
         packs=packs,
         platform_fee_inr_per_month=_published_platform_fee(),
+        credit_expiry_months=credit_expiry_months(),
         # ONLY THE SOONEST. An operator may have several cards on the books; a client
         # planning a top-up needs to know what changes NEXT, and a ladder of future prices
         # on a buy screen is an operator's view rather than theirs.

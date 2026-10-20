@@ -54,10 +54,11 @@ from apps.api.billing.attribution import (
     paid_margin,
     period_attribution,
 )
+from apps.api.billing.charge_variance import ChargeVariance, month_charge_variance
 from apps.api.billing.cost_breakdown import CostBreakdownOut, read_month_cost_breakdown
 from apps.api.billing.number_rental import rental_revenue_inr
 from apps.api.billing.plans import ist_month_window, month_pricing_instant
-from apps.api.billing.service import to_paise
+from apps.api.billing.service import to_paise, unpriced_usage_rows
 from apps.api.billing.trials import trial_overlaps
 from apps.api.core.auth import record_admin_tenant_read, requires
 from apps.api.core.context import Principal
@@ -65,6 +66,7 @@ from apps.api.core.deps import admin_db, db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.ops.model_pricing import (
     PLAN_BILLED_TTS_PROVIDERS,
@@ -346,6 +348,46 @@ class AbsorbedAiSpendOut(Strict):
     kb_requests: int
 
 
+class CallVarianceOut(Strict):
+    """One settled call: the voice platform's figure (its charge with the wallet top-up fee)
+    against what we metered. `variance_inr` is metered minus theirs."""
+
+    call_id: str
+    vendor_inr: str
+    metered_inr: str
+    variance_inr: str
+
+
+class ChargeVarianceOut(Strict):
+    """The month's settled calls, compared (`billing/charge_variance.py`, D-840). Shown and
+    never corrected: a rate variance writes no compensating row."""
+
+    calls: int
+    vendor_inr: str
+    metered_inr: str
+    variance_inr: str
+    #: The calls with the largest variance either way, at most ten.
+    largest: list[CallVarianceOut]
+
+    @classmethod
+    def of(cls, found: ChargeVariance) -> ChargeVarianceOut:
+        return cls(
+            calls=found.calls,
+            vendor_inr=str(to_paise(found.vendor_inr)),
+            metered_inr=str(to_paise(found.metered_inr)),
+            variance_inr=str(to_paise(found.variance_inr)),
+            largest=[
+                CallVarianceOut(
+                    call_id=str(call.call_id),
+                    vendor_inr=str(to_paise(call.vendor_inr)),
+                    metered_inr=str(to_paise(call.metered_inr)),
+                    variance_inr=str(to_paise(call.variance_inr)),
+                )
+                for call in found.largest
+            ],
+        )
+
+
 class TenantSpendOut(Strict):
     """GET /v1/admin/tenants/{tenant_id}/spend — one client's month, both directions.
 
@@ -410,6 +452,13 @@ class TenantSpendOut(Strict):
     #: client-facing figure is ever affected: a client is priced off minutes at their rate.
     cost_currency: str | None
     cost_currency_stated: bool
+    #: Usage rows this month metered with NO cost (an unattested rate or fee, D-840):
+    #: `cost_inr` leaves them out, so it is a floor and the margin a ceiling while this is
+    #: non-zero. A count, never a rupee estimate.
+    unpriced_rows: int = 0
+    #: What the voice platform charged for this month's settled calls against what we
+    #: metered for them (D-840). Null when no call has a recorded charge.
+    charge_variance: ChargeVarianceOut | None = None
     #: Absent on every month that has no callless cost row.
     unattributed: UnattributedSpendOut | None
     #: OUR absorbed dashboard-AI cost (D-127 G-3), published on its own and NOT in the
@@ -456,6 +505,11 @@ class FleetTenantOut(Strict):
     ai_absorbed_inr: str
     #: Distinct AI actions behind `ai_absorbed_inr`, one per user action.
     ai_requests: int
+    #: `TenantSpendOut.unpriced_rows` for this client (D-840).
+    unpriced_rows: int = 0
+    #: Metered minus the voice platform's figure over this month's settled calls, rupees;
+    #: null when no call has a recorded charge (D-840).
+    charge_variance_inr: str | None = None
 
 
 class FleetUndecidableOut(Strict):
@@ -576,6 +630,8 @@ class FleetSpendOut(Strict):
     #: The sum of every row's `ai_absorbed_inr`: AI cost we carried across the fleet,
     #: outside the revenue, cost and margin totals above.
     ai_absorbed_inr: str
+    #: The sum of every row's `unpriced_rows`: usage rows the cost total leaves out (D-840).
+    unpriced_rows: int = 0
     tenants: list[FleetTenantOut]
     #: THE CLIENTS THIS WALK COULD NOT PRICE, named (19 Sep 2026).
     #:
@@ -875,6 +931,10 @@ async def tenant_spend(
         all_in = await read_month_cost_breakdown(scoped, tenant_id=tenant_id, month=period.month)
         ai = all_in.ai
         rental = await rental_revenue_inr(scoped, tenant_id=tenant_id, month=period.month)
+        unpriced = await unpriced_usage_rows(scoped, tenant_id=tenant_id, month=period.month)
+        variance = await month_charge_variance(
+            scoped, tenant_id=tenant_id, month=period.month, engine=get_settings().engine
+        )
         window_start, window_next = ist_month_window(period.month)
         trial_in_month = await trial_overlaps(
             scoped, tenant_id=tenant_id, start=window_start, end=window_next
@@ -916,6 +976,8 @@ async def tenant_spend(
         residual_reason=period.residual_reason,
         cost_currency=period.cost_currency,
         cost_currency_stated=period.cost_currency_stated,
+        unpriced_rows=unpriced,
+        charge_variance=None if variance is None else ChargeVarianceOut.of(variance),
         unattributed=(
             None
             if period.unattributed is None
@@ -1068,6 +1130,7 @@ class _FleetRow:
     ai: AiUsage
     trial_cost_inr: Decimal
     trial_in_month: bool
+    variance: ChargeVariance | None
 
     def paid(self) -> PaidMargin:
         return paid_margin(
@@ -1151,6 +1214,9 @@ async def fleet_spend(
                 trial_in_month = await trial_overlaps(
                     scoped, tenant_id=tenant_id, start=window_start, end=window_next
                 )
+                variance = await month_charge_variance(
+                    scoped, tenant_id=tenant_id, month=period, engine=get_settings().engine
+                )
         except ValueError as exc:
             # ONE CLIENT'S REFUSAL IS ONE ROW, NOT THE WHOLE BOARD (19 Sep 2026). This walk
             # had no isolation, so a single tenant `voice_tier_usage` could not price took
@@ -1192,6 +1258,7 @@ async def fleet_spend(
                 ai=ai,
                 trial_cost_inr=trial_cost,
                 trial_in_month=trial_in_month or trial_cost > 0,
+                variance=variance,
             )
         )
 
@@ -1231,6 +1298,7 @@ async def fleet_spend(
         paid_margin_inr=str(fleet_paid.margin_inr),
         paid_margin_pct=_money(fleet_paid.margin_pct),
         ai_absorbed_inr=str(to_paise(ai_absorbed)),
+        unpriced_rows=sum(int(str(r.margin["legs_unpriced"])) for r in walked),
         tenants=[
             FleetTenantOut(
                 tenant_id=str(r.tenant_id),
@@ -1250,6 +1318,10 @@ async def fleet_spend(
                 paid_margin_pct=_money(paid.margin_pct),
                 ai_absorbed_inr=str(to_paise(r.ai.used_inr)),
                 ai_requests=r.ai.requests,
+                unpriced_rows=int(str(r.margin["legs_unpriced"])),
+                charge_variance_inr=(
+                    None if r.variance is None else str(to_paise(r.variance.variance_inr))
+                ),
             )
             # Worst PAID margin first: the client we are losing the most on is the one an
             # operator opened this page for, and a trial's cost is an acquisition cost

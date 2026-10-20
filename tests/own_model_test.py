@@ -443,17 +443,32 @@ def test_a_choice_of_our_model_is_refused_while_our_model_is_off() -> None:
     assert caught.value.code == OWN_MODEL_NOT_OFFERED
 
 
+#: Floor inputs at the assumed speaking rate and the planning dollar, with the 2.36% fee.
+_AT = rates.FloorInputs(
+    speaking_rate=rates.ASSUMED_SPEAKING_RATE,
+    usd_inr=rates.PLANNING_USD_INR,
+    usd_inr_source="test",
+    wallet_fee=Decimal("0.0236"),
+    gateway_fee=None,
+)
+
+
 def test_the_floors_add_our_models_cost_while_it_is_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    clear_off = rates.cost_floor_inr_per_min("clear", engine="thinnest", clear_band="premium")
-    studio_off = rates.cost_floor_inr_per_min("studio", engine="thinnest")
+    clear_off = rates.cost_floor_inr_per_min(
+        "clear", engine="thinnest", clear_band="premium", inputs=_AT
+    )
+    studio_off = rates.cost_floor_inr_per_min("studio", engine="thinnest", inputs=_AT)
     monkeypatch.setattr(get_settings(), "thinnest_own_model", True)
     model_cost = rates.own_model_floor_inr_per_min(get_settings().thinnest_own_model_default)
     assert model_cost > 0
-    clear_on = rates.cost_floor_inr_per_min("clear", engine="thinnest", clear_band="premium")
+    clear_on = rates.cost_floor_inr_per_min(
+        "clear", engine="thinnest", clear_band="premium", inputs=_AT
+    )
     assert clear_on == clear_off + model_cost
-    studio_on = rates.cost_floor_inr_per_min("studio", engine="thinnest")
-    own_minute = rates.THINNEST_OWN_VOICE_AND_MODEL_INR_PER_MIN * (1 + rates.THINNEST_TOPUP_FEE)
-    old_minute = rates.THINNEST_OWN_VOICE_INR_PER_MIN * (1 + rates.THINNEST_TOPUP_FEE)
+    studio_on = rates.cost_floor_inr_per_min("studio", engine="thinnest", inputs=_AT)
+    fee = Decimal(1) + Decimal("0.0236")
+    own_minute = rates.THINNEST_OWN_VOICE_AND_MODEL_INR_PER_MIN * fee
+    old_minute = rates.THINNEST_OWN_VOICE_INR_PER_MIN * fee
     assert studio_on == (studio_off - old_minute + own_minute + model_cost).quantize(rates.MONEY_Q)
 
 

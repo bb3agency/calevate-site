@@ -214,12 +214,18 @@ tests one client may run per IST day. Under Notifications, WhatsApp: `whatsapp_m
 (optional, 0..10 rupees) is what one WhatsApp from Calevate's own account costs us, attested
 from Meta's rate card, and prices the absorbed `whatsapp_msg` row of each save-our-number
 message (unset, the row is written unpriced; gate F-8).
-D-703 adds, all live: `self_serve_trial_days` (default 7) and `self_serve_trial_free_minutes`
-(default 15), the trial a business gets the moment it signs itself up; under Integrations,
+D-703 adds, all live: `self_serve_trial_days` (default 14, D-840) and `self_serve_trial_free_minutes`
+(default 300, D-840), the trial a business gets the moment it signs itself up; under Integrations,
 Google, `google_signin_redirect_uri` (`https://app.calevate.tech/auth/google/callback`,
 OPERATIONS gate G-1), `google_cloud_project_number` and the secret `google_picker_api_key`
 (gate G-2). `google_sheets_service_account_json` is deleted: Sheets now writes with each
 client's own Google account.
+D-840 adds, live, under Billing: `credit_pack_expiry_months` (unset by default, 1..60), the months
+after purchase that pack credit lapses. It is refused, and ignored if set from the environment,
+until `billing/credit_expiry.TERMS_REVISION_STATING_EXPIRY` names a published Terms revision that
+states the expiry; credit bought before it is set never expires. The wallet top-up fee, the payment
+gateway's fee and a console-rented number's rent are not settings: they are attested, dated rows
+(`platform_cost_attestations`) on the ops Per-minute rates panel.
 `ENGINE_INTAKE_KEK` is env-only, in `ENV_ONLY_REASONS`. No BYOK provider key is stored
 under a ThinnestAI setting: full (`scope: all`) BYOK is not on sale (D-681), and the Studio
 rung's voice-only BYOK sends our Cartesia key to ThinnestAI: switched on in our developer

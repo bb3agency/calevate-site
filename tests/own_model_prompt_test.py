@@ -127,15 +127,30 @@ def test_the_floor_is_exact_arithmetic_rounded_once() -> None:
 def test_the_cost_floors_add_the_model_half_at_the_basis_passed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    at = rates.FloorInputs(
+        speaking_rate=rates.ASSUMED_SPEAKING_RATE,
+        usd_inr=rates.PLANNING_USD_INR,
+        usd_inr_source="test",
+        wallet_fee=Decimal("0.0236"),
+        gateway_fee=None,
+    )
+    clear_band = rates.cost_floor_inr_per_min(
+        "clear", engine="thinnest", clear_band="premium", inputs=at
+    )
     monkeypatch.setattr(get_settings(), "thinnest_own_model", True)
-    clear_band = rates.THINNEST_CLEAR_COST_FLOOR_BY_BAND["premium"]
     clear = rates.cost_floor_inr_per_min(
-        "clear", engine="thinnest", clear_band="premium", own_model_prompt_tokens=3_000
+        "clear",
+        engine="thinnest",
+        clear_band="premium",
+        own_model_prompt_tokens=3_000,
+        inputs=at,
     )
     assert clear == clear_band + rates.own_model_floor_inr_per_min(
         get_settings().thinnest_own_model_default, prompt_tokens=3_000
     )
-    assert clear < rates.cost_floor_inr_per_min("clear", engine="thinnest", clear_band="premium")
+    assert clear < rates.cost_floor_inr_per_min(
+        "clear", engine="thinnest", clear_band="premium", inputs=at
+    )
 
 
 # --- the cache the routes read ------------------------------------------------------------

@@ -28,7 +28,12 @@ from uuid import UUID
 
 from sqlalchemy import text
 
-from apps.api.billing.engine_minutes import EngineMinutePrice, attested_minute_prices, topup_fee
+from apps.api.billing.engine_minutes import (
+    EngineMinutePrice,
+    attested_minute_prices,
+    minute_cost_rows,
+    required_wallet_fee,
+)
 from apps.api.billing.plans import IST
 from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.core.logging import MAX_FREE_TEXT, get_logger
@@ -39,7 +44,6 @@ from apps.workers.engine_charges import (
     CHARGE_LOOKBACK_DAYS,
     cost_with_fee,
     engine_tenants,
-    minute_cost_rows,
     within_tolerance,
 )
 
@@ -331,8 +335,9 @@ async def gather(
     in `unreadable` rather than failing the whole reading. `tenant_ids` narrows the walk
     (tests); production reads every client with an agent on the engine."""
     engine = get_settings().engine
-    fee = topup_fee(engine)
     at = now or datetime.now(UTC)
+    async with untenanted_session() as session:
+        fee = (await required_wallet_fee(session, engine=engine, at=at)).fee
     calls: list[ChargedCall] = []
     uncharged = unreadable = 0
     for tenant_id in tenant_ids if tenant_ids is not None else await engine_tenants(engine):

@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.engine_minutes import BYOK_VOICE_RATE_KEY
+from apps.api.billing.engine_minutes import OWN_VOICE_RATE_KEYS
 from apps.api.billing.first_payment import has_paid
 from apps.api.billing.rates import PREMIUM_VOICE_TIER
 from apps.api.billing.trials import (
@@ -265,7 +265,7 @@ TRIAL_STUDIO_MINUTES_USED_RULE: Final = "trial_studio_minutes_used"
 #: Is this agent's live vendor agent on a Studio voice (our own voice key)?
 _AGENT_ON_STUDIO_SQL: Final = (
     "SELECT EXISTS (SELECT 1 FROM engine_agent_routes WHERE agent_id = :aid AND active "
-    "AND engine = :engine AND engine_rate_key = :studio_key)"
+    "AND engine = :engine AND engine_rate_key = ANY(:studio_keys))"
 )
 
 #: The trial's Studio seconds: metered test-call minutes on the Studio rung, plus the
@@ -280,7 +280,7 @@ _TRIAL_STUDIO_SECONDS_SQL: Final = (
     "AND c.trial_call AND c.created_at >= :since AND NOT EXISTS (SELECT 1 FROM usage_events u "
     "WHERE u.tenant_id = c.tenant_id AND u.call_id = c.id AND u.unit_type = 'platform_min') "
     "AND EXISTS (SELECT 1 FROM engine_agent_routes r WHERE r.agent_id = c.agent_id AND r.active "
-    "AND r.engine = :engine AND r.engine_rate_key = :studio_key)), 0)"
+    "AND r.engine = :engine AND r.engine_rate_key = ANY(:studio_keys))), 0)"
 )
 
 
@@ -296,7 +296,7 @@ async def trial_studio_seconds_used(
                 "since": trial.started_at,
                 "studio_tier": PREMIUM_VOICE_TIER,
                 "engine": get_settings().engine,
-                "studio_key": BYOK_VOICE_RATE_KEY,
+                "studio_keys": sorted(OWN_VOICE_RATE_KEYS),
             },
         )
     ).scalar()
@@ -320,7 +320,11 @@ async def refuse_trial_studio_over_cap(
     on_studio = (
         await session.execute(
             text(_AGENT_ON_STUDIO_SQL),
-            {"aid": agent_id, "engine": settings.engine, "studio_key": BYOK_VOICE_RATE_KEY},
+            {
+                "aid": agent_id,
+                "engine": settings.engine,
+                "studio_keys": sorted(OWN_VOICE_RATE_KEYS),
+            },
         )
     ).scalar()
     if not on_studio:

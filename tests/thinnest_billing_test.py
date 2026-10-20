@@ -187,7 +187,7 @@ async def _metered_call(
     rate times the billed minutes, plus the top-up fee, with both on the row's meta."""
     tenant_id, agent_id = await _seed_tenant(f"bill_{uuid.uuid4().hex[:10]}")
     call_id = uuid7()
-    fee = engine_charges.thinnest_topup_fee()
+    fee = Decimal("0.0236")
     cost = (
         engine_charges.cost_with_fee(Decimal(minutes) * Decimal(inr_per_min), fee=fee)
         if inr_per_min is not None

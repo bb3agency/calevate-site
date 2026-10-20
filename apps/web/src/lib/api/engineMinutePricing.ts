@@ -16,6 +16,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { adminSession } from "./admin";
+import { OPS_RATE_CARD_QUERY_KEY } from "./opsRateCard";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
 
@@ -62,6 +63,46 @@ export function useAttestEngineMinutePrice() {
       void client.invalidateQueries({ queryKey: QUERY_KEY });
       // An attested band changes which of the platform's voices can be used.
       void client.invalidateQueries({ queryKey: ["engine-catalogue"] });
+    },
+  });
+}
+
+/**
+ * THE COST INPUTS BESIDE THE MINUTE (D-840): the wallet top-up fee and the payment gateway's
+ * fee on a client's top-up, typed in PERCENT, and the monthly rent of a number rented in the
+ * voice platform's console, in rupees. Each recording is a new dated row.
+ *
+ *   POST /v1/ops/cost-attestations/{subject}   step-up `attest_cost:<subject>`
+ */
+export type CostAttestation = components["schemas"]["CostAttestationOut"];
+
+export const COST_ATTESTATIONS_PATH = "/v1/ops/cost-attestations";
+
+/** The step-up string, copied verbatim from the route that checks it. */
+export function attestCostConfirmation(subject: string): string {
+  return `attest_cost:${subject}`;
+}
+
+export interface AttestCostInput {
+  subject: string;
+  /** A fee in percent ("2.36") or a rent in rupees ("349.00"), exactly as typed. */
+  value: string;
+  sourceNote: string;
+}
+
+export function useAttestCost() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ subject, value, sourceNote }: AttestCostInput) =>
+      apiRequest<CostAttestation>(adminSession(), `${COST_ATTESTATIONS_PATH}/${subject}`, {
+        method: "POST",
+        body: { value, source_note: sourceNote },
+        confirmAction: attestCostConfirmation(subject),
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: QUERY_KEY });
+      // The gateway fee moves every cost floor on the rate card.
+      void client.invalidateQueries({ queryKey: OPS_RATE_CARD_QUERY_KEY });
     },
   });
 }

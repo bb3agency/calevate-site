@@ -566,6 +566,34 @@ describe("the credit itself: what is left, and at which rates", () => {
     await expectNoA11yViolations(container, "c/[slug]/billing — credit lots");
   });
 
+  it("says when a purchase's credit expires, and only for credit that does (D-840)", async () => {
+    const lots = {
+      ...LOTS,
+      lots: [{ ...LOTS.lots[0], expires_at: "2027-08-01T09:00:00Z" }, LOTS.lots[1]],
+    };
+    await renderBillingHub(routes({ [LOTS_ROUTE]: lots }));
+    const table = await screen.findByRole("table", { name: /in the order it will be spent/i });
+    const rows = within(table).getAllByRole("row");
+    expect(rows[1].textContent).toMatch(/Expires/);
+    expect(rows[2].textContent).not.toMatch(/Expires/);
+  });
+
+  it("states the expiry at checkout while credit expires (D-840)", async () => {
+    await renderBillingHub(
+      routes({ [PACKS]: { ...PACK_CARD, credit_expiry_months: 12 } }),
+      "Credits",
+    );
+    expect(
+      await screen.findByText(/Credit you buy now expires 12 months after you buy it\./),
+    ).toBeTruthy();
+  });
+
+  it("says nothing about expiry at checkout while credit does not expire", async () => {
+    await renderBillingHub(routes(), "Credits");
+    await screen.findByRole("button", { name: /Pay|Continue|Add/ });
+    expect(document.body.textContent).not.toMatch(/expires \d+ months after you buy it/);
+  });
+
   it("renders whatever the server calls the two qualities, never a name held here", async () => {
     // PROVENANCE, not spelling. "Clear" and "Studio" are today's words and the browser
     // holds no copy of them: they are defined once in `billing/rates.py::VOICE_TIER_LABELS`

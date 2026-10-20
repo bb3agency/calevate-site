@@ -18,6 +18,16 @@ export const OPS_RATE_CARD = {
   notice_recipients: 3,
   earliest_effective_from: "2026-10-08T09:44:00Z",
   own_model_prompt_basis: null,
+  // What every floor is struck at (D-840): the gateway fee not yet recorded.
+  floor_inputs: {
+    speaking_rate_basis: "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12)",
+    chars_per_call_minute: "540",
+    usd_inr: "95",
+    usd_inr_source: "typed",
+    wallet_fee_percent: "2.36",
+    gateway_fee_percent: null,
+    unattested: ["razorpay_topup_fee"],
+  },
   // The Clear column's cost floor, struck at the assumed speaking rate until enough calls
   // are measured.
   speaking_rate: {

@@ -23,7 +23,7 @@ needs it done first, and once the backlog is restated each run finds nothing. A 
 is its minute row plus its compensating rows (`minute_cost_rows`), in both comparisons.
 
 THE FEE WAS OVERSTATED UNTIL 12 OCT 2026. The fee was read as 10% on pay-as-you-go and 9% on
-Pro (D-723); ThinnestAI then stated 2.36% on every plan (`billing/rates.THINNEST_TOPUP_FEE`).
+Pro (D-723); ThinnestAI then stated 2.36% on every plan, now the attested fee (D-840).
 Minute rows metered with a higher `meta.topup_fee`, and restatements written at a higher
 `meta.fee`, overstate our cost by the difference. `correct_overstated_fees` appends one more
 compensating row per such call, the same shape with a NEGATIVE `unit_cost_paid` (the excess)
@@ -51,9 +51,9 @@ sweep's log, recorded the same way.
 WHAT IS COMPARED. `costMicro` is what the call cost the workspace and the wallet's top-up fee
 is paid on top of it, when the wallet is filled. So the cost of a call is the charge times one
 plus the fee, and that is what the meter reproduces: the operator attests the posted rate, the
-meter adds the fee (`billing/engine_minutes.topup_fee`, the one helper both sides use), so a
+meter adds the fee (`billing/engine_minutes.wallet_fee`, the one reader both sides use), so a
 variance means the posted rate itself is wrong. The fee is the payment gateway's, the same on
-every plan (`thinnest_topup_fee`). On a Studio call the charge is ThinnestAI's own minute
+every plan, attested and effective-dated. On a Studio call the charge is ThinnestAI's own minute
 only; Cartesia bills our key separately, and that cost is the call's `tts_kchars` row, which
 must exist.
 
@@ -108,13 +108,16 @@ from apps.api.billing.engine_minutes import (
     BYOK_LLM_VOICE_RATE_KEY,
     BYOK_VOICE_RATE_KEY,
     CARRIER_BLOCK_SECONDS,
+    FEE_CORRECTION_META_KIND,
+    FEE_RESTATEMENT_META_KIND,
     OWN_VOICE_RATE_KEYS,
     PULSE_SECONDS,
     TOPUP_FEE_META_KEY,
+    WalletFee,
     billed_minutes,
     cost_with_fee,
-    thinnest_topup_fee,
-    topup_fee,
+    minute_cost_rows,
+    required_wallet_fee,
 )
 from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.billing.service import _ROW_COST_SQL, LEDGER_RUNG_KEY, lock_tenant_credits
@@ -147,11 +150,6 @@ CHARGE_TOLERANCE_SHARE: Final = Decimal("0.02")
 #: How many call ids an alarm names before it stops listing them.
 _ALERT_ID_LIMIT: Final = 5
 
-#: `meta.kind` of the compensating row that adds the top-up fee to a minute metered without it.
-FEE_RESTATEMENT_META_KIND: Final = "engine_topup_fee_restatement"
-#: `meta.kind` of the compensating row that takes back a fee costed above the stated one.
-FEE_CORRECTION_META_KIND: Final = "engine_topup_fee_correction"
-
 #: How many minute rows one tenant's restatement takes per sweep; the rest wait an hour.
 _RESTATE_BATCH: Final = 500
 
@@ -166,18 +164,9 @@ _ROUTE_SQL = text(
 )
 
 
-def minute_cost_rows(prefix: str = "") -> str:
-    """The rows a call's engine-minute cost is: its metered minute, any fee restatement and
-    any fee correction."""
-    return (
-        f"({prefix}unit_type = 'platform_min' OR ({prefix}unit_type = 'other' "
-        f"AND {prefix}meta->>'kind' IN ('{FEE_RESTATEMENT_META_KIND}', "
-        f"'{FEE_CORRECTION_META_KIND}')))"
-    )
-
-
 _METERED_SQL = text(
-    "SELECT c.id, sum(u.qty * u.unit_cost_paid), bool_or(u.unit_cost_paid IS NULL) "
+    "SELECT c.id, sum(u.qty * u.unit_cost_paid), bool_or(u.unit_cost_paid IS NULL), "
+    "min(u.occurred_at) "
     "FROM calls c JOIN usage_events u ON u.call_id = c.id AND u.tenant_id = c.tenant_id "
     f"AND {minute_cost_rows('u.')} WHERE c.engine_call_id = :ecid GROUP BY c.id"
 )
@@ -229,9 +218,17 @@ _CALL_COSTS_SQL = text(
     "sum(qty * unit_cost_paid) FILTER (WHERE unit_type = 'tts_kchars'), "
     "max(meta->>'billed_minutes') FILTER (WHERE unit_type = 'platform_min'), "
     "max(meta->>'inr_per_min') FILTER (WHERE unit_type = 'platform_min'), "
-    "bool_or(meta->>'own_model' IS NOT NULL) FILTER (WHERE unit_type = 'platform_min') "
+    "bool_or(meta->>'own_model' IS NOT NULL) FILTER (WHERE unit_type = 'platform_min'), "
+    "min(occurred_at) FILTER (WHERE unit_type = 'platform_min') "
     "FROM usage_events WHERE call_id = :cid AND tenant_id = :tid"
 )
+
+
+async def fee_at(engine: str, at: datetime) -> WalletFee:
+    """The top-up fee in force at `at`, read the way the meter read it."""
+    async with untenanted_session() as session:
+        return await required_wallet_fee(session, engine=engine, at=at)
+
 
 #: The rate keys that are one of the engine's voice bands, named as its `voicePlan` names them.
 _BAND_RATE_KEYS: Final[frozenset[str]] = frozenset({"standard", "premium", "studio"})
@@ -381,6 +378,7 @@ async def reconcile_call_charge(
         our_minutes,
         attested,
         own_model,
+        metered_at,
     ) = row
     if not minute_rows:
         return "not_metered"
@@ -414,7 +412,7 @@ async def reconcile_call_charge(
             return "unpriced"
         variance = ""
     else:
-        fee = topup_fee(engine)
+        fee = (await fee_at(engine, metered_at)).fee
         expected = cost_with_fee(charged_inr, fee=fee)
         metered_inr = Decimal(str(metered)).quantize(MONEY_Q, rounding=ROUNDING)
         total_matches = within_tolerance(metered_inr, expected)
@@ -484,6 +482,7 @@ _WITHOUT_FEE_SQL = text(
     "AND meta->>'engine_rate_key' IS NOT NULL "
     f"AND meta->>'{TOPUP_FEE_META_KEY}' IS NULL "
     f"AND ({_ROW_COST_SQL}) * :fee >= :half_quantum "
+    "AND occurred_at >= COALESCE(CAST(:fee_from AS timestamptz), '-infinity'::timestamptz) "
     "AND NOT EXISTS (SELECT 1 FROM usage_events r WHERE r.tenant_id = u.tenant_id "
     "AND r.call_id = u.call_id AND r.unit_type = 'other' AND r.meta->>'kind' = :kind) "
     "ORDER BY call_id LIMIT :cap"
@@ -504,8 +503,11 @@ def fee_delta(metered_inr: Decimal, *, fee: Decimal) -> Decimal:
     return (metered_inr * fee).quantize(MONEY_Q, rounding=ROUNDING)
 
 
-async def restate_tenant_minutes(tenant_id: UUID, *, fee: Decimal) -> list[tuple[UUID, Decimal]]:
-    """Append the missing fee for each of this tenant's minute rows metered without it.
+async def restate_tenant_minutes(
+    tenant_id: UUID, *, fee: Decimal, fee_from: datetime | None = None
+) -> list[tuple[UUID, Decimal]]:
+    """Append the missing fee for each of this tenant's minute rows metered without it, among
+    those that ran from `fee_from` (when `fee` took effect; None: every row).
 
     Returns `(call_id, delta)` for each row written. Idempotent: the dedupe read runs with
     `lock_tenant_credits` held, as `billing/cost_unit.record_cost_unit_correction` takes it,
@@ -521,6 +523,7 @@ async def restate_tenant_minutes(tenant_id: UUID, *, fee: Decimal) -> list[tuple
                     "kind": FEE_RESTATEMENT_META_KIND,
                     "cap": _RESTATE_BATCH,
                     "fee": fee,
+                    "fee_from": fee_from,
                     "half_quantum": MONEY_Q / 2,
                 },
             )
@@ -566,14 +569,17 @@ async def restate_tenant_minutes(tenant_id: UUID, *, fee: Decimal) -> list[tuple
 async def restate_minutes_without_fee(engine: str) -> int:
     """Restate every tenant's minutes on `engine` metered without the top-up fee. Returns
     how many calls were restated. One tenant's failure is logged and does not stop the rest."""
-    fee = topup_fee(engine)
-    if fee == 0:
+    wallet = await fee_at(engine, datetime.now(UTC))
+    if wallet.fee == 0:
         return 0
+    fee = wallet.fee
     tenants = await engine_tenants(engine)
     restated = 0
     for tenant_id in tenants:
         try:
-            written = await restate_tenant_minutes(tenant_id, fee=fee)
+            written = await restate_tenant_minutes(
+                tenant_id, fee=fee, fee_from=wallet.effective_from
+            )
         except Exception as exc:
             log.warning(
                 "engine_fee_restatement_failed",
@@ -605,6 +611,7 @@ _OVERSTATED_SQL = text(
     f"AND CAST(meta->>'{TOPUP_FEE_META_KEY}' AS numeric) > :fee) "
     "OR (unit_type = 'other' AND meta->>'kind' = :restated "
     "AND CAST(meta->>'fee' AS numeric) > :fee)) "
+    "AND occurred_at >= COALESCE(CAST(:fee_from AS timestamptz), '-infinity'::timestamptz) "
     "AND NOT EXISTS (SELECT 1 FROM usage_events r WHERE r.tenant_id = u.tenant_id "
     "AND r.call_id = u.call_id AND r.unit_type = 'other' AND r.meta->>'kind' = :kind) "
     "ORDER BY call_id LIMIT :cap"
@@ -646,9 +653,13 @@ def fee_excess(unit_type: str, cost_inr: Decimal, meta: dict[str, Any], *, fee: 
     return max(Decimal(0), (cost_inr - correct).quantize(MONEY_Q, rounding=ROUNDING))
 
 
-async def correct_tenant_fees(tenant_id: UUID, *, fee: Decimal) -> list[tuple[UUID, Decimal]]:
+async def correct_tenant_fees(
+    tenant_id: UUID, *, fee: Decimal, fee_from: datetime | None = None
+) -> list[tuple[UUID, Decimal]]:
     """Append a negative compensating row for each of this tenant's calls costed at a top-up
-    fee above `fee`. Returns `(call_id, excess)` for each row written. Idempotent the way
+    fee above `fee`, among those that ran from `fee_from` (when `fee` took effect; None: every
+    row), so a call metered under an earlier, higher fee is never corrected to a later one.
+    Returns `(call_id, excess)` for each row written. Idempotent the way
     `restate_tenant_minutes` is: the dedupe read runs under `lock_tenant_credits`, and a
     corrected call is never selected again."""
     written: list[tuple[UUID, Decimal]] = []
@@ -659,6 +670,7 @@ async def correct_tenant_fees(tenant_id: UUID, *, fee: Decimal) -> list[tuple[UU
                 _OVERSTATED_SQL,
                 {
                     "fee": fee,
+                    "fee_from": fee_from,
                     "restated": FEE_RESTATEMENT_META_KIND,
                     "kind": FEE_CORRECTION_META_KIND,
                     "cap": _RESTATE_BATCH,
@@ -712,14 +724,15 @@ async def correct_tenant_fees(tenant_id: UUID, *, fee: Decimal) -> list[tuple[UU
 async def correct_overstated_fees(engine: str) -> int:
     """Correct every tenant's calls on `engine` costed at a top-up fee above today's. Returns
     how many calls were corrected. One tenant's failure is logged and does not stop the rest."""
-    fee = topup_fee(engine)
-    if fee == 0:
+    wallet = await fee_at(engine, datetime.now(UTC))
+    if wallet.fee == 0:
         return 0
+    fee = wallet.fee
     tenants = await engine_tenants(engine)
     corrected = 0
     for tenant_id in tenants:
         try:
-            written = await correct_tenant_fees(tenant_id, fee=fee)
+            written = await correct_tenant_fees(tenant_id, fee=fee, fee_from=wallet.effective_from)
         except Exception as exc:
             log.warning(
                 "engine_fee_correction_failed",
@@ -972,7 +985,7 @@ async def _compare(engine: str, charge: EngineCharge, tally: _Tally) -> None:
         tally.unpriced += 1
         return
     metered = Decimal(str(row[1])).quantize(MONEY_Q, rounding=ROUNDING)
-    expected = cost_with_fee(charge.charged_inr, fee=topup_fee(engine))
+    expected = cost_with_fee(charge.charged_inr, fee=(await fee_at(engine, row[3])).fee)
     if not within_tolerance(metered, expected):
         tally.mismatched.append((str(row[0]), metered, expected))
 
@@ -1027,8 +1040,8 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
             "engine_charge_mismatch",
             detail=(
                 f"engine={engine.name}: {len(tally.mismatched)} call(s) metered at a cost "
-                f"that differs from what the voice platform charged, with the "
-                f"{topup_fee(engine.name) * 100}% top-up fee added, by more than the "
+                "that differs from what the voice platform charged, with the attested "
+                "top-up fee added, by more than the "
                 f"tolerance, so the attested per-minute rate no longer matches the invoice "
                 f"({len(fresh)} not reported before). {named}"
             ),
@@ -1090,6 +1103,7 @@ __all__ = [
     "correct_tenant_fees",
     "cost_with_fee",
     "expected_billing",
+    "fee_at",
     "fee_delta",
     "fee_excess",
     "listed_billing",
@@ -1099,8 +1113,6 @@ __all__ = [
     "record_engine_charge",
     "restate_minutes_without_fee",
     "restate_tenant_minutes",
-    "thinnest_topup_fee",
-    "topup_fee",
     "variance_sentence",
     "within_tolerance",
 ]

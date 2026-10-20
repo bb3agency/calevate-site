@@ -75,9 +75,11 @@ from apps.api.billing.rates import (
     ROUNDING,
     VALUE_VOICE_TIER,
     VOICE_TIERS,
+    FloorInputs,
     RateMargin,
     VoiceTier,
     cost_floor_inr_per_min,
+    gateway_fee_inr_per_min,
     rate_margin,
 )
 from apps.api.core.settings import get_settings
@@ -293,6 +295,7 @@ def pack_rate_margin(
     voice: VoiceTier,
     engine: str | None = None,
     own_model_prompt_tokens: int | None = None,
+    inputs: FloorInputs | None = None,
 ) -> RateMargin:
     """The margin verdict for one pack on one voice, against THAT voice's cost floor.
 
@@ -303,13 +306,19 @@ def pack_rate_margin(
     passes (the Clear floor is the lower one). The pairing is made here, once.
 
     `engine` defaults to the one this deployment runs, whose floors the card is sold at.
+    `inputs` are the floor's moving inputs (`billing/floor_inputs.floor_inputs`), required on
+    ThinnestAI; the payment gateway's fee on the minute's price is added to the floor here,
+    because it is a fraction of the sale and only this function holds the rate (D-840).
     """
+    rate = pack.inr_per_min(voice)
     floor = cost_floor_inr_per_min(
         voice,
         engine=engine or deployment_engine(),
         own_model_prompt_tokens=own_model_prompt_tokens,
+        inputs=inputs,
     )
-    return rate_margin(pack.inr_per_min(voice), cost=floor)
+    cost = (floor + gateway_fee_inr_per_min(rate, inputs)).quantize(MONEY_Q, rounding=ROUNDING)
+    return rate_margin(rate, cost=cost)
 
 
 def card_margins(
@@ -317,6 +326,7 @@ def card_margins(
     *,
     engine: str | None = None,
     own_model_prompt_tokens: int | None = None,
+    inputs: FloorInputs | None = None,
 ) -> tuple[tuple[str, VoiceTier, RateMargin], ...]:
     """Every `(pack_id, voice, verdict)` on a card, in card order then voice order.
 
@@ -336,6 +346,7 @@ def card_margins(
                 voice=voice,
                 engine=judged_at,
                 own_model_prompt_tokens=own_model_prompt_tokens,
+                inputs=inputs,
             ),
         )
         for pack in card
@@ -348,6 +359,7 @@ def card_refusals(
     *,
     engine: str | None = None,
     own_model_prompt_tokens: int | None = None,
+    inputs: FloorInputs | None = None,
 ) -> list[str]:
     """Why this card may not be sold — empty when it may. Each string names one break.
 
@@ -365,7 +377,7 @@ def card_refusals(
         f"pack {pack_id!r} sells a {voice} minute at ₹{verdict.rate} against a "
         f"₹{verdict.cost} cost floor — below cost"
         for pack_id, voice, verdict in card_margins(
-            card, engine=engine, own_model_prompt_tokens=own_model_prompt_tokens
+            card, engine=engine, own_model_prompt_tokens=own_model_prompt_tokens, inputs=inputs
         )
         if verdict.below_cost
     ]

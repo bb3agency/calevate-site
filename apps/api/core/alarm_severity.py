@@ -276,6 +276,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "number_rentals_incomplete": "attention",
     "number_purchase_month_unmetered": "attention",
     "number_rental_renewals_unrecorded": "attention",
+    # A cost-floor input or a lapsing credit lot left for the next run (D-840): bounded,
+    # nothing billed wrongly meanwhile.
+    "cost_floor_input_unattested": "attention",
+    "credit_expiry_incomplete": "attention",
     "engine_agent_unmapped": "attention",
     # The call has NO ROW: no lead, no transcript, no usage event. Unrecoverable.
     "engine_ingest_abandoned": "page",

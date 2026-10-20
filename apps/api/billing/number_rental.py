@@ -255,6 +255,56 @@ async def record_number_rental(
     return RentalMetered(ref=ref, cost_inr=cost, recorded=recorded)
 
 
+async def record_engine_number_rental(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    number_id: UUID,
+    month: str,
+    inr_per_month: Decimal,
+    topup_fee: Decimal,
+    provider: str,
+) -> RentalMetered:
+    """Meter ONE number rented in the voice platform's own console for ONE IST month (D-840).
+
+    That platform quotes no per-number price we can read back (its search shows the plan's
+    monthly rent before renting, `search-available-phone-numbers.md:7` in the 2026-10-19
+    snapshot, and charges it from the wallet, `rent-phone-number.md:7`), so the rent is the
+    operator-attested `thinnest_number_month` and the wallet's top-up fee is added like on
+    every rupee that wallet pays. Same row, key and idempotency as `record_number_rental`;
+    `meta` names the attested figure instead of a dollar quote."""
+    if inr_per_month <= 0:
+        raise ValueError(f"a rent of {inr_per_month} INR is not a price; refusing to meter it")
+    ref = rental_ref(number_id, month)
+    cost = (inr_per_month * (Decimal(1) + topup_fee)).quantize(MONEY_Q, rounding=ROUNDING)
+    meta = {
+        "number_id": str(number_id),
+        "provider": provider,
+        "month": month,
+        "source_inr": str(inr_per_month),
+        "topup_fee": str(topup_fee),
+    }
+    row = (
+        await session.execute(
+            text(_INSERT_RENTAL),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "unit": RENTAL_UNIT_TYPE,
+                "cost": cost,
+                "ref": ref,
+                "meta": json.dumps(meta),
+            },
+        )
+    ).first()
+    recorded = row is not None
+    log.info(
+        "number_rental_metered",
+        extra={"number_id": str(number_id), "month": month, "recorded": recorded},
+    )
+    return RentalMetered(ref=ref, cost_inr=cost, recorded=recorded)
+
+
 # --- the client's charge (D-665) ------------------------------------------------------
 
 #: The `credit_ledger.meta.kind` of a rental debit. `reason` stays `usage` (the enum is
@@ -566,6 +616,7 @@ __all__ = [
     "invoice_number_rental",
     "is_prepaid",
     "ist_date",
+    "record_engine_number_rental",
     "record_number_rental",
     "rental_inr",
     "rental_period_start",

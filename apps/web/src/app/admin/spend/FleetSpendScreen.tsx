@@ -143,6 +143,7 @@ export function FleetSpendScreen() {
         board.error ? null : <Skeleton rows={6} label="Adding up every client's month" />
       ) : (
         <>
+          <UnpricedNotice count={data.unpriced_rows} />
           <Totals data={data} />
           <ClientTable data={data} />
           {/* A footnote to the totals, never collapsed: these are the clients the figures
@@ -293,6 +294,30 @@ function ClientTable({ data }: { data: FleetSpend }) {
         </span>
       ),
     },
+    {
+      // D-840: rows with no cost, and what the voice platform charged against what we
+      // metered for the month's settled calls. Shown, never corrected on the ledger.
+      id: "unpriced",
+      header: "Not priced · vs charged",
+      align: "right",
+      hideBelow: "lg",
+      cell: (tenant) => (
+        <span className={`${num} text-ink-muted`}>
+          {tenant.unpriced_rows > 0 ? (
+            <span className="font-medium text-warn">
+              {formatCount(tenant.unpriced_rows)} not priced
+            </span>
+          ) : (
+            "—"
+          )}
+          {tenant.charge_variance_inr != null && (
+            <span className="block text-meta">
+              {formatINR(tenant.charge_variance_inr)} vs charged
+            </span>
+          )}
+        </span>
+      ),
+    },
   ];
   return (
     <DataTable
@@ -311,6 +336,24 @@ function ClientTable({ data }: { data: FleetSpend }) {
  * list is empty, which is normal: an always-present "0 problems" card trains an operator to
  * stop reading this spot.
  */
+/**
+ * USAGE THE COSTS ABOVE LEAVE OUT (D-840): rows the meter wrote with no cost because a rate
+ * or a fee was not recorded. Counted, never priced at ₹0. Renders nothing when there are none.
+ */
+export function UnpricedNotice({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <p className="flex items-start gap-2 rounded-md border border-warn/40 bg-warn-soft/40 px-3 py-2 text-body text-ink">
+      <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
+      <span>
+        {formatCount(count)} usage {count === 1 ? "row has" : "rows have"} no cost this month
+        because a rate or fee was not recorded, so the costs above are floors and the margins
+        are ceilings. Record the missing figure under Ops → Pricing → Per-minute rates.
+      </span>
+    </p>
+  );
+}
+
 function UndecidableCard({ board }: { board: FleetSpend }) {
   const rows = board.undecidable ?? [];
   if (rows.length === 0) return null;

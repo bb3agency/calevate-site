@@ -652,6 +652,8 @@ class WalletLotOut(Strict):
     credits_remaining: Decimal
     clear_inr_per_min: Decimal
     studio_inr_per_min: Decimal
+    #: When the credit left on this purchase lapses (D-840); null when it does not expire.
+    expires_at: datetime | None = None
 
 
 class WalletLotsOut(Strict):
@@ -725,6 +727,7 @@ async def read_wallet_lots(
                 credits_remaining=lot.credits_remaining,
                 clear_inr_per_min=lot.clear_inr_per_min,
                 studio_inr_per_min=lot.studio_inr_per_min,
+                expires_at=lot.expires_at,
             )
             # `read_open_lots` already returns them in `(opened_at, id)` order — the FIFO
             # scan's own ordering, so this list is the order a call will spend them in.

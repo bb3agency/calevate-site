@@ -4106,10 +4106,13 @@ const ADMIN_SCREENS: Screen[] = [
       "/v1/ops/engine-minute-prices": {
         as_of: "2026-10-02T06:30:00Z",
         prices: [
-          { engine: "thinnest", rate_key: "platform", inr_per_min: null, effective_from: null, attested_at: null, source_note: null, billable: false, sold_as: null, topup_fee_percent: "2.36", topup_fee_plan: "every plan", inr_per_min_with_fee: null },
-          { engine: "thinnest", rate_key: "standard", inr_per_min: "2.000000", effective_from: "2026-10-01T00:00:00Z", attested_at: "2026-10-01T00:00:00Z", source_note: "plan page, 1 Oct 2026", billable: true, sold_as: null, topup_fee_percent: "2.36", topup_fee_plan: "every plan", inr_per_min_with_fee: "2.0472" },
+          { engine: "thinnest", rate_key: "platform", inr_per_min: null, effective_from: null, attested_at: null, source_note: null, billable: false, sold_as: null, topup_fee_percent: "2.36", inr_per_min_with_fee: null },
+          { engine: "thinnest", rate_key: "standard", inr_per_min: "2.000000", effective_from: "2026-10-01T00:00:00Z", attested_at: "2026-10-01T00:00:00Z", source_note: "plan page, 1 Oct 2026", billable: true, sold_as: null, topup_fee_percent: "2.36", inr_per_min_with_fee: "2.0472" },
         ],
-        topup_fees: [{ plan: "every plan", percent: "2.36" }],
+        costs: [
+          { subject: "thinnest_topup_fee", label: "ThinnestAI wallet top-up fee", unit: "percent", value: "2.36", effective_from: "1970-01-01T00:00:00Z", attested_at: "2026-10-20T00:00:00Z", source_note: "ThinnestAI email, 12 Oct 2026" },
+          { subject: "razorpay_topup_fee", label: "Razorpay fee on a client's top-up", unit: "percent", value: null, effective_from: null, attested_at: null, source_note: null },
+        ],
       },
       "/v1/ops/dashboard-data-use": OPS_DASHBOARD_DATA_USE,
       "/v1/ops/secrets": OPS_SECRETS,
