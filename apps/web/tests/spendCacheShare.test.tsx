@@ -26,13 +26,39 @@ function call(callId: string) {
   };
 }
 
-const SPEND = {
-  by_agent: [],
-  by_unit: [],
+const SPEND: TenantSpend = {
+  unpriced_rows: 0,
+  month: "2026-08",
+  plan_tier: "prepaid",
+  charge_basis: "wallet_debit",
   calls: 2,
+  minutes_used: "0.00",
+  retainer_inr: null,
+  revenue_inr: "0.00",
+  rental_revenue_inr: "0.00",
+  cost_inr: "0.00",
+  margin_inr: "0.00",
+  margin_pct: null,
+  cost_currency: "INR",
+  cost_currency_stated: true,
+  trial_cost_inr: "0.00",
+  trial_in_month: false,
+  paid_cost_inr: "0.00",
+  paid_margin_inr: "0.00",
+  paid_margin_pct: null,
+  trial_calls: 0,
+  trial_minutes: "0.00",
+  period_charge_inr: "0.00",
+  itemised_charge_inr: "0.00",
+  itemisation_residual_inr: "0.00",
+  residual_reason: null,
+  unattributed: null,
+  ai_assist: null,
+  by_unit: [],
+  by_agent: [],
   top_calls: [call(ON_OUR_MODEL), call(ON_THEIRS)],
   top_calls_truncated: false,
-} as unknown as TenantSpend;
+};
 
 /**
  * D-839: the admin's call cost list shows how much of an own-model call's input the provider

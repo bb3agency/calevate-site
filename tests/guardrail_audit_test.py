@@ -552,6 +552,10 @@ class TestRlsCoverage:
             "platform_inr_llm_prices",
             # D-678: the attested per-minute engine price, `platform_tts_prices`' twin.
             "platform_engine_minute_prices",
+            # D-840: the attested cost inputs that are not per-minute prices (the wallet
+            # top-up fee, the payment gateway fee, a rented number's rent) — the same shape
+            # and the same argument as the line above.
+            "platform_cost_attestations",
             # The operator-recorded per-minute band of an engine's own model.
             "platform_engine_model_bands",
             "platform_tts_volume",

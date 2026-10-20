@@ -9,6 +9,7 @@ import { ADMIN_PAGE_WIDE, HAIRLINE_LIST, MetricRow } from "@/components/admin/ki
 import { Section } from "@/components/console/section";
 import {
   FIELD_INLINE,
+  NoticeBox,
   ProblemNotice,
   Skeleton,
   formatCount,
@@ -343,14 +344,12 @@ function ClientTable({ data }: { data: FleetSpend }) {
 export function UnpricedNotice({ count }: { count: number }) {
   if (count === 0) return null;
   return (
-    <p className="flex items-start gap-2 rounded-md border border-warn/40 bg-warn-soft/40 px-3 py-2 text-body text-ink">
-      <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
-      <span>
-        {formatCount(count)} usage {count === 1 ? "row has" : "rows have"} no cost this month
-        because a rate or fee was not recorded, so the costs above are floors and the margins
-        are ceilings. Record the missing figure under Ops → Pricing → Per-minute rates.
-      </span>
-    </p>
+    <NoticeBox tone="warn" title={`${formatCount(count)} usage ${count === 1 ? "row has" : "rows have"} no cost this month`}>
+      <p className="mt-1">
+        A rate or fee was not recorded, so the costs above are floors and the margins are
+        ceilings. Record the missing figure under Ops → Pricing → Per-minute rates.
+      </p>
+    </NoticeBox>
   );
 }
 

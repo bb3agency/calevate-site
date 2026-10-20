@@ -29,6 +29,7 @@ import {
 import { OPS_INR_LLM_PRICES_PATH, OPS_MODEL_PRICES_PATH } from "@/lib/api/opsModelPricing";
 import { inrLlmPrices, inrLlmRow } from "./fixtures/opsInrLlmPrices";
 import { OPS_DASHBOARD_DATA_USE_PATH } from "@/lib/api/opsDashboardDataUse";
+import { OPS_IN_CALL_DATA_USE_PATH } from "@/lib/api/opsInCallDataUse";
 import { OPS_FX_RATE_PATH } from "@/lib/api/opsFxRate";
 import { NUMBER_PRICING_PATH, type NumberPrice } from "@/lib/api/numberPricing";
 import { OPS_SECRETS_PATH } from "@/lib/api/opsSecrets";
@@ -462,6 +463,7 @@ function routes(extra: Routes = {}): Routes {
       embedding_prices: [embeddingRow()],
     },
     [OPS_DASHBOARD_DATA_USE_PATH]: DASHBOARD_DATA_USE,
+    [OPS_IN_CALL_DATA_USE_PATH]: DASHBOARD_DATA_USE,
     [OPS_INR_LLM_PRICES_PATH]: inrLlmPrices(),
     [OPS_FX_RATE_PATH]: FX_RATE,
     [NUMBER_PRICING_PATH]: NUMBER_PRICE,
