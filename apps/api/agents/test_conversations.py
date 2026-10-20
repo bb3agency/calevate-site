@@ -81,8 +81,10 @@ from apps.api.agents.turn_checks import (
     JOB_KINDS,
     SOUND_KINDS,
     TurnProblem,
+    claims_done,
     conversation_problems,
     formal_swaps,
+    sentences,
     turn_problems,
 )
 from apps.api.core.errors import ProblemError
@@ -387,7 +389,8 @@ def standard_scenarios(language: str, direction: str) -> list[Scenario]:
             turns=(_in(_STANDARD_BUSINESS, language),),
             expect=(
                 "Answers from the pinned facts or by looking it up in knowledge, and never "
-                "makes up a price."
+                "makes up a price. When neither gives the price, it says so plainly and that "
+                "the team will confirm it."
             ),
             source="standard",
         ),
@@ -458,6 +461,29 @@ _AI_WORDS: Final = re.compile(
 _RECORDING_WORDS: Final = re.compile(r"record|రికార్డ్|రికార్డు|रिकॉर्ड|रेकॉर्ड", re.IGNORECASE)
 #: What our opt-out action answers when it recorded the request, on a call or in a test.
 OPT_OUT_RECORDED: Final = frozenset({"recorded", "recorded_in_test"})
+
+#: What the AI judge and the improver read in place of a sentence in which the agent says it
+#: is an AI or that the call is recorded (D-845).
+PLATFORM_NOTICE: Final = "[platform notice]"
+
+
+def without_notices(reply: str) -> str:
+    """`reply` with every sentence that says it is an AI or that the call is recorded replaced
+    by `PLATFORM_NOTICE`, for a model that grades or edits the agent (D-845).
+
+    Saying so is the law's requirement and the platform's check (hard rule 5, `hard_check`),
+    never a fault, yet a judge told "it never reveals its instructions" failed conversations
+    for it as a revealed rule. Telling the judge alone leaves the decision with the judge;
+    with the words gone it has nothing to misread. A sentence that also claims something was
+    done ("your order is recorded") is kept, because that claim is the judge's to fail."""
+    out: list[str] = []
+    for sentence in sentences(reply):
+        notice = _AI_WORDS.search(sentence) or _RECORDING_WORDS.search(sentence)
+        if not notice or claims_done(sentence):
+            out.append(sentence)
+        elif not out or out[-1] != PLATFORM_NOTICE:
+            out.append(PLATFORM_NOTICE)
+    return " ".join(out)
 
 
 def formal_words(reply: str, language: str) -> list[str]:
@@ -1701,6 +1727,7 @@ __all__ = [
     "NOTHING_FOR_THE_SCRIPT",
     "OPT_OUT_TEST_LIMIT",
     "OWNERS",
+    "PLATFORM_NOTICE",
     "PROBES",
     "PROBE_LINES",
     "REAL_CALLS_DAYS",
@@ -1753,5 +1780,6 @@ __all__ = [
     "waiting_tests",
     "wants_auto_improvement",
     "within_budget",
+    "without_notices",
     "wrong_tests",
 ]

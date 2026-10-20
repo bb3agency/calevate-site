@@ -609,8 +609,13 @@ _CLAIMS_DONE: Final = re.compile(
     r"(?:order|details|booking|number|request|name|slot)(?: is| are| has been| have "
     r"been)) (?:now |already |all )?(?:placed|booked|saved|noted(?: down)?|recorded|sent|added|"
     r"confirmed|registered|scheduled)\b"
+    r"|\b(?:noted|booked|placed|saved)(?: down)? (?:your|the) (?:order|details|booking)\b"
+    # "Noted it down for myself" (చేసుకున్నాను) is how a Telugu reply says an order is noted;
+    # the bare form must not be followed by a letter, so "చేసుకున్నారా?" (did you?) is no claim.
     r"|(?:నమోదు|సేవ్|save|నోట్|note|బుక్|book|రికార్డ్|record|confirm|కన్ఫర్మ్|place|ప్లేస్|add|"
-    r"యాడ్|ఆర్డర్ పెట్టే|order పెట్టే)\s*(?:చేసా|చేశా|చేసేసా|చేసేశా|అయిపోయింది|అయింది|ఐంది)"
+    r"యాడ్|ఆర్డర్ పెట్టే|order పెట్టే)\s*(?:చేసా|చేశా|చేసేసా|చేసేశా|అయిపోయింది|అయింది|ఐంది|"
+    r"చేసుకున్నాను|చేసుకున్నాం|చేసుకున్నా(?![ఀ-౿]))"
+    r"|రాసుకున్నాను|రాసుకున్నాం"
     r"|పంపాను|పంపాం|పంపించాను|పంపించాం|పంపేశాను|పంపేసాను|పంపేశాం|పంపేసాం"
     r"|(?:सेव|नोट|बुक|दर्ज|रिकॉर्ड|कन्फर्म|प्लेस|ऐड|save|note|book|confirm|add)\s*"
     r"(?:कर\s*(?:दिया|दी|दिए|लिया|ली|लिए)|हो\s*(?:गया|गई|गए))|भेज\s*(?:दिया|दी|दिए)",

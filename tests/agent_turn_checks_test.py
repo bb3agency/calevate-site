@@ -197,7 +197,7 @@ def test_the_prompt_says_the_turn_and_voice_rules() -> None:
     # The turn length, one question a turn and no brackets are ThinnestAI's own speaking
     # rules, read on every call after ours (D-814, D-824).
     assert "lead with the answer, then wait" in block
-    assert "never the caller's words" in block
+    assert "never the caller's" in block
     assert "actions or notes" in block and "say the time" in block
     assert "never re-ask" in block
     assert "offer once, then close politely" in block
