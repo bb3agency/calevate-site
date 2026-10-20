@@ -84,7 +84,8 @@ function bodyOf(draft: Draft): VoiceTuningIn {
 
 /**
  * How it sounds: speed, volume, emotion, the voice model and a pronunciation dictionary for
- * this agent's Studio voice. Operators only; a client never sees these.
+ * this agent's Studio voice. The client sets speed, loudness and emotion on its own screen
+ * too (D-843); the voice model and dictionary are set only here.
  *
  * "Hear it" speaks a short line with the settings as they are in the form, unsaved, on our
  * voice key (charged per character, so only on a press). "Save settings" stores them and the
@@ -207,7 +208,7 @@ export function VoiceTuningPanel({
             />
           )}
         </Field>
-        <Field id={`${id}-emotion`} label="Emotion" hint="English calls only.">
+        <Field id={`${id}-emotion`} label="Emotion" hint="Empty lets the words decide.">
           {(props) => (
             <select
               {...props}

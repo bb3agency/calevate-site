@@ -147,6 +147,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "copilot_pdf_unavailable": "record",
     "recording_unavailable": "record",
     "delivery_body_unavailable": "record",
+    # A client's voice sample refused because the daily counter could not be read (D-843):
+    # Redis down, which its own alarms already page; the refusal itself needs nobody.
+    "voice_preview_unavailable": "record",
     "qa_report_unreadable": "record",
     "kb_upload_unavailable": "record",
     "calendar_oauth_failed": "record",

@@ -135,6 +135,8 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         for key in (
             "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning",
             "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning",
+            "GET /v1/agents/{agent_id}/voice-tuning",
+            "PATCH /v1/agents/{agent_id}/voice-tuning",
         )
     },
     # --- do-not-call: the evidence shown before an opt-out is restored ---------------------

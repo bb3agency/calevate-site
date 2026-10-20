@@ -9948,6 +9948,176 @@
         "title": "ClientReplyTimes",
         "type": "object"
       },
+      "ClientVoiceTuningIn": {
+        "additionalProperties": false,
+        "description": "Speed, loudness and emotion only (D-843). Every field optional: a field left out is\nkept, null clears it. `extra=\"forbid\"` is what refuses the operator-only fields.",
+        "properties": {
+          "emotion": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emotion"
+          },
+          "speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,2}|(?=[\\d.]{1,5}0*$)\\d{0,2}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,2}|(?=[\\d.]{1,5}0*$)\\d{0,2}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
+          }
+        },
+        "title": "ClientVoiceTuningIn",
+        "type": "object"
+      },
+      "ClientVoiceTuningOptionsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "emotions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Emotions",
+            "type": "array"
+          },
+          "previews_per_day": {
+            "title": "Previews Per Day",
+            "type": "integer"
+          },
+          "speed_max": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Speed Max",
+            "type": "string"
+          },
+          "speed_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Speed Min",
+            "type": "string"
+          },
+          "volume_max": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Volume Max",
+            "type": "string"
+          },
+          "volume_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Volume Min",
+            "type": "string"
+          }
+        },
+        "required": [
+          "speed_min",
+          "speed_max",
+          "volume_min",
+          "volume_max",
+          "emotions",
+          "previews_per_day"
+        ],
+        "title": "ClientVoiceTuningOptionsOut",
+        "type": "object"
+      },
+      "ClientVoiceTuningOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "emotion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emotion"
+          },
+          "options": {
+            "$ref": "#/components/schemas/ClientVoiceTuningOptionsOut"
+          },
+          "previews_left_today": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previews Left Today"
+          },
+          "speed": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed"
+          },
+          "studio": {
+            "title": "Studio",
+            "type": "boolean"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume"
+          }
+        },
+        "required": [
+          "agent_id",
+          "studio",
+          "speed",
+          "volume",
+          "emotion",
+          "options",
+          "previews_left_today"
+        ],
+        "title": "ClientVoiceTuningOut",
+        "type": "object"
+      },
       "CloneConsentOut": {
         "additionalProperties": false,
         "description": "The speaker's recorded consent to a cloned voice being offered (D-721).",
@@ -53046,7 +53216,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning": {
       "get": {
-        "description": "How a Studio voice sounds on this agent. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion` (English calls only); `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a voice cloned from a long recording keeps its own pace (refused at publish or preview). They apply only while the agent's voice is a Studio one.",
+        "description": "How a Studio voice sounds on this agent. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion`, or null to let the words decide; `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a voice cloned from a long recording keeps its own pace (refused at publish or preview). They apply only while the agent's voice is a Studio one.",
         "operationId": "admin_get_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_get",
         "parameters": [
           {
@@ -53095,7 +53265,7 @@
         "x-calevate-permission": "admin:tenants"
       },
       "patch": {
-        "description": "How a Studio voice sounds on this agent. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion` (English calls only); `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a voice cloned from a long recording keeps its own pace (refused at publish or preview). They apply only while the agent's voice is a Studio one.",
+        "description": "How a Studio voice sounds on this agent. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion`, or null to let the words decide; `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a voice cloned from a long recording keeps its own pace (refused at publish or preview). They apply only while the agent's voice is a Studio one.",
         "operationId": "admin_set_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_patch",
         "parameters": [
           {
@@ -59632,6 +59802,154 @@
           "teach"
         ],
         "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/agents/{agent_id}/voice-tuning": {
+      "get": {
+        "description": "How this agent's Studio voice sounds. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion`, one of `options.emotions`, or null to let the words decide. Null leaves the voice's default; a field left out of a PATCH is kept. Refused while the agent's voice is not a Studio one. A change reaches a live agent from its next call.",
+        "operationId": "get_agent_voice_tuning_v1_agents__agent_id__voice_tuning_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientVoiceTuningOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How this agent's Studio voice sounds",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "patch": {
+        "description": "How this agent's Studio voice sounds. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion`, one of `options.emotions`, or null to let the words decide. Null leaves the voice's default; a field left out of a PATCH is kept. Refused while the agent's voice is not a Studio one. A change reaches a live agent from its next call.",
+        "operationId": "set_agent_voice_tuning_v1_agents__agent_id__voice_tuning_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientVoiceTuningIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientVoiceTuningOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set how this agent's Studio voice sounds",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/voice-tuning/preview": {
+      "post": {
+        "description": "Speaks one fixed sample line in the agent's main language, in its Studio voice, with the speed, loudness and emotion sent (the saved ones are not read). 20 samples per account per day (India time); past that it is refused with `voice_preview_daily_cap`. Refused while the agent's voice is not a Studio one.",
+        "operationId": "preview_agent_voice_tuning_v1_agents__agent_id__voice_tuning_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientVoiceTuningIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "audio/mpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "audio/wav": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The preview audio."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Hear this agent's Studio voice with these settings, unsaved",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/attention": {

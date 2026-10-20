@@ -21,6 +21,7 @@ import { CallerContinuity } from "../../panels/callerContinuity";
 import { CallCapChoice, VoiceChoice } from "../../panels/delivery";
 import { Handover } from "../../panels/handover";
 import { VoiceNow, WorstCaseCost } from "../../panels/publishing";
+import { ClientVoiceTuning } from "../../panels/voiceTuning";
 
 function usePending(agentId: string) {
   const session = useClientSession();
@@ -44,6 +45,7 @@ export function VoiceSection({ agent }: { agent: Agent }) {
         <VoiceNow state={pending.data} published={agent.published} />
       </SettingRows>
       <VoiceChoice agentId={agent.id} state={pending.data} />
+      <ClientVoiceTuning agentId={agent.id} voiceId={agent.engine_voice_id ?? null} />
     </div>
   );
 }

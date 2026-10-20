@@ -84,6 +84,7 @@ from apps.api.agents.service import (
     route_inbound_numbers,
 )
 from apps.api.agents.starters import StarterJob, apply_starter, direction_for
+from apps.api.agents.voice_tuning import DEFAULT_STUDIO_EMOTION, OLD_VOICE_MODEL, is_studio_voice
 from apps.api.agents.write_guard import archived_refusal
 from apps.api.compliance.disclosure import (
     ai_disclosure_for,
@@ -595,6 +596,13 @@ async def update_agent(
             "THEN CAST(:engine_voice_id AS text) ELSE engine_voice_id END, "
             "engine_model_id = CASE WHEN :set_engine_model_id "
             "THEN CAST(:engine_model_id AS text) ELSE engine_model_id END, "
+            # D-843: a voice that becomes a Studio one starts calm, unless a person set an
+            # emotion or the older voice model is chosen (it takes none, and a CHECK refuses
+            # it). Written before the republish below, so the engine receives it.
+            "studio_voice_emotion = CASE WHEN CAST(:studio_default_emotion AS text) IS NOT NULL "
+            "AND studio_voice_emotion IS NULL "
+            "AND studio_voice_model IS DISTINCT FROM CAST(:old_voice_model AS text) "
+            "THEN CAST(:studio_default_emotion AS text) ELSE studio_voice_emotion END, "
             "updated_at = now() WHERE id = :aid AND deleted_at IS NULL"
         ),
         {
@@ -613,6 +621,14 @@ async def update_agent(
             "set_engine_voice_id": set_engine_voice_id,
             "engine_model_id": engine_model_id,
             "set_engine_model_id": set_engine_model_id,
+            "studio_default_emotion": (
+                DEFAULT_STUDIO_EMOTION
+                if set_engine_voice_id
+                and is_studio_voice(engine_voice_id)
+                and not is_studio_voice(row[2])
+                else None
+            ),
+            "old_voice_model": OLD_VOICE_MODEL,
             "aid": agent_id,
         },
     )

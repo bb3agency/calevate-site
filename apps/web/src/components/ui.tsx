@@ -995,6 +995,14 @@ export const FIELD_INLINE_ICON =
 export const FIELD_LABEL = "block text-xs font-medium text-ink-muted";
 export const FIELD_HINT = "mt-1 block text-xs text-ink-faint";
 /**
+ * A range slider (`<input type="range">`), with a 24px thumb under a coarse pointer: a 16px
+ * thumb is under WCAG 2.2 SC 2.5.8's 24px AA minimum for a control a phone user DRAGS. The
+ * webkit thumb sits on a 6px track by a negative top margin of −(thumb − track) / 2, so
+ * 16px takes −5px and 24px takes −9px; Firefox centres `::-moz-range-thumb` itself.
+ */
+export const RANGE_INPUT =
+  "w-full cursor-pointer appearance-none bg-transparent [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-brand-strong [&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-line [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-line [&::-webkit-slider-thumb]:-mt-[5px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-brand-strong focus-visible:outline-none focus-visible:[&::-moz-range-thumb]:ring-2 focus-visible:[&::-moz-range-thumb]:ring-brand-strong focus-visible:[&::-moz-range-thumb]:ring-offset-2 focus-visible:[&::-webkit-slider-thumb]:ring-2 focus-visible:[&::-webkit-slider-thumb]:ring-brand-strong focus-visible:[&::-webkit-slider-thumb]:ring-offset-2 touch:[&::-moz-range-thumb]:h-6 touch:[&::-moz-range-thumb]:w-6 touch:[&::-webkit-slider-thumb]:-mt-[9px] touch:[&::-webkit-slider-thumb]:h-6 touch:[&::-webkit-slider-thumb]:w-6 dark:[&::-moz-range-thumb]:bg-brand-bright dark:[&::-webkit-slider-thumb]:bg-brand-bright";
+/**
  * `bg-brand-strong`, not `bg-brand`, and this was worth checking rather than assuming.
  *
  * The design's primary button rests at #0F6B3D (brand-strong) and DARKENS to #0c5932 on
