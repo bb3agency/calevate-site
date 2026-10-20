@@ -72,6 +72,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     caller_id_hidden: false,
     forwarding_test: false,
     forwarded_to_phone: false,
+    not_placed_reason: null,
     translation_state: "not_needed",
     language: "te-IN",
     sentiment: "positive",
@@ -453,6 +454,13 @@ describe("the call detail screen", () => {
 
     expect(await screen.findByText(/Forwarded calls are not recorded\./)).toBeTruthy();
     expect(container.innerHTML.toLowerCase()).not.toContain("thinnest");
+  });
+
+  it("shows the server's sentence for a call that was waiting and never rang", async () => {
+    const reason = "This call was waiting to be placed and could not be made.";
+    await renderClientPage(page, routes(detail({ status: "failed", not_placed_reason: reason })));
+
+    expect(await screen.findByText(reason)).toBeTruthy();
   });
 
   it("fetches the presigned recording link on the click, not with the page", async () => {

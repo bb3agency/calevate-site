@@ -160,8 +160,9 @@ ThinnestAI's text before ours with our settings (no hand-over on duty, lead capt
 business line, about 1,550 characters, about 390 tokens (ESTIMATE, ASCII). After our text comes
 the caller memory, which differs per caller when the engine's memory is on, then the language
 rule and the speaking rules (1,876 characters), then the daily date line. So the part a new call
-can reuse is about 2,300–2,600 tokens inbound and 1,800–2,100 outbound (ESTIMATE; where the six
-native steps are rendered is not stated, and they would add to it). **It does not cross about
+can reuse is about 2,300–2,600 tokens inbound and 1,800–2,100 outbound (ESTIMATE; the six native
+steps sit inside our fenced instructions (18 Oct email, `docs/vendor/thinnest-replies-2026-10-12.md:887`),
+but their position relative to our text is not stated, and they would add to it). **It does not cross about
 4,100 tokens.** Google lists a 4,096-token minimum for Gemini 3 Flash and does not list
 Flash-Lite (ai.google.dev/gemini-api/docs/caching, as relayed by the main session; not re-read
 here). Within one call the prompt is identical on every turn and the history grows, so later

@@ -30,6 +30,13 @@ CallStatus = Literal[
 ]
 Speaker = Literal["agent", "caller"]
 
+#: Why a call the engine held for later was never placed (D-842), in our words. The engine
+#: states its reason as prose; the adapter maps the cases it knows to a code here and every
+#: other reason to `unstated`, so no vendor sentence reaches storage or a client.
+#: `from_number_withdrawn`: the number the call was to ring from was taken off the agent.
+NotPlacedReason = Literal["from_number_withdrawn", "unstated"]
+NOT_PLACED_REASONS: tuple[NotPlacedReason, ...] = ("from_number_withdrawn", "unstated")
+
 # Statuses after which no further audio is expected. `completed` is the only one that
 # also implies cost/recording/transcript are populated (Bolna fills them ~2-3 min after
 # disconnect — TRD §5), which is why the pipeline triggers on it and not on a

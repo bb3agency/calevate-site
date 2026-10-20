@@ -14,14 +14,18 @@ own numbers, telephony, STT, LLM, TTS and recording (D-678..D-682). `ENGINE` acc
 `thinnest` and `fake` (tests only). Our own Pipecat loop was removed by D-763 (13 Oct 2026);
 the tag `pre-pipecat-removal` keeps it one checkout away. D-687 and D-688 (8 Oct 2026):
 
-- **Clear** = ThinnestAI's stack end to end, speaking the ThinnestAI voice band the console
-  setting `thinnest_clear_voice_band` names: **Studio** (default, D-792; catalogue voices
+- **Clear** = ThinnestAI's speech-to-text and telephony, speaking the ThinnestAI voice band the
+  console setting `thinnest_clear_voice_band` names: **Studio** (default, D-792; catalogue voices
   with `tier: studio` plus voices our **admin** clones; needs ThinnestAI Pro, ₹3.00/min) or
   **Premium** (pay-as-you-go, ₹2.50/min). VENDOR-STATED rates, operator-attested, never a constant.
-  Agent `byok: "off"`.
-- **Studio** = Cartesia on OUR key through ThinnestAI BYOK `scope: "voice"`, with ThinnestAI's
-  STT, LLM and telephony (`api-reference/bring-your-own-keys.md:13-24`), ₹1.50/min plus
-  Cartesia's charge. Agent `byok: "workspace"`. **Our key is switched on (voice only) in our
+  The model is our Gemini on our Google key (D-834), agent `byok: "llm"`, billed at the band's
+  minute; while the `thinnest_own_model` switch is off it is ThinnestAI's own model, agent
+  `byok: "off"` (`engine/thinnest._byok_value`, `agents/own_model.py`).
+- **Studio** = Cartesia on OUR key with ThinnestAI's STT and telephony, and our Gemini (D-834):
+  agent `byok: "llm_voice"`, ₹1.00/min flat (`snapshots/2026-10-19/pages/api-reference/
+  bring-your-own-keys.md:28`), attested as `byok_llm_voice`. While `thinnest_own_model` is off
+  it runs ThinnestAI's model on BYOK `scope: "voice"`, agent `byok: "voice"` (named outright
+  since 20 Oct 2026, never `workspace`), ₹1.50/min plus Cartesia's charge. **Our key is switched on (voice only) in our
   developer workspace, where free-trial agents live, and in the customer workspace of each
   paying client that uses Studio** (D-727, founder 11 Oct 2026, over D-717): Voices, "Studio
   ready" switches the developer workspace on (`agents/studio_voices.ensure_developer_studio`)

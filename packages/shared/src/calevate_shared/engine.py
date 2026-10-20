@@ -31,6 +31,7 @@ from calevate_shared.events import (
     CallLlmUsage,
     CallQuality,
     CallStatus,
+    NotPlacedReason,
     TranscriptTurn,
 )
 from calevate_shared.languages import find_language
@@ -4720,6 +4721,9 @@ class ExecutionSnapshot(BaseModel):
     #: number forward): no transcript and no recording, and its minutes are billed at the
     #: plan it was admitted at, or nothing on a brought number (D-835).
     forwarded: bool = False
+    #: A call the engine held for later that was never placed, and why (D-842). None on
+    #: every call that rang.
+    not_placed_reason: NotPlacedReason | None = None
     #: The engine has deleted this call's recording and transcript (a per-call deletion we
     #: asked for, or the workspace's retention window). The call is still known and billed;
     #: its empty transcript and absent recording are the expected state, not a fault, and

@@ -10,7 +10,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from calevate_shared.carrier import CARRIERS
-from calevate_shared.events import CallDirection, CallStatus, Speaker
+from calevate_shared.events import NOT_PLACED_REASONS, CallDirection, CallStatus, Speaker
 from calevate_shared.extraction import (
     LEGACY_OUTCOME_TAGS,
     OUTCOME_HINTS,
@@ -188,6 +188,10 @@ class Call(PKMixin, TimestampMixin, Base):
             ),
         ),
         CheckConstraint(
+            f"not_placed_reason IS NULL OR not_placed_reason IN {NOT_PLACED_REASONS!r}",
+            name="not_placed_reason_enum",
+        ),
+        CheckConstraint(
             "engine_content_recordings_pending IS NULL OR engine_content_recordings_pending >= 0",
             name="engine_content_recordings_pending_nonnegative",
         ),
@@ -354,6 +358,9 @@ class Call(PKMixin, TimestampMixin, Base):
     forwarded_to_phone: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false()
     )
+    #: A call the engine held for later that never rang, and why, as our code
+    #: (`calevate_shared.events.NotPlacedReason`, D-842). Never the engine's own words.
+    not_placed_reason: Mapped[str | None] = mapped_column(Text)
     lead_id: Mapped[UUID | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"))
     # D-21 M2: the call this one follows up. Bounds the callback chain — see migration
     # efb47868ec59 for why an unbounded one is a compliance problem, not a UX one.

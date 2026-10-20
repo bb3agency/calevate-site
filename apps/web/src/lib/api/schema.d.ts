@@ -13238,6 +13238,8 @@ export interface components {
             moments: components["schemas"]["CallMomentOut"][];
             /** Next Step */
             next_step?: string | null;
+            /** Not Placed Reason */
+            not_placed_reason: string | null;
             /** Outcome Tag */
             outcome_tag?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
             quality: components["schemas"]["CallQualityOut"] | null;

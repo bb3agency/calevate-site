@@ -450,6 +450,17 @@ def _callback_out(cells: Any) -> CallCallbackOut | None:
     )
 
 
+#: The owner's sentence for each `calls.not_placed_reason` (D-842). Our wording, never the
+#: voice platform's, whose reason can name a number (hard rule 6).
+NOT_PLACED_WORDS: Final[dict[str, str]] = {
+    "from_number_withdrawn": (
+        "This call was waiting to be placed from a number that was then given to another "
+        "agent, so it was not made."
+    ),
+    "unstated": "This call was waiting to be placed and could not be made.",
+}
+
+
 async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -> CallDetailOut:
     """`raw=True` returns unredacted transcript text AND the unredacted summary. The
     CALLER is responsible for the role check and the audit_log write — this function
@@ -473,7 +484,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
                 "c.callback_requested, c.translation_state, "
                 f"{_LEAD_NAME_COLUMN}, a.language_primary, c.engine_quality, c.engine_call_id, "
                 "c.caller_id_hidden, c.forwarding_test_id IS NOT NULL, c.forwarded_to_phone, "
-                "c.business_outcome, c.business_outcome_label "
+                "c.business_outcome, c.business_outcome_label, c.not_placed_reason "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
                 "WHERE c.id = :cid"
             ),
@@ -555,6 +566,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         forwarded_to_phone=bool(row[35]),
         business_outcome=row[36],
         business_outcome_label=row[37],
+        not_placed_reason=NOT_PLACED_WORDS.get(row[38]),
         summary_local=row[23] if raw else redacted_summary(row[23]),
         summary_language=row[24],
         summary_source=row[25],

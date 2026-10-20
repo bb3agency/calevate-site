@@ -98,6 +98,7 @@ from calevate_shared.events import (
     EngineOptOut,
     EngineProblem,
     EngineProblemKind,
+    NotPlacedReason,
     Speaker,
     TranscriptTurn,
 )
@@ -251,10 +252,17 @@ INSTRUCTIONS_MAX_CHARS: Final = 20_000
 #: and sent again on every turn: about 4,700 characters with typical settings. Its parts, in
 #: characters: core 524, AI disclosure 331, hand-over 279-480, lead rule 88 or 652, language
 #: rule 64-601, date line 228, fence wrapper about 290, speaking rules 1,876 (about 1,000 more
-#: with a transfer target), default call rules 1,675 only when the agent sets none (ThinnestAI
-#: email of 19 Oct 2026, VENDOR-STATED; not in the docs). An estimate for sizing what the model
-#: reads per turn, never a limit and never money.
+#: with a transfer target) (ThinnestAI email of 19 Oct 2026, VENDOR-STATED; not in the docs).
+#: The 4,700 EXCLUDES the default call rules below: the other parts sum to 3,680-4,982, and
+#: 1,675 on top would put even the smallest case past 4,700. An estimate for sizing what the
+#: model reads per turn, never a limit and never money.
 ENGINE_ADDED_PROMPT_CHARS: Final = 4_700
+#: ThinnestAI's default call rules, 1,675 characters, "added only if you haven't written your
+#: own" (same email, VENDOR-STATED). Which field counts as our own is not stated: the docs say
+#: `callInstructions` "REPLACES the built-in call rules" (snapshots/2026-10-19/pages/
+#: api-reference/agents/update-agent.md:1641-1647), and our publish does not send it, so the
+#: per-turn size is reported as a range with and without these.
+ENGINE_DEFAULT_CALL_RULES_CHARS: Final = 1_675
 #: `businessDescription`, "One line about what the business is" (snapshots/2026-10-08/pages/
 #: api-reference/agents/update-agent.md:531-534).
 BUSINESS_DESCRIPTION_MAX_CHARS: Final = 200
@@ -541,6 +549,27 @@ def _our_status(raw_status: str, hangup: str | None) -> CallStatus:
     if raw_status == "missed":
         return _MISSED_BY_HANGUP.get(hangup or "", "no_answer")
     return _STATUS_MAP.get(raw_status, "failed")
+
+
+# The one booked-call failure the docs word exactly: a number lent to another agent takes
+# it off this one, and a waiting call told to ring from it "fails with" this sentence
+# (snapshots/2026-10-19/pages/channels/phone-numbers.md:696-702). Compared case-folded and
+# without the full stop, so a change of capitalisation or punctuation still matches.
+_FROM_NUMBER_WITHDRAWN: Final = "the number this call was to ring from is no longer on this agent"
+
+
+def _not_placed_reason(hangup: str | None, error: object) -> NotPlacedReason | None:
+    """Why a booked call never rang, as our code. `error` is "Why a booked call could not
+    be placed, in words. Null otherwise" (snapshots/2026-10-19/pages/api-reference/calls/
+    get-call.md:1027-1031) and `not_placed` is the hangup of such a call (:932-936). The
+    vendor's sentence goes no further than this function: it may name a number (hard rule
+    6) and it is not our wording (D-679)."""
+    words = _str(error)
+    if hangup != "not_placed" and words is None:
+        return None
+    if words is not None and words.strip().rstrip(".").casefold() == _FROM_NUMBER_WITHDRAWN:
+        return "from_number_withdrawn"
+    return "unstated"
 
 
 def _scoped(raw: str | None, workspace: str | None) -> str | None:
@@ -3613,6 +3642,10 @@ class ThinnestEngine:
             "inbound" if payload.get("direction") == "inbound" else "outbound"
         )
         customer = _e164(payload.get("phone"))
+        # `phone` is "The customer's number" and `from` is "Your number the call rang from
+        # ... always null on a call that came in" (snapshots/2026-10-19/pages/api-reference/
+        # calls/get-call.md:872-883). So an inbound call names only the caller, and its
+        # `to_e164` is None here; the pipeline fills it from the agent that answered.
         ours = _e164(payload.get("from"))
         recording = payload.get("recording")
         recording_url = _str(recording.get("url")) if isinstance(recording, dict) else None
@@ -3647,9 +3680,6 @@ class ThinnestEngine:
             started_at=started,
             ended_at=ended,
             duration_s=duration_s,
-            # `phone` is the customer and `from` our number (get-call.md:125-132). On an
-            # inbound call the customer dialled us, so they swap. UNVERIFIED: the mirror only
-            # describes `from` on calls we placed.
             from_e164=customer if direction == "inbound" else ours,
             to_e164=ours if direction == "inbound" else customer,
             recording_url=recording_url,
@@ -3672,6 +3702,7 @@ class ThinnestEngine:
             # no key at all, which `billing_reported` tells apart from `billing: null`.
             billing_reported="billing" in payload,
             forwarded=forwarded,
+            not_placed_reason=_not_placed_reason(hangup, payload.get("error")),
             engine=self.name,
         )
 
