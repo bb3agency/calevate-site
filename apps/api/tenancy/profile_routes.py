@@ -93,6 +93,10 @@ class BusinessProfileOut(_Out):
     languages: list[Language]
     setup: ProfileSetupOut
     blockers: list[ProfileBlockerOut]
+    #: The steps that must be answered before an agent of this account takes calls, in
+    #: wizard order. People who take calls are among them only when an agent answers
+    #: calls or hands them over.
+    required_steps: list[bp.StepId]
     updated_at: datetime | None
     #: On a save: how many agents got the change. Null on a read.
     agents_updated: int | None = None
@@ -138,6 +142,7 @@ async def render(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Any]:
     if org is None:
         raise ProblemError.not_found("Organization")
     kyc = await read_kyc(session, tenant_id=tenant_id)
+    needs_contact = await bp.account_needs_contact(session)
     return {
         "business_name": str(org[0]),
         "vertical_template": org[1],
@@ -164,8 +169,9 @@ async def render(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Any]:
         ),
         "blockers": [
             ProfileBlockerOut(code=code, step=bp.BLOCKER_STEPS[code], message=bp.BLOCKER_COPY[code])
-            for code in bp.go_live_blockers(profile)
+            for code in bp.go_live_blockers(profile, needs_contact=needs_contact)
         ],
+        "required_steps": bp.required_steps(needs_contact=needs_contact),
         "updated_at": profile.updated_at,
         "merge_notes": profile.merge_notes,
     }

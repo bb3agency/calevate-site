@@ -14,6 +14,7 @@ import {
   contactsFixture,
   contactsPath,
   detailRoutes,
+  dltRegistrationRoute,
   listPage,
   newCampaignPage,
   pageFixture,
@@ -114,6 +115,7 @@ function newRoutes(extra: Routes = {}): Routes {
     "/v1/campaigns/numbers": [],
     "/v1/campaigns/templates": [],
     "/v1/campaigns/lead-pool": { matching: 0, limit: 5000 },
+    ...dltRegistrationRoute(),
     ...extra,
   };
 }
@@ -185,12 +187,18 @@ describe("the create page's consent declaration", () => {
     expect(screen.getByRole("heading", { name: "Who should we call?" })).toBeTruthy();
   });
 
-  it("offers Promotional and Service and never Transactional", async () => {
+  it("offers Service only while Calevate's telemarketer registration is not live, and never Transactional", async () => {
     await renderClientPage(newCampaignPage(), newRoutes());
     await screen.findByRole("heading", { name: "The basics" });
-    expect(screen.getByRole("radio", { name: /Promotional/ })).toBeTruthy();
     expect(screen.getByRole("radio", { name: /Service/ })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: /Promotional/ })).toBeNull();
     expect(screen.queryByRole("radio", { name: /Transactional/ })).toBeNull();
+  });
+
+  it("offers Promotional once the telemarketer registration is live", async () => {
+    await renderClientPage(newCampaignPage(), newRoutes(dltRegistrationRoute(true)));
+    expect(await screen.findByRole("radio", { name: /Promotional/ })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /Service/ })).toBeTruthy();
   });
 });
 

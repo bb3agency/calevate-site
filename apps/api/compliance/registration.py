@@ -36,6 +36,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.ops.service import TM_REGISTRATION_MISSING_REASON, read_tm_registration
 
@@ -235,14 +236,46 @@ async def outbound_entity_blockers(
     return blockers
 
 
+PROMOTIONAL_UNAVAILABLE_RULE = "promotional_campaigns_unavailable"
+PROMOTIONAL_UNAVAILABLE_REASON = (
+    "Promotional campaigns are not available yet: they need a telemarketer registration "
+    "with the DLT registrar, which is not in place. Reminders and updates to your own "
+    "customers can go out as a service campaign."
+)
+
+
+async def refuse_promotional_without_registration(
+    session: AsyncSession, *, classification: str
+) -> None:
+    """Refuse a PROMOTIONAL campaign while Calevate's telemarketer registration is not live.
+
+    The founder's rule of 20 Oct 2026, recorded under D-692's context in D-838. A
+    promotional list dials only after a same-day check against the national preference
+    register (`preference_scrub`), and only a registered telemarketer can run that check,
+    so without the registration a promotional campaign could be drafted and never called.
+    It is hidden and refused instead; service campaigns are untouched. Asked where a
+    classification is written (create, edit, duplicate).
+    """
+    if classification != "promotional" or (await read_tm_registration(session)).is_live:
+        return
+    raise ProblemError.business_rule(
+        PROMOTIONAL_UNAVAILABLE_RULE,
+        PROMOTIONAL_UNAVAILABLE_REASON,
+        remediation="File it as a service campaign if it is about your own customers' service.",
+    )
+
+
 __all__ = [
     "NOT_RECORDED",
     "PE_MISSING_REASON",
     "PE_VERIFICATION_STALE_REASON",
+    "PROMOTIONAL_UNAVAILABLE_REASON",
+    "PROMOTIONAL_UNAVAILABLE_RULE",
     "TM_LINK_REASON",
     "PeRegistration",
     "outbound_entity_blockers",
     "pe_registration_blocker",
     "pe_verification_is_stale",
     "read_pe_registration",
+    "refuse_promotional_without_registration",
 ]

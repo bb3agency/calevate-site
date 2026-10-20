@@ -96,11 +96,11 @@ export const BLOCKER_COPY: Record<string, BlockerNote> = {
   },
   account_closed: { text: "This account is closed, so it can't make calls.", owner: "calevate" },
   national_dnd_scrub_missing: {
-    text: "Promotional calls go out only after the list is checked against the national do-not-disturb register that day. We run that check, and it hasn't been run for this list yet.",
+    text: "Promotional calls go out only after the list is checked against the national do-not-disturb register that day, and that check has not been recorded for this list. A service campaign does not need it.",
     owner: "calevate",
   },
   national_dnd_scrub_expired: {
-    text: "The check against the national do-not-disturb register lasts until midnight, and today's has not been run yet. We run it each calling day.",
+    text: "The check against the national do-not-disturb register lasts until midnight, and today's has not been recorded for this list yet.",
     owner: "calevate",
   },
   big_red_switch: {

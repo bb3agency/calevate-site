@@ -898,7 +898,7 @@ describe("this week", () => {
     const card = await recap({
       "/v1/agents": [agentRow({ status: "paused" })],
     });
-    expect(card.textContent).toContain("Paused");
+    expect(card.textContent).toContain("Not taking calls");
     const buttons = await actions(card);
     expect(buttons[0]).toEqual({ name: "Open agent", primary: true });
     // The same link is not offered twice.

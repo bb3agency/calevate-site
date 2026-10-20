@@ -8,6 +8,8 @@
  *   on the calling system, and is refused with the server's reason while there is no
  *   script or the agreements are outstanding); off is `POST .../deactivate`. No confirm
  *   step: the consequence is in the ⓘ beside it, and switching back is the same switch.
+ * - **Get it ready** (a draft only) publishes it without taking calls, so the chat can try it
+ *   (D-838); a refused move shows its reason, with setup links when it is missing facts.
  * - **Try it** opens the Training tab, where the chat and the practice call are (D-825),
  *   through the tabs' own unsaved-edits guard (D-826) like the ⋯ menu's Delete.
  * - **Put it live** is the one filled button, and only while the script's draft differs
@@ -38,7 +40,7 @@ import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
 import { LiveBadge, liveState } from "../../AgentBadge";
-import { MOVE_COPY } from "../../AgentLifecycle";
+import { LifecycleError, MOVE_COPY } from "../../AgentLifecycle";
 import { stagedScript, voiceTierLine } from "../../panels/publishing";
 import { PutLiveDialog, usePutLive } from "../script/PutLive";
 import { hasUnpublished, workingCopy } from "../script/scriptDraft";
@@ -127,6 +129,17 @@ export function AgentHeader({
             {!deleted && (
               <>
                 <OnOffSwitch agent={agent} canWrite={write.allowed} move={move} />
+                {moves.includes("prepare") && (
+                  <button
+                    type="button"
+                    onClick={() => move.mutate("prepare")}
+                    disabled={!write.allowed || move.isPending}
+                    title={write.reason ?? MOVE_COPY.prepare.hint}
+                    className={`${SECONDARY_BUTTON} flex-1 sm:flex-none`}
+                  >
+                    {move.isPending && move.variables === "prepare" ? MOVE_COPY.prepare.busy : MOVE_COPY.prepare.label}
+                  </button>
+                )}
                 <Link
                   href={training?.href ?? href(`${base}?section=training`)}
                   onClick={training?.onClick}
@@ -146,7 +159,7 @@ export function AgentHeader({
         }
       />
       <RestrictionNote reason={write.reason} />
-      {move.error && <ProblemNotice error={move.error} />}
+      <LifecycleError error={move.error} />
       {undo.error && <ProblemNotice error={undo.error} />}
     </div>
   );

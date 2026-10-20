@@ -29,6 +29,7 @@
  */
 
 import {
+  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
@@ -67,7 +68,9 @@ export const agentKeys = {
   archived: (org: string) => ["agents-archived", org] as const,
   stats: (org: string) => ["agent-stats", org] as const,
   /** What a ready-made agent for one job would be, for this account's business type. */
-  starters: (org: string, job: StarterJob) => ["agent-starters", org, job] as const,
+  starters: (org: string, language: AgentLanguage) => ["agent-starters", org, language] as const,
+  /** Whether the agent can be tried yet, and its test runs (`GET .../script/tests`). */
+  tests: (org: string, agentId: string) => ["script-tests", org, agentId] as const,
   one: (org: string, agentId: string) => ["agent", org, agentId] as const,
   /**
    * EVERY agent detail row this org has cached — the PREFIX of `one`.
@@ -364,22 +367,18 @@ export type StarterPreview = components["schemas"]["StarterPreviewOut"];
 export type StartersOut = components["schemas"]["StartersOut"];
 
 /**
- * THE READY-MADE AGENT FOR ONE JOB, BEFORE IT EXISTS: its suggested name, opening line, the
- * script's step titles and the details it captures, for the caller's own business type.
- * `GET /v1/agents/starters?job=…` creates nothing; `useCreateAgent` with `starter` does.
- * Not fetched until a job is chosen.
+ * THE READY-MADE AGENTS, BEFORE THEY EXIST: for each job, its suggested name, the opening
+ * line in `language` (the one the agent will be created speaking), the script's step titles,
+ * the details it captures, and why the job is locked on this account if it is.
+ * `GET /v1/agents/starters` creates nothing; `useCreateAgent` with `starter` does.
  */
-export function useStarter(
-  session: Session,
-  job: StarterJob | null,
-): UseQueryResult<StarterPreview | null> {
+export function useStarters(session: Session, language: AgentLanguage): UseQueryResult<StartersOut> {
   return useQuery({
-    queryKey: agentKeys.starters(session.orgSlug, job ?? "answer_calls"),
-    queryFn: async () => {
-      const out = await apiRequest<StartersOut>(session, `/v1/agents/starters?job=${job ?? ""}`);
-      return out.starters.find((s) => s.job === job) ?? null;
-    },
-    enabled: job !== null,
+    queryKey: agentKeys.starters(session.orgSlug, language),
+    queryFn: () =>
+      apiRequest<StartersOut>(session, `/v1/agents/starters?language=${encodeURIComponent(language)}`),
+    // A language change keeps the last preview on screen until its own greeting arrives.
+    placeholderData: keepPreviousData,
     staleTime: AGENT_STALE_MS,
   });
 }
@@ -410,17 +409,20 @@ export function useUpdateAgent(
  * because a screen that offers three of them at once needs ONE in-flight state and ONE
  * error channel, not three that can each be showing a different answer.
  */
-export type LifecycleMove = "activate" | "deactivate" | "archive" | "restore";
+export type LifecycleMove = "activate" | "prepare" | "deactivate" | "archive" | "restore";
 
 export function useAgentLifecycle(
   session: Session,
   agentId: string,
 ): UseMutationResult<LifecycleResult, Error, LifecycleMove> {
   const refresh = useAgentRefresh(session, agentId);
+  const client = useQueryClient();
   return useMutation({
     mutationFn: (move: LifecycleMove) =>
       apiRequest<LifecycleResult>(session, `/v1/agents/${agentId}/${move}`, { method: "POST" }),
-    onSuccess: refresh,
+    // A move that publishes is what opens the Try it chat, so its readiness is read again.
+    onSuccess: () =>
+      Promise.all([refresh(), client.invalidateQueries({ queryKey: agentKeys.tests(session.orgSlug, agentId) })]),
   });
 }
 

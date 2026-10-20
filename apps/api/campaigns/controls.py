@@ -40,6 +40,7 @@ from apps.api.campaigns.service import (
     validated_window,
 )
 from apps.api.compliance.audit import write_audit
+from apps.api.compliance.registration import refuse_promotional_without_registration
 from apps.api.compliance.service import (
     NO_CREDITS_REASON,
     SPEND_CAP_REASON,
@@ -126,6 +127,10 @@ async def update_draft(
         await assert_assignable(session, changes["agent_id"])
     if "number_id" in changes:
         await assert_visible(session, "phone_number", changes["number_id"])
+    if "classification" in changes:
+        await refuse_promotional_without_registration(
+            session, classification=str(changes["classification"])
+        )
     values = dict(changes)
     if values.get("calling_hours") is not None:
         values["calling_hours"] = validated_window(values["calling_hours"])

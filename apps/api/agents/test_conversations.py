@@ -1093,8 +1093,9 @@ async def readiness(session: AsyncSession, agent_id: UUID) -> TestReadiness:
         return TestReadiness(
             available=False,
             reason=(
-                "Tests talk to the agent callers hear, so they open once it has been switched "
-                "on once. You can switch it off again straight after."
+                "Chats and tests talk to the agent as the calling system holds it, so they "
+                "open once it is ready. Press Get it ready at the top of this page: it does "
+                "not take or make any calls."
             ),
             live_version=live_version,
         )

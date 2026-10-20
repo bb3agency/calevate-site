@@ -17,6 +17,7 @@ import type { components } from "./schema";
 type Schemas = components["schemas"];
 
 export type Knows = Schemas["KnowsOut"];
+export type PinnedNotYetOn = Schemas["PinnedNotYetOut"];
 export type Fact = Schemas["FactOut"];
 export type KnownItem = Schemas["KnownItemOut"];
 export type Teaching = Schemas["TeachingOut"];
@@ -45,9 +46,14 @@ export function useKnows(session: Session): UseQueryResult<Knows> {
     queryKey: knowsKey(session.orgSlug),
     queryFn: () => apiRequest<Knows>(session, "/v1/kb/knows"),
     // While new facts are on their way to the agents, look again so "Reaching your agents"
-    // turns into nothing without a reload.
-    refetchInterval: (query) =>
-      query.state.data?.facts_state === "publishing" ? 15_000 : false,
+    // and "Being added to …" turn into nothing without a reload.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const arriving =
+        data?.facts_state === "publishing" ||
+        (data?.pinned_not_yet_on ?? []).some((entry) => entry.reason === "on_the_way");
+      return arriving ? 15_000 : false;
+    },
   });
 }
 

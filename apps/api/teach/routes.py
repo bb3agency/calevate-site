@@ -78,12 +78,23 @@ class KnownItemOut(Strict):
     updated_at: datetime | None = None
 
 
+class PinnedNotYetOut(Strict):
+    agent_id: UUID
+    agent_name: str
+    #: `waiting_put_live` · `too_long` · `on_the_way`.
+    reason: str
+    sentence: str
+
+
 class KnowsOut(Strict):
     facts: list[FactOut]
     #: Whether the newest facts have reached the agents: `none` · `live` · `publishing` ·
     #: `in_review`.
     facts_state: str
     items: list[KnownItemOut]
+    #: Agents whose live instructions do not carry the current pinned facts, each with the
+    #: sentence saying why and what to do. Empty when every agent has them.
+    pinned_not_yet_on: list[PinnedNotYetOut]
 
 
 @router.get(
@@ -100,6 +111,9 @@ async def what_it_knows(
         facts=[FactOut.model_validate(f, from_attributes=True) for f in found.facts],
         facts_state=found.facts_state,
         items=[KnownItemOut.model_validate(i, from_attributes=True) for i in found.items],
+        pinned_not_yet_on=[
+            PinnedNotYetOut.model_validate(n, from_attributes=True) for n in found.pinned_not_yet_on
+        ],
     )
 
 

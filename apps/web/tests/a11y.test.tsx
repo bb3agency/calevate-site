@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { OPS_INR_LLM_PRICES } from "./fixtures/opsInrLlmPrices";
 import { STYLE_LIST, TELUGU_STYLE } from "./fixtures/spokenStyle";
 import { replyTimeReport } from "./fixtures/replyTimes";
-import { contactsFixture, progressFixture, resultsFixture } from "./campaignFixtures";
+import { contactsFixture, dltRegistrationRoute, progressFixture, resultsFixture } from "./campaignFixtures";
 import { ADMIN_FORWARDING, CODES, READY_TO_FORWARD, SETTLED_TEST, WITH_LINE } from "./fixtures/forwarding";
 
 import type { AiQuota } from "@/lib/api/aiQuota";
@@ -2668,6 +2668,7 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <NewAgentPage params={slug} />,
     routes: {
       "/v1/me": ME,
+      "/v1/agents/starters?language=te-IN": { vertical: "clinic", starters: [] },
       "/v1/agents/lanes": {
         precedence_rule: "Script decides content.",
         lanes: [],
@@ -2733,6 +2734,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/agents": [AGENT],
       "/v1/campaigns/lead-pool": { matching: 0, limit: 5000 },
+      ...dltRegistrationRoute(true),
       "/v1/campaigns/numbers": [
         {
           id: "num-1",
@@ -2766,6 +2768,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/campaigns/numbers": [],
       "/v1/campaigns/templates": [],
       [`/v1/campaigns/${CAMPAIGN.id}`]: progressFixture({ id: CAMPAIGN.id }),
+      ...dltRegistrationRoute(),
     },
   },
   {
@@ -3149,7 +3152,7 @@ const CLIENT_SCREENS: Screen[] = [
       // The owner's staff-curation switch (D-487). Without it `StaffCurationSwitch`
       // renders its ProblemNotice and the scan would cover an error panel.
       "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
-      "/v1/kb/knows": { facts: [], facts_state: "none", items: [] },
+      "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
       "/v1/kb/teach/open": { teaching: null },
       // Documents and web pages (D-534). One row per state family, so the sweep covers
       // the populated list rather than its empty state: a live PDF, and a photograph
@@ -5144,6 +5147,7 @@ const TRAINING_TAB_ROUTES = {
     ],
     facts_state: "live",
     items: [],
+    pinned_not_yet_on: [],
   },
   "/v1/kb/teach/open": { teaching: null },
 };

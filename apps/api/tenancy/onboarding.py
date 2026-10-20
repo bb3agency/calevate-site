@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
 from apps.api.core.logging import get_logger
-from apps.api.tenancy.business_profile import go_live_blockers, load_profile
+from apps.api.tenancy.business_profile import account_go_live_blockers
 
 log = get_logger(__name__)
 
@@ -82,7 +82,7 @@ async def complete_onboarding_if_finished(session: AsyncSession, *, tenant_id: U
     if status != "onboarding":
         return False
     owner = await owner_status(session)
-    blockers = go_live_blockers(await load_profile(session, tenant_id=tenant_id))
+    blockers = await account_go_live_blockers(session, tenant_id=tenant_id)
     if not onboarding_finished(owner_present=owner.owner_present, blockers=blockers):
         return False
     moved = (await session.execute(text(_COMPLETE), {"tid": tenant_id})).first() is not None

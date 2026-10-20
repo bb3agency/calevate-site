@@ -241,6 +241,12 @@ AGENT_STATE_WRITERS: dict[str, str] = {
         "`status = 'live'` is a fact about the vendor rather than an intention of ours. "
         "The lifecycle's `activate` deliberately writes no status and calls this instead"
     ),
+    "apps/api/agents/lifecycle.py::prepare_agent": (
+        "`draft -> paused` through the transition primitive, then a publish with "
+        "`take_calls=False`: the agent is read back at the engine so its chat can be tried, "
+        "no number is bound to it and the dial gate refuses it, because it is not `live` "
+        "(D-838)"
+    ),
     "apps/api/agents/lifecycle.py::deactivate_agent": (
         "`live -> paused` through the transition primitive, with the agent's inbound "
         "numbers released at the vendor in the same transaction — outbound stops by "

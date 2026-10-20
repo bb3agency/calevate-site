@@ -28,6 +28,7 @@ export function businessProfileFixture(over: Partial<BusinessProfile> = {}): Bus
       complete: true,
     },
     blockers: [],
+    required_steps: ["hours", "branches", "services", "contacts"],
     updated_at: null,
     agents_updated: null,
     ...over,

@@ -1405,7 +1405,7 @@ def test_the_movers_and_the_transition_table_describe_the_same_machine() -> None
         lifecycle._assert_movers_partition_the_table(
             transitions={
                 **lifecycle.AGENT_TRANSITIONS,
-                "draft": frozenset({"live", "archived", "paused"}),
+                "live": frozenset({"paused", "draft"}),
             }
         )
 

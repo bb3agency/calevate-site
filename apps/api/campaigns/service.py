@@ -75,6 +75,7 @@ from apps.api.campaigns.models import (
 from apps.api.compliance import service as compliance_clock
 from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
 from apps.api.compliance.preference_scrub import national_dnd_blocker, read_current_scrub
+from apps.api.compliance.registration import refuse_promotional_without_registration
 from apps.api.compliance.service import (
     BIG_RED_SWITCH_REASON,
     BIG_RED_SWITCH_RULE,
@@ -795,6 +796,7 @@ async def create_campaign(
     await assert_visible(session, "agent", agent_id)
     await assert_visible(session, "phone_number", number_id)
     await assert_visible(session, "dlt_template", dlt_template_id)
+    await refuse_promotional_without_registration(session, classification=classification)
     # AND THE AGENT MUST NOT BE RETIRED (D-440). `assert_visible` is the TENANCY question
     # and answers 404 for a neighbour's id; this is the LIFECYCLE question and answers 409
     # for one of the caller's own. A draft or paused agent is still assignable on purpose —

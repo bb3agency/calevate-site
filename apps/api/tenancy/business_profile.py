@@ -280,7 +280,9 @@ async def profile_fact_lines(session: AsyncSession, *, tenant_id: UUID) -> list[
 #: * hours: the after-hours branch and the handover rota are judged against them;
 #: * an address: "where are you?" is the second question every caller asks;
 #: * a service: the price list is the most-asked question;
-#: * an escalation contact: a handover has nowhere to go without one.
+#: * an escalation contact: a handover has nowhere to go without one, so it is asked only
+#:   of an agent that hands calls over or answers calls (founder, 20 Oct 2026, D-838); an
+#:   outbound agent with hand-over off never puts a caller through to anyone.
 #:
 #: FAQs, staff, booking rules and languages are not blockers: a one-person shop with none
 #: of them is a real client.
@@ -292,7 +294,16 @@ BLOCKER_STEPS: Final[dict[str, StepId]] = {
 }
 
 
-def go_live_blockers(profile: Profile) -> list[str]:
+def required_steps(*, needs_contact: bool) -> list[StepId]:
+    """The setup steps that must be answered before an agent takes calls, in wizard order."""
+    return [
+        step
+        for code, step in BLOCKER_STEPS.items()
+        if needs_contact or code != "escalation_contact_missing"
+    ]
+
+
+def go_live_blockers(profile: Profile, *, needs_contact: bool = True) -> list[str]:
     blockers: list[str] = []
     if not profile.hours:
         blockers.append("business_hours_missing")
@@ -300,9 +311,34 @@ def go_live_blockers(profile: Profile) -> list[str]:
         blockers.append("branch_missing")
     if not profile.services:
         blockers.append("service_missing")
-    if not profile.contacts:
+    if needs_contact and not profile.contacts:
         blockers.append("escalation_contact_missing")
     return blockers
+
+
+async def account_needs_contact(session: AsyncSession) -> bool:
+    """Does any of this account's agents need someone to hand a call to: one that answers
+    calls, or one with hand-over switched on? For the account-wide reads (the setup
+    wizard, onboarding); a publish asks it of the one agent going live."""
+    return bool(
+        (
+            await session.execute(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM agents WHERE deleted_at IS NULL "
+                    "AND status <> 'archived' "
+                    "AND (handoff_enabled OR direction IN ('inbound', 'both')))"
+                )
+            )
+        ).scalar()
+    )
+
+
+async def account_go_live_blockers(session: AsyncSession, *, tenant_id: UUID) -> list[str]:
+    """`go_live_blockers` for the account as a whole (see `account_needs_contact`)."""
+    return go_live_blockers(
+        await load_profile(session, tenant_id=tenant_id),
+        needs_contact=await account_needs_contact(session),
+    )
 
 
 #: What each blocker means to the client, in their words.
@@ -310,19 +346,24 @@ BLOCKER_COPY: Final[dict[str, str]] = {
     "business_hours_missing": "Add your opening hours.",
     "branch_missing": "Add your address.",
     "service_missing": "Add at least one service.",
-    "escalation_contact_missing": "Add someone who can take calls.",
+    "escalation_contact_missing": "Add someone your agent can put a caller through to.",
 }
 
 
-async def assert_ready_to_go_live(session: AsyncSession, *, tenant_id: UUID) -> None:
-    """Refuse to put an agent on the phone while the business profile lacks what every
-    agent needs. Called when an agent goes LIVE, never on a re-publish of one already
-    live: a client editing their profile must not knock a working agent off the phone.
+async def assert_ready_to_go_live(
+    session: AsyncSession, *, tenant_id: UUID, needs_contact: bool = True
+) -> None:
+    """Refuse to put an agent on the phone while the business profile lacks what it needs.
+    Called when an agent goes LIVE, never on a re-publish of one already live: a client
+    editing their profile must not knock a working agent off the phone. `needs_contact` is
+    whether THIS agent answers calls or hands them over.
 
     Each missing item comes back as a field (`setup.<step>`), so the screen can link
     straight to the setup step that fixes it.
     """
-    blockers = go_live_blockers(await load_profile(session, tenant_id=tenant_id))
+    blockers = go_live_blockers(
+        await load_profile(session, tenant_id=tenant_id), needs_contact=needs_contact
+    )
     if not blockers:
         return
     raise ProblemError(
@@ -375,12 +416,15 @@ __all__ = [
     "StaffMember",
     "StepId",
     "StepState",
+    "account_go_live_blockers",
+    "account_needs_contact",
     "assert_ready_to_go_live",
     "fact_lines",
     "go_live_blockers",
     "hours_line",
     "load_profile",
     "profile_fact_lines",
+    "required_steps",
     "setup_complete",
     "step_state",
 ]

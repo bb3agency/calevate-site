@@ -115,15 +115,15 @@ SCRUBBABLE_CAMPAIGN_STATUSES = ("draft", "scheduled", "running", "paused")
 # `dnc.MAX_NUMBERS_PER_ADD` and for the same reason: the body is a paste, not a stream.
 MAX_BLOCKED_NUMBERS = 5000
 
-# Client-facing wording. It says what happened and who acts, and the answer to "who
-# acts" is us — a client holds no DLT login and cannot scrub anything, so a blocker
-# phrased as a to-do for them would be worse than no message (the reasoning
-# `TM_REGISTRATION_MISSING_REASON` records).
+# Client-facing wording. It says what happened and who acts. A client holds no DLT login
+# and cannot scrub anything, and the scrub needs a telemarketer registration, which a
+# promotional campaign cannot be created without (D-838), so none of these promises that
+# anyone will run it: each states the rule and what stops the call.
 NATIONAL_DND_SCRUB_MISSING_REASON = (
-    "This contact list has not been scrubbed against the national customer preference "
-    "register (DND). Calevate runs that scrub on an access provider's DLT platform "
-    "before a promotional campaign dials, and records the reference the "
-    "platform returns. Nothing to do at your end — ask us to run it."
+    "This contact list has not been checked against the national customer preference "
+    "register (DND). A promotional campaign dials only after that check, which a "
+    "registered telemarketer makes on an access provider's DLT platform, so this "
+    "campaign cannot call until one is recorded for it. Nothing to do at your end."
 )
 
 
@@ -139,8 +139,8 @@ def national_dnd_scrub_expired_reason(scrubbed_at: datetime) -> str:
     return (
         f"The national DND scrub for this list was run on {day} IST, and a scrub is "
         "valid only until the end of the day it was run — preference registrations "
-        "change every day. The list has to be scrubbed again before it dials. Nothing "
-        "to do at your end."
+        "change every day. The list has to be checked again before it dials. Nothing to do "
+        "at your end."
     )
 
 
@@ -149,7 +149,7 @@ def national_dnd_scrub_incomplete_reason(added: int) -> str:
     return (
         f"{added} contact(s) were added to this list after it was scrubbed against the "
         "national customer preference register, so the scrub does not cover them. The "
-        "whole list has to be scrubbed again before it dials. Nothing to do at your end."
+        "whole list has to be checked again before it dials. Nothing to do at your end."
     )
 
 

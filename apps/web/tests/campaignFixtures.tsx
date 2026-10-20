@@ -126,3 +126,24 @@ export function listPage() {
 export function newCampaignPage() {
   return <NewCampaignPage params={Promise.resolve({ slug: SLUG })} />;
 }
+
+/**
+ * `GET /v1/compliance/dlt-registration` as the campaign form reads it: whether Calevate's
+ * telemarketer registration is live, which decides whether Promotional is offered (D-838).
+ */
+export function dltRegistrationRoute(tmActive = false): Routes {
+  return {
+    "/v1/compliance/dlt-registration": {
+      recorded: false,
+      status: null,
+      tm_link_status: null,
+      pe_id: null,
+      entity_name: null,
+      registered_at: null,
+      verified_at: null,
+      is_active: false,
+      calevate_tm_id: tmActive ? "1701000000000000001" : null,
+      calevate_tm_active: tmActive,
+    },
+  };
+}

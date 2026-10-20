@@ -289,7 +289,7 @@ describe("the teach box with too little in it", () => {
       "/v1/agents": [],
       "/v1/kb/sources": [],
       "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
-      "/v1/kb/knows": { facts: [], facts_state: "none", items: [] },
+      "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
       "/v1/kb/teach/open": { teaching: null },
       "/v1/kb/uploads": [],
     });

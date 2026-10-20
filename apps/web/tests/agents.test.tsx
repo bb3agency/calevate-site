@@ -270,7 +270,7 @@ describe("which agents are working right now", () => {
     expect(names[0]).toContain("Front desk");
     expect(names[1]).toContain("Weekend line");
     expect(within(row("Front desk")).getByText("Live")).toBeTruthy();
-    expect(within(row("Weekend line")).getByText("Paused")).toBeTruthy();
+    expect(within(row("Weekend line")).getByText("Ready, not taking calls")).toBeTruthy();
     expect(screen.getByText("1 of 2 answering calls")).toBeTruthy();
   });
 

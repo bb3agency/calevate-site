@@ -9,7 +9,7 @@ import { TryChat } from "@/components/improvement/TryChat";
 import type { Me } from "@/lib/api/client";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
-import { noContent, renderClientPage, type Routes } from "./harness";
+import { noContent, problem, renderClientPage, type Routes } from "./harness";
 
 /**
  * The teach box and the improvement loop (founder decisions 9 and 11). Each test names the
@@ -59,7 +59,7 @@ async function renderKnowledge(over: Routes = {}) {
     "/v1/kb/sources": [],
     "/v1/kb/uploads": [],
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
-    "/v1/kb/knows": { facts: [], facts_state: "none", items: [] },
+    "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/kb/teach/open": { teaching: null },
     ...over,
   });
@@ -223,6 +223,7 @@ describe("what it knows", () => {
         items: [
           { id: "u1", kind: "page", name: "Our menu", state: "live", url: "https://example.in/menu", updated_at: null },
         ],
+        pinned_not_yet_on: [],
       },
       "POST /v1/kb/facts/pinned-order": noContent(),
     });
@@ -237,6 +238,38 @@ describe("what it knows", () => {
         ids: ["f2", "f1"],
       }),
     );
+  });
+
+  it("names each agent that does not have the pinned facts yet, and links to its script", async () => {
+    await renderKnowledge({
+      "/v1/kb/knows": {
+        facts: [
+          { id: "f1", text: "Closed on Sundays.", question: null, pinned: true, origin: "quick_fact", created_at: "2026-10-10T10:00:00Z" },
+        ],
+        facts_state: "live",
+        items: [],
+        pinned_not_yet_on: [
+          {
+            agent_id: "agent-1",
+            agent_name: "Front desk",
+            reason: "waiting_put_live",
+            sentence: "Not yet on Front desk: it has script changes waiting.",
+          },
+          {
+            agent_id: "agent-2",
+            agent_name: "Caller",
+            reason: "on_the_way",
+            sentence: "Being added to Caller. This takes a minute.",
+          },
+        ],
+      },
+    });
+    const list = await screen.findByRole("list", { name: "Agents that do not have these facts yet" });
+    expect(within(list).getByText(/Not yet on Front desk/)).toBeTruthy();
+    expect(within(list).getByText(/Being added to Caller/)).toBeTruthy();
+    const link = within(list).getByRole("link", { name: "Open Front desk’s script" });
+    expect(link.getAttribute("href")).toContain("/agents/agent-1?section=script");
+    expect(within(list).getAllByRole("link")).toHaveLength(1);
   });
 });
 
@@ -397,6 +430,7 @@ describe("saved tests and the chat", () => {
   it("chats with the live agent and keeps the conversation going", async () => {
     const { calls } = await renderClientPage(<TryChat agentId="agent-1" />, {
       "/v1/me": ME,
+      ...chatReadiness(null),
       "POST /v1/agents/agent-1/try-chat": {
         session: "vr_1",
         reply: "Avunu andi, 120 rupees.",
@@ -405,7 +439,7 @@ describe("saved tests and the chat", () => {
         cost_note: "Replies here are not charged.",
       },
     });
-    fireEvent.change(screen.getByLabelText("What the caller says"), { target: { value: "chilli undha?" } });
+    fireEvent.change(await screen.findByLabelText("What the caller says"), { target: { value: "chilli undha?" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(await screen.findByText("Avunu andi, 120 rupees.")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("What the caller says"), { target: { value: "delivery?" } });
@@ -414,4 +448,46 @@ describe("saved tests and the chat", () => {
     const second = JSON.parse(calls.filter((c) => c.path === "/v1/agents/agent-1/try-chat")[1]?.body ?? "{}");
     expect(second).toEqual({ message: "delivery?", session: "vr_1" });
   });
+
+  it("shows the server's sentence instead of a chat box until the agent is ready", async () => {
+    const reason = "Chats and tests talk to the agent as the calling system holds it, so they open once it is ready.";
+    const { calls } = await renderClientPage(<TryChat agentId="agent-1" />, {
+      "/v1/me": ME,
+      ...chatReadiness(reason),
+    });
+    expect(await screen.findByText(reason)).toBeTruthy();
+    expect(screen.queryByLabelText("What the caller says")).toBeNull();
+    expect(calls.some((c) => c.path.endsWith("/try-chat"))).toBe(false);
+  });
+
+  it("keeps what was typed when a send is refused", async () => {
+    await renderClientPage(<TryChat agentId="agent-1" />, {
+      "/v1/me": ME,
+      ...chatReadiness(null),
+      "POST /v1/agents/agent-1/try-chat": problem(409, {
+        code: "ai_assist_exhausted",
+        title: "This month's AI help is used up.",
+        detail: "This month's AI help is used up.",
+      }),
+    });
+    const box = (await screen.findByLabelText("What the caller says")) as HTMLInputElement;
+    fireEvent.change(box, { target: { value: "chilli undha?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByText(/AI help is used up/)).toBeTruthy();
+    expect(box.value).toBe("chilli undha?");
+    expect(screen.queryByText("chilli undha?", { selector: "li" })).toBeNull();
+  });
 });
+
+/** `GET .../script/tests`, which says whether the agent can be talked to yet. */
+function chatReadiness(unavailable: string | null): Routes {
+  return {
+    "/v1/agents/agent-1/script/tests": {
+      available: unavailable === null,
+      unavailable_reason: unavailable,
+      cost_note: "",
+      latest: null,
+      history: [],
+    },
+  };
+}

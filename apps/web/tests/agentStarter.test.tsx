@@ -10,7 +10,7 @@ import { problem, renderClientPage } from "./harness";
  * NEW AGENT: PICK A JOB, GET A READY AGENT (founder, REDESIGN-2).
  *
  * The page opens on two jobs; choosing one reads back what the server would make
- * (`GET /v1/agents/starters?job=…`); "Create agent" sends `starter` with the name the owner
+ * (`GET /v1/agents/starters?language=…`, keyed on the language picker); "Create agent" sends `starter` with the name the owner
  * kept or typed, and lands on the new agent's Script section to review it.
  */
 
@@ -45,23 +45,71 @@ const ANSWER = {
     "Close the call",
   ],
   captured_details: ["Their name", "What they want", "Best time to call back"],
+  locked_reason: null as string | null,
+};
+
+const LEADS = {
+  ...ANSWER,
+  job: "call_leads",
+  direction: "outbound",
+  name_suggestion: "Follow-up caller",
+  opening_line: "Hello, this is Lakeview Properties calling.",
 };
 
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": OWNER_ME,
-    "/v1/agents/starters?job=answer_calls": { vertical: "real_estate", starters: [ANSWER] },
+    "/v1/agents/starters?language=te-IN": { vertical: "real_estate", starters: [ANSWER, LEADS] },
     ...over,
   };
 }
 
 describe("new agent from a job", () => {
-  it("offers the two jobs first, and nothing is read until one is chosen", async () => {
+  it("offers the two jobs first, reading only whether either is locked", async () => {
     const { calls } = await renderClientPage(page, routes());
     expect(await screen.findByRole("heading", { name: "What should your new agent do?" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Answer my calls/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Call my leads/ })).toBeTruthy();
-    expect(calls.some((c) => c.path.includes("/starters"))).toBe(false);
+    await waitFor(() =>
+      expect(calls.filter((c) => c.path.includes("/starters")).map((c) => c.path)).toEqual([
+        "/v1/agents/starters?language=te-IN",
+      ]),
+    );
+  });
+
+  it("shows a job the account cannot use yet as locked, with the server's reason", async () => {
+    const reason = "An agent that only answers calls needs your own phone number.";
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/starters?language=te-IN": {
+          vertical: "real_estate",
+          starters: [{ ...ANSWER, locked_reason: reason }, LEADS],
+        },
+      }),
+    );
+    const locked = (await screen.findByRole("button", { name: /Answer my calls/ })) as HTMLButtonElement;
+    await waitFor(() => expect(locked.disabled).toBe(true));
+    expect(screen.getByText(reason)).toBeTruthy();
+    expect((screen.getByRole("button", { name: /Call my leads/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("previews the greeting in the language picked, the one the agent is created with", async () => {
+    const hindi = "नमस्ते जी, Lakeview Properties में call करने के लिए thank you.";
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/starters?language=hi-IN": {
+          vertical: "real_estate",
+          starters: [{ ...ANSWER, opening_line: hindi }, LEADS],
+        },
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Answer my calls/ }));
+    await screen.findByText(ANSWER.opening_line);
+    fireEvent.change(screen.getByLabelText("Language"), { target: { value: "hi-IN" } });
+    expect(await screen.findByText(hindi)).toBeTruthy();
+    expect(calls.some((c) => c.path === "/v1/agents/starters?language=hi-IN")).toBe(true);
   });
 
   it("previews the server's ready agent: its opening line, its steps in order and what it writes down", async () => {
@@ -117,7 +165,10 @@ describe("new agent from a job", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: /Answer my calls/ }));
     await screen.findByLabelText(/^Name/);
-    fireEvent.click(screen.getByRole("button", { name: "Create agent" }));
+    // The preview can be on screen before the session read that enables the button.
+    const create = screen.getByRole("button", { name: "Create agent" }) as HTMLButtonElement;
+    await waitFor(() => expect(create.disabled).toBe(false));
+    fireEvent.click(create);
 
     expect(await screen.findByText(/This job sets which way its calls go/)).toBeTruthy();
     expect((screen.getByLabelText(/^Name/) as HTMLInputElement).value).toBe("Front desk");

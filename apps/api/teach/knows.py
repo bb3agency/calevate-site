@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.kb import uploads
 from apps.api.teach import facts as fact_store
+from apps.api.teach import pinned as pinned_store
 
 ItemKind = Literal["document", "photo", "page"]
 ItemState = Literal["live", "getting_ready", "in_review", "needs_attention"]
@@ -38,6 +39,8 @@ class Knows:
     facts: list[fact_store.Fact]
     facts_state: fact_store.FactsState
     items: list[KnownItem]
+    #: Agents whose live instructions do not carry the current pinned facts yet.
+    pinned_not_yet_on: list[pinned_store.NotYetOn]
 
 
 def _upload_state(row: dict[str, object]) -> ItemState:
@@ -79,6 +82,7 @@ async def what_it_knows(session: AsyncSession) -> Knows:
         facts=await fact_store.list_facts(session),
         facts_state=await fact_store.facts_state(session),
         items=items,
+        pinned_not_yet_on=await pinned_store.not_yet_on(session),
     )
 
 

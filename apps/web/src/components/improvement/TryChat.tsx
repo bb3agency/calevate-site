@@ -3,7 +3,8 @@
 import { useId, useState } from "react";
 
 import { Section } from "@/components/console/section";
-import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import { useTestConversations } from "@/lib/api/script";
 import { useClientSession } from "@/lib/api/session";
 import { useTryChat } from "@/lib/api/teach";
 
@@ -29,6 +30,9 @@ export function TryChat({
 }) {
   const session = useClientSession();
   const send = useTryChat(session, agentId);
+  /* The same readiness the saved tests read: the chat talks to the agent the engine holds,
+     so until it has been published there is nothing to talk to, and the server says why. */
+  const readiness = useTestConversations(session, agentId);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [chat, setChat] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -39,11 +43,12 @@ export function TryChat({
     const text = message.trim();
     if (!text || send.isPending) return;
     setTurns((all) => [...all, { from: "you", text }]);
-    setMessage("");
     send.mutate(
       { message: text, chatSession: chat },
       {
         onSuccess: (reply) => {
+          // Cleared only once the agent answered: a refused send keeps what was typed.
+          setMessage((current) => (current.trim() === text ? "" : current));
           setChat(reply.session);
           setNote(reply.cost_note);
           setTurns((all) => [
@@ -55,9 +60,33 @@ export function TryChat({
             },
           ]);
         },
+        // The line never reached the agent, so it leaves the conversation; it stays in the box.
+        onError: () => setTurns((all) => all.slice(0, -1)),
       },
     );
   };
+
+  if (readiness.isPending) {
+    return (
+      <Section headingLevel={headingLevel} title="Try it in a chat">
+        <Skeleton rows={2} label="Checking whether this agent can chat yet" />
+      </Section>
+    );
+  }
+  if (readiness.isError) {
+    return (
+      <Section headingLevel={headingLevel} title="Try it in a chat">
+        <ProblemNotice error={readiness.error} onRetry={() => void readiness.refetch()} />
+      </Section>
+    );
+  }
+  if (!readiness.data.available) {
+    return (
+      <Section headingLevel={headingLevel} title="Try it in a chat">
+        <p className="text-body text-ink-muted">{readiness.data.unavailable_reason}</p>
+      </Section>
+    );
+  }
 
   return (
     <Section
@@ -65,8 +94,8 @@ export function TryChat({
       title="Try it in a chat"
       info={
         <p>
-          Type what a caller would say. Your live agent answers from its live script and knowledge. A change you
-          have not put live is not in this chat yet.
+          Type what a caller would say. The agent answers from the script and knowledge it has been put live with. A
+          change you have not put live is not in this chat yet.
         </p>
       }
       action={

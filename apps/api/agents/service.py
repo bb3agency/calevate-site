@@ -2438,8 +2438,15 @@ async def _hold_tenant_knowledge(session: AsyncSession, *, tenant_id: UUID) -> N
     )
 
 
-async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> str:
+async def publish_agent(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, take_calls: bool = True
+) -> str:
     """Create or update the agent on the engine, VERIFY it, then record the mapping.
+
+    `take_calls=False` is "Ready, not taking calls" (D-838): the agent is published and read
+    back like any other, so the Try it chat talks to it, but its status is left as it is, no
+    number is bound to it and the go-live checks are not asked. An agent already live is
+    republished as live whatever this says, so no caller can unbind a working line with it.
 
     The routing row is written HERE, in the same transaction as `engine_agent_ref`,
     because the alternative — writing it from a webhook handler on first sight — means
@@ -2595,7 +2602,8 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     # A FREE-TRIAL ACCOUNT'S AGENT PLACES TEST CALLS AND ANSWERS NOTHING (D-697): it has no
     # number until it pays, so an answer-only agent is refused with the step that unlocks it.
     trial_account = await restricting_trial(session, tenant_id=tenant_id) is not None
-    if trial_account and agent["direction"] == "inbound":
+    takes_calls = take_calls or agent["status"] == "live"
+    if trial_account and takes_calls and agent["direction"] == "inbound":
         await refuse_on_trial(session, tenant_id=tenant_id, locked="inbound")
 
     # AN ARCHIVED AGENT IS NEVER RESURRECTED BY A REPUBLISH (D-440), and the guard is here
@@ -2618,8 +2626,13 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     # address, a service and someone to hand a caller to. Asked only on the transition to
     # live, so a profile edit can never knock a working agent off the phone on its next
     # re-publish.
-    if agent["status"] != "live":
-        await assert_ready_to_go_live(session, tenant_id=tenant_id)
+    if takes_calls and agent["status"] != "live":
+        await assert_ready_to_go_live(
+            session,
+            tenant_id=tenant_id,
+            needs_contact=bool(agent["handoff_enabled"])
+            or agent_answers_inbound(agent["direction"]),
+        )
     # WHO TAKES A CALL THIS AGENT HANDS OVER, right now (D-533). Resolved BEFORE the
     # config is built rather than patched on afterwards like the action tools, because
     # `None` is a real answer here — outside every roster member's hours the agent is
@@ -2725,8 +2738,12 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     try:
         result = await session.execute(
             text(
-                "UPDATE agents SET engine_agent_ref = :ref, engine = :engine, status = 'live', "
-                "live_tts_voice = :live_voice, live_tts_provider = :live_provider, "
+                (
+                    "UPDATE agents SET engine_agent_ref = :ref, engine = :engine, status = 'live', "
+                    if takes_calls
+                    else "UPDATE agents SET engine_agent_ref = :ref, engine = :engine, "
+                )
+                + "live_tts_voice = :live_voice, live_tts_provider = :live_provider, "
                 "live_verify_state = :verify_state, live_verified_at = :verified_at, "
                 # THE SOFT-DELETE GUARD, and it is not belt-and-braces. `_load_agent` filters
                 # on `deleted_at IS NULL`, but this UPDATE used to name the id alone — so a
@@ -2820,7 +2837,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
         # routing row so the two engine-side facts about this agent — who it is, and which
         # numbers it answers — are written in one transaction's worth of intent; it cannot fail
         # the publish (see the function) because the agent itself is already verified live.
-        answers_inbound = agent_answers_inbound(agent["direction"])
+        answers_inbound = takes_calls and agent_answers_inbound(agent["direction"])
         routing = await route_inbound_numbers(
             session, engine, agent_id=agent_id, ref=ref, answers=answers_inbound
         )

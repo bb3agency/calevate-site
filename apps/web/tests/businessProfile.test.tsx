@@ -56,6 +56,7 @@ function profile(over: Partial<BusinessProfile> = {}): BusinessProfile {
       complete: false,
     },
     blockers: [],
+    required_steps: ["hours", "branches", "services", "contacts"],
     updated_at: null,
     agents_updated: null,
     ...over,
@@ -144,6 +145,19 @@ describe("the setup wizard", () => {
     fireEvent.change(opens, { target: { value: "09:00" } });
     expect(await screen.findAllByText(/Give both times, or tick Closed/)).not.toHaveLength(0);
     expect(calls.some((call) => call.method === "PATCH")).toBe(false);
+  });
+
+  it("marks the steps the server says an agent needs before it takes calls (D-838)", async () => {
+    await renderClientPage(<SetupWizard />, {
+      "/v1/me": OWNER,
+      // No agent answers calls or hands them over, so people who take calls are not needed.
+      "/v1/business-profile": profile({ required_steps: ["hours", "branches", "services"] }),
+    });
+    await screen.findByRole("heading", { name: "When are you open?" });
+    expect(screen.getByText("Needed before your agent takes calls.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /People who take calls/ }));
+    await screen.findByRole("heading", { name: "Who can take a call?" });
+    expect(screen.queryByText("Needed before your agent takes calls.")).toBeNull();
   });
 });
 

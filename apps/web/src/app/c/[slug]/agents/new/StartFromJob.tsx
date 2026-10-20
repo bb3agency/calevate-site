@@ -17,7 +17,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { LANGUAGE_CHOICES, LANGUAGE_NAMES } from "@/lib/agentState";
-import { useCreateAgent, useStarter, type AgentLanguage, type StarterJob } from "@/lib/api/agents";
+import { useCreateAgent, useStarters, type AgentLanguage, type StarterJob } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -49,9 +49,18 @@ const JOBS: { job: StarterJob; title: string; line: string; icon: typeof PhoneIn
   },
 ];
 
+/** The language a new agent starts in unless the owner picks another (Telugu-first, BRD §1). */
+const DEFAULT_LANGUAGE: AgentLanguage = "te-IN";
+
 export function StartFromJob({ slug, onBlank }: { slug: string; onBlank: () => void }) {
+  const session = useClientSession();
   const [job, setJob] = useState<StarterJob | null>(null);
   const chosen = JOBS.find((j) => j.job === job);
+  /* Read for the server's lock: on a free trial "Answer my calls" is offered locked, with
+     the reason it would be refused at switch-on (D-697, D-838). */
+  const starters = useStarters(session, DEFAULT_LANGUAGE);
+  const lockedReason = (j: StarterJob) =>
+    starters.data?.starters.find((s) => s.job === j)?.locked_reason ?? null;
 
   if (!chosen) {
     return (
@@ -64,15 +73,28 @@ export function StartFromJob({ slug, onBlank }: { slug: string; onBlank: () => v
           </p>
         </div>
         <Chooser label="Jobs an agent can do">
-          {JOBS.map((j) => (
-            <ChooserItem
-              key={j.job}
-              title={j.title}
-              description={j.line}
-              icon={<IconTile icon={j.icon} />}
-              onSelect={() => setJob(j.job)}
-            />
-          ))}
+          {JOBS.map((j) => {
+            const locked = lockedReason(j.job);
+            return (
+              <ChooserItem
+                key={j.job}
+                title={j.title}
+                description={
+                  locked ? (
+                    <>
+                      {j.line}
+                      <span className="mt-1 block text-ink-muted">{locked}</span>
+                    </>
+                  ) : (
+                    j.line
+                  )
+                }
+                icon={<IconTile icon={j.icon} />}
+                disabled={locked !== null}
+                onSelect={() => setJob(j.job)}
+              />
+            );
+          })}
         </Chooser>
         <button type="button" className={TEXT_ACTION} onClick={onBlank}>
           Start from a blank agent instead
@@ -96,13 +118,14 @@ function StarterPreviewStep({
   const session = useClientSession();
   const { href } = useClientRealm();
   const router = useRouter();
-  const starter = useStarter(session, job.job);
+  const [language, setLanguage] = useState<AgentLanguage>(DEFAULT_LANGUAGE);
+  /* Keyed on the picker, so the greeting shown is the one the agent is created with. */
+  const starter = useStarters(session, language);
   const create = useCreateAgent(session);
   /* `org:manage` is what POST /v1/agents requires (the owner's permission). */
   const write = useWriteAccess(session, "org:manage", "create an agent");
   const [typedName, setName] = useState<string | null>(null);
-  const [language, setLanguage] = useState<AgentLanguage>("te-IN");
-  const preview = starter.data ?? null;
+  const preview = starter.data?.starters.find((s) => s.job === job.job) ?? null;
   const name = typedName ?? preview?.name_suggestion ?? "";
   const trimmed = name.trim();
   const nameProblem = trimmed.length < 2 ? "Give this agent a name of at least two characters." : null;
@@ -147,7 +170,7 @@ function StarterPreviewStep({
         else if (item.field_id === "new-agent-language" && hasKey(LANGUAGE_NAMES, text)) setLanguage(text);
       }
     },
-    unsaved: typedName !== null || language !== "te-IN",
+    unsaved: typedName !== null || language !== DEFAULT_LANGUAGE,
   });
 
   const submit = () => {
@@ -280,7 +303,7 @@ function StarterPreviewStep({
               {create.isPending ? "Creating…" : "Create agent"}
             </button>
             <p className="text-meta text-ink-muted">
-              It is created as a draft and switched off. Nobody hears it until you publish it.
+              It is created as a draft and switched off. You can get it ready and try it in the chat; nobody hears it until you switch it on.
             </p>
           </div>
         </form>

@@ -935,6 +935,23 @@
             "title": "Merge Notes",
             "type": "array"
           },
+          "required_steps": {
+            "items": {
+              "enum": [
+                "hours",
+                "branches",
+                "services",
+                "faqs",
+                "staff",
+                "booking",
+                "contacts",
+                "languages"
+              ],
+              "type": "string"
+            },
+            "title": "Required Steps",
+            "type": "array"
+          },
           "services": {
             "items": {
               "$ref": "#/components/schemas/ServiceItem"
@@ -990,6 +1007,7 @@
           "languages",
           "setup",
           "blockers",
+          "required_steps",
           "updated_at",
           "merge_notes"
         ],
@@ -5543,6 +5561,23 @@
             ],
             "title": "Legal Name"
           },
+          "required_steps": {
+            "items": {
+              "enum": [
+                "hours",
+                "branches",
+                "services",
+                "faqs",
+                "staff",
+                "booking",
+                "contacts",
+                "languages"
+              ],
+              "type": "string"
+            },
+            "title": "Required Steps",
+            "type": "array"
+          },
           "services": {
             "items": {
               "$ref": "#/components/schemas/ServiceItem"
@@ -5598,6 +5633,7 @@
           "languages",
           "setup",
           "blockers",
+          "required_steps",
           "updated_at"
         ],
         "title": "BusinessProfileOut",
@@ -22735,12 +22771,20 @@
             },
             "title": "Items",
             "type": "array"
+          },
+          "pinned_not_yet_on": {
+            "items": {
+              "$ref": "#/components/schemas/PinnedNotYetOut"
+            },
+            "title": "Pinned Not Yet On",
+            "type": "array"
           }
         },
         "required": [
           "facts",
           "facts_state",
-          "items"
+          "items",
+          "pinned_not_yet_on"
         ],
         "title": "KnowsOut",
         "type": "object"
@@ -27985,6 +28029,26 @@
         "title": "OpenTeachingOut",
         "type": "object"
       },
+      "OpeningRewrittenOut": {
+        "additionalProperties": false,
+        "properties": {
+          "opening_line": {
+            "title": "Opening Line",
+            "type": "string"
+          },
+          "saved_at": {
+            "format": "date-time",
+            "title": "Saved At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "opening_line",
+          "saved_at"
+        ],
+        "title": "OpeningRewrittenOut",
+        "type": "object"
+      },
       "OperatorCreateIn": {
         "additionalProperties": false,
         "properties": {
@@ -30030,6 +30094,36 @@
           "busiest_hours_ist"
         ],
         "title": "PerformanceOut",
+        "type": "object"
+      },
+      "PinnedNotYetOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "sentence": {
+            "title": "Sentence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "agent_name",
+          "reason",
+          "sentence"
+        ],
+        "title": "PinnedNotYetOut",
         "type": "object"
       },
       "PinnedOrderIn": {
@@ -37710,6 +37804,17 @@
             "title": "Job",
             "type": "string"
           },
+          "locked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locked Reason"
+          },
           "name_suggestion": {
             "title": "Name Suggestion",
             "type": "string"
@@ -37732,7 +37837,8 @@
           "name_suggestion",
           "opening_line",
           "step_titles",
-          "captured_details"
+          "captured_details",
+          "locked_reason"
         ],
         "title": "StarterPreviewOut",
         "type": "object"
@@ -56623,6 +56729,27 @@
               ],
               "title": "Job"
             }
+          },
+          {
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "te-IN",
+                    "hi-IN",
+                    "en-IN"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Language"
+            }
           }
         ],
         "responses": {
@@ -57973,6 +58100,47 @@
         "x-calevate-permission": "agents:read"
       }
     },
+    "/v1/agents/{agent_id}/prepare": {
+      "post": {
+        "description": "Publishes the agent to the voice platform and reads it back, exactly as activating does, but leaves it INACTIVE: no number is bound to it, it places no calls, and the business-profile checks for going live are not asked. Its Try it chat then talks to it. An inactive agent that was published before is published again, so the chat tries its current script. An active agent is a success that publishes nothing; switch it off to take it off the phone.\n\nSwitching it on later is `activate`, with every check that implies.",
+        "operationId": "prepare_agent_route_v1_agents__agent_id__prepare_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentLifecycleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ready, not taking calls: publish the agent to try it in the chat (draft -> inactive)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/agents/{agent_id}/restore": {
       "post": {
         "description": "It comes back INACTIVE, not active. Nothing can prove the voice platform still holds a retired agent's configuration, and the only thing that establishes it is a publish \u2014 so activate it afterwards, deliberately.",
@@ -58196,6 +58364,47 @@
           }
         },
         "summary": "Autosave the working copy (no version, never reaches a call)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/opening-line/in-language": {
+      "post": {
+        "description": "Offered after the agent's main language changes (D-838). The line is the ready-made greeting for this business type in that language, written into the autosaved draft; callers keep the live script until the draft is put live.",
+        "operationId": "rewrite_opening_in_language_v1_agents__agent_id__script_opening_line_in_language_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpeningRewrittenOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put a ready-made opening line in the agent's main language into the draft",
         "tags": [
           "agents"
         ],
