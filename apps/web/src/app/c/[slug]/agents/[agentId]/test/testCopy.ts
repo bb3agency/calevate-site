@@ -9,12 +9,13 @@
  * and never counted against the agent.
  */
 
-import { formatIST } from "@/components/ui";
+import { formatIST, type NoticeTone } from "@/components/ui";
 import type {
   FixKind,
   SoundKind,
   TestAction,
   TestChange,
+  TestHistoryEntry,
   TestOwner,
   TestResult,
   TestRun,
@@ -23,16 +24,112 @@ import type {
 } from "@/lib/api/script";
 import { lookup } from "@/lib/lookup";
 
-/** How each place a test can sit reads to the owner, with its colour role. */
-export const STANDING: Record<TestStanding, { label: string; tone: string; dot: string }> = {
-  works: { label: "Right every time", tone: "text-brand-strong", dot: "bg-brand-strong" },
-  unreliable: { label: "Not reliable yet", tone: "text-warn", dot: "bg-warn" },
-  broken: { label: "Needs a fix", tone: "text-danger", dot: "bg-danger" },
-  setting: { label: "Needs a setting", tone: "text-warn", dot: "bg-warn" },
-  check: { label: "Read it yourself", tone: "text-ink-muted", dot: "bg-ink-faint" },
-  ours: { label: "On our side", tone: "text-ink-muted", dot: "bg-ink-faint" },
-  wrong: { label: "Marked wrong", tone: "text-ink-muted", dot: "bg-ink-faint" },
+/** How each place a test can sit reads to the owner, with its status tone. */
+export const STANDING: Record<TestStanding, { label: string; tone: NoticeTone }> = {
+  works: { label: "Right every time", tone: "ok" },
+  unreliable: { label: "Not reliable yet", tone: "warn" },
+  broken: { label: "Needs a fix", tone: "stop" },
+  setting: { label: "Needs a setting", tone: "warn" },
+  check: { label: "Read it yourself", tone: "neutral" },
+  ours: { label: "On our side", tone: "neutral" },
+  wrong: { label: "Marked wrong", tone: "neutral" },
 };
+
+/** The problem code of a "Test again" refused because nothing it is tested with moved (D-823). */
+export const NOTHING_CHANGED_CODE = "agent_tests_nothing_changed";
+
+/** What fixes a failing test, which is how the failures are grouped for the owner. */
+export type FixGroup = "script" | "knowledge" | "setting";
+
+export const FIX_GROUP: Record<FixGroup, { title: string; hint: string }> = {
+  script: {
+    title: "The script needs a change",
+    hint: "Pip can suggest the words; nothing changes until you keep them.",
+  },
+  knowledge: {
+    title: "Your agent is missing an answer",
+    hint: "Teach the right answer in Training, or let Pip suggest it.",
+  },
+  setting: {
+    title: "A setting decides these",
+    hint: "Nothing in the script changes these. Change the setting, then test again.",
+  },
+};
+
+export const FIX_GROUP_ORDER: readonly FixGroup[] = ["script", "knowledge", "setting"];
+
+/** Which group a failing test sits in: the setting it waits on, else who can fix it. */
+export function groupOf(result: ResultFacts): FixGroup {
+  if (standingOf(result) === "setting") return "setting";
+  return ownerOf(result) === "knowledge" ? "knowledge" : "script";
+}
+
+/** The run's failing tests, by what fixes them, in `FIX_GROUP_ORDER`; empty groups left out. */
+export function fixGroups<R extends ResultFacts>(results: readonly R[]): { group: FixGroup; rows: R[] }[] {
+  const failing = results.filter(isFailing);
+  return FIX_GROUP_ORDER.map((group) => ({ group, rows: failing.filter((r) => groupOf(r) === group) })).filter(
+    (entry) => entry.rows.length > 0,
+  );
+}
+
+/** One finished run on the same tests, for the progress list. */
+export interface RunPoint {
+  id: string;
+  created_at: string;
+  passed: number;
+  judged: number;
+  latest: boolean;
+}
+
+/**
+ * The finished runs that asked the same set of tests as `run`, oldest first and at most
+ * `limit`. A score is only comparable on the same tests, so another set is left out; null
+ * when there is nothing to compare (one run, or a run from before test sets had versions).
+ */
+export function progressOf(
+  history: readonly TestHistoryEntry[],
+  run: Pick<TestRun, "id" | "set_version">,
+  limit = 5,
+): RunPoint[] | null {
+  if (run.set_version === null || run.set_version === undefined) return null;
+  const same = history
+    .filter((entry) => entry.set_version === run.set_version)
+    .slice(0, limit)
+    .reverse()
+    .map((entry) => ({
+      id: entry.id,
+      created_at: entry.created_at,
+      passed: entry.score.passed,
+      judged: entry.score.judged,
+      latest: entry.id === run.id,
+    }));
+  return same.length >= 2 ? same : null;
+}
+
+/**
+ * The one next step at the top of a finished run, most urgent first: undo a change that
+ * broke a test, review fixes already waiting, test a script that changed since, ask Pip to
+ * fix what the script or knowledge owns, change a setting, or nothing beyond "Test again".
+ */
+export type NextStep = "undo" | "review" | "retest" | "fix" | "setting" | "hold" | "done";
+
+export function nextStepOf(facts: {
+  canWrite: boolean;
+  broke: boolean;
+  restored: boolean;
+  hasProposal: boolean;
+  isCurrent: boolean;
+  fixable: number;
+  settings: number;
+  failing: number;
+}): NextStep {
+  if (facts.broke && facts.canWrite && !facts.restored) return "undo";
+  if (facts.hasProposal) return "review";
+  if (!facts.isCurrent) return "retest";
+  if (facts.fixable > 0) return "fix";
+  if (facts.settings > 0) return "setting";
+  return facts.failing > 0 ? "hold" : "done";
+}
 
 /** Before against after on the same test. `same` says nothing: nothing moved. */
 export const CHANGE: Record<TestChange, string | null> = {
@@ -198,14 +295,14 @@ export function headlineOf(run: Pick<TestRun, "comparison" | "results" | "create
     const same = compared.same_script ? " The script was the same in both runs." : "";
     if (moved.length === 0) {
       return {
-        title: "No change on the same tests.",
-        detail: `${plural(counts.passed, "test is", "tests are")} right every time, as before.${same}`,
+        title: "No change since the last test.",
+        detail: `Same tests as before. ${plural(counts.passed, "test is", "tests are")} right every time, as before.${same}`,
         tone: counts.failing > 0 ? "warn" : "ok",
       };
     }
     return {
-      title: `${moved.join(", ")}.`,
-      detail: `On the same tests as before. ${counts.passed} of ${counts.passed + counts.failing} now right every time.${same}`,
+      title: `${moved.join(", ")} since the last test.`,
+      detail: `Same tests as before. ${counts.passed} of ${counts.passed + counts.failing} now right every time.${same}`,
       tone: compared.broken > 0 ? "stop" : "ok",
     };
   }
