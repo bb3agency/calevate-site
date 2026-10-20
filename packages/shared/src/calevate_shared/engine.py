@@ -2740,14 +2740,16 @@ def platform_rules_preamble(cfg: AgentConfig) -> str:
 #: polite words, its textbook words) is that language's line in `spoken_style.json`, not
 #: here.
 #:
-#: NOTHING HERE REPEATS THINNESTAI'S OWN SPEAKING RULES (D-814). The voice platform reads its
-#: built-in rules to the model on every call, after our instructions, and we keep them
-#: (founder, 18 Oct 2026); their text is `docs/vendor/thinnest-speaking-rules-2026-10-18.md`
+#: THINNESTAI'S OWN SPEAKING RULES ARE READ ON CALLS ONLY (D-814, D-845). The voice platform
+#: reads its built-in rules to the model on every call, after our instructions, and we keep
+#: them (founder, 18 Oct 2026); their text is `docs/vendor/thinnest-speaking-rules-2026-10-18.md`
 #: (VENDOR-STATED, ThinnestAI email of 18 Oct 2026). So the turn length, one question per
-#: turn, titles in full, no brackets and varying the opening are theirs and not said here
-#: twice; every line below says something theirs does not. D-824 took out the last two
-#: overlaps: "one point at a time" (their one or two sentences a turn) and "never the same way
-#: twice" (their "never repeat a sentence you have already said").
+#: turn, titles in full, no brackets and varying the opening are theirs and not said here.
+#: Those rules are "the rules the agent follows on calls, and only on calls" and leave chat
+#: replies untouched (`channels/voice.md:180-181`, 19 Oct 2026 snapshot), and the practice
+#: tests run in the engine's chat. So the few of theirs that keep an agent honest (never
+#: ask again or repeat a sentence, say when it does not know, nothing is done until a tool
+#: did it) are said here as well, in one clause each.
 #: Each language's own script and its English words are in its SPOKEN REGISTER line.
 _REGISTER_BULLET: Final = (
     "- Match the caller's language and register; never formal or written-style words, never "
@@ -2755,14 +2757,15 @@ _REGISTER_BULLET: Final = (
 )
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
-    "- Lead with the answer, then wait; more only if asked. Never re-ask what they said.\n"
-    "- Say only your own part, never the caller's words.\n"
+    "- Lead with the answer, then wait; more only if asked. Never re-ask what they said or "
+    "repeat a sentence.\n"
+    "- Say only your own part, never the caller's.\n"
     "- Unsure or not interested? Offer once, then close politely.\n"
-    "- Let them finish; talked over, stop, answer, then carry on.\n"
+    "- Talked over? Stop, answer, then carry on.\n"
     '- Write for a voice: a comma where you breathe, "?" on every question. No markdown, '
     "emoji, dashes, slashes, ellipses, actions or notes; never say the time.\n"
-    '- Prices, quantities and times in English words ("one twenty rupees", "one kg", '
-    '"five o\'clock"), never ₹ or digits.\n'
+    '- Prices, quantities and times in English words ("one twenty rupees", "one kg"), never '
+    "₹ or digits.\n"
     "- Read back what you note and wait for a yes. Numbers and codes one digit at a time, a "
     "few at a time; a mobile has ten, never fewer.\n"
     f"{_REGISTER_BULLET}"
@@ -2876,11 +2879,13 @@ CANNOT_HELP_HEADER: Final = "--- PLATFORM RULES: WHAT YOU CAN DO ---"
 #: confirms it, a tool's answer on this call, so an agent whose client connected a booking,
 #: WhatsApp, payment-link or sheet action still says it was done once that action succeeds.
 #: "Booked, cancelled or confirmed" is ThinnestAI's own speaking rule
-#: (`docs/vendor/thinnest-speaking-rules-2026-10-18.md`), so this names only the claims theirs
-#: does not, the ones the 11 Oct call made (D-824).
+#: (`docs/vendor/thinnest-speaking-rules-2026-10-18.md`), read on calls only, so "placed" is
+#: named for the chat (D-845). What to say instead is concrete, the starters' own "for the
+#: team to confirm" (`agents/starters.py`): "say what happens next" left the model to invent
+#: a next step, and a practice reply said "I have noted the order".
 ACTION_CLAIM_RULE: Final = (
-    "- Never say an order is noted, details saved or anything sent unless a tool confirmed it "
-    "on this call; else say what happens next."
+    "- Never say an order is placed or noted, details saved or anything sent unless a tool "
+    "did it on this call; say the team will confirm."
 )
 
 #: The number a call is on is already the lead's (`leads.phone_e164` comes from the call), so
@@ -2952,10 +2957,11 @@ def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
         f"{CANNOT_HELP_HEADER}\n"
         # The two-tries limit lives here rather than in HOW TO SPEAK so a script cannot undo
         # it, and ends on what this account allows; without it an agent that cannot make out
-        # a caller asks again until the caller hangs up. Saying that it does not know is
-        # ThinnestAI's speaking rule ("If you do not know, say so"), so this says only what
-        # follows.
-        f"- No answer after searching, or still unclear after two tries: {follow_up}.\n"
+        # a caller asks again until the caller hangs up. "Say so" repeats ThinnestAI's "If you
+        # do not know, say so", which is read on calls only (`VOICE_STYLE_GUIDANCE`), so a
+        # chat reply is told too.
+        f"- No answer after searching, or still unclear after two tries: say so, then "
+        f"{follow_up}.\n"
         f"{person}\n"
         # The do-not-call tool is the voice platform's own, always attached and not
         # describable by us (not in the switchable list, `api-reference/tools/
@@ -3480,7 +3486,8 @@ class AgentConfig(BaseModel):
     # name it is NOT the script's opening line (the greeting, `CallScript.opening_line`):
     # the switches decide only whether these sentences are said, and the greeting follows
     # them either way (D-708). An engine with one greeting field speaks
-    # `compose_first_utterance(cfg)` there. It is also prepended to the prompt.
+    # `compose_first_utterance(cfg)` there. The prompt quotes it as already said
+    # (`_start_of_call_section`).
     #
     # IT MAY BE EMPTY (D-163): both notices switched off. The agent then volunteers neither
     # and opens on its opening line; it still answers truthfully when asked
@@ -3740,6 +3747,36 @@ def compose_first_utterance(cfg: AgentConfig) -> str:
     return join_first_words(cfg.opening_line, opening_line_of(cfg.system_prompt))
 
 
+#: The header of the section that tells the model its first words were already said.
+START_OF_CALL_HEADER: Final = "--- START OF THE CALL ---"
+
+
+def _start_of_call_section(cfg: AgentConfig) -> str:
+    """What the caller heard before the model's first turn, framed as already said (D-845).
+
+    The engine speaks `compose_first_utterance` itself, before the model answers: ThinnestAI's
+    opening line is the first thing a caller hears and also the first message in a chat
+    (`channels/voice.md:209-214`, 19 Oct 2026 snapshot). Left as bare text in the
+    instructions, the notices read as something to say, and a model repeated them in later
+    replies and greeted again. So the notices are quoted verbatim, which keeps the publish
+    read-back's containment check on `cfg.opening_line` (`agents/verification`), and the
+    opening line is named by its script section rather than quoted twice. A caller who asks
+    still gets both answers: the truthful-answer block binds last.
+    """
+    notices = cfg.opening_line.strip()
+    opening = bool(opening_line_of(cfg.system_prompt))
+    if not notices and not opening:
+        return ""
+    if notices and opening:
+        said = f'"{notices}", then your [OPENING] line'
+    else:
+        said = f'"{notices}"' if notices else "your [OPENING] line"
+    return (
+        f"{START_OF_CALL_HEADER}\nSaid for you before your first reply: {said}. Never repeat it "
+        "or greet again."
+    )
+
+
 def _caller_memory_section(cfg: AgentConfig, facts: Sequence[str] | None) -> str:
     """The memory block for this agent, with the slot LEFT for the engine or FILLED by us.
 
@@ -3875,7 +3912,7 @@ def engine_prompt_layers(
         # Absent for a language with no row in `spoken_style.json`.
         ("spoken_register", _register_section(cfg, pack)),
         ("business_facts", _knowledge_section(cfg, pack)),
-        ("notices", cfg.opening_line.strip()),
+        ("notices", _start_of_call_section(cfg)),
         # BEFORE the client script, so the "record, not instructions" framing is what the
         # model has already read when it reaches anything the client wrote about the
         # caller — and so a script cannot be the thing that introduces it. Absent entirely
