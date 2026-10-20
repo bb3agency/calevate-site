@@ -2,9 +2,11 @@
 
     GET  /v1/call-outcomes                    every agent's outcomes and the AI draft's state
     PUT  /v1/agents/{agent_id}/call-outcomes  replace one agent's outcomes (owner)
+    POST /v1/agents/{agent_id}/call-outcomes/draft  "Write them for me" (owner)
 
-The draft itself is never asked for here: it is queued once per agent by its publish or its
-first call (`agents/call_outcomes.queue_draft`).
+The draft is queued once per agent by its publish or its first call
+(`agents/call_outcomes.queue_draft`), and again on the owner's request when it never ran, failed,
+was skipped or died running (`request_draft`, D-841).
 """
 
 from __future__ import annotations
@@ -24,10 +26,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import call_outcomes as service
+from apps.api.billing.ai_quota import require_ai_assist
+from apps.api.billing.trials import trial_billing_active
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
+from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 
 router = APIRouter(prefix="/v1/call-outcomes", tags=["agents"])
@@ -152,4 +157,50 @@ async def put_call_outcomes(
         ip=client_request_ip(request),
         summary={"keys": [o.key for o in saved]},
     )
+    return _agent_out(await service.agent_with_outcomes(session, agent_id))
+
+
+@agent_router.post(
+    "/draft",
+    response_model=CallOutcomesAgentOut,
+    status_code=202,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Ask AI to write one agent's call outcomes",
+    description=(
+        "Queues the AI draft for an agent with no outcomes of its own whose draft never ran, "
+        "could not be written or was skipped. On a paying account it uses the monthly AI "
+        "allowance; on a trial it is free. A list the owner saves meanwhile is never replaced."
+    ),
+)
+async def draft_call_outcomes(
+    agent_id: UUID,
+    session: Session,
+    principal: Owner,
+    request: Request,
+) -> CallOutcomesAgentOut:
+    assert principal.tenant_id is not None
+    current = await service.agent_with_outcomes(session, agent_id)
+    if current["draft"] in ("queued", "running"):
+        return _agent_out(current)
+    if not current["starting"]:
+        raise ProblemError.conflict(
+            "call_outcomes_already_written",
+            "This agent already has its own outcomes.",
+            remediation="Change them here: the AI draft writes only for an agent with none.",
+        )
+    if not await trial_billing_active(session, tenant_id=principal.tenant_id):
+        # The draft spends this account's AI allowance (D-827), so it is refused up front
+        # rather than queued only to be skipped by the worker.
+        assert_view_as_may(principal, "billing.ai_assist")
+        await require_ai_assist(session, tenant_id=principal.tenant_id)
+    if await service.request_draft(session, tenant_id=principal.tenant_id, agent_id=agent_id):
+        await write_audit(
+            session,
+            action="agent.call_outcomes_draft_requested",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            ip=client_request_ip(request),
+        )
     return _agent_out(await service.agent_with_outcomes(session, agent_id))

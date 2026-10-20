@@ -21,7 +21,7 @@ import { MockStage } from "./mockups/stage";
  *  - following up — `apps/api/ingest/service.py` turns a web enquiry into a dial, and
  *    `apps/api/core/alerting.py::record_speed_to_lead` times the gap;
  *  - qualifying — the fixed lead statuses (`apps/api/crm/schemas.py`) and the hot-lead
- *    alert (`apps/workers/pipeline.py::HOT_LEAD_FIELD_TRIGGERS`);
+ *    alert (`apps/workers/pipeline.py::reads_hot`, D-841);
  *  - structuring — the per-agent extraction schema is the CRM's column registry
  *    (`apps/api/crm/columns.py`), shared by the table and the CSV export.
  */

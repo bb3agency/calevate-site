@@ -267,3 +267,37 @@ describe("how calls end (D-836)", () => {
     expect(calls.some((c) => c.method === "PUT")).toBe(false);
   });
 });
+
+describe("write them for me (D-841)", () => {
+  it("offers the draft again after it failed, and asks the server for it", async () => {
+    const failed = { ...STARTING_AGENT, draft: "failed" as const };
+    const { calls } = await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/lead-fields": leadFields(),
+      "/v1/call-outcomes": callOutcomes({ agents: [failed] }),
+      "POST /v1/agents/a1/call-outcomes/draft": { ...STARTING_AGENT, draft: "queued" },
+    });
+    await screen.findByRole("heading", { name: "How calls end" });
+    expect(screen.getByText(/could not be written/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Write them for me" }));
+    await waitFor(() => {
+      expect(
+        calls.some((c) => c.method === "POST" && c.path === "/v1/agents/a1/call-outcomes/draft"),
+      ).toBe(true);
+    });
+  });
+
+  it("does not offer it while a draft is being written or once the outcomes are the owner's", async () => {
+    await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/lead-fields": leadFields(),
+      "/v1/call-outcomes": callOutcomes({
+        agents: [STARTING_AGENT, { ...STARTING_AGENT, id: "a2", name: "Own list", starting: false, draft: "done" }],
+      }),
+    });
+    await screen.findByRole("heading", { name: "How calls end" });
+    expect(screen.queryByRole("button", { name: "Write them for me" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Own list" }));
+    expect(screen.queryByRole("button", { name: "Write them for me" })).toBeNull();
+  });
+});

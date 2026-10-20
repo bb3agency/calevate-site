@@ -511,3 +511,68 @@ async def test_a_platform_opt_out_settles_the_promise_instead_of_retrying(
             )
         ).scalar_one()
     assert listed == 0
+
+
+async def test_a_call_back_the_vendor_accepted_is_not_dialled_again_when_its_bookkeeping_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-841: the vendor accepted, then stamping the handle failed. The call-back is placed,
+    not deferred to be rung again."""
+    from apps.api.agents import service as agents_service
+    from sqlalchemy.exc import OperationalError
+
+    tenant_id, agent_id = await _dialable_tenant()
+    callback_id = await _book(tenant_id, agent_id)
+    engine = get_engine()
+    original = engine.start_outbound_call
+    rung: list[str] = []
+
+    async def dial(ref: str, to: str, ctx: CallContext) -> str:
+        handle = await original(ref, to, ctx)
+        rung.append(to)
+        return handle
+
+    real_session = agents_service.tenant_session
+
+    def blinking(tenant: uuid.UUID) -> object:
+        if rung:
+            raise OperationalError("UPDATE calls", {}, ConnectionError("connection lost"))
+        return real_session(tenant)
+
+    fired: list[str] = []
+    monkeypatch.setattr(engine, "start_outbound_call", dial)
+    monkeypatch.setattr(agents_service, "tenant_session", blinking)
+    monkeypatch.setattr(agents_service, "alert", lambda _stage, code, **_kw: fired.append(code))
+
+    outcome = await dispatch_due_callbacks(tenant_id, slots=5)
+    assert outcome["dialled"] == 1, outcome
+    assert fired == ["dial_bookkeeping_failed"]
+    assert (await _row(tenant_id, callback_id))["status"] != "scheduled", (
+        "a ringing call-back went back on the ladder"
+    )
+
+    monkeypatch.setattr(agents_service, "tenant_session", real_session)
+    again = await dispatch_due_callbacks(tenant_id, slots=5)
+    assert again["dialled"] == 0 and len(rung) == 1, "the person was rung twice"
+
+
+async def test_a_failed_lead_link_leaves_the_callers_transaction_usable() -> None:
+    """The lead link runs in the caller's session, inside a SAVEPOINT: when it fails (here a
+    lead id no row has), the caller can still write the rows that settle its dial."""
+    from apps.api.agents.service import _link_dial_to_lead
+
+    tenant_id, agent_id = await _dialable_tenant()
+    callback_id = await _book(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        call_id = uuid7()
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                "to_e164, status, created_at, updated_at) VALUES (:id, :t, :a, :e, "
+                "'outbound', :to, 'queued', now(), now())"
+            ),
+            {"id": call_id, "t": tenant_id, "a": agent_id, "e": f"local:{call_id}", "to": CALLER},
+        )
+        await _link_dial_to_lead(session, call_id=call_id, lead_id=uuid.uuid4())
+        await callbacks.settle(session, callback_id, status="failed", reason="test")
+    assert (await _row(tenant_id, callback_id))["status"] == "failed"

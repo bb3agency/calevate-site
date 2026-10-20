@@ -457,7 +457,7 @@ describe("the verticals section", () => {
  *
  * The three cards map to shipped surfaces (`apps/api/ingest/service.py`'s webhook-in →
  * gate → dial, the per-agent extraction schema driving `crm/columns.py`, the fixed lead
- * status enum in `crm/schemas.py:29`, `pipeline.py::HOT_LEAD_FIELD_TRIGGERS`, and
+ * status enum in `crm/schemas.py:29`, `pipeline.py::reads_hot`, and
  * `crm/performance.py`'s Calls → Connected → Qualified funnel). What this test guards is
  * the thing a positioning section attracts like nothing else: a borrowed conversion
  * statistic. Every number this play is usually sold with traces back to a study this

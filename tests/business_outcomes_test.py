@@ -540,3 +540,100 @@ async def test_staff_cannot_change_them_and_nobody_reaches_another_accounts_agen
         await _scalar(theirs, "SELECT business_outcomes FROM agents WHERE id = :a", a=their_agent)
         is None
     )
+
+
+# --- 6. a draft that died, and "Write them for me" (D-841) -------------------------------
+
+
+async def _outbox_drafts(agent_id: UUID) -> int:
+    async with untenanted_session() as session:
+        return int(
+            (
+                await session.execute(
+                    text(
+                        "SELECT count(*) FROM outbox_messages WHERE job = :job "
+                        "AND payload->>'agent_id' = :a"
+                    ),
+                    {"job": call_outcomes.DRAFT_JOB, "a": str(agent_id)},
+                )
+            ).scalar_one()
+        )
+
+
+def _route_trial(monkeypatch: pytest.MonkeyPatch, on: bool) -> None:
+    from apps.api.agents import call_outcomes_routes
+
+    async def _active(session: Any, *, tenant_id: Any, at: Any = None) -> bool:
+        return on
+
+    monkeypatch.setattr(call_outcomes_routes, "trial_billing_active", _active)
+
+
+async def test_a_draft_whose_worker_died_reads_failed_and_the_owner_can_ask_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _route_trial(monkeypatch, True)
+    tenant_id, slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    await _queue(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        # The claim, then a worker killed before it wrote anything else.
+        await session.execute(
+            text("UPDATE agents SET business_outcomes_draft = 'running' WHERE id = :a"),
+            {"a": agent_id},
+        )
+    got = await _http("GET", "/v1/call-outcomes", token, slug)
+    assert got.json()["agents"][0]["draft"] == "running", "a run in progress is not dead"
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET updated_at = now() - make_interval(mins => :m) WHERE id = :a"),
+            {"a": agent_id, "m": call_outcomes.DRAFT_STALE_MINUTES + 1},
+        )
+    got = await _http("GET", "/v1/call-outcomes", token, slug)
+    assert got.json()["agents"][0]["draft"] == "failed"
+
+    before = await _outbox_drafts(agent_id)
+    asked = await _http("POST", f"/v1/agents/{agent_id}/call-outcomes/draft", token, slug)
+    assert asked.status_code == 202, asked.text
+    assert asked.json()["draft"] == "queued"
+    assert await _outbox_drafts(agent_id) == before + 1
+    again = await _http("POST", f"/v1/agents/{agent_id}/call-outcomes/draft", token, slug)
+    assert again.status_code == 202 and await _outbox_drafts(agent_id) == before + 1, (
+        "a draft already queued is not queued twice"
+    )
+
+
+async def test_write_them_for_me_spends_the_allowance_and_is_refused_when_it_is_used_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.agents import call_outcomes_routes
+
+    _route_trial(monkeypatch, False)
+
+    async def _ceiling(session: Any, *, tenant_id: Any) -> None:
+        raise ProblemError.business_rule("ai_quota_exceeded", "used up")
+
+    monkeypatch.setattr(call_outcomes_routes, "require_ai_assist", _ceiling)
+    tenant_id, slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    refused = await _http("POST", f"/v1/agents/{agent_id}/call-outcomes/draft", token, slug)
+    assert refused.status_code == 422 and refused.json()["type"].endswith("/ai_quota_exceeded")
+    assert await _outbox_drafts(agent_id) == 0
+
+
+async def test_write_them_for_me_never_replaces_the_owners_own_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _route_trial(monkeypatch, True)
+    tenant_id, slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    body = {"outcomes": [{"label": "Booked a pickup", "lead_status": "interested"}]}
+    assert (
+        await _http("PUT", f"/v1/agents/{agent_id}/call-outcomes", token, slug, body)
+    ).is_success
+    asked = await _http("POST", f"/v1/agents/{agent_id}/call-outcomes/draft", token, slug)
+    assert asked.status_code == 409 and asked.json()["type"].endswith(
+        "/call_outcomes_already_written"
+    )
+    assert await _outbox_drafts(agent_id) == 0

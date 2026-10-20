@@ -12,8 +12,8 @@ import { MockStage } from "./stage";
  * the real-estate template's (`scripts/seed.py`: "Budget (lakhs)", "Location", "BHK",
  * "Site visit"); the opened lead is `leads/[leadId]` — "Stage", "Owner", and a "History"
  * whose event titles are the ones `apps/api/crm/service.py` writes ("Call placed",
- * "Moved to hot", "Assigned to …"). This template has no `urgency` field, so the automatic
- * hot-lead alert cannot fire for it: a person moves the lead to hot here.
+ * "Moved to hot", "Assigned to …"). Here a person moves the lead to hot; a call whose outcome
+ * the business marked Hot would move it and alert the owner by itself (D-841).
  */
 
 type PropertyLead = {

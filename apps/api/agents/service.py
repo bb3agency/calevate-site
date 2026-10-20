@@ -3802,15 +3802,50 @@ async def dispatch_call(
         )
         raise DialUnconfirmedError(call_id=call_id, code=code) from exc
 
+    # THE VENDOR HAS ACCEPTED THE CALL, so from here nothing may raise: a raise reads to
+    # every caller as "not placed", and the campaign and call-back loops then ring the
+    # person again (D-841). Both writes below are bookkeeping; each one that fails is
+    # logged and alarmed, and the handle is returned.
     await _confirm_dial(tenant_id, call_id=call_id, handle=handle)
     if lead_id is not None:
-        # Through the CALLER's session — see the docstring: the lead can be uncommitted
-        # in that very transaction, and the FK would otherwise wait on it.
-        await session.execute(
-            text("UPDATE calls SET lead_id = :lid, updated_at = now() WHERE id = :id"),
-            {"lid": lead_id, "id": call_id},
-        )
+        await _link_dial_to_lead(session, call_id=call_id, lead_id=lead_id)
     return handle
+
+
+async def _link_dial_to_lead(session: AsyncSession, *, call_id: UUID, lead_id: UUID) -> None:
+    """Point the intent row at its lead, through the CALLER's session: the lead can be
+    uncommitted in that very transaction, and the FK would otherwise wait on it.
+
+    Inside a SAVEPOINT, so a failure here rolls back only this statement and leaves the
+    caller's transaction usable for the writes that settle its dial. The link is not the
+    only one: the post-call pipeline files the call under its lead again (`_upsert_lead`).
+    """
+    try:
+        async with session.begin_nested():
+            await session.execute(
+                text("UPDATE calls SET lead_id = :lid, updated_at = now() WHERE id = :id"),
+                {"lid": lead_id, "id": call_id},
+            )
+    except Exception as exc:
+        _alarm_unconfirmed_bookkeeping(call_id, step="lead_link", exc=exc)
+
+
+def _alarm_unconfirmed_bookkeeping(call_id: UUID, *, step: str, exc: BaseException) -> None:
+    """A dial the vendor accepted whose bookkeeping did not land. Ids and the error's type
+    only (hard rule 6)."""
+    log.error(
+        "dial_bookkeeping_failed",
+        extra={"call_id": str(call_id), "step": step, "error": type(exc).__name__},
+    )
+    alert(
+        "CORE_LOGIC",
+        "dial_bookkeeping_failed",
+        detail=(
+            f"a call the voice platform accepted could not be recorded ({step}, "
+            f"{type(exc).__name__}); it was not dialled again"
+        ),
+        call_id=str(call_id),
+    )
 
 
 async def _platform_scalar(session: AsyncSession, statement: Any, params: dict[str, Any]) -> int:
@@ -3933,6 +3968,10 @@ async def _confirm_dial(tenant_id: UUID, *, call_id: UUID, handle: str) -> None:
     id — visible, `queued`, and settled by the same reaper as any other unconfirmed dial
     — and the vendor's row is the one the pipeline uses. `IntegrityError` is still
     caught, because the guard and the insert can interleave.
+
+    Any other failure (the database unreachable, a pool timeout) leaves the row in the same
+    state, unconfirmed and reaped the same way, and is alarmed rather than raised: the call
+    is ringing, and a raise would be read as "not placed" (`dispatch_call`).
     """
     try:
         async with tenant_session(tenant_id) as confirm:
@@ -3947,6 +3986,9 @@ async def _confirm_dial(tenant_id: UUID, *, call_id: UUID, handle: str) -> None:
             stamped = rowcount_of(result)
     except IntegrityError:
         stamped = 0
+    except Exception as exc:
+        _alarm_unconfirmed_bookkeeping(call_id, step="handle_stamp", exc=exc)
+        return
     if stamped == 0:
         log.warning("dial_handle_not_stamped", extra={"call_id": str(call_id)})
 

@@ -153,6 +153,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "agent-proposed-rules",
     "agent-test-cases",
     "call-test-case-draft",
+    // Each agent's outcomes and its AI draft's state live on the `agents` row (D-836).
+    "call-outcomes",
     "script",
     "script-tests",
     "script-versions",

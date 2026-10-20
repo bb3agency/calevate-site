@@ -18,13 +18,14 @@ schema but nothing emits it yet, we say so.
 
 | Event                | Fires when                                                                 | Status |
 | -------------------- | -------------------------------------------------------------------------- | ------ |
-| `lead.created`       | A lead lands via your ingest webhook — in the same transaction as the lead row, before any call is attempted. | Live |
-| `call.completed`     | The post-call pipeline finishes for a call whose final status is `completed` (summary and extraction already exist when you hear about it). | Live |
+| `lead.created`       | A lead lands: via your ingest webhook, in the same transaction as the lead row and before any call is attempted; or from a call, when the call's number is not yet a lead of that agent, once the call has been filed (its `status` is the one the call moved it to). A later call from the same number is a `lead.updated`, never a second `lead.created`. | Live |
+| `call.completed`     | The post-call pipeline finishes for a call whose final status is `completed` (summary and extraction already exist when you hear about it). Once per call. | Live |
+| `call.updated`       | A call you were told about is read again and what it came to changed: its `outcome` or `business_outcome`. This happens when the first reading failed at the AI provider and the automatic retry, made up to three times within 24 hours of the call, succeeds. Same `data` as `call.completed`, with the values as they now stand, under a new delivery `id`. | Live |
 | `call.recording_ready` | Our copy of a completed call's recording has been stored, usually a few minutes after the hangup and often AFTER `call.completed` (whose `recording_url` is therefore usually absent). Sent only to an endpoint that also opted into `include_recording_url` (§1.7), once per call per endpoint. Not available for a Google Sheet: the link it carries expires within minutes. | Live |
-| `lead.updated`       | A lead's status, name or owner actually changes — one event per lead per edit, and nothing at all for a re-save that moved no field. In the same transaction as the edit. | Live |
+| `lead.updated`       | A lead's status, name or owner actually changes: an edit in the dashboard (one event per lead per edit, and nothing at all for a re-save that moved no field), or a call that moves the lead's status up (contacted, interested, hot). In the same transaction as the change. | Live |
 | `campaign.completed` | An outbound campaign has nothing left to dial and reaches its terminal `completed` status — in the same transaction as that status write. A campaign that REPEATS does not fire this at the end of each run: it is not finished, it is waiting for its next occurrence. | Live |
 
-All five fire. `GET /v1/integrations/events` returns the list you may subscribe to.
+All six fire. `GET /v1/integrations/events` returns the list you may subscribe to.
 
 ### 1.2 The envelope
 
@@ -64,9 +65,17 @@ A `lead.updated` envelope carries the same `data` keys as `lead.created`, with t
 as they stand AFTER the edit.
 
 A `call.completed` envelope carries in `data`: `call_id`, `lead_id` (may be null),
-`direction`, `duration_s`, `outcome`, `sentiment`, `summary`. By default the summary —
-never the transcript — is what leaves on a webhook. Three **per-endpoint opt-ins** add
-more, and only to the endpoint that asked (§1.7):
+`direction`, `duration_s`, `outcome`, `sentiment`, `summary`, `business_outcome` and
+`business_outcome_label`. `outcome` is what happened on the call, the same for every
+business (`missed`, `call_back_booked`, `transferred`, …); `business_outcome` is the key of
+the agent's own outcome for your business that the call came to (for example
+`wants_to_buy`), and `business_outcome_label` its name as it read when the call was sorted.
+Both are null when the call came to none of the agent's own outcomes. On a Google Sheet,
+`call.completed` keeps its original seven default columns so a sheet connected before the
+two outcome fields existed stays aligned; add them through the endpoint's `columns` mapping.
+`call.updated` writes all nine by default. By default the
+summary — never the transcript — is what leaves on a webhook. Three **per-endpoint
+opt-ins** add more to `call.completed`, and only to the endpoint that asked (§1.7):
 
 - `recording_url` — present only if the endpoint opted into `include_recording_url` **and**
   a recording exists. A **signed, short-lived link** to our copy of the audio (never the
@@ -80,6 +89,11 @@ more, and only to the endpoint that asked (§1.7):
 - `raw_transcript` — present only if the endpoint opted into `include_raw_transcript`. The
   **unredacted** transcript, same array shape as `transcript`. This is your customer's
   personal data in the clear, so it is gated harder — see §1.7.
+
+A `call.updated` envelope carries the same `data` keys as `call.completed`, with the values
+as they stand after the call was read again, and none of the three opt-in fields. Join it
+to the `call.completed` you already have on `call_id`, and order the two by `created_at`.
+It is never a second `call.completed`: that event already reached you under its own `id`.
 
 A `call.recording_ready` envelope carries in `data`: `call_id`, `lead_id` (may be null:
 the lead may not be resolved yet when the recording lands; join on `call_id` with the

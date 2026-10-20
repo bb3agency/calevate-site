@@ -1637,3 +1637,45 @@ async def test_the_complaint_spike_sees_the_calls_the_dispatcher_placed() -> Non
             )
         ).scalar()
     assert status == "paused", "every person the campaign reached opted out and it kept running"
+
+
+async def test_a_dial_the_vendor_accepted_is_not_dialled_again_when_its_bookkeeping_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-841. The database blinks after the vendor accepted the call: stamping its handle
+    fails with an `OperationalError`. That used to escape `dispatch_call`, read as "not
+    placed", and put the contact back on the retry ladder to be rung again."""
+    from apps.api.agents import service as agents_service
+    from sqlalchemy.exc import OperationalError
+
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876840031",), slider=1)
+    original = FakeEngine.start_outbound_call
+    rung: list[str] = []
+
+    async def dial(self: FakeEngine, ref: str, to: str, ctx: CallContext) -> str:
+        handle = await original(self, ref, to, ctx)
+        rung.append(to)
+        return handle
+
+    real_session = agents_service.tenant_session
+
+    def blinking(tenant: uuid.UUID) -> Any:
+        if rung:
+            raise OperationalError("UPDATE calls", {}, ConnectionError("connection lost"))
+        return real_session(tenant)
+
+    fired: list[str] = []
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", dial)
+    monkeypatch.setattr(agents_service, "tenant_session", blinking)
+    monkeypatch.setattr(agents_service, "alert", lambda _stage, code, **_kw: fired.append(code))
+
+    first = await _tick_one_campaign(tenant_id, campaign_id, slots=1)
+    assert first["dialled"] == 1, first
+    assert fired == ["dial_bookkeeping_failed"]
+    assert await _contacts(tenant_id, campaign_id) == [("dialing", 1)], (
+        "a ringing call's contact went back on the ladder"
+    )
+
+    monkeypatch.setattr(agents_service, "tenant_session", real_session)
+    again = await _tick_one_campaign(tenant_id, campaign_id, slots=1)
+    assert again["dialled"] == 0 and len(rung) == 1, "the person was rung twice"

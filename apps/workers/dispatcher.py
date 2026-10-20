@@ -38,6 +38,7 @@ from apps.api.reliability.service import (
     record_outbox_metrics,
     sweep_idempotency,
 )
+from apps.workers.extraction import MODEL_FAILURE
 from apps.workers.fleet_walk import FLEET_WALK_DEADLINE, WalkBudget
 from apps.workers.pipeline import EXTRACTION_OWED_SQL, PIPELINE_STALL_AFTER, callable_tenants
 
@@ -183,6 +184,9 @@ async def _count_stalled(session: AsyncSession) -> int:
     matters more now than it did: the reconciliation poller repairs the calls this alarm
     used to be the only sign of, so what is left in it should be the residue that needs
     a human, not the calls that were never broken.
+
+    A row that records only a provider failure (`errors._model`) is not an extraction: the
+    call has no reading, and `extraction_reread` is still trying to give it one (D-841).
     """
     stalled = (
         await session.execute(
@@ -195,10 +199,15 @@ async def _count_stalled(session: AsyncSession) -> int:
                 "WHERE c.status = 'completed' "
                 "AND c.ended_at < now() - make_interval(mins => :after) "
                 "AND c.ended_at > now() - make_interval(hours => :window) "
-                "AND NOT EXISTS (SELECT 1 FROM call_extractions e WHERE e.call_id = c.id) "
+                "AND NOT EXISTS (SELECT 1 FROM call_extractions e WHERE e.call_id = c.id "
+                "  AND (e.errors ->> :model_failure) IS NULL) "
                 f"AND {EXTRACTION_OWED_SQL}"
             ),
-            {"after": STALL_AFTER_MINUTES, "window": STALL_WINDOW_HOURS},
+            {
+                "after": STALL_AFTER_MINUTES,
+                "window": STALL_WINDOW_HOURS,
+                "model_failure": MODEL_FAILURE,
+            },
         )
     ).scalar()
     return int(stalled or 0)

@@ -58,3 +58,23 @@ export function useSaveCallOutcomes(
     onSuccess: () => client.invalidateQueries({ queryKey: callOutcomesKeys.client(session.orgSlug) }),
   });
 }
+
+/**
+ * "Write them for me": `POST /v1/agents/{id}/call-outcomes/draft` queues the AI draft again for
+ * an agent whose draft never ran, could not be written or was skipped. The list is then polled
+ * like any draft being written.
+ */
+export function useDraftCallOutcomes(
+  session: Session,
+): UseMutationResult<CallOutcomesAgent, Error, { agentId: string }> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agentId }) =>
+      apiRequest<CallOutcomesAgent>(
+        session,
+        `/v1/agents/${encodeURIComponent(agentId)}/call-outcomes/draft`,
+        { method: "POST" },
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: callOutcomesKeys.client(session.orgSlug) }),
+  });
+}

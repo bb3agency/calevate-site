@@ -1,5 +1,5 @@
 """WhatsApp transport for hot-lead alerts (ROADMAP M2: "WhatsApp follow-up + hot-lead
-WhatsApp alerts"; FLOWS §6 "status hot OR urgency=emergency ⇒ WhatsApp+email to owner
+WhatsApp alerts"; FLOWS §6 "a call that makes its lead hot ⇒ WhatsApp+email to owner
 within 2 min").
 
 **This module is the transport, the jobs and the seam. The vendor half lives next door
@@ -559,9 +559,10 @@ def _retry_after(attempt: int) -> float:
 def _compose_variables(triggers: list[str]) -> tuple[str, ...]:
     """The single approved template variable: WHY this lead is hot.
 
-    Trigger keys are our own vocabulary (`pipeline.HOT_LEAD_FIELD_TRIGGERS`), not
-    caller-supplied text, so nothing here can carry a name, a number or a transcript
-    fragment into a third party's system.
+    A trigger is the label of the agent's business outcome that made the lead hot
+    (`pipeline._maybe_notify_hot_lead`), written by the owner or the AI draft from the
+    business's own details, never caller-supplied text, so nothing here can carry a
+    caller's name, number or words into a third party's system.
     """
     return (", ".join(triggers) if triggers else "marked hot",)
 

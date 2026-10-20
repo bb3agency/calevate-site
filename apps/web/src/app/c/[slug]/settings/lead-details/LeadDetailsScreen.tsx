@@ -3,7 +3,7 @@
 import { CallOutcomesView } from "@/components/leadFields/CallOutcomesView";
 import { LeadDetailsView } from "@/components/leadFields/LeadDetailsView";
 import { ProblemNotice, Skeleton } from "@/components/ui";
-import { useCallOutcomes, useSaveCallOutcomes } from "@/lib/api/callOutcomes";
+import { useCallOutcomes, useDraftCallOutcomes, useSaveCallOutcomes } from "@/lib/api/callOutcomes";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
   useReviewLeadFieldsDraft,
@@ -28,6 +28,7 @@ export function LeadDetailsScreen() {
   const eg = useVerticalExamples();
   const outcomes = useCallOutcomes(session);
   const saveOutcomes = useSaveCallOutcomes(session);
+  const draftOutcomes = useDraftCallOutcomes(session);
   const writes = {
     save: useSaveAgentLeadFields(session),
     review: useReviewLeadFieldsDraft(session),
@@ -97,7 +98,12 @@ export function LeadDetailsScreen() {
         ) : outcomes.isError ? (
           <ProblemNotice error={outcomes.error} onRetry={() => void outcomes.refetch()} />
         ) : (
-          <CallOutcomesView data={outcomes.data} canWrite={write.allowed} save={saveOutcomes} />
+          <CallOutcomesView
+            data={outcomes.data}
+            canWrite={write.allowed}
+            save={saveOutcomes}
+            draft={draftOutcomes}
+          />
         )}
       </div>
     </div>

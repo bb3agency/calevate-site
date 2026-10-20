@@ -19,9 +19,9 @@ derived here, AFTER extraction, from things the platform holds:
 7. the model read the conversation              -> its own hint
 8. otherwise                                    -> None (unknown)
 
-Unknown happens when no model reading was stored: the provider failed (`errors._model`, kept
-as the call's extraction row, so the stall probe does not re-drive it) or its answer named
-no hint. What the call came to for the BUSINESS is a separate reading
+Unknown happens when no model reading was stored: the provider failed (`errors._model`, which
+`workers/extraction_reread` reads again up to three times within a day of the call, D-841)
+or its answer named no hint. What the call came to for the BUSINESS is a separate reading
 (`calls.business_outcome`, D-836) and does not depend on this one.
 
 "Very short" is a proxy: the engines report HOW a call ended, never WHICH PARTY hung up, so

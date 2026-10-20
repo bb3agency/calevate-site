@@ -115,6 +115,7 @@ EVENT_TYPES: tuple[str, ...] = (
     "lead.created",
     "lead.updated",
     "call.completed",
+    "call.updated",
     "call.recording_ready",
     "campaign.completed",
 )
@@ -123,6 +124,25 @@ EVENT_TYPES: tuple[str, ...] = (
 #: the branch so the fan-out and the builder cannot disagree about which event is
 #: call-shaped.
 CALL_COMPLETED_EVENT = "call.completed"
+
+#: A completed call whose reading changed after `call.completed` went out: the failed-read
+#: retry read it again and its outcome came out different (D-841). Its own event rather
+#: than a second `call.completed`, because that one was already delivered under its own id
+#: and a receiver deduplicating on ids would take a re-send as news of a second call.
+CALL_UPDATED_EVENT = "call.updated"
+
+#: The `data` keys of `call.completed` and `call.updated`, in their Sheets column order.
+CALL_EVENT_COLUMNS: tuple[str, ...] = (
+    "call_id",
+    "lead_id",
+    "direction",
+    "duration_s",
+    "outcome",
+    "sentiment",
+    "summary",
+    "business_outcome",
+    "business_outcome_label",
+)
 
 #: Our copy of a call's recording has been stored (D-670). `call.completed` usually fires
 #: before the carrier reports the recording, so its link is usually absent; this event is
@@ -1073,15 +1093,13 @@ SHEET_DELIVERY_HEADER = "Calevate Delivery ID"
 DEFAULT_SHEET_COLUMNS: dict[str, tuple[str, ...]] = {
     "lead.created": ("lead_id", "name", "phone", "source", "status"),
     "lead.updated": ("lead_id", "name", "phone", "source", "status"),
-    "call.completed": (
-        "call_id",
-        "lead_id",
-        "direction",
-        "duration_s",
-        "outcome",
-        "sentiment",
-        "summary",
-    ),
+    # `call.completed` keeps the layout it shipped with: a sheet's header row is written
+    # only while it is empty, and the delivery id must stay the last column the retry
+    # probe reads, so new default columns would land under old headings on every sheet
+    # already connected. Its business outcome reaches a sheet through a `columns`
+    # mapping; `call.updated` is new, so its default carries the full set.
+    CALL_COMPLETED_EVENT: CALL_EVENT_COLUMNS[:7],
+    CALL_UPDATED_EVENT: CALL_EVENT_COLUMNS,
     # AGGREGATES AND THE CAMPAIGN'S NAME — the one layout here with no person in it.
     # `name` is the CAMPAIGN's, and it sits second for the reason `lead.*` puts the
     # lead's name second: the id identifies the row, the name is what a human scanning
@@ -1210,6 +1228,8 @@ def _disarm(rendered: str) -> str:
 __all__ = [
     "BODY_SUBJECT_FIELDS",
     "CALL_COMPLETED_EVENT",
+    "CALL_EVENT_COLUMNS",
+    "CALL_UPDATED_EVENT",
     "DEFAULT_SHEET_COLUMNS",
     "DEFAULT_WORKSHEET",
     "DELIVERABLE_KINDS",

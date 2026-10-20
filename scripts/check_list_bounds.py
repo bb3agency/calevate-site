@@ -216,6 +216,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "models' `max_length` and the column's CHECK)."
         )
     ),
+    "POST /v1/agents/{agent_id}/call-outcomes/draft": BoundedByConstruction(
+        by=(
+            "one agent's outcomes, at most `MAX_BUSINESS_OUTCOMES` (the response model's "
+            "`max_length` and the column's CHECK)."
+        )
+    ),
     "GET /v1/business-copy": BoundedByConstruction(
         by=(
             "one row per account, its lists capped by `tenancy.business_copy.GeneratedCopy` "

@@ -73,10 +73,10 @@ export function FollowUpVignette() {
 }
 
 /**
- * Qualification — two leads, sorted, each with the captured field that put it there, and
+ * Qualification — two leads, sorted, each with the outcome its call came to, and
  * the console's own history line for the alert (`apps/api/crm/service.py`).
- * A clinic, because `urgency` is the field the hot-lead trigger reads
- * (`apps/workers/pipeline.py::HOT_LEAD_FIELD_TRIGGERS`) and only that template has it.
+ * A lead is made hot by its call's business outcome, one the business marked as moving a lead
+ * to Hot (`apps/workers/pipeline.py::reads_hot`, D-841), which is what the alert names.
  */
 export function QualificationVignette() {
   return (
@@ -84,14 +84,14 @@ export function QualificationVignette() {
       <Line className="mk-rise mk-s1">
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate font-semibold text-ink">Ravi Kumar</span>
-          <span className="truncate text-[11px] text-ink-muted">Urgency: emergency</span>
+          <span className="truncate text-[11px] text-ink-muted">Wants to order now</span>
         </span>
         <StatusPill status="hot" />
       </Line>
       <Line className="mk-rise mk-s2">
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate font-semibold text-ink">Sneha Rao</span>
-          <span className="truncate text-[11px] text-ink-muted">Urgency: this week</span>
+          <span className="truncate text-[11px] text-ink-muted">Comparing prices</span>
         </span>
         <StatusPill status="interested" />
       </Line>

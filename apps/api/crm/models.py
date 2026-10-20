@@ -25,6 +25,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -459,6 +460,7 @@ class CallExtraction(PKMixin, TimestampMixin, Base):
             f"outcome_hint IS NULL OR outcome_hint IN {OUTCOME_HINTS!r}",
             name="outcome_hint_enum",
         ),
+        CheckConstraint("reread_attempts >= 0", name="reread_attempts_nonnegative"),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -505,6 +507,11 @@ class CallExtraction(PKMixin, TimestampMixin, Base):
     #: same UPDATE that empties `data`; NULL means "not scrubbed", which is also the
     #: honest reading for every row written before the column existed.
     scrubbed_at: Mapped[datetime | None]
+    #: Re-reads of a provider-failed extraction claimed so far, and when the last one was
+    #: (D-841, migration e1d84b3c7a20). Written only by `workers/extraction_reread`, which
+    #: stops at `REREAD_MAX_ATTEMPTS`.
+    reread_attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
+    reread_at: Mapped[datetime | None]
 
 
 class Lead(PKMixin, TimestampMixin, Base):

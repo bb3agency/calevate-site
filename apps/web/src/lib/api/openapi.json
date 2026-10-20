@@ -13112,6 +13112,7 @@
                 "lead.created",
                 "lead.updated",
                 "call.completed",
+                "call.updated",
                 "call.recording_ready",
                 "campaign.completed"
               ],
@@ -13383,6 +13384,7 @@
                 "lead.created",
                 "lead.updated",
                 "call.completed",
+                "call.updated",
                 "call.recording_ready",
                 "campaign.completed"
               ],
@@ -57200,6 +57202,47 @@
           }
         },
         "summary": "Replace one agent's call outcomes",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/call-outcomes/draft": {
+      "post": {
+        "description": "Queues the AI draft for an agent with no outcomes of its own whose draft never ran, could not be written or was skipped. On a paying account it uses the monthly AI allowance; on a trial it is free. A list the owner saves meanwhile is never replaced.",
+        "operationId": "draft_call_outcomes_v1_agents__agent_id__call_outcomes_draft_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallOutcomesAgentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask AI to write one agent's call outcomes",
         "tags": [
           "agents"
         ],
