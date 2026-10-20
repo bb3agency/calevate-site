@@ -10,6 +10,7 @@ that never carries the caller's number.
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -32,7 +33,7 @@ from apps.api.crm import routes as crm_routes
 from apps.api.crm.translation import TRANSLATE_CALL_JOB
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.workers import call_language, call_translation
+from apps.workers import call_language, call_translation, chat
 from apps.workers.call_language import LanguagePass
 from sqlalchemy import text
 from tests.lead_dial_routes_test import (
@@ -484,3 +485,57 @@ async def test_the_backfill_reaches_past_calls_it_has_already_tried(
     await call_translation.backfill_call_translations({})
 
     assert queued == [str(untried)]
+
+
+async def test_a_chunk_cut_off_at_the_token_cap_is_split_and_every_line_still_translated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: a chunk Sarvam cuts off at `max_tokens` (its reasoning counts toward the cap)
+    fails the whole call's English, or a split loses the summary or a line."""
+
+    asked: list[tuple[list[int], bool]] = []
+
+    async def _complete(leg: chat.ChatLeg, messages: Any, **kw: Any) -> chat.ChatOutcome:
+        prompt = str(messages[0]["content"])
+        lines = [
+            json.loads(row)
+            for row in prompt.split("one JSON object per line):\n")[1].split("\n")
+            if row
+        ]
+        idxs = [int(row["i"]) for row in lines]
+        summaries = '"summary_local"' in prompt
+        asked.append((idxs, summaries))
+        if len(idxs) > 10:
+            return chat.ChatOutcome(content='{"turns": [', finish_reason="length", usage=None)
+        body: dict[str, Any] = {"turns": [{"i": i, "en": f"line {i}"} for i in idxs]}
+        if summaries:
+            body["summary_local"] = "సారాంశం"
+        return chat.ChatOutcome(content=json.dumps(body), finish_reason="stop", usage=None)
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    turns = [(i, f"పంక్తి {i}") for i in range(call_language.TURNS_PER_REQUEST)]
+    done = await call_language.run_language_pass(
+        api_key="k", language="te-IN", turns=turns, summary_en="Summary.", summary_local=""
+    )
+    assert done.failed is False
+    assert sorted(done.turns_en) == list(range(call_language.TURNS_PER_REQUEST))
+    assert done.summary_local == "సారాంశం"
+    # 40 lines cut off, then the first 20, then the first 10 answers: the summary rides the
+    # first half each time and is asked for nowhere else.
+    assert [summaries for _, summaries in asked].count(True) == 3
+
+
+async def test_a_single_line_cut_off_at_the_token_cap_still_says_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: a line that cannot be split any further reads as translated."""
+
+    async def _complete(leg: chat.ChatLeg, messages: Any, **kw: Any) -> chat.ChatOutcome:
+        return chat.ChatOutcome(content='{"turns": [', finish_reason="length", usage=None)
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    done = await call_language.run_language_pass(
+        api_key="k", language="te-IN", turns=[(0, "పంక్తి")], summary_en="", summary_local=""
+    )
+    assert done.failed is True
+    assert done.turns_en == {}

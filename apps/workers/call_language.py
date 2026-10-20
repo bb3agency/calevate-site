@@ -186,8 +186,16 @@ async def run_language_pass(
         chunks = [[]]
     wanted = {idx for idx, _ in turns}
     answered: list[TokenUsage | None] = []
-    for number, chunk in enumerate(chunks):
-        want_summaries = number == 0 and not is_english(language)
+    # (chunk, asks for the summaries), consumed from the front. A chunk cut off at
+    # `MAX_TOKENS` is split in half and both halves go back to the front, in order: Sarvam
+    # counts its reasoning in `max_tokens`, so a dense chunk can run out before its JSON
+    # closes, and 4096 is the highest cap its lowest tier accepts, so raising the cap is
+    # not an option (`extraction.EXTRACTION_MAX_TOKENS`).
+    work: list[tuple[Sequence[tuple[int, str]], bool]] = [
+        (chunk, number == 0 and not is_english(language)) for number, chunk in enumerate(chunks)
+    ]
+    while work:
+        chunk, want_summaries = work.pop(0)
         if not chunk and not want_summaries:
             continue
         prompt = _prompt(
@@ -215,6 +223,14 @@ async def run_language_pass(
         answered.append(outcome.usage)
         result.usage = chat.sum_usage(answered)
         if outcome.finish_reason == "length":
+            log.warning(
+                "call_language_pass_truncated",
+                extra={"turns": len(chunk), "summaries": want_summaries},
+            )
+            if len(chunk) > 1:
+                half = len(chunk) // 2
+                work[:0] = [(chunk[:half], want_summaries), (chunk[half:], False)]
+                continue
             result.failed = True
         body = _first_json_object(outcome.content)
         rows = body.get("turns")
