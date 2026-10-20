@@ -7,9 +7,9 @@ clone limit only (snapshots/2026-10-15/pages/channels/voice-clone.md:114-126;
 api-reference/customers.md:236-241; api-reference/voices/list-voices.md:579-589). So a client
 agent speaks the shared clone itself; nothing is cloned again in the client's workspace.
 
-The shared clone keeps its id: a customer's `GET /voices` lists it under the developer's
-clone id (ThinnestAI's email of 18 Oct 2026; the docs name only the `sharedFromDeveloper`
-mark, snapshots/2026-10-18/pages/api-reference/voices/list-voices.md:579-589). The client
+The shared clone keeps its id: inside a customer its `id` is our own voice's `id`
+(snapshots/2026-10-19/pages/channels/voice-clone.md:120-121, api-reference/customers.md:
+241-243). The client
 workspace's own listing is still read before the id is sent, because a clone is listed there
 only on Pro and above and not after we delete it; when ours is not listed the publish is
 refused by name (`shared_clone_not_listed`), never sent to a copy or to our developer

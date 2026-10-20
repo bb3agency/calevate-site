@@ -250,10 +250,10 @@ class CallBilling(BaseModel):
     #: minutes: a workspace on a paid plan, a developer workspace's own test calls included,
     #: is charged from its balance and reports plan, rate and seconds.
     billed_seconds: int | None = None
-    #: No agent ran on the call (it ended before the agent spoke, or a number forward put it
-    #: through to a phone): it is charged the phone carrier's fee only, by the carrier's
-    #: block, so neither `voice_plan` nor `rate_inr_per_min` is what was charged and the
-    #: call is reconciled by its total.
+    #: The call ended before the agent spoke, so no agent ran on it (a forwarded call is not
+    #: this, D-835): it is charged the phone carrier's fee only, by the carrier's block, so
+    #: neither `voice_plan` nor `rate_inr_per_min` is what was charged and the call is
+    #: reconciled by its total.
     carrier_only: bool = False
 
 

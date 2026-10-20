@@ -178,10 +178,11 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         "interruptWords": 3,
         "holdShortSpeech": True,
         "neverInterrupt": False,
-        "greetingUninterruptible": False,
+        "greetingUninterruptible": True,
         "thinkingAtTurnEnd": False,
-        "thinkingDelayMs": 900,
+        "thinkingDelayMs": 2000,
         "thinkingRepeatMs": 2500,
+        "reaskAfterSeconds": 5,
         "endPhrases": [],
         "voice": None,
     }

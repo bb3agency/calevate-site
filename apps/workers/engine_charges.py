@@ -72,12 +72,14 @@ settled call three ways (`billing_findings`) and names what it finds in
   steps at half the per-minute rate each (get-call.md:1266-1275), the pulse the meter bills;
 - the engine's per-minute rate against the attested one, before the top-up fee.
 
-CARRIER-ONLY CALLS (D-813). A call no agent ran on, one that ended before the agent spoke or
-was forwarded to a phone, is charged the phone carrier's fee only, in 30-second blocks, and
-its `voicePlan` and `ratePerMinuteMicro` still name the plan it was set up on, not what was
-charged (snapshots/2026-10-18/pages/api-reference/calls/get-call.md:1236-1243). The meter
-costs it at the attested `carrier` rate on the carrier's block, so its total reconciles by
-`costMicro` like any call's, and only its seconds are checked on `billing`.
+CARRIER-ONLY CALLS (D-813). A call that ended before the agent spoke is charged the phone
+carrier's fee only, in 30-second blocks, and its `voicePlan` and `ratePerMinuteMicro` still
+name the plan it was set up on, not what was charged (snapshots/2026-10-19/pages/
+api-reference/calls/get-call.md:1236-1242). The meter costs it at the attested `carrier` rate
+on the carrier's block, so its total reconciles by `costMicro` like any call's, and only its
+seconds are checked on `billing`. A forwarded call is not carrier-only (:1249-1254, D-835): it
+is billed at the plan it was admitted at, so it is checked like any call, and on a brought
+number it carries no `billedSeconds` and is not checked on `billing`.
 
 It reconciles and never prices: the engine's rate is evidence, and `unit_cost_paid` stays the
 operator-attested rate (hard rule 7). A call with no charge taken (`billed_seconds` None: not
@@ -273,10 +275,10 @@ def billing_findings(
     - **rate**: the engine's per-minute rate against the attested one, priced on our
       minutes before the top-up fee, so a rate gap is not read as a seconds gap.
 
-    A call no agent ran on (`carrier_only`: it ended before the agent spoke, or was
-    forwarded) is charged the carrier's fee only, by the carrier's 30-second block, and its
-    `voicePlan` and `ratePerMinuteMicro` are the ones it was set up on, not what was charged
-    (snapshots/2026-10-18/pages/api-reference/calls/get-call.md:1236-1243). So neither the
+    A call that ended before the agent spoke (`carrier_only`) is charged the carrier's fee
+    only, by the carrier's 30-second block, and its `voicePlan` and `ratePerMinuteMicro` are
+    the ones it was set up on, not what was charged (snapshots/2026-10-19/pages/
+    api-reference/calls/get-call.md:1236-1242). So neither the
     scope nor the rate is compared for it, only its seconds against our minutes on the
     carrier's block; its total is compared by `costMicro` like any call's. The rate is not
     compared either when one side is unknown: an unpriced minute (already alarmed) or a rate

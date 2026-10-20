@@ -6,12 +6,14 @@ agents/test-chat.md:328-460): the real prompt, model, knowledge and actions, wit
 that would contact a person switched off. Founder decision 3: test what is live only, so
 there is no draft copy of the agent to chat with.
 
-COST. The engine bills a test chat "like the console's Playground" (test-chat.md:7) and
-publishes no per-reply rate for an agent on its own models (the ₹0.02 a reply in the same
-file is the all-keys-BYOK rate, which this account does not run). UNKNOWN, so nothing is
-written to the ledger (hard rule 7 forbids a guessed price). Founder decision 5 puts the chat
-inside the client's AI allowance, so a chat is refused once that allowance is used up, and
-the cost sentence says the replies are not charged.
+COST. A test-chat reply costs what a website chat reply costs: on an agent answering on our
+own language-model key (`byok: llm` or `llm_voice`) the flat ₹0.02 own-key reply price, plus
+the reply's tokens on our Google key (snapshots/2026-10-19/pages/api-reference/agents/
+test-chat.md:7). The price of a reply on the engine's own models is not published. Neither
+reaches the ledger: there is no attested per-reply price to put on it (hard rule 7), so test
+chats are platform overhead today (D-835). Founder decision 5 puts the chat inside the
+client's AI allowance, so a chat is refused once that allowance is used up, and the cost
+sentence says the replies are not charged.
 """
 
 from __future__ import annotations

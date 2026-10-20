@@ -917,7 +917,12 @@ open, because the 15 Oct reply answered only the §13.1 requests.
 - Whether a change to the built-in speaking rules will be announced, now that our prompt relies on them.
 - The rent page does not document `Idempotency-Key`.
 
-## 17. Draft of the next email (19 Oct 2026, unsent; the founder sends)
+## 17. The email of 19 Oct 2026 (questions 1–17; 1–14 answered 19 Oct 2026, §18; 15–17 open)
+
+**Status (20 Oct 2026, D-835).** Sent; Ashutosh answered questions 1–14 the same day (§18,
+item by item in `docs/evidence/thinnest-reply-2026-10-19.md`). Questions 15 (DPA and
+sub-processors), 16 (training exclusion) and 17 (Plivo and the access provider) are not
+answered and stay open.
 
 Gathers what §16.1 left open, what building the 18 Oct answers raised (D-813..D-822), the
 prompt-size work of 19 Oct (our fixed layers against what ThinnestAI adds), and §15 questions
@@ -1006,7 +1011,7 @@ with ThinnestAI support copied (`workspace/data-and-erasure.md`, Model training)
 
 - **From:** Ashutosh K, founder of ThinnestAI, 19 Oct 2026.
 - **Relayed by:** the founder.
-- **Evidence class:** **VENDOR-STATED** until a docs snapshot confirms each item.
+- **Evidence class:** **VENDOR-STATED**. The docs check is `docs/evidence/thinnest-reply-2026-10-19.md`, against `thinnest-findings/mirror/snapshots/2026-10-19/` (which also holds `openapi.json`).
 - **Answers:** §17 questions 1–14 (questions 15–17 — DPA, training exclusion, Plivo — are not answered).
 - **Corrects:** §16 item 2. A forwarded call is billed as connected, not at the carrier fee only.
 - **Rememory:** vendor memory f4ecc712.
@@ -1112,14 +1117,38 @@ with ThinnestAI support copied (`workspace/data-and-erasure.md`, Model training)
 > Ashutosh K
 > Founder, Thinnest AI
 
-### 18.1 What stays open
+### 18.1 What it closes, what it corrects, and what stays open
 
-- **Not yet built.** We have not checked our code against these answers or built from them. The audit list is:
-  - releases now live: `languages`, `reaskAfterSeconds`, List Calls billing, and the Clear `byok-model`;
-  - forwarded-call billing;
-  - the ₹0.02 Test Chat reply;
-  - removing our prompt lines that repeat ThinnestAI's added text;
-  - a queued call that fails after its number was lent away;
-  - re-subscribing `contact.erased` and `byok.changed`;
-  - forwarded calls having no recording.
-- **Still unanswered:** §17 questions 15–17.
+**Closed:** §17 questions 1–14, item by item in `docs/evidence/thinnest-reply-2026-10-19.md`,
+checked against the docs snapshot of 19 Oct 2026 (`thinnest-findings/mirror/snapshots/2026-10-19/`,
+with the API reference `openapi.json`). The decision row is D-835 in `docs/ROADMAP.md`.
+
+| §17 | Answer | Docs, 19 Oct 2026 | What Calevate does |
+|---|---|---|---|
+| 1 | List Calls `billing`, `languages`, `reaskAfterSeconds` and the `byok-model` `409` are live | All four in `openapi.json` | Nothing waited on a switch: `billing_reported` already reads the listing (D-813); `languages` is never sent (D-830); `reaskAfterSeconds` is now sent as 5 s (founder, 20 Oct 2026); the `409` is D-834's |
+| 2 | **Correction.** A forward is billed every connected second: the attached agent's plan, Standard with none, nothing on a brought number | `calls/get-call.md:1249-1254`, `channels/phone-numbers.md:571-576`, `phone-numbers/update-phone-number.md:654-657` | D-835: a forward is no longer carrier-only; costed at the agent's route key (`standard` without one), and at nothing on a brought number |
+| 3 | A 0-second call is billed nothing (`billedSeconds` null); 1 second is one block | `calls/get-call.md:1245-1246` | Already so: `billed_minutes(0)` is 0, and a call with no `billedSeconds` is not checked |
+| 4 | A Test Chat reply on our own model key costs ₹0.02, like a website chat reply | `agents/test-chat.md:7` | Not metered: no attested per-reply price; the cost notes say so (D-835) |
+| 5 | The core, disclosure, hand-over and lead text, verbatim | Not in the docs | Audited against our prompt: no remaining true duplicate; two conflicts and one framing question go to the founder (evidence doc, item 5) |
+| 6 | About 4,700 characters added per call; the whole prompt is sent every turn | Not in the docs | `scripts/prompt_size` prints ours, theirs and the per-turn sum (`HostedAgentLimits.added_prompt_chars`) |
+| 7 | No drafts in Test Chat; test a second agent | `agents/test-chat.md:7` | Our test loop tests the live agent and says so; "Try it" no longer claims a reply identical to a call |
+| 8 | `gemini-3.1-flash-lite` works with `llm` and `llm_voice`, at the minimal thinking level on calls | Not in the docs | Matches D-817 |
+| 9 | The prompt is identical on every turn of a call and up to the first `{{variable}}` across calls; `cachedInputTokens` is Google's count | Not in the docs | Our per-call values are last (D-814); D-835 also compiles a script section holding a variable after the quick facts and the example call. The reusable prefix is below about 4,100 tokens (ESTIMATE, evidence doc item 5) |
+| 10 | Lending ends no call; a waiting call that named the number fails | `channels/phone-numbers.md:696-702` | The trial line is held per call, so no test call meets it (OPERATIONS T-23) |
+| 11 | Speaking-rule changes will be listed in What's New | — | OPERATIONS T-30 |
+| 12 | Shared clone id and rent `Idempotency-Key` are documented | `channels/voice-clone.md:120-121`, `phone-numbers/rent-phone-number.md:7` | Both already relied on correctly; citations moved to the docs |
+| 13 | `contact.erased` and `byok.changed` save now | `whats-new/index.md:13-18` | The webhook sweep re-subscribes every endpoint on its own; no operator step |
+| 14 | A forward is never recorded; Get Recording answers `404` | `channels/phone-numbers.md:577-579` | `calls.forwarded_to_phone`; no fetch, no missing-recording alarm, and the call page says so |
+
+**Corrects:** §16 item 2 (a forward billed at the carrier fee only). The 18 Oct snapshot's Get
+Call text said the same and has been rewritten; `channels/phone-numbers.md` had said the
+standard voice rate all along.
+
+**Still open:**
+- §17 questions 15–17 (DPA and sub-processors, training exclusion, Plivo and the access
+  provider), not answered.
+- Get Recording's `404` text still says "Turn on recordCalls for the agent" in
+  `snapshots/2026-10-19/openapi.json`; Ashutosh says the next release changes it. We do not
+  read that text.
+- The exact wording of the hand-over rule with one trigger on (we send `onRequest` alone when
+  a hand-over destination is on duty) was not given.

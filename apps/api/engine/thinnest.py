@@ -247,6 +247,14 @@ def _micro_amount(value: Any) -> Decimal | None:
 # `greeting` 200 (create-agent.md:434); `purpose` "under 300 characters" (snapshots/
 # 2026-10-07/pages/api-reference/calls/place-call.md:7).
 INSTRUCTIONS_MAX_CHARS: Final = 20_000
+#: What ThinnestAI adds around our instructions on every call, outside the `instructions` box
+#: and sent again on every turn: about 4,700 characters with typical settings. Its parts, in
+#: characters: core 524, AI disclosure 331, hand-over 279-480, lead rule 88 or 652, language
+#: rule 64-601, date line 228, fence wrapper about 290, speaking rules 1,876 (about 1,000 more
+#: with a transfer target), default call rules 1,675 only when the agent sets none (ThinnestAI
+#: email of 19 Oct 2026, VENDOR-STATED; not in the docs). An estimate for sizing what the model
+#: reads per turn, never a limit and never money.
+ENGINE_ADDED_PROMPT_CHARS: Final = 4_700
 #: `businessDescription`, "One line about what the business is" (snapshots/2026-10-08/pages/
 #: api-reference/agents/update-agent.md:531-534).
 BUSINESS_DESCRIPTION_MAX_CHARS: Final = 200
@@ -271,22 +279,32 @@ TURN_DETECTION: Final = "timer"
 #: (founder decision F1, 12 Oct 2026, superseding D-720's "information only").
 SURFACE_NAMES: Final[dict[str, str]] = {"web": "website call button", "whatsapp": "WhatsApp"}
 #: How an agent takes turns and fills pauses, the same on every agent (founder decisions F3,
-#: F4, F10, 12 Oct 2026): sent on every publish, so a console change reads as drift and is
-#: repaired. A caller interrupts after 3 words, short words over the agent are kept and
-#: answered, the greeting may be interrupted, no acknowledgement before every reply, and no
-#: end phrases, because the vendor matches them anywhere in what the caller says and a short
-#: one could end a call mid-sentence. Filler timings are the vendor's defaults, stated. Names,
-#: ranges and defaults: docs.thinnest.ai api-reference/agents/update-agent `voice`, read
-#: 12 Oct 2026 (`interruptWords` 1-6, `thinkingDelayMs` 200-5000, `thinkingRepeatMs`
-#: 1000-10000, `endPhrases` up to 12).
+#: F4, F10, 12 Oct 2026; greeting, filler delay and re-ask, founder 20 Oct 2026, D-835): sent
+#: on every publish, so a console change reads as drift and is repaired. A caller interrupts
+#: after 3 words, short words over the agent are kept and answered, no acknowledgement before
+#: every reply, and no end phrases, because the vendor matches them anywhere in what the
+#: caller says and a short one could end a call mid-sentence.
+#: The greeting plays to the end on a phone call (`greetingUninterruptible`, replacing F3's
+#: interruptible greeting): on the production call of 20 Oct 2026 the caller's pickup "hello"
+#: cut it off, so the AI notice it carries was never heard; what the caller said is answered
+#: next (snapshots/2026-10-19/pages/channels/voice.md:913-920). Only the greeting: the rest of
+#: the call stays interruptible (`neverInterrupt` false).
+#: The filler line waits 2,000 ms, not the vendor's 900: on the production call of 20 Oct 2026
+#: our model's first word came at about 937 ms, so 900 put a filler on almost every turn; at
+#: 2,000 it covers only a slow one. A question the caller leaves unanswered is asked again
+#: after 5 s rather than the platform's 2.5 s. Ranges: `thinkingDelayMs` 200-5000,
+#: `thinkingRepeatMs` 1000-10000, `interruptWords` 1-6, `endPhrases` up to 12,
+#: `reaskAfterSeconds` 0, 1.5-10 or null (snapshots/2026-10-19/pages/api-reference/agents/
+#: update-agent.md:1390-1399, :1452-1460).
 PLATFORM_VOICE_VALUES: Final[dict[str, Any]] = {
     "interruptWords": 3,
     "holdShortSpeech": True,
     "neverInterrupt": False,
-    "greetingUninterruptible": False,
+    "greetingUninterruptible": True,
     "thinkingAtTurnEnd": False,
-    "thinkingDelayMs": 900,
+    "thinkingDelayMs": 2000,
     "thinkingRepeatMs": 2500,
+    "reaskAfterSeconds": 5,
     "endPhrases": [],
 }
 CALL_VARIABLES_MAX: Final = 20
@@ -621,15 +639,14 @@ _VOICE_PLANS: Final[frozenset[str]] = frozenset(get_args(CallVoicePlan))
 
 #: The call's `hangup` when it ended before the agent spoke (snapshots/2026-10-18/pages/
 #: api-reference/calls/get-call.md:918-933; the console's "Ended before the agent spoke",
-#: channels/voice.md:443). Such a call, like a forwarded one, is charged the phone carrier's
-#: fee only, in 30-second blocks (get-call.md:1236-1243); what that fee is reaches money
-#: only as the operator-attested `carrier` rate (`billing/engine_minutes.CARRIER_RATE_KEY`).
+#: channels/voice.md:443). Only such a call is charged the phone carrier's fee alone, in
+#: 30-second blocks; a forwarded call is not (snapshots/2026-10-19/pages/api-reference/calls/
+#: get-call.md:1236-1254). What that fee is reaches money only as the operator-attested
+#: `carrier` rate (`billing/engine_minutes.CARRIER_RATE_KEY`).
 _BEFORE_AGENT_HANGUP: Final = "before_agent"
 
 
-def parse_billing(
-    value: Any, *, hangup: str | None = None, forwarded: bool = False
-) -> CallBilling | None:
+def parse_billing(value: Any, *, hangup: str | None = None) -> CallBilling | None:
     """The call's `billing` object in our names (snapshots/2026-10-18/pages/api-reference/
     calls/get-call.md:1228-1310; List Calls rows and `call.analysed` carry the same one,
     calls/list-calls.md:769-773, api-reference/webhooks/create-webhook.md:330-340). None for a
@@ -637,9 +654,10 @@ def parse_billing(
     documented enum (:1257-1269), which is no billing we can read. `voicePlan` is lower case
     (:1270-1282); `ratePerMinuteMicro` is millionths of `currency` (:1283-1292), read as
     rupees only; `billedSeconds` is null until a charge was taken and on a free trial call
-    (:1293-1302). A call that ended before the agent spoke (`hangup`) or was `forwarded`
-    without an agent is carrier-only: its plan and rate are the ones it was set up on, not
-    what was charged (:1236-1243)."""
+    (:1293-1302). A call that ended before the agent spoke (`hangup`) is carrier-only: its
+    plan and rate are the ones it was set up on, not what was charged. A forwarded call is
+    billed every connected second at the rate it was admitted at, and nothing on a brought
+    number (snapshots/2026-10-19/pages/api-reference/calls/get-call.md:1236-1254)."""
     if not isinstance(value, dict):
         return None
     keys = value.get("keys")
@@ -656,7 +674,7 @@ def parse_billing(
         else None,
         currency=currency if currency in ("INR", "USD") else None,
         billed_seconds=_whole(value.get("billedSeconds")),
-        carrier_only=forwarded or hangup == _BEFORE_AGENT_HANGUP,
+        carrier_only=hangup == _BEFORE_AGENT_HANGUP,
     )
 
 
@@ -1182,6 +1200,7 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
         "voice.greetingUninterruptible",
     ),
     "end_phrases": ("voice.endPhrases",),
+    "reask_wait": ("voice.reaskAfterSeconds",),
     "reply_length": ("maxReplyTokens",),
 }
 _LANGUAGE_KEYS: Final = frozenset({"language", "voice.language"})
@@ -1301,7 +1320,7 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
                 same = isinstance(have, list) and have == want
             elif key == "steps":
                 same = _steps_held(have) == want
-            elif key == "voice.turnSilenceSeconds":
+            elif key in ("voice.turnSilenceSeconds", "voice.reaskAfterSeconds"):
                 same = _same_seconds(want, have)
             elif key == "maxReplyTokens":
                 same = _same_whole_number(want, have)
@@ -3621,7 +3640,7 @@ class ThinnestEngine:
             quality=parse_quality(payload.get("quality")),
             llm_usage=parse_llm_usage(payload.get("usage")),
             tts_characters=parse_tts_characters(payload.get("usage")),
-            billing=parse_billing(payload.get("billing"), hangup=hangup, forwarded=forwarded),
+            billing=parse_billing(payload.get("billing"), hangup=hangup),
             # List Calls rows carry `billing` once the vendor's release of 17 Oct 2026 is live
             # (snapshots/2026-10-18/pages/whats-new/index.md:20-23); a row from before it has
             # no key at all, which `billing_reported` tells apart from `billing: null`.
@@ -3656,11 +3675,13 @@ class ThinnestEngine:
         pay-as-you-go) (snapshots/2026-10-07/pages/api-reference/recordings/
         get-call-recording.md:247-300). Only our API host may be fetched, with or without the
         key. Asked for a call that ended normally or that carries a link; a missed or failed
-        call has nothing to fetch, and neither has a call whose content was deleted.
+        call has nothing to fetch, and neither has a call whose content was deleted, nor a
+        forwarded one: no agent takes it, so it is never recorded and the route answers `404`
+        (snapshots/2026-10-19/pages/channels/phone-numbers.md:577-579).
         """
         if not self._api_key or not snapshot.engine_call_id or not snapshot.terminal:
             return None
-        if snapshot.content_deleted:
+        if snapshot.content_deleted or snapshot.forwarded:
             return None
         if snapshot.recording_url is None and snapshot.raw_status != "completed":
             return None

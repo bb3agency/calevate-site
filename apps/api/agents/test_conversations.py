@@ -50,8 +50,10 @@ input, and "Test again" with nothing changed is refused.
 COST. Writing, judging and improving spend the client's dashboard AI allowance and are
 metered like the script helper (`crm/assist.meter_assist`, features below): one judge
 request per try, a writing request only when practice callers are asked for. The test chat
-itself is billed by the engine at a rate it does not publish (test-chat.md:7), so it is not
-metered (hard rule 7); a run costs at most `MAX_REPLIES_PER_RUN` replies.
+itself is billed by the engine like a website chat reply: ₹0.02 a reply on an agent on our own
+model key, plus that reply's tokens on our key (snapshots/2026-10-19/pages/api-reference/
+agents/test-chat.md:7); no per-reply price is attested, so it is not metered (hard rule 7,
+D-835), and a run costs at most `MAX_REPLIES_PER_RUN` replies.
 
 PRIVACY. Generated caller lines are not caller data. Lines taken from real calls are
 `text_redacted` and are re-checked by `redact()` before any model sees them (D-127 G-1/G-2);
@@ -154,10 +156,10 @@ MAX_LINE_CHARS: Final = 300
 #: finish inside the worker's `job_timeout` (300 s) with its AI calls. A test set is cut to
 #: this when it is made, so every try asks all of it.
 MAX_MESSAGES: Final = 20
-#: Test-chat replies one run may cost: every message of every try. The engine's per-reply
-#: rate for an agent on its own models is not published (test-chat.md:7 bills it "like the
-#: console's Playground"; the ₹0.02 a reply in the same file is the all-keys-BYOK rate), so
-#: the bound is stated in replies, never in rupees (hard rule 7).
+#: Test-chat replies one run may cost: every message of every try. Stated in replies, not
+#: rupees: ₹0.02 a reply is the vendor's price on our own model key only, a reply on its own
+#: models has no published price, and the tokens on our key vary (snapshots/2026-10-19/pages/
+#: api-reference/agents/test-chat.md:7; hard rule 7).
 MAX_REPLIES_PER_RUN: Final = trial_results.TRIALS * MAX_MESSAGES
 #: A queued or running run with no progress for this long lost its job: three worker job
 #: timeouts, so a try still inside its timeout, or waiting behind another, is never cut off.

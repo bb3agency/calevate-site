@@ -158,6 +158,10 @@ async def test_calls_that_owe_no_copy_are_not_reported() -> None:
     await _call(
         tenant_id, agent_id, ended_ago=timedelta(hours=3), extra_sql="erased_subject_ref = 'subj'"
     )
+    # Put through to a phone by a number forward: the platform never records it (D-835).
+    await _call(
+        tenant_id, agent_id, ended_ago=timedelta(hours=3), extra_sql="forwarded_to_phone = true"
+    )
     # Inside the grace: the copy may still be on its way.
     await _call(tenant_id, agent_id, ended_ago=timedelta(minutes=30))
     # Past the platform's deletion by more than the reporting tail: history.

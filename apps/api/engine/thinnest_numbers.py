@@ -25,8 +25,10 @@ rent, is passed explicitly. VERIFIED-VENDOR-DOCS, all under
   refusal happens before anything is bought or charged"; 409 when somebody holds it or the
   business details are not approved; 402 when our balance cannot pay; 503 "if it was bought,
   it has been handed back and nothing was charged" (`rent-phone-number.md:7`). Our purchase
-  id goes as the `Idempotency-Key` (`rent`), which the route honours (ThinnestAI's email of
-  18 Oct 2026), so a retry gets the first answer; a `409 idempotency_in_progress` (the first
+  id goes as the `Idempotency-Key` (`rent`), which the route honours: a repeat within 24 hours
+  returns the first answer and a failed request lets the same key try again
+  (snapshots/2026-10-19/pages/api-reference/phone-numbers/rent-phone-number.md:7, :552-561);
+  a `409 idempotency_in_progress` (the first
   attempt still running, `rent-phone-number.md:675` in snapshots/2026-10-18) is resolved by
   reading the number back, never by renting again.
 * `DELETE /phone-numbers/{number}?confirm=release` — a rented number is released for good,
@@ -394,11 +396,9 @@ class ThinnestNumbers:
 
         `attempt_id` is our purchase row's id, sent as the `Idempotency-Key`, so a retry of
         the same purchase within 24 hours gets the first answer rather than a second rent
-        (keys are honoured for 24 hours, docs.thinnest.ai api-reference/errors, read
-        12 Oct 2026; this route honours them, ThinnestAI's email of 18 Oct 2026). A
-        `409 idempotency_in_progress` is the first
-        attempt still running: it may have bought the number, so it is resolved by reading
-        the number back and is never reported as a refusal."""
+        (module docstring). A `409 idempotency_in_progress` is the first attempt still
+        running: it may have bought the number, so it is resolved by reading the number back
+        and is never reported as a refusal."""
         try:
             row = await self._request(
                 "POST",

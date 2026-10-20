@@ -469,7 +469,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
                 "c.summary_local, c.summary_language, c.summary_source, c.next_step, "
                 "c.callback_requested, c.translation_state, "
                 f"{_LEAD_NAME_COLUMN}, a.language_primary, c.engine_quality, c.engine_call_id, "
-                "c.caller_id_hidden, c.forwarding_test_id IS NOT NULL "
+                "c.caller_id_hidden, c.forwarding_test_id IS NOT NULL, c.forwarded_to_phone "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
                 "WHERE c.id = :cid"
             ),
@@ -548,6 +548,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         callback=_callback_out(row[18:23]),
         caller_id_hidden=bool(row[33]),
         forwarding_test=bool(row[34]),
+        forwarded_to_phone=bool(row[35]),
         summary_local=row[23] if raw else redacted_summary(row[23]),
         summary_language=row[24],
         summary_source=row[25],

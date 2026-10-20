@@ -165,8 +165,9 @@ PLATFORM_PROMPT_REASON: Final = "platform_prompt"
 
 def platform_prompt_revision() -> str:
     """A short digest of the text every live agent carries that only a deploy can change: the
-    platform layers `compose_engine_prompt` wraps around a script, and how a script's
-    sections compile to engine steps.
+    platform layers `compose_engine_prompt` wraps around a script, how a script's sections
+    compile to engine steps, and the call-behaviour values every agent is published with
+    (`hosted_platform.PLATFORM_AGENT_VALUES`).
 
     Composed over reference agents rather than read from the constants, so a change in any
     section builder (registers, knowledge, the cannot-help rules) moves it too. Stable across
@@ -222,6 +223,11 @@ def platform_prompt_revision() -> str:
             caller_memory_in_engine=in_knowledge,
         )
         parts.append(compose_engine_prompt(cfg))
+    # The fixed call-behaviour values too (filler timing, interruptions, re-ask), so a deploy
+    # that changes one republishes every live agent rather than each reading as drift.
+    from apps.api.engine.hosted_platform import PLATFORM_AGENT_VALUES
+
+    parts.append(json.dumps(PLATFORM_AGENT_VALUES, sort_keys=True))
     return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:16]
 
 

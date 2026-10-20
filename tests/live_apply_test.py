@@ -497,3 +497,16 @@ def test_the_platform_prompt_revision_is_stable_and_short() -> None:
     first = live_apply.platform_prompt_revision()
     assert first == live_apply.platform_prompt_revision()
     assert len(first) == 16
+
+
+def test_a_new_call_behaviour_value_moves_the_platform_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The filler delay, re-ask wait and greeting rule ship by deploy (D-835); the worker-start
+    republish keys on this revision, so changing one must move it."""
+    from apps.api.engine import hosted_platform
+
+    before = live_apply.platform_prompt_revision()
+    changed = {**hosted_platform.PLATFORM_AGENT_VALUES["thinnest"], "reaskAfterSeconds": 6}
+    monkeypatch.setitem(hosted_platform.PLATFORM_AGENT_VALUES, "thinnest", changed)
+    assert live_apply.platform_prompt_revision() != before

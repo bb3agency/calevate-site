@@ -77,6 +77,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     test_call: false,
     caller_id_hidden: false,
     forwarding_test: false,
+    forwarded_to_phone: false,
     translation_state: "not_needed",
     language: "te-IN",
     summary: "Caller asked for a Tuesday slot.",

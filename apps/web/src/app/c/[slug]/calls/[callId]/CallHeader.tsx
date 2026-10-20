@@ -52,6 +52,13 @@ export function CallHeader({ detail }: { detail: CallDetail }) {
       {detail.forwarding_test && (
         <p className="mt-1 text-meta text-ink-muted">This was a forwarding test call. It is not charged.</p>
       )}
+      {/* D-835: a whole-line forward put the caller through to a phone. */}
+      {detail.forwarded_to_phone && (
+        <p className="mt-1 text-meta text-ink-muted">
+          This call was put through to your phone, so your agent did not take it. Forwarded calls are not
+          recorded.
+        </p>
+      )}
     </header>
   );
 }

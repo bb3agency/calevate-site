@@ -71,6 +71,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     test_call: false,
     caller_id_hidden: false,
     forwarding_test: false,
+    forwarded_to_phone: false,
     translation_state: "not_needed",
     language: "te-IN",
     sentiment: "positive",
@@ -442,6 +443,16 @@ describe("the call detail screen", () => {
     // Nothing on this screen may point at the vendor (hard rule 2 + §4 residency): our
     // presigned copy is the only audio a client is ever handed.
     expect(container.innerHTML).not.toContain("bolna");
+  });
+
+  it("says plainly that a call forwarded to the business's phone has no recording", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes(detail({ has_recording: false, forwarded_to_phone: true })),
+    );
+
+    expect(await screen.findByText(/Forwarded calls are not recorded\./)).toBeTruthy();
+    expect(container.innerHTML.toLowerCase()).not.toContain("thinnest");
   });
 
   it("fetches the presigned recording link on the click, not with the page", async () => {

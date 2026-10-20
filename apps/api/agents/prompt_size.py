@@ -95,6 +95,15 @@ class PromptSize:
     script_parts: tuple[SizePart, ...]
     #: Sections sent as the engine's own step list, outside the box.
     native_steps: int = 0
+    #: About how much the engine adds around this on every turn, outside the box
+    #: (`HostedAgentLimits.added_prompt_chars`); None where nothing is known.
+    engine_added: int | None = None
+
+    @property
+    def per_turn(self) -> int | None:
+        """About what the model reads as instructions each turn, before the history and the
+        tool schemas: ours plus the engine's own."""
+        return self.total + self.engine_added if self.engine_added is not None else None
 
     @property
     def over(self) -> int:
@@ -150,7 +159,13 @@ def script_parts(script: str) -> tuple[SizePart, ...]:
     return (*out, SizePart("fence", FENCE_LABEL, fence))
 
 
-def measure(cfg: AgentConfig, limit: int | None, *, native_steps: int = 0) -> PromptSize:
+def measure(
+    cfg: AgentConfig,
+    limit: int | None,
+    *,
+    native_steps: int = 0,
+    engine_added: int | None = None,
+) -> PromptSize:
     """The size of `compose_engine_prompt(cfg)` by layer. Counts only."""
     layers = engine_prompt_layers(cfg)
     parts = [SizePart(key, LAYER_LABELS[key], len(text)) for key, text in layers]
@@ -165,6 +180,7 @@ def measure(cfg: AgentConfig, limit: int | None, *, native_steps: int = 0) -> Pr
         layers=tuple(parts),
         script_parts=script_parts(script) if script else (),
         native_steps=native_steps,
+        engine_added=engine_added,
     )
 
 
@@ -196,8 +212,12 @@ async def publish_config(
 
 
 def measure_config(cfg: AgentConfig, engine: VoiceEngine) -> PromptSize:
+    limits = hosted_agent_limits(engine)
     return measure(
-        cfg, hosted_agent_limits(engine).prompt_chars, native_steps=len(cfg.script_steps)
+        cfg,
+        limits.prompt_chars,
+        native_steps=len(cfg.script_steps),
+        engine_added=limits.added_prompt_chars,
     )
 
 
@@ -233,6 +253,9 @@ def lines(size: PromptSize) -> Sequence[str]:
     else:
         verdict = f"OVER by {size.over:,}" if size.over else f"{size.headroom:,} to spare"
         out.append(f"{'TOTAL':<44} {size.total:>6,} of {size.limit:,}  {verdict}")
+    if size.per_turn is not None and size.engine_added is not None:
+        out.append(f"{'Added by the calling system (its estimate)':<44} {size.engine_added:>6,}")
+        out.append(f"{'Read by the model each turn, before history':<44} {size.per_turn:>6,}")
     return out
 
 

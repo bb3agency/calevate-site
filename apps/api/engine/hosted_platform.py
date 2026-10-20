@@ -15,16 +15,18 @@ for every engine whose agents and numbers we manage ourselves.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 from calevate_shared.engine import VoiceEngine
 
 from apps.api.engine.text_split import split_for_text_cap
 from apps.api.engine.thinnest import (
     CALL_SECONDS_MAX,
+    ENGINE_ADDED_PROMPT_CHARS,
     GREETING_MAX_CHARS,
     INSTRUCTIONS_MAX_CHARS,
     KB_TEXT_MAX_CHARS,
+    PLATFORM_VOICE_VALUES,
     PURPOSE_MAX_CHARS,
 )
 
@@ -69,6 +71,9 @@ class HostedAgentLimits:
     #: of its own? Then our caller-memory section stays out of the prompt
     #: (`AgentConfig.caller_memory_in_engine`, D-814).
     remembers_callers: bool = False
+    #: About how many characters the engine adds around our prompt on every turn (its own
+    #: rules, outside `prompt_chars`). None where it adds nothing we know of.
+    added_prompt_chars: int | None = None
 
 
 NO_HOSTED_LIMITS: Final = HostedAgentLimits(
@@ -102,9 +107,16 @@ THINNEST_LIMITS: Final = HostedAgentLimits(
     # (`channels/voice.md:218-249` of the 18 Oct 2026 snapshot; prompt order VENDOR-STATED,
     # ThinnestAI email of 18 Oct 2026), and no dial or lookup of ours fills a memory slot.
     remembers_callers=True,
+    added_prompt_chars=ENGINE_ADDED_PROMPT_CHARS,
 )
 
 _LIMITS_BY_ENGINE: Final[dict[str, HostedAgentLimits]] = {"thinnest": THINNEST_LIMITS}
+
+#: The call-behaviour values every agent of an engine is published with that only a deploy
+#: can change (`thinnest.PLATFORM_VOICE_VALUES`): filler timing, interruptions, re-ask. Part
+#: of `agents/live_apply.platform_prompt_revision`, so a change reaches every live agent by
+#: the worker-start republish instead of surfacing as drift on each one.
+PLATFORM_AGENT_VALUES: Final[dict[str, dict[str, Any]]] = {"thinnest": PLATFORM_VOICE_VALUES}
 
 
 def hosted_agent_limits(engine: VoiceEngine) -> HostedAgentLimits:
