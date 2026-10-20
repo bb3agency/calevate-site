@@ -175,7 +175,13 @@ EXTRACTION_TIMEOUT_S: Final = 30.0
 #: then returned as `{}`, INDISTINGUISHABLE from a genuine wrong-number call that extracts to
 #: nothing. With the cap set, a truncation surfaces as `finish_reason == "length"`, which the
 #: runners below turn into a visible `_model` error rather than a silent all-null lead.
-EXTRACTION_MAX_TOKENS: Final = 2048
+#:
+#: 4096, not 2048: on Sarvam "reasoning tokens count toward completion tokens", and its docs
+#: warn that a low `max_tokens` lets reasoning use the whole budget (docs.sarvam.ai/
+#: api-reference-docs/api-guides-tutorials/chat-completion/overview, read 21 Oct 2026). A
+#: production call (20 Oct 2026) truncated at 2048 on both its first pass and its re-read.
+#: 4096 is the ceiling Sarvam's lowest tier allows, so it is valid on every plan.
+EXTRACTION_MAX_TOKENS: Final = 4096
 
 
 #: The `errors` key `extract_call` files a provider failure under: the model gave no answer
