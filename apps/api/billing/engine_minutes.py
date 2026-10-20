@@ -424,18 +424,30 @@ async def _on_brought_number(session: AsyncSession, *, tenant_id: UUID, call_id:
     """Did this call ring one of the client's numbers that we record as brought, not rented
     from the platform (`phone_numbers.engine_owned` false)? A number we hold no row for is
     read as rented: costing a free minute is caught by the charge reconciler, while a
-    rented minute read as free would hide a real cost."""
-    owned = (
+    rented minute read as free would hide a real cost.
+
+    The number is `calls.to_e164`. An inbound call's record never names the number it rang
+    (`from` is "always null on a call that came in", snapshots/2026-10-19/pages/
+    api-reference/calls/get-call.md:878-883), so the pipeline fills it only when the
+    answering agent holds exactly one number (D-842). When it is still NULL, the call is
+    on a brought number only if EVERY number that agent holds is brought: which of them it
+    rang cannot matter then, and with any rented one among them the minute stays rented."""
+    brought = (
         await session.execute(
             text(
-                "SELECT n.engine_owned FROM calls c "
-                "JOIN phone_numbers n ON n.tenant_id = c.tenant_id AND n.e164 = c.to_e164 "
-                "WHERE c.id = :cid AND c.tenant_id = :tid"
+                "SELECT CASE WHEN c.to_e164 IS NOT NULL THEN ("
+                "  SELECT NOT n.engine_owned FROM phone_numbers n "
+                "  WHERE n.tenant_id = c.tenant_id AND n.e164 = c.to_e164"
+                ") WHEN c.direction = 'inbound' THEN ("
+                "  SELECT bool_and(NOT n.engine_owned) FROM phone_numbers n "
+                "  WHERE n.tenant_id = c.tenant_id AND n.agent_id = c.agent_id "
+                "  AND n.released_at IS NULL"
+                ") END FROM calls c WHERE c.id = :cid AND c.tenant_id = :tid"
             ),
             {"cid": call_id, "tid": tenant_id},
         )
     ).scalar()
-    return owned is False
+    return brought is True
 
 
 async def engine_minute_cost(

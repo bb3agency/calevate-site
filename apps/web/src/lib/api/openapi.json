@@ -6412,6 +6412,17 @@
             ],
             "title": "Next Step"
           },
+          "not_placed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Placed Reason"
+          },
           "outcome_tag": {
             "anyOf": [
               {
@@ -6566,6 +6577,7 @@
           "caller_id_hidden",
           "forwarding_test",
           "forwarded_to_phone",
+          "not_placed_reason",
           "moments",
           "captured",
           "translation_state",

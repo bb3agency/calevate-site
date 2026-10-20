@@ -98,12 +98,20 @@ class PromptSize:
     #: About how much the engine adds around this on every turn, outside the box
     #: (`HostedAgentLimits.added_prompt_chars`); None where nothing is known.
     engine_added: int | None = None
+    #: The engine's default call rules, which it adds on top of `engine_added` only when it
+    #: judges the agent has none (`HostedAgentLimits.default_call_rules_chars`).
+    engine_default_rules: int = 0
 
     @property
     def per_turn(self) -> int | None:
         """About what the model reads as instructions each turn, before the history and the
-        tool schemas: ours plus the engine's own."""
+        tool schemas: ours plus the engine's own, without its default call rules."""
         return self.total + self.engine_added if self.engine_added is not None else None
+
+    @property
+    def per_turn_with_default_rules(self) -> int | None:
+        """`per_turn` when the engine also adds its default call rules: the top of the range."""
+        return self.per_turn + self.engine_default_rules if self.per_turn is not None else None
 
     @property
     def over(self) -> int:
@@ -165,6 +173,7 @@ def measure(
     *,
     native_steps: int = 0,
     engine_added: int | None = None,
+    engine_default_rules: int = 0,
 ) -> PromptSize:
     """The size of `compose_engine_prompt(cfg)` by layer. Counts only."""
     layers = engine_prompt_layers(cfg)
@@ -181,6 +190,7 @@ def measure(
         script_parts=script_parts(script) if script else (),
         native_steps=native_steps,
         engine_added=engine_added,
+        engine_default_rules=engine_default_rules,
     )
 
 
@@ -218,6 +228,7 @@ def measure_config(cfg: AgentConfig, engine: VoiceEngine) -> PromptSize:
         limits.prompt_chars,
         native_steps=len(cfg.script_steps),
         engine_added=limits.added_prompt_chars,
+        engine_default_rules=limits.default_call_rules_chars or 0,
     )
 
 
@@ -255,7 +266,14 @@ def lines(size: PromptSize) -> Sequence[str]:
         out.append(f"{'TOTAL':<44} {size.total:>6,} of {size.limit:,}  {verdict}")
     if size.per_turn is not None and size.engine_added is not None:
         out.append(f"{'Added by the calling system (its estimate)':<44} {size.engine_added:>6,}")
-        out.append(f"{'Read by the model each turn, before history':<44} {size.per_turn:>6,}")
+        each_turn = f"{size.per_turn:>6,}"
+        if size.engine_default_rules:
+            out.append(
+                f"{'  plus its default call rules, if it adds them':<44} "
+                f"{size.engine_default_rules:>6,}"
+            )
+            each_turn += f" to {size.per_turn_with_default_rules:,}"
+        out.append(f"{'Read by the model each turn, before history':<44} {each_turn}")
     return out
 
 

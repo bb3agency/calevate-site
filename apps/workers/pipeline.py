@@ -655,6 +655,20 @@ _ERASED_CALL_SQL: Final = (
 )
 
 
+#: The number an inbound call rang, when the engine does not name it: the engine leaves
+#: `from` null on a call that came in (snapshots/2026-10-19/pages/api-reference/calls/
+#: get-call.md:878-883), so the call's own record holds only the caller. The number the
+#: answering agent holds is that number when the agent holds exactly one; with two or more
+#: (or none) any pick would be a guess, so the column stays NULL and readers that need it
+#: say so (`billing/engine_minutes._on_brought_number`). It is the agent's number when the
+#: row is first written, which a late re-read after a number was moved can get wrong.
+_INBOUND_NUMBER_SQL: Final = (
+    "CASE WHEN CAST(:inbound AS boolean) THEN (SELECT min(n.e164) FROM phone_numbers n "
+    "WHERE n.tenant_id = :tid AND n.agent_id = :aid AND n.released_at IS NULL "
+    "HAVING count(*) = 1) END"
+)
+
+
 async def _upsert_call_row(
     tenant_id: UUID, agent_id: UUID, snapshot: ExecutionSnapshot, engine_agent_ref: str | None
 ) -> UUID:
@@ -666,9 +680,11 @@ async def _upsert_call_row(
                 text(
                     "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
                     "from_e164, to_e164, status, started_at, ended_at, duration_s, "
-                    "engine_quality, forwarded_to_phone, created_at, updated_at) VALUES (:id, "
-                    ":tid, :aid, :ecid, :dir, :from_e, :to_e, :status, :started, :ended, :dur, "
-                    "CAST(:quality AS jsonb), :forwarded, now(), now()) "
+                    "engine_quality, forwarded_to_phone, not_placed_reason, created_at, "
+                    "updated_at) VALUES (:id, :tid, :aid, :ecid, :dir, :from_e, "
+                    f"COALESCE(CAST(:to_e AS text), {_INBOUND_NUMBER_SQL}), :status, :started, "
+                    ":ended, :dur, CAST(:quality AS jsonb), :forwarded, :not_placed, now(), "
+                    "now()) "
                     "ON CONFLICT (engine_call_id) DO UPDATE SET "
                     # A snapshot whose engine stated no status keeps the row's: its
                     # `failed` is a default, not an outcome.
@@ -688,6 +704,8 @@ async def _upsert_call_row(
                     # An event that does not name the forward does not unmark it.
                     "  forwarded_to_phone = "
                     "    calls.forwarded_to_phone OR EXCLUDED.forwarded_to_phone, "
+                    "  not_placed_reason = "
+                    "    COALESCE(EXCLUDED.not_placed_reason, calls.not_placed_reason), "
                     "  updated_at = now() "
                     # THE CONSTANT, NOT A RETYPED COPY OF ITS FIVE MEMBERS. This clause
                     # is what stops a late `ringing` webhook un-completing a finished
@@ -707,6 +725,7 @@ async def _upsert_call_row(
                     "aid": agent_id,
                     "ecid": snapshot.engine_call_id,
                     "dir": direction,
+                    "inbound": direction == "inbound",
                     # CANONICAL, not the vendor's spelling — `_party_e164` says why
                     # these two columns are keys and not free text.
                     "from_e": _party_e164(snapshot.from_e164),
@@ -718,6 +737,7 @@ async def _upsert_call_row(
                     "dur": snapshot.duration_s,
                     "quality": snapshot.quality.model_dump_json() if snapshot.quality else None,
                     "forwarded": snapshot.forwarded,
+                    "not_placed": snapshot.not_placed_reason,
                     "terminal": sorted(TERMINAL_STATUSES),
                 },
             )

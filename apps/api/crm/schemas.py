@@ -252,6 +252,10 @@ class CallDetailOut(CallSummaryOut):
     #: Put through to the business's phone by a whole-line forward, so no agent took it and
     #: it was not recorded (D-835).
     forwarded_to_phone: bool
+    #: Why a call that was waiting to be placed never rang, as one sentence for the owner
+    #: (`crm/service.NOT_PLACED_WORDS`, D-842). NULL on every call that rang. Required so
+    #: the generated client type says it is always sent.
+    not_placed_reason: str | None
     transcript: list[TranscriptTurnOut] = Field(default_factory=list)
     #: REQUIRED, with no default, and that is deliberate rather than an oversight.
     #:

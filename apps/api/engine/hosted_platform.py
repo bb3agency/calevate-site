@@ -23,6 +23,7 @@ from apps.api.engine.text_split import split_for_text_cap
 from apps.api.engine.thinnest import (
     CALL_SECONDS_MAX,
     ENGINE_ADDED_PROMPT_CHARS,
+    ENGINE_DEFAULT_CALL_RULES_CHARS,
     GREETING_MAX_CHARS,
     INSTRUCTIONS_MAX_CHARS,
     KB_TEXT_MAX_CHARS,
@@ -74,6 +75,10 @@ class HostedAgentLimits:
     #: About how many characters the engine adds around our prompt on every turn (its own
     #: rules, outside `prompt_chars`). None where it adds nothing we know of.
     added_prompt_chars: int | None = None
+    #: Rules the engine adds on top of `added_prompt_chars` only when the agent has none of
+    #: its own, where which of our fields counts as "its own" is not known. None where the
+    #: engine has no such default.
+    default_call_rules_chars: int | None = None
 
 
 NO_HOSTED_LIMITS: Final = HostedAgentLimits(
@@ -108,6 +113,7 @@ THINNEST_LIMITS: Final = HostedAgentLimits(
     # ThinnestAI email of 18 Oct 2026), and no dial or lookup of ours fills a memory slot.
     remembers_callers=True,
     added_prompt_chars=ENGINE_ADDED_PROMPT_CHARS,
+    default_call_rules_chars=ENGINE_DEFAULT_CALL_RULES_CHARS,
 )
 
 _LIMITS_BY_ENGINE: Final[dict[str, HostedAgentLimits]] = {"thinnest": THINNEST_LIMITS}

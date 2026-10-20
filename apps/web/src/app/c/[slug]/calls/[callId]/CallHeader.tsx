@@ -59,6 +59,8 @@ export function CallHeader({ detail }: { detail: CallDetail }) {
           recorded.
         </p>
       )}
+      {/* D-842: a call that was waiting to be placed and never rang; the server's sentence. */}
+      {detail.not_placed_reason && <p className="mt-1 text-meta text-ink-muted">{detail.not_placed_reason}</p>}
     </header>
   );
 }

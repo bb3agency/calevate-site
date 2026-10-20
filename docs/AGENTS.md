@@ -12,14 +12,17 @@ its own numbers, telephony, STT, LLM, TTS and recording (D-678..D-682). `ENGINE`
 and the tag `pre-pipecat-removal` keeps it recoverable. There is no second engine: a bad
 release is rolled back by redeploying the previous image. D-687 and D-688 (8 Oct 2026):
 
-- **Clear** = ThinnestAI's stack end to end, speaking the ThinnestAI voice band the console
-  setting `thinnest_clear_voice_band` names: **Studio** (default, D-792; catalogue voices
+- **Clear** = ThinnestAI's speech-to-text and telephony, speaking the ThinnestAI voice band the
+  console setting `thinnest_clear_voice_band` names: **Studio** (default, D-792; catalogue voices
   with `tier: studio` plus voices our **admin** clones; needs ThinnestAI Pro, ₹3.00/min;
   `thinnest-findings/mirror/snapshots/2026-10-07b/pages/channels/voice-clone.md:9-12,81-89`)
-  or **Premium** (pay-as-you-go, ₹2.50/min). VENDOR-STATED rates, operator-attested. Agent `byok: "off"`.
-- **Studio** = Cartesia on OUR key through ThinnestAI BYOK `scope: "voice"`, with ThinnestAI's
-  STT, LLM and telephony (`api-reference/bring-your-own-keys.md:13-24`), ₹1.50/min plus
-  Cartesia's charge. Agent `byok: "workspace"`. Our key is switched on (voice only) in our
+  or **Premium** (pay-as-you-go, ₹2.50/min). VENDOR-STATED rates, operator-attested. The model is
+  our Gemini (D-834), agent `byok: "llm"`; while `thinnest_own_model` is off, ThinnestAI's own,
+  agent `byok: "off"`.
+- **Studio** = Cartesia on OUR key with ThinnestAI's STT and telephony, and our Gemini (D-834):
+  agent `byok: "llm_voice"`, ₹1.00/min flat (`snapshots/2026-10-19/pages/api-reference/
+  bring-your-own-keys.md:28`). While `thinnest_own_model` is off it runs ThinnestAI's model,
+  agent `byok: "voice"`, ₹1.50/min plus Cartesia's charge. Our key is switched on (voice only) in our
   developer workspace, where free-trial agents live, and in the customer workspace of each
   paying client that uses Studio (D-727); every agent states `byok`, and the adapter refuses
   one that does not (`engine_agent_byok_unstated`). CLAUDE.md carries the detail.
