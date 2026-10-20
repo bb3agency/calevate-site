@@ -72,6 +72,7 @@ export function ProposalCard({
   realm = "client",
   onDismiss,
   onCeiling,
+  onDecided,
 }: {
   session: Session;
   proposal: CopilotProposal;
@@ -84,6 +85,8 @@ export function ProposalCard({
   /** Which confirm door this card posts to (D-694): the admin realm has its own. */
   realm?: "client" | "admin";
   onDismiss: () => void;
+  /** Called once Confirm has an outcome, so the panel stops holding the spent offer. */
+  onDecided?: () => void;
   /** Called when Confirm is refused at the AI allowance ceiling. */
   onCeiling?: () => void;
 }) {
@@ -126,7 +129,8 @@ export function ProposalCard({
   useEffect(() => {
     if (!decided) return;
     card.current?.focus();
-  }, [decided]);
+    onDecided?.();
+  }, [decided, onDecided]);
 
   const consequential = lookup(CONSEQUENTIAL, proposal.tool) ?? false;
 

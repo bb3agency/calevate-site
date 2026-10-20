@@ -7,7 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { useEffect, useState, type ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CopilotDock } from "@/components/copilot/CopilotDock";
 import { CopilotPanel } from "@/components/copilot/CopilotPanel";
@@ -22,6 +22,7 @@ import {
   useCopilotSurfaceHolder,
   type SurfaceHolder,
 } from "@/lib/copilot/registry";
+import { forgetOpenOffers } from "@/lib/copilot/useCopilotConversation";
 
 import { expectNoA11yViolations } from "./a11y";
 
@@ -721,6 +722,50 @@ async function clickConfirm() {
 }
 
 describe("a proposal", () => {
+  afterEach(forgetOpenOffers);
+
+  it("COMES BACK WHEN THE PANEL IS CLOSED AND OPENED AGAIN, until it is confirmed", async () => {
+    stubCopilot({
+      chunks: proposalChunks(),
+      confirm: {
+        status: 200,
+        body: {
+          tool: "campaign_pause",
+          object_type: "campaign",
+          object_id: PROPOSAL.object_id,
+          applied: true,
+          detail: "Dialling has stopped on that campaign.",
+        },
+      },
+    });
+    const first = renderPanel();
+    await ask("stop the kondapur campaign");
+    await screen.findByRole("button", { name: /^Confirm — / });
+    first.unmount();
+
+    // The dock unmounts the panel on every close; the offer must not go with it.
+    const second = renderPanel();
+    await clickConfirm();
+    await screen.findByText("Dialling has stopped on that campaign.");
+    second.unmount();
+
+    // A spent token is never offered again.
+    renderPanel();
+    await waitFor(() => expect(screen.queryAllByText("Pause this campaign").length).toBe(0));
+  });
+
+  it("STAYS GONE AFTER A DISMISS when the panel is opened again", async () => {
+    stubCopilot({ chunks: proposalChunks() });
+    const first = renderPanel();
+    await ask("stop the campaign");
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: /^Dismiss — / }));
+    });
+    first.unmount();
+    renderPanel();
+    await waitFor(() => expect(screen.queryAllByText("Pause this campaign").length).toBe(0));
+  });
+
   it("RENDERS AS A SUGGESTION — the server's sentence, the pair, and no success state", async () => {
     stubCopilot({ chunks: proposalChunks() });
     renderPanel();

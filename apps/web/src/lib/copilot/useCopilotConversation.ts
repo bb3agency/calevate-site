@@ -217,6 +217,8 @@ export interface CopilotConversation {
    * nothing is a valid answer to a suggestion, and the token simply stops verifying.
    */
   dismissProposal: () => void;
+  /** The offer was confirmed: a reopened panel no longer brings it back. */
+  settleProposal: () => void;
   /**
    * Forget the conversation — the panel's "Start again", and the ONLY way a person
    * removes one now that it is durable (D-540).
@@ -316,6 +318,22 @@ export const AI_CEILING_CODE = "ai_quota_exceeded";
 
 const NO_TURNS: CopilotTurn[] = [];
 
+/*
+ * THE OPEN OFFER OUTLIVES THE PANEL, per tab and per account and realm. The dock unmounts
+ * the panel whenever it closes, including the close it does itself when the screen's
+ * surface changes, and the turns come back from the server on reopen while an offer held
+ * in component state did not: the thread then read "They wait in the Training tab" with no
+ * Confirm anywhere. Module scope rather than the server: the token is this tab's to post,
+ * it expires in minutes (the card retires itself at `expires_at`), and storing it would
+ * hand a signed intent to every device on the account.
+ */
+const openOffers = new Map<string, CopilotProposal>();
+
+/** Test seam: forget every held offer. */
+export function forgetOpenOffers(): void {
+  openOffers.clear();
+}
+
 export function useCopilotConversation(
   session: Session,
   holder: SurfaceHolder | null,
@@ -325,7 +343,7 @@ export function useCopilotConversation(
   const [error, setError] = useState<unknown>(null);
   const [disclosure, setDisclosure] = useState<string | null>(null);
   const [batch, setBatch] = useState<CopilotBatch | null>(null);
-  const [proposal, setProposal] = useState<CopilotProposal | null>(null);
+  const [proposal, setOffer] = useState<CopilotProposal | null>(null);
   const [actions, setActions] = useState<CopilotAction[]>([]);
   // BACKGROUND JOBS this panel started (D-694). NOT cleared by the next question — a job
   // outlives the answer that started it, and its card is how the person follows it.
@@ -357,6 +375,28 @@ export function useCopilotConversation(
   // (`conversationPath`), and it is the same value `stream.ts` sends, so a conversation
   // cannot be written on one realm and read on the other.
   const realm = holder?.read().realm ?? null;
+
+  const offerKey = realm === null ? null : `${session.orgSlug}:${realm}`;
+  const setProposal = useCallback(
+    (offer: CopilotProposal | null) => {
+      setOffer(offer);
+      if (offerKey === null) return;
+      if (offer === null) openOffers.delete(offerKey);
+      else openOffers.set(offerKey, offer);
+    },
+    [offerKey],
+  );
+  // A panel opened again takes back the offer it was showing when it closed.
+  useEffect(() => {
+    if (offerKey === null) return;
+    const held = openOffers.get(offerKey);
+    if (held !== undefined) setOffer((current) => current ?? held);
+  }, [offerKey]);
+  /** Confirmed: the card stays as the record of what happened, but a reopened panel must
+   *  not offer a token the server has already spent. */
+  const settleProposal = useCallback(() => {
+    if (offerKey !== null) openOffers.delete(offerKey);
+  }, [offerKey]);
 
   /*
    * WHAT IS ON SCREEN = THE SERVER'S PAGE + WHAT THIS DEVICE HAS SAID THAT IT DOES NOT
@@ -507,7 +547,7 @@ export function useCopilotConversation(
     setNavigation(null);
     setSteps([]);
     clearFilled();
-  }, [queries, realm, session]);
+  }, [queries, realm, session, setProposal]);
 
   const stop = useCallback(() => {
     const controller = inFlight.current;
@@ -529,7 +569,7 @@ export function useCopilotConversation(
     // click is the console blaming them for using a control it offered.
   }, [appendTurn]);
 
-  const dismissProposal = useCallback(() => setProposal(null), []);
+  const dismissProposal = useCallback(() => setProposal(null), [setProposal]);
   const clearNavigation = useCallback(() => setNavigation(null), []);
 
   const undo = useCallback(() => {
@@ -761,7 +801,7 @@ export function useCopilotConversation(
           }
         });
     },
-    [appendTurn, holder, session, sync, turns],
+    [appendTurn, holder, session, setProposal, sync, turns],
   );
 
   /**
@@ -822,6 +862,7 @@ export function useCopilotConversation(
     stop,
     undo,
     dismissProposal,
+    settleProposal,
     reset,
   };
 }

@@ -563,6 +563,7 @@ export function CopilotPanel({
               confirmable={confirmable}
               realm={realm}
               onDismiss={conversation.dismissProposal}
+              onDecided={conversation.settleProposal}
               onCeiling={() => setConfirmAtCeiling(true)}
             />
           )}
