@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { LeadDetailsScreen } from "@/app/c/[slug]/settings/lead-details/LeadDetailsScreen";
 import { DRAFT_REQUEST } from "@/components/leadFields/LeadDetailsView";
+import type { CallOutcomes } from "@/lib/api/callOutcomes";
 import type { LeadFields } from "@/lib/api/leadFields";
 import { BUSINESS_TYPES, businessTypeLabel } from "@/lib/businessTypes";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
@@ -58,6 +59,24 @@ function leadFields(over: Partial<LeadFields> = {}): LeadFields {
     ...over,
   };
 }
+/** Each agent's own call outcomes (D-836): none by default, so the lead-field tests stay about fields. */
+function callOutcomes(over: Partial<CallOutcomes> = {}): CallOutcomes {
+  return { max_outcomes: 8, agents: [], ...over };
+}
+
+const STARTING_AGENT: CallOutcomes["agents"][number] = {
+  id: "a1",
+  name: "Shop counter",
+  direction: "inbound",
+  status: "live",
+  starting: true,
+  draft: "queued",
+  outcomes: [
+    { key: "wants_to_buy", label: "Wants to buy or book", meaning: "The caller wants to buy.", lead_status: "interested" },
+    { key: "not_interested", label: "Not interested", meaning: "", lead_status: "contacted" },
+  ],
+};
+
 const DRAFTED: NonNullable<LeadFields["draft"]> = {
   status: "done",
   requested_at: "2026-10-10T10:00:00Z",
@@ -97,6 +116,7 @@ describe("the lead details screen", () => {
     render(<Listener />);
     const { calls } = await renderClientPage(<LeadDetailsScreen />, {
       "/v1/me": OWNER,
+      "/v1/call-outcomes": callOutcomes(),
       "/v1/lead-fields": leadFields(),
     });
     await screen.findByRole("heading", { name: "Always captured" });
@@ -110,6 +130,7 @@ describe("the lead details screen", () => {
   it("asks the owner to keep the drafted details before any agent has them", async () => {
     const { calls } = await renderClientPage(<LeadDetailsScreen />, {
       "/v1/me": OWNER,
+      "/v1/call-outcomes": callOutcomes(),
       "/v1/lead-fields": leadFields({ can_draft: false, draft: DRAFTED }),
       "POST /v1/lead-fields/draft/review": { fields_kept: 1, agents_changed: 1 },
     });
@@ -126,6 +147,7 @@ describe("the lead details screen", () => {
   it("says a reviewed draft was made once and is the owner's to edit", async () => {
     await renderClientPage(<LeadDetailsScreen />, {
       "/v1/me": OWNER,
+      "/v1/call-outcomes": callOutcomes(),
       "/v1/lead-fields": leadFields({
         can_draft: false,
         draft: { ...DRAFTED, reviewed: true, fields: [field("produce", "Produce", true)] },
@@ -151,6 +173,7 @@ describe("the lead details screen", () => {
   it("saves an added detail for the chosen agent through the per-agent write", async () => {
     const { calls } = await renderClientPage(<LeadDetailsScreen />, {
       "/v1/me": OWNER,
+      "/v1/call-outcomes": callOutcomes(),
       "/v1/lead-fields": leadFields({
         business_type: "retail",
         business_type_label: "Shop, food or produce",
@@ -187,5 +210,60 @@ describe("the lead details screen", () => {
       const sent = JSON.parse(put?.body ?? "{}") as { fields: { key: string }[] };
       expect(sent.fields.map((f) => f.key)).toEqual(["product", "pack_size"]);
     });
+  });
+});
+
+describe("how calls end (D-836)", () => {
+  it("says the general outcomes are in use while the agent's own are written", async () => {
+    await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/lead-fields": leadFields(),
+      "/v1/call-outcomes": callOutcomes({ agents: [STARTING_AGENT] }),
+    });
+    await screen.findByRole("heading", { name: "How calls end" });
+    expect(screen.getByText(/being written from your business details/)).toBeTruthy();
+    expect(screen.getByDisplayValue("Wants to buy or book")).toBeTruthy();
+    // How far it moves the lead, in the owner's words, never Won or Lost.
+    const moves = screen.getAllByRole("combobox", { name: "Moves the lead to" })[0] as HTMLSelectElement;
+    expect([...moves.options].map((o) => o.text)).toEqual(["Contacted", "Interested", "Hot"]);
+  });
+
+  it("saves the owner's list with known keys kept and a new one without a key", async () => {
+    const { calls } = await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/lead-fields": leadFields(),
+      "/v1/call-outcomes": callOutcomes({ agents: [{ ...STARTING_AGENT, starting: false, draft: "done" }] }),
+      "PUT /v1/agents/a1/call-outcomes": { ...STARTING_AGENT, starting: false, draft: "done" },
+    });
+    await screen.findByRole("heading", { name: "How calls end" });
+    fireEvent.click(screen.getByRole("button", { name: "Add an outcome" }));
+    fireEvent.change(screen.getAllByRole("textbox", { name: "Outcome name" }).at(-1) as HTMLElement, {
+      target: { value: "Asked price only" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save outcomes" }));
+    await waitFor(() => {
+      const put = calls.find((c) => c.path === "/v1/agents/a1/call-outcomes");
+      const sent = JSON.parse(put?.body ?? "{}") as { outcomes: { key: string | null; label: string }[] };
+      expect(sent.outcomes.map((o) => [o.key, o.label])).toEqual([
+        ["wants_to_buy", "Wants to buy or book"],
+        ["not_interested", "Not interested"],
+        [null, "Asked price only"],
+      ]);
+    });
+  });
+
+  it("refuses two outcomes with one name before asking the server", async () => {
+    const { calls } = await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/lead-fields": leadFields(),
+      "/v1/call-outcomes": callOutcomes({ agents: [STARTING_AGENT] }),
+    });
+    await screen.findByRole("heading", { name: "How calls end" });
+    fireEvent.change(screen.getAllByRole("textbox", { name: "Outcome name" })[1], {
+      target: { value: "wants to buy or book" },
+    });
+    expect(screen.getByText("Two outcomes have the same name.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Save outcomes" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(calls.some((c) => c.method === "PUT")).toBe(false);
   });
 });

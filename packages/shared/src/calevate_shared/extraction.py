@@ -18,6 +18,7 @@ from typing import Any, Final, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from calevate_shared.business_outcomes import BusinessOutcome
 from calevate_shared.languages import Language, find_language
 
 FieldType = Literal["text", "number", "bool", "enum", "date"]
@@ -312,6 +313,9 @@ class ExtractionOutput(BaseModel):
     #: The model's reading, or None when no model read the call or it said nothing usable.
     #: Never defaulted to a verdict: `derive_outcome` decides with the facts.
     outcome_tag: OutcomeHint | None = None
+    #: The key of the agent's own outcome the model chose (D-836), or None when none fitted
+    #: or the request listed none. Only ever a key the request offered.
+    business_outcome: str | None = None
     out_of_scope: bool = False
     callback_requested: bool = False
     valid: bool = True
@@ -593,9 +597,14 @@ def build_extraction_prompt(
     *,
     moments: MomentsBrief | None = None,
     languages: Sequence[str] = (),
+    outcomes: Sequence[BusinessOutcome] = (),
 ) -> str:
     """Generate the extraction instruction. Kept in `shared` so the regression harness
     scores the SAME prompt the pipeline uses (OPERATIONS §3).
+
+    `outcomes` is the agent's own business outcomes (D-836); with them the answer also
+    carries `business_outcome`, one of their keys or null. Without them the prompt is
+    unchanged.
 
     With `moments`, the same request also asks for the call's key moments and numbers the
     transcript's lines so each moment can name one. Without it the prompt is unchanged,
@@ -650,7 +659,7 @@ Also include:
     hung_up_early  the conversation never really started: silence, a wrong number, an
                    answering machine, or the caller hung up within the first exchange;
     answered       the agent dealt with what the caller wanted and nothing is left open.
-- "out_of_scope": true if the caller asked about something the agent could not handle.
+{_business_outcome_section(outcomes)}{_OUT_OF_SCOPE_LINE}
 - "callback_requested": true if the caller asked to be called back, in any language or
   script ("call back", "కాల్ బ్యాక్", "malli call cheyyandi", "वापस कॉल", "baad mein call").
 
@@ -720,6 +729,32 @@ End of transcript.
 
 Return only the JSON object, by the rules above. Use null for anything the caller did not say.
 """
+
+
+_OUT_OF_SCOPE_LINE: Final = (
+    '- "out_of_scope": true if the caller asked about something the agent could not handle.'
+)
+
+
+def _business_outcome_section(outcomes: Sequence[BusinessOutcome]) -> str:
+    """The `business_outcome` key, listing the agent's own outcomes; empty without any.
+
+    Its own key beside `outcome_tag` rather than more words in that list: `outcome_tag` feeds
+    the system-fact verdict, which every business shares, and this one is what the call came
+    to for THIS business. A call can be both "needs you" and "wants to buy".
+    """
+    if not outcomes:
+        return ""
+    width = max(len(o.key) for o in outcomes) + 2
+    rows = "\n".join(
+        f"    {o.key:<{width}} {o.label}" + (f": {o.meaning}" if o.meaning else "")
+        for o in outcomes
+    )
+    return (
+        '- "business_outcome": the key of the ONE line below that best says what the call came\n'
+        "  to for the business, judged from what the CALLER said; null when none fits:\n"
+        f"{rows}\n"
+    )
 
 
 def _numbered(transcript: str) -> str:

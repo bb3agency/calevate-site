@@ -225,6 +225,12 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
     -- `thinnest_reply_length` (`agents/reply_length.py`); sent on every publish.
   system_prompt_id → prompt_versions, extraction_schema_id → extraction_schemas,
   business_hours JSONB, escalation_config JSONB,   -- business_hours: unread since D-695 (the profile)
+  business_outcomes JSONB,   -- c4e9a2f7b183, D-836. The agent's own call outcomes, at most 8
+    -- `{key, label, meaning, lead_status ∈ contacted|interested|hot}` (CHECK: array, length
+    -- <= 8). NULL until drafted or saved by the owner; extraction then offers the neutral
+    -- `calevate_shared.business_outcomes.STARTING_OUTCOMES`. `[]` = the owner wants none.
+  business_outcomes_draft TEXT,   -- the ONE AI draft: queued|running|done|failed|skipped,
+    -- NULL = never queued (`agents/call_outcomes.queue_draft`, CAS from NULL; never re-queued).
   -- THE OPENING NOTICES (D-163, migration f4a1d0b6e29c). SEC-COMP §2 states two
   -- invariants under two regimes — AI identification (TRAI/UCC) and a recording notice
   -- (DPDP §5/§6) — and they shared ONE column, so a client could have both or neither.
@@ -450,6 +456,11 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
                                        -- founder decision 6, migration c4e8a1f7d290). The CHECK
                                        -- still admits resolved/needs_follow_up/dropped for one
                                        -- release (hard rule 8); nothing writes them.
+  business_outcome TEXT, business_outcome_label TEXT,
+                                       -- D-836 (c4e9a2f7b183): the key of the agent's own outcome
+                                       -- the extraction model chose and its label AS IT READ THEN,
+                                       -- beside outcome_tag (which keeps precedence on screen).
+                                       -- CHECK both NULL or both set.
   sentiment ENUM[positive,neutral,negative],
   summary TEXT,                        -- ENGLISH; the engine's own when in Latin script, else
                                        -- the extraction model's.
@@ -513,6 +524,8 @@ transcript_turns(id, tenant_id, call_id, idx INT, speaker ENUM[agent,caller], te
   -- default read = text_redacted; raw `text` gated by role + audit_log
 call_extractions(id, tenant_id, call_id, schema_version INT, data JSONB,
   model TEXT, prompt_version INT, valid BOOL, errors JSONB,
+  business_outcome TEXT,            -- D-836: the model's choice of the agent's outcomes, kept
+                                    -- so a re-drive writes the same calls.business_outcome
   UNIQUE(tenant_id, call_id))       -- ONE extraction per call (migration d3b71c9a5e08)
   -- Both readers already assumed it: the CRM detail takes `ORDER BY created_at DESC
   -- LIMIT 1` and the retention eraser rewrites "the" extraction for a call. The pipeline

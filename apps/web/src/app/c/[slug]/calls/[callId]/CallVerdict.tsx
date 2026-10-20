@@ -3,7 +3,16 @@
 import type { ReactNode } from "react";
 
 import type { CallDetail } from "@/lib/api/client";
-import { callbackLine, isEnglishCall, langAttr, languageName, needsAttention, outcomeLabel, outcomeReason } from "@/lib/callReview";
+import {
+  businessOutcomeAside,
+  callbackLine,
+  isEnglishCall,
+  langAttr,
+  languageName,
+  needsAttention,
+  outcomeReason,
+  outcomeWords,
+} from "@/lib/callReview";
 
 import { isLive } from "../callColumns";
 
@@ -20,7 +29,8 @@ import type { CallView } from "./callEnglish";
  * only when the call needs a person.
  */
 export function CallVerdict({ detail, action, view }: { detail: CallDetail; action: ReactNode; view: CallView }) {
-  const label = outcomeLabel(detail.outcome_tag);
+  const label = outcomeWords(detail);
+  const aside = businessOutcomeAside(detail);
   const warn = needsAttention(detail);
   const heading = label ?? (isLive(detail) ? "On the line now" : detail.status === "completed" ? "Reading this call" : "No conversation");
   return (
@@ -33,6 +43,11 @@ export function CallVerdict({ detail, action, view }: { detail: CallDetail; acti
           {heading}
         </h2>
         <p className="mt-1 max-w-prose text-body text-ink-muted [text-wrap:pretty]">{outcomeReason(detail)}</p>
+        {aside && (
+          <p className="mt-1 text-meta text-ink-muted">
+            For your business: <span className="font-medium text-ink">{aside}</span>
+          </p>
+        )}
       </div>
 
       <div className="sm:order-last">{action}</div>

@@ -239,9 +239,10 @@ async def test_a_runner_that_cannot_read_moments_is_never_handed_the_brief() -> 
 def test_sarvam_sends_the_brief_inside_the_shared_prompt() -> None:
     import inspect
 
-    source = inspect.getsource(SarvamExtractor)
+    source = " ".join(inspect.getsource(SarvamExtractor).split())
     assert (
-        "build_extraction_prompt(spec, transcript, moments=moments, languages=languages)" in source
+        "build_extraction_prompt( spec, transcript, moments=moments, languages=languages, "
+        "outcomes=outcomes )" in source
     )
     assert SarvamExtractor.reads_moments is True
 
@@ -379,7 +380,7 @@ async def _live_script(tenant_id: UUID, agent_id: UUID, script: dict[str, Any]) 
 
 async def test_the_brief_comes_from_the_confirmed_type_and_the_running_script() -> None:
     tenant_id, agent_id = await _seed_tenant(f"mom_{uuid.uuid4().hex[:8]}")
-    assert await pipeline._load_moments_brief(tenant_id, agent_id) == MomentsBrief(), (
+    assert await pipeline.load_moments_brief(tenant_id, agent_id) == MomentsBrief(), (
         "an account with no confirmed type and no script gets an empty brief"
     )
 
@@ -398,7 +399,7 @@ async def test_the_brief_comes_from_the_confirmed_type_and_the_running_script() 
             "stages": [{"name": "Greet"}, {"name": "Take the order"}, {"bad": 1}],
         },
     )
-    brief = await pipeline._load_moments_brief(tenant_id, agent_id)
+    brief = await pipeline.load_moments_brief(tenant_id, agent_id)
     assert brief.business_type == "Shop, food or produce"
     assert (brief.business_line, brief.agent_goal) == ("Chilli powder shop", "Take orders")
     assert brief.script_steps == ["Greet", "Take the order"]

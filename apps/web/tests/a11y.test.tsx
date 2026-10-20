@@ -3239,7 +3239,26 @@ const CLIENT_SCREENS: Screen[] = [
     file: "c/[slug]/settings/lead-details/page.tsx",
     realm: "client",
     element: () => <LeadDetailsPage />,
-    routes: { "/v1/me": ME, "/v1/lead-fields": LEAD_FIELDS },
+    routes: {
+      "/v1/me": ME,
+      "/v1/lead-fields": LEAD_FIELDS,
+      "/v1/call-outcomes": {
+        max_outcomes: 8,
+        agents: [
+          {
+            id: "a1",
+            name: "Front desk",
+            direction: "inbound",
+            status: "live",
+            starting: false,
+            draft: "done",
+            outcomes: [
+              { key: "wants_to_buy", label: "Wants to buy", meaning: "The caller wants to order.", lead_status: "interested" },
+            ],
+          },
+        ],
+      },
+    },
   },
   {
     file: "c/[slug]/setup/page.tsx",

@@ -268,7 +268,8 @@ async def list_calls(
                 "SELECT c.id, c.agent_id, a.name, c.direction, c.status, c.from_e164, "
                 "c.to_e164, c.started_at, c.duration_s, c.outcome_tag, c.sentiment, "
                 "c.summary, c.lead_id, c.summary_state, c.headline, c.trial_call, "
-                f"{_CALLBACK_COLUMNS}, {_LEAD_NAME_COLUMN}, {credits_column} "
+                f"{_CALLBACK_COLUMNS}, {_LEAD_NAME_COLUMN}, {credits_column}, "
+                "c.business_outcome, c.business_outcome_label "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} {where} "
                 "ORDER BY c.started_at DESC NULLS LAST, c.id DESC LIMIT :limit OFFSET :offset"
             ),
@@ -305,6 +306,8 @@ async def list_calls(
             lead_name=r[21],
             credits_used_inr=f"{r[22]:.2f}" if r[22] is not None and r[22] > 0 else None,
             captured_preview=previews.get(r[0], []),
+            business_outcome=r[23],
+            business_outcome_label=r[24],
         )
         for r in rows
     ]
@@ -469,7 +472,8 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
                 "c.summary_local, c.summary_language, c.summary_source, c.next_step, "
                 "c.callback_requested, c.translation_state, "
                 f"{_LEAD_NAME_COLUMN}, a.language_primary, c.engine_quality, c.engine_call_id, "
-                "c.caller_id_hidden, c.forwarding_test_id IS NOT NULL "
+                "c.caller_id_hidden, c.forwarding_test_id IS NOT NULL, "
+                "c.business_outcome, c.business_outcome_label "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
                 "WHERE c.id = :cid"
             ),
@@ -548,6 +552,8 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         callback=_callback_out(row[18:23]),
         caller_id_hidden=bool(row[33]),
         forwarding_test=bool(row[34]),
+        business_outcome=row[35],
+        business_outcome_label=row[36],
         summary_local=row[23] if raw else redacted_summary(row[23]),
         summary_language=row[24],
         summary_source=row[25],
@@ -806,7 +812,9 @@ _LEAD_COLUMNS = (
     "(SELECT lc.next_step FROM calls lc WHERE lc.id = l.last_call_id) AS next_step, "
     "(SELECT min(sc.requested_at) FROM scheduled_callbacks sc WHERE sc.lead_id = l.id "
     " AND sc.tenant_id = l.tenant_id AND sc.status IN ('scheduled', 'dialing')) "
-    "AS next_callback_at"
+    "AS next_callback_at, "
+    "(SELECT lc.business_outcome_label FROM calls lc WHERE lc.id = l.last_call_id) "
+    "AS last_call_business_outcome_label"
 )
 _LEAD_OWNER_JOIN = (
     "LEFT JOIN memberships m ON m.user_id = l.assigned_to AND m.tenant_id = l.tenant_id "
@@ -1260,6 +1268,7 @@ def _lead_out(r: Any) -> LeadOut:
         last_call_outcome=normalise_outcome(r[17]),
         next_step=r[18],
         next_callback_at=r[19],
+        last_call_business_outcome_label=r[20],
     )
 
 

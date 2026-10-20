@@ -3470,6 +3470,26 @@ export interface paths {
         patch: operations["set_agent_call_handling_v1_agents__agent_id__call_handling_patch"];
         trace?: never;
     };
+    "/v1/agents/{agent_id}/call-outcomes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace one agent's call outcomes
+         * @description Calls already read keep the outcome and name they were given; the next call is read against this list. A saved list is never replaced by the AI draft.
+         */
+        put: operations["put_call_outcomes_v1_agents__agent_id__call_outcomes_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/caller-memory": {
         parameters: {
             query?: never;
@@ -5339,6 +5359,23 @@ export interface paths {
         put?: never;
         /** Move the setup wizard: start it, skip a step, dismiss or reopen the checklist */
         post: operations["post_setup_v1_business_profile_setup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/call-outcomes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How each agent's calls can end for this business */
+        get: operations["get_call_outcomes_v1_call_outcomes_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -12945,6 +12982,10 @@ export interface components {
             agent_id: string;
             /** Agent Name */
             agent_name?: string | null;
+            /** Business Outcome */
+            business_outcome?: string | null;
+            /** Business Outcome Label */
+            business_outcome_label?: string | null;
             callback?: components["schemas"]["CallCallbackOut"] | null;
             /** Callback Requested */
             callback_requested?: boolean | null;
@@ -13193,6 +13234,70 @@ export interface components {
             /** Turn Idx */
             turn_idx: number | null;
         };
+        /** CallOutcomeIn */
+        CallOutcomeIn: {
+            /** Key */
+            key?: string | null;
+            /** Label */
+            label: string;
+            /**
+             * Lead Status
+             * @default contacted
+             * @enum {string}
+             */
+            lead_status: "contacted" | "interested" | "hot";
+            /**
+             * Meaning
+             * @default
+             */
+            meaning: string;
+        };
+        /** CallOutcomeOut */
+        CallOutcomeOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Lead Status
+             * @enum {string}
+             */
+            lead_status: "contacted" | "interested" | "hot";
+            /** Meaning */
+            meaning: string;
+        };
+        /** CallOutcomesAgentOut */
+        CallOutcomesAgentOut: {
+            /** Direction */
+            direction: string;
+            /** Draft */
+            draft: ("queued" | "running" | "done" | "failed" | "skipped") | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Outcomes */
+            outcomes: components["schemas"]["CallOutcomeOut"][];
+            /** Starting */
+            starting: boolean;
+            /** Status */
+            status: string;
+        };
+        /** CallOutcomesIn */
+        CallOutcomesIn: {
+            /** Outcomes */
+            outcomes: components["schemas"]["CallOutcomeIn"][];
+        };
+        /** CallOutcomesOut */
+        CallOutcomesOut: {
+            /** Agents */
+            agents: components["schemas"]["CallOutcomesAgentOut"][];
+            /** Max Outcomes */
+            max_outcomes: number;
+        };
         /**
          * CallQualityOut
          * @description How the call went, as the voice platform measured it once it ended. Any figure is
@@ -13382,6 +13487,10 @@ export interface components {
             agent_id: string;
             /** Agent Name */
             agent_name?: string | null;
+            /** Business Outcome */
+            business_outcome?: string | null;
+            /** Business Outcome Label */
+            business_outcome_label?: string | null;
             callback?: components["schemas"]["CallCallbackOut"] | null;
             /** Caller E164 */
             caller_e164?: string | null;
@@ -19939,6 +20048,8 @@ export interface components {
             id: string;
             /** Is Repeat Caller */
             is_repeat_caller: boolean;
+            /** Last Call Business Outcome Label */
+            last_call_business_outcome_label?: string | null;
             /** Last Call Headline */
             last_call_headline?: string | null;
             /** Last Call Id */
@@ -35041,6 +35152,41 @@ export interface operations {
             };
         };
     };
+    put_call_outcomes_v1_agents__agent_id__call_outcomes_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallOutcomesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallOutcomesAgentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     set_caller_memory_route_v1_agents__agent_id__caller_memory_patch: {
         parameters: {
             query?: never;
@@ -38188,6 +38334,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BusinessProfileOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_call_outcomes_v1_call_outcomes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallOutcomesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

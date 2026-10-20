@@ -110,6 +110,7 @@ from apps.workers.alerts import sweep_alert_clears
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import FEE_SWEEP_MINUTE, issue_platform_fees
 from apps.workers.business_copy import generate_business_copy, sweep_business_copies
+from apps.workers.business_outcomes_draft import draft_business_outcomes
 from apps.workers.business_type import apply_business_type
 from apps.workers.call_translation import (
     BACKFILL_MINUTE as TRANSLATION_BACKFILL_MINUTE,
@@ -342,6 +343,9 @@ FUNCTIONS: list[Any] = [
         # An account's AI-written examples and suggestions (D-827), from the outbox
         # (`tenancy/business_copy.queue_generation` and `sweep_business_copies`).
         generate_business_copy,
+        # One agent's AI draft of its call outcomes (D-836), from the outbox
+        # (`agents/call_outcomes.queue_draft`).
+        draft_business_outcomes,
         # Pinned facts re-spliced into every agent (founder decision 9).
         recompile_pinned_facts,
         # D-720. A saved setting brought onto every live agent it changes: the walk in

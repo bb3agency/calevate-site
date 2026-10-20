@@ -107,6 +107,11 @@ class CallSummaryOut(Strict):
     #: DERIVED from facts after the call (`crm/outcomes.derive_outcome`); NULL until the
     #: pipeline has run or when nothing could be told. Never "resolved" any more.
     outcome_tag: CallOutcome | None = None
+    #: What the call came to for THIS business (D-836): the key of the agent's own outcome
+    #: the call was read as, and its name as it read then. NULL when none fitted or the call
+    #: was not read. Shown beside `outcome_tag`, which keeps precedence.
+    business_outcome: str | None = None
+    business_outcome_label: str | None = None
     sentiment: str | None = None
     # REDACTED prose, not the stored column: the summary is derived from the transcript,
     # so it ships through the same pass as `text_redacted`. Raw only from the audited
@@ -377,6 +382,8 @@ class LeadOut(Strict):
     last_call_headline: str | None = None
     #: The last call's outcome (`CallSummaryOut.outcome_tag`).
     last_call_outcome: CallOutcome | None = None
+    #: The last call's own business outcome (`CallSummaryOut.business_outcome_label`).
+    last_call_business_outcome_label: str | None = None
     #: What the business should do next, from the last call. NULL when nothing.
     next_step: str | None = None
     #: The soonest call back still to be placed for this lead. NULL when none is booked.

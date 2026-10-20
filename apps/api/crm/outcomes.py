@@ -17,7 +17,12 @@ derived here, AFTER extraction, from things the platform holds:
    or asked about something the agent could not
    handle                                       -> `needs_you`
 7. the model read the conversation              -> its own hint
-8. otherwise                                    -> None (unknown; a re-drive fills it in)
+8. otherwise                                    -> None (unknown)
+
+Unknown happens when no model reading was stored: the provider failed (`errors._model`, kept
+as the call's extraction row, so the stall probe does not re-drive it) or its answer named
+no hint. What the call came to for the BUSINESS is a separate reading
+(`calls.business_outcome`, D-836) and does not depend on this one.
 
 "Very short" is a proxy: the engines report HOW a call ended, never WHICH PARTY hung up, so
 `hung_up_early` is a connected call under `HUNG_UP_EARLY_S` in which the caller said at most
@@ -27,6 +32,7 @@ minute to discover) is kept, because the model saw the words.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Final, get_args
 
@@ -110,10 +116,14 @@ def normalise(stored: str | None) -> OutcomeTag | None:
 
 
 def hint_of(raw: object) -> OutcomeHint | None:
-    """A model's `outcome_tag` answer, if it is one of the hints; legacy words mapped."""
+    """A model's `outcome_tag` answer, if it is one of the hints; legacy words mapped.
+
+    "Needs you", "needs-you" and "NEEDS_YOU" are the same answer: a model that writes the
+    word the way a person would still said it.
+    """
     if not isinstance(raw, str):
         return None
-    value = raw.strip().lower()
+    value = re.sub(r"[\s\-]+", "_", raw.strip().lower())
     if value in OUTCOME_HINTS:
         return value
     mapped = LEGACY_TO_CURRENT.get(value)

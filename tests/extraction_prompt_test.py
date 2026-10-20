@@ -214,7 +214,8 @@ def test_both_shipped_model_paths_send_this_exact_prompt() -> None:
     import apps.workers.extraction as extraction_module
 
     for cls in (extraction_module.SarvamExtractor, extraction_module.AzureOpenAIExtractor):
-        source = inspect.getsource(cls)
+        # Whitespace-folded: a call the formatter wraps is still the same call.
+        source = " ".join(inspect.getsource(cls).split()).replace("( ", "(")
         assert "build_extraction_prompt(spec, transcript" in source, (
             f"{cls.__name__} does not send the shared extraction prompt"
         )

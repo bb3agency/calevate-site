@@ -203,6 +203,19 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "most `extraction_routes.MAX_EXTRACTION_FIELDS` fields (refused on write)."
         )
     ),
+    "GET /v1/call-outcomes": BoundedByConstruction(
+        by=(
+            "agents capped by `agents.lead_fields.MAX_AGENTS` in the LIMIT, each holding at "
+            "most `calevate_shared.business_outcomes.MAX_BUSINESS_OUTCOMES` outcomes (the "
+            "`ck_agents_business_outcomes_shape` CHECK and the response model's `max_length`)."
+        )
+    ),
+    "PUT /v1/agents/{agent_id}/call-outcomes": BoundedByConstruction(
+        by=(
+            "one agent's outcomes, at most `MAX_BUSINESS_OUTCOMES` (the request and response "
+            "models' `max_length` and the column's CHECK)."
+        )
+    ),
     "GET /v1/business-copy": BoundedByConstruction(
         by=(
             "one row per account, its lists capped by `tenancy.business_copy.GeneratedCopy` "

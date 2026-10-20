@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any, Literal, get_args
 from uuid import UUID
 
+from calevate_shared.business_outcomes import MAX_BUSINESS_OUTCOMES
 from calevate_shared.carrier import NumberProvider
 from calevate_shared.config import SELECTABLE_ENGINES
 from calevate_shared.engine import LLM_MODEL_NAMES, REPLY_TOKENS_MAX, REPLY_TOKENS_MIN
@@ -285,6 +286,11 @@ def call_setting_checks(prefix: str = "") -> tuple[CheckConstraint, ...]:
     )
 
 
+#: The one AI draft of an agent's business outcomes (D-836). `skipped` is a draft the
+#: account's AI allowance or the platform AI brake did not allow; the starting set stays.
+BUSINESS_OUTCOMES_DRAFT_STATES = ("queued", "running", "done", "failed", "skipped")
+
+
 class Agent(PKMixin, TimestampMixin, Base):
     __tablename__ = "agents"
     __table_args__ = (
@@ -402,6 +408,17 @@ class Agent(PKMixin, TimestampMixin, Base):
             "engine_model_id IS NULL OR engine_model_id ~ '^[^[:space:]]{1,128}$'",
             name="engine_model_id_shape",
         ),
+        # D-836 (migration c4e9a2f7b183): the agent's own outcomes, a bounded array.
+        CheckConstraint(
+            "business_outcomes IS NULL OR (jsonb_typeof(business_outcomes) = 'array' "
+            f"AND jsonb_array_length(business_outcomes) <= {MAX_BUSINESS_OUTCOMES})",
+            name="business_outcomes_shape",
+        ),
+        CheckConstraint(
+            "business_outcomes_draft IS NULL OR business_outcomes_draft IN "
+            f"{BUSINESS_OUTCOMES_DRAFT_STATES!r}",
+            name="business_outcomes_draft_enum",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -512,6 +529,13 @@ class Agent(PKMixin, TimestampMixin, Base):
     max_reply_tokens: Mapped[int | None] = mapped_column(Integer)
     business_hours: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     escalation_config: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: The agent's own call outcomes (D-836), `calevate_shared.business_outcomes.
+    #: BusinessOutcome` dicts. NULL until drafted or written by the owner; the extraction
+    #: then offers `STARTING_OUTCOMES`. `[]` is an owner who wants none.
+    business_outcomes: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB)
+    #: Where the one AI draft of them is (`BUSINESS_OUTCOMES_DRAFT_STATES`); NULL = never
+    #: queued. Nothing re-queues a draft once this is set.
+    business_outcomes_draft: Mapped[str | None] = mapped_column(Text)
     # THE PER-AGENT MASTER SWITCH for in-call Actions/tools (migration
     # e1f7a3c920b4). Default FALSE: an agent nobody configured actions for makes no
     # mid-call external calls. Read by `actions/service.actions_enabled` and written

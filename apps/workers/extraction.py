@@ -104,6 +104,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 import httpx
+from calevate_shared.business_outcomes import BusinessOutcome, match_outcome
 from calevate_shared.engine import (
     AZURE_LOCATION,
     AZURE_OPENAI_DEFAULT_MODEL,
@@ -371,6 +372,8 @@ class SarvamExtractor:
     reads_moments: Final = True
     #: This runner can be told the agent's language(s) (`extract_call`).
     reads_languages: Final = True
+    #: This runner can be offered the agent's business outcomes (`extract_call`, D-836).
+    reads_outcomes: Final = True
 
     async def run(
         self,
@@ -379,6 +382,7 @@ class SarvamExtractor:
         *,
         moments: MomentsBrief | None = None,
         languages: Sequence[str] = (),
+        outcomes: Sequence[BusinessOutcome] = (),
     ) -> dict[str, Any]:
         # ONE chat client for the whole repository (`workers/chat.py`). The empty-`choices`
         # arm that used to live here — the provider declining to answer, which indexed
@@ -386,7 +390,9 @@ class SarvamExtractor:
         # `extract_call`'s ladder and fails the whole post-call job — is now that module's
         # `_message_of`, so both legs and every future one inherit it.
         self.last_usage = None
-        prompt = build_extraction_prompt(spec, transcript, moments=moments, languages=languages)
+        prompt = build_extraction_prompt(
+            spec, transcript, moments=moments, languages=languages, outcomes=outcomes
+        )
 
         async def ask(response_format: Mapping[str, Any]) -> chat.ChatOutcome:
             return await chat.complete(
@@ -400,7 +406,7 @@ class SarvamExtractor:
             )
 
         outcome, degraded = await _ask_strict_then_plain(
-            ask, build_response_schema(spec, moments=moments is not None)
+            ask, build_response_schema(spec, moments=moments is not None, outcomes=outcomes)
         )
         if degraded:
             log.warning(
@@ -503,7 +509,12 @@ _MOMENTS_PROPERTY: Final[dict[str, Any]] = {
 }
 
 
-def build_response_schema(spec: ExtractionSchemaSpec, *, moments: bool = False) -> dict[str, Any]:
+def build_response_schema(
+    spec: ExtractionSchemaSpec,
+    *,
+    moments: bool = False,
+    outcomes: Sequence[BusinessOutcome] = (),
+) -> dict[str, Any]:
     """The strict JSON Schema that makes valid, schema-shaped JSON a MODEL-SIDE guarantee.
 
     Both model legs send it: Azure (below) and Sarvam (`SarvamExtractor`). `moments` adds
@@ -556,6 +567,12 @@ def build_response_schema(spec: ExtractionSchemaSpec, *, moments: bool = False) 
     schema is the part of that number nobody would have thought to add up.
     """
     fixed = {**_FIXED_PROPERTIES, **({"moments": _MOMENTS_PROPERTY} if moments else {})}
+    if outcomes:
+        # A nullable enum of the agent's own keys: "none of these fits" must stay sayable.
+        fixed["business_outcome"] = {
+            "type": ["string", "null"],
+            "enum": [*(o.key for o in outcomes), None],
+        }
     properties: dict[str, Any] = {
         field.key: _schema_property(field) for field in spec.fields if field.key not in fixed
     }
@@ -2293,19 +2310,22 @@ async def _run(
     transcript: str,
     moments: MomentsBrief | None,
     languages: Sequence[str],
+    outcomes: Sequence[BusinessOutcome] = (),
 ) -> dict[str, Any]:
-    """One `run`, with the key-moments brief and the agent's languages when the runner
-    reads them.
+    """One `run`, with the key-moments brief, the agent's languages and its business
+    outcomes when the runner reads them.
 
-    Each is handed only to a runner that declares it (`reads_moments`, `reads_languages`):
-    the offline baseline has no model to ask, and the `Extractor` protocol stays two
-    arguments for every test double and harness that implements it.
+    Each is handed only to a runner that declares it (`reads_moments`, `reads_languages`,
+    `reads_outcomes`): the offline baseline has no model to ask, and the `Extractor`
+    protocol stays two arguments for every test double and harness that implements it.
     """
     context: dict[str, Any] = {}
     if moments is not None and getattr(runner, "reads_moments", False):
         context["moments"] = moments
     if languages and getattr(runner, "reads_languages", False):
         context["languages"] = tuple(languages)
+    if outcomes and getattr(runner, "reads_outcomes", False):
+        context["outcomes"] = tuple(outcomes)
     if context:
         return await cast(_ReadsContext, runner).run(spec, transcript, **context)
     return await runner.run(spec, transcript)
@@ -2319,7 +2339,14 @@ class _ReadsContext(Protocol):
         *,
         moments: MomentsBrief | None = None,
         languages: Sequence[str] = (),
+        outcomes: Sequence[BusinessOutcome] = (),
     ) -> dict[str, Any]: ...
+
+
+def _chosen_key(raw: object, outcomes: Sequence[BusinessOutcome]) -> str | None:
+    """The key of the business outcome the model named, if it offered that one."""
+    chosen = match_outcome(raw, outcomes)
+    return chosen.key if chosen else None
 
 
 async def extract_call(
@@ -2329,11 +2356,14 @@ async def extract_call(
     extractor: Extractor | None = None,
     moments: MomentsBrief | None = None,
     languages: Sequence[str] = (),
+    outcomes: Sequence[BusinessOutcome] = (),
 ) -> ExtractionOutput:
     """Run one extraction pass and validate it against the schema.
 
     `languages` is the agent's language(s), primary first, as `agents.language_primary`
-    and `languages_extra` spell them; empty means the prompt's default.
+    and `languages_extra` spell them; empty means the prompt's default. `outcomes` is the
+    agent's business outcomes (D-836); the answer's `business_outcome` is one of their keys
+    or None.
 
     A model failure does NOT fail the call: an extraction row still lands with
     `valid=False` and the error, so the call, the lead and the metering all survive an
@@ -2358,13 +2388,13 @@ async def extract_call(
     provider = _provider_of(runner)
     try:
         if provider is None:
-            raw = await _run(runner, spec, transcript, moments, languages)
+            raw = await _run(runner, spec, transcript, moments, languages, outcomes)
         else:
             # The provider-health hook sits HERE, around the whole `run`, and not around
             # each HTTP request: Azure's 400 → `json_object` degrade is two requests and
             # one answer, and only the answer says whether the leg works.
             async with provider_health.watch("extraction", provider, model=runner.model_name):
-                raw = await _run(runner, spec, transcript, moments, languages)
+                raw = await _run(runner, spec, transcript, moments, languages, outcomes)
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
         # IndexError/TypeError belong here with the rest: a provider response whose
         # shape we did not expect is a MODEL failure, and this ladder exists so a model
@@ -2394,6 +2424,7 @@ async def extract_call(
         sentiment=sentiment if sentiment in ("positive", "neutral", "negative") else "neutral",
         # Unknown is None, never a verdict (first-call review F-4).
         outcome_tag=hint_of(raw.get("outcome_tag")),
+        business_outcome=_chosen_key(raw.get("business_outcome"), outcomes),
         out_of_scope=bool(raw.get("out_of_scope")),
         callback_requested=bool(raw.get("callback_requested")),
         valid=outcome.valid,

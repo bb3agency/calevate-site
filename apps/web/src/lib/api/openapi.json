@@ -6107,6 +6107,28 @@
             ],
             "title": "Agent Name"
           },
+          "business_outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Outcome"
+          },
+          "business_outcome_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Outcome Label"
+          },
           "callback": {
             "anyOf": [
               {
@@ -6834,6 +6856,187 @@
         "title": "CallMomentOut",
         "type": "object"
       },
+      "CallOutcomeIn": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "label": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "lead_status": {
+            "default": "contacted",
+            "enum": [
+              "contacted",
+              "interested",
+              "hot"
+            ],
+            "title": "Lead Status",
+            "type": "string"
+          },
+          "meaning": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Meaning",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "title": "CallOutcomeIn",
+        "type": "object"
+      },
+      "CallOutcomeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "lead_status": {
+            "enum": [
+              "contacted",
+              "interested",
+              "hot"
+            ],
+            "title": "Lead Status",
+            "type": "string"
+          },
+          "meaning": {
+            "title": "Meaning",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "meaning",
+          "lead_status"
+        ],
+        "title": "CallOutcomeOut",
+        "type": "object"
+      },
+      "CallOutcomesAgentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "enum": [
+                  "queued",
+                  "running",
+                  "done",
+                  "failed",
+                  "skipped"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/CallOutcomeOut"
+            },
+            "maxItems": 8,
+            "title": "Outcomes",
+            "type": "array"
+          },
+          "starting": {
+            "title": "Starting",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "direction",
+          "status",
+          "outcomes",
+          "starting",
+          "draft"
+        ],
+        "title": "CallOutcomesAgentOut",
+        "type": "object"
+      },
+      "CallOutcomesIn": {
+        "additionalProperties": false,
+        "properties": {
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/CallOutcomeIn"
+            },
+            "maxItems": 8,
+            "title": "Outcomes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcomes"
+        ],
+        "title": "CallOutcomesIn",
+        "type": "object"
+      },
+      "CallOutcomesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/CallOutcomesAgentOut"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "max_outcomes": {
+            "title": "Max Outcomes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_outcomes",
+          "agents"
+        ],
+        "title": "CallOutcomesOut",
+        "type": "object"
+      },
       "CallQualityOut": {
         "additionalProperties": false,
         "description": "How the call went, as the voice platform measured it once it ended. Any figure is\nnull when it could not be measured on that call.",
@@ -7328,6 +7531,28 @@
               }
             ],
             "title": "Agent Name"
+          },
+          "business_outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Outcome"
+          },
+          "business_outcome_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Outcome Label"
           },
           "callback": {
             "anyOf": [
@@ -23841,6 +24066,17 @@
           "is_repeat_caller": {
             "title": "Is Repeat Caller",
             "type": "boolean"
+          },
+          "last_call_business_outcome_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call Business Outcome Label"
           },
           "last_call_headline": {
             "anyOf": [
@@ -56914,6 +57150,57 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/agents/{agent_id}/call-outcomes": {
+      "put": {
+        "description": "Calls already read keep the outcome and name they were given; the next call is read against this list. A saved list is never replaced by the AI draft.",
+        "operationId": "put_call_outcomes_v1_agents__agent_id__call_outcomes_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallOutcomesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallOutcomesAgentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Replace one agent's call outcomes",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/agents/{agent_id}/caller-memory": {
       "patch": {
         "description": "Two abilities, always on or off together. Your agents remember the people they have spoken to and can greet a returning caller with what they asked about last time; and when someone asks to be called back at a particular time, that follow-up is booked for exactly then and dials with everything already learned.\n\nOff unless you switch it on. Switched on, the agent says at the start of every call that a short note is kept \u2014 that sentence cannot be switched off separately.\n\nWhat is kept is a short note of what the caller wanted, what happened, and any preference they stated, such as the language they like or when they prefer to be called. It is used only for that person's own future calls with you, is never shared, and is deleted after 180 days or sooner if they ask.\n\nThe first time anyone in your account switches this on you are asked to confirm what these calls collect. Some kinds of business cannot use it at all.\n\nApplies immediately: a live agent is updated on the voice platform in the same transaction, so the screen never claims something the phone line is not doing.",
@@ -60820,6 +61107,34 @@
           "business-profile"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/call-outcomes": {
+      "get": {
+        "operationId": "get_call_outcomes_v1_call_outcomes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallOutcomesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How each agent's calls can end for this business",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/callbacks": {
