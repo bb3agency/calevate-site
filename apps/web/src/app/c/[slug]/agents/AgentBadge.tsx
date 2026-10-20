@@ -56,15 +56,17 @@ export function liveState(agent: Agent): LiveState {
       label: "Being set up",
       tone: "neutral",
       detail:
-        "Not on the calling system yet, so it cannot take or make calls. Switching it on puts it there.",
+        "Not on the calling system yet, so it cannot take or make calls, or be tried in the chat. Get it ready to try it, or switch it on.",
     };
   }
+  /* Published and switched off: the server's "Ready, not taking calls" (D-838). Readied to
+     try or switched off after working, it is one fact for the owner: it can be tried in the
+     chat, and it answers no calls and makes none. */
   if (agent.status === "paused") {
     return {
-      label: "Paused",
+      label: "Ready, not taking calls",
       tone: "warn",
-      detail:
-        "Switched off for now. No calls are being answered or made by this agent.",
+      detail: "You can try it in the chat. It answers no calls and makes none until you switch it on.",
     };
   }
   if (agent.status === "live") {

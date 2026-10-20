@@ -88,6 +88,7 @@ from apps.api.agents.service import publish_agent
 from apps.api.agents.starters import StarterJob
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.disclosure import truthful_answer_promise
+from apps.api.compliance.trial_access import trial_blocker
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db
@@ -170,6 +171,9 @@ class StarterPreviewOut(BaseModel):
     step_titles: list[str]
     #: The labels of the details the agent captures into each lead.
     captured_details: list[str]
+    #: Why this job cannot take calls on this account yet (a free trial's answer-only
+    #: agent), in the owner's words; null when it can.
+    locked_reason: str | None
 
 
 class StartersOut(BaseModel):
@@ -196,6 +200,9 @@ class StartersOut(BaseModel):
 async def list_starters(
     session: Session,
     job: StarterJob | None = Query(None),
+    # The language the new agent will speak, so the preview's greeting is the one it will be
+    # created with; omitted, English.
+    language: OfferedLanguage | None = Query(None),
     principal: Principal = Depends(requires("agents:read")),
 ) -> StartersOut:
     """Read-only, and only ever for the caller's own account: the business type comes from
@@ -217,6 +224,9 @@ async def list_starters(
     )
     labels = [field.label for field in with_core(business)]
     jobs = starters.STARTER_JOBS if job is None else (job,)
+    # A trial account's answer-only agent can be made and tried in the chat, but never takes
+    # a call until the account pays (D-697), so the job is offered locked with that reason.
+    inbound_locked = await trial_blocker(session, tenant_id=principal.tenant_id, locked="inbound")
     return StartersOut(
         vertical=vertical,
         starters=[
@@ -224,9 +234,14 @@ async def list_starters(
                 job=each.job,
                 direction=starters.JOB_DIRECTION[each.job],
                 name_suggestion=each.name_suggestion,
-                opening_line=each.opening_for(str(org[0])),
+                opening_line=each.opening_for(str(org[0]), language or starters.PREVIEW_LANGUAGE),
                 step_titles=[step.title for step in each.steps],
                 captured_details=labels,
+                locked_reason=(
+                    inbound_locked[1]
+                    if inbound_locked is not None and starters.JOB_DIRECTION[each.job] == "inbound"
+                    else None
+                ),
             )
             for each in (starters.starter_for(vertical, j) for j in jobs)
         ],
@@ -798,6 +813,34 @@ async def activate_agent_route(
         session, tenant_id=principal.tenant_id, agent_id=agent_id
     )
     return await _audited_move(session, result, "agent.activated", principal, request)
+
+
+@router.post(
+    "/v1/agents/{agent_id}/prepare",
+    response_model=AgentLifecycleOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Ready, not taking calls: publish the agent to try it in the chat (draft -> inactive)",
+    description=(
+        "Publishes the agent to the voice platform and reads it back, exactly as "
+        "activating does, but leaves it INACTIVE: no number is bound to it, it places no "
+        "calls, and the business-profile checks for going live are not asked. Its Try it "
+        "chat then talks to it. An inactive agent that was published before is published "
+        "again, so the chat tries its current script. An active agent is a success that "
+        "publishes nothing; switch it off to take it off the phone.\n\n"
+        "Switching it on later is `activate`, with every check that implies."
+    ),
+)
+async def prepare_agent_route(
+    agent_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> AgentLifecycleOut:
+    assert principal.tenant_id is not None
+    result = await lifecycle.prepare_agent(
+        session, tenant_id=principal.tenant_id, agent_id=agent_id
+    )
+    return await _audited_move(session, result, "agent.prepared", principal, request)
 
 
 @router.post(

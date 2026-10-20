@@ -22,10 +22,16 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal
 from uuid import UUID
 
-from calevate_shared.call_script import FaqEntry, quick_fact_lines, splice_quick_facts
+from calevate_shared.call_script import (
+    QUICK_FACTS_HEADER,
+    CallScript,
+    FaqEntry,
+    quick_fact_lines,
+    splice_quick_facts,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -349,15 +355,119 @@ async def recompile_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: U
     return version
 
 
+NotYetReason = Literal["waiting_put_live", "too_long", "on_the_way"]
+
+
+@dataclass(frozen=True, slots=True)
+class NotYetOn:
+    """An agent whose live instructions do not carry the current pinned facts, and why."""
+
+    agent_id: UUID
+    agent_name: str
+    reason: NotYetReason
+    #: What it means and what to do, in the owner's words.
+    sentence: str
+
+
+def _section(body: str) -> list[str]:
+    """The quick-facts section of a compiled body, header to the next section."""
+    lines: list[str] = []
+    inside = False
+    for line in body.splitlines():
+        if line.startswith("["):
+            inside = line.startswith(QUICK_FACTS_HEADER)
+        if inside and line.strip():
+            lines.append(line)
+    return lines
+
+
+def _carries(body: str, pairs: Sequence[tuple[str, str]]) -> bool:
+    """Does `body` hold exactly these facts? Compared section to section rather than whole
+    bodies, because a body written before splicing existed differs in layout alone."""
+    return _section(body) == _section(splice_quick_facts(body, pairs))
+
+
+async def not_yet_on(session: AsyncSession) -> list[NotYetOn]:
+    """Every agent whose LIVE instructions lack the current pinned facts (D-838).
+
+    `recompile_agent` leaves two cases behind on purpose: an agent with a script edit staged
+    gets the facts in its draft only, and an agent the engine would refuse (instructions over
+    the limit) keeps what it had while an operator is alerted. Both are invisible to the owner
+    unless they are named here. Read from the versions themselves, so a recompile still
+    queued shows as `on_the_way` until it lands.
+    """
+    from apps.api.agents.script_builder import compiled_preview
+
+    pairs = pairs_of(await list_pinned(session))
+    rows = (
+        await session.execute(
+            text(
+                "SELECT a.id, a.name, live.body, draft.body, draft.structured_script, "
+                "(a.system_prompt_id IS DISTINCT FROM a.live_prompt_id) "
+                "FROM agents a JOIN prompt_versions live ON live.id = a.live_prompt_id "
+                "LEFT JOIN prompt_versions draft ON draft.id = a.system_prompt_id "
+                "WHERE a.deleted_at IS NULL AND a.status <> 'archived' "
+                "ORDER BY a.created_at, a.id"
+            )
+        )
+    ).all()
+    missing: list[NotYetOn] = []
+    for agent_id, name, live_body, draft_body, structured, staged in rows:
+        if not live_body or _carries(live_body, pairs):
+            continue
+        name = str(name)
+        if staged and draft_body and _carries(draft_body, pairs):
+            missing.append(
+                NotYetOn(
+                    agent_id=agent_id,
+                    agent_name=name,
+                    reason="waiting_put_live",
+                    sentence=(
+                        f"Not yet on {name}: it has script changes waiting. Put them live "
+                        "from its Script tab and these facts go live with them."
+                    ),
+                )
+            )
+            continue
+        script = (
+            CallScript.model_validate(structured)
+            if isinstance(structured, dict)
+            else CallScript.from_freeform(str(draft_body or live_body))
+        )
+        size = (await compiled_preview(session, agent_id, script)).size
+        missing.append(
+            NotYetOn(
+                agent_id=agent_id,
+                agent_name=name,
+                reason="on_the_way",
+                sentence=f"Being added to {name}. This takes a minute.",
+            )
+            if size.fits
+            else NotYetOn(
+                agent_id=agent_id,
+                agent_name=name,
+                reason="too_long",
+                sentence=(
+                    f"Not on {name}: its instructions would be too long with these facts, so "
+                    "it keeps the ones it had. Shorten its script or remove a pinned fact."
+                ),
+            )
+        )
+    return missing
+
+
 __all__ = [
     "MAX_PINNED_CHARS",
     "RECOMPILE_JOB",
+    "NotYetOn",
+    "NotYetReason",
     "PinnedFact",
     "absorb_script_facts",
     "add_pinned",
     "assert_room",
     "clean_pinned",
     "list_pinned",
+    "not_yet_on",
     "pairs_of",
     "recompile_agent",
     "reorder",

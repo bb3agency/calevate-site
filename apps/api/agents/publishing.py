@@ -1225,6 +1225,10 @@ async def apply_to_live(
             )
         if row.is_live:
             await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+        elif row.status == "paused" and row.published:
+            # Ready, not taking calls (D-838): no caller hears it, but its Try it chat runs
+            # what the engine holds, so the engine gets the script that was just applied.
+            await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
 
     assert row.draft_version is not None  # has_pending implies it
     log.info(

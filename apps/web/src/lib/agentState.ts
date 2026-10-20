@@ -147,7 +147,7 @@ export const STATUS_COPY: Record<string, { label: string; hint: string }> = {
     hint: "Still being put together.",
   },
   live: { label: "Switched on", hint: "Cleared to take calls." },
-  paused: { label: "Paused", hint: "Switched off for now, on purpose." },
+  paused: { label: "Not taking calls", hint: "Switched off: it answers no calls and makes none." },
   /* "Deleted", not "Archived" (D-527): the console calls the move Delete, in the founder's
      word, and a badge that names the state by the OTHER word leaves an owner unable to
      connect the button they pressed to the row in front of them. The hint carries the
@@ -197,7 +197,8 @@ export function humanise(value: string): string {
  * the drift starts. Anything a screen needs is imported from the one that names the paths.
  */
 const MOVES_BY_STATUS: Record<string, readonly LifecycleMove[]> = {
-  draft: ["activate", "archive"],
+  /* `prepare` is "Get it ready" (D-838): published to try in the chat, taking no calls. */
+  draft: ["activate", "prepare", "archive"],
   /* NO `archive` ON A LIVE AGENT, and the omission is the server's (D-527): deleting is
      refused with `agent_is_live` until the agent is switched off, because the console puts
      Delete on every row of the roster and one click there may not end a working phone

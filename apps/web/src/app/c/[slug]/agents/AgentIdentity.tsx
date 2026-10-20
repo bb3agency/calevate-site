@@ -35,8 +35,11 @@ import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
+  NOTICE_BAR,
+  NOTICE_BASE,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
 } from "@/components/ui";
 import { SaveBar } from "@/components/console/saveBar";
 import { useFormValidation } from "@/components/formValidation";
@@ -49,6 +52,7 @@ import {
   type AgentUpdateIn,
 } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { useRewriteOpeningInLanguage } from "@/lib/api/script";
 import { useClientSession } from "@/lib/api/session";
 import { hasKey } from "@/lib/lookup";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
@@ -60,6 +64,10 @@ import { asText } from "@/lib/copilot/types";
 export function AgentIdentity({ agent }: { agent: Agent }) {
   const session = useClientSession();
   const save = useUpdateAgent(session, agent.id);
+  const rewrite = useRewriteOpeningInLanguage(session, agent.id);
+  /* After a main-language change is saved: the language whose ready-made opening line is
+     offered, until the owner takes it or closes the offer (D-838). */
+  const [rewriteOffer, setRewriteOffer] = useState<string | null>(null);
   const write = useWriteAccess(session, "org:manage", "change this agent's details");
 
   const [name, setName] = useState(agent.name);
@@ -152,11 +160,27 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
       noValidate
       onSubmit={valid.onSubmit(() => {
         if (!changed) return;
-        save.mutate(patch);
+        const newMain = mainLanguage !== agent.language_primary ? mainLanguage : null;
+        save.mutate(patch, {
+          onSuccess: () => {
+            if (newMain !== null) {
+              rewrite.reset();
+              setRewriteOffer(newMain);
+            }
+          },
+        });
       })}
     >
       <RestrictionNote reason={write.reason} />
       {save.error && <ProblemNotice error={save.error} />}
+      {rewriteOffer !== null && (
+        <OpeningLineOffer
+          language={rewriteOffer}
+          rewrite={rewrite}
+          canWrite={write.allowed}
+          onDismiss={() => setRewriteOffer(null)}
+        />
+      )}
 
       {/* The message sits outside the wrapping `<label>`: enclosed, it would be read
           back as part of the field's name instead of as its description. */}
@@ -214,8 +238,10 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
         </select>
         <span className={FIELD_HINT}>
           The language it greets callers in, and the one it falls back to when it cannot
-          tell which language a caller is speaking. Its script and the two things it
-          announces at the start of a call are written in this language.
+          tell which language a caller is speaking. Changing it rewrites what it can tell
+          callers at the start of a call (that it is an AI, that the call is recorded, that
+          it remembers callers) in the new language. Its opening line and script are not
+          translated; after saving you can swap in a ready-made opening line.
         </span>
       </label>
 
@@ -260,5 +286,60 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
         />
       )}
     </form>
+  );
+}
+
+/**
+ * The one-click rewrite offered after the main language changed (D-838). The notices are
+ * already rewritten by the server; the opening line is the owner's own words, so it is only
+ * offered: the ready-made greeting in the new language goes into the script draft, and
+ * callers keep the live one until it is put live.
+ */
+function OpeningLineOffer({
+  language,
+  rewrite,
+  canWrite,
+  onDismiss,
+}: {
+  language: string;
+  rewrite: ReturnType<typeof useRewriteOpeningInLanguage>;
+  canWrite: boolean;
+  onDismiss: () => void;
+}) {
+  const name = hasKey(LANGUAGE_NAMES, language) ? LANGUAGE_NAMES[language] : language;
+  if (rewrite.data) {
+    return (
+      <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.ok}`}>
+        <p>
+          The opening line in your draft is now: “{rewrite.data.opening_line}”. Review it on the
+          Script tab, then put it live.
+        </p>
+        <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDismiss}>
+          Done
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.neutral}`}>
+      <p>
+        Saved. What it tells callers at the start of a call is now in {name}. Its opening line
+        is still the one you wrote.
+      </p>
+      {rewrite.error ? <ProblemNotice error={rewrite.error} /> : null}
+      <div className="flex flex-wrap gap-2 pt-1">
+        <button
+          type="button"
+          className={SECONDARY_BUTTON_SM}
+          disabled={!canWrite || rewrite.isPending}
+          onClick={() => rewrite.mutate()}
+        >
+          {rewrite.isPending ? "Writing it…" : `Use a ready-made opening line in ${name}`}
+        </button>
+        <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDismiss}>
+          Keep mine
+        </button>
+      </div>
+    </div>
   );
 }

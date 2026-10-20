@@ -407,6 +407,25 @@ export function usePublishScript(
   return useMutation({
     mutationFn: (payload: PublishIn) =>
       apiRequest<PublishOut>(session, `${base(agentId)}/publish`, { method: "POST", body: payload }),
+    // On a failure too: the version may be saved with only the apply refused, and the next
+    // "Put it live" must see it waiting (`script_routes.publish_script`).
+    onSettled: () => invalidateScript(client, session, agentId),
+  });
+}
+
+/** The ready-made opening line in the agent's main language, put into the script draft. */
+export function useRewriteOpeningInLanguage(
+  session: Session,
+  agentId: string,
+): UseMutationResult<{ opening_line: string; saved_at: string }, Error, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<{ opening_line: string; saved_at: string }>(
+        session,
+        `${base(agentId)}/opening-line/in-language`,
+        { method: "POST" },
+      ),
     onSuccess: () => invalidateScript(client, session, agentId),
   });
 }
@@ -708,7 +727,7 @@ export interface RunTestsBody {
   practice_callers?: boolean;
 }
 
-const testsKey = (org: string, agentId: string) => ["script-tests", org, agentId] as const;
+const testsKey = agentKeys.tests;
 
 /** The agent's latest test run and score history. Polls while a run is queued or running. */
 export function useTestConversations(

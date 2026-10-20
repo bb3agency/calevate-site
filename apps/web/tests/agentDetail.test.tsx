@@ -346,6 +346,7 @@ const TRAINING_READS = {
     ],
     facts_state: "live",
     items: [{ id: "i1", kind: "document", name: "Price list", state: "live" }],
+    pinned_not_yet_on: [],
   },
   "/v1/kb/teach/open": { teaching: null },
   "/v1/agents/agent-1/test-cases": { cases: [], limit: 20 },
@@ -1719,6 +1720,49 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
       "Ask us to write its script.",
     );
   });
+
+  it("links each missing setup step when switching on is refused for the business profile", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({ status: "draft", published: false }),
+        "POST /v1/agents/agent-1/activate": problem(409, {
+          type: "urn:calevate:tenancy/business_profile_incomplete",
+          title: "Finish your business profile first",
+          detail: "Your agent needs a few facts about your business before it can take calls.",
+          fields: [{ field: "setup.hours", rule: "business_hours_missing", message: "Add your opening hours." }],
+        }),
+      }),
+    );
+
+    await screen.findByText("Reception");
+    const switchOn = screen.getByRole("switch", { name: "Taking calls" });
+    await waitFor(() => expect(switchOn.hasAttribute("disabled")).toBe(false));
+    await act(async () => {
+      fireEvent.click(switchOn);
+    });
+    expect(await screen.findByText("This agent cannot take calls until these are done.")).toBeTruthy();
+    const link = screen.getAllByRole("link").find((a) => a.getAttribute("href")?.includes("/setup?step=hours"));
+    expect(link).toBeTruthy();
+  });
+
+  it("gets a draft ready without switching it on (D-838)", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({ status: "draft", published: false }),
+        "POST /v1/agents/agent-1/prepare": { agent_id: "agent-1", status: "paused", changed: true, numbers_released: 0 },
+      }),
+    );
+    await screen.findByText("Reception");
+    const ready = screen.getByRole("button", { name: "Get it ready" });
+    await waitFor(() => expect(ready.hasAttribute("disabled")).toBe(false));
+    await act(async () => {
+      fireEvent.click(ready);
+    });
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/prepare"))).toBe(true));
+    expect(calls.some((c) => c.path.endsWith("/activate"))).toBe(false);
+  });
 });
 
 describe("a deleted agent offers nothing to tweak (the founder's screenshot)", () => {
@@ -1834,6 +1878,38 @@ describe("changing what an agent is", () => {
 
     const patched = calls.find((call) => call.method === "PATCH");
     expect(JSON.parse(patched?.body ?? "{}")).toEqual({ reply_languages: ["te-IN", "en-IN"] });
+    // Only the extras moved, so no opening line is offered.
+    expect(within(panel).queryByRole("button", { name: /ready-made opening line/ })).toBeNull();
+  });
+
+  it("offers a ready-made opening line in the new main language once it is saved (D-838)", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "PATCH /v1/agents/agent-1": agent({ language_primary: "hi-IN", reply_languages: ["hi-IN"] }),
+        "POST /v1/agents/agent-1/script/opening-line/in-language": {
+          opening_line: "नमस्ते जी, Sunrise में call करने के लिए thank you.",
+          saved_at: "2026-10-20T10:00:00Z",
+        },
+      }),
+    );
+
+    await screen.findByText("Reception");
+    const panel = card("What it is");
+    await act(async () => {
+      fireEvent.change(within(panel).getByRole("combobox", { name: /Main language/ }), {
+        target: { value: "hi-IN" },
+      });
+    });
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Save changes/));
+    });
+    const offer = await within(panel).findByRole("button", { name: "Use a ready-made opening line in Hindi" });
+    await act(async () => {
+      fireEvent.click(offer);
+    });
+    expect(await within(panel).findByText(/नमस्ते जी/)).toBeTruthy();
+    expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/opening-line/in-language"))).toBe(true);
   });
 
   it("offers no save until something has been changed, and Cancel puts it back", async () => {

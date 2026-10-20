@@ -124,6 +124,10 @@ function Wizard({
   }, [index]);
 
   const states = stepStates(profile);
+  /* The steps that stop an agent taking calls until answered: the server's list, which
+     names people who take calls only when an agent answers calls or hands them over. */
+  const needed = new Set<StepId>(profile.required_steps);
+  const blocking = new Set<StepId>(profile.blockers.map((blocker) => blocker.step));
   const done = profile.setup.steps.filter((step) => step.state !== "todo").length;
   const go = (to: number) => {
     moved.current = true;
@@ -166,6 +170,9 @@ function Wizard({
               >
                 <StepMark state={states[item.id]} />
                 <span className="min-w-0 truncate">{item.short}</span>
+                {blocking.has(item.id) ? (
+                  <span className="ml-auto shrink-0 text-ink-faint">Needed</span>
+                ) : null}
               </button>
             </li>
           ))}
@@ -201,6 +208,9 @@ function Wizard({
                     {step.title}
                   </h2>
                   <p className="mt-1 text-body text-ink-muted">{step.hint}</p>
+                  {needed.has(step.id) ? (
+                    <p className="mt-1 text-meta font-medium text-ink">Needed before your agent takes calls.</p>
+                  ) : null}
                 </div>
                 <fieldset disabled={!canWrite || busy} className="min-w-0">
                   <SectionEditor

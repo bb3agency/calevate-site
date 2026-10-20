@@ -220,6 +220,38 @@ async def load_agent_script(
     )
 
 
+async def _same_authored(
+    session: AsyncSession, agent_id: UUID, loaded: int | None, on_file: int | None
+) -> bool:
+    """Did only the platform write versions between the one the editor loaded and the one
+    on file? Then the save rebases onto it instead of refusing (D-838).
+
+    The platform rewrites the draft for the owner when pinned facts, lead details or the
+    business's facts change (`teach.pinned.recompile_agent`, `recompile_collect`,
+    `t0.recompile_t0`). Those versions carry the authored structure unchanged, and this save
+    recompiles from the structure with the current facts, so nothing they did is lost.
+    Comparing whole versions refused every save made while a fact was being added. Quick
+    facts are left out of the comparison: they move to the business at every save.
+    A freeform version has no structure to compare and keeps the refusal.
+    """
+    if loaded is None or on_file is None:
+        return False
+    rows = (
+        await session.execute(
+            text(
+                "SELECT version, structured_script FROM prompt_versions "
+                "WHERE agent_id = :aid AND version IN (:loaded, :on_file)"
+            ),
+            {"aid": agent_id, "loaded": loaded, "on_file": on_file},
+        )
+    ).all()
+    structures = {int(r[0]): r[1] for r in rows}
+    before, after = structures.get(loaded), structures.get(on_file)
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return False
+    return {**before, "faqs": []} == {**after, "faqs": []}
+
+
 async def save_agent_script(
     session: AsyncSession,
     *,
@@ -264,7 +296,11 @@ async def save_agent_script(
     if current is None:
         raise ProblemError.not_found("Agent")
     on_file = int(current.version) if current.version is not None else None
-    if check_version and on_file != expected_version:
+    if (
+        check_version
+        and on_file != expected_version
+        and not await _same_authored(session, agent_id, expected_version, on_file)
+    ):
         raise ProblemError.conflict(
             "script_changed_elsewhere",
             "This script was changed somewhere else after you opened it.",

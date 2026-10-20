@@ -107,3 +107,17 @@ export const CLASSIFICATIONS: {
     ),
   },
 ];
+
+/**
+ * The classifications this account may pick. Promotional is hidden until Calevate's
+ * telemarketer registration is live (D-838, under D-692): a promotional list dials only
+ * after a same-day national preference check that only a registered telemarketer can run,
+ * and the server refuses to file one without it (`promotional_campaigns_unavailable`).
+ * Hidden while the registration is still loading, so it never appears and then vanishes.
+ * A draft already filed as promotional keeps it offered, so opening it does not change it.
+ */
+export function offeredClassifications(promotionalOpen: boolean, current?: Classification) {
+  return CLASSIFICATIONS.filter(
+    (option) => option.value !== "promotional" || promotionalOpen || current === "promotional",
+  );
+}

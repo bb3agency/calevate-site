@@ -8,6 +8,8 @@ import { TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { FIELD, FIELD_HINT, FIELD_LABEL, formatPhone } from "@/components/ui";
 import { canDialOut } from "@/lib/agentState";
+import { usePeRegistration } from "@/lib/api/dltRegistration";
+import { useClientSession } from "@/lib/api/session";
 import type { Agent } from "@/lib/api/agents";
 import {
   RETRY_GAP_CHOICES,
@@ -18,7 +20,7 @@ import {
 import { Term } from "@/lib/glossary";
 
 import type { CampaignFormState, ScheduleFormState, StartMode } from "./campaignForm";
-import { CLASSIFICATIONS, WEEKDAYS } from "./choices";
+import { WEEKDAYS, offeredClassifications } from "./choices";
 import { describeRepeat } from "./scheduleCopy";
 
 /** A read a step is BUILT from: its failure is a dead picker, not an empty one. */
@@ -185,6 +187,11 @@ export function BasicsStep({
   showTemplate?: boolean;
 }) {
   const usable = campaignNumbers(numbers.data, selectedAgentId);
+  const registration = usePeRegistration(useClientSession());
+  const classifications = offeredClassifications(
+    registration.data?.calevate_tm_active === true,
+    form.classification,
+  );
   return (
     <div className="space-y-5">
       <label className="block max-w-sm">
@@ -228,7 +235,7 @@ export function BasicsStep({
         legend="What kind of calls are these?"
         name="classification"
         value={form.classification}
-        options={CLASSIFICATIONS}
+        options={classifications}
         onChange={form.setClassification}
       />
 

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Pin, Search } from "lucide-react";
 
@@ -14,7 +15,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import type { useKbSources } from "@/lib/api/kb";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useBusinessSuggestions } from "@/lib/useVerticalExamples";
 import { lookup } from "@/lib/lookup";
 import {
@@ -25,6 +26,7 @@ import {
   useReorderPinned,
   type Fact,
   type KnownItem,
+  type PinnedNotYetOn,
 } from "@/lib/api/teach";
 
 import { SourcesList } from "./SourcesList";
@@ -103,7 +105,13 @@ export function WhatItKnows({
         </div>
       ) : null}
 
-      <PinnedFacts facts={shownPinned} all={pinned} canWrite={canWrite} filtered={query.trim() !== ""} />
+      <PinnedFacts
+        facts={shownPinned}
+        all={pinned}
+        canWrite={canWrite}
+        filtered={query.trim() !== ""}
+        notYetOn={knows.data.pinned_not_yet_on}
+      />
 
       <Section
         title="Facts"
@@ -176,13 +184,17 @@ function PinnedFacts({
   all,
   canWrite,
   filtered,
+  notYetOn,
 }: {
   facts: Fact[];
   all: Fact[];
   canWrite: boolean;
   filtered: boolean;
+  /** Agents whose live instructions do not carry these facts yet, with the server's reason. */
+  notYetOn: PinnedNotYetOn[];
 }) {
   const session = useClientSession();
+  const { href } = useClientRealm();
   const [adding, setAdding] = useState(false);
   const reorder = useReorderPinned(session);
 
@@ -213,6 +225,29 @@ function PinnedFacts({
     >
       {adding ? <PinnedForm onDone={() => setAdding(false)} /> : null}
       {reorder.error ? <ProblemNotice error={reorder.error} /> : null}
+      {notYetOn.length > 0 ? (
+        <ul className="space-y-1" aria-label="Agents that do not have these facts yet">
+          {notYetOn.map((entry) => (
+            <li
+              key={entry.agent_id}
+              className={`text-meta ${entry.reason === "on_the_way" ? "text-ink-muted" : "text-warn"}`}
+            >
+              {entry.sentence}
+              {entry.reason !== "on_the_way" ? (
+                <>
+                  {" "}
+                  <Link
+                    href={href(`/c/${session.orgSlug}/agents/${entry.agent_id}?section=script`)}
+                    className="underline underline-offset-2"
+                  >
+                    Open {entry.agent_name}&rsquo;s script
+                  </Link>
+                </>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {facts.length === 0 && !adding ? (
         <p className="text-meta text-ink-muted">
           {all.length ? "No pinned facts match." : "Nothing pinned yet. Pin a fact when you teach it."}

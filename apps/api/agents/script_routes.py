@@ -55,6 +55,7 @@ from apps.api.agents import (
     publishing,
     script_builder,
     script_proposals,
+    starters,
     test_conversations,
     trial_results,
 )
@@ -1284,9 +1285,23 @@ async def publish_script(
             ip=client_request_ip(request),
             summary={"version": saved.version},
         )
-    applied = await publishing.apply_to_live(
-        tenant_id=tenant_id, agent_id=agent_id, expected_version=saved.version
-    )
+    try:
+        applied = await publishing.apply_to_live(
+            tenant_id=tenant_id, agent_id=agent_id, expected_version=saved.version
+        )
+    except ProblemError as exc:
+        # The version above is committed and the draft cleared, so a refusal from here on
+        # must not read as "nothing happened": it says what is saved and how to finish. The
+        # refusal itself is re-raised, so its code, status and alarm stay the raise site's.
+        exc.title = "Saved, but not live yet"
+        exc.detail = (
+            f"Your changes are saved as version {saved.version}, and callers still hear the "
+            f"previous script. Putting it live did not finish: {exc.detail}"
+        )
+        exc.remediation = (
+            "Press Put it live again to finish; your changes are kept. " + (exc.remediation or "")
+        ).strip()
+        raise
     return PublishOut(version=saved.version, live=applied.applied and applied.engine_synced)
 
 
@@ -1329,6 +1344,33 @@ async def restore_script_version(
 ) -> DraftOut:
     draft = await script_builder.restore_into_draft(session, agent_id, version)
     return DraftOut(script=draft.script, saved_at=draft.saved_at)
+
+
+class OpeningRewrittenOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: The opening line now in the draft, in the agent's main language.
+    opening_line: str
+    saved_at: datetime
+
+
+@router.post(
+    "/opening-line/in-language",
+    response_model=OpeningRewrittenOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Put a ready-made opening line in the agent's main language into the draft",
+    description=(
+        "Offered after the agent's main language changes (D-838). The line is the "
+        "ready-made greeting for this business type in that language, written into the "
+        "autosaved draft; callers keep the live script until the draft is put live."
+    ),
+)
+async def rewrite_opening_in_language(
+    agent_id: UUID, session: Session, _: ScriptWriter
+) -> OpeningRewrittenOut:
+    # Not audited, for the autosave's reason: nothing here reaches a call. Putting it live is.
+    done = await starters.rewrite_opening_in_language(session, agent_id)
+    return OpeningRewrittenOut(opening_line=done.opening_line, saved_at=done.saved_at)
 
 
 class ApplyScriptIn(BaseModel):

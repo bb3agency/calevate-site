@@ -3696,6 +3696,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ready, not taking calls: publish the agent to try it in the chat (draft -> inactive)
+         * @description Publishes the agent to the voice platform and reads it back, exactly as activating does, but leaves it INACTIVE: no number is bound to it, it places no calls, and the business-profile checks for going live are not asked. Its Try it chat then talks to it. An inactive agent that was published before is published again, so the chat tries its current script. An active agent is a success that publishes nothing; switch it off to take it off the phone.
+         *
+         *     Switching it on later is `activate`, with every check that implies.
+         */
+        post: operations["prepare_agent_route_v1_agents__agent_id__prepare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/restore": {
         parameters: {
             query?: never;
@@ -3762,6 +3784,26 @@ export interface paths {
         /** Autosave the working copy (no version, never reaches a call) */
         put: operations["save_script_draft_v1_agents__agent_id__script_draft_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/opening-line/in-language": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put a ready-made opening line in the agent's main language into the draft
+         * @description Offered after the agent's main language changes (D-838). The line is the ready-made greeting for this business type in that language, written into the autosaved draft; callers keep the live script until the draft is put live.
+         */
+        post: operations["rewrite_opening_in_language_v1_agents__agent_id__script_opening_line_in_language_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11238,6 +11280,8 @@ export interface components {
             merge_notes: {
                 [key: string]: unknown;
             }[];
+            /** Required Steps */
+            required_steps: ("hours" | "branches" | "services" | "faqs" | "staff" | "booking" | "contacts" | "languages")[];
             /** Services */
             services: components["schemas"]["ServiceItem"][];
             setup: components["schemas"]["ProfileSetupOut"];
@@ -12786,6 +12830,8 @@ export interface components {
             languages: ("te-IN" | "hi-IN" | "en-IN")[];
             /** Legal Name */
             legal_name: string | null;
+            /** Required Steps */
+            required_steps: ("hours" | "branches" | "services" | "faqs" | "staff" | "booking" | "contacts" | "languages")[];
             /** Services */
             services: components["schemas"]["ServiceItem"][];
             setup: components["schemas"]["ProfileSetupOut"];
@@ -19412,6 +19458,8 @@ export interface components {
             facts_state: string;
             /** Items */
             items: components["schemas"]["KnownItemOut"][];
+            /** Pinned Not Yet On */
+            pinned_not_yet_on: components["schemas"]["PinnedNotYetOut"][];
         };
         /**
          * KycDocumentOut
@@ -21497,6 +21545,16 @@ export interface components {
         OpenTeachingOut: {
             teaching: components["schemas"]["TeachingOut"] | null;
         };
+        /** OpeningRewrittenOut */
+        OpeningRewrittenOut: {
+            /** Opening Line */
+            opening_line: string;
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+        };
         /** OperatorCreateIn */
         OperatorCreateIn: {
             /**
@@ -22220,6 +22278,20 @@ export interface components {
             };
             /** Qualify Rate Pct */
             qualify_rate_pct: number | null;
+        };
+        /** PinnedNotYetOut */
+        PinnedNotYetOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string;
+            /** Reason */
+            reason: string;
+            /** Sentence */
+            sentence: string;
         };
         /** PinnedOrderIn */
         PinnedOrderIn: {
@@ -25267,6 +25339,8 @@ export interface components {
              * @enum {string}
              */
             job: "answer_calls" | "call_leads";
+            /** Locked Reason */
+            locked_reason: string | null;
             /** Name Suggestion */
             name_suggestion: string;
             /** Opening Line */
@@ -34594,6 +34668,7 @@ export interface operations {
         parameters: {
             query?: {
                 job?: ("answer_calls" | "call_leads") | null;
+                language?: ("te-IN" | "hi-IN" | "en-IN") | null;
             };
             header?: never;
             path?: never;
@@ -35515,6 +35590,37 @@ export interface operations {
             };
         };
     };
+    prepare_agent_route_v1_agents__agent_id__prepare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentLifecycleOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     restore_agent_route_v1_agents__agent_id__restore_post: {
         parameters: {
             query?: never;
@@ -35669,6 +35775,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DraftSavedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rewrite_opening_in_language_v1_agents__agent_id__script_opening_line_in_language_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpeningRewrittenOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

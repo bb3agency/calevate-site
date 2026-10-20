@@ -620,6 +620,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # taking another business's receptionist off its phone line.
     ("PATCH", "/v1/agents/{agent_id}", {"name": "idor sweep"}, {}),
     ("POST", "/v1/agents/{agent_id}/activate", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/prepare", {}, {}),
     ("POST", "/v1/agents/{agent_id}/deactivate", {}, {}),
     ("POST", "/v1/agents/{agent_id}/archive", {}, {}),
     ("POST", "/v1/agents/{agent_id}/restore", {}, {}),
@@ -750,6 +751,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/agents/{agent_id}/script/publish", {"summary": "Changed the greeting"}, {}),
     ("GET", "/v1/agents/{agent_id}/script/versions", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/versions/{version}/restore", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/script/opening-line/in-language", {}, {}),
     # D-715: what a lead's calls captured.
     ("GET", "/v1/leads/{lead_id}/captured", {}, {}),
     # D-719: facts, teachings, waiting rules, saved tests and the try-chat.

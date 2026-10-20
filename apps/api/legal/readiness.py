@@ -237,10 +237,11 @@ ROW_COPY: dict[str, _Copy] = {
         title="Campaigns waiting on a DND scrub",
         actor="calevate",
         next_step=(
-            "Nothing to do at your end. Before a promotional campaign dials, we scrub its "
-            "list against the national customer preference register on an access "
-            "provider's DLT platform, and that scrub is only good until the end of the "
-            "day it was run."
+            "A promotional campaign dials only after its list is checked against the "
+            "national customer preference register that day. The check is made by a "
+            "registered telemarketer on an access provider's DLT platform, and until one "
+            "is recorded for the list the campaign cannot call. Reminders and updates to "
+            "your own customers can go out as a service campaign."
         ),
     ),
 }

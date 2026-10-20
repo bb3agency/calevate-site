@@ -46,7 +46,7 @@
  */
 
 import { useState } from "react";
-import { Power, PowerOff, Trash2, Undo2 } from "lucide-react";
+import { MessageSquareText, Power, PowerOff, Trash2, Undo2 } from "lucide-react";
 
 import {
   DANGER_BUTTON,
@@ -93,6 +93,12 @@ export const MOVE_COPY: Record<LifecycleMove, MoveCopy> = {
     busy: "Switching on…",
     hint: "Puts it on the calling system and starts it taking calls. We check the platform is really running your script and voice before it goes live, so this can take a moment — and it is refused if the script has not been written yet.",
     icon: Power,
+  },
+  prepare: {
+    label: "Get it ready",
+    busy: "Getting it ready…",
+    hint: "Puts it on the calling system so you can try it in the chat, without taking or making any calls. Switch it on when you want it answering.",
+    icon: MessageSquareText,
   },
   deactivate: {
     label: "Switch off",
@@ -170,16 +176,8 @@ export function AgentLifecycle({
       {agent.status !== "live" && profile.data && (
         <ProfileBlockers blockers={profile.data.blockers} href={href} />
       )}
-      {move.error instanceof ApiProblem &&
-      blockersFromProblem(move.error.code, move.error.fields).length > 0 ? (
-        <ProfileBlockers
-          blockers={blockersFromProblem(move.error.code, move.error.fields)}
-          href={href}
-          lead="This agent cannot take calls until these are done."
-        />
-      ) : (
-        move.error && <ProblemNotice error={move.error} />
-      )}
+      <LifecycleError error={move.error} />
+
 
       {moves.map((key) => {
         const copy = MOVE_COPY[key];
@@ -259,5 +257,25 @@ export function AgentLifecycle({
         );
       })}
     </div>
+  );
+}
+
+/**
+ * A refused lifecycle move, as the screen shows it. A go-live refused for missing business
+ * facts (`business_profile_incomplete`) becomes a list with a link to each setup step;
+ * anything else is the server's own problem notice. One component so the header switch and
+ * this panel cannot word the same refusal two ways.
+ */
+export function LifecycleError({ error }: { error: Error | null }) {
+  const { session, href: realmHref } = useClientRealm();
+  if (!error) return null;
+  const blockers = error instanceof ApiProblem ? blockersFromProblem(error.code, error.fields) : [];
+  if (blockers.length === 0) return <ProblemNotice error={error} />;
+  return (
+    <ProfileBlockers
+      blockers={blockers}
+      href={(path: string) => realmHref(`/c/${session.orgSlug}${path}`)}
+      lead="This agent cannot take calls until these are done."
+    />
   );
 }

@@ -119,8 +119,11 @@ log = get_logger(__name__)
 #: taken on its own, with its own button and its own audit row. What the removed edge costs
 #: is one extra click on a retirement, which nobody does twice a year; what it buys is that
 #: no single click on this screen can take a working line down.
+#:
+#: `draft -> paused` is "Ready, not taking calls" (D-838): published so it can be tried in
+#: the chat, answering and placing no calls (`prepare_agent`).
 AGENT_TRANSITIONS: dict[AgentStatus, frozenset[AgentStatus]] = {
-    "draft": frozenset({"live", "archived"}),
+    "draft": frozenset({"live", "paused", "archived"}),
     "live": frozenset({"paused"}),
     "paused": frozenset({"live", "archived"}),
     "archived": frozenset({"paused"}),
@@ -166,6 +169,7 @@ ASSIGNABLE_STATUSES: frozenset[AgentStatus] = frozenset(
 #: tell two movers apart, and this can do both.
 AGENT_MOVERS: dict[str, tuple[frozenset[AgentStatus], AgentStatus]] = {
     "activate": (frozenset({"draft", "paused"}), "live"),
+    "prepare": (frozenset({"draft"}), "paused"),
     "deactivate": (frozenset({"live"}), "paused"),
     "archive": (frozenset({"draft", "paused"}), "archived"),
     "restore": (frozenset({"archived"}), "paused"),
@@ -536,7 +540,8 @@ async def update_agent(
     row = (
         await session.execute(
             text(
-                "SELECT status, engine_agent_ref, engine_voice_id, engine_model_id FROM agents "
+                "SELECT status, engine_agent_ref, engine_voice_id, engine_model_id, "
+                "language_primary FROM agents "
                 "WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
             ),
             {"aid": agent_id},
@@ -547,6 +552,9 @@ async def update_agent(
     if str(row[0]) == "archived":
         raise archived_refusal("edited")
     republish = str(row[0]) == "live" and bool(row[1])
+    # The screen sends the whole reply-language list whenever any of it moved, so a main
+    # language that arrives is not necessarily a new one.
+    language_changed = language_primary is not None and language_primary != str(row[4])
     await _check_engine_choice(
         session,
         republish=republish,
@@ -608,6 +616,11 @@ async def update_agent(
             "aid": agent_id,
         },
     )
+    if language_changed:
+        assert language_primary is not None
+        await _rewrite_notices(
+            session, tenant_id=tenant_id, agent_id=agent_id, language=language_primary
+        )
     if republish:
         await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
     log.info(
@@ -620,6 +633,44 @@ async def update_agent(
             # neighbourhood).
             "fields": sorted(supplied),
             "republished": republish,
+            "notices_rewritten": language_changed,
+        },
+    )
+
+
+async def _rewrite_notices(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, language: str
+) -> None:
+    """Write the three notice sentences in the agent's new main language (D-838).
+
+    From the templates `create_agent` uses, so a language change leaves the agent as a new
+    agent in that language would be born, every sentence non-empty (hard rule 5). The
+    toggles are left alone: which notices are SPOKEN is the owner's choice and does not
+    change with the language. A sentence an experiment promoted is replaced too, because
+    it was written in the old language.
+    """
+    business = (
+        await session.execute(
+            text("SELECT name FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+        )
+    ).scalar_one()
+    ai_line = ai_disclosure_for(language=language, business=str(business))
+    recording_line = recording_notice_for(language=language)
+    await session.execute(
+        text(
+            "UPDATE agents SET ai_disclosure_line = :ai_line, "
+            "recording_notice_line = :rec_line, caller_memory_notice_line = :mem_line, "
+            "disclosure_line = :bundle, updated_at = now() "
+            "WHERE id = :aid AND deleted_at IS NULL"
+        ),
+        {
+            "aid": agent_id,
+            "ai_line": ai_line,
+            "rec_line": recording_line,
+            "mem_line": caller_memory_notice_for(language=language),
+            "bundle": bundled_disclosure_line(
+                ai_disclosure_line=ai_line, recording_notice_line=recording_line
+            ),
         },
     )
 
@@ -659,6 +710,44 @@ async def activate_agent(
     # which fails the moment the table and these two branches stop agreeing.
     await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
     return LifecycleResult(agent_id=agent_id, status="live", changed=True, numbers_released=0)
+
+
+async def prepare_agent(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
+) -> LifecycleResult:
+    """ "Ready, not taking calls" (D-838): publish the agent so it can be tried in the chat,
+    without putting it on the phone. `draft` → `paused`; a `paused` agent is republished as
+    it stands, so the chat tries the script it has now.
+
+    `paused` with an engine agent IS the ready state, rather than a fifth status: it is
+    published and read back like any agent, no number is bound to it
+    (`publish_agent(take_calls=False)`), the dial gate places calls only for `live`, and
+    switching it on later is `activate`, which asks the go-live checks and the compliance
+    gate as it always did. A fifth status would have needed every reader of the column to
+    learn it, for a state that differs from `paused` in nothing a caller can tell.
+
+    A live agent is already published and is left alone: taking it off the phone is
+    `deactivate`, which releases its numbers.
+    """
+    await _lock_knowledge_first(session, tenant_id=tenant_id)
+    status = await _locked_status(session, agent_id)
+    if status == "archived":
+        raise archived_refusal("made ready")
+    if status == "live":
+        return LifecycleResult(agent_id=agent_id, status="live", changed=False, numbers_released=0)
+    moved = False
+    if status == "draft":
+        moved = await transition_status(
+            session,
+            table="agents",
+            entity="Agent",
+            row_id=agent_id,
+            to_status="paused",
+            from_statuses=_sources_for("prepare"),
+            visible_where=_VISIBLE,
+        )
+    await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
+    return LifecycleResult(agent_id=agent_id, status="paused", changed=moved, numbers_released=0)
 
 
 async def deactivate_agent(
@@ -1141,6 +1230,7 @@ __all__ = [
     "create_agent",
     "deactivate_agent",
     "hold_agent_for_campaign_start",
+    "prepare_agent",
     "release_account_numbers",
     "restore_account_numbers",
     "restore_agent",
