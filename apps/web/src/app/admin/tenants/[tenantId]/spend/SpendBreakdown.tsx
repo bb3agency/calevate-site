@@ -7,6 +7,8 @@ import { formatCount, formatINR, formatIST } from "@/components/ui";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { SegmentedControl } from "@/components/interior/segmented-control";
+import { formatCacheShare } from "@/app/admin/ops/voices/hosted/cacheShare";
+import { useCallCacheShares } from "@/lib/api/opsHostedVoices";
 import {
   isZeroMoney,
   type AgentSpend,
@@ -18,7 +20,7 @@ import {
 type View = "agents" | "calls" | "units";
 
 /** Three peer views of one month's attribution (D-655): who, which calls, which meters. */
-export function Breakdown({ data }: { data: TenantSpend }) {
+export function Breakdown({ data, tenantId }: { data: TenantSpend; tenantId: string }) {
   const [view, setView] = useState<View>("agents");
   return (
     <Section title="Where it went">
@@ -44,7 +46,7 @@ export function Breakdown({ data }: { data: TenantSpend }) {
                 {formatCount(data.calls)}.
               </p>
             )}
-            <CallsTable rows={data.top_calls} />
+            <CallsTable rows={data.top_calls} tenantId={tenantId} />
           </>
         )}
         {view === "units" && <UnitsTable rows={data.by_unit} />}
@@ -129,7 +131,13 @@ function AgentsTable({ rows }: { rows: AgentSpend[] }) {
   );
 }
 
-function CallsTable({ rows }: { rows: CallSpend[] }) {
+function CallsTable({ rows, tenantId }: { rows: CallSpend[]; tenantId: string }) {
+  // What share of each own-model call's input was cached (D-839); absent for other calls.
+  const shares = useCallCacheShares(
+    tenantId,
+    rows.map((call) => call.call_id),
+  ).data;
+  const cached = new Map((shares?.calls ?? []).map((share) => [share.call_id, share]));
   if (rows.length === 0) return <EmptyState message="No calls this month" />;
   const columns: DataColumn<CallSpend>[] = [
     { id: "when", header: "When", cell: (call) => <span className="whitespace-nowrap">{formatIST(call.started_at)}</span> },
@@ -148,6 +156,25 @@ function CallsTable({ rows }: { rows: CallSpend[] }) {
           <AssumedMark assumed={call.cost_currency_assumed} />
         </span>
       ),
+    },
+    {
+      id: "cache",
+      header: "Model input",
+      align: "right",
+      hideBelow: "lg",
+      cell: (call) => {
+        const share = cached.get(call.call_id);
+        return share?.share ? (
+          <span
+            className={`${num} text-ink-muted`}
+            title={`${formatCount(share.cached_input_tokens)} of ${formatCount(share.input_tokens)} input tokens cached`}
+          >
+            {formatCacheShare(share.share)}
+          </span>
+        ) : (
+          <span className="text-ink-faint">—</span>
+        );
+      },
     },
     {
       id: "margin",

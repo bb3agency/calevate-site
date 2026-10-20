@@ -3,15 +3,13 @@
 import Link from "next/link";
 import { useId, useState } from "react";
 
+import { configHref } from "@/app/admin/ops/config/configSections";
 import { StatusPill } from "@/components/admin/kit";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION } from "@/components/console/section";
 import {
-  FIELD,
-  FIELD_HINT,
-  FIELD_LABEL,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
   Skeleton,
@@ -25,14 +23,39 @@ import {
   type OwnModel,
 } from "@/lib/api/opsHostedVoices";
 
-const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const KEYS_HREF = "/admin/ops/config?section=credentials";
-const MODELS_HREF = "/admin/ops/config?section=language-models";
-const VOICE_ENGINE_HREF = "/admin/ops/config?section=voice-engine";
+import { ClientPicker } from "./ClientPicker";
+import { formatCacheShare } from "./cacheShare";
+
+// Each step lands on the panel, key or setting it names (`configHref`).
+const KEYS_HREF = configHref("credentials", { credential: "gemini_api_key" });
+const PRICES_HREF = configHref("language-models", { panel: "model_pricing" });
+const MODELS_HREF = configHref("language-models");
+const DATA_USE_HREF = configHref("language-models", { panel: "in_call_data_use" });
+const MINUTE_HREF = configHref("voice-engine", { panel: "engine_minute_price" });
+const DEFAULT_MODEL_HREF = configHref("voice-engine", { setting: "thinnest_own_model_default" });
+const SWITCH_HREF = configHref("voice-engine", { setting: "thinnest_own_model" });
 const DEVELOPER_STEP = "developer";
 
 /** A step with `href: null` is done on this card (the developer workspace set-up). */
 type Step = { id: string; label: string; done: boolean; detail: string; href: string | null; go: string };
+
+/**
+ * The default-model step, by where the server says it is fixed (`default_fix`): only a
+ * missing price is fixed in the prices; a model Google limits, or one the platform does not
+ * run, is fixed by choosing another default.
+ */
+function defaultModelStep(data: OwnModel): Pick<Step, "label" | "href" | "go"> {
+  switch (data.default_fix) {
+    case "key":
+      return { label: `Make ${data.default_model} usable`, href: KEYS_HREF, go: "Open keys" };
+    case "deployment":
+      return { label: `Make ${data.default_model} usable`, href: MODELS_HREF, go: "Open models" };
+    case "default":
+      return { label: "Choose a model our key can run", href: DEFAULT_MODEL_HREF, go: "Choose the model" };
+    default:
+      return { label: `Price ${data.default_model}`, href: PRICES_HREF, go: "Open prices" };
+  }
+}
 
 /**
  * The five steps before our own model may be switched on, in the order an operator does them,
@@ -50,26 +73,25 @@ export function ownModelSteps(data: OwnModel): Step[] {
     },
     {
       id: "model",
-      label: `Price ${data.default_model}`,
       done: data.default_offerable,
       detail: data.default_reason ?? "Attest the model's price from the Google invoice.",
-      href: MODELS_HREF,
-      go: "Open prices",
+      ...defaultModelStep(data),
     },
     {
       id: "data-use",
-      label: "Attest how Google uses call data",
+      label: "Attest how Google uses callers' speech",
       done: data.data_use_attested,
-      detail: "Paid tier, log sharing off: caller speech goes through this key on every turn.",
-      href: MODELS_HREF,
-      go: "Open models",
+      detail:
+        "In-call data use: paid tier, log sharing off. Caller speech goes through this key on every turn; the dashboard assistant's attestation does not count.",
+      href: DATA_USE_HREF,
+      go: "Open attestation",
     },
     {
       id: "minute",
       label: "Attest the Studio minute on our model",
       done: data.llm_voice_minute_attested,
       detail: "The own-voice-and-model (byok_llm_voice) per-minute rate.",
-      href: VOICE_ENGINE_HREF,
+      href: MINUTE_HREF,
       go: "Open prices",
     },
     {
@@ -99,7 +121,11 @@ export function OwnModelCard() {
   const [confirming, setConfirming] = useState(false);
   const [tenantId, setTenantId] = useState("");
   const tenantField = useId();
-  const tenantValid = UUID_SHAPE.test(tenantId.trim());
+  const openInstall = (client = "") => {
+    enable.reset();
+    setTenantId(client);
+    setConfirming(true);
+  };
 
   if (own.error != null) {
     return (
@@ -139,6 +165,8 @@ export function OwnModelCard() {
     ),
   }));
   const status = data.switched_on ? "On" : data.ready ? "Ready, off" : "Not ready";
+  const onKey = new Set(data.workspaces.map((ws) => ws.tenant_id));
+  const pendingCode = new Map(data.pending_workspaces.map((ws) => [ws.tenant_id, ws.error_code]));
 
   return (
     <section aria-labelledby="own-model-setup" className="space-y-4">
@@ -165,7 +193,7 @@ export function OwnModelCard() {
       <p className="text-meta text-ink-muted">
         {data.note}{" "}
         {data.ready && !data.switched_on && (
-          <Link href={VOICE_ENGINE_HREF} className={TEXT_ACTION}>
+          <Link href={SWITCH_HREF} className={TEXT_ACTION}>
             Switch it on in the settings
           </Link>
         )}
@@ -175,7 +203,12 @@ export function OwnModelCard() {
         {data.floor_model_inr_per_min == null
           ? `Cost floor: ${data.default_model} has no reference price to add at `
           : `Cost floor: ${data.default_model} adds ${formatRupeeRate(data.floor_model_inr_per_min)}/min at `}
-        {data.floor_prompt_basis}.
+        {data.floor_prompt_basis}.{" "}
+        {data.fleet_cache_share == null
+          ? "Cache share: not measured yet."
+          : `Cache share: ${formatCacheShare(data.fleet_cache_share)} of input over ${formatCount(data.fleet_cache_calls)} ${
+              data.fleet_cache_calls === 1 ? "call" : "calls"
+            } in 30 days; the floor assumes none.`}
       </p>
 
       {data.workspaces.length > 0 && (
@@ -193,14 +226,25 @@ export function OwnModelCard() {
         </p>
       )}
 
-      <button
-        type="button"
-        className={TEXT_ACTION}
-        onClick={() => {
-          enable.reset();
-          setConfirming(true);
-        }}
-      >
+      {data.pending_workspaces.length > 0 && (
+        <p className="text-meta text-ink-muted">
+          Not on our key yet:{" "}
+          {data.pending_workspaces.map((ws, i) => (
+            <span key={ws.tenant_id}>
+              {i > 0 && ", "}
+              <Link href={`/admin/tenants/${ws.tenant_id}`} className={TEXT_ACTION}>
+                {ws.tenant_name ?? "Unnamed client"}
+              </Link>
+              <span className="text-warn">{` (last error ${ws.error_code})`}</span>{" "}
+              <button type="button" className={TEXT_ACTION} onClick={() => openInstall(ws.tenant_id)}>
+                Retry
+              </button>
+            </span>
+          ))}
+        </p>
+      )}
+
+      <button type="button" className={TEXT_ACTION} onClick={() => openInstall()}>
         Install our key for a client now
       </button>
 
@@ -226,14 +270,15 @@ export function OwnModelCard() {
       {confirming && (
         <ConfirmDialog
           title="Install our Google key for a client?"
+          confirmDisabled={!tenantId}
           confirmLabel="Install"
           pendingLabel="Working…"
           pending={enable.isPending}
           error={enable.error}
           onCancel={() => setConfirming(false)}
           onConfirm={() => {
-            if (!tenantValid) return;
-            enable.mutate({ tenant_id: tenantId.trim() }, { onSuccess: () => setConfirming(false) });
+            if (!tenantId) return;
+            enable.mutate({ tenant_id: tenantId }, { onSuccess: () => setConfirming(false) });
           }}
         >
           <p>
@@ -242,20 +287,16 @@ export function OwnModelCard() {
             client now, switching that workspace&rsquo;s own keys on if they are off, agents that would
             follow them kept off first. You may be asked to confirm it is still you.
           </p>
-          <label htmlFor={tenantField} className={`mt-3 ${FIELD_LABEL}`}>
-            Paying client, account id
-          </label>
-          <input
+          <ClientPicker
             id={tenantField}
-            className={`mt-1 ${FIELD}`}
+            label="Paying client"
+            clients={data.clients}
             value={tenantId}
-            onChange={(event) => setTenantId(event.target.value)}
-            aria-invalid={tenantId.trim() !== "" && !tenantValid}
+            onChange={setTenantId}
+            emptyLabel="Choose a client"
+            hint="Clients with a voice workspace of their own."
+            note={(id) => (onKey.has(id) ? "on our key" : pendingCode.get(id) ? "not on our key yet" : undefined)}
           />
-          <p className={FIELD_HINT}>The id is on the client&rsquo;s admin page.</p>
-          {tenantId.trim() !== "" && !tenantValid && (
-            <p className="mt-1 text-meta text-warn">That is not an account id.</p>
-          )}
         </ConfirmDialog>
       )}
     </section>

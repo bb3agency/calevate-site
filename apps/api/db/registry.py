@@ -650,6 +650,13 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "account per provider for the whole deployment, so there is no tenant whose row this "
         "could be and it carries no tenant_id. Reachable only behind `platform:config`."
     ),
+    "platform_in_call_data_use": (
+        "platform-scoped, admin realm only (PLATFORM-CONFIG §5). What an operator attested "
+        "about ONE LLM provider's data-use terms for raw caller speech on our own model "
+        "(D-839) — one vendor account per provider for the whole deployment, so there is no "
+        "tenant whose row this could be and it carries no tenant_id. Reachable only behind "
+        "`platform:config`."
+    ),
     "platform_model_prices": (
         "platform-scoped, admin realm only (PLATFORM-CONFIG §5). Operator-attested vendor "
         "list prices per LLM model, effective-dated — one Azure/OpenAI/Google subscription "
@@ -1113,6 +1120,9 @@ APPEND_ONLY_TABLES = [
     # whose word, when we let a client's screen content reach this vendor" must stay
     # answerable after the fact, and a row somebody could edit answers it with today's belief.
     "platform_dashboard_data_use",
+    # The in-call twin (D-839): what was believed, on whose word, when callers' speech went
+    # through our key to this vendor.
+    "platform_in_call_data_use",
     "platform_model_prices",
     # The attested TTS price (D-547). Append-only for `platform_model_prices`' reason,
     # one vendor further down the call: a figure somebody could edit would silently

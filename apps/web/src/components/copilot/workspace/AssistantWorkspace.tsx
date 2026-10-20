@@ -26,6 +26,7 @@ import { CopilotPanel } from "../CopilotPanel";
 import { ActivityLog } from "./ActivityLog";
 import { ApprovalsInbox } from "./ApprovalsInbox";
 import { Routines } from "./Routines";
+import { PipSwitch } from "./PipSwitch";
 import { TasksList } from "./TasksList";
 
 type Destination = { route: string; screen: string; where: string };
@@ -92,6 +93,8 @@ export function ClientAssistantWorkspace({
               return <Routines session={session} />;
             case "activity":
               return <ActivityLog session={session} realm="client" />;
+            case "settings":
+              return <PipSwitch session={session} />;
             default:
               return (
                 <CopilotPanel
@@ -155,6 +158,7 @@ const CLIENT_TABS = [
   { value: "tasks", label: "Tasks" },
   { value: "routines", label: "Routines" },
   { value: "activity", label: "Activity" },
+  { value: "settings", label: "Settings" },
 ] as const;
 
 const ADMIN_TABS = [

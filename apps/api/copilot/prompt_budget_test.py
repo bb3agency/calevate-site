@@ -27,8 +27,11 @@ from apps.api.copilot.schemas import (
 )
 
 #: The largest cacheable prefix each surface may carry, in estimated tokens. A change that
-#: grows one past its budget fails here and has to argue for the room.
-PREFIX_BUDGET_TOKENS = {"client": 18_000, "admin_account": 9_500, "admin_console": 6_500}
+#: grows one past its budget fails here and has to argue for the room. The client budget
+#: includes `agent_capture_fields_set_live` (D-839, ~310 tokens): a
+#: live agent's capture fields are confirmed first, which needs a confirm-tier twin as
+#: `agent_edit_live` is, because a tool's tier is fixed per tool.
+PREFIX_BUDGET_TOKENS = {"client": 18_500, "admin_account": 9_500, "admin_console": 6_500}
 
 
 def _compact(value: Any) -> str:

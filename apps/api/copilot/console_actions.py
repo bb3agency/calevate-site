@@ -1915,31 +1915,61 @@ def _extraction_fields(raw: list[Any]) -> list[Any]:
         ) from exc
 
 
-async def _plan_capture_fields(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+async def _plan_capture_fields_common(
+    session: AsyncSession, args: Mapping[str, Any], *, live: bool
 ) -> Plan:
-    del actor
+    """A live agent's capture list is read on its next call, so the change is confirmed
+    first (`agent_capture_fields_set_live`), as `agent_edit_live` is; a draft or paused
+    agent's applies at once with an Undo."""
     from apps.api.agents.extraction_routes import validate_fields
 
     parsed = parse_args(_CaptureFieldsArgs, args)
     fields = _extraction_fields([field.model_dump() for field in parsed.fields])
     validate_fields(fields)
-    name, _status = await _agent_name_status(session, parsed.agent_id)
+    name, status = await _agent_name_status(session, parsed.agent_id)
+    if live and status != "live":
+        raise WriteRefusedError(
+            "that agent is not live, so use `agent_capture_fields_set`, which applies at once "
+            "with an Undo"
+        )
+    if not live and status == "live":
+        raise WriteRefusedError(
+            "that agent is live, so this change would apply to its next call — use "
+            "`agent_capture_fields_set_live`, which the person confirms first"
+        )
     current = await _current_fields(session, parsed.agent_id)
     proposed = ", ".join(field.label for field in fields) or "nothing"
     return Plan(
         object_id=str(parsed.agent_id),
-        title="Change what this agent captures",
+        title="Change what this live agent captures" if live else "Change what this agent captures",
         summary=f"“{name}” will capture: {proposed}. It applies from the next call.",
         current=", ".join(str(item.get("label", item.get("key"))) for item in current) or "nothing",
         proposed=proposed,
         cost=None,
-        reversal="Undo puts the previous list back. Calls already taken keep what they captured.",
+        reversal=(
+            "Change the list back the same way. Calls already taken keep what they captured."
+            if live
+            else "Undo puts the previous list back. Calls already taken keep what they captured."
+        ),
         args={
             "agent_id": str(parsed.agent_id),
             "fields": [field.model_dump(mode="json") for field in fields],
         },
     )
+
+
+async def _plan_capture_fields(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Plan:
+    del actor
+    return await _plan_capture_fields_common(session, args, live=False)
+
+
+async def _plan_capture_fields_live(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Plan:
+    del actor
+    return await _plan_capture_fields_common(session, args, live=True)
 
 
 async def _execute_capture_fields(
@@ -1985,9 +2015,16 @@ async def _invert_capture_fields(
     from apps.api.agents.extraction_routes import write_schema
 
     agent_id = UUID(str(record.args["agent_id"]))
-    await session.execute(
-        text("SELECT 1 FROM agents WHERE id = :aid FOR UPDATE"), {"aid": agent_id}
-    )
+    status = (
+        await session.execute(
+            text("SELECT status FROM agents WHERE id = :aid FOR UPDATE"), {"aid": agent_id}
+        )
+    ).scalar_one_or_none()
+    if status == "live":
+        raise UndoRefusedError(
+            "that agent has gone live since, so changing its list back would apply to its next "
+            "call — change it on the agent's Fields tab instead"
+        )
     if await _current_fields(session, agent_id) != list(record.result_state.get("fields", [])):
         raise UndoRefusedError(
             "those fields have been changed again since, so they were left alone"
@@ -1997,6 +2034,40 @@ async def _invert_capture_fields(
     )
     return "The agent captures the fields it captured before."
 
+
+_CAPTURE_FIELDS_PROPERTIES: Final[dict[str, Any]] = {
+    "agent_id": {"type": "string", "description": "The agent's id, never invented."},
+    "fields": {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "key": {"type": "string", "description": "lower_snake_case, e.g. budget"},
+                "label": {"type": "string"},
+                "type": {
+                    "type": "string",
+                    "enum": ["text", "number", "bool", "enum", "date"],
+                },
+                "enum_values": {
+                    "anyOf": [
+                        {"type": "array", "items": {"type": "string"}},
+                        {"type": "null"},
+                    ]
+                },
+                "reason": {"type": "string", "description": "Why the business needs it."},
+                "required": {"type": "boolean"},
+            },
+            "required": ["key", "label", "type", "enum_values", "reason", "required"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+_CAPTURE_FIELDS_WHAT: Final = (
+    "the WHOLE list of things an agent writes down from each call (for example budget, "
+    "preferred date). Send every field to keep, not only the new one — read the current list "
+    "with `agent_detail` first."
+)
 
 AGENT_CAPTURE_FIELDS_SET: Final = ActionTool(
     name="agent_capture_fields_set",
@@ -2008,38 +2079,29 @@ AGENT_CAPTURE_FIELDS_SET: Final = ActionTool(
     where="on the agent's Fields tab",
     schema=action_schema(
         "agent_capture_fields_set",
-        "Set the WHOLE list of things an agent writes down from each call (for example "
-        "budget, preferred date). Send every field to keep, not only the new one — read the "
-        "current list with `agent_detail` first." + DOES_IT,
-        {
-            "agent_id": {"type": "string", "description": "The agent's id, never invented."},
-            "fields": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "key": {"type": "string", "description": "lower_snake_case, e.g. budget"},
-                        "label": {"type": "string"},
-                        "type": {
-                            "type": "string",
-                            "enum": ["text", "number", "bool", "enum", "date"],
-                        },
-                        "enum_values": {
-                            "anyOf": [
-                                {"type": "array", "items": {"type": "string"}},
-                                {"type": "null"},
-                            ]
-                        },
-                        "reason": {"type": "string", "description": "Why the business needs it."},
-                        "required": {"type": "boolean"},
-                    },
-                    "required": ["key", "label", "type", "enum_values", "reason", "required"],
-                    "additionalProperties": False,
-                },
-            },
-        },
+        f"Set {_CAPTURE_FIELDS_WHAT} For a DRAFT or PAUSED agent; for a LIVE agent use "
+        "`agent_capture_fields_set_live`." + DOES_IT,
+        _CAPTURE_FIELDS_PROPERTIES,
     ),
     plan=_plan_capture_fields,
+    execute=_execute_capture_fields,
+)
+
+AGENT_CAPTURE_FIELDS_SET_LIVE: Final = ActionTool(
+    name="agent_capture_fields_set_live",
+    tier="confirm",
+    undo=None,
+    permission="org:manage",
+    object_type="agent",
+    audit_action="agent.extraction_schema_set",
+    where="on the agent's Fields tab",
+    schema=action_schema(
+        "agent_capture_fields_set_live",
+        f"Propose setting {_CAPTURE_FIELDS_WHAT} For a LIVE agent: it applies from its next "
+        "call. For a draft or paused agent use `agent_capture_fields_set`." + PROPOSES_ONLY,
+        _CAPTURE_FIELDS_PROPERTIES,
+    ),
+    plan=_plan_capture_fields_live,
     execute=_execute_capture_fields,
 )
 
@@ -3033,6 +3095,7 @@ CONSOLE_ACTIONS: Final[tuple[ActionTool, ...]] = (
     AGENT_EDIT,
     AGENT_EDIT_LIVE,
     AGENT_CAPTURE_FIELDS_SET,
+    AGENT_CAPTURE_FIELDS_SET_LIVE,
     AGENT_CHANGES_APPLY,
     AGENT_DEACTIVATE,
     AGENT_DELETE,

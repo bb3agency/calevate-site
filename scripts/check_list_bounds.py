@@ -832,6 +832,14 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="one row per DECLARED LLM leg — `get_args(calevate_shared.engine.LlmProvider)`, "
         "a three-member Literal a reviewed commit widens, never a caller's row count."
     ),
+    "GET /v1/ops/in-call-data-use": BoundedByConstruction(
+        by="one row per provider in `ops/in_call_data_use_routes.IN_CALL_PROVIDERS`, a "
+        "constant tuple (our own model's provider), never a caller's row count."
+    ),
+    "GET /v1/ops/voices/own-model/cache-shares": BoundedByConstruction(
+        by="at most one row per `call_id` the request names, and `call_id` is "
+        "`Query(max_length=200)`; `ops/own_model_cache.MAX_CALLS` caps the read too."
+    ),
     "POST /v1/ops/secrets/kek/rewrap": BoundedByConstruction(
         by="`unreadable` is at most one entry per registry key, same registry as above."
     ),

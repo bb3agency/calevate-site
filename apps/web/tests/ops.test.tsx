@@ -45,6 +45,7 @@ import {
   OPS_DASHBOARD_DATA_USE_PATH,
   type DashboardDataUseList,
 } from "@/lib/api/opsDashboardDataUse";
+import { OPS_IN_CALL_DATA_USE_PATH } from "@/lib/api/opsInCallDataUse";
 import { OPS_FX_RATE_PATH, type FxRate } from "@/lib/api/opsFxRate";
 import { NUMBER_PRICING_PATH, type NumberPrice } from "@/lib/api/numberPricing";
 import { WORKSPACE_PATHS } from "@/lib/api/engineWorkspaces";
@@ -249,6 +250,8 @@ function configRoutes(
     // reason: an unrouted read paints a `ProblemNotice` over a screen these cases assert the
     // exact controls of.
     [OPS_DASHBOARD_DATA_USE_PATH]: dashboardDataUse(),
+    // The in-call data-use panel (D-839) sits beside it in the same section.
+    [OPS_IN_CALL_DATA_USE_PATH]: { providers: [], statement: "I have looked." },
     // The rate-card panel shares this screen too, and is stubbed for the same reason.
     [OPS_RATE_CARD_PATH]: OPS_RATE_CARD,
     // The voice-engine section mounts the engine minute-price panel.
@@ -2832,6 +2835,14 @@ describe("the platform configuration panel", () => {
     expect(screen.queryByRole("heading", { name: "Search results" })).toBeNull();
     await waitFor(() =>
       expect(document.getElementById("credential-sarvam_api_key")?.dataset.searchHit).toBe("true"),
+    );
+  });
+
+  it("lands a deep link from another screen on the panel it names (D-839)", async () => {
+    nav.params = new URLSearchParams("section=language-models&panel=model_pricing");
+    renderAdminPage(<OpsConfigPage />, configRoutes());
+    await waitFor(() =>
+      expect(document.getElementById("config-panel-model_pricing")?.dataset.searchHit).toBe("true"),
     );
   });
 

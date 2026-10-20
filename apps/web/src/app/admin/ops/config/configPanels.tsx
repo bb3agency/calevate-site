@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { DashboardDataUsePanel } from "@/app/admin/ops/DashboardDataUsePanel";
 import { EngineMinutePricePanel } from "@/app/admin/ops/EngineMinutePricePanel";
 import { FxRatePanel } from "@/app/admin/ops/FxRatePanel";
+import { InCallDataUsePanel } from "@/app/admin/ops/InCallDataUsePanel";
 import { ModelPricingPanel } from "@/app/admin/ops/ModelPricingPanel";
 import { NumberPricePanel } from "@/app/admin/ops/NumberPricePanel";
 import { RateCardPanel } from "@/app/admin/ops/RateCardPanel";
@@ -38,6 +39,8 @@ const PANELS: Record<string, (access: Access, config: ConfigList) => ReactNode> 
   tts_plan_fee: (access) => <TtsPlanFeePanel access={access} />,
   // A model becomes available on a confirmed price, so prices sit with the models.
   model_pricing: (access) => <ModelPricingPanel access={access} />,
+  // Our own model is switched on only once caller speech is attested for its provider.
+  in_call_data_use: (access) => <InCallDataUsePanel access={access} />,
   dashboard_data_use: (access) => <DashboardDataUsePanel access={access} />,
   server_only_keys: (_access, config) => <EnvOnlyKeys keys={config.bootstrap} />,
 };
@@ -78,6 +81,11 @@ export function WithheldSettings({ reason }: { reason: string | null }) {
         title="Model prices"
         reason={why}
         subject="This panel would list every model, who provides it, and the price per million tokens that billing uses."
+      />
+      <WithheldPanel
+        title="In-call data use"
+        reason={why}
+        subject="This panel would show whether callers' speech may go through our own model's key, and the latest data-use attestation for it."
       />
       <WithheldPanel
         title="Dashboard AI data-use"

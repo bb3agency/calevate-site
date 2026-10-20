@@ -236,6 +236,27 @@ async def active_workspaces(*, limit: int = 1000) -> list[WorkspaceRow]:
     ]
 
 
+async def active_workspaces_of(tenant_ids: list[UUID]) -> list[WorkspaceRow]:
+    """Of the named tenants, those whose own workspace is active, ordered by tenant."""
+    if not tenant_ids:
+        return []
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT tenant_id, status, workspace_id FROM tenant_engine_workspaces "
+                    "WHERE status = 'active' AND tenant_id = ANY(:ids) ORDER BY tenant_id"
+                ),
+                {"ids": tenant_ids},
+            )
+        ).all()
+    return [
+        WorkspaceRow(tenant_id=UUID(str(r[0])), status=str(r[1]), workspace_id=r[2])
+        for r in rows
+        if is_own_workspace(r[2])
+    ]
+
+
 @dataclass(frozen=True, slots=True)
 class StudioWorkspace:
     """A client workspace where one of our keys was confirmed on: Cartesia (D-717) or our
@@ -607,6 +628,7 @@ __all__ = [
     "WorkspaceState",
     "WorkspaceStatus",
     "active_workspaces",
+    "active_workspaces_of",
     "developer_studio_ready",
     "engine_has_workspaces",
     "external_ref_for",

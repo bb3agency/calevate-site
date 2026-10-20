@@ -176,6 +176,24 @@ VENDOR_WORDS: Final = re.compile(
     re.IGNORECASE,
 )
 
+#: A way to pay, not a provider: "we take Google Pay" is what a business tells its callers
+#: (founder, 20 Oct 2026). Removed before `VENDOR_WORDS` is matched, so "Google" alone still is.
+_PAYMENT_NAMES: Final = re.compile(r"\b(?:google\s*pay|g\s?pay)\b", re.IGNORECASE)
+
+
+def provider_words(text: str) -> frozenset[str]:
+    """The provider names `text` uses (`VENDOR_WORDS`), lowercased; a payment name is not one."""
+    return frozenset(m.lower() for m in VENDOR_WORDS.findall(_PAYMENT_NAMES.sub(" ", text)))
+
+
+def provider_problem(where: str, text: str, *, allowed: str = "") -> str | None:
+    """A problem for a line an AI wrote that names a provider; None when it names none. A name
+    that also appears in `allowed` (the owner's own words) is theirs, not the model's."""
+    if not provider_words(text) - provider_words(allowed):
+        return None
+    return f"{where}: names a technology company"
+
+
 #: Formatting a screen or a voice would show literally: markdown marks and bullets.
 _MARKDOWN: Final = re.compile(r"[*#`_~|\[\]<>]|^\s*(?:[-•]|\d+[.)])\s", re.MULTILINE)
 _EMOJI: Final = re.compile("[☀-➿\U0001f000-\U0001faff️]")
@@ -217,7 +235,7 @@ def copy_problems(copy: GeneratedCopy, *, clinic: bool, language: str | None = N
             problems.append(f"{path}: no markdown, bullets or symbols")
         if _EMOJI.search(value):
             problems.append(f"{path}: no emoji")
-        if VENDOR_WORDS.search(value):
+        if provider_words(value):
             problems.append(f"{path}: names a technology company")
         if not clinic and CLINIC_WORDS.search(value):
             problems.append(f"{path}: medical words, and this business is of another type")
@@ -338,6 +356,8 @@ __all__ = [
     "claim_is_live",
     "copy_problems",
     "parse_stored",
+    "provider_problem",
+    "provider_words",
     "queue_generation",
     "read_state",
 ]

@@ -46,6 +46,8 @@ export interface WireField {
   redacted: boolean;
   /** Present only on a line callers hear (`CopilotField.spokenLanguage`). */
   spoken_language?: string;
+  /** Present only on an instruction to the in-call model (`CopilotField.instruction`). */
+  instruction?: true;
 }
 
 export interface WireFact {
@@ -109,6 +111,7 @@ export function redactForWire(fields: CopilotField[], facts: CopilotFact[]): Red
       help: field.help ?? null,
       redacted: personal,
       ...(field.spokenLanguage ? { spoken_language: field.spokenLanguage } : {}),
+      ...(field.instruction ? { instruction: true as const } : {}),
     };
   });
 

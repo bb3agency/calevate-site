@@ -47,7 +47,7 @@ export const OPS_CONFIG_SECTIONS: ConfigSection[] = [
       ["default", "Platform default"],
       ["azure", "Azure OpenAI"],
     ],
-    { after: ["model_pricing", "dashboard_data_use"] },
+    { after: ["model_pricing", "in_call_data_use", "dashboard_data_use"] },
   ),
   section("speech", "Speech", [["stt", "Speech-to-text (STT)"]]),
   section(

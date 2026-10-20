@@ -32,10 +32,9 @@ built for it). The screen states both grounds because
 `ops/model_pricing.ModelOfferability.withheld_reason` exists for exactly the failure of not
 stating them: a panel inviting an operator to do a five-minute job that cannot succeed.
 
-⚠ **THIS SURFACE DOES NOT GOVERN THE IN-CALL LEG, WHICH IS LIVE TODAY.** In-call sends RAW
-CALLER SPEECH to whatever provider a client's chosen model sits on — strictly worse exposure
-than this leg's redacted screen text — and nothing here gates it. OPERATIONS §2 gate 41 is
-where that question is owned; it is the founder's to answer, not a column's.
+THIS SURFACE DOES NOT GOVERN THE IN-CALL LEG. Calls on our own model send RAW CALLER SPEECH
+through our key; that has its own attestation, statement and step-up
+(`in_call_data_use_routes.py`, D-839), and own-model readiness reads it, not this one.
 
 WHY `platform:config` AND NOT `platform:secrets`: `model_price_routes.py`'s reason exactly —
 an attestation is configuration, not a credential. It is visible, revertible (by a superseding
@@ -66,8 +65,8 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import StepUpGate
 from apps.api.ops.model_pricing import (
-    DashboardDataUseAttestation,
-    attest_dashboard_data_use,
+    DataUseAttestation,
+    attest_data_use,
     dashboard_data_use_attestations,
 )
 from apps.api.ops.pricing_snapshot import refresh_pricing_snapshot
@@ -182,7 +181,7 @@ class DashboardDataUseWriteOut(BaseModel):
 
 def _row(
     provider: LlmProvider,
-    attested: DashboardDataUseAttestation | None,
+    attested: DataUseAttestation | None,
     permitted: frozenset[LlmProvider],
 ) -> DashboardDataUseOut:
     # `permitted` comes from the STORE this request just read, not from the process
@@ -214,14 +213,15 @@ def _row(
         "data-use terms. Eligibility needs BOTH an attestation and a dashboard leg this "
         "platform can actually build — `dashboard_leg_built` says whether the second is "
         "true, so attesting a provider whose leg is not built is not mistaken for enabling "
-        "it. This surface does not govern the in-call leg, which sends raw caller speech."
+        "it. Calls on our own model, which send raw caller speech, are attested separately "
+        "at `/v1/ops/in-call-data-use`."
     ),
 )
 async def list_dashboard_data_use(
     session: GlobalSession, _: DataUseOperator
 ) -> DashboardDataUseListOut:
     attested = await dashboard_data_use_attestations(session)
-    permitted = frozenset(p for p, a in attested.items() if a.permits_dashboard)
+    permitted = frozenset(p for p, a in attested.items() if a.permits)
     return DashboardDataUseListOut(
         providers=[
             _row(provider, attested.get(provider), permitted)
@@ -269,7 +269,7 @@ async def attest_provider_data_use(
             title="This session has no admin identity",
             detail="An attestation has to be attributable to an operator.",
         )
-    attested = await attest_dashboard_data_use(
+    attested = await attest_data_use(
         session,
         provider=provider,
         vendor_account_ref=payload.vendor_account_ref,
@@ -278,6 +278,7 @@ async def attest_provider_data_use(
         attested_at=datetime.now(UTC),
         source_note=payload.source_note,
         actor_id=principal.user_id,
+        leg="dashboard",
     )
     await write_audit(
         session,
@@ -300,7 +301,7 @@ async def attest_provider_data_use(
     # attestation reaches the assist selector on the next read rather than waiting a full poll
     # interval — `model_price_routes`' shape, and survivable if it fails.
     tasks.add_task(refresh_pricing_snapshot)
-    permitted = frozenset({attested.provider}) if attested.permits_dashboard else frozenset()
+    permitted = frozenset({attested.provider}) if attested.permits else frozenset()
     return DashboardDataUseWriteOut(provider=_row(attested.provider, attested, permitted))
 
 

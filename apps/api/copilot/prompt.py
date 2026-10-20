@@ -705,7 +705,9 @@ def _render_field(field: CopilotField) -> str:
         f"<field id={xml_attr(field.id)} label={xml_attr(field.label)} type={xml_attr(field.type)}"
         f" writable={xml_attr('true' if field.writable else 'false')}"
         f" redacted={xml_attr('true' if field.redacted else 'false')}"
-        + (f" spoken_language={xml_attr(field.spoken_language)}>" if field.spoken_language else ">")
+        + (f" spoken_language={xml_attr(field.spoken_language)}" if field.spoken_language else "")
+        + (' instruction="true"' if field.instruction else "")
+        + ">"
     ]
     parts.append(f"<value>{_render_value(field)}</value>")
     if field.options is not None:

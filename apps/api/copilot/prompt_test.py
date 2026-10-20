@@ -702,6 +702,15 @@ def test_the_screen_says_how_it_keeps_edits_and_which_lines_are_spoken() -> None
     assert "autosave, as a draft at once, live only via live_step (never say press" in system
 
 
+def test_an_instruction_field_says_so() -> None:
+    """FAILS IF: Pip is not told which boxes are instructions to the in-call model."""
+    raw = AFTER_KEPT.model_dump()
+    raw["fields"][0] = {**raw["fields"][0], "spoken_language": None, "instruction": True}
+    rendered = prompt_module.render_screen(CopilotAskIn.model_validate(raw))
+    assert 'redacted="false" instruction="true">' in rendered
+
+
 def test_a_screen_that_does_not_say_renders_as_before() -> None:
     rendered = prompt_module.render_screen(PAYLOAD)
     assert "saves=" not in rendered and "spoken_language=" not in rendered
+    assert "instruction=" not in rendered

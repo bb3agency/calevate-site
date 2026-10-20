@@ -105,7 +105,7 @@ _IMMEDIATE = {
     "campaign_create": "a draft dials nobody; Undo cancels it while empty",
     "campaign_clone": "a draft copy without contacts; Undo cancels it while empty",
     "agent_edit": "refuses a live agent, so no caller hears it; prior settings restored",
-    "agent_capture_fields_set": "field definitions, not a call; the prior list is restored",
+    "agent_capture_fields_set": "refuses a live agent, so no call reads it yet; list restored",
 }
 
 #: Every one that dials, spends, publishes, deletes, changes DNC or reaches a caller.
@@ -118,6 +118,7 @@ _MUST_CONFIRM = {
     "campaign_schedule",
     "campaign_resume",
     "agent_edit_live",
+    "agent_capture_fields_set_live",
     "agent_changes_apply",
     "agent_deactivate",
     "agent_delete",
@@ -633,7 +634,7 @@ async def test_agent_edit_refuses_a_live_agent_and_the_live_twin_needs_a_click()
 
 async def test_capture_fields_are_replaced_and_undo_restores_the_old_list() -> None:
     tenant_id, slug, token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)
+    agent_id = await _draft_agent(tenant_id)
     field = {
         "key": "budget",
         "label": "Budget",
@@ -662,6 +663,42 @@ async def test_capture_fields_are_replaced_and_undo_restores_the_old_list() -> N
         )
     )[0]
     assert [f["key"] for f in fields] == [f["key"] for f in prior["fields"]]
+
+
+async def test_a_live_agents_capture_fields_need_a_click() -> None:
+    """FAILS IF: Pip changes what a LIVE agent captures without the person confirming, though
+    the change applies from that agent's next call."""
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)  # `_make_tenant`'s agent is live
+    args = {
+        "agent_id": str(agent_id),
+        "fields": [
+            {
+                "key": "budget",
+                "label": "Budget",
+                "type": "text",
+                "enum_values": None,
+                "reason": "To quote",
+                "required": False,
+            }
+        ],
+    }
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
+        await _run(tenant_id, token, "agent_capture_fields_set", args)
+    assert "agent_capture_fields_set_live" in refused.value.reason
+    proposal = await _propose(tenant_id, token, "agent_capture_fields_set_live", args)
+    assert "next call" in proposal.summary
+    done = await _confirm(tenant_id, _user_of(token), proposal.token)
+    assert done.applied is True
+    fields = (
+        await _one(
+            tenant_id,
+            "SELECT s.fields FROM agents a JOIN extraction_schemas s "
+            "ON s.id = a.extraction_schema_id WHERE a.id = :a",
+            a=agent_id,
+        )
+    )[0]
+    assert [f["key"] for f in fields] == ["budget"]
 
 
 async def test_agent_changes_apply_is_refused_when_nothing_is_waiting() -> None:

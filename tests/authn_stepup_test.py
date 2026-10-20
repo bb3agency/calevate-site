@@ -518,7 +518,10 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # ONE MORE attests a cost input (D-840, `ops/engine_minute_routes.py::attest_cost_input`,
     # `cost_confirmation`, bound to the subject): the wallet top-up fee and a rented number's
     # rent reach `unit_cost_paid`, the gateway fee the cost floor.
-    assert sites == 81, f"found {sites} step-up call sites, expected 81; the census went stale"
+    # ONE MORE attests a provider's data-use terms for callers' speech (D-839,
+    # `ops/in_call_data_use_routes.py`, `attest_confirmation`, bound to the provider): our own
+    # model is switched on on the strength of it.
+    assert sites == 82, f"found {sites} step-up call sites, expected 82; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

@@ -1596,6 +1596,24 @@ const OPS_DASHBOARD_DATA_USE = {
     "I have opened this provider's own console and checked the account our API key belongs to.",
 };
 
+// The in-call attestation (D-839): Google not yet attested, so the "nobody has looked" note
+// and the record button render.
+const OPS_IN_CALL_DATA_USE = {
+  providers: [
+    {
+      provider: "google",
+      permits: false,
+      vendor_account_ref: null,
+      paid_tier_confirmed: null,
+      no_training_opt_in_confirmed: null,
+      attested_at: null,
+      attested_by: null,
+      source_note: null,
+    },
+  ],
+  statement: "I have opened this provider's own console and checked the account our API key belongs to.",
+};
+
 /**
  * The identity record, shared by the client screen that submits it and the admin screen
  * that decides it — they read the SAME endpoint (`/v1/compliance/kyc`), the admin one
@@ -4118,6 +4136,7 @@ const ADMIN_SCREENS: Screen[] = [
         ],
       },
       "/v1/ops/dashboard-data-use": OPS_DASHBOARD_DATA_USE,
+      "/v1/ops/in-call-data-use": OPS_IN_CALL_DATA_USE,
       "/v1/ops/secrets": OPS_SECRETS,
       "/v1/ops/secrets/kek": OPS_KEK,
     },
@@ -4327,11 +4346,17 @@ const ADMIN_SCREENS: Screen[] = [
         google_key_configured: true,
         default_offerable: false,
         default_reason: "nobody has recorded what this model costs",
+        default_fix: "price",
         data_use_attested: false,
         llm_voice_minute_attested: false,
         offerable_models: [],
         missing: ["Attest the own-voice-and-model (byok_llm_voice) per-minute rate."],
         workspaces: [],
+        pending_workspaces: [{ tenant_id: "7f0c2b1e-0000-4000-8000-000000000001", tenant_name: "Sri Clinic", error_code: "engine_unreachable" }],
+        clients: [{ tenant_id: "7f0c2b1e-0000-4000-8000-000000000001", tenant_name: "Sri Clinic" }],
+        fleet_cache_share: "0.6200",
+        fleet_cache_calls: 20,
+        fleet_cache_measured_at: "2026-10-20T10:00:00Z",
         explanation: "Agents answer on our Google key.",
         note: "Not ready: Attest the own-voice-and-model (byok_llm_voice) per-minute rate.",
       },
@@ -4346,6 +4371,7 @@ const ADMIN_SCREENS: Screen[] = [
         missing: ["Run Studio ready to switch our key on in the developer workspace."],
         workspaces: [],
         live_studio_agents: 0,
+        clients: [{ tenant_id: "7f0c2b1e-0000-4000-8000-000000000001", tenant_name: "Sri Clinic" }],
         explanation: "Studio voices are our voice key, switched on for the voice only.",
         note: "Not ready: Run Studio ready to switch our key on in the developer workspace.",
         key: {

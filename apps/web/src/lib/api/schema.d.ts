@@ -6828,13 +6828,37 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Whether Pip is on for this account, and who may switch it
+         * @description Whether Pip is on, off until the owner turns it on, or turned off by the owner, with the disclosure the owner reads. `can_accept` and `can_withdraw` say whether the person asking may turn it on or off. Readable while it is off, because that is when the answer matters.
+         */
+        get: operations["read_copilot_consent_v1_copilot_consent_get"];
         put?: never;
         /**
          * Turn Pip on for this account (the account owner, once)
          * @description Records that the account owner read the disclosure Pip shows and turned Pip on for everyone on the account, with the version and a hash of the exact text, in an append-only record and the audit log. Only the account owner can do it, and an impersonated session cannot. A version or text that is no longer current is refused rather than recorded.
          */
         post: operations["accept_copilot_consent_v1_copilot_consent_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/consent/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn Pip off for this account (the account owner)
+         * @description Records that the account owner turned Pip off for everyone on the account, as a new row in the append-only record and the audit log; the acceptance it ends stays on record. From then on every ask and upload is refused, and a background task or routine that starts is refused `copilot_consent_required`, until the owner turns it on again. Only the account owner can do it, and an impersonated session cannot. Refused `copilot_consent_not_on` when Pip is not on.
+         */
+        post: operations["withdraw_copilot_consent_v1_copilot_consent_withdraw_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9338,7 +9362,7 @@ export interface paths {
         };
         /**
          * Every LLM leg's dashboard-assist eligibility and its latest data-use attestation
-         * @description Lists every declared LLM leg with whether the in-app AI assistant may run on it, the ground if it may not, and the latest operator attestation about that vendor's data-use terms. Eligibility needs BOTH an attestation and a dashboard leg this platform can actually build — `dashboard_leg_built` says whether the second is true, so attesting a provider whose leg is not built is not mistaken for enabling it. This surface does not govern the in-call leg, which sends raw caller speech.
+         * @description Lists every declared LLM leg with whether the in-app AI assistant may run on it, the ground if it may not, and the latest operator attestation about that vendor's data-use terms. Eligibility needs BOTH an attestation and a dashboard leg this platform can actually build — `dashboard_leg_built` says whether the second is true, so attesting a provider whose leg is not built is not mistaken for enabling it. Calls on our own model, which send raw caller speech, are attested separately at `/v1/ops/in-call-data-use`.
          */
         get: operations["list_dashboard_data_use_v1_ops_dashboard_data_use_get"];
         put?: never;
@@ -9643,6 +9667,46 @@ export interface paths {
         put?: never;
         /** Post a problem on the public status page by hand */
         post: operations["post_status_v1_ops_healer_status_posts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/in-call-data-use": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Each in-call provider's latest data-use attestation for caller speech
+         * @description Lists each provider a call can answer on through our key, whether its latest attestation permits sending what callers say, and that attestation. Our own model cannot be switched on until its provider's row permits it.
+         */
+        get: operations["list_in_call_data_use_v1_ops_in_call_data_use_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/in-call-data-use/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attest one provider's data-use position for caller speech (step-up, audited)
+         * @description Records what you read in the vendor's own console as a NEW dated row; a correction is a later attestation, never an edit. Requires `X-Confirm-Action: attest_in_call_data_use:<provider>`. A negative answer is recorded too, and keeps our own model from being switched on.
+         */
+        post: operations["attest_provider_in_call_data_use_v1_ops_in_call_data_use__provider__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10569,6 +10633,26 @@ export interface paths {
         };
         /** Whether agents can answer on our own model, and which client workspaces do */
         get: operations["own_model_status_v1_ops_voices_own_model_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voices/own-model/cache-shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How much of each listed own-model call's input was served from cache
+         * @description For one client's listed calls (the admin Spend screen's call list), the input tokens each own-model call counted and the part served from the provider's cache. A call not on our own model, or metered before the counts were reported, is left out.
+         */
+        get: operations["own_model_cache_shares_v1_ops_voices_own_model_cache_shares_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -12978,6 +13062,25 @@ export interface components {
             call_id: string;
         };
         /**
+         * CallCacheShareOut
+         * @description One own-model call's input: how much of it the provider served from its cache.
+         */
+        CallCacheShareOut: {
+            /** Cached Input Tokens */
+            cached_input_tokens: number;
+            /** Call Id */
+            call_id: string;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Share */
+            share: string | null;
+        };
+        /** CallCacheSharesOut */
+        CallCacheSharesOut: {
+            /** Calls */
+            calls: components["schemas"]["CallCacheShareOut"][];
+        };
+        /**
          * CallCallbackOut
          * @description The call back booked ON this call, if any (F-4/F-5): the newest one.
          */
@@ -14444,6 +14547,17 @@ export interface components {
              */
             state: "none" | "scheduled" | "draining" | "active";
         };
+        /**
+         * ClientOptionOut
+         * @description A client with an active voice workspace of its own, for the operator's picker: our keys
+         *     are installed per client workspace, so these are the clients an install can name.
+         */
+        ClientOptionOut: {
+            /** Tenant Id */
+            tenant_id: string;
+            /** Tenant Name */
+            tenant_name: string | null;
+        };
         /** ClientReplyTimes */
         ClientReplyTimes: {
             /** Calls */
@@ -15290,26 +15404,31 @@ export interface components {
          * @description Whether Pip is on for this account, and what the owner reads to turn it on (D-788).
          *
          *     `status` is `accepted` or `not_required` (the admin console) when Pip may answer;
-         *     `required` and `outdated` lock it. `can_accept` says whether THIS person may turn it on:
-         *     the account owner, signed in as themselves. The text is served rather than kept in the
-         *     browser so the words shown and the hash recorded cannot come from two places.
+         *     `required`, `outdated` and `withdrawn` (the owner turned it off, D-839) lock it.
+         *     `can_accept` and `can_withdraw` say whether THIS person may turn it on or off: the account
+         *     owner, signed in as themselves. The text is served rather than kept in the browser so the
+         *     words shown and the hash recorded cannot come from two places.
          */
         CopilotConsentOut: {
             /** Accepted At */
             accepted_at: string | null;
             /** Can Accept */
             can_accept: boolean;
+            /** Can Withdraw */
+            can_withdraw: boolean;
             /**
              * Status
              * @enum {string}
              */
-            status: "accepted" | "required" | "outdated" | "not_required";
+            status: "accepted" | "required" | "outdated" | "withdrawn" | "not_required";
             /** Text */
             text: string;
             /** Text Sha256 */
             text_sha256: string;
             /** Version */
             version: string;
+            /** Withdrawn At */
+            withdrawn_at: string | null;
         };
         /**
          * CopilotConversationClearedOut
@@ -15389,6 +15508,11 @@ export interface components {
             help?: string | null;
             /** Id */
             id: string;
+            /**
+             * Instruction
+             * @default false
+             */
+            instruction: boolean;
             /** Label */
             label: string;
             /** Options */
@@ -18859,6 +18983,40 @@ export interface components {
             /** For Keys */
             for_keys: string[];
         };
+        /** InCallDataUseListOut */
+        InCallDataUseListOut: {
+            /** Providers */
+            providers: components["schemas"]["InCallDataUseOut"][];
+            /** Statement */
+            statement: string;
+        };
+        /**
+         * InCallDataUseOut
+         * @description One provider, as the panel renders it. The attestation fields are all `null` together
+         *     when nobody has attested, a distinct state from an attested "no".
+         */
+        InCallDataUseOut: {
+            /** Attested At */
+            attested_at: string | null;
+            /** Attested By */
+            attested_by: string | null;
+            /** No Training Opt In Confirmed */
+            no_training_opt_in_confirmed: boolean | null;
+            /** Paid Tier Confirmed */
+            paid_tier_confirmed: boolean | null;
+            /** Permits */
+            permits: boolean;
+            /** Provider */
+            provider: string;
+            /** Source Note */
+            source_note: string | null;
+            /** Vendor Account Ref */
+            vendor_account_ref: string | null;
+        };
+        /** InCallDataUseWriteOut */
+        InCallDataUseWriteOut: {
+            provider: components["schemas"]["InCallDataUseOut"];
+        };
         /**
          * InFlightOut
          * @description What the drain is still waiting for, as the console renders it.
@@ -21979,8 +22137,12 @@ export interface components {
         };
         /** OwnModelOut */
         OwnModelOut: {
+            /** Clients */
+            clients: components["schemas"]["ClientOptionOut"][];
             /** Data Use Attested */
             data_use_attested: boolean;
+            /** Default Fix */
+            default_fix: ("key" | "price" | "deployment" | "default") | null;
             /** Default Model */
             default_model: string;
             /** Default Offerable */
@@ -21995,6 +22157,12 @@ export interface components {
             developer_ready: boolean;
             /** Explanation */
             explanation: string;
+            /** Fleet Cache Calls */
+            fleet_cache_calls: number;
+            /** Fleet Cache Measured At */
+            fleet_cache_measured_at: string | null;
+            /** Fleet Cache Share */
+            fleet_cache_share: string | null;
             /** Floor Model Inr Per Min */
             floor_model_inr_per_min: string | null;
             /** Floor Prompt Basis */
@@ -22016,6 +22184,8 @@ export interface components {
             note: string;
             /** Offerable Models */
             offerable_models: string[];
+            /** Pending Workspaces */
+            pending_workspaces: components["schemas"]["PendingWorkspaceOut"][];
             /** Ready */
             ready: boolean;
             /** Switched On */
@@ -22378,6 +22548,18 @@ export interface components {
         /** PendingProposalOut */
         PendingProposalOut: {
             proposal: components["schemas"]["ScriptProposalOut"] | null;
+        };
+        /**
+         * PendingWorkspaceOut
+         * @description A client workspace where switching our Google key on failed and never succeeded.
+         */
+        PendingWorkspaceOut: {
+            /** Error Code */
+            error_code: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Tenant Name */
+            tenant_name: string | null;
         };
         /**
          * PerformanceFunnelOut
@@ -25647,6 +25829,8 @@ export interface components {
         StudioVoicesOut: {
             /** Cartesia Key Configured */
             cartesia_key_configured: boolean;
+            /** Clients */
+            clients: components["schemas"]["ClientOptionOut"][];
             /** Developer Holds Key */
             developer_holds_key: boolean;
             /** Developer Switch On */
@@ -40962,6 +41146,35 @@ export interface operations {
             };
         };
     };
+    read_copilot_consent_v1_copilot_consent_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotConsentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     accept_copilot_consent_v1_copilot_consent_post: {
         parameters: {
             query?: never;
@@ -40974,6 +41187,35 @@ export interface operations {
                 "application/json": components["schemas"]["CopilotConsentIn"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotConsentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    withdraw_copilot_consent_v1_copilot_consent_withdraw_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             201: {
@@ -46215,6 +46457,72 @@ export interface operations {
             };
         };
     };
+    list_in_call_data_use_v1_ops_in_call_data_use_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InCallDataUseListOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    attest_provider_in_call_data_use_v1_ops_in_call_data_use__provider__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DashboardDataUseAttestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InCallDataUseWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_inr_llm_prices_v1_ops_inr_llm_prices_get: {
         parameters: {
             query?: never;
@@ -47844,6 +48152,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OwnModelOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    own_model_cache_shares_v1_ops_voices_own_model_cache_shares_get: {
+        parameters: {
+            query: {
+                tenant_id: string;
+                call_id: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallCacheSharesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

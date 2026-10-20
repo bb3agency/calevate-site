@@ -42,7 +42,7 @@ from apps.api.db.session import untenanted_session
 from apps.api.main import app
 from apps.api.ops.dashboard_data_use_routes import ATTESTATION_STATEMENT, attest_confirmation
 from apps.api.ops.model_pricing import (
-    attest_dashboard_data_use,
+    attest_data_use,
     dashboard_data_use_attestations,
     dashboard_permitted_providers,
 )
@@ -116,7 +116,7 @@ async def _attest(**overrides: object) -> None:
     }
     kwargs.update(overrides)
     async with untenanted_session() as session:
-        await attest_dashboard_data_use(session, **kwargs)  # type: ignore[arg-type]
+        await attest_data_use(session, leg="dashboard", **kwargs)  # type: ignore[arg-type]
 
 
 # --- 1. the default, which is the whole safety argument -------------------------
@@ -139,7 +139,7 @@ async def test_a_recorded_no_is_stored_and_is_not_the_same_state_as_silence() ->
     async with untenanted_session() as session:
         stored = await dashboard_data_use_attestations(session)
         assert stored[PROVIDER].paid_tier_confirmed is False
-        assert stored[PROVIDER].permits_dashboard is False
+        assert stored[PROVIDER].permits is False
         assert await dashboard_permitted_providers(session) == frozenset()
 
 

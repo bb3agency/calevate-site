@@ -229,6 +229,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.engine_model_band_routes import router as ops_engine_model_bands_router
     from apps.api.ops.fx_routes import router as ops_fx_router
     from apps.api.ops.hosted_voice_routes import router as ops_hosted_voice_router
+    from apps.api.ops.in_call_data_use_routes import router as ops_in_call_data_use_router
     from apps.api.ops.live_apply_routes import router as ops_live_apply_router
     from apps.api.ops.maintenance_routes import client_router as client_maintenance_router
     from apps.api.ops.maintenance_routes import router as ops_maintenance_router
@@ -588,6 +589,7 @@ def _mount_routers(application: FastAPI) -> None:
     # (D-477). Its own router beside the price panel for `model_price_routes.py`'s reason:
     # same realm and permission, different store and a different write shape.
     application.include_router(ops_data_use_router)
+    application.include_router(ops_in_call_data_use_router)
     # The exchange rate every dollar of vendor cost is converted at — read-only, and on
     # `platform:config` beside the price panel for the same reason: it is a number that
     # decides money and it is not a credential. There is no write route (`ops/fx_routes.py`

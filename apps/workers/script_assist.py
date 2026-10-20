@@ -72,6 +72,7 @@ from apps.api.core import provider_health
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.api.tenancy.business_copy import provider_problem
 from apps.workers import chat
 from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
@@ -249,7 +250,8 @@ def language_problems(
     instructions: bool = True,
 ) -> list[str]:
     """What the model must fix in a script it wrote (D-831): an instruction in an Indic
-    script, and a spoken line with a textbook word (`spoken_guard`).
+    script, and a spoken line with a textbook word (`spoken_guard`) or a provider's name
+    (`business_copy.provider_problem`, D-679: callers hear these lines).
 
     Only the model's own writing is judged: with `before` (an edit), a field whose text the
     script already held is the owner's and is skipped, and a textbook word that appears in
@@ -267,11 +269,17 @@ def language_problems(
             for path, text in _instruction_fields(script)
             if text not in kept and (problem := english_problem(path, text))
         ]
-    problems += [
-        problem
-        for path, text in _spoken_fields(script)
-        if text not in kept and (problem := textbook_problem(path, text, language, allowed=allowed))
-    ]
+    for path, text in _spoken_fields(script):
+        if text in kept:
+            continue
+        problems += [
+            problem
+            for problem in (
+                textbook_problem(path, text, language, allowed=allowed),
+                provider_problem(path, text, allowed=allowed),
+            )
+            if problem
+        ]
     return problems
 
 

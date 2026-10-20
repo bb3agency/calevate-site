@@ -35,6 +35,7 @@ from apps.api.agents.own_model import (
     align_key_model,
     ensure_developer_own_model,
     ensure_own_model_workspace,
+    forget_own_model_failure,
     own_model_key_ready,
 )
 from apps.api.billing.own_model_prompt import refresh_prompt_basis
@@ -47,6 +48,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.catalogue import HostsVoices, RunsOwnModel
 from apps.api.engine.thinnest_workspace import in_workspace
+from apps.api.ops.own_model_cache import refresh_fleet_cache_share
 from apps.api.ops.secret_service import resolve_secrets
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.engine_workspace import (
@@ -184,8 +186,10 @@ async def sweep_own_model_workspaces(ctx: dict[str, Any]) -> str:
         tally[await _check_workspace(engine, row.tenant_id, row.workspace_id)] += 1
     alarm_own_model_tally(tally)
     basis = await refresh_prompt_basis(get_engine())
+    fleet = await refresh_fleet_cache_share()
     summary = " ".join(f"{k}={v}" for k, v in tally.items())
-    return f"developer={developer} {summary} prompt={basis.source}"
+    cache = f"cache_calls={fleet.totals.calls}"
+    return f"developer={developer} {summary} {cache} prompt={basis.source}"
 
 
 async def check_developer_own_model(engine: RunsOwnModel) -> str:
@@ -267,6 +271,7 @@ async def _check_workspace(engine: RunsOwnModel, tenant_id: UUID, workspace: str
         if own_model_key_ready(state):
             async with tenant_session(tenant_id) as session:
                 await record_own_model_check(session, tenant_id, error_code=None)
+            await forget_own_model_failure(tenant_id)
             return "ok"
         log.warning(
             "own_model_workspace_drift",

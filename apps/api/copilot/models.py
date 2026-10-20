@@ -515,17 +515,24 @@ class CopilotConsent(PKMixin, Base):
     APPEND-ONLY (`APPEND_ONLY_TABLES`): accepting a new disclosure version is a new row, and
     the one it supersedes survives, because "was Pip on, under which words, when this was
     sent" is asked after the fact. `copilot/consent.read_consent` judges the latest row.
+
+    `kind` (D-839): the owner turning Pip off is a `withdrawn` row, not an edit. On it,
+    `accepted_by_user_id` and `accepted_at` are who turned it off and when, and the version
+    and hash are the disclosure current at that instant; the names predate withdrawal, and
+    renaming columns of an append-only ledger buys nothing.
     """
 
     __tablename__ = "copilot_consents"
     __table_args__ = (
         CheckConstraint("btrim(disclosure_version) <> ''", name="version_present"),
         CheckConstraint("text_sha256 ~ '^[0-9a-f]{64}$'", name="text_sha256_hex"),
+        CheckConstraint("kind IN ('accepted', 'withdrawn')", name="kind_enum"),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
     )
+    kind: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'accepted'"))
     disclosure_version: Mapped[str] = mapped_column(Text, nullable=False)
     text_sha256: Mapped[str] = mapped_column(Text, nullable=False)
     accepted_by_user_id: Mapped[UUID] = mapped_column(

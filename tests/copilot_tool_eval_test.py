@@ -142,6 +142,7 @@ SIBLINGS = (
     ("search_calls", "search_knowledge"),
     ("calls_recent", "search_calls"),
     ("agent_edit", "agent_edit_live"),
+    ("agent_capture_fields_set", "agent_capture_fields_set_live"),
     ("call_place", "agent_test_call"),
     ("lead_set_status", "leads_bulk_update"),
     ("platform_tenants", "admin_client_standing"),

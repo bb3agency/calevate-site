@@ -23,6 +23,7 @@ spoken guidance from, so the per-language packs replace its body and every write
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Sequence
 from typing import Final, Literal
 
@@ -35,9 +36,21 @@ from calevate_shared.spoken_style import (
     writer_guidance,
 )
 
-#: Indic letters carry combining marks, so `\b` does not mark a word start: a word counts when
-#: it opens the text or follows a space or punctuation.
-_WORD_START: Final = r"(?:^|(?<=[\s,.!?;:\"'(।]))"
+
+def _starts_word(text: str, at: int) -> bool:
+    """Indic letters carry combining marks, so `\\b` does not mark a word start: a word counts
+    when it opens the text or follows whitespace, a separator or any punctuation (Unicode P*
+    and Z*), so curly quotes, dashes, a slash and an ellipsis count as the ASCII marks do.
+    `re` has no Unicode property classes, hence a predicate rather than a lookbehind."""
+    if at == 0:
+        return True
+    before = text[at - 1]
+    return before.isspace() or unicodedata.category(before)[0] in "PZ"
+
+
+def _uses_word(text: str, word: str) -> bool:
+    return any(_starts_word(text, m.start()) for m in re.finditer(re.escape(word), text))
+
 
 #: Every Indic script India uses, Devanagari (U+0900) through Malayalam (U+0D7F), except the
 #: danda and double danda (U+0964-5), which are punctuation.
@@ -50,11 +63,7 @@ def textbook_words(text: str, tag: str | None) -> list[tuple[str, str]]:
     style = style_for(tag)
     if style is None or not text:
         return []
-    return [
-        (formal, spoken)
-        for formal, spoken in style.word_swaps
-        if re.search(_WORD_START + re.escape(formal), text)
-    ]
+    return [(formal, spoken) for formal, spoken in style.word_swaps if _uses_word(text, formal)]
 
 
 def textbook_note(swaps: Sequence[tuple[str, str]]) -> str:

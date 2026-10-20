@@ -8,10 +8,9 @@ import { ConfirmDialog } from "@/components/confirmDialog";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION } from "@/components/console/section";
+import { configHref } from "@/app/admin/ops/config/configSections";
+import { ClientPicker } from "./ClientPicker";
 import {
-  FIELD,
-  FIELD_HINT,
-  FIELD_LABEL,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
   Skeleton,
@@ -23,9 +22,10 @@ import {
   type StudioVoices,
 } from "@/lib/api/opsHostedVoices";
 
-const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const KEYS_HREF = "/admin/ops/config?section=credentials";
-const PRICES_HREF = "/admin/ops/config";
+// Each step lands on the panel or key it names (`configHref`).
+const KEYS_HREF = configHref("credentials", { credential: "cartesia_api_key" });
+const MINUTE_HREF = configHref("voice-engine", { panel: "engine_minute_price" });
+const VOICE_PRICE_HREF = configHref("language-models", { panel: "model_pricing" });
 
 type Step = {
   id: string;
@@ -61,14 +61,14 @@ export function studioSteps(data: StudioVoices): Step[] {
       label: "Attest the Studio minute rate",
       done: data.minute_attested,
       detail: "The voice-only own-key (byok_voice) per-minute rate.",
-      go: { href: PRICES_HREF, label: "Open prices" },
+      go: { href: MINUTE_HREF, label: "Open prices" },
     },
     {
       id: "voice-price",
       label: "Attest the Cartesia voice price",
       done: data.synthesis_priced,
       detail: "A Studio minute carries Cartesia's charge as a second cost.",
-      go: { href: PRICES_HREF, label: "Open prices" },
+      go: { href: VOICE_PRICE_HREF, label: "Open prices" },
     },
     {
       id: "listed",
@@ -93,11 +93,11 @@ export function StudioVoicesCard() {
   const [tenantId, setTenantId] = useState("");
   const tenantField = useId();
   const last = enable.data;
-  const tenantValid = tenantId.trim() === "" || UUID_SHAPE.test(tenantId.trim());
 
-  const openEnable = (withClient: boolean) => {
+  const openEnable = (withClient: boolean, client = "") => {
     enable.reset();
     setAskClient(withClient);
+    setTenantId(client);
     setConfirming("enable");
   };
 
@@ -117,6 +117,7 @@ export function StudioVoicesCard() {
   const steps = studioSteps(data);
   const next = steps.find((step) => !step.done);
   const failing = data.workspaces.filter((ws) => ws.error_code);
+  const onStudio = new Set(data.workspaces.map((ws) => ws.tenant_id));
   const items: ChecklistItem[] = steps.map((step) => ({
     id: step.id,
     label: step.label,
@@ -164,7 +165,11 @@ export function StudioVoicesCard() {
             </span>
           ))}
           {failing.length > 0 && "."}{" "}
-          <button type="button" className={TEXT_ACTION} onClick={() => openEnable(true)}>
+          <button
+            type="button"
+            className={TEXT_ACTION}
+            onClick={() => openEnable(true, failing.length === 1 ? (failing[0]?.tenant_id ?? "") : "")}
+          >
             {failing.length > 0 ? "Retry for a client" : "Switch Studio on for a client"}
           </button>
         </p>
@@ -185,9 +190,7 @@ export function StudioVoicesCard() {
           error={enable.error}
           onCancel={() => setConfirming(null)}
           onConfirm={() => {
-            if (!tenantValid) return;
-            const tenant = tenantId.trim();
-            enable.mutate(tenant ? { tenant_id: tenant } : {}, { onSuccess: () => setConfirming(null) });
+            enable.mutate(tenantId ? { tenant_id: tenantId } : {}, { onSuccess: () => setConfirming(null) });
           }}
         >
           <p>
@@ -195,22 +198,16 @@ export function StudioVoicesCard() {
             free-trial agents speak Studio. Every agent not on a Studio voice is kept off it first. It
             installs a credential, so you may be asked to confirm it is still you.
           </p>
-          <label htmlFor={tenantField} className={`mt-3 ${FIELD_LABEL}`}>
-            Paying client to switch on now{askClient ? "" : " (optional)"}, account id
-          </label>
-          <input
+          <ClientPicker
             id={tenantField}
-            className={`mt-1 ${FIELD}`}
+            label={`Paying client to switch on now${askClient ? "" : " (optional)"}`}
+            clients={data.clients}
             value={tenantId}
-            onChange={(event) => setTenantId(event.target.value)}
-            aria-invalid={!tenantValid}
-            placeholder="Leave empty: a client is switched on at its first Studio publish"
+            onChange={setTenantId}
+            emptyLabel="None now: a client is switched on at its first Studio publish"
+            hint="Studio is switched on in this client's own workspace, its Clear agents kept off first."
+            note={(id) => (onStudio.has(id) ? "on Studio" : undefined)}
           />
-          <p className={FIELD_HINT}>
-            Studio is switched on in this client&rsquo;s own workspace, its Clear agents kept off
-            first. The id is on the client&rsquo;s admin page.
-          </p>
-          {!tenantValid && <p className="mt-1 text-meta text-warn">That is not an account id.</p>}
         </ConfirmDialog>
       )}
     </section>

@@ -147,6 +147,7 @@ describe("search beyond the settings rows", () => {
       ["number price", "config-panel-number_price"],
       ["plan fee", "config-panel-tts_plan_fee"],
       ["data use", "config-panel-dashboard_data_use"],
+      ["caller speech", "config-panel-in_call_data_use"],
       ["server-only", "config-panel-server_only_keys"],
     ]) {
       expect(find(query).map((hit) => hit.anchor)).toContain(anchor);

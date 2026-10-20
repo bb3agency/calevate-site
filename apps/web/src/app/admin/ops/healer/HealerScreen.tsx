@@ -5,6 +5,7 @@ import { Section } from "@/components/console/section";
 import { useState } from "react";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { configHref } from "@/app/admin/ops/config/configSections";
 import { lookup } from "@/lib/lookup";
 import { StatusPill } from "@/components/admin/kit";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
@@ -146,7 +147,7 @@ function Overview({ data }: { data: HealerOverview }) {
         <NoticeBox
           tone="stop"
           title="The auto-healer is switched off"
-          action={<RowLink href="/admin/ops/config">Turn on in configuration</RowLink>}
+          action={<RowLink href={configHref("healer", { setting: "healer_enabled" })}>Turn on in configuration</RowLink>}
           info="Only the agent settings check runs, because it also enforces the AI disclosure. Detection and notices carry on."
           infoLabel="a switched-off healer"
         >

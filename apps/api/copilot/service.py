@@ -42,7 +42,12 @@ from calevate_shared.engine import (
     google_openai_compat_base_url,
     keeps_default_temperature,
 )
-from calevate_shared.spoken_guard import textbook_note, textbook_words
+from calevate_shared.spoken_guard import (
+    english_problem,
+    has_indic_letters,
+    textbook_note,
+    textbook_words,
+)
 
 from apps.api.copilot import (
     action_log,
@@ -652,6 +657,23 @@ def spoken_line_problem(field: CopilotField, value: object, question: str) -> st
     return f"is a line callers hear and uses textbook words they do not say: {textbook_note(swaps)}"
 
 
+def instruction_problem(field: CopilotField, value: object, question: str) -> str | None:
+    """Why this value may not go into an instruction the in-call model reads, or None
+    (D-831): instructions are plain English, and only the lines callers hear are in the call
+    language. Indic text the field already held or the person typed in their question is
+    theirs, so a fill carrying it is let through: only Pip's own writing is judged."""
+    if not field.instruction or not isinstance(value, str):
+        return None
+    if english_problem(field.id, value) is None or has_indic_letters(
+        f"{field.value or ''}\n{question}"
+    ):
+        return None
+    return (
+        "is an instruction to the agent: write it in plain English; only the lines the agent "
+        "says are in the call language"
+    )
+
+
 def person_said(payload: CopilotAskIn) -> tuple[str, ...]:
     """The person's own messages in this conversation, latest last: what a tool's
     `grounded` check reads (D-833). Pip's turns are left out; they are not the person's."""
@@ -731,8 +753,10 @@ def validate_fill(payload: CopilotAskIn, arguments: str) -> tuple[CopilotFillIte
             reasons.append(f"`{field_id}` is not writable")
             continue
         value = raw.get("value")
-        problem = _value_is_legal(field, value) or spoken_line_problem(
-            field, value, payload.question
+        problem = (
+            _value_is_legal(field, value)
+            or spoken_line_problem(field, value, payload.question)
+            or instruction_problem(field, value, payload.question)
         )
         if problem is not None:
             reasons.append(f"`{field_id}` {problem}")

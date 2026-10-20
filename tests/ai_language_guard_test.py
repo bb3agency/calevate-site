@@ -100,6 +100,34 @@ def test_the_test_loop_and_every_writer_read_one_word_list() -> None:
     assert any(p.kind == "formal_words" and "“మరియు”" in p.reason for p in found)
 
 
+@pytest.mark.parametrize(
+    "before",
+    # Curly quotes, an em and an en dash, a slash, an ellipsis, a no-break and an ideographic
+    # space, a guillemet: by code point, so each is unambiguous in review.
+    [
+        chr(0x201C),
+        chr(0x2018),
+        chr(0x2014),
+        chr(0x2013),
+        "/",
+        chr(0x2026),
+        chr(0xA0),
+        chr(0x3000),
+        chr(0xAB),
+    ],
+)
+def test_a_word_after_any_punctuation_or_separator_is_caught(before: str) -> None:
+    """FAILS IF: a textbook word after a curly quote, a dash, a slash, an ellipsis or a
+    non-breaking space slips past the guard because only ASCII marks counted as a word start."""
+    found = spoken_guard.textbook_words(f"మిర్చి{before}మరియు కారం", TE)
+    assert any(formal == "మరియు" for formal, _ in found)
+
+
+def test_a_word_inside_another_word_is_not_caught() -> None:
+    """FAILS IF: the word-start rule is dropped and a list word matches inside a longer word."""
+    assert not any(formal == "మరియు" for formal, _ in spoken_guard.textbook_words("కారంమరియు", TE))
+
+
 def test_the_writers_get_the_guidance_from_one_accessor() -> None:
     """FAILS IF: a writer's spoken guidance drifts from the one accessor the language packs
     plug into."""
@@ -153,6 +181,27 @@ def test_a_spoken_textbook_word_is_named_with_what_people_say() -> None:
         "style.sample_phrases.0: uses textbook words callers do not say: “వివరాలు” (say “details”)"
         in said
     )
+
+
+def test_a_spoken_line_naming_a_provider_is_sent_back_and_a_payment_name_is_not() -> None:
+    """FAILS IF: a line callers hear may name a technology company the model chose (D-679),
+    or "Google Pay" / "GPay", which is how callers pay, is refused as one."""
+    with pytest.raises(UnusableAnswerError) as refused:
+        script_assist.drafted_script(
+            _draft(sample_phrases=["మా Gemini assistant చెప్తుంది అండి"]), language=TE
+        )
+    assert "style.sample_phrases.0: names a technology company" in refused.value.problems
+    script = script_assist.drafted_script(
+        _draft(sample_phrases=["Google Pay లేదా GPay చేయొచ్చు అండి", "G Pay ఉంది అండి"]),
+        language=TE,
+    )
+    assert script.style.sample_phrases[0].startswith("Google Pay")
+    owner = script_assist.drafted_script(
+        _draft(sample_phrases=["Gemini Travels నుంచి అండి"]),
+        language=TE,
+        allowed="We are Gemini Travels",
+    )
+    assert owner.style.sample_phrases == ["Gemini Travels నుంచి అండి"]
 
 
 def test_a_say_step_is_spoken_and_a_guide_step_is_an_instruction() -> None:
