@@ -175,7 +175,7 @@ export function SpendScreen({ tenantId }: { tenantId: string }) {
       {!data ? (
         spend.error ? null : <Skeleton rows={8} label="Loading this client's spend" />
       ) : (
-        <SpendBoard data={data} />
+        <SpendBoard data={data} tenantId={tenantId} />
       )}
 
       {tenant && (
@@ -185,7 +185,7 @@ export function SpendScreen({ tenantId }: { tenantId: string }) {
   );
 }
 
-function SpendBoard({ data }: { data: TenantSpend }) {
+function SpendBoard({ data, tenantId }: { data: TenantSpend; tenantId: string }) {
   const basis = lookup(CHARGE_BASIS_COPY, data.charge_basis) ?? {
     label: "How each call is charged",
     hint: "",
@@ -331,7 +331,7 @@ function SpendBoard({ data }: { data: TenantSpend }) {
         </section>
       )}
 
-      <Breakdown data={data} />
+      <Breakdown data={data} tenantId={tenantId} />
     </div>
   );
 }

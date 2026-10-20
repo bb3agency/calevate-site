@@ -108,6 +108,20 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "whether our Google key can answer calls and which client workspaces hold it (D-764) "
         "— admin console, platform-wide, never impersonated"
     ),
+    "/v1/ops/voices/own-model/cache-shares": (
+        "how much of each listed own-model call's input was cached (D-839) — the admin "
+        "Spend screen's call list, read from the admin console, never impersonated"
+    ),
+    "/v1/ops/in-call-data-use": (
+        "the operator's attestation about callers' speech on our own model (D-839) — "
+        "superadmin ops surface on platform:config, as /v1/ops/dashboard-data-use is"
+    ),
+    "/v1/copilot/consent": (
+        "whether Pip is on for the account and whether the reader may switch it (D-839); "
+        "the client realm's `requires` refuses a view-as session outright, as it does "
+        "`POST /v1/copilot/consent`, because only the owner signed in as themselves may "
+        "turn Pip on or off, and an operator viewing the account has no Pip to read"
+    ),
     "/v1/admin/tenants": "the client directory — admin console, never impersonated",
     "/v1/admin/whatsapp": (
         "every client's WhatsApp accounts against Meta's weekly onboarding limit (D-784): an "

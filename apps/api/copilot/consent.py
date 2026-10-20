@@ -79,16 +79,23 @@ DISCLOSURE_TEXT_SHA256: Final = hashlib.sha256(DISCLOSURE_TEXT.encode("utf-8")).
 #: The current version as stored on an acceptance row.
 DISCLOSURE_VERSION: Final = DISCLOSURE.current_version
 
-ConsentStatus = Literal["accepted", "required", "outdated", "not_required"]
+#: `withdrawn`: the owner turned Pip off (D-839); it is locked as `required` is, and the
+#: owner turns it on again by accepting the current disclosure.
+ConsentStatus = Literal["accepted", "required", "outdated", "withdrawn", "not_required"]
+
+#: What one `copilot_consents` row records (D-839): the owner turning Pip on, or off.
+ConsentKind = Literal["accepted", "withdrawn"]
 
 
 @dataclass(frozen=True, slots=True)
 class ConsentState:
-    """The latest acceptance for one account, judged against the current disclosure."""
+    """The latest row for one account, judged against the current disclosure."""
 
     status: ConsentStatus
     accepted_version: str | None
     accepted_at: datetime | None
+    #: When the owner turned Pip off; None unless `status` is `withdrawn`.
+    withdrawn_at: datetime | None = None
 
     @property
     def unmasked(self) -> bool:
@@ -100,16 +107,22 @@ class ConsentState:
 ADMIN_UNMASKED: Final = ConsentState(status="not_required", accepted_version=None, accepted_at=None)
 
 _LATEST = (
-    "SELECT disclosure_version, accepted_at FROM copilot_consents "
+    "SELECT disclosure_version, accepted_at, kind FROM copilot_consents "
     "WHERE tenant_id = :tid ORDER BY accepted_at DESC, created_at DESC LIMIT 1"
 )
 
 
 async def read_consent(session: AsyncSession, *, tenant_id: UUID) -> ConsentState:
-    """The account's consent, under RLS (the session must be this tenant's)."""
+    """The account's consent, from its LATEST row, under RLS (the session must be this
+    tenant's). A withdrawal after an acceptance turns Pip off; an acceptance after a
+    withdrawal turns it on again."""
     row = (await session.execute(text(_LATEST), {"tid": tenant_id})).first()
     if row is None:
         return ConsentState(status="required", accepted_version=None, accepted_at=None)
+    if row[2] == "withdrawn":
+        return ConsentState(
+            status="withdrawn", accepted_version=None, accepted_at=None, withdrawn_at=row[1]
+        )
     version = str(row[0])
     status: ConsentStatus = "outdated" if reacceptance_required(DISCLOSURE, version) else "accepted"
     return ConsentState(status=status, accepted_version=version, accepted_at=row[1])
@@ -166,9 +179,9 @@ async def record_consent(
     consent_id = uuid7()
     await session.execute(
         text(
-            "INSERT INTO copilot_consents (id, tenant_id, disclosure_version, text_sha256, "
+            "INSERT INTO copilot_consents (id, tenant_id, kind, disclosure_version, text_sha256, "
             "  accepted_by_user_id, ip, accepted_at, created_at) "
-            "VALUES (:id, :tid, :version, :sha, :uid, :ip, now(), now())"
+            "VALUES (:id, :tid, 'accepted', :version, :sha, :uid, :ip, now(), now())"
         ),
         {
             "id": consent_id,
@@ -182,15 +195,52 @@ async def record_consent(
     return consent_id
 
 
+async def withdraw_consent(
+    session: AsyncSession, *, tenant_id: UUID, user_id: UUID, ip: str | None
+) -> UUID:
+    """Append the owner turning Pip off (D-839). The table is append-only, so turning off is
+    a later row that `read_consent` reads as the latest, and the acceptance it ends stays on
+    record. Every ask, upload and background task is then refused `copilot_consent_required`
+    until the owner accepts again. Refused when Pip is not on, so the record holds no
+    withdrawal of nothing."""
+    state = await read_consent(session, tenant_id=tenant_id)
+    if state.status not in ("accepted", "outdated"):
+        raise ProblemError.conflict(
+            "copilot_consent_not_on",
+            f"{ASSISTANT_NAME} is already off for this account.",
+            remediation=f"Nothing to do. You can turn {ASSISTANT_NAME} on again from its panel.",
+        )
+    row_id = uuid7()
+    await session.execute(
+        text(
+            "INSERT INTO copilot_consents (id, tenant_id, kind, disclosure_version, text_sha256, "
+            "  accepted_by_user_id, ip, accepted_at, created_at) "
+            "VALUES (:id, :tid, 'withdrawn', :version, :sha, :uid, :ip, now(), now())"
+        ),
+        {
+            "id": row_id,
+            "tid": tenant_id,
+            "version": DISCLOSURE_VERSION,
+            "sha": DISCLOSURE_TEXT_SHA256,
+            "uid": user_id,
+            "ip": ip,
+        },
+    )
+    return row_id
+
+
 def consent_out(state: ConsentState, *, can_accept: bool) -> CopilotConsentOut:
-    """The wire form. `can_accept` is the caller's to decide: it is about who is asking."""
+    """The wire form. `can_accept` is the caller's to decide: it is about who is asking
+    (the account owner, signed in as themselves), and it governs turning Pip off too."""
     return CopilotConsentOut(
         status=state.status,
         version=DISCLOSURE_VERSION,
         text=DISCLOSURE_TEXT,
         text_sha256=DISCLOSURE_TEXT_SHA256,
-        can_accept=can_accept and state.status in ("required", "outdated"),
+        can_accept=can_accept and state.status in ("required", "outdated", "withdrawn"),
+        can_withdraw=can_accept and state.status in ("accepted", "outdated"),
         accepted_at=state.accepted_at,
+        withdrawn_at=state.withdrawn_at,
     )
 
 
@@ -200,6 +250,7 @@ __all__ = [
     "DISCLOSURE_TEXT",
     "DISCLOSURE_TEXT_SHA256",
     "DISCLOSURE_VERSION",
+    "ConsentKind",
     "ConsentState",
     "ConsentStatus",
     "consent_out",
@@ -207,4 +258,5 @@ __all__ = [
     "read_consent",
     "record_consent",
     "require_consent",
+    "withdraw_consent",
 ]

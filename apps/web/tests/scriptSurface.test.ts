@@ -4,6 +4,7 @@ import {
   OPENING_LINE_COPILOT_HELP,
   RAW_SCRIPT_COPILOT_HELP,
   PUT_LIVE,
+  SAY_STEP_COPILOT_HELP,
   STEP_COPILOT_HELP,
   scriptCopilotFacts,
   scriptCopilotFields,
@@ -120,6 +121,46 @@ describe("the lines callers hear, and the screen's present state (D-832)", () =>
     const spoken = fields.filter((f) => f.spokenLanguage === "te-IN").map((f) => f.id);
     expect(spoken).toEqual(["script-opening_line", "script-stages-0-sounds_like", "script-stages-1-sounds_like"]);
     expect(scriptCopilotFields(STRUCTURED, false).some((f) => f.spokenLanguage)).toBe(false);
+  });
+
+  it("marks a stage said word for word as spoken, with its own help, and a guide stage as an instruction", () => {
+    const script: CallScript = {
+      ...STRUCTURED,
+      stages: [{ ...STRUCTURED.stages[0], mode: "say" }, STRUCTURED.stages[1]],
+    };
+    const fields = scriptCopilotFields(script, false, "te-IN");
+    const say = fields.find((f) => f.id === "script-stages-0-instruction");
+    expect(say?.spokenLanguage).toBe("te-IN");
+    expect(say?.instruction).toBeUndefined();
+    expect(say?.help).toBe(SAY_STEP_COPILOT_HELP);
+    const guide = fields.find((f) => f.id === "script-stages-1-instruction");
+    expect(guide?.instruction).toBe(true);
+    expect(guide?.spokenLanguage).toBeUndefined();
+  });
+
+  it("marks every instruction the in-call model reads, and no line callers hear", () => {
+    const fields = scriptCopilotFields(
+      { ...STRUCTURED, objections: [{ objection: "Too costly", response: "Say why it is worth it." }] },
+      false,
+      "te-IN",
+    );
+    expect(fields.filter((f) => f.instruction).map((f) => f.id)).toEqual([
+      "script-business_line",
+      "script-identity",
+      "script-goal",
+      "script-outbound_purpose",
+      "script-stages-0-instruction",
+      "script-stages-1-instruction",
+      "script-objections-0-response",
+      "script-ending",
+    ]);
+    expect(fields.some((f) => f.instruction && f.spokenLanguage)).toBe(false);
+  });
+
+  it("marks the raw body spoken, never an instruction: it holds the greeting too", () => {
+    const [body] = scriptCopilotFields({ ...EMPTY_SCRIPT, raw_override: "" }, true, "te-IN");
+    expect(body.spokenLanguage).toBe("te-IN");
+    expect(body.instruction).toBeUndefined();
   });
 
   it("says a kept suggestion is no longer waiting and the draft is saved but not live", () => {

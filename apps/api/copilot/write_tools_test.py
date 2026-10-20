@@ -215,6 +215,7 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "agent_edit",
         "agent_edit_live",
         "agent_capture_fields_set",
+        "agent_capture_fields_set_live",
         "agent_changes_apply",
         "agent_deactivate",
         "agent_delete",

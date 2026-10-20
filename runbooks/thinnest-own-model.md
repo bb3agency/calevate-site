@@ -42,9 +42,10 @@ switch is refused (`own_model_not_ready`) until they are done.
    same invoice (US$0.025 per 1M on Google's list, ai.google.dev/gemini-api/docs/pricing,
    updated 2026-10-16), and of any other Gemini model agents may run
    (ops console, model pricing), from the Google invoice. An unattested model is not offered.
-3. Attest the Google data-use position (Models, dashboard data use: `google`): the project is on
+3. Attest the Google data-use position for callers' speech (Language models, In-call data use:
+   `google`, step-up `attest_in_call_data_use:google`, D-839): the project is on
    the paid tier and log sharing is off (OPERATIONS §2 gate 41). Raw caller speech goes through
-   this key on every turn of every call.
+   this key on every turn of every call. The dashboard assistant's attestation does not count here.
 4. Attest the `byok_llm_voice` per-minute rate (ops console, Per-minute rates; VENDOR-PUBLISHED
    ₹1.00/min, `bring-your-own-keys.md:26-29`).
 5. Press **Set up developer workspace** on the card (`POST /v1/ops/voices/own-model/developer`,

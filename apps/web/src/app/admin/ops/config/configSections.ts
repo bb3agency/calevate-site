@@ -202,6 +202,41 @@ export function sectionAnchor(section: string): string {
   return `config-section-${section}`;
 }
 
+/** The DOM id of one setting's row. */
+export function settingAnchor(key: string): string {
+  return `config-setting-${key}`;
+}
+
+/** The screen's route; `configHref` is the one way any other screen links into it. */
+export const CONFIG_ROUTE = "/admin/ops/config";
+
+/** What a deep link opens on: a served panel, one credential's row, or one setting's row. */
+export type ConfigTarget = { panel: string } | { credential: string } | { setting: string };
+
+/**
+ * A link to one section of the configuration screen, and optionally to the panel, credential
+ * or setting in it, which the screen scrolls to and outlines (`deepLinkAnchor`). Setup
+ * checklists elsewhere link through this so each step lands on the thing it names.
+ */
+export function configHref(section: string, target?: ConfigTarget): string {
+  const query = new URLSearchParams({ section });
+  if (target && "panel" in target) query.set("panel", target.panel);
+  if (target && "credential" in target) query.set("credential", target.credential);
+  if (target && "setting" in target) query.set("setting", target.setting);
+  return `${CONFIG_ROUTE}?${query.toString()}`;
+}
+
+/** The DOM id a deep link's query names, or null when it names none. */
+export function deepLinkAnchor(params: { get(name: string): string | null }): string | null {
+  const panel = params.get("panel");
+  if (panel) return panelAnchor(panel);
+  const credential = params.get("credential");
+  if (credential) return credentialAnchor(credential);
+  const setting = params.get("setting");
+  if (setting) return settingAnchor(setting);
+  return null;
+}
+
 /** Each served panel's title, what it holds, and the words an operator looks for it by. */
 export const PANEL_SEARCH: Record<string, { title: string; detail: string; words: string[] }> = {
   rate_card: {
@@ -251,6 +286,11 @@ export const PANEL_SEARCH: Record<string, { title: string; detail: string; words
       "voice price",
       "embedding",
     ],
+  },
+  in_call_data_use: {
+    title: "In-call data use",
+    detail: "Whether callers' speech may go through our own model's key: the attestation our own model needs.",
+    words: ["in-call", "in call", "caller speech", "own model", "gemini", "google", "data use", "training", "attestation"],
   },
   dashboard_data_use: {
     title: "Dashboard AI data use",

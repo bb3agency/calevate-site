@@ -56,7 +56,11 @@ from calevate_shared.engine import azure_openai_base_url
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
+from apps.api.billing.ai_quota import (
+    new_assist_ref,
+    platform_brake_tripped,
+    record_ai_assist_usage,
+)
 from apps.api.copilot.memory import KIND_EPISODIC, KIND_SEMANTIC, redacted_content
 from apps.api.core import provider_health
 from apps.api.core.alerting import alert
@@ -386,6 +390,7 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
                 .scalars()
                 .all()
             ]
+            brake = await platform_brake_tripped(session)
     except Exception as failure:
         attempt = int(ctx.get("job_try", 1))
         if attempt < WORKER_MAX_TRIES:
@@ -397,6 +402,14 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
             error=type(failure).__name__,
         )
         raise
+
+    if brake:
+        # The platform's AI brake pauses dashboard AI for every account, and this sweep spends
+        # on the same key. Read rather than raised (`caller_embeddings`' reason): a tripped
+        # brake is a ceiling working, not a broken job. Episodes keep their NULL
+        # `distilled_at` and are read after the IST month rolls over.
+        log.warning("copilot_distil_brake_tripped")
+        return "brake_tripped"
 
     budget = MAX_GROUPS_PER_TICK
     distilled_groups = 0

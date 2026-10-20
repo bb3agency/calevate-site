@@ -609,10 +609,8 @@ class PlatformDashboardDataUse(Base):
     on the content. That is one property, and it is the one the dashboard-eligibility gate
     turns on.
 
-    ⚠ **THE SAME QUESTION GOVERNS THE IN-CALL LEG, WHICH IS LIVE TODAY**, and this table does
-    NOT gate it: in-call sends raw caller speech to whatever provider a client's chosen model
-    sits on. OPERATIONS §2 gate 41 is where that is owned, and it is a founder's decision, not
-    a column.
+    The in-call leg, which sends raw caller speech through our key, has its own attestation
+    and statement (`PlatformInCallDataUse`, D-839); a row here says nothing about it.
     """
 
     __tablename__ = "platform_dashboard_data_use"
@@ -641,6 +639,31 @@ class PlatformDashboardDataUse(Base):
     #: WHERE the operator looked, in their own words — "AI Studio Projects page, Billing Tier
     #: = Paid, project calevate-prod, 27 Aug 2026". The evidence that makes this an
     #: attestation rather than a guess, and the reason recorded in `audit_log`. NOT NULL.
+    source_note: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class PlatformInCallDataUse(Base):
+    """What an operator attested about ONE LLM provider's data-use terms for RAW CALLER
+    SPEECH: the turns of every call that answers on our own model go through our key for
+    that provider (D-764, D-839). `agents/own_model.own_model_readiness` reads the latest
+    `google` row; our model cannot be switched on without it.
+
+    The same three facts as `PlatformDashboardDataUse` (whose docstring argues each), with
+    its own statement and step-up, because the exposure differs: a dashboard attestation is
+    about Pip's screen text, and an operator's word on that is not a word on callers' voices.
+    Platform-scoped and append-only for the same reasons.
+    """
+
+    __tablename__ = "platform_in_call_data_use"
+
+    provider: Mapped[str] = mapped_column(Text, primary_key=True)
+    attested_at: Mapped[datetime] = mapped_column(primary_key=True)
+    attested_by: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=False
+    )
+    vendor_account_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    paid_tier_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    no_training_opt_in_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
     source_note: Mapped[str] = mapped_column(Text, nullable=False)
 
 
@@ -942,6 +965,7 @@ __all__ = [
     "PlatformEngineHealth",
     "PlatformEngineMinutePrice",
     "PlatformEngineModelBand",
+    "PlatformInCallDataUse",
     "PlatformMaintenanceWindow",
     "PlatformModelPrice",
     "PlatformSecret",

@@ -88,22 +88,38 @@ export const STEP_COPILOT_HELP =
   'like "ask what the caller needs" or "take their name and read it back to confirm". A hint, ' +
   "not a rigid line to read out and not a description of the company.";
 
+/** A stage in "say" mode: the agent says its text as written, so it is a spoken line. */
+export const SAY_STEP_COPILOT_HELP =
+  "One stage of the call that the agent says word for word, so write exactly what the caller " +
+  "hears, in the callers' spoken language and everyday words: one or two short spoken " +
+  "sentences, not an instruction and not a description of the company.";
+
 /**
  * The `<field>` list the copilot sees for this screen. Raw mode declares the one body box;
  * structured mode declares the script v2 sections and each existing stage, push-back and
  * quick-fact row. Ids are `script-<path-with-dots-as-dashes>`, the derivation
  * `ScriptBuilder`'s `apply` reverses (the same idea as `intakeFieldId`).
+ *
+ * Each box is marked for the server's fill check (D-831, D-832): a line callers hear carries
+ * the call language (`spokenLanguage`, no textbook words), an instruction to the in-call
+ * model is `instruction` (plain English). The fields of `script_assist._instruction_fields`
+ * and `_spoken_fields`, so Pip's fills and the AI's drafts keep one rule. The raw body mixes
+ * both, so it is marked spoken only: its instructions are English, which leaves any textbook
+ * word in a spoken line, and an English rule over the whole body would refuse its greeting.
  */
 export function scriptCopilotFields(script: CallScript, raw: boolean, language?: string): CopilotField[] {
+  // The lines callers hear, as against the instructions the in-call model reads (D-832).
+  const spoken = (field: CopilotField): CopilotField => (language ? { ...field, spokenLanguage: language } : field);
+  const instruction = (field: CopilotField): CopilotField => ({ ...field, instruction: true });
   if (raw) {
     return [
-      {
+      spoken({
         id: "script-raw_override",
         label: "Script body (raw)",
         type: "textarea",
         value: script.raw_override ?? "",
         help: RAW_SCRIPT_COPILOT_HELP,
-      },
+      }),
     ];
   }
 
@@ -114,23 +130,30 @@ export function scriptCopilotFields(script: CallScript, raw: boolean, language?:
     value,
     ...(help ? { help } : {}),
   });
-  // The lines callers hear, as against the instructions the in-call model reads (D-832).
-  const spoken = (field: CopilotField): CopilotField => (language ? { ...field, spokenLanguage: language } : field);
   return [
-    text("script-business_line", "Your business in one line", script.business_line),
-    text("script-identity", "The agent's role", script.identity, IDENTITY_COPILOT_HELP),
-    text("script-goal", "What a good call achieves", script.goal),
-    text("script-outbound_purpose", "Why you are calling", script.outbound_purpose),
+    instruction(text("script-business_line", "Your business in one line", script.business_line)),
+    instruction(text("script-identity", "The agent's role", script.identity, IDENTITY_COPILOT_HELP)),
+    instruction(text("script-goal", "What a good call achieves", script.goal)),
+    instruction(text("script-outbound_purpose", "Why you are calling", script.outbound_purpose)),
     spoken(text("script-opening_line", "Opening line", script.opening_line, OPENING_LINE_COPILOT_HELP)),
     ...script.stages.flatMap((stage, index) => [
-      text(`script-stages-${index}-instruction`, `Stage ${index + 1}`, stage.instruction, STEP_COPILOT_HELP),
+      stage.mode === "say"
+        ? spoken(
+            text(
+              `script-stages-${index}-instruction`,
+              `Stage ${index + 1}, said word for word`,
+              stage.instruction,
+              SAY_STEP_COPILOT_HELP,
+            ),
+          )
+        : instruction(text(`script-stages-${index}-instruction`, `Stage ${index + 1}`, stage.instruction, STEP_COPILOT_HELP)),
       spoken(text(`script-stages-${index}-sounds_like`, `How stage ${index + 1} sounds`, stage.sounds_like ?? "")),
     ]),
     ...script.objections.flatMap((o, index) => [
       text(`script-objections-${index}-objection`, `Push-back ${index + 1}`, o.objection),
-      text(`script-objections-${index}-response`, `Answer to push-back ${index + 1}`, o.response),
+      instruction(text(`script-objections-${index}-response`, `Answer to push-back ${index + 1}`, o.response)),
     ]),
-    text("script-ending", "How the call ends", script.ending),
+    instruction(text("script-ending", "How the call ends", script.ending)),
     ...script.faqs.flatMap((faq, index) => [
       text(`script-faqs-${index}-question`, `Quick fact ${index + 1} question`, faq.question),
       text(`script-faqs-${index}-answer`, `Quick fact ${index + 1} answer`, faq.answer),

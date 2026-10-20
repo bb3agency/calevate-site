@@ -262,6 +262,13 @@ def _spoken(question: str = "write a warm opening line", value: str = "") -> Cop
                     "type": "textarea",
                     "writable": True,
                 },
+                {
+                    "id": "script-goal",
+                    "label": "What a good call achieves",
+                    "type": "textarea",
+                    "writable": True,
+                    "instruction": True,
+                },
             ],
         }
     )
@@ -284,8 +291,28 @@ def test_a_spoken_line_with_a_textbook_word_is_refused_naming_the_word_and_its_s
     assert "“మరియు”" in reason and "ఇంకా" in reason
 
 
-def test_the_same_words_in_an_instruction_field_are_not_judged() -> None:
-    """Only a field the screen marks as spoken is checked; Pip's chat replies never are."""
+def test_an_instruction_in_telugu_is_refused_and_one_in_english_is_filled() -> None:
+    """FAILS IF: Pip may write an instruction the in-call model reads in an Indic script
+    (D-831), or an English instruction is refused."""
+    with pytest.raises(FillRefusedError) as refused:
+        validate_fill(_spoken(), _said({"field_id": "script-goal", "value": TEXTBOOK_OPENING}))
+    (reason,) = refused.value.reasons
+    assert reason.startswith("`script-goal` is an instruction to the agent")
+    english = "Take the order and confirm the delivery area."
+    items = validate_fill(_spoken(), _said({"field_id": "script-goal", "value": english}))
+    assert items[0].value == english
+
+
+def test_telugu_the_owner_typed_may_go_into_an_instruction() -> None:
+    """FAILS IF: an owner who writes their own instruction in Telugu is refused it."""
+    payload = _spoken(question="put this in the opening line goal: ఆర్డర్ తీసుకోవాలి")
+    items = validate_fill(payload, _said({"field_id": "script-goal", "value": "ఆర్డర్ తీసుకోవాలి"}))
+    assert items[0].value == "ఆర్డర్ తీసుకోవాలి"
+
+
+def test_the_same_words_in_an_unmarked_field_are_not_judged() -> None:
+    """Only a field the screen marks as spoken or as an instruction is checked; Pip's chat
+    replies never are."""
     items = validate_fill(
         _spoken(), _said({"field_id": "script-business_line", "value": TEXTBOOK_OPENING})
     )

@@ -143,6 +143,10 @@ class CopilotField(BaseModel):
     spoken_language: (
         Annotated[str, Field(max_length=16, pattern=r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")] | None
     ) = None
+    #: Set on an INSTRUCTION the in-call model reads and no caller hears (the role, the goal,
+    #: a guide step, the ending). A fill of such a field in an Indic script is refused: those
+    #: instructions are plain English (D-831, `service.instruction_problem`).
+    instruction: bool = False
 
 
 class CopilotScreen(BaseModel):
@@ -598,18 +602,21 @@ class CopilotConsentOut(BaseModel):
     """Whether Pip is on for this account, and what the owner reads to turn it on (D-788).
 
     `status` is `accepted` or `not_required` (the admin console) when Pip may answer;
-    `required` and `outdated` lock it. `can_accept` says whether THIS person may turn it on:
-    the account owner, signed in as themselves. The text is served rather than kept in the
-    browser so the words shown and the hash recorded cannot come from two places."""
+    `required`, `outdated` and `withdrawn` (the owner turned it off, D-839) lock it.
+    `can_accept` and `can_withdraw` say whether THIS person may turn it on or off: the account
+    owner, signed in as themselves. The text is served rather than kept in the browser so the
+    words shown and the hash recorded cannot come from two places."""
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["accepted", "required", "outdated", "not_required"]
+    status: Literal["accepted", "required", "outdated", "withdrawn", "not_required"]
     version: str
     text: str
     text_sha256: str
     can_accept: bool
+    can_withdraw: bool
     accepted_at: datetime | None
+    withdrawn_at: datetime | None
 
 
 class CopilotConsentIn(BaseModel):

@@ -38,7 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Final, cast, get_args
+from typing import Final, Literal, cast, get_args
 
 from calevate_shared.engine import EMBEDDING_MODELS, LLM_MODELS, LlmProvider
 from sqlalchemy import text
@@ -323,15 +323,29 @@ async def offerable_models(session: AsyncSession, *, at: datetime) -> frozenset[
     )
 
 
+#: Which content an attestation is about (D-839). `dashboard`: Pip's screen text
+#: (D-477). `in_call`: raw caller speech, sent through our key on every turn of a call that
+#: answers on our own model (D-764). Separate attestations with separate statements, because
+#: one operator's word about the first is not a word about the second.
+DataUseLeg = Literal["dashboard", "in_call"]
+
+#: One append-only table per leg, of the same shape; the closed key set is what makes the
+#: interpolation below safe.
+_DATA_USE_TABLE: Final[dict[DataUseLeg, str]] = {
+    "dashboard": "platform_dashboard_data_use",
+    "in_call": "platform_in_call_data_use",
+}
+
+
 @dataclass(frozen=True, slots=True)
-class DashboardDataUseAttestation:
+class DataUseAttestation:
     """What an operator attested about ONE provider's data-use terms, with its provenance.
 
     Frozen and provenance-carrying for `AttestedModelPrice`'s reasons: an attestation that
     reached a caller must not be mutable underneath it, and the next reader must inherit the
     evidence (`vendor_account_ref`, `source_note`, `attested_by`) rather than the conclusion.
 
-    `permits_dashboard` is the AND of the two settings that can each defeat the paid tier —
+    `permits` is the AND of the two settings that can each defeat the paid tier —
     see `ops/models.PlatformDashboardDataUse` for what each one is and what neither of them
     buys. It is a property rather than a stored column so that the rule lives in one place
     and an old row can never disagree with today's rule about its own two booleans.
@@ -347,15 +361,28 @@ class DashboardDataUseAttestation:
     source_note: str
 
     @property
-    def permits_dashboard(self) -> bool:
-        """May the dashboard assist run on this provider on the strength of this row?"""
+    def permits(self) -> bool:
+        """May this leg's content go to this provider on the strength of this row?"""
         return self.paid_tier_confirmed and self.no_training_opt_in_confirmed
 
 
 async def dashboard_data_use_attestations(
     session: AsyncSession,
-) -> dict[LlmProvider, DashboardDataUseAttestation]:
-    """The LATEST attestation for each provider, keyed by provider.
+) -> dict[LlmProvider, DataUseAttestation]:
+    return await data_use_attestations(session, leg="dashboard")
+
+
+async def in_call_permitted_providers(session: AsyncSession) -> frozenset[LlmProvider]:
+    """The providers whose LATEST in-call attestation permits sending caller speech: what
+    own-model readiness reads (`agents/own_model.own_model_readiness`, D-839)."""
+    attested = await data_use_attestations(session, leg="in_call")
+    return frozenset(p for p, a in attested.items() if a.permits)
+
+
+async def data_use_attestations(
+    session: AsyncSession, *, leg: DataUseLeg
+) -> dict[LlmProvider, DataUseAttestation]:
+    """The LATEST attestation for each provider on one leg, keyed by provider.
 
     Latest rather than effective-dated, and the difference from `attested_model_prices` is
     deliberate: a price is a fact about a PERIOD (a re-rendered invoice needs the figure that
@@ -364,7 +391,7 @@ async def dashboard_data_use_attestations(
     question, and it is read by the console, not by the gate.
 
     ONE ROUND TRIP: `DISTINCT ON (provider) … ORDER BY provider, attested_at DESC` over
-    `ix_platform_dashboard_data_use_provider`, the same shape the price reader uses.
+    the leg's `(provider, attested_at DESC)` index, the same shape the price reader uses.
 
     A row naming a provider this build no longer declares is SKIPPED rather than raising: the
     table deliberately stores provider as text so history survives a leg being withdrawn, and
@@ -379,19 +406,19 @@ async def dashboard_data_use_attestations(
                 # unattributed attestation is not an attestation (`attested_by`'s comment on
                 # the price reader gives the argument in full).
                 "COALESCE(a.name, d.attested_by::text), d.source_note "
-                "FROM platform_dashboard_data_use d "
+                f"FROM {_DATA_USE_TABLE[leg]} d "
                 "LEFT JOIN admin_users a ON a.id = d.attested_by "
                 "ORDER BY d.provider, d.attested_at DESC"
             )
         )
     ).all()
     declared = frozenset(get_args(LlmProvider))
-    result: dict[LlmProvider, DashboardDataUseAttestation] = {}
+    result: dict[LlmProvider, DataUseAttestation] = {}
     for r in rows:
         provider = str(r[0])
         if provider not in declared:
             continue
-        result[cast("LlmProvider", provider)] = DashboardDataUseAttestation(
+        result[cast("LlmProvider", provider)] = DataUseAttestation(
             provider=cast("LlmProvider", provider),
             vendor_account_ref=str(r[1]),
             paid_tier_confirmed=bool(r[2]),
@@ -412,7 +439,11 @@ async def dashboard_permitted_providers(session: AsyncSession) -> frozenset[LlmP
     finding (`dashboard_data_use_attested`'s docstring).
     """
     attested = await dashboard_data_use_attestations(session)
-    return frozenset(p for p, a in attested.items() if a.permits_dashboard)
+    return frozenset(p for p, a in attested.items() if a.permits)
+
+
+def _code_prefix(leg: DataUseLeg) -> str:
+    return f"{leg}_data_use"
 
 
 def _require_declared_provider(provider: str) -> LlmProvider:
@@ -431,7 +462,7 @@ def _require_declared_provider(provider: str) -> LlmProvider:
     return cast("LlmProvider", provider)
 
 
-async def attest_dashboard_data_use(
+async def attest_data_use(
     session: AsyncSession,
     *,
     provider: str,
@@ -441,7 +472,8 @@ async def attest_dashboard_data_use(
     attested_at: datetime,
     source_note: str,
     actor_id: object,
-) -> DashboardDataUseAttestation:
+    leg: DataUseLeg,
+) -> DataUseAttestation:
     """Record ONE operator attestation as a NEW dated row. Never an UPDATE.
 
     The caller MUST have step-up confirmed and MUST write the audit row on this same session
@@ -466,7 +498,7 @@ async def attest_dashboard_data_use(
     if not account_ref or not note:
         raise ProblemError(
             kind="validation",
-            code="dashboard_data_use_evidence_missing",
+            code=f"{_code_prefix(leg)}_evidence_missing",
             title="An attestation needs the account it is about and where you looked",
             detail=(
                 "Both the vendor project/account reference and the evidence note are required."
@@ -480,17 +512,14 @@ async def attest_dashboard_data_use(
         )
     existing = (
         await session.execute(
-            text(
-                "SELECT 1 FROM platform_dashboard_data_use "
-                "WHERE provider = :p AND attested_at = :at"
-            ),
+            text(f"SELECT 1 FROM {_DATA_USE_TABLE[leg]} WHERE provider = :p AND attested_at = :at"),
             {"p": declared, "at": attested_at},
         )
     ).first()
     if existing is not None:
         raise ProblemError(
             kind="conflict",
-            code="dashboard_data_use_duplicate_instant",
+            code=f"{_code_prefix(leg)}_duplicate_instant",
             title="An attestation already exists for this provider at this instant",
             detail=(
                 f"{declared!r} already has an attestation at {attested_at.isoformat()}. A "
@@ -503,7 +532,7 @@ async def attest_dashboard_data_use(
         )
     await session.execute(
         text(
-            "INSERT INTO platform_dashboard_data_use "
+            f"INSERT INTO {_DATA_USE_TABLE[leg]} "
             "(provider, attested_at, attested_by, vendor_account_ref, paid_tier_confirmed, "
             "no_training_opt_in_confirmed, source_note) "
             "VALUES (:p, :at, :by, :ref, :paid, :noopt, :note)"
@@ -518,7 +547,7 @@ async def attest_dashboard_data_use(
             "note": note,
         },
     )
-    return DashboardDataUseAttestation(
+    return DataUseAttestation(
         provider=declared,
         vendor_account_ref=account_ref,
         paid_tier_confirmed=paid_tier_confirmed,

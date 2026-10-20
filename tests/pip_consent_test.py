@@ -505,6 +505,105 @@ async def test_a_background_task_is_refused_on_an_account_pip_is_off_for(
     assert reached == []
 
 
+# --- turning Pip off (D-839) ---------------------------------------------------------------
+
+WITHDRAW = "/v1/copilot/consent/withdraw"
+
+
+async def test_the_owner_turns_pip_off_and_every_ask_and_task_is_refused_until_on_again(
+    azure_leg: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: the owner cannot turn Pip off, a withdrawal leaves Pip answering or a
+    queued task running, or turning it on again does not undo it."""
+    tenant_id, slug, token = await _make_tenant()
+    sent = _model(monkeypatch)
+    async with _client() as http:
+        on = (await http.post(CONSENT, headers=_headers(token, slug), json=_accept_body())).json()
+        off = await http.post(WITHDRAW, headers=_headers(token, slug))
+        read = (await http.get(CONSENT, headers=_headers(token, slug))).json()
+        events = await _events(http, ASK, _headers(token, slug), BODY)
+    assert on["can_withdraw"] is True
+    assert off.status_code == 201, off.text
+    assert off.json()["status"] == "withdrawn" and off.json()["can_accept"] is True
+    assert off.json()["withdrawn_at"] is not None and off.json()["can_withdraw"] is False
+    assert read["status"] == "withdrawn"
+    assert events[0][1]["type"].endswith("/copilot_consent_required")
+    assert sent == []
+
+    job_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO copilot_jobs (id, tenant_id, user_id, status, goal, screen_route, "
+                "created_at, updated_at) VALUES (:i, :t, :u, 'queued', 'tidy the leads', "
+                "'/c/x/leads', now(), now())"
+            ),
+            {"i": job_id, "t": tenant_id, "u": UUID(token.rsplit(":", 1)[1])},
+        )
+    outcome = await copilot_jobs.run_copilot_job(
+        {}, {"job_id": str(job_id), "tenant_id": str(tenant_id)}
+    )
+    assert outcome == "copilot_consent_required"
+
+    async with _client() as http:
+        again = await http.post(CONSENT, headers=_headers(token, slug), json=_accept_body())
+    assert again.json()["status"] == "accepted"
+    async with tenant_session(tenant_id) as session:
+        kinds = (
+            (
+                await session.execute(
+                    text("SELECT kind FROM copilot_consents ORDER BY accepted_at, created_at")
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert kinds == ["accepted", "withdrawn", "accepted"], "append-only: nothing edited"
+    async with untenanted_session() as session:
+        audited = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM audit_log WHERE tenant_id = :t "
+                    "AND action = 'copilot.consent_withdrawn'"
+                ),
+                {"t": str(tenant_id)},
+            )
+        ).scalar_one()
+    assert audited == 1
+
+
+async def test_only_the_owner_signed_in_as_themselves_can_turn_pip_off() -> None:
+    """FAILS IF: staff, or an operator viewing the account, can switch Pip off for everyone."""
+    tenant_id, slug, token = await _make_tenant(role="staff")
+    await turn_pip_on_for_tests(tenant_id)
+    async with _client() as http:
+        seen = (await http.get(CONSENT, headers=_headers(token, slug))).json()
+        refused = await http.post(WITHDRAW, headers=_headers(token, slug))
+    assert seen["status"] == "accepted" and seen["can_withdraw"] is False
+    assert refused.status_code == 403, refused.text
+
+    _admin_id, admin_token = await _make_admin()
+    org = await _make_org()
+    await turn_pip_on_for_tests(org["id"])
+    async with _client() as http:
+        grant = await _mint_over_http(http, admin_token, str(org["slug"]))
+        viewing = await http.post(
+            WITHDRAW, headers=_view_as_headers(admin_token, str(org["slug"]), grant)
+        )
+    assert viewing.status_code == 403, viewing.text
+    async with tenant_session(org["id"]) as session:
+        state = await consent.read_consent(session, tenant_id=org["id"])
+    assert state.status == "accepted"
+
+
+async def test_turning_off_a_pip_that_is_not_on_is_refused() -> None:
+    _tenant_id, slug, token = await _make_tenant()
+    async with _client() as http:
+        refused = await http.post(WITHDRAW, headers=_headers(token, slug))
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["type"].endswith("/copilot_consent_not_on")
+
+
 def test_the_refusal_names_who_can_unlock_it() -> None:
     problem = consent.consent_required()
     assert isinstance(problem, ProblemError)

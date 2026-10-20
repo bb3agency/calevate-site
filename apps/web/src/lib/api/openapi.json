@@ -5849,6 +5849,60 @@
         "title": "CallBackOut",
         "type": "object"
       },
+      "CallCacheShareOut": {
+        "additionalProperties": false,
+        "description": "One own-model call's input: how much of it the provider served from its cache.",
+        "properties": {
+          "cached_input_tokens": {
+            "title": "Cached Input Tokens",
+            "type": "integer"
+          },
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "input_tokens": {
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "share": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Share"
+          }
+        },
+        "required": [
+          "call_id",
+          "cached_input_tokens",
+          "input_tokens",
+          "share"
+        ],
+        "title": "CallCacheShareOut",
+        "type": "object"
+      },
+      "CallCacheSharesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/CallCacheShareOut"
+            },
+            "title": "Calls",
+            "type": "array"
+          }
+        },
+        "required": [
+          "calls"
+        ],
+        "title": "CallCacheSharesOut",
+        "type": "object"
+      },
       "CallCallbackOut": {
         "additionalProperties": false,
         "description": "The call back booked ON this call, if any (F-4/F-5): the newest one.",
@@ -9639,6 +9693,33 @@
         "title": "ClientMaintenanceOut",
         "type": "object"
       },
+      "ClientOptionOut": {
+        "additionalProperties": false,
+        "description": "A client with an active voice workspace of its own, for the operator's picker: our keys\nare installed per client workspace, so these are the clients an install can name.",
+        "properties": {
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "tenant_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Name"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "tenant_name"
+        ],
+        "title": "ClientOptionOut",
+        "type": "object"
+      },
       "ClientReplyTimes": {
         "properties": {
           "calls": {
@@ -11940,7 +12021,7 @@
       },
       "CopilotConsentOut": {
         "additionalProperties": false,
-        "description": "Whether Pip is on for this account, and what the owner reads to turn it on (D-788).\n\n`status` is `accepted` or `not_required` (the admin console) when Pip may answer;\n`required` and `outdated` lock it. `can_accept` says whether THIS person may turn it on:\nthe account owner, signed in as themselves. The text is served rather than kept in the\nbrowser so the words shown and the hash recorded cannot come from two places.",
+        "description": "Whether Pip is on for this account, and what the owner reads to turn it on (D-788).\n\n`status` is `accepted` or `not_required` (the admin console) when Pip may answer;\n`required`, `outdated` and `withdrawn` (the owner turned it off, D-839) lock it.\n`can_accept` and `can_withdraw` say whether THIS person may turn it on or off: the account\nowner, signed in as themselves. The text is served rather than kept in the browser so the\nwords shown and the hash recorded cannot come from two places.",
         "properties": {
           "accepted_at": {
             "anyOf": [
@@ -11958,11 +12039,16 @@
             "title": "Can Accept",
             "type": "boolean"
           },
+          "can_withdraw": {
+            "title": "Can Withdraw",
+            "type": "boolean"
+          },
           "status": {
             "enum": [
               "accepted",
               "required",
               "outdated",
+              "withdrawn",
               "not_required"
             ],
             "title": "Status",
@@ -11979,6 +12065,18 @@
           "version": {
             "title": "Version",
             "type": "string"
+          },
+          "withdrawn_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawn At"
           }
         },
         "required": [
@@ -11987,7 +12085,9 @@
           "text",
           "text_sha256",
           "can_accept",
-          "accepted_at"
+          "can_withdraw",
+          "accepted_at",
+          "withdrawn_at"
         ],
         "title": "CopilotConsentOut",
         "type": "object"
@@ -12093,6 +12193,11 @@
             "minLength": 1,
             "title": "Id",
             "type": "string"
+          },
+          "instruction": {
+            "default": false,
+            "title": "Instruction",
+            "type": "boolean"
           },
           "label": {
             "maxLength": 200,
@@ -20686,6 +20791,133 @@
         "title": "ImprovementOut",
         "type": "object"
       },
+      "InCallDataUseListOut": {
+        "additionalProperties": false,
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/InCallDataUseOut"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "providers",
+          "statement"
+        ],
+        "title": "InCallDataUseListOut",
+        "type": "object"
+      },
+      "InCallDataUseOut": {
+        "additionalProperties": false,
+        "description": "One provider, as the panel renders it. The attestation fields are all `null` together\nwhen nobody has attested, a distinct state from an attested \"no\".",
+        "properties": {
+          "attested_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested At"
+          },
+          "attested_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested By"
+          },
+          "no_training_opt_in_confirmed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Training Opt In Confirmed"
+          },
+          "paid_tier_confirmed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Tier Confirmed"
+          },
+          "permits": {
+            "title": "Permits",
+            "type": "boolean"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "source_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Note"
+          },
+          "vendor_account_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Account Ref"
+          }
+        },
+        "required": [
+          "provider",
+          "permits",
+          "vendor_account_ref",
+          "paid_tier_confirmed",
+          "no_training_opt_in_confirmed",
+          "attested_at",
+          "attested_by",
+          "source_note"
+        ],
+        "title": "InCallDataUseOut",
+        "type": "object"
+      },
+      "InCallDataUseWriteOut": {
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/InCallDataUseOut"
+          }
+        },
+        "required": [
+          "provider"
+        ],
+        "title": "InCallDataUseWriteOut",
+        "type": "object"
+      },
       "InFlightOut": {
         "additionalProperties": false,
         "description": "What the drain is still waiting for, as the console renders it.\n\n`measured_at` is not decoration. These numbers are taken by the worker tick, not by\nthis request (`PlatformMaintenanceWindow.in_flight` says why), so the screen has to be\nable to say how old they are \u2014 an operator deciding whether to force a window on\nnumbers of unknown age is exactly the mistake the founder's \"an operator staring at a\nspinner with no numbers will force it\" is about.",
@@ -28526,9 +28758,33 @@
       "OwnModelOut": {
         "additionalProperties": false,
         "properties": {
+          "clients": {
+            "items": {
+              "$ref": "#/components/schemas/ClientOptionOut"
+            },
+            "title": "Clients",
+            "type": "array"
+          },
           "data_use_attested": {
             "title": "Data Use Attested",
             "type": "boolean"
+          },
+          "default_fix": {
+            "anyOf": [
+              {
+                "enum": [
+                  "key",
+                  "price",
+                  "deployment",
+                  "default"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Fix"
           },
           "default_model": {
             "title": "Default Model",
@@ -28579,6 +28835,33 @@
           "explanation": {
             "title": "Explanation",
             "type": "string"
+          },
+          "fleet_cache_calls": {
+            "title": "Fleet Cache Calls",
+            "type": "integer"
+          },
+          "fleet_cache_measured_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fleet Cache Measured At"
+          },
+          "fleet_cache_share": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fleet Cache Share"
           },
           "floor_model_inr_per_min": {
             "anyOf": [
@@ -28634,6 +28917,13 @@
             "title": "Offerable Models",
             "type": "array"
           },
+          "pending_workspaces": {
+            "items": {
+              "$ref": "#/components/schemas/PendingWorkspaceOut"
+            },
+            "title": "Pending Workspaces",
+            "type": "array"
+          },
           "ready": {
             "title": "Ready",
             "type": "boolean"
@@ -28657,6 +28947,7 @@
           "google_key_configured",
           "default_offerable",
           "default_reason",
+          "default_fix",
           "data_use_attested",
           "llm_voice_minute_attested",
           "developer_ready",
@@ -28665,10 +28956,15 @@
           "offerable_models",
           "missing",
           "workspaces",
+          "pending_workspaces",
+          "clients",
           "floor_prompt_tokens",
           "floor_prompt_source",
           "floor_prompt_basis",
           "floor_model_inr_per_min",
+          "fleet_cache_share",
+          "fleet_cache_calls",
+          "fleet_cache_measured_at",
           "explanation",
           "note"
         ],
@@ -29656,6 +29952,38 @@
           "proposal"
         ],
         "title": "PendingProposalOut",
+        "type": "object"
+      },
+      "PendingWorkspaceOut": {
+        "additionalProperties": false,
+        "description": "A client workspace where switching our Google key on failed and never succeeded.",
+        "properties": {
+          "error_code": {
+            "title": "Error Code",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "tenant_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Name"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "tenant_name",
+          "error_code"
+        ],
+        "title": "PendingWorkspaceOut",
         "type": "object"
       },
       "PerformanceFunnelOut": {
@@ -37955,6 +38283,13 @@
             "title": "Cartesia Key Configured",
             "type": "boolean"
           },
+          "clients": {
+            "items": {
+              "$ref": "#/components/schemas/ClientOptionOut"
+            },
+            "title": "Clients",
+            "type": "array"
+          },
           "developer_holds_key": {
             "title": "Developer Holds Key",
             "type": "boolean"
@@ -38021,6 +38356,7 @@
           "missing",
           "workspaces",
           "live_studio_agents",
+          "clients",
           "explanation",
           "note"
         ],
@@ -64514,6 +64850,33 @@
       }
     },
     "/v1/copilot/consent": {
+      "get": {
+        "description": "Whether Pip is on, off until the owner turns it on, or turned off by the owner, with the disclosure the owner reads. `can_accept` and `can_withdraw` say whether the person asking may turn it on or off. Readable while it is off, because that is when the answer matters.",
+        "operationId": "read_copilot_consent_v1_copilot_consent_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotConsentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether Pip is on for this account, and who may switch it",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      },
       "post": {
         "description": "Records that the account owner read the disclosure Pip shows and turned Pip on for everyone on the account, with the version and a hash of the exact text, in an append-only record and the audit log. Only the account owner can do it, and an impersonated session cannot. A version or text that is no longer current is refused rather than recorded.",
         "operationId": "accept_copilot_consent_v1_copilot_consent_post",
@@ -64546,6 +64909,35 @@
           }
         },
         "summary": "Turn Pip on for this account (the account owner, once)",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/copilot/consent/withdraw": {
+      "post": {
+        "description": "Records that the account owner turned Pip off for everyone on the account, as a new row in the append-only record and the audit log; the acceptance it ends stays on record. From then on every ask and upload is refused, and a background task or routine that starts is refused `copilot_consent_required`, until the owner turns it on again. Only the account owner can do it, and an impersonated session cannot. Refused `copilot_consent_not_on` when Pip is not on.",
+        "operationId": "withdraw_copilot_consent_v1_copilot_consent_withdraw_post",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotConsentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Turn Pip off for this account (the account owner)",
         "tags": [
           "copilot"
         ],
@@ -71013,7 +71405,7 @@
     },
     "/v1/ops/dashboard-data-use": {
       "get": {
-        "description": "Lists every declared LLM leg with whether the in-app AI assistant may run on it, the ground if it may not, and the latest operator attestation about that vendor's data-use terms. Eligibility needs BOTH an attestation and a dashboard leg this platform can actually build \u2014 `dashboard_leg_built` says whether the second is true, so attesting a provider whose leg is not built is not mistaken for enabling it. This surface does not govern the in-call leg, which sends raw caller speech.",
+        "description": "Lists every declared LLM leg with whether the in-app AI assistant may run on it, the ground if it may not, and the latest operator attestation about that vendor's data-use terms. Eligibility needs BOTH an attestation and a dashboard leg this platform can actually build \u2014 `dashboard_leg_built` says whether the second is true, so attesting a provider whose leg is not built is not mistaken for enabling it. Calls on our own model, which send raw caller speech, are attested separately at `/v1/ops/in-call-data-use`.",
         "operationId": "list_dashboard_data_use_v1_ops_dashboard_data_use_get",
         "responses": {
           "200": {
@@ -71949,6 +72341,103 @@
           "ops"
         ],
         "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/in-call-data-use": {
+      "get": {
+        "description": "Lists each provider a call can answer on through our key, whether its latest attestation permits sending what callers say, and that attestation. Our own model cannot be switched on until its provider's row permits it.",
+        "operationId": "list_in_call_data_use_v1_ops_in_call_data_use_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InCallDataUseListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Each in-call provider's latest data-use attestation for caller speech",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/in-call-data-use/{provider}": {
+      "post": {
+        "description": "Records what you read in the vendor's own console as a NEW dated row; a correction is a later attestation, never an edit. Requires `X-Confirm-Action: attest_in_call_data_use:<provider>`. A negative answer is recorded too, and keeps our own model from being switched on.",
+        "operationId": "attest_provider_in_call_data_use_v1_ops_in_call_data_use__provider__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "maxLength": 48,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DashboardDataUseAttestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InCallDataUseWriteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Attest one provider's data-use position for caller speech (step-up, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
       }
     },
     "/v1/ops/inr-llm-prices": {
@@ -74392,6 +74881,61 @@
           }
         },
         "summary": "Whether agents can answer on our own model, and which client workspaces do",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voices/own-model/cache-shares": {
+      "get": {
+        "description": "For one client's listed calls (the admin Spend screen's call list), the input tokens each own-model call counted and the part served from the provider's cache. A call not on our own model, or metered before the counts were reported, is left out.",
+        "operationId": "own_model_cache_shares_v1_ops_voices_own_model_cache_shares_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 200,
+              "title": "Call Id",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallCacheSharesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How much of each listed own-model call's input was served from cache",
         "tags": [
           "ops"
         ],

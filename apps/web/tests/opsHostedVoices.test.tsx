@@ -192,6 +192,7 @@ const STUDIO_ON: StudioVoices = {
     },
   ],
   live_studio_agents: 2,
+  clients: [{ tenant_id: "7f0c2b1e-0000-4000-8000-000000000001", tenant_name: "Sri Clinic" }],
   explanation: EXPLANATION,
   note: "Ready: Studio is on in our developer workspace for trial agents and in 1 client workspace(s).",
   key: {
@@ -231,6 +232,7 @@ const OWN_MODEL_ON: OwnModel = {
   google_key_configured: true,
   default_offerable: true,
   default_reason: null,
+  default_fix: null,
   data_use_attested: true,
   llm_voice_minute_attested: true,
   developer_ready: true,
@@ -239,6 +241,8 @@ const OWN_MODEL_ON: OwnModel = {
   offerable_models: ["gemini-2.5-flash-lite"],
   missing: [],
   workspaces: [],
+  pending_workspaces: [],
+  clients: [{ tenant_id: "7f0c2b1e-0000-4000-8000-000000000001", tenant_name: "Sri Clinic" }],
   explanation: "Agents answer on our Google key.",
   note: "On: 0 client workspace(s) answer on our Google key.",
   floor_prompt_tokens: 6150,
@@ -246,6 +250,9 @@ const OWN_MODEL_ON: OwnModel = {
   floor_prompt_basis:
     "6,150 prompt tokens: the largest of 2 live agents' published prompts (0 of 20 own-model calls measured)",
   floor_model_inr_per_min: "0.3640",
+  fleet_cache_share: "0.6200",
+  fleet_cache_calls: 20,
+  fleet_cache_measured_at: "2026-10-20T10:00:00Z",
 };
 
 const OWN_MODEL_OFF: OwnModel = {
@@ -886,8 +893,8 @@ describe("Studio setup", () => {
     expect(JSON.parse(write.body!)).toEqual({});
   });
 
-  it("names a paying client to switch on now when one is typed", async () => {
-    const tenant = "7f0c2b1e-0000-4000-8000-000000000002";
+  it("names a paying client to switch on now when one is picked", async () => {
+    const tenant = "7f0c2b1e-0000-4000-8000-000000000001";
     const { calls } = renderAdminPage(
       <VoicesPage />,
       routes({
@@ -972,7 +979,7 @@ describe("our own model card (D-764)", () => {
     expect(within(card).getByText("Not ready")).toBeTruthy();
     expect(within(card).getByText("2 of 5 done")).toBeTruthy();
     expect(within(card).getByRole("link", { name: "Open keys" }).getAttribute("href")).toBe(
-      "/admin/ops/config?section=credentials",
+      "/admin/ops/config?section=credentials&credential=gemini_api_key",
     );
   });
 
@@ -987,7 +994,7 @@ describe("our own model card (D-764)", () => {
   });
 
   it("installs our key for one client behind a step-up confirmation", async () => {
-    const tenant = "7f0c2b1e-0000-4000-8000-000000000002";
+    const tenant = "7f0c2b1e-0000-4000-8000-000000000001";
     const { calls } = renderAdminPage(
       <VoicesPage />,
       routes({ [`POST ${OPS_OWN_MODEL_ENABLE_PATH}`]: OWN_MODEL_ON }),
@@ -1002,6 +1009,61 @@ describe("our own model card (D-764)", () => {
     const write = calls.find((c) => c.method === "POST" && c.path === OPS_OWN_MODEL_ENABLE_PATH)!;
     expect(write.headers["X-Confirm-Action"]).toBe("enable_own_model_workspace");
     expect(JSON.parse(write.body!)).toEqual({ tenant_id: tenant });
+  });
+
+  it("links each step to the panel or setting that fixes it (D-839)", async () => {
+    renderAdminPage(
+      <VoicesPage />,
+      routes({
+        [`GET ${OPS_OWN_MODEL_PATH}`]: {
+          ...OWN_MODEL_OFF,
+          default_offerable: false,
+          default_reason: "Google limits who may call this model",
+          default_fix: "default",
+        },
+      }),
+    );
+    const card = (await screen.findByRole("heading", { name: "Our own model" })).closest("section")!;
+    // A model no price can make answer is fixed by choosing another, not in the prices.
+    expect(within(card).getByText("Choose a model our key can run")).toBeTruthy();
+    expect(within(card).getByRole("link", { name: "Choose the model" }).getAttribute("href")).toBe(
+      "/admin/ops/config?section=voice-engine&setting=thinnest_own_model_default",
+    );
+    expect(within(card).getByRole("link", { name: "Open attestation" }).getAttribute("href")).toBe(
+      "/admin/ops/config?section=language-models&panel=in_call_data_use",
+    );
+  });
+
+  it("lists a client whose set-up failed as not on our key yet, with a retry naming it", async () => {
+    const { calls } = renderAdminPage(
+      <VoicesPage />,
+      routes({
+        [`GET ${OPS_OWN_MODEL_PATH}`]: {
+          ...OWN_MODEL_ON,
+          pending_workspaces: [
+            { tenant_id: "7f0c2b1e-0000-4000-8000-000000000001", tenant_name: "Sri Clinic", error_code: "engine_unreachable" },
+          ],
+        },
+        [`POST ${OPS_OWN_MODEL_ENABLE_PATH}`]: OWN_MODEL_ON,
+      }),
+    );
+    const card = (await screen.findByRole("heading", { name: "Our own model" })).closest("section")!;
+    expect(within(card).getByText(/Not on our key yet/)).toBeTruthy();
+    expect(within(card).getByText(/last error engine_unreachable/)).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Retry" }));
+    const dialog = await screen.findByRole("dialog", { name: "Install our Google key for a client?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Install" }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "POST" && c.path === OPS_OWN_MODEL_ENABLE_PATH)).toBe(true),
+    );
+    const write = calls.find((c) => c.method === "POST" && c.path === OPS_OWN_MODEL_ENABLE_PATH)!;
+    expect(JSON.parse(write.body!)).toEqual({ tenant_id: "7f0c2b1e-0000-4000-8000-000000000001" });
+  });
+
+  it("shows the fleet's cache share beside the cost floor", async () => {
+    renderAdminPage(<VoicesPage />, routes({ [`GET ${OPS_OWN_MODEL_PATH}`]: OWN_MODEL_ON }));
+    const card = (await screen.findByRole("heading", { name: "Our own model" })).closest("section")!;
+    expect(within(card).getByText(/Cache share: 62% cached of input over 20 calls in 30 days/)).toBeTruthy();
   });
 });
 describe("cloning a voice", () => {

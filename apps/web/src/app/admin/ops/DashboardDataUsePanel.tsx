@@ -1,7 +1,7 @@
 "use client";
 
 import { Section } from "@/components/console/section";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import {
   WithheldPanel,
@@ -32,6 +32,7 @@ import {
   useAttestDashboardDataUse,
   useDashboardDataUse,
   type DashboardDataUse,
+  type AttestDataUseInput,
   type DashboardDataUseList,
 } from "@/lib/api/opsDashboardDataUse";
 
@@ -58,11 +59,11 @@ import {
  * rather than inviting an operator to a five-minute job that cannot yet take effect. Both the
  * verdict and the ground come from the GET response, never from this screen's assumptions.
  *
- * ## This surface does NOT govern the in-call leg
+ * ## The in-call leg has its own attestation
  *
- * In-call sends RAW caller speech to whatever provider a client's chosen model sits on —
- * strictly worse exposure than this leg's redacted screen text — and nothing here gates it.
- * The copy says so, so nobody mistakes an attestation here for a control over that.
+ * Calls on our own model send RAW caller speech through our key, and that is attested
+ * separately (`InCallDataUsePanel`, D-839), with its own statement and step-up; own-model
+ * readiness reads that one. The copy says so, so nobody mistakes a row here for that.
  *
  * ## The three states, and why there is no fourth
  *
@@ -119,9 +120,9 @@ export function DashboardDataUsePanel({
           Pip, the in-app AI assistant, prefers the provider a client&apos;s own agents run on.
           Whether it may is a question about that vendor&apos;s terms for our account, which
           no page reachable from here can answer — so you read it in the vendor&apos;s own
-          console and record it here. This governs only Pip&apos;s redacted screen
-          text; it does not govern the in-call leg, which sends raw caller speech and is not
-          gated here.
+          console and record it here. This covers Pip only. What callers say on calls that
+          answer on our own model has its own attestation, In-call data use, which is the
+          one our own model needs.
         </p>
 
         {query.error && (
@@ -267,11 +268,7 @@ function DataUseRow({
       {access.allowed ? (
         <div className="mt-3">
           {open ? (
-            <AttestForm
-              leg={leg}
-              statement={statement}
-              onDone={() => setOpen(false)}
-            />
+            <DashboardAttestForm leg={leg} statement={statement} onDone={() => setOpen(false)} />
           ) : (
             <button
               type="button"
@@ -293,14 +290,34 @@ function DataUseRow({
   );
 }
 
-function AttestForm({
+function DashboardAttestForm(props: { leg: DashboardDataUse; statement: string; onDone: () => void }) {
+  return <AttestForm {...props} save={useAttestDashboardDataUse()} />;
+}
+
+/** The latest attestation the form is seeded from: the fields both data-use legs share. */
+export type AttestedLeg = Pick<
+  DashboardDataUse,
+  "provider" | "vendor_account_ref" | "paid_tier_confirmed" | "no_training_opt_in_confirmed"
+>;
+
+/** The write a form sends: `useAttestDashboardDataUse` or `useAttestInCallDataUse`. */
+export interface AttestMutation {
+  mutate(input: AttestDataUseInput, options?: { onSuccess?: () => void }): void;
+  isPending: boolean;
+  error: unknown;
+}
+
+/** One provider's attestation form, for either data-use leg (D-477, D-839). */
+export function AttestForm({
   leg,
   statement,
   onDone,
+  save,
 }: {
-  leg: DashboardDataUse;
+  leg: AttestedLeg;
   statement: string;
   onDone: () => void;
+  save: AttestMutation;
 }) {
   const [vendorAccountRef, setVendorAccountRef] = useState(leg.vendor_account_ref ?? "");
   // Seeded from the last attestation so an update is an edit, not a retype — the operator
@@ -311,12 +328,12 @@ function AttestForm({
   );
   const [sourceNote, setSourceNote] = useState("");
   const [confirm, setConfirm] = useState("");
+  const formId = useId();
 
-  const save = useAttestDashboardDataUse();
   // The word the operator TYPES to arm the save — a clean, short word rather than the raw
   // step-up string the API checks. The real confirmation (`attest_dashboard_data_use:
-  // <provider>`) still goes on the wire, set inside `useAttestDashboardDataUse`; conflating
-  // the two is how a copy change would quietly become an API change.
+  // <provider>` or `attest_in_call_data_use:<provider>`) still goes on the wire, set inside
+  // the leg's hook; conflating the two is how a copy change would quietly become an API change.
   const word = "CONFIRM";
   const valid = useFormValidation();
   // The two booleans are NOT required to be true: a negative answer is a valid and useful
@@ -347,7 +364,7 @@ function AttestForm({
         );
       })}
     >
-      {save.error && (
+      {save.error != null && (
         <WriteFailure error={save.error} actionLabel="Record attestation" />
       )}
 
@@ -428,7 +445,7 @@ function AttestForm({
 
       <TypedConfirmation
         match="exact"
-        id={`confirm-data-use-${leg.provider}`}
+        id={`confirm-data-use-${leg.provider}-${formId}`}
         phrase={word}
         value={confirm}
         onChange={setConfirm}

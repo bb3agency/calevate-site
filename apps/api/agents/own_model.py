@@ -48,16 +48,17 @@ placing calls that would fail.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Awaitable
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Final, cast
 from uuid import UUID
 
 from calevate_shared.engine import VoiceEngine
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.llm_models import (
-    dashboard_data_use_attested,
     own_model_offerable_models,
     unofferable_reason,
 )
@@ -70,13 +71,16 @@ from apps.api.billing.engine_minutes import (
 )
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import joined_tenant_session, untenanted_session
 from apps.api.engine.catalogue import HostsVoices, OwnVoiceKeyState, RunsOwnModel
 from apps.api.engine.thinnest_workspace import in_workspace
+from apps.api.ops.model_pricing import in_call_permitted_providers
 from apps.api.tenancy.engine_workspace import (
     DeveloperOwnModelRecord,
     StudioWorkspace,
+    active_workspaces_of,
     own_model_workspaces,
     read_developer_own_model,
     record_developer_own_model_check,
@@ -199,8 +203,9 @@ class OwnModelReadiness:
     default_offerable: bool
     #: Why it is not, for an operator; None when it is.
     default_reason: str | None
-    #: An operator attested our Google project is on the paid tier with log sharing off
-    #: (OPERATIONS §2 gate 41): raw caller speech goes through this key on every turn.
+    #: The latest IN-CALL data-use attestation for our Google project (D-839, OPERATIONS §2
+    #: gate 41) confirms the paid tier with log sharing off: raw caller speech goes through
+    #: this key on every turn. The dashboard attestation is a separate statement.
     data_use_attested: bool
     #: The `byok_llm_voice` minute a Studio call on our model bills at is attested.
     llm_voice_minute_attested: bool
@@ -211,6 +216,8 @@ class OwnModelReadiness:
     )
     offerable_models: tuple[str, ...] = ()
     workspaces: tuple[StudioWorkspace, ...] = field(default_factory=tuple)
+    #: Client workspaces where switching our key on failed and never succeeded.
+    pending: tuple[PendingWorkspace, ...] = field(default_factory=tuple)
 
     @property
     def ready(self) -> bool:
@@ -234,7 +241,8 @@ class OwnModelReadiness:
         if not self.data_use_attested:
             steps.append(
                 "Attest that our Google project is on the paid tier with log sharing off "
-                "(Models, dashboard data use: google; OPERATIONS gate 41)."
+                "for caller speech (Language models, In-call data use: google; OPERATIONS "
+                "gate 41)."
             )
         if not self.llm_voice_minute_attested:
             steps.append("Attest the own-voice-and-model (byok_llm_voice) per-minute rate.")
@@ -258,17 +266,24 @@ async def own_model_readiness(session: AsyncSession, *, engine: str) -> OwnModel
         if engine in ATTESTED_MINUTE_ENGINES
         else frozenset()
     )
+    failures = await own_model_failures()
+    workspaces = tuple(
+        replace(w, error_code=w.error_code or failures.get(w.tenant_id))
+        for w in await own_model_workspaces()
+    )
+    enabled = frozenset(w.tenant_id for w in workspaces)
     return OwnModelReadiness(
         switched_on=settings.thinnest_own_model,
         default_model=default,
         google_key=bool(settings.gemini_api_key),
         default_offerable=reason is None,
         default_reason=reason,
-        data_use_attested=OWN_MODEL_PROVIDER in dashboard_data_use_attested(),
+        data_use_attested=OWN_MODEL_PROVIDER in await in_call_permitted_providers(session),
         llm_voice_minute_attested=BYOK_LLM_VOICE_RATE_KEY in attested,
         developer=await read_developer_own_model(session),
         offerable_models=offerable_own_models(),
-        workspaces=tuple(await own_model_workspaces()),
+        workspaces=workspaces,
+        pending=tuple(await pending_own_model_workspaces(enabled, failures)),
     )
 
 
@@ -431,6 +446,74 @@ async def _switch_on(
         return await align_key_model(runs, state)
 
 
+#: The last own-model set-up or repair failure per client, by tenant id (D-839).
+#:
+#: In Redis rather than `tenant_engine_workspaces.own_model_error_code`, and the reason is
+#: the transaction: the failure is raised into the caller's transaction, which rolls back,
+#: so a row written there was always lost and a client whose set-up failed never showed on
+#: the card. A second database connection would nest under the caller's (the session
+#: nesting gate) and, on a Studio publish that has already updated this workspace row,
+#: wait on the caller that waits on it. A Redis loss forgets only this hint; the next
+#: publish or retry writes it again.
+_FAILURES_KEY: Final = "calevate:own_model_setup_failures"
+
+
+@dataclass(frozen=True, slots=True)
+class PendingWorkspace:
+    """An active client workspace where switching our Google key on failed and never
+    succeeded: not on our key yet, with the code of its last failure."""
+
+    tenant_id: UUID
+    workspace_id: str
+    error_code: str
+
+
+async def _remember_failure(tenant_id: UUID, error_code: str) -> None:
+    try:
+        await cast(
+            "Awaitable[int]", get_redis().hset(_FAILURES_KEY, str(tenant_id), error_code[:64])
+        )
+    except RedisError as exc:
+        log.warning(
+            "own_model_failure_unrecorded",
+            extra={"tenant_id": str(tenant_id), "error": type(exc).__name__},
+        )
+
+
+async def forget_own_model_failure(tenant_id: UUID) -> None:
+    try:
+        await cast("Awaitable[int]", get_redis().hdel(_FAILURES_KEY, str(tenant_id)))
+    except RedisError as exc:
+        log.warning(
+            "own_model_failure_not_cleared",
+            extra={"tenant_id": str(tenant_id), "error": type(exc).__name__},
+        )
+
+
+async def own_model_failures() -> dict[UUID, str]:
+    """Each client's last own-model failure code; empty when Redis cannot answer."""
+    try:
+        raw = await cast("Awaitable[dict[str, str]]", get_redis().hgetall(_FAILURES_KEY))
+    except RedisError as exc:
+        log.warning("own_model_failures_unreadable", extra={"error": type(exc).__name__})
+        return {}
+    return {UUID(str(tenant)): str(code) for tenant, code in raw.items()}
+
+
+async def pending_own_model_workspaces(
+    enabled: frozenset[UUID], failures: dict[UUID, str]
+) -> list[PendingWorkspace]:
+    """Active client workspaces never confirmed on our key whose last attempt failed, in
+    tenant order: the card lists them as not on our key yet so an operator can retry."""
+    return [
+        PendingWorkspace(row.tenant_id, row.workspace_id, failures[row.tenant_id])
+        for row in await active_workspaces_of(sorted(failures))
+        if row.workspace_id is not None
+        and row.tenant_id in failures
+        and row.tenant_id not in enabled
+    ]
+
+
 async def ensure_own_model_in(
     session: AsyncSession,
     engine: HostsVoices,
@@ -440,10 +523,10 @@ async def ensure_own_model_in(
     audience: str = "client",
 ) -> OwnVoiceKeyState:
     """Our Google key installed, checked and in use in this client's workspace, read back.
-    IDEMPOTENT: a workspace that already answers ready is only recorded as checked. Written
-    in the caller's tenant session, so a publish that fails later rolls the record back.
-    A failure is recorded and refused: to a client with a sentence naming no vendor, to an
-    operator with the cause."""
+    IDEMPOTENT: a workspace that already answers ready is only recorded as checked. A pass
+    is written in the caller's tenant session, so a publish that fails later rolls it back.
+    A failure is remembered outside that transaction (`_FAILURES_KEY`) and refused: to a
+    client with a sentence naming no vendor, to an operator with the cause."""
     if not isinstance(engine, RunsOwnModel):
         raise own_model_account_not_ready()
     try:
@@ -451,7 +534,7 @@ async def ensure_own_model_in(
         if not own_model_key_ready(state):
             raise _workspace_not_ready(state)
     except ProblemError as exc:
-        await record_own_model_check(session, tenant_id, error_code=exc.code)
+        await _remember_failure(tenant_id, exc.code)
         log.warning(
             "own_model_workspace_enable_failed",
             extra={"tenant_id": str(tenant_id), "reason": exc.code},
@@ -460,6 +543,7 @@ async def ensure_own_model_in(
             raise own_model_account_not_ready() from exc
         raise
     await record_own_model_check(session, tenant_id, error_code=None)
+    await forget_own_model_failure(tenant_id)
     log.info("own_model_workspace_ready", extra={"tenant_id": str(tenant_id)})
     return state
 
@@ -584,15 +668,18 @@ __all__ = [
     "OWN_MODEL_NOT_READY",
     "OWN_MODEL_PROVIDER",
     "OwnModelReadiness",
+    "PendingWorkspace",
     "align_key_model",
     "assert_own_model_default_offerable",
     "assert_own_model_ready",
     "ensure_developer_own_model",
     "ensure_own_model_in",
     "ensure_own_model_workspace",
+    "forget_own_model_failure",
     "offerable_own_models",
     "own_model_account_not_ready",
     "own_model_choice_id",
+    "own_model_failures",
     "own_model_for",
     "own_model_key_ready",
     "own_model_label",
@@ -600,6 +687,7 @@ __all__ = [
     "own_model_on",
     "own_model_rate_key",
     "own_model_readiness",
+    "pending_own_model_workspaces",
     "refuse_own_model_choice",
     "refuse_unofferable_own_model",
     "require_developer_own_model",

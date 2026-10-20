@@ -327,6 +327,24 @@ async def test_a_live_conversation_is_left_alone(stub_provider: Any) -> None:
     assert await _count(tenant_id, kind=memory.KIND_SEMANTIC) == 0
 
 
+async def test_a_tripped_platform_brake_buys_no_model_call(
+    stub_provider: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: the hourly distillation keeps spending on our key after the platform AI
+    brake has paused dashboard AI for every account."""
+    tenant_id, user_id = await _tenant_with_user()
+    marker = await _quiet_conversation(tenant_id, user_id)
+    provider = stub_provider(["something"])
+
+    async def _tripped(_session: Any, **_kw: Any) -> bool:
+        return True
+
+    monkeypatch.setattr(copilot_memory, "platform_brake_tripped", _tripped)
+    assert await copilot_memory.distil_copilot_memories({}) == "brake_tripped"
+    assert provider.calls_for(marker) == 0
+    assert await _count(tenant_id, kind=memory.KIND_SEMANTIC) == 0
+
+
 async def test_a_single_exchange_does_not_buy_a_model_call(stub_provider: Any) -> None:
     tenant_id, user_id = await _tenant_with_user()
     marker = await _quiet_conversation(tenant_id, user_id, turns=1)

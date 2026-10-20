@@ -97,9 +97,11 @@ export interface StoredConversation {
 /** The server's `CopilotConsentOut`: what the owner reads, and whether this person may tick. */
 export type PipConsent = components["schemas"]["CopilotConsentOut"];
 
-/** Pip is locked for this account until the owner turns it on. */
+/** Pip is locked for this account until the owner turns it on (again, once turned off). */
 export function pipLocked(consent: PipConsent | null | undefined): boolean {
-  return consent?.status === "required" || consent?.status === "outdated";
+  return (
+    consent?.status === "required" || consent?.status === "outdated" || consent?.status === "withdrawn"
+  );
 }
 
 export const EMPTY_CONVERSATION: StoredConversation = {
@@ -234,10 +236,40 @@ export function useTurnPipOn(session: Session) {
         method: "POST",
         body: { version: consent.version, text_sha256: consent.text_sha256 },
       }),
-    onSuccess: (fresh) =>
-      queries.setQueryData<StoredConversation>(
-        conversationKey(session.orgSlug, "client"),
-        (current) => ({ ...(current ?? EMPTY_CONVERSATION), consent: fresh }),
-      ),
+    onSuccess: (fresh) => storeConsent(queries, session, fresh),
+  });
+}
+
+function consentKey(orgSlug: string): readonly unknown[] {
+  return ["copilot", "consent", orgSlug];
+}
+
+/** The answer lands in both places that show it: the stored conversation and the switch. */
+function storeConsent(queries: ReturnType<typeof useQueryClient>, session: Session, fresh: PipConsent) {
+  queries.setQueryData<StoredConversation>(conversationKey(session.orgSlug, "client"), (current) => ({
+    ...(current ?? EMPTY_CONVERSATION),
+    consent: fresh,
+  }));
+  queries.setQueryData<PipConsent>(consentKey(session.orgSlug), fresh);
+}
+
+/** Whether Pip is on for this account, and whether this person may switch it (D-839). */
+export function usePipConsent(session: Session): UseQueryResult<PipConsent> {
+  return useQuery({
+    queryKey: consentKey(session.orgSlug),
+    queryFn: () => apiRequest<PipConsent>(session, CONSENT_PATH),
+  });
+}
+
+/**
+ * The account owner turning Pip off (D-839): appended to the record as a withdrawal. Every ask
+ * is refused from then on, and a task or routine that starts is refused too, until the owner
+ * turns it on again.
+ */
+export function useTurnPipOff(session: Session) {
+  const queries = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiRequest<PipConsent>(session, `${CONSENT_PATH}/withdraw`, { method: "POST" }),
+    onSuccess: (fresh) => storeConsent(queries, session, fresh),
   });
 }

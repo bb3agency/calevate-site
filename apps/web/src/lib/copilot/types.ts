@@ -66,6 +66,11 @@ export interface CopilotField {
    * language's spoken-style list names.
    */
   spokenLanguage?: string;
+  /**
+   * An instruction the in-call model reads and no caller hears (the role, the goal, a guide
+   * step, the ending). The server refuses a fill of it written in an Indic script (D-831).
+   */
+  instruction?: boolean;
 }
 
 /**

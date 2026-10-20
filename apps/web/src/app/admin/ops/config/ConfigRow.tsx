@@ -23,6 +23,7 @@ import {
   settingState,
 } from "./configControl";
 import { etagOf } from "./configField";
+import { settingAnchor } from "./configSections";
 
 type Access = { allowed: boolean; reason: string | null };
 
@@ -50,7 +51,8 @@ export function ConfigRow({ field, access }: { field: ConfigField; access: Acces
   const notSet = field.value === null;
 
   return (
-    <div className="py-3.5">
+    // The id is what a `?setting=` deep link scrolls to and outlines (`settingAnchor`).
+    <div id={settingAnchor(field.key)} className="scroll-mt-4 rounded-md py-3.5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
         <p
           className={`min-w-0 flex-1 basis-48 text-body font-medium [overflow-wrap:anywhere] ${recessive ? "text-ink-muted" : "text-ink"}`}

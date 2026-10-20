@@ -385,6 +385,24 @@ export function useOwnModel(enabled: boolean): UseQueryResult<OwnModel> {
   });
 }
 
+export type CallCacheShares = Schemas["CallCacheSharesOut"];
+
+/**
+ * How much of each listed call's input was served from the provider's cache, for calls that
+ * ran on our own model (D-839). Only the calls on our model come back; `retry: false`, because
+ * an operator without `ops:manage` is refused and the list simply shows no share.
+ */
+export function useCallCacheShares(tenantId: string, callIds: string[]): UseQueryResult<CallCacheShares> {
+  const query = new URLSearchParams({ tenant_id: tenantId });
+  for (const id of callIds) query.append("call_id", id);
+  return useQuery({
+    queryKey: [...hostedVoiceKeys.ownModel, "cache-shares", tenantId, callIds],
+    queryFn: () => apiRequest<CallCacheShares>(adminSession(), `${OPS_OWN_MODEL_PATH}/cache-shares?${query.toString()}`),
+    enabled: callIds.length > 0,
+    retry: false,
+  });
+}
+
 /** Installs our Google key in one paying client's own workspace now (step-up). */
 export function useEnableOwnModelWorkspace(): UseMutationResult<OwnModel, Error, OwnModelEnableIn> {
   const client = useQueryClient();

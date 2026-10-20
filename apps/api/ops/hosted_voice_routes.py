@@ -92,6 +92,11 @@ from apps.api.agents.hosted_voices import (
     sync_hosted_voices,
     withdraw_hosted_voice,
 )
+from apps.api.agents.llm_models import (
+    NO_ATTESTED_PRICE_REASON,
+    NO_CREDENTIAL_REASON,
+    NO_DEPLOYMENT_REASON,
+)
 from apps.api.agents.own_model import (
     ensure_developer_own_model,
     ensure_own_model_workspace,
@@ -132,7 +137,8 @@ from apps.api.engine.catalogue import (
     VoiceCloneSample,
 )
 from apps.api.engine.thinnest_workspace import in_workspace
-from apps.api.tenancy.engine_workspace import resolve_workspace
+from apps.api.ops.own_model_cache import call_cache_shares, current_fleet_cache_share
+from apps.api.tenancy.engine_workspace import active_workspaces, resolve_workspace
 
 log = get_logger(__name__)
 
@@ -388,6 +394,48 @@ class StudioWorkspaceOut(Strict):
     error_code: str | None
 
 
+class ClientOptionOut(Strict):
+    """A client with an active voice workspace of its own, for the operator's picker: our keys
+    are installed per client workspace, so these are the clients an install can name."""
+
+    tenant_id: str
+    tenant_name: str | None
+
+
+class PendingWorkspaceOut(Strict):
+    """A client workspace where switching our Google key on failed and never succeeded."""
+
+    tenant_id: str
+    tenant_name: str | None
+    #: Our code for the last failure.
+    error_code: str
+
+
+class CallCacheShareOut(Strict):
+    """One own-model call's input: how much of it the provider served from its cache."""
+
+    call_id: str
+    cached_input_tokens: int
+    input_tokens: int
+    #: Cached as a fraction of all input, e.g. "0.6200"; null with no input counted.
+    share: str | None
+
+
+class CallCacheSharesOut(Strict):
+    #: Only the listed calls that ran on our own model with counted tokens.
+    calls: list[CallCacheShareOut]
+
+
+async def _client_options() -> list[ClientOptionOut]:
+    rows = await active_workspaces()
+    names = await _tenant_names([row.tenant_id for row in rows])
+    options = [
+        ClientOptionOut(tenant_id=str(row.tenant_id), tenant_name=names.get(row.tenant_id))
+        for row in rows
+    ]
+    return sorted(options, key=lambda o: ((o.tenant_name or "").casefold(), o.tenant_id))
+
+
 class StudioVoicesOut(Strict):
     #: The engine's own report of OUR developer workspace's keys, switched on for the voice
     #: since D-727 so trial agents can speak Studio.
@@ -413,6 +461,8 @@ class StudioVoicesOut(Strict):
     workspaces: list[StudioWorkspaceOut]
     #: Published agents on a Studio voice.
     live_studio_agents: int
+    #: The clients a Studio switch-on can name, for the picker.
+    clients: list[ClientOptionOut]
     #: How Studio works on this platform, said where the operator decides.
     explanation: str
     note: str
@@ -1395,6 +1445,7 @@ async def _studio_out(
             for w in readiness.workspaces
         ],
         live_studio_agents=await live_studio_agents(session, engine=engine.name),
+        clients=await _client_options(),
         explanation=STUDIO_SWITCH_EXPLAINED,
         note=note,
     )
@@ -1479,6 +1530,10 @@ OWN_MODEL_EXPLAINED: Final = (
 )
 
 
+#: Where an unofferable default model is fixed (`default_fix`).
+DefaultFix = Literal["key", "price", "deployment", "default"]
+
+
 class OwnModelOut(Strict):
     #: The console switch (`thinnest_own_model`) is on.
     switched_on: bool
@@ -1492,7 +1547,12 @@ class OwnModelOut(Strict):
     default_offerable: bool
     #: Why it is not, for an operator; null when it is.
     default_reason: str | None
-    #: Our Google project is attested paid-tier with log sharing off (gate 41).
+    #: Where that is fixed: `key` (the Google key, Credentials), `price` (the model's price,
+    #: Model prices), `deployment` (a deployment, Language models) or `default` (choose
+    #: another default model, Voice engine). Null when the default is offerable.
+    default_fix: DefaultFix | None
+    #: The latest in-call data-use attestation for our Google project permits caller speech
+    #: (D-839, gate 41); the dashboard attestation does not count here.
     data_use_attested: bool
     #: The `byok_llm_voice` per-minute rate is attested.
     llm_voice_minute_attested: bool
@@ -1509,6 +1569,11 @@ class OwnModelOut(Strict):
     missing: list[str]
     #: Client workspaces where our Google key is on.
     workspaces: list[StudioWorkspaceOut]
+    #: Client workspaces where switching our key on failed and never succeeded: not on our
+    #: key yet (`own_model_account_not_ready`, `own_model_workspace_drift`).
+    pending_workspaces: list[PendingWorkspaceOut]
+    #: The clients an install can name, for the picker.
+    clients: list[ClientOptionOut]
     #: The prompt size the cost floor adds our model's cost at (`billing/own_model_prompt`),
     #: where it came from, and that model half for the default model. Admin only.
     floor_prompt_tokens: int
@@ -1516,6 +1581,13 @@ class OwnModelOut(Strict):
     floor_prompt_basis: str
     #: Null when the default model has no catalogue reference price to strike it at.
     floor_model_inr_per_min: str | None
+    #: The fleet's cached input over the last 30 days as a fraction of all input, e.g.
+    #: "0.6200" (`ops/own_model_cache`); null until the hourly sweep has measured it or when
+    #: no input was counted. The cost floor assumes none of it cached.
+    fleet_cache_share: str | None
+    #: The own-model calls that figure counts, and when it was measured.
+    fleet_cache_calls: int
+    fleet_cache_measured_at: datetime | None
     explanation: str
     note: str
 
@@ -1533,10 +1605,29 @@ def _model_half(model: str, prompt_tokens: int) -> str | None:
         return None
 
 
+def default_fix(reason: str | None) -> DefaultFix | None:
+    """Where an operator fixes an unofferable default (`llm_models` names one sentence per
+    ground): a missing key, an unattested price or a missing deployment each have their own
+    place; any other ground (a model Google limits, one the platform does not run) is fixed
+    by choosing another default."""
+    if reason is None:
+        return None
+    if reason == NO_CREDENTIAL_REASON:
+        return "key"
+    if reason == NO_ATTESTED_PRICE_REASON:
+        return "price"
+    if reason == NO_DEPLOYMENT_REASON:
+        return "deployment"
+    return "default"
+
+
 async def _own_model_out(session: AsyncSession, engine: HostsVoices) -> OwnModelOut:
     readiness = await own_model_readiness(session, engine=engine.name)
-    names = await _tenant_names([w.tenant_id for w in readiness.workspaces])
+    names = await _tenant_names(
+        [w.tenant_id for w in readiness.workspaces] + [p.tenant_id for p in readiness.pending]
+    )
     basis = await current_prompt_basis()
+    fleet = await current_fleet_cache_share()
     if not readiness.ready:
         note = "Not ready: " + " ".join(readiness.missing())
     elif readiness.switched_on:
@@ -1547,6 +1638,7 @@ async def _own_model_out(session: AsyncSession, engine: HostsVoices) -> OwnModel
         )
     else:
         note = "Ready to switch on (ops config: thinnest_own_model)."
+    share = fleet.totals.share if fleet is not None else None
     return OwnModelOut(
         switched_on=readiness.switched_on,
         ready=readiness.ready,
@@ -1554,6 +1646,7 @@ async def _own_model_out(session: AsyncSession, engine: HostsVoices) -> OwnModel
         google_key_configured=readiness.google_key,
         default_offerable=readiness.default_offerable,
         default_reason=readiness.default_reason,
+        default_fix=default_fix(readiness.default_reason),
         data_use_attested=readiness.data_use_attested,
         llm_voice_minute_attested=readiness.llm_voice_minute_attested,
         developer_ready=readiness.developer.ready,
@@ -1571,10 +1664,22 @@ async def _own_model_out(session: AsyncSession, engine: HostsVoices) -> OwnModel
             )
             for w in readiness.workspaces
         ],
+        pending_workspaces=[
+            PendingWorkspaceOut(
+                tenant_id=str(p.tenant_id),
+                tenant_name=names.get(p.tenant_id),
+                error_code=p.error_code,
+            )
+            for p in readiness.pending
+        ],
+        clients=await _client_options(),
         floor_prompt_tokens=basis.prompt_tokens,
         floor_prompt_source=basis.source,
         floor_prompt_basis=basis.label,
         floor_model_inr_per_min=_model_half(readiness.default_model, basis.prompt_tokens),
+        fleet_cache_share=str(share) if share is not None else None,
+        fleet_cache_calls=fleet.totals.calls if fleet is not None else 0,
+        fleet_cache_measured_at=fleet.computed_at if fleet is not None else None,
         explanation=OWN_MODEL_EXPLAINED,
         note=note,
     )
@@ -1588,6 +1693,38 @@ async def _own_model_out(session: AsyncSession, engine: HostsVoices) -> OwnModel
 )
 async def own_model_status(session: GlobalSession, _: VoiceCurator) -> OwnModelOut:
     return await _own_model_out(session, _hosting_engine())
+
+
+@router.get(
+    "/own-model/cache-shares",
+    response_model=CallCacheSharesOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="How much of each listed own-model call's input was served from cache",
+    description=(
+        "For one client's listed calls (the admin Spend screen's call list), the input "
+        "tokens each own-model call counted and the part served from the provider's cache. "
+        "A call not on our own model, or metered before the counts were reported, is left "
+        "out."
+    ),
+)
+async def own_model_cache_shares(
+    _: VoiceCurator,
+    tenant_id: Annotated[UUID, Query()],
+    call_id: Annotated[list[UUID], Query(max_length=200)],
+) -> CallCacheSharesOut:
+    async with joined_tenant_session(tenant_id) as tenant:
+        shares = await call_cache_shares(tenant, call_id)
+    return CallCacheSharesOut(
+        calls=[
+            CallCacheShareOut(
+                call_id=str(cid),
+                cached_input_tokens=s.cached_input_tokens,
+                input_tokens=s.input_tokens,
+                share=str(s.share) if s.share is not None else None,
+            )
+            for cid, s in shares.items()
+        ]
+    )
 
 
 @router.post(

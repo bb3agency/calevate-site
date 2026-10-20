@@ -1076,7 +1076,75 @@ async def accept_copilot_consent(
     )
     return consent_module.consent_out(
         await consent_module.read_consent(session, tenant_id=principal.tenant_id),
-        can_accept=False,
+        can_accept=_may_turn_pip_on(principal),
+    )
+
+
+@router.get(
+    "/copilot/consent",
+    response_model=CopilotConsentOut,
+    openapi_extra=permission_meta("copilot:use"),
+    summary=f"Whether {ASSISTANT_NAME} is on for this account, and who may switch it",
+    description=(
+        f"Whether {ASSISTANT_NAME} is on, off until the owner turns it on, or turned off by "
+        "the owner, with the disclosure the owner reads. `can_accept` and `can_withdraw` say "
+        "whether the person asking may turn it on or off. Readable while it is off, because "
+        "that is when the answer matters."
+    ),
+)
+async def read_copilot_consent(
+    session: Annotated[AsyncSession, Depends(db)],
+    principal: Principal = Depends(requires("copilot:use", realm="client")),
+) -> CopilotConsentOut:
+    assert principal.tenant_id is not None
+    return consent_module.consent_out(
+        await consent_module.read_consent(session, tenant_id=principal.tenant_id),
+        can_accept=_may_turn_pip_on(principal),
+    )
+
+
+@router.post(
+    "/copilot/consent/withdraw",
+    response_model=CopilotConsentOut,
+    status_code=201,
+    openapi_extra=permission_meta("org:manage"),
+    summary=f"Turn {ASSISTANT_NAME} off for this account (the account owner)",
+    description=(
+        f"Records that the account owner turned {ASSISTANT_NAME} off for everyone on the "
+        "account, as a new row in the append-only record and the audit log; the acceptance "
+        f"it ends stays on record. From then on every ask and upload is refused, and a "
+        "background task or routine that starts is refused `copilot_consent_required`, until "
+        "the owner turns it on again. Only the account owner can do it, and an impersonated "
+        f"session cannot. Refused `copilot_consent_not_on` when {ASSISTANT_NAME} is not on."
+    ),
+)
+async def withdraw_copilot_consent(
+    session: Annotated[AsyncSession, Depends(db)],
+    request: Request,
+    principal: Principal = Depends(requires("org:manage", realm="client")),
+) -> CopilotConsentOut:
+    assert principal.tenant_id is not None
+    person = principal.client_user_id
+    # `accept_copilot_consent`'s reason: the client realm refuses view-as and resolves a
+    # member, and a withdrawal attributed to nobody is a row this record must never hold.
+    assert person is not None
+    ip = client_request_ip(request)
+    row_id = await consent_module.withdraw_consent(
+        session, tenant_id=principal.tenant_id, user_id=person, ip=ip
+    )
+    await write_audit(
+        session,
+        action="copilot.consent_withdrawn",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="copilot_consent",
+        object_id=str(row_id),
+        ip=ip,
+        summary={"version": consent_module.DISCLOSURE_VERSION},
+    )
+    return consent_module.consent_out(
+        await consent_module.read_consent(session, tenant_id=principal.tenant_id),
+        can_accept=_may_turn_pip_on(principal),
     )
 
 

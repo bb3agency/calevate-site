@@ -528,7 +528,19 @@ def readiness_inputs(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(own_model, "attested_rate_keys", _attested)
     monkeypatch.setattr(own_model, "own_model_workspaces", _workspaces)
     monkeypatch.setattr(own_model, "read_developer_own_model", _developer)
-    monkeypatch.setattr(own_model, "dashboard_data_use_attested", lambda: state["data_use"])
+
+    async def _in_call(_session: Any) -> frozenset[str]:
+        return frozenset(state["data_use"])
+
+    async def _pending(*_a: Any) -> list[Any]:
+        return []
+
+    async def _failures() -> dict[Any, str]:
+        return {}
+
+    monkeypatch.setattr(own_model, "in_call_permitted_providers", _in_call)
+    monkeypatch.setattr(own_model, "pending_own_model_workspaces", _pending)
+    monkeypatch.setattr(own_model, "own_model_failures", _failures)
     monkeypatch.setattr(own_model, "unofferable_reason", lambda model, **_: None)
     monkeypatch.setattr(
         own_model, "own_model_offerable_models", lambda: frozenset({"gemini-3.1-flash-lite"})
@@ -697,7 +709,8 @@ async def test_a_failed_set_up_is_recorded_and_refused_to_a_client_without_a_ven
         await ensure_own_model_in(object(), engine, tenant_id=TENANT, workspace=WS)  # type: ignore[arg-type]
     assert caught.value.code == "own_model_account_not_ready"
     assert "Google" not in (caught.value.detail or "")
-    assert records == ["own_model_key_missing"]
+    assert records == []
+    assert (await own_model.own_model_failures())[TENANT] == "own_model_key_missing"
 
 
 async def test_agents_that_would_follow_the_workspace_are_kept_off_before_it_switches_on(

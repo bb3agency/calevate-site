@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CopilotPanel } from "@/components/copilot/CopilotPanel";
+import { PipSwitch } from "@/components/copilot/workspace/PipSwitch";
 import { API_BASE, type Session } from "@/lib/api/client";
 import type { PipConsent } from "@/lib/copilot/conversation";
 import { useCopilotSurface, useCopilotSurfaceHolder } from "@/lib/copilot/registry";
@@ -34,6 +35,8 @@ function consentOf(overrides: Partial<PipConsent>): PipConsent {
     text_sha256: "a".repeat(64),
     can_accept: true,
     accepted_at: null,
+    can_withdraw: false,
+    withdrawn_at: null,
     ...overrides,
   };
 }
@@ -174,5 +177,55 @@ describe("once Pip is on", () => {
     expect(askBodies[0]?.question).toBe(`ok call this number ${NUMBER}`);
     expect(screen.queryByText(/personal details out/i)).toBeNull();
     expect(screen.queryByText("Pip is off for this account")).toBeNull();
+  });
+});
+
+describe("the owner turns Pip off (D-839)", () => {
+  function renderSwitch() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <PipSwitch session={SESSION} />
+      </QueryClientProvider>,
+    );
+  }
+
+  function stubConsent(current: PipConsent, afterOff: PipConsent): string[] {
+    const posts: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input).replace(API_BASE, "");
+        if (init?.method === "POST" && path === "/v1/copilot/consent/withdraw") {
+          posts.push(path);
+          return json(afterOff, 201);
+        }
+        if (path === "/v1/copilot/consent") return json(current);
+        throw new Error(`unexpected request: ${path}`);
+      }),
+    );
+    return posts;
+  }
+
+  it("asks before turning Pip off, then shows it off with the way back on", async () => {
+    const on = consentOf({ status: "accepted", can_accept: false, can_withdraw: true, accepted_at: "2026-10-15T05:00:00Z" });
+    const off = consentOf({ status: "withdrawn", can_accept: true, withdrawn_at: "2026-10-20T05:00:00Z" });
+    const posts = stubConsent(on, off);
+    renderSwitch();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Turn Pip off" }));
+    expect(posts).toEqual([]);
+    const dialog = await screen.findByRole("dialog", { name: "Turn Pip off for everyone?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Turn Pip off" }));
+    await waitFor(() => expect(posts).toEqual(["/v1/copilot/consent/withdraw"]));
+    expect(await screen.findByText(/Turned off on/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Turn on Pip" })).toBeTruthy();
+  });
+
+  it("tells anyone but the owner who can turn it off", async () => {
+    stubConsent(consentOf({ status: "accepted", can_accept: false, can_withdraw: false }), consentOf({}));
+    renderSwitch();
+    expect(await screen.findByText("Only the account owner can turn it off.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Turn Pip off" })).toBeNull();
   });
 });

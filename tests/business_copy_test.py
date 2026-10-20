@@ -199,6 +199,14 @@ def test_starter_lines_must_be_one_per_step() -> None:
     assert "starter_lines.answer_calls: exactly" in unusable.value.problems
 
 
+def test_a_payment_name_is_not_a_provider_and_google_alone_still_is() -> None:
+    """FAILS IF: "we take Google Pay" is refused as naming a technology company, or "Google"
+    on its own stops being one."""
+    assert business_copy.provider_words("Pay by UPI, Google Pay, GPay or G Pay.") == frozenset()
+    assert business_copy.provider_words("Ask Google about us.") == {"google"}
+    assert business_copy.provider_words("Google Pay works; so does Gemini.") == {"gemini"}
+
+
 def test_the_closed_sets_agree_with_the_table_and_every_stop_has_words() -> None:
     from typing import get_args
 

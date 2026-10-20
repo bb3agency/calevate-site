@@ -260,6 +260,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "admin/number-pricing",
     "admin/ops/config",
     "admin/ops/dashboard-data-use",
+    "admin/ops/in-call-data-use",
     "admin/ops/fx-rate",
     "admin/ops/inr-llm-prices",
     "admin/ops/kek",

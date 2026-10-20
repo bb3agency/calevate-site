@@ -579,6 +579,8 @@ class TestRlsCoverage:
             # back into force on every reader at once.
             "platform_list_rate_cancellations",
             "platform_dashboard_data_use",
+            # D-839: the in-call twin, the same shape and the same argument.
+            "platform_in_call_data_use",
             "platform_state",
             "platform_ai_spend",
             # D-499: the ADMIN copilot's own AI spend, and the operator memories that go

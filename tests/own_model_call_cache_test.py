@@ -186,7 +186,15 @@ async def test_a_stored_25_default_reads_not_ready_and_no_call_is_placed_on_it(
     monkeypatch.setattr(own_model, "attested_rate_keys", _attested)
     monkeypatch.setattr(own_model, "own_model_workspaces", _workspaces)
     monkeypatch.setattr(own_model, "read_developer_own_model", _developer)
-    monkeypatch.setattr(own_model, "dashboard_data_use_attested", lambda: {"google"})
+
+    async def _in_call(_session: Any) -> frozenset[str]:
+        return frozenset({"google"})
+
+    async def _pending(*_a: Any) -> list[Any]:
+        return []
+
+    monkeypatch.setattr(own_model, "in_call_permitted_providers", _in_call)
+    monkeypatch.setattr(own_model, "pending_own_model_workspaces", _pending)
     monkeypatch.setattr(get_settings(), "gemini_api_key", "AIza-test")
     monkeypatch.setattr(get_settings(), "thinnest_own_model_default", THINNEST_OWN_MODEL_DEFAULT)
 

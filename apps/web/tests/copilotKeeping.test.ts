@@ -67,6 +67,12 @@ describe("what the request carries", () => {
     expect("spoken_language" in pass.fields[1]).toBe(false);
   });
 
+  it("marks an instruction field and leaves other fields as they were", () => {
+    const pass = redactForWire([{ ...field, instruction: true }, { ...field, id: "g" }], []);
+    expect(pass.fields[0].instruction).toBe(true);
+    expect("instruction" in pass.fields[1]).toBe(false);
+  });
+
   it("takes a merged tab's answer from the part that holds the fields", () => {
     const merged = mergeSurfaces({ route: "/r", title: "T", realm: "client", facts: [] }, [
       surface({ fields: [], saves: "view" }),

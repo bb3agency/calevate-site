@@ -207,6 +207,7 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "platform_engine_health": "platform",
     "platform_engine_minute_prices": "platform",
     "platform_engine_model_bands": "platform",
+    "platform_in_call_data_use": "platform",
     "platform_inr_llm_prices": "platform",
     "platform_list_rate_cancellations": "platform",
     "platform_list_rates": "platform",

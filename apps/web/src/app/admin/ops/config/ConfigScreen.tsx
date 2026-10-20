@@ -21,7 +21,9 @@ import { configState, type ConfigState } from "./configField";
 import { WithheldSettings } from "./configPanels";
 import {
   CREDENTIALS_SECTION,
+  CONFIG_ROUTE,
   SETTINGS_FALLBACK,
+  deepLinkAnchor,
   isFiltering,
   screenSections,
   sectionAnchor,
@@ -104,7 +106,7 @@ function ConfigFrame({
   const spec = sections.find((section) => section.id === active);
   const waiting = identityLoading || state?.status === "loading";
   const filtering = config !== undefined && isFiltering(filter);
-  const jump = useJumpTo(() => setFilter(NO_FILTER));
+  const jump = useJumpTo(() => setFilter(NO_FILTER), !waiting);
 
   /*
    * DECLARED TO THE SCREEN ASSISTANT WITH NO INVENTORY. Which vendor credentials a
@@ -114,7 +116,7 @@ function ConfigFrame({
    * it, because "why can I not see the credentials" is answered by a permission.
    */
   useCopilotSurface({
-    route: "/admin/ops/config",
+    route: CONFIG_ROUTE,
     title: "Platform configuration",
     realm: "admin",
     fields: [],
@@ -284,21 +286,34 @@ const HIGHLIGHT = ["ring-2", "ring-brand", "ring-offset-2"];
  * A search result's jump: clear the search, open the section that holds the target, then
  * scroll to it and outline it briefly once it has rendered. The section is a URL param, so
  * Back returns to where the operator was.
+ *
+ * A deep link from another screen (`configHref`: `?section=…&panel=…`, `&credential=…` or
+ * `&setting=…`) lands through the same find, scroll and outline once the screen has read
+ * what it shows (`ready`), and once per link, so the outline does not come back on every
+ * re-render.
  */
-function useJumpTo(clearSearch: () => void): (section: string, anchor: string) => void {
+function useJumpTo(clearSearch: () => void, ready: boolean): (section: string, anchor: string) => void {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const [target, setTarget] = useState<string | null>(null);
+  const deepLink = deepLinkAnchor(params);
+  const [landed, setLanded] = useState<string | null>(null);
+  const linked = ready && deepLink !== null && deepLink !== landed ? deepLink : null;
+  const anchor = target ?? linked;
 
   useEffect(() => {
-    if (target === null) return;
+    if (anchor === null) return;
+    const finish = () => {
+      setTarget(null);
+      if (linked !== null) setLanded(linked);
+    };
     const started = Date.now();
     let frame = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     const find = () => {
-      const element = document.getElementById(target);
+      const element = document.getElementById(anchor);
       if (element) {
         element.scrollIntoView?.({ block: "start", behavior: reduce ? "auto" : "smooth" });
         element.classList.add(...HIGHLIGHT);
@@ -306,25 +321,26 @@ function useJumpTo(clearSearch: () => void): (section: string, anchor: string) =
         timer = setTimeout(() => {
           element.classList.remove(...HIGHLIGHT);
           element.removeAttribute("data-search-hit");
-          setTarget(null);
+          finish();
         }, HIGHLIGHT_MS);
         return;
       }
       if (Date.now() - started < FIND_TARGET_MS) frame = requestAnimationFrame(find);
-      else setTarget(null);
+      else finish();
     };
     frame = requestAnimationFrame(find);
     return () => {
       cancelAnimationFrame(frame);
       if (timer) clearTimeout(timer);
     };
-  }, [target]);
+  }, [anchor, linked]);
 
-  return (section, anchor) => {
+  return (section, jumpTo) => {
     clearSearch();
     const next = new URLSearchParams(params.toString());
     next.set("section", section);
+    for (const name of ["panel", "credential", "setting"]) next.delete(name);
     router.push(`${pathname}?${next.toString()}`, { scroll: false });
-    setTarget(anchor);
+    setTarget(jumpTo);
   };
 }

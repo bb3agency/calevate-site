@@ -36,6 +36,7 @@ PANEL_TTS_PLAN_FEE: Final = "tts_plan_fee"
 PANEL_ENGINE_MINUTE_PRICE: Final = "engine_minute_price"
 PANEL_MODEL_PRICING: Final = "model_pricing"
 PANEL_DASHBOARD_DATA_USE: Final = "dashboard_data_use"
+PANEL_IN_CALL_DATA_USE: Final = "in_call_data_use"
 PANEL_SERVER_ONLY_KEYS: Final = "server_only_keys"
 
 
@@ -108,7 +109,7 @@ SECTIONS: Final[tuple[Section, ...]] = (
             Subsection("default", "Platform default"),
             Subsection("azure", "Azure OpenAI"),
         ),
-        panels_after=(PANEL_MODEL_PRICING, PANEL_DASHBOARD_DATA_USE),
+        panels_after=(PANEL_MODEL_PRICING, PANEL_IN_CALL_DATA_USE, PANEL_DASHBOARD_DATA_USE),
     ),
     Section(
         "speech",
