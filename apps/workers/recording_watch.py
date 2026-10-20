@@ -101,7 +101,9 @@ PAST_DELETION_DAYS: Final = 3
 #: * `completed` is the only status of ours that means the call connected
 #:   (`engine/thinnest._STATUS_MAP`); a missed, failed or cancelled call is never offered a
 #:   recording to copy (`ThinnestEngine.recording_source`), so its null pointer is not a gap.
-#:   Every agent is published with `recordCalls: true`, so every connected call has one.
+#:   Every agent is published with `recordCalls: true`, so every connected call has one,
+#:   except one a number forward put through to a phone (`forwarded_to_phone`): no agent
+#:   takes it, so the platform never records it (D-835).
 #: * A `pipecat:` ref is a call our former runtime ran: no platform holds a copy to fetch.
 #: * `engine_content_deleted_at`: the platform has said this call's content is gone.
 #: * `erased_subject_ref`, or a whole-engagement erasure on file: the pointer is null because
@@ -123,6 +125,7 @@ WITH missing AS (
   FROM calls c
   WHERE c.status = 'completed'
     AND c.recording_url IS NULL
+    AND NOT c.forwarded_to_phone
     AND c.engine_content_deleted_at IS NULL
     AND c.erased_subject_ref IS NULL
     AND c.engine_call_id NOT LIKE :own_runtime_refs

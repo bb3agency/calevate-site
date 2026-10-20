@@ -6226,6 +6226,10 @@
             "title": "Extraction Valid",
             "type": "boolean"
           },
+          "forwarded_to_phone": {
+            "title": "Forwarded To Phone",
+            "type": "boolean"
+          },
           "forwarding_test": {
             "title": "Forwarding Test",
             "type": "boolean"
@@ -6449,6 +6453,7 @@
           "test_call",
           "caller_id_hidden",
           "forwarding_test",
+          "forwarded_to_phone",
           "moments",
           "captured",
           "translation_state",

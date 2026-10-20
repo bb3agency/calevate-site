@@ -4717,7 +4717,8 @@ class ExecutionSnapshot(BaseModel):
     #: by id instead; a row with it is the answer, even when that answer is "none yet".
     billing_reported: bool = False
     #: The engine put this call through to a phone rather than an agent answering it (a
-    #: number forward): no transcript, and its minutes are priced at the carrier's fee.
+    #: number forward): no transcript and no recording, and its minutes are billed at the
+    #: plan it was admitted at, or nothing on a brought number (D-835).
     forwarded: bool = False
     #: The engine has deleted this call's recording and transcript (a per-call deletion we
     #: asked for, or the workspace's retention window). The call is still known and billed;

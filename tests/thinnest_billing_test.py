@@ -609,21 +609,16 @@ def test_a_carrier_block_is_named_as_seconds_and_never_as_rate_or_scope() -> Non
     assert _findings(block, our_minutes=Decimal(1)) == []
 
 
-def test_a_forwarded_call_is_carrier_only() -> None:
-    """A call a number forward put through to a phone runs no agent (get-call.md:1236-1243)."""
-    assert parse_billing(DOCUMENTED_BILLING, forwarded=True) == CallBilling(
-        keys="off",
-        voice_plan="standard",
-        rate_inr_per_min=Decimal("1.82"),
-        currency="INR",
-        billed_seconds=210,
-        carrier_only=True,
-    )
+def test_a_forwarded_call_is_billed_at_the_plan_it_was_admitted_at() -> None:
+    """A forward is billed every connected second at the plan it was admitted at, not the
+    carrier's fee (snapshots/2026-10-19/pages/api-reference/calls/get-call.md:1249-1254,
+    correcting the 18 Oct answer), so its billing is read like any answered call's."""
     snapshot = ThinnestEngine(api_key="x")._snapshot(
         _call(billing=DOCUMENTED_BILLING) | {"forwardedTo": "+919812345678"}, workspace=None
     )
     assert snapshot.forwarded
-    assert snapshot.billing is not None and snapshot.billing.carrier_only is True
+    assert snapshot.billing == parse_billing(DOCUMENTED_BILLING)
+    assert snapshot.billing is not None and snapshot.billing.carrier_only is False
 
 
 @pytest.mark.rls

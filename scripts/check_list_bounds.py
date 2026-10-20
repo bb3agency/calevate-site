@@ -772,6 +772,9 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/ops/voices/own-model/enable": BoundedByConstruction(
         by="the same `OwnModelOut` as `GET /v1/ops/voices/own-model`, re-read after the act."
     ),
+    "POST /v1/ops/voices/own-model/developer": BoundedByConstruction(
+        by="the same `OwnModelOut` as `GET /v1/ops/voices/own-model`, re-read after the act."
+    ),
     "GET /v1/billing/topups/packs": BoundedByConstruction(
         by="`packs` is one row per member of `billing.credit_packs.PACK_CATALOGUE`, a static "
         "tuple whose size is a pricing decision, never a caller's row count."

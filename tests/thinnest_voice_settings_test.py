@@ -181,7 +181,7 @@ def test_the_client_settings_and_the_platform_values_are_on_every_agent() -> Non
     for name, value in PLATFORM_VOICE_VALUES.items():
         assert voice[name] == value
     assert voice["endPhrases"] == []
-    assert voice["greetingUninterruptible"] is False
+    assert voice["greetingUninterruptible"] is True
 
 
 def test_the_defaults_leave_the_wording_and_fillers_to_the_platform() -> None:
@@ -205,6 +205,7 @@ async def test_a_held_agent_matching_the_publish_has_no_drift() -> None:
     held = _held(cfg)
     # Read back as the vendor stores them: `0.150`, a blank prompt line as null.
     held["voice"]["ambienceVolume"] = 0.150
+    held["voice"]["reaskAfterSeconds"] = 5.0
     assert await _settings_engine(cfg, held, []).settings_drift(AGENT, cfg) == []
 
 
@@ -243,10 +244,12 @@ async def test_a_phone_given_at_a_test_call_is_not_drift_but_the_website_button_
         ("ambienceVolume", 0.5, "background_sound"),
         ("interruptWords", 1, "interruptions"),
         ("neverInterrupt", True, "interruptions"),
-        ("greetingUninterruptible", True, "interruptions"),
+        ("greetingUninterruptible", False, "interruptions"),
         ("holdShortSpeech", False, "interruptions"),
         ("endPhrases", ["bye"], "end_phrases"),
         ("endPhrases", None, "end_phrases"),
+        ("reaskAfterSeconds", 2.5, "reask_wait"),
+        ("reaskAfterSeconds", None, "reask_wait"),
     ],
 )
 async def test_a_console_change_reads_as_drift_and_is_repaired(

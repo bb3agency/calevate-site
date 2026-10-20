@@ -329,9 +329,10 @@ def splice_quick_facts(
     Pinned facts belong to the client, not to one script (founder decision 9), so they are
     spliced into every agent's compiled body rather than authored in it. Any quick-facts or
     v1 FAQ section already there is removed; the new one goes where the old one was, else
-    before `before` (the platform's facts block), else at the end. A section runs to the next
-    line starting with `[`, the rule the T0 splicer follows. Pure, so the save, the preview
-    and the recompile produce the same text.
+    before `before` (the platform's facts block), else at the end, and in every case no later
+    than the first section holding a `{{ variable }}` (`per_call_sections_last`). A section
+    runs to the next line starting with `[`, the rule the T0 splicer follows. Pure, so the
+    save, the preview and the recompile produce the same text.
     """
     headers = (QUICK_FACTS_HEADER, V1_FAQ_HEADER)
     kept: list[str] = []
@@ -345,7 +346,10 @@ def splice_quick_facts(
         if not skipping:
             kept.append(line)
     if at is None:
-        at = next((i for i, line in enumerate(kept) if line.startswith(before)), len(kept))
+        at = next((i for i, line in enumerate(kept) if line.startswith(before)), None)
+    # Never after a section holding a per-call value, wherever the old one sat.
+    per_call = _first_per_call_section(kept)
+    at = per_call if at is None else min(at, per_call)
     head, tail = kept[:at], kept[at:]
     while head and not head[-1].strip():
         head.pop()
@@ -355,6 +359,17 @@ def splice_quick_facts(
     middle = [QUICK_FACTS_LEAD, *lines.splitlines()] if lines else []
     parts: list[list[str]] = [part for part in (head, middle, tail) if part]
     return "\n\n".join("\n".join(part) for part in parts)
+
+
+def _first_per_call_section(lines: Sequence[str]) -> int:
+    """The index of the first section header (a line starting with `[`) whose section holds
+    a `{{ variable }}`, or `len(lines)` when none does."""
+    starts = [i for i, line in enumerate(lines) if line.startswith("[")]
+    for n, start in enumerate(starts):
+        end = starts[n + 1] if n + 1 < len(starts) else len(lines)
+        if any(_VARIABLE_PATTERN.search(line) for line in lines[start:end]):
+            return start
+    return len(lines)
 
 
 #: The policy line that withholds call backs. `engine.compose_engine_prompt`'s account
@@ -882,7 +897,20 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
                 for line in example
             ),
         )
-    return "\n\n".join(sections)
+    return "\n\n".join(per_call_sections_last(sections))
+
+
+def per_call_sections_last(sections: Sequence[str]) -> list[str]:
+    """`sections` with every one that holds a `{{ variable }}` moved to the end, each group in
+    its own order.
+
+    The engine fills a variable per call, and its model-side cache runs from the start of the
+    prompt to the first value it filled (ThinnestAI email of 19 Oct 2026, VENDOR-STATED), so a
+    section with a variable ahead of the quick facts or the example call would leave them,
+    and every later section, outside the part a new call can reuse (D-835). A moved section
+    keeps its header, so it still says what it is; within each group the order is kept."""
+    fixed = [s for s in sections if not _VARIABLE_PATTERN.search(s)]
+    return fixed + [s for s in sections if _VARIABLE_PATTERN.search(s)]
 
 
 def upgrade_to_v2(script: CallScript) -> CallScript:
@@ -1079,6 +1107,7 @@ __all__ = [
     "extract_variable_names",
     "native_steps",
     "opening_line_of",
+    "per_call_sections_last",
     "quick_fact_lines",
     "render_steps",
     "script_text",

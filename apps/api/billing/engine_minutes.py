@@ -63,13 +63,17 @@ EngineRateKey = Literal["platform", "standard", "premium", "studio", "byok_voice
 ENGINE_RATE_KEYS: Final[tuple[str, ...]] = get_args(EngineRateKey)
 BASE_RATE_KEY: Final[EngineRateKey] = "platform"
 
-#: The price of a call no agent ran on: one that ended before the agent spoke, or one a
-#: number forward put through to a phone (D-813). It is the phone carrier's fee only, and a
-#: price key, never a route's: no agent is published on it, so it is not an `EngineRateKey`.
-#: ThinnestAI states ₹0.38 a minute (snapshots/2026-10-18/pages/api-reference/calls/
-#: get-call.md:1236-1243, VENDOR-STATED 18 Oct 2026), which reaches money only once an
-#: operator attests it here; until then such a minute is metered unpriced and alarmed.
+#: The price of a call that ended before the agent spoke (D-813). It is the phone carrier's
+#: fee only, and a price key, never a route's: no agent is published on it, so it is not an
+#: `EngineRateKey`. ThinnestAI states ₹0.38 a minute (snapshots/2026-10-19/pages/
+#: api-reference/calls/get-call.md:1236-1242), which reaches money only once an operator
+#: attests it here; until then such a minute is metered unpriced and alarmed. A forwarded
+#: call is not carrier-only (:1249-1254, D-835): see `engine_minute_cost`.
 CARRIER_RATE_KEY: Final = "carrier"
+#: The voice plan a forwarded call is billed at when no agent is attached to the number
+#: (snapshots/2026-10-19/pages/api-reference/calls/get-call.md:1249-1253). Our calls always
+#: carry an agent, so it is reached only for a call whose agent has no route row.
+FORWARD_WITHOUT_AGENT_RATE_KEY: Final[EngineRateKey] = "standard"
 #: Every key a per-minute price may be attested for: the route keys and the carrier's fee.
 PRICED_RATE_KEYS: Final[tuple[str, ...]] = (*ENGINE_RATE_KEYS, CARRIER_RATE_KEY)
 
@@ -372,6 +376,24 @@ class MinuteCost:
         return self.inr_per_min is not None
 
 
+async def _on_brought_number(session: AsyncSession, *, tenant_id: UUID, call_id: UUID) -> bool:
+    """Did this call ring one of the client's numbers that we record as brought, not rented
+    from the platform (`phone_numbers.engine_owned` false)? A number we hold no row for is
+    read as rented: costing a free minute is caught by the charge reconciler, while a
+    rented minute read as free would hide a real cost."""
+    owned = (
+        await session.execute(
+            text(
+                "SELECT n.engine_owned FROM calls c "
+                "JOIN phone_numbers n ON n.tenant_id = c.tenant_id AND n.e164 = c.to_e164 "
+                "WHERE c.id = :cid AND c.tenant_id = :tid"
+            ),
+            {"cid": call_id, "tid": tenant_id},
+        )
+    ).scalar()
+    return owned is False
+
+
 async def engine_minute_cost(
     session: AsyncSession,
     *,
@@ -381,9 +403,17 @@ async def engine_minute_cost(
     seconds: Decimal,
     at: datetime,
     carrier_only: bool = False,
+    forwarded: bool = False,
 ) -> MinuteCost:
     """This call's supplier cost at the rate attested for its vendor agent's rate key, or
-    for the carrier's fee when no agent ran on it (`carrier_only`).
+    for the carrier's fee when it ended before the agent spoke (`carrier_only`).
+
+    A `forwarded` call (a number forward put it through to a phone) is billed every
+    connected second at the plan it was admitted at: the attached agent's, or Standard when
+    no agent is attached; on a number the client brought nothing is charged
+    (snapshots/2026-10-19/pages/api-reference/calls/get-call.md:1249-1254,
+    api-reference/phone-numbers/update-phone-number.md:654-657; D-835, replacing D-813's
+    carrier fee for a forward).
 
     The whole minute is ONE leg (`platform_inr`): ThinnestAI sells telephony, speech and
     model as one per-minute price (evaluation §2), so splitting it across our per-leg rows
@@ -407,17 +437,32 @@ async def engine_minute_cost(
     ).first()
     route_key = str(stamped[0]) if stamped is not None and stamped[0] else BASE_RATE_KEY
     own_model = str(stamped[1]) if stamped is not None and stamped[1] else None
-    # A call no agent ran on is charged the carrier's fee only, by the carrier's block
-    # (get-call.md:1236-1243; D-813). That replaces D-743's "standard voice rate" for a
-    # forward, which channels/phone-numbers.md:567-570 still states: the call's own billing
-    # schema, the 17 Oct changelog (whats-new/index.md:28-30) and ThinnestAI's email of
-    # 18 Oct 2026 all say carrier fee, and `costMicro` decides it either way. The client's
-    # rung stays the agent's.
-    rate_key = CARRIER_RATE_KEY if carrier_only else route_key
+    # The client's rung stays the agent's on every call.
+    if carrier_only:
+        rate_key = CARRIER_RATE_KEY
+    elif forwarded and (stamped is None or not stamped[0]):
+        rate_key = FORWARD_WITHOUT_AGENT_RATE_KEY
+    else:
+        rate_key = route_key
     pulse = CARRIER_BLOCK_SECONDS[engine] if carrier_only else PULSE_SECONDS[engine]
     minutes = billed_minutes(seconds, pulse_s=pulse)
-    price = (await attested_minute_prices(session, engine=engine, at=at)).get(rate_key)
     fee = topup_fee(engine)
+    if forwarded and await _on_brought_number(session, tenant_id=tenant_id, call_id=call_id):
+        return MinuteCost(
+            rate_key=rate_key,
+            client_rate_key=route_key,
+            own_model=own_model,
+            billed_minutes=minutes,
+            inr_per_min=Decimal(0),
+            topup_fee=fee,
+            cost=CostBreakdown(
+                total_inr=Decimal(0),
+                platform_inr=Decimal(0),
+                source_currency="INR",
+                currency_stated=True,
+            ),
+        )
+    price = (await attested_minute_prices(session, engine=engine, at=at)).get(rate_key)
     if price is None:
         return MinuteCost(
             rate_key=rate_key,
@@ -451,6 +496,7 @@ __all__ = [
     "CARRIER_BLOCK_SECONDS",
     "CARRIER_RATE_KEY",
     "ENGINE_RATE_KEYS",
+    "FORWARD_WITHOUT_AGENT_RATE_KEY",
     "OWN_VOICE_RATE_KEYS",
     "PRICED_RATE_KEYS",
     "PULSE_SECONDS",

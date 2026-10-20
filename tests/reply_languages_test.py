@@ -177,7 +177,7 @@ def test_a_list_held_by_the_platform_is_not_drift() -> None:
     wanted = ThinnestEngine(api_key="ta_live_test")._agent_body(_cfg())
     held: dict[str, Any] = json.loads(json.dumps(wanted))
     held["languages"] = []
-    held["voice"]["reaskAfterSeconds"] = 2.5
+    held["voice"]["reaskAfterSeconds"] = 5.0
     assert _settings_drift(wanted, held) == []
     held["language"] = "Telugu"
     assert _settings_drift(wanted, held) == ["language"]

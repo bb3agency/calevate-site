@@ -244,6 +244,9 @@ class CallDetailOut(CallSummaryOut):
     caller_id_hidden: bool
     #: Our forwarding test arriving on this number (D-746): no caller, and not charged.
     forwarding_test: bool
+    #: Put through to the business's phone by a whole-line forward, so no agent took it and
+    #: it was not recorded (D-835).
+    forwarded_to_phone: bool
     transcript: list[TranscriptTurnOut] = Field(default_factory=list)
     #: REQUIRED, with no default, and that is deliberate rather than an oversight.
     #:

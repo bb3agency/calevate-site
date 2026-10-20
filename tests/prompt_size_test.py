@@ -114,6 +114,20 @@ def test_the_report_carries_counts_and_never_text() -> None:
     assert CONFIDENTIALITY_RULE.splitlines()[1] not in report
 
 
+def test_the_report_adds_what_the_calling_system_puts_around_it() -> None:
+    """ThinnestAI adds about 4,700 characters of its own rules on every turn, outside the
+    box (email of 19 Oct 2026, VENDOR-STATED): the per-turn figure is ours plus theirs, and
+    the box verdict still counts ours alone."""
+    cfg = _cfg(SCRIPT)
+    size = prompt_size.measure_config(cfg, _thinnest())
+    assert size.engine_added == 4_700
+    assert size.per_turn == size.total + 4_700
+    assert size.over == 0
+    report = "\n".join(prompt_size.lines(size))
+    assert f"{size.per_turn:,}" in report and "4,700" in report
+    assert prompt_size.measure(cfg, 8_000).per_turn is None
+
+
 # --- the refusal ----------------------------------------------------------------------
 
 

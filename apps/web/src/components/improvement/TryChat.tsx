@@ -11,7 +11,11 @@ type Turn = { from: "you" | "agent"; text: string; lookedUp?: boolean };
 
 /**
  * "TRY IT": a text chat with the LIVE agent, as a caller would talk to it. Nothing it says
- * can reach a real person, and nothing here changes the agent. For the agent page:
+ * can reach a real person, and nothing here changes the agent. The engine's test chat runs the
+ * agent as published and has no draft of its own, and a chat reply runs at the model's default
+ * thinking level rather than the call's minimal one (ThinnestAI, email of 19 Oct 2026,
+ * VENDOR-STATED; snapshots/2026-10-19/pages/api-reference/agents/test-chat.md:7), so the info
+ * line promises the live script and knowledge, not a reply identical to a call's. For the agent page:
  * `<TryChat agentId={agent.id} />`.
  */
 export function TryChat({
@@ -59,7 +63,12 @@ export function TryChat({
     <Section
       headingLevel={headingLevel}
       title="Try it in a chat"
-      info={<p>Type what a caller would say. Your live agent answers, exactly as it would on a call.</p>}
+      info={
+        <p>
+          Type what a caller would say. Your live agent answers from its live script and knowledge. A change you
+          have not put live is not in this chat yet.
+        </p>
+      }
       action={
         turns.length ? (
           <button

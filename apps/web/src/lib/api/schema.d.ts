@@ -12982,6 +12982,8 @@ export interface components {
              * @default true
              */
             extraction_valid: boolean;
+            /** Forwarded To Phone */
+            forwarded_to_phone: boolean;
             /** Forwarding Test */
             forwarding_test: boolean;
             /**

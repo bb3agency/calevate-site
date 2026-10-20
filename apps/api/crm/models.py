@@ -338,6 +338,12 @@ class Call(PKMixin, TimestampMixin, Base):
     #: A forwarded call that showed the client's own published number instead of the
     #: caller's (D-746): the lead is filed under the call-back number the caller gave.
     caller_id_hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: The engine put this call through to a phone with a number forward, so no agent took it
+    #: and there is no recording (D-835). Unrelated to `caller_id_hidden`, which is a call
+    #: the client's own phone forwarded TO an agent.
+    forwarded_to_phone: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
     lead_id: Mapped[UUID | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"))
     # D-21 M2: the call this one follows up. Bounds the callback chain — see migration
     # efb47868ec59 for why an unbounded one is a compliance problem, not a UX one.

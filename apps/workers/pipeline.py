@@ -671,9 +671,9 @@ async def _upsert_call_row(
                 text(
                     "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
                     "from_e164, to_e164, status, started_at, ended_at, duration_s, "
-                    "engine_quality, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
-                    ":dir, :from_e, :to_e, :status, :started, :ended, :dur, "
-                    "CAST(:quality AS jsonb), now(), now()) "
+                    "engine_quality, forwarded_to_phone, created_at, updated_at) VALUES (:id, "
+                    ":tid, :aid, :ecid, :dir, :from_e, :to_e, :status, :started, :ended, :dur, "
+                    "CAST(:quality AS jsonb), :forwarded, now(), now()) "
                     "ON CONFLICT (engine_call_id) DO UPDATE SET "
                     # A snapshot whose engine stated no status keeps the row's: its
                     # `failed` is a default, not an outcome.
@@ -690,6 +690,9 @@ async def _upsert_call_row(
                     "  duration_s = COALESCE(EXCLUDED.duration_s, calls.duration_s), "
                     # `call.completed` can carry no figures where `call.analysed` does.
                     "  engine_quality = COALESCE(EXCLUDED.engine_quality, calls.engine_quality), "
+                    # An event that does not name the forward does not unmark it.
+                    "  forwarded_to_phone = "
+                    "    calls.forwarded_to_phone OR EXCLUDED.forwarded_to_phone, "
                     "  updated_at = now() "
                     # THE CONSTANT, NOT A RETYPED COPY OF ITS FIVE MEMBERS. This clause
                     # is what stops a late `ringing` webhook un-completing a finished
@@ -719,6 +722,7 @@ async def _upsert_call_row(
                     "ended": snapshot.ended_at,
                     "dur": snapshot.duration_s,
                     "quality": snapshot.quality.model_dump_json() if snapshot.quality else None,
+                    "forwarded": snapshot.forwarded,
                     "terminal": sorted(TERMINAL_STATUSES),
                 },
             )
@@ -3230,10 +3234,8 @@ async def _engine_minute_cost(
             call_id=call_id,
             seconds=_billable_seconds(snapshot, tenant_id=tenant_id, call_id=call_id),
             at=at,
-            # A forward is carrier-only even on a call whose billing the engine did not
-            # report (a call from before it did).
-            carrier_only=snapshot.forwarded
-            or (snapshot.billing is not None and snapshot.billing.carrier_only),
+            carrier_only=snapshot.billing is not None and snapshot.billing.carrier_only,
+            forwarded=snapshot.forwarded,
         )
     if not priced.priced:
         alert(

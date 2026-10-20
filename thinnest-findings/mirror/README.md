@@ -117,3 +117,17 @@ What matters to us (paths under `snapshots/2026-10-18/pages/`; the item-by-item 
 - **Reply languages.** `languages` on Create/Update Agent: `[]` auto, one name, or two to four with the first as fallback; send `languages` or `language`, not both; `secondLanguage` is retired (`api-reference/agents/update-agent.md:754-780`).
 - **`voice.reaskAfterSeconds`**: `0` never, 1.5–10 s, `null` the platform's 2.5 s (`api-reference/agents/update-agent.md:1452-1461`).
 - **Own model on an agent.** `PUT /agents/{id}/byok-model` answers `409` only when the workspace brings no keys or only its voice key; `llm`, `llm_voice` and `all` can set an agent's model (`api-reference/agents/set-agent-byok-model.md:514-525`).
+
+## Snapshot of 19 Oct 2026 (`snapshots/2026-10-19/`)
+
+A full re-fetch on 19 Oct 2026 (UTC run 17:57–18:07, `started_at` and `generated_at` in its `MANIFEST.json`): 285 of 285 pages, 0 failures, every page HTTP 200, with its own `llms.txt` (byte-identical to 18 Oct's) and `MANIFEST.json`. New in this snapshot: the API reference ThinnestAI's founder pointed to, `https://app.thinnest.ai/openapi.json`, saved as `openapi.json` and hashed under `openapi` in the manifest. The example account id of the form `AC` + 32 hex was masked at fetch time in `pages/api-reference/phone-numbers/save-carrier-account.md` and in `openapi.json` (same byte length), and the manifest hashes are of the masked files. Against `2026-10-18/`: 0 pages added, 0 removed, 17 changed. Cite this snapshot for anything current.
+
+- **Changed:** `api-reference/agents/test-chat`, `api-reference/calls/{get-call,list-calls,cancel-call}`, `api-reference/post-call/delete-call-content`, `api-reference/customers`, `api-reference/phone-numbers/{rent,update}-phone-number`, `api-reference/sdks`, `api-reference/webhooks`, `channels/phone-numbers`, `channels/voice-clone`, `whats-new/index` (an entry for 19 Oct), and four `white-label/*` pages (a product we do not use).
+
+What matters to us (paths under `snapshots/2026-10-19/pages/`; the item-by-item check of ThinnestAI's 19 Oct email is `docs/evidence/thinnest-reply-2026-10-19.md`):
+- **Forwarded calls are not carrier-only.** A forward on a rented number is billed every connected second at the attached agent's voice plan, Standard with none attached; nothing on a brought number, `billedSeconds` null (`api-reference/calls/get-call.md:1249-1254`, `channels/phone-numbers.md:571-576`). A forwarded call is never recorded (`channels/phone-numbers.md:577-579`).
+- **A 0-second call** is not charged; one second is one 30-second block (`api-reference/calls/get-call.md:1245-1246`).
+- **Test Chat** runs the agent as saved, with no draft; a reply costs ₹0.02 on an agent using its own language-model key (`api-reference/agents/test-chat.md:7`).
+- **Lending a number ends no call**; a waiting call that named it fails (`channels/phone-numbers.md:696-702`).
+- **Rent Phone Number takes `Idempotency-Key`** (`api-reference/phone-numbers/rent-phone-number.md:7`, `:552-561`); a shared clone's `id` in a customer is the developer's own (`channels/voice-clone.md:120-121`).
+- **Webhooks:** `contact.erased` and `byok.changed` save again (`whats-new/index.md:13-18`); each signature header is also sent under a neutral `x-webhook-*` name (`api-reference/webhooks.md:228-231`).
