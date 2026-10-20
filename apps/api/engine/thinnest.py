@@ -1602,7 +1602,6 @@ class ThinnestEngine:
         client: httpx.AsyncClient | None = None,
         signing_secret_for: SigningSecretResolver | None = None,
         status_transport: httpx.AsyncBaseTransport | None = None,
-        compose_instructions: Callable[[AgentConfig], str] = compose_engine_prompt,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url
@@ -1610,11 +1609,6 @@ class ThinnestEngine:
         self._signing_secret_for = signing_secret_for
         #: The status read goes out without our key, so it never uses `client`.
         self._status_transport = status_transport
-        #: What an agent's `instructions` are composed with. Always `compose_engine_prompt`
-        #: on every path that serves a client (`build_engine` passes nothing); the Telugu
-        #: register eval (`scripts/register_chat_eval`, D-837) passes a variant of it so its
-        #: temporary agents get every other field of the body exactly as a publish sends it.
-        self._compose_instructions = compose_instructions
 
     def holds_credentials(self) -> bool:
         return bool(self._api_key) or self._client is not None
@@ -1761,7 +1755,7 @@ class ThinnestEngine:
     def _agent_body(self, cfg: AgentConfig) -> dict[str, Any]:
         self._refuse_what_this_engine_cannot_carry(cfg)
         instructions = self._within(
-            self._compose_instructions(cfg),
+            compose_engine_prompt(cfg),
             INSTRUCTIONS_MAX_CHARS,
             code="engine_prompt_too_long",
             what="agent's script, with the platform rules added",

@@ -651,15 +651,36 @@ def instructions_by_copy(variants: Sequence[Variant], run_tag: str) -> Callable[
     return compose
 
 
+class VariantThinnestEngine(ThinnestEngine):
+    """The production adapter with one difference: `instructions` come from `compose`.
+
+    A subclass here rather than a composer parameter on `ThinnestEngine`, so the adapter
+    every client path runs has no way to send a prompt `compose_engine_prompt` did not
+    build (hard rule 5; `scripts/check_compliance_invariants`). Every other field of the
+    body is exactly what a publish sends."""
+
+    def __init__(self, *, compose: Callable[[AgentConfig], str], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._eval_compose = compose
+
+    def _agent_body(self, cfg: AgentConfig) -> dict[str, Any]:
+        body = super()._agent_body(cfg)
+        instructions = self._eval_compose(cfg)
+        if len(instructions) > INSTRUCTIONS_MAX_CHARS:
+            raise ValueError(f"variant instructions exceed {INSTRUCTIONS_MAX_CHARS} characters")
+        body["instructions"] = instructions
+        return body
+
+
 def _thinnest(compose: Callable[[AgentConfig], str] = compose_engine_prompt) -> ThinnestEngine:
     """The production adapter, credentials from the settings, instructions from `compose`."""
     from apps.api.core.settings import get_settings
 
     settings = get_settings()
-    return ThinnestEngine(
+    return VariantThinnestEngine(
         api_key=settings.thinnest_api_key,
         base_url=settings.thinnest_api_base_url,
-        compose_instructions=compose,
+        compose=compose,
     )
 
 

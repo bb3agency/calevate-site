@@ -193,10 +193,10 @@ def test_variants_parse_with_a_first() -> None:
         chat_eval.parse_variants("A,Z")
 
 
-def test_the_adapter_composes_instructions_with_what_it_is_given() -> None:
+def test_the_eval_adapter_composes_instructions_with_what_it_is_given() -> None:
     cfg = SOURCE.config
     compose = chat_eval.instructions_by_copy([chat_eval.VARIANTS["B"]], "run1")
-    adapter = ThinnestEngine(api_key="test", compose_instructions=compose)
+    adapter = chat_eval.VariantThinnestEngine(api_key="test", compose=compose)
     copy = chat_eval.eval_config(cfg, chat_eval.VARIANTS["B"], "run1")
     body = adapter._agent_body(copy)
     assert body["instructions"] == chat_eval.variant_instructions(copy, chat_eval.VARIANTS["B"])
