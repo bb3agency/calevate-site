@@ -3490,6 +3490,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/call-outcomes/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask AI to write one agent's call outcomes
+         * @description Queues the AI draft for an agent with no outcomes of its own whose draft never ran, could not be written or was skipped. On a paying account it uses the monthly AI allowance; on a trial it is free. A list the owner saves meanwhile is never replaced.
+         */
+        post: operations["draft_call_outcomes_v1_agents__agent_id__call_outcomes_draft_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/caller-memory": {
         parameters: {
             query?: never;
@@ -15694,7 +15714,7 @@ export interface components {
         /** CreateEndpointIn */
         CreateEndpointIn: {
             /** Events */
-            events: ("lead.created" | "lead.updated" | "call.completed" | "call.recording_ready" | "campaign.completed")[];
+            events: ("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed")[];
             /**
              * Include Raw Transcript
              * @default false
@@ -15810,7 +15830,7 @@ export interface components {
              */
             credential_id: string;
             /** Events */
-            events: ("lead.created" | "lead.updated" | "call.completed" | "call.recording_ready" | "campaign.completed")[];
+            events: ("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed")[];
             /** Spreadsheet */
             spreadsheet: string;
             /** Worksheet */
@@ -35171,6 +35191,37 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallOutcomesAgentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    draft_call_outcomes_v1_agents__agent_id__call_outcomes_draft_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

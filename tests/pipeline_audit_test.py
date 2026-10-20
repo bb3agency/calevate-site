@@ -376,17 +376,6 @@ async def test_a_re_run_does_not_deliver_the_crm_event_twice() -> None:
     assert len(rows) == 1, "one completed call is one outbound event, not one per pipeline run"
 
 
-async def test_a_re_run_does_not_queue_the_hot_lead_notification_twice() -> None:
-    """The notification worker dedupes on its own lead_event, so this is about the
-    OUTBOX row: a second promise to notify is a promise we never meant to make."""
-    tenant_id, execution_id, call_id = await _completed_call("hotdup")
-    await _run_pipeline(tenant_id, call_id, execution_id)
-    await _run_pipeline(tenant_id, call_id, execution_id)
-
-    rows = await _outbox_rows("notify_hot_lead", {"call_id": str(call_id)})
-    assert len(rows) == 1, "the sample call is a hot lead exactly once"
-
-
 # --- money (hard rule 7) -------------------------------------------------------
 
 

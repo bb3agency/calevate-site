@@ -6,7 +6,10 @@ universal and are never drafted; this writes what a call can come to FOR THIS BU
 with how far it moves the lead.
 
 Queued through the outbox by `agents/call_outcomes.queue_draft` (at publish, or at the first
-call of an agent published before D-836). One run:
+call of an agent published before D-836), or by `request_draft` when the owner presses "Write
+them for me" after a draft that never ran, failed, was skipped or died running (D-841). A run
+killed mid-way leaves `running`; `call_outcomes.DRAFT_STALE_MINUTES` later the screen reports
+it failed and it may be asked for again. One run:
 
 1. **Claim** `business_outcomes_draft` from `queued` to `running` (compare-and-swap).
 2. **Kept own**: an agent whose owner saved a list in the meantime is left alone, unspent.

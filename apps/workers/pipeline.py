@@ -29,7 +29,7 @@ SLO: lead visible in the client dashboard under 2 minutes after hangup — measu
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -47,7 +47,7 @@ from calevate_shared.engine import (
     ListingIncompleteReason,
     VoiceEngine,
 )
-from calevate_shared.events import TERMINAL_STATUSES, CallLlmUsage
+from calevate_shared.events import TERMINAL_STATUSES, CallLlmUsage, TranscriptTurn
 from calevate_shared.extraction import (
     ExtractionOutput,
     ExtractionSchemaSpec,
@@ -148,6 +148,7 @@ from apps.api.core.observability import set_span_attributes, span, tracing_enabl
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
 from apps.api.core.settings import get_settings
 from apps.api.crm.outcomes import CallFacts, derive_outcome, hint_of
+from apps.api.crm.service import emit_lead_created, emit_lead_updated
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
@@ -277,14 +278,6 @@ OUTBOUND_WEBHOOK_JOB = "deliver_outbound_webhook"
 #: The client's after-call actions for one finished call (D-700), registered in
 #: `workers/settings.py` from `workers/client_actions.run_after_call_actions`.
 AFTER_CALL_ACTIONS_JOB = "run_after_call_actions"
-
-# Hot-lead rule (FLOWS §6): these reach the owner within 2 minutes. The trigger is a
-# match on the extracted FIELDS below — not the lead's status column, which this
-# job is the writer of, not a reader of (see `_maybe_notify_hot_lead`).
-HOT_LEAD_FIELD_TRIGGERS: dict[str, frozenset[str]] = {
-    "urgency": frozenset({"emergency", "urgent"}),
-    "intent": frozenset({"buy", "book"}),
-}
 
 # --- stage spans --------------------------------------------------------------
 #
@@ -1350,8 +1343,235 @@ async def _post_call_stages(
         )
         set_span_attributes(stage, recording_notice_filed=filed)
 
-    # `snapshot.transcript`, NOT `transcript_text`: the two agreed until the line above
-    # started dropping wordless turns, and this one has to keep agreeing with
+    business_outcomes = await _agent_business_outcomes(tenant_id, agent_id)
+    extraction = await _extract_stage(
+        tenant_id,
+        call_id,
+        snapshot,
+        spec=spec,
+        agent_id=agent_id,
+        transcript_text=transcript_text,
+        opt_out_signal=opt_out_signal,
+        business_outcomes=business_outcomes,
+    )
+
+    # STEP 3c — knowledge gaps: the questions this agent could not answer (D-Knowledge-Gaps).
+    # An inline string-match stage like STEP 2b/3b — no model call, no round trip — over the
+    # REDACTED turns, so the caller-facing quotes it stores can never carry raw PII (hard
+    # rule 6). It reads `redact(turn.text).text`, the same redaction STEP 2 wrote to
+    # `transcript_turns.text_redacted`, and never `turn.text`. Exactly-once per call:
+    # `record_call_gaps` replaces this call's occurrence rows and recomputes the aggregate,
+    # so a re-drive cannot double-count (`apps/api/insights/service.py`). Guarded on a
+    # transcript existing — a call with none implies no gaps.
+    if snapshot.transcript:
+        redacted_turns = [
+            gap_detection.RedactedTurn(speaker=turn.speaker, text=redact(turn.text).text)
+            for turn in snapshot.transcript
+        ]
+        with span("pipeline.knowledge_gaps", call_id=str(call_id), agent_id=str(agent_id)) as stage:
+            gap_count = await gap_service.record_call_gaps(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                call_id=call_id,
+                turns=redacted_turns,
+            )
+            set_span_attributes(stage, gap_count=gap_count)
+
+    # STEP 3d — what the call came to, in words: the English summary and the one in the
+    # call's language, the headline, the next step, and English for every turn (founder
+    # decisions 4, 5, 12). After extraction because the model's summary is one input; the
+    # engine's own summary is the other.
+    with span("pipeline.call_reading", call_id=str(call_id)) as stage:
+        reading = await _record_reading(tenant_id, call_id, snapshot, extraction)
+        set_span_attributes(
+            stage, summary_state=reading.state, translation_state=reading.translation_state
+        )
+
+    # STEP 3e — the outcome, DERIVED from facts (founder decision 6, `crm/outcomes`). After
+    # the hand-over settle (1d) and extraction (3), before the lead (4) whose status rules
+    # read it and the CRM fan-out (8) that publishes it.
+    with span("pipeline.outcome", call_id=str(call_id)) as stage:
+        call_outcome = await _record_outcome(tenant_id, call_id, snapshot)
+        # What it came to for THIS business (D-836), beside the fact above, never instead.
+        business_outcome = await _record_business_outcome(tenant_id, call_id, business_outcomes)
+        set_span_attributes(
+            stage,
+            outcome=call_outcome or "unknown",
+            business_outcome=business_outcome.key if business_outcome else "none",
+        )
+
+    # STEP 4 — lead upsert (+ repeat-caller flag on phone match).
+    with span("pipeline.lead_upsert", call_id=str(call_id), agent_id=str(agent_id)) as stage:
+        lead_id = await _upsert_lead(
+            tenant_id,
+            agent_id,
+            call_id,
+            snapshot,
+            direction=direction,
+            data=extraction.data if extraction else {},
+            schema_version=schema_version,
+            outcome=call_outcome,
+            reading=extraction if extraction is not None and model_answered(extraction) else None,
+            business_move=business_outcome.lead_status if business_outcome else None,
+        )
+        set_span_attributes(stage, lead_id=str(lead_id) if lead_id else "none")
+
+    # STEP 5 — metering. Append-only, written once per (call, unit).
+    if _owes_usage(snapshot):
+        with span("pipeline.meter", call_id=str(call_id)) as stage:
+            set_span_attributes(stage, usage_row_count=await _meter(tenant_id, call_id, snapshot))
+
+    # STEP 5b — what the engine says it charged, recorded once and reconciled against the
+    # metering above (an engine priced by attested minute; never a cost of record, D-690).
+    if snapshot.engine_charged_inr is not None:
+        with span("pipeline.reconcile_charge", call_id=str(call_id)) as stage:
+            set_span_attributes(
+                stage,
+                outcome=await reconcile_call_charge(
+                    tenant_id,
+                    call_id,
+                    snapshot.engine_charged_inr,
+                    engine=snapshot.engine,
+                    billing=snapshot.billing,
+                ),
+            )
+
+    # STEP 6 — notifications, through the OUTBOX so a crash cannot lose them.
+    if lead_id is not None and extraction is not None:
+        with span("pipeline.notify_hot_lead", call_id=str(call_id), lead_id=str(lead_id)) as stage:
+            outcome = await _maybe_notify_hot_lead(
+                tenant_id,
+                lead_id,
+                call_id,
+                business_outcome,
+                connected=snapshot.status == "completed",
+            )
+            set_span_attributes(stage, outcome=outcome)
+
+    # STEP 7 — if this call was a campaign dial, the outcome closes the contact or puts
+    # it back on the retry ladder (FLOWS §5). Local import: the dispatcher is a worker
+    # peer, and a module-level import would drag it into every pipeline run.
+    from apps.workers.campaign_dispatch import resolve_campaign_contact
+
+    async with tenant_session(tenant_id) as session:
+        # Step 8's `_already_enqueued` is a check-then-write and the delivery id it would
+        # duplicate is minted FRESH per fan-out — so two overlapping runs do not send the
+        # client a retry they can deduplicate, they send them the same lead twice under
+        # two different ids. Taken before the campaign resolution so the whole
+        # transaction is one serialized unit rather than two.
+        await lock_call_writes(session, call_id)
+        await resolve_campaign_contact(
+            session, tenant_id=tenant_id, call_id=call_id, call_status=snapshot.status
+        )
+
+        # STEP 8 — outbound CRM sync (D-23). Last, and only for a call that actually
+        # completed: an outcome the client's CRM can act on is one where the summary and
+        # extraction above already exist. Enqueued in this transaction, delivered by the
+        # outbox — the same guarantee the notification in step 6 gets.
+        #
+        # Once per call, not once per pipeline run: the delivery id is minted fresh on
+        # each fan-out, so a receiver deduplicating on it cannot collapse two runs of
+        # the same call — the client would simply be told twice.
+        #
+        # "Have we already?" is answered by the CALL ROW, not by scanning the outbox
+        # (P6.7). The probe this replaced was `job = :job AND payload @> :matcher` against
+        # a table with no index on either and nothing that prunes it — a sequential scan
+        # per completed call, taken while holding the lock above, on the 2-minute SLO
+        # path. `crm_notified_at` is the same fact on a row this transaction already has,
+        # and it is stamped in this transaction so the flag and the outbox rows share one
+        # fate. Not `enqueue_outbox_once`: the fan-out writes one row PER SUBSCRIBED
+        # ENDPOINT and those are not duplicates of each other.
+        if snapshot.status == "completed" and not await _crm_already_notified(session, call_id):
+            written = await integrations.enqueue_event(
+                session,
+                tenant_id=tenant_id,
+                event=integrations.CALL_COMPLETED_EVENT,
+                data=call_event_data(
+                    call_id,
+                    lead_id=lead_id,
+                    direction=direction,
+                    duration_s=snapshot.duration_s,
+                    outcome=call_outcome,
+                    extraction=extraction,
+                    summary=reading.summary,
+                    business_outcome=business_outcome,
+                ),
+            )
+            # Only when a row was actually written. A tenant with no subscribed endpoint
+            # gets zero rows from a perfectly healthy pipeline, and stamping anyway would
+            # record "we told the client" about a client we told nothing — the flag would
+            # then be a worse answer than the outbox scan it replaced. Left NULL, the next
+            # run re-asks, which is now a column read on a row already in hand; and
+            # `_expected_artifacts` is what stops the poller re-driving a call that was
+            # never owed a fan-out.
+            if written:
+                await _mark_crm_notified(session, call_id)
+
+            # STEP 8b — the client's AFTER-call actions (D-700): once per call, through the
+            # outbox, so a thank-you WhatsApp or a CRM record is neither lost to a crash nor
+            # sent twice by an overlapping run. Only for a call that completed, like step 8.
+            await enqueue_outbox_once(
+                session,
+                job=AFTER_CALL_ACTIONS_JOB,
+                payload={"tenant_id": str(tenant_id), "call_id": str(call_id)},
+                dedupe_key=f"after_call_actions:{call_id}",
+            )
+            # STEP 8c — "save our number" to a caller who booked, when the client switched
+            # it on (D-746). Once per call here; once per caller in the job.
+            await queue_if_booked(session, tenant_id=tenant_id, call_id=call_id)
+
+        # STEP 9 — the DPDP obligation this run may have just broken (D-310).
+        #
+        # Everything above wrote personal data for this call. If a data principal's
+        # erasure COMPLETED while this call was already under way, the certificate their
+        # client handed on is now false: the transcript, the extraction, the summary, the
+        # recording, the archived vendor document and the `leads` row are all back. The
+        # erasure could not have reached forward, and nothing else in this pipeline knows
+        # the request exists — so the check belongs here, after the last write rather
+        # than before the first, because only a run that is finished can say what it left
+        # behind.
+        #
+        # It re-FILES rather than erasing inline: `compliance/deletion.py` argues why (one
+        # erase mechanism, and a second certificate is what the person is owed). In this
+        # transaction so the row and its outbox job commit with the pipeline's own work.
+        await refile_erasure_for_late_records(
+            session,
+            tenant_id=tenant_id,
+            call_id=call_id,
+            phones=(snapshot.from_e164, snapshot.to_e164),
+        )
+
+    lag = time.perf_counter() - started
+    record_pipeline_lag(lag, stage="post_call")
+    # The SAME number, on the trace. `record_pipeline_lag` is the SLO metric — it fires
+    # on 100% of calls and it is what says the 2-minute budget was missed; the trace is
+    # sampled at 10% and it is what says where the time went. Without this attribute
+    # they are two systems with no join: an operator holding a breached metric has no
+    # way to ask the trace backend for the traces belonging to breaches. Written on the
+    # `traced_job` span rather than a child, because it measures the whole job.
+    set_span_attributes(_job_span(), pipeline_lag_ms=round(lag * 1000, 1), call_id=str(call_id))
+    log.info("pipeline_complete", extra={"call_id": str(call_id), "duration_s": round(lag, 2)})
+    return "ok"
+
+
+async def _extract_stage(
+    tenant_id: UUID,
+    call_id: UUID,
+    snapshot: ExecutionSnapshot,
+    *,
+    spec: ExtractionSchemaSpec,
+    agent_id: UUID,
+    transcript_text: str,
+    opt_out_signal: OptOutSignal | None,
+    business_outcomes: list[BusinessOutcome],
+) -> ExtractionOutput | None:
+    """STEP 3 and 3b: read the call against the agent's schema, mark its key moments and
+    store both. Shared by the post-call pipeline and the failed-extraction re-read
+    (`workers/extraction_reread`, D-841), so a re-read is the same reading, metered the
+    same way, and never a second copy of it."""
+    schema_version = spec.version
+    # `snapshot.transcript`, NOT `transcript_text`: the two agreed until
+    # `extractor_transcript` started dropping wordless turns, and this one has to keep agreeing with
     # `EXTRACTION_OWED_SQL` — whose transcript half is `EXISTS (transcript_turns)`, and
     # a blank turn is still a row. A call that reads "not owed" here and "owed" there is
     # a call `report_stalled_pipeline` alarms on and the poller re-drives forever.
@@ -1360,7 +1580,6 @@ async def _post_call_stages(
     # the stage most likely to own the missing minutes — a 30s extraction timeout
     # (EXTRACTION_TIMEOUT_S) plus an ARQ retry is a lead that arrives late with nothing
     # in the logs to say why. `input_bytes` is the transcript's SIZE, never its text.
-    business_outcomes = await _agent_business_outcomes(tenant_id, agent_id)
     with span(
         "pipeline.extract",
         call_id=str(call_id),
@@ -1460,203 +1679,39 @@ async def _post_call_stages(
                 model=extraction_model,
             )
 
-    # STEP 3c — knowledge gaps: the questions this agent could not answer (D-Knowledge-Gaps).
-    # An inline string-match stage like STEP 2b/3b — no model call, no round trip — over the
-    # REDACTED turns, so the caller-facing quotes it stores can never carry raw PII (hard
-    # rule 6). It reads `redact(turn.text).text`, the same redaction STEP 2 wrote to
-    # `transcript_turns.text_redacted`, and never `turn.text`. Exactly-once per call:
-    # `record_call_gaps` replaces this call's occurrence rows and recomputes the aggregate,
-    # so a re-drive cannot double-count (`apps/api/insights/service.py`). Guarded on a
-    # transcript existing — a call with none implies no gaps.
-    if snapshot.transcript:
-        redacted_turns = [
-            gap_detection.RedactedTurn(speaker=turn.speaker, text=redact(turn.text).text)
-            for turn in snapshot.transcript
-        ]
-        with span("pipeline.knowledge_gaps", call_id=str(call_id), agent_id=str(agent_id)) as stage:
-            gap_count = await gap_service.record_call_gaps(
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                call_id=call_id,
-                turns=redacted_turns,
-            )
-            set_span_attributes(stage, gap_count=gap_count)
+    return extraction
 
-    # STEP 3d — what the call came to, in words: the English summary and the one in the
-    # call's language, the headline, the next step, and English for every turn (founder
-    # decisions 4, 5, 12). After extraction because the model's summary is one input; the
-    # engine's own summary is the other.
-    with span("pipeline.call_reading", call_id=str(call_id)) as stage:
-        reading = await _record_reading(tenant_id, call_id, snapshot, extraction)
-        set_span_attributes(
-            stage, summary_state=reading.state, translation_state=reading.translation_state
-        )
 
-    # STEP 3e — the outcome, DERIVED from facts (founder decision 6, `crm/outcomes`). After
-    # the hand-over settle (1d) and extraction (3), before the lead (4) whose status rules
-    # read it and the CRM fan-out (8) that publishes it.
-    with span("pipeline.outcome", call_id=str(call_id)) as stage:
-        call_outcome = await _record_outcome(tenant_id, call_id, snapshot)
-        # What it came to for THIS business (D-836), beside the fact above, never instead.
-        business_outcome = await _record_business_outcome(tenant_id, call_id, business_outcomes)
-        set_span_attributes(
-            stage,
-            outcome=call_outcome or "unknown",
-            business_outcome=business_outcome.key if business_outcome else "none",
-        )
+def call_event_data(
+    call_id: UUID,
+    *,
+    lead_id: UUID | None,
+    direction: str,
+    duration_s: int | None,
+    outcome: OutcomeTag | None,
+    extraction: ExtractionOutput | None,
+    summary: str | None,
+    business_outcome: BusinessOutcome | None,
+) -> dict[str, Any]:
+    """The `data` of `call.completed` and `call.updated` (docs/WEBHOOKS.md §1.2), keyed as
+    `integrations.CALL_EVENT_COLUMNS` lists them.
 
-    # STEP 4 — lead upsert (+ repeat-caller flag on phone match).
-    with span("pipeline.lead_upsert", call_id=str(call_id), agent_id=str(agent_id)) as stage:
-        lead_id = await _upsert_lead(
-            tenant_id,
-            agent_id,
-            call_id,
-            snapshot,
-            direction=direction,
-            data=extraction.data if extraction else {},
-            schema_version=schema_version,
-            outcome=call_outcome,
-            reading=extraction if extraction is not None and model_answered(extraction) else None,
-            business_move=business_outcome.lead_status if business_outcome else None,
-        )
-        set_span_attributes(stage, lead_id=str(lead_id) if lead_id else "none")
-
-    # STEP 5 — metering. Append-only, written once per (call, unit).
-    if _owes_usage(snapshot):
-        with span("pipeline.meter", call_id=str(call_id)) as stage:
-            set_span_attributes(stage, usage_row_count=await _meter(tenant_id, call_id, snapshot))
-
-    # STEP 5b — what the engine says it charged, recorded once and reconciled against the
-    # metering above (an engine priced by attested minute; never a cost of record, D-690).
-    if snapshot.engine_charged_inr is not None:
-        with span("pipeline.reconcile_charge", call_id=str(call_id)) as stage:
-            set_span_attributes(
-                stage,
-                outcome=await reconcile_call_charge(
-                    tenant_id,
-                    call_id,
-                    snapshot.engine_charged_inr,
-                    engine=snapshot.engine,
-                    billing=snapshot.billing,
-                ),
-            )
-
-    # STEP 6 — notifications, through the OUTBOX so a crash cannot lose them.
-    if lead_id is not None and extraction is not None:
-        with span("pipeline.notify_hot_lead", call_id=str(call_id), lead_id=str(lead_id)) as stage:
-            outcome = await _maybe_notify_hot_lead(tenant_id, lead_id, call_id, extraction.data)
-            set_span_attributes(stage, outcome=outcome)
-
-    # STEP 7 — if this call was a campaign dial, the outcome closes the contact or puts
-    # it back on the retry ladder (FLOWS §5). Local import: the dispatcher is a worker
-    # peer, and a module-level import would drag it into every pipeline run.
-    from apps.workers.campaign_dispatch import resolve_campaign_contact
-
-    async with tenant_session(tenant_id) as session:
-        # Step 8's `_already_enqueued` is a check-then-write and the delivery id it would
-        # duplicate is minted FRESH per fan-out — so two overlapping runs do not send the
-        # client a retry they can deduplicate, they send them the same lead twice under
-        # two different ids. Taken before the campaign resolution so the whole
-        # transaction is one serialized unit rather than two.
-        await lock_call_writes(session, call_id)
-        await resolve_campaign_contact(
-            session, tenant_id=tenant_id, call_id=call_id, call_status=snapshot.status
-        )
-
-        # STEP 8 — outbound CRM sync (D-23). Last, and only for a call that actually
-        # completed: an outcome the client's CRM can act on is one where the summary and
-        # extraction above already exist. Enqueued in this transaction, delivered by the
-        # outbox — the same guarantee the notification in step 6 gets.
-        #
-        # Once per call, not once per pipeline run: the delivery id is minted fresh on
-        # each fan-out, so a receiver deduplicating on it cannot collapse two runs of
-        # the same call — the client would simply be told twice.
-        #
-        # "Have we already?" is answered by the CALL ROW, not by scanning the outbox
-        # (P6.7). The probe this replaced was `job = :job AND payload @> :matcher` against
-        # a table with no index on either and nothing that prunes it — a sequential scan
-        # per completed call, taken while holding the lock above, on the 2-minute SLO
-        # path. `crm_notified_at` is the same fact on a row this transaction already has,
-        # and it is stamped in this transaction so the flag and the outbox rows share one
-        # fate. Not `enqueue_outbox_once`: the fan-out writes one row PER SUBSCRIBED
-        # ENDPOINT and those are not duplicates of each other.
-        if snapshot.status == "completed" and not await _crm_already_notified(session, call_id):
-            _hint, call_sentiment = _call_reading(extraction)
-            written = await integrations.enqueue_event(
-                session,
-                tenant_id=tenant_id,
-                event="call.completed",
-                data={
-                    "call_id": str(call_id),
-                    "lead_id": str(lead_id) if lead_id else None,
-                    "direction": direction,
-                    "duration_s": snapshot.duration_s,
-                    "outcome": call_outcome,
-                    "sentiment": call_sentiment,
-                    # The SUMMARY, never the transcript: a transcript is the most
-                    # sensitive artefact we hold, and it does not leave on a webhook.
-                    # Redacted on the way out, because the summary is DERIVED from the
-                    # transcript — SEC-COMP §4 puts redaction before anything leaves, and
-                    # the notification path already does this (`notifications._compose`).
-                    # The English summary STEP 3d settled, whoever wrote it.
-                    "summary": redact(reading.summary).text if reading.summary else None,
-                },
-            )
-            # Only when a row was actually written. A tenant with no subscribed endpoint
-            # gets zero rows from a perfectly healthy pipeline, and stamping anyway would
-            # record "we told the client" about a client we told nothing — the flag would
-            # then be a worse answer than the outbox scan it replaced. Left NULL, the next
-            # run re-asks, which is now a column read on a row already in hand; and
-            # `_expected_artifacts` is what stops the poller re-driving a call that was
-            # never owed a fan-out.
-            if written:
-                await _mark_crm_notified(session, call_id)
-
-            # STEP 8b — the client's AFTER-call actions (D-700): once per call, through the
-            # outbox, so a thank-you WhatsApp or a CRM record is neither lost to a crash nor
-            # sent twice by an overlapping run. Only for a call that completed, like step 8.
-            await enqueue_outbox_once(
-                session,
-                job=AFTER_CALL_ACTIONS_JOB,
-                payload={"tenant_id": str(tenant_id), "call_id": str(call_id)},
-                dedupe_key=f"after_call_actions:{call_id}",
-            )
-            # STEP 8c — "save our number" to a caller who booked, when the client switched
-            # it on (D-746). Once per call here; once per caller in the job.
-            await queue_if_booked(session, tenant_id=tenant_id, call_id=call_id)
-
-        # STEP 9 — the DPDP obligation this run may have just broken (D-310).
-        #
-        # Everything above wrote personal data for this call. If a data principal's
-        # erasure COMPLETED while this call was already under way, the certificate their
-        # client handed on is now false: the transcript, the extraction, the summary, the
-        # recording, the archived vendor document and the `leads` row are all back. The
-        # erasure could not have reached forward, and nothing else in this pipeline knows
-        # the request exists — so the check belongs here, after the last write rather
-        # than before the first, because only a run that is finished can say what it left
-        # behind.
-        #
-        # It re-FILES rather than erasing inline: `compliance/deletion.py` argues why (one
-        # erase mechanism, and a second certificate is what the person is owed). In this
-        # transaction so the row and its outbox job commit with the pipeline's own work.
-        await refile_erasure_for_late_records(
-            session,
-            tenant_id=tenant_id,
-            call_id=call_id,
-            phones=(snapshot.from_e164, snapshot.to_e164),
-        )
-
-    lag = time.perf_counter() - started
-    record_pipeline_lag(lag, stage="post_call")
-    # The SAME number, on the trace. `record_pipeline_lag` is the SLO metric — it fires
-    # on 100% of calls and it is what says the 2-minute budget was missed; the trace is
-    # sampled at 10% and it is what says where the time went. Without this attribute
-    # they are two systems with no join: an operator holding a breached metric has no
-    # way to ask the trace backend for the traces belonging to breaches. Written on the
-    # `traced_job` span rather than a child, because it measures the whole job.
-    set_span_attributes(_job_span(), pipeline_lag_ms=round(lag * 1000, 1), call_id=str(call_id))
-    log.info("pipeline_complete", extra={"call_id": str(call_id), "duration_s": round(lag, 2)})
-    return "ok"
+    The SUMMARY, never the transcript: a transcript does not leave on a webhook except
+    through an endpoint's own opt-in. The summary is derived from the transcript, so it is
+    redacted on the way out (SEC-COMP §4), as `notifications._compose` does.
+    """
+    _hint, sentiment = _call_reading(extraction)
+    return {
+        "call_id": str(call_id),
+        "lead_id": str(lead_id) if lead_id else None,
+        "direction": direction,
+        "duration_s": duration_s,
+        "outcome": outcome,
+        "sentiment": sentiment,
+        "summary": redact(summary).text if summary else None,
+        "business_outcome": business_outcome.key if business_outcome else None,
+        "business_outcome_label": business_outcome.label if business_outcome else None,
+    }
 
 
 def _json(value: Any) -> str:
@@ -1669,15 +1724,16 @@ async def lock_call_writes(session: AsyncSession, call_id: UUID) -> None:
     """Serialize this CALL's non-idempotent post-call writes for the rest of the
     transaction. Take it BEFORE the read that decides whether to write.
 
-    THE SHAPE IT GUARDS. Three places in this pipeline decide "have we already done this
-    for this call?" and then act on the answer — `_meter` (the append-only usage ledger),
-    `_maybe_notify_hot_lead` and step 8's CRM fan-out (both through `_already_enqueued`).
-    Every one of them is a read-then-write, which under two overlapping runs of the same
-    call means both read "not yet" and both write. The damage is not symmetric with the
-    idempotent stages around them: `usage_events` carries an append-only trigger, so a
-    double meter is a double charge that only a hand-written compensating entry can
-    answer, and a second outbox row is a second CRM delivery with a FRESH delivery id —
-    which is the one thing the client's own receiver cannot deduplicate.
+    THE SHAPE IT GUARDS. Two places in this pipeline decide "have we already done this
+    for this call?" and then act on the answer — `_meter` (the append-only usage ledger)
+    and step 8's CRM fan-out (`_crm_already_notified`). The hot-lead alert needs no lock:
+    `enqueue_outbox_once` lets the database decide. Each of the two is a read-then-write,
+    which under two overlapping runs of the same call means both read "not yet" and both
+    write. The damage is not symmetric with the idempotent stages around them:
+    `usage_events` carries an append-only trigger, so a double meter is a double charge
+    that only a hand-written compensating entry can answer, and a second outbox row is a
+    second CRM delivery with a FRESH delivery id — which is the one thing the client's own
+    receiver cannot deduplicate.
 
     Measured rather than assumed: two concurrent `_meter` calls for one call wrote ten
     usage rows for a five-row call and counted its minutes into `spend_state` twice
@@ -1771,25 +1827,9 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
     """
     if not snapshot.transcript:
         return ""
-    lines: list[str] = []
-    # D-739: an agent turn the caller probably spoke over is labelled for the extractor, so
-    # an offer or a price in it is not read as heard. One label per line, no new lines, so
-    # `moments.prompt_line_turns` still numbers the lines the same way.
-    unheard = likely_cut_off(snapshot.transcript)
     async with tenant_session(tenant_id) as session:
         for turn in snapshot.transcript:
             redacted = redact(turn.text)
-            # A TURN WITH NO WORDS IN IT IS NOT A LINE OF THE EXTRACTOR'S INPUT. The row
-            # is still written — it is what the engine reported and `start_ms` on it is
-            # real — but `agent: ` with nothing after it carries no evidence, and a
-            # reading in which EVERY turn came back blank (an STT that heard only noise,
-            # a Telugu call transcribed as silence) would otherwise reach the model as a
-            # page of speaker labels and buy a chargeable round trip to read them.
-            # `extract_call` turns the resulting empty string into the schema's own
-            # verdict without a provider call.
-            if turn.text.strip():
-                who = UNHEARD_LABEL if turn.idx in unheard else turn.speaker
-                lines.append(f"{who}: {turn.text}")
             await session.execute(
                 text(
                     "INSERT INTO transcript_turns (id, tenant_id, call_id, idx, speaker, text, "
@@ -1840,7 +1880,28 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
                 "kept": [turn.idx for turn in snapshot.transcript],
             },
         )
-    return "\n".join(lines)
+    return extractor_transcript(snapshot.transcript)
+
+
+def extractor_transcript(turns: Sequence[TranscriptTurn]) -> str:
+    """The extraction model's input: one `speaker: words` line per turn, RAW text.
+
+    D-739: an agent turn the caller probably spoke over is labelled for the extractor, so
+    an offer or a price in it is not read as heard. One label per line, no new lines, so
+    `moments.prompt_line_turns` still numbers the lines the same way.
+
+    A turn with no words is not a line: `agent: ` with nothing after it carries no
+    evidence, and a reading in which every turn came back blank (an STT that heard only
+    noise) would otherwise reach the model as a page of speaker labels and buy a chargeable
+    round trip to read them. `extract_call` turns the resulting empty string into the
+    schema's own verdict without a provider call.
+    """
+    unheard = likely_cut_off(turns)
+    return "\n".join(
+        f"{UNHEARD_LABEL if turn.idx in unheard else turn.speaker}: {turn.text}"
+        for turn in turns
+        if turn.text.strip()
+    )
 
 
 async def _maybe_record_opt_out(
@@ -2602,12 +2663,18 @@ def after_call_status(
     return target
 
 
-async def _advance_lead_status(session: AsyncSession, lead_id: UUID, target: str) -> bool:
+async def _advance_lead_status(
+    session: AsyncSession, lead_id: UUID, target: str, *, announce: bool = True
+) -> bool:
     """Move the lead up to `target` when the rules allow. True when it moved.
 
     CAS in the WHERE clause (BACKEND-PATTERNS §5): only a status BELOW `target` on the
     ladder, and only one the system set. A person's choice (`status_set_by = 'person'`) is
     never overwritten, and a lead is never moved backwards.
+
+    A move is a `lead.updated` for the client's CRM (docs/WEBHOOKS.md §1.1), in the same
+    transaction. `announce=False` is for a lead created in this very transaction, whose
+    `lead.created` is sent after the move and already carries the new status.
     """
     below = [
         status for status, rank in _LEAD_STATUS_RANK.items() if rank < _LEAD_STATUS_RANK[target]
@@ -2633,6 +2700,8 @@ async def _advance_lead_status(session: AsyncSession, lead_id: UUID, target: str
             ),
             {"id": uuid7(), "lid": lead_id, "target": target},
         )
+        if announce:
+            await emit_lead_updated(session, [lead_id])
     return bool(moved)
 
 
@@ -2960,6 +3029,9 @@ async def _upsert_lead(
             )
         ).first()
         resolved_id = UUID(str(row[0])) if row else None
+        # Our freshly minted id came back only when this statement inserted the lead; a
+        # conflict keeps the existing row's id, so a re-run of the same call is never new.
+        created = resolved_id == lead_id
         if resolved_id is not None:
             await session.execute(
                 text(
@@ -3001,7 +3073,11 @@ async def _upsert_lead(
                 business_move=business_move,
             )
             if target is not None:
-                await _advance_lead_status(session, resolved_id, target)
+                await _advance_lead_status(session, resolved_id, target, announce=not created)
+            if created:
+                # After the status move, so the client's CRM hears of the lead once, as it
+                # stands at the end of the call that brought it (D-841).
+                await emit_lead_created(session, [resolved_id])
     return resolved_id
 
 
@@ -4473,45 +4549,39 @@ async def _tts_cost_rows(
     return rows
 
 
-async def _maybe_notify_hot_lead(
-    tenant_id: UUID, lead_id: UUID, call_id: UUID, data: dict[str, Any]
-) -> str:
-    """Hot-lead rules key off the extracted FIELDS (`HOT_LEAD_FIELD_TRIGGERS`), not the
-    lead's status column — this job WRITES `status='hot'`, it does not read it (D-21).
-    The notification goes through the outbox so a worker crash cannot lose it — and is
-    queued once per call, so a pipeline replay does not promise a second alert for an
-    alert that was already sent.
+def reads_hot(business_outcome: BusinessOutcome | None, *, connected: bool) -> bool:
+    """Does this call make its lead hot? Only through the agent's own outcome for it (D-836):
+    an outcome the owner, or the AI draft, said moves a lead to Hot, on a call that
+    connected — the same condition `after_call_status` raises the lead to `hot` on."""
+    return connected and business_outcome is not None and business_outcome.lead_status == "hot"
 
-    Returns which of the three things happened, for the stage span's `outcome`: an
-    owner asking "why did I not get the alert" is asking to tell `not_hot` apart from
-    `already_queued`, and those are indistinguishable from the outside.
+
+async def _maybe_notify_hot_lead(
+    tenant_id: UUID,
+    lead_id: UUID,
+    call_id: UUID,
+    business_outcome: BusinessOutcome | None,
+    *,
+    connected: bool,
+) -> str:
+    """Tell the owner about a lead this call made hot (FLOWS §6), once per lead per call.
+
+    The status moves through `_advance_lead_status`, so the move is recorded on the lead's
+    timeline and reaches a CRM as `lead.updated`; after `_upsert_lead` has already moved it
+    that call is a no-op. The alert is queued whether or not the status moved: a person may
+    have set the lead's status, and a second hot call from a lead already hot is still news.
+    `enqueue_outbox_once` keyed on (lead, call) keeps a replay from queueing it twice.
+
+    The trigger named in the alert is the outcome's label, which the owner or the AI draft
+    wrote: never anything the caller said.
+
+    Returns `not_hot`, `queued` or `already_queued` for the stage span: an owner asking
+    "why did I not get the alert" needs the first told apart from the last.
     """
-    triggered = [
-        key
-        for key, values in HOT_LEAD_FIELD_TRIGGERS.items()
-        if str(data.get(key, "")).lower() in values
-    ]
-    if not triggered:
+    if business_outcome is None or not reads_hot(business_outcome, connected=connected):
         return "not_hot"
     async with tenant_session(tenant_id) as session:
-        # Before the `_already_enqueued` read below, not after it: two overlapping runs
-        # of one call would otherwise both see no promise and both queue the alert, and
-        # the owner is woken twice for one lead.
-        await lock_call_writes(session, call_id)
-        await session.execute(
-            text(
-                "UPDATE leads SET status = 'hot', status_set_by = 'system', "
-                "status_set_at = now(), updated_at = now() "
-                "WHERE id = :lid AND tenant_id = :tid "
-                "AND status IN ('new', 'contacted', 'interested') "
-                "AND status_set_by = 'system'"
-            ),
-            {"lid": lead_id, "tid": tenant_id},
-        )
-        # ONE STATEMENT, and once-only is the database's decision rather than ours
-        # (P6.7). This used to be a containment scan of the whole outbox followed by an
-        # insert — unindexable, and correct only because the lock above was taken first.
-        # `enqueue_outbox_once` returns None when the promise was already on the books.
+        await _advance_lead_status(session, lead_id, "hot")
         queued = await enqueue_outbox_once(
             session,
             job=HOT_LEAD_JOB,
@@ -4519,7 +4589,7 @@ async def _maybe_notify_hot_lead(
                 "tenant_id": str(tenant_id),
                 "lead_id": str(lead_id),
                 "call_id": str(call_id),
-                "triggers": triggered,
+                "triggers": [business_outcome.label],
             },
             dedupe_key=hot_lead_dedupe_key(lead_id=lead_id, call_id=call_id),
         )

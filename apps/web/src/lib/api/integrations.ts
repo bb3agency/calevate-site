@@ -43,6 +43,7 @@ export const EVENT_LABELS: Record<OutboundEvent, string> = {
   "lead.created": "A new lead arrives",
   "lead.updated": "A lead's details change",
   "call.completed": "A call finishes",
+  "call.updated": "A finished call's outcome changes",
   "call.recording_ready": "A call recording is ready",
   "campaign.completed": "A campaign finishes",
 };

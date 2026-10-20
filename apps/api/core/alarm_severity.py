@@ -287,6 +287,12 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # The alarm `core/alerting.py`'s own docstring names as "the alarm the whole system
     # exists to raise".
     "postcall_pipeline_stalled": "page",
+    # Calls still without a reading after every automatic re-read (D-841): the call and
+    # its lead stand, only the reading is missing, so the console.
+    "extraction_reread_exhausted": "attention",
+    # A dial the vendor accepted whose own row could not be stamped or linked (D-841): the
+    # call is ringing and was not dialled again, the row is reaped like any unconfirmed one.
+    "dial_bookkeeping_failed": "attention",
     # One call with no lead, no extraction and no usage event — the thing the client pays
     # for, gone, with no retry left. Rare and terminal, which is what earns the rung.
     "post_call_abandoned": "page",

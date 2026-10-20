@@ -47,6 +47,7 @@ from apps.api.engine import get_engine, reset_engine_cache
 from apps.workers import pipeline
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from tests.postcall_crm_events_test import READY, give_agent_outcomes, reads_as
 from tests.smoke_pipeline_test import _seed_tenant
 
 RUN = uuid.uuid4().hex[:12]
@@ -246,6 +247,9 @@ async def test_two_overlapping_pipelines_promise_each_side_effect_once(
     """
     tenant_id, execution_id, call_id = await _staged("promises")
     await _subscribe_crm(tenant_id)
+    # A call that makes its lead hot (D-841), so the alert is one of the promises raced.
+    await give_agent_outcomes(tenant_id, [READY])
+    reads_as(monkeypatch, READY["key"])
 
     engine = get_engine()
     real = await engine.get_execution(execution_id)

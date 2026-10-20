@@ -1570,47 +1570,58 @@ _LEAD_EVENT_SQL = "SELECT id, phone_e164, name, source, status FROM leads WHERE 
 async def emit_lead_updated(session: AsyncSession, lead_ids: Sequence[UUID]) -> int:
     """Tell every subscribed endpoint that these leads changed (D-23, `lead.updated`).
 
-    **This event was subscribable and nothing produced it.** `lead.updated` has been in
-    `EVENT_TYPES`, in the endpoint form's checkbox list ("A lead's details change") and
-    in `DEFAULT_SHEET_COLUMNS` since D-23, and no line of code has ever enqueued one — so
-    a client could tick the box, see the endpoint saved, and wait forever. A half-wired
-    integration is worse than an absent one: the absent one does not get relied on.
-
     Emitted from the EDIT primitives' callers rather than from `set_lead_status` /
     `set_lead_assignee` themselves, because a bulk action moves up to `MAX_BULK_LEADS`
     rows in one transaction and one event per lead per FIELD would tell a client's CRM
-    twice about a single edit that moved both. One event per lead per request.
+    twice about a single edit that moved both. One event per lead per request. The
+    post-call pipeline sends one per status move it makes (D-841).
+    """
+    from apps.api.integrations import service as integrations
+
+    rows = await _lead_event_rows(session, lead_ids)
+    if not rows:
+        return 0
+    return await integrations.enqueue_events(
+        session, tenant_id=await session_tenant(session), event="lead.updated", rows=rows
+    )
+
+
+async def emit_lead_created(session: AsyncSession, lead_ids: Sequence[UUID]) -> int:
+    """Tell every subscribed endpoint about leads a call brought in (`lead.created`, D-841).
+
+    The ingest webhook sends its own for a lead a form posted (`ingest.service`); this is
+    the call's. Same `data` keys as `lead.updated`, with the values as they stand when the
+    call's pipeline has filed it.
+    """
+    from apps.api.integrations import service as integrations
+
+    rows = await _lead_event_rows(session, lead_ids)
+    if not rows:
+        return 0
+    return await integrations.enqueue_events(
+        session, tenant_id=await session_tenant(session), event="lead.created", rows=rows
+    )
+
+
+async def _lead_event_rows(session: AsyncSession, lead_ids: Sequence[UUID]) -> list[dict[str, Any]]:
+    """The `data` of one `lead.*` event per lead.
 
     **The phone is not masked here and that is correct** — `integrations.enqueue_events`
     masks at the fan-out, which is the only point that knows whether THIS endpoint holds
     the `include_raw_phone` opt-in. Masking here would apply one answer to every
     subscriber and would silently break the opt-in (that module's own docstring).
 
-    Local import: `crm` is imported by `integrations`' neighbours and a module-scope
-    import here is a cycle waiting for the first shared type.
+    The `integrations` import in the two callers is local: `crm` is imported by
+    `integrations`' neighbours and a module-scope import here is a cycle waiting for the
+    first shared type.
     """
     if not lead_ids:
-        return 0
-    from apps.api.integrations import service as integrations
-
+        return []
     rows = (await session.execute(text(_LEAD_EVENT_SQL), {"ids": list(lead_ids)})).all()
-    if not rows:
-        return 0
-    return await integrations.enqueue_events(
-        session,
-        tenant_id=await session_tenant(session),
-        event="lead.updated",
-        rows=[
-            {
-                "lead_id": str(r[0]),
-                "phone": r[1],
-                "name": r[2],
-                "source": r[3],
-                "status": r[4],
-            }
-            for r in rows
-        ],
-    )
+    return [
+        {"lead_id": str(r[0]), "phone": r[1], "name": r[2], "source": r[3], "status": r[4]}
+        for r in rows
+    ]
 
 
 async def update_lead(
@@ -2954,6 +2965,7 @@ __all__ = [
     "LeadPage",
     "RecordingRef",
     "dashboard",
+    "emit_lead_created",
     "emit_lead_updated",
     "export_leads_csv",
     "get_call",

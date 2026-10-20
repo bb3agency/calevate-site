@@ -71,6 +71,7 @@ EventName = Literal[
     "lead.created",
     "lead.updated",
     "call.completed",
+    "call.updated",
     "call.recording_ready",
     "campaign.completed",
 ]

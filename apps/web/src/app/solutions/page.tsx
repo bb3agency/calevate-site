@@ -210,7 +210,7 @@ const SOLUTIONS: readonly Solution[] = [
     does: [
       // apps/api/crm/schemas.py:29 — a fixed Literal, not free text.
       "Every caller comes back marked: new, contacted, interested, hot, won or lost. A fixed set of stages.",
-      // apps/workers/pipeline.py:179 HOT_LEAD_FIELD_TRIGGERS.
+      // apps/workers/pipeline.py::reads_hot — the call's business outcome (D-841).
       "A hot lead alerts you off what was actually said, while the person is still thinking about it.",
       // apps/api/crm/columns.py — one registry, shared by the table and the CSV export.
       "The answers land in the columns you chose, so the list is sortable and filterable.",

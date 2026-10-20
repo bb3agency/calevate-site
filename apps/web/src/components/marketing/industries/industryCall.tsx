@@ -19,9 +19,9 @@ import { Chip, MaskedPhone, StatusPill, Tag, Window } from "@/components/marketi
  * languages the product offers; a non-English turn carries its `lang` so a screen reader
  * switches voice, with the English under it. Outcomes are the console's `outcome_tag`
  * words ("resolved", "needs follow up") and a call-derived lead arrives as `new` — nothing
- * here is promoted to `hot`, because the pipeline only does that off an urgency or intent
- * field none of these templates filled with a trigger value (`apps/workers/pipeline.py`
- * `HOT_LEAD_FIELD_TRIGGERS`).
+ * here is promoted to `hot`, because the pipeline does that only for a call whose business
+ * outcome moves its lead to Hot, and none of these calls came to one
+ * (`apps/workers/pipeline.py::reads_hot`, D-841).
  */
 
 type Lang = "te" | "hi" | "en";

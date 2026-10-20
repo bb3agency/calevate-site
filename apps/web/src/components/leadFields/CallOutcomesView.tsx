@@ -11,7 +11,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, Plus, Save, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, PenLine, Plus, Save, Trash2 } from "lucide-react";
 import type { UseMutationResult } from "@tanstack/react-query";
 
 import { Section } from "@/components/console/section";
@@ -84,7 +84,7 @@ export function originLine(agent: Pick<CallOutcomesAgent, "starting" | "draft">)
     return "These are general outcomes: ones for your business were not written because AI help was paused or this month's allowance was used up. Edit them to fit.";
   }
   if (agent.starting && agent.draft === "failed") {
-    return "These are general outcomes: ones for your business could not be written. Edit them to fit.";
+    return "These are general outcomes: ones for your business could not be written. Ask again, or edit them to fit.";
   }
   if (agent.starting) {
     return "These are general outcomes. Ones for your business are written when the agent is published, or after its next call.";
@@ -92,14 +92,28 @@ export function originLine(agent: Pick<CallOutcomesAgent, "starting" | "draft">)
   return "Written for your business. Edit them freely; changes apply from the next call.";
 }
 
+/** The mutation behind "Write them for me". */
+export type DraftOutcomes = UseMutationResult<CallOutcomesAgent, Error, { agentId: string }>;
+
+/**
+ * "Write them for me" is offered while the agent still reads the general outcomes and its own
+ * were never written: the draft never ran, could not be written, or was skipped. The server
+ * refuses it otherwise, so the screen does not offer what would be refused.
+ */
+export function canAskForDraft(agent: Pick<CallOutcomesAgent, "starting" | "draft">): boolean {
+  return agent.starting && (agent.draft === null || agent.draft === "failed" || agent.draft === "skipped");
+}
+
 export function CallOutcomesView({
   data,
   canWrite,
   save,
+  draft,
 }: {
   data: CallOutcomes;
   canWrite: boolean;
   save: UseMutationResult<CallOutcomesAgent, Error, { agentId: string; outcomes: CallOutcomeIn[] }>;
+  draft: DraftOutcomes;
 }) {
   const [selected, setSelected] = useState<string>(data.agents[0]?.id ?? "");
   const agent = data.agents.find((each) => each.id === selected) ?? data.agents[0];
@@ -125,6 +139,7 @@ export function CallOutcomesView({
             max={data.max_outcomes}
             canWrite={canWrite}
             save={save}
+            draft={draft}
           />
         </div>
       )}
@@ -137,11 +152,13 @@ function OutcomesEditor({
   max,
   canWrite,
   save,
+  draft,
 }: {
   agent: CallOutcomesAgent;
   max: number;
   canWrite: boolean;
   save: UseMutationResult<CallOutcomesAgent, Error, { agentId: string; outcomes: CallOutcomeIn[] }>;
+  draft: DraftOutcomes;
 }) {
   const [rows, setRows] = useState<OutcomeRow[]>(() => toRows(agent));
   const validation = useFormValidation();
@@ -174,6 +191,21 @@ function OutcomesEditor({
       })}
     >
       <p className="max-w-prose text-xs text-ink-muted [text-wrap:pretty]">{originLine(agent)}</p>
+      {canWrite && canAskForDraft(agent) && (
+        <div className="space-y-2">
+          <button
+            type="button"
+            className={SECONDARY_BUTTON}
+            disabled={draft.isPending || dirty}
+            onClick={() => draft.mutate({ agentId: agent.id })}
+          >
+            <PenLine aria-hidden className="h-4 w-4" />
+            {draft.isPending ? "Asking…" : "Write them for me"}
+          </button>
+          {dirty && <p className="text-xs text-ink-muted">Save or undo your changes first.</p>}
+          {draft.error && <ProblemNotice error={draft.error} />}
+        </div>
+      )}
       {rows.length === 0 ? (
         <p className="text-sm text-ink-muted">
           No outcomes of your own. Calls are still sorted by what happened on them.

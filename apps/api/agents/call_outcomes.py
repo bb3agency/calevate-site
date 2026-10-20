@@ -118,8 +118,23 @@ def with_keys(
     return out
 
 
+#: How long a draft may say `running` before it is taken for dead. One run is one model call
+#: under `business_outcomes_draft.DRAFT_TIMEOUT_S` inside the worker's five-minute job limit;
+#: a worker killed or timed out mid-run (`asyncio` cancellation is not an `Exception`, so the
+#: run's own `failed` write never happens) leaves the state at `running` with nothing left to
+#: finish it. Read from `agents.updated_at`, which the claim stamps.
+DRAFT_STALE_MINUTES: Final = 15
+
+#: A draft whose run died: reported as `failed` and may be asked for again.
+_DRAFT_DEAD_SQL: Final = (
+    "(business_outcomes_draft = 'running' "
+    "AND updated_at < now() - make_interval(mins => :stale_minutes))"
+)
+
 _AGENT_COLUMNS: Final = (
-    "SELECT id, name, direction, status, business_outcomes, business_outcomes_draft FROM agents "
+    "SELECT id, name, direction, status, business_outcomes, "
+    f"CASE WHEN {_DRAFT_DEAD_SQL} THEN 'failed' ELSE business_outcomes_draft END "
+    "FROM agents "
 )
 
 
@@ -141,7 +156,7 @@ async def agents_with_outcomes(session: AsyncSession) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
             text(_AGENT_COLUMNS + "WHERE deleted_at IS NULL ORDER BY created_at, id LIMIT :limit"),
-            {"limit": MAX_AGENTS},
+            {"limit": MAX_AGENTS, "stale_minutes": DRAFT_STALE_MINUTES},
         )
     ).all()
     return [_agent_row(r) for r in rows]
@@ -151,7 +166,8 @@ async def agent_with_outcomes(session: AsyncSession, agent_id: UUID) -> dict[str
     """One agent's row, as `agents_with_outcomes` renders it; 404 when not in reach."""
     row = (
         await session.execute(
-            text(_AGENT_COLUMNS + "WHERE id = :aid AND deleted_at IS NULL"), {"aid": agent_id}
+            text(_AGENT_COLUMNS + "WHERE id = :aid AND deleted_at IS NULL"),
+            {"aid": agent_id, "stale_minutes": DRAFT_STALE_MINUTES},
         )
     ).first()
     if row is None:
@@ -193,14 +209,41 @@ async def queue_draft(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID)
     """Queue the agent's one AI draft in the caller's transaction; False when it was queued
     before or the agent already has outcomes of its own. Compare-and-swap from NULL, so two
     callers racing queue it once."""
+    return await _queue(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        states_sql="business_outcomes_draft IS NULL",
+    )
+
+
+async def request_draft(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> bool:
+    """The owner's "Write them for me": queue the draft again for an agent with no outcomes of
+    its own whose draft never ran, failed, was skipped, or died running. False when one is
+    already queued or running, or the agent has its own list."""
+    return await _queue(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        states_sql=(
+            "(business_outcomes_draft IS NULL "
+            "OR business_outcomes_draft IN ('failed', 'skipped') "
+            f"OR {_DRAFT_DEAD_SQL})"
+        ),
+    )
+
+
+async def _queue(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, states_sql: str
+) -> bool:
     claimed = (
         await session.execute(
             text(
                 "UPDATE agents SET business_outcomes_draft = 'queued', updated_at = now() "
-                "WHERE id = :aid AND business_outcomes_draft IS NULL "
+                f"WHERE id = :aid AND {states_sql} "
                 "AND business_outcomes IS NULL AND deleted_at IS NULL RETURNING id"
             ),
-            {"aid": agent_id},
+            {"aid": agent_id, "stale_minutes": DRAFT_STALE_MINUTES},
         )
     ).first()
     if claimed is None:
@@ -215,12 +258,14 @@ async def queue_draft(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID)
 
 __all__ = [
     "DRAFT_JOB",
+    "DRAFT_STALE_MINUTES",
     "OutcomeDraft",
     "agent_with_outcomes",
     "agents_with_outcomes",
     "dump_outcomes",
     "outcomes_in_use",
     "queue_draft",
+    "request_draft",
     "save_outcomes",
     "stored_outcomes",
     "with_keys",

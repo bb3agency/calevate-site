@@ -167,6 +167,11 @@ from apps.workers.engine_workspaces import (
     sweep_engine_workspaces,
     sync_engine_call_lines,
 )
+from apps.workers.extraction_reread import (
+    REREAD_SWEEP_MINUTES,
+    reread_call_extraction,
+    sweep_failed_extractions,
+)
 from apps.workers.fleet_walk import WalkShape, bounded, every_tick, fleet_wide
 from apps.workers.forwarding import (
     FORWARDING_SWEEP_MINUTE,
@@ -375,6 +380,8 @@ FUNCTIONS: list[Any] = [
         # and by the operator's per-call action. Unregistered, both would report a re-copy
         # requested while nothing ran, until the platform deleted the only copy.
         recopy_call_recording,
+        # D-841. One call's failed reading read again, queued by `sweep_failed_extractions`.
+        reread_call_extraction,
         notify_hot_lead,
         # D-23: the client's CRM hears about leads and calls through the same outbox as
         # every other side effect, so a delivery cannot outlive a rolled-back write.
@@ -770,6 +777,14 @@ CRON_JOBS = [
         traced_job(report_missing_recordings),
         walk=fleet_wide("one tenant_session per callable tenant"),
         minute={RECORDING_WATCH_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # Completed calls whose reading failed at the provider, re-read within a day (D-841).
+    # Every 30 minutes, the spacing it keeps between two tries of one call.
+    _cron(
+        traced_job(sweep_failed_extractions),
+        walk=fleet_wide("one tenant_session per callable tenant"),
+        minute=set(REREAD_SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
     # Forwarded lines (D-746): a line that normally brings calls and has been silent three

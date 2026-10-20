@@ -1,6 +1,6 @@
 """The two hot-lead channels, wired together and kept apart.
 
-FLOWS §6 is one sentence — "status hot OR urgency=emergency ⇒ WhatsApp+email to owner
+FLOWS §6 is one sentence — "a call that makes its lead hot ⇒ WhatsApp+email to owner
 within 2 min" — and it shipped as two halves that could not both be true:
 
 1. **Nothing called the WhatsApp leg.** `whatsapp.enqueue_hot_lead_whatsapp` existed,

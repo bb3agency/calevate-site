@@ -390,7 +390,7 @@ lives at real addresses: `/c/{slug}/campaigns` (paged list, status filter, searc
 
 fetch_recording → redact_transcript → extract(schema) → upsert_lead(+repeat-caller flag on
 phone match) → meter_usage(write unit rows + update spend_state) → notify(hot-lead rules:
-e.g., status hot OR urgency=emergency ⇒ WhatsApp+email to owner within 2 min) →
+e.g., a call whose business outcome moves the lead to hot ⇒ WhatsApp+email to owner within 2 min, D-841) →
 resolve_campaign_contact → outbound_sync(call.completed via the outbox, D-23).
 The pipeline's first stage copies ThinnestAI's expiring `recording.url` into our storage
 (`engine/recording_source.py`, §3 step 5).
