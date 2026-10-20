@@ -1153,7 +1153,7 @@ standard voice rate all along.
 - The exact wording of the hand-over rule with one trigger on (we send `onRequest` alone when
   a hand-over destination is on duty) was not given.
 
-## 19. Draft of the next email (20 Oct 2026, unsent; the founder sends)
+## 19. Draft of the next email (20 Oct 2026, unsent; folded into §20 on 21 Oct 2026)
 
 Two sentences ThinnestAI adds to every agent's prompt contradict our scripts (§18.0, item 5;
 `docs/evidence/thinnest-reply-2026-10-19.md` rows 124-125):
@@ -1169,3 +1169,87 @@ Two sentences ThinnestAI adds to every agent's prompt contradict our scripts (§
    get back to the caller (we do call back, through our own in-call action). Can that sentence
    be left out when the agent has a call-back action of its own, or replaced with a neutral
    "You cannot transfer this call"?
+
+## 20. Draft of the next email (21 Oct 2026, unsent; the founder sends)
+
+Built from a ledger of §1–§19, the docs snapshot of 19 Oct 2026 and our adapter at 61758231.
+What the docs already answer is not asked again: Test Chat on an agent with `surfaces: []`
+(`test-chat.md:537-553`), TTS characters including speech cut by barge-in and fillers
+(`get-call.md:1223-1227`), `ifOutsideHours` (`place-call.md:1054-1063`), a booked call's
+`error` text (`get-call.md:1027-1031`), webhook retries and redelivery
+(`create-webhook.md:233-256`), training-exclusion mechanics (`workspace/data-and-erasure.md:112-120`).
+Google's implicit-cache minimum for `gemini-3.1-flash-lite` is Google's question, not theirs.
+
+> Subject: Calevate: three open items, two prompt sentences, and five requests
+>
+> Hi Ashutosh,
+>
+> Thank you for the 19 Oct answers; they are all built on our side. What is still open:
+>
+> **Still open from the 19 Oct email**
+> 1. The signed DPA and the list of sub-processors that handle a call on your stack.
+> 2. Written confirmation that our developer workspace and every customer workspace under it
+>    are excluded from model training (your data page says the owner asks; this is that ask).
+> 3. Any update from your telephony partner on the TRAI regulation 4 notice, and which access
+>    provider holds the numbers you rent to us (Get Phone Number shows `provider` null for a
+>    rented number).
+>
+> **Two sentences you add that contradict our scripts**
+> 4. We send `captureLeads: false` because our own extraction records what the caller gives and
+>    we do not want a marketing-consent step outside our consent records. The agent is then told
+>    "Do not ask for names, emails or phone numbers. This business does not collect them here.",
+>    while our scripts ask the caller's name. Could `captureLeads: false` add no lead sentence at
+>    all, or could the follow-up offer and the marketing-consent ask be switched off separately
+>    while asking a name stays allowed?
+> 5. With no one on duty for a hand-over we send both escalation triggers off, and the agent is
+>    told "Never promise that someone will follow up.", while we do call back through our own
+>    in-call action. Could that sentence be left out, or replaced with a neutral "You cannot
+>    transfer this call", when the agent has a call-back action of its own?
+> 6. The hand-over text when only `onRequest` is on (we send that whenever someone is on duty):
+>    could you share it verbatim? The both-on text mentions "or they are upset" and we want to
+>    know whether it stays.
+>
+> **Two billing and prompt-size questions**
+> 7. A forward on an agent running on our own keys: is it billed at ₹1.00/min (`llm_voice`),
+>    ₹1.50/min (`voice`), or at Standard? `voicePlan` is null on those agents.
+> 8. The "default call rules" (about 1,675 characters) are added "only if you haven't written
+>    your own". Which field counts as our own: `instructions`, `steps` or `callInstructions`?
+>    Our agents send instructions and steps but no `callInstructions`; do they get both the
+>    default call rules and the speaking rules on every turn?
+>
+> **Requests**
+> 9. A per-agent switch to leave out the injected lead and hand-over sentences entirely (items 4
+>    and 5 as a general setting), for platforms like ours that write those rules themselves.
+> 10. A call mode for Test Chat: the call prompt with the speaking rules and the call's thinking
+>     level. We test Telugu wording through Test Chat, and today a chat reply runs at the model's
+>     default thinking, so it cannot show what a caller will hear.
+> 11. A cache-friendlier order: the fixed reply-language rule and speaking rules before our
+>     fenced instructions and the caller memory, so the part a new call can reuse is longer. On
+>     our own Google key that is a direct cost saving on every turn.
+> 12. The number that was rung, on inbound calls. Get Call's `from` is null on a call that came
+>     in, so a client with several numbers cannot see which line the caller dialled.
+> 13. A volume price for the own-key minutes (₹1.00 `llm_voice`, ₹1.50 `voice`). Your Scale
+>     discount covers the three voice bands; we expect most of our minutes on `llm_voice`.
+>
+> **An offer we would like to take up**
+> 14. The live test calls on Airtel, Jio, Vi and BSNL you offered: we would like to run them,
+>     mainly to see which caller number arrives on a forwarded call. Which dates suit you?
+>
+> Thanks,
+> Umesh
+
+### 20.1 Why each item is in (evidence)
+| # | Why Calevate needs it | Where |
+|---|---|---|
+| 1–2 | OPERATIONS T-5 says a signed DPA gates client calls; customer workspaces are pay-as-you-go, where copies may be kept | `docs/OPERATIONS.md` T-5, T-8; `data-and-erasure.md:114-117` |
+| 3 | Regulation 4 notice and the access provider of the numbers we rent | §10, §17 Q17; `get-phone-number.md:709-715` |
+| 4–5 | Every agent gets both sentences today | `apps/api/engine/thinnest.py` `_agent_body` (`captureLeads`, `escalation`); `docs/evidence/thinnest-reply-2026-10-19.md` rows 124-125 |
+| 6 | The text every agent with a hand-over on duty gets | §18.0 item 5 |
+| 7 | We cost a forward at the agent's route key; `costMicro` catches a mismatch only afterwards | `apps/api/billing/engine_minutes.py` `engine_minute_cost(forwarded=)` |
+| 8 | Decides whether the per-turn added text is about 4,700 or 6,400 characters on our key | `thinnest.py` `ENGINE_ADDED_PROMPT_CHARS`; `update-agent.md:1641-1647` |
+| 9 | Items 4–5, generalised | — |
+| 10 | D-837's register eval runs through Test Chat and notes it does not measure the call wrapper | `scripts/register_chat_eval.py` |
+| 11 | First own-key call cached 28% of input; our reusable prefix estimate is below the published 3.x minimum | `docs/evidence/thinnest-reply-2026-10-19.md` §5 |
+| 12 | `calls.to_e164` cannot be filled from the engine on inbound | `get-call.md:877-883` |
+| 13 | Studio margin at ₹6.00 is thin (about 4% on the 20 Oct call) | founder decision 0b8fed6b |
+| 14 | Closes OPERATIONS F-1 and F-4 | `docs/OPERATIONS.md` F-1, F-4 |
