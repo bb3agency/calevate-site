@@ -621,6 +621,15 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("PATCH", "/v1/agents/{agent_id}", {"name": "idor sweep"}, {}),
     ("POST", "/v1/agents/{agent_id}/activate", {}, {}),
     ("POST", "/v1/agents/{agent_id}/prepare", {}, {}),
+    # D-836/D-841: a neighbour's outcome list rewritten or its AI draft re-queued (and
+    # charged to the neighbour's allowance) if the agent id resolved across tenants.
+    (
+        "PUT",
+        "/v1/agents/{agent_id}/call-outcomes",
+        {"outcomes": [{"label": "idor sweep", "lead_status": "contacted"}]},
+        {},
+    ),
+    ("POST", "/v1/agents/{agent_id}/call-outcomes/draft", {}, {}),
     ("POST", "/v1/agents/{agent_id}/deactivate", {}, {}),
     ("POST", "/v1/agents/{agent_id}/archive", {}, {}),
     ("POST", "/v1/agents/{agent_id}/restore", {}, {}),
