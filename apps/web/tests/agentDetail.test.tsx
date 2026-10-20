@@ -20,6 +20,7 @@ import {
   AGENT_SPEND_PATH,
   LANES,
   agentCallHandling,
+  clientVoiceTuning,
   LEGAL_READY,
   clientLlmTiers,
   prepaidWallet,
@@ -313,6 +314,8 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/agents/lanes": LANES,
     // The Calls section reads the call-handling settings (D-751).
     "/v1/agents/agent-1/call-handling": agentCallHandling("agent-1"),
+    // The Voice section reads how a Studio voice sounds (D-843).
+    "/v1/agents/agent-1/voice-tuning": clientVoiceTuning(),
     // The header's "spent this month" line (owners hold billing:read).
     [AGENT_SPEND_PATH]: spendThisMonth(),
     // Overview's setup checklist reads the agreements and the script's version.

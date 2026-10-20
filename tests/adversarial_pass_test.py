@@ -526,6 +526,11 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # this sweep exists over. The call-back pair matters more than it looks: the row names
     # a person and the time we are going to telephone them.
     ("PATCH", "/v1/agents/{agent_id}/caller-memory", {"enabled": False}, {}),
+    # D-843. How a neighbour's Studio voice sounds: a read, a write that reaches their live
+    # agent, and a sample spoken on our key. The seeded agent row is the object.
+    ("GET", "/v1/agents/{agent_id}/voice-tuning", {}, {}),
+    ("PATCH", "/v1/agents/{agent_id}/voice-tuning", {"speed": 1.1}, {}),
+    ("POST", "/v1/agents/{agent_id}/voice-tuning/preview", {"speed": 1.1}, {}),
     # D-586. The two DELIVERY writes that became client-realm when a live agent's voice and
     # call cap stopped needing an operator. Both matter more here than a read would: each
     # RE-PUBLISHES the named agent to the voice platform in the same transaction, so

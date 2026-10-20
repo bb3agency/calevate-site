@@ -116,6 +116,8 @@ class HostingEngine(FakeEngine):
         self.disabled = 0
         self.previews: list[str] = []
         self.preview_tunings: list[ByokVoiceTuning | None] = []
+        #: The line and language each preview was asked to speak.
+        self.preview_lines: list[tuple[str | None, str | None]] = []
         self.own_keys_listed = 0
         #: The workspace each own-key listing was read in.
         self.listed_in: list[str | None] = []
@@ -186,6 +188,7 @@ class HostingEngine(FakeEngine):
     ) -> PreviewAudio:
         self.previews.append(voice_id)
         self.preview_tunings.append(tuning)
+        self.preview_lines.append((text, language))
         return PreviewAudio(data=MP3, content_type="audio/mpeg")
 
     async def create_voice_clone(self, sample: VoiceCloneSample) -> VoiceClone:

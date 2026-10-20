@@ -1845,7 +1845,7 @@ export interface paths {
         };
         /**
          * How a Studio voice sounds on one client agent
-         * @description How a Studio voice sounds on this agent. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion` (English calls only); `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a voice cloned from a long recording keeps its own pace (refused at publish or preview). They apply only while the agent's voice is a Studio one.
+         * @description How a Studio voice sounds on this agent. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion`, or null to let the words decide; `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a voice cloned from a long recording keeps its own pace (refused at publish or preview). They apply only while the agent's voice is a Studio one.
          */
         get: operations["admin_get_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_get"];
         put?: never;
@@ -1855,7 +1855,7 @@ export interface paths {
         head?: never;
         /**
          * Set how a Studio voice sounds on one client agent (audited)
-         * @description How a Studio voice sounds on this agent. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion` (English calls only); `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a voice cloned from a long recording keeps its own pace (refused at publish or preview). They apply only while the agent's voice is a Studio one.
+         * @description How a Studio voice sounds on this agent. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion`, or null to let the words decide; `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a voice cloned from a long recording keeps its own pace (refused at publish or preview). They apply only while the agent's voice is a Studio one.
          */
         patch: operations["admin_set_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_patch"];
         trace?: never;
@@ -4109,6 +4109,50 @@ export interface paths {
         put?: never;
         /** Chat with the live agent in text, as a caller would */
         post: operations["try_chat_send_v1_agents__agent_id__try_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/voice-tuning": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How this agent's Studio voice sounds
+         * @description How this agent's Studio voice sounds. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion`, one of `options.emotions`, or null to let the words decide. Null leaves the voice's default; a field left out of a PATCH is kept. Refused while the agent's voice is not a Studio one. A change reaches a live agent from its next call.
+         */
+        get: operations["get_agent_voice_tuning_v1_agents__agent_id__voice_tuning_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set how this agent's Studio voice sounds
+         * @description How this agent's Studio voice sounds. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion`, one of `options.emotions`, or null to let the words decide. Null leaves the voice's default; a field left out of a PATCH is kept. Refused while the agent's voice is not a Studio one. A change reaches a live agent from its next call.
+         */
+        patch: operations["set_agent_voice_tuning_v1_agents__agent_id__voice_tuning_patch"];
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/voice-tuning/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hear this agent's Studio voice with these settings, unsaved
+         * @description Speaks one fixed sample line in the agent's main language, in its Studio voice, with the speed, loudness and emotion sent (the saved ones are not read). 20 samples per account per day (India time); past that it is refused with `voice_preview_daily_cap`. Refused while the agent's voice is not a Studio one.
+         */
+        post: operations["preview_agent_voice_tuning_v1_agents__agent_id__voice_tuning_preview_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -14599,6 +14643,53 @@ export interface components {
             tenant_id: string;
             /** Turns */
             turns: number;
+        };
+        /**
+         * ClientVoiceTuningIn
+         * @description Speed, loudness and emotion only (D-843). Every field optional: a field left out is
+         *     kept, null clears it. `extra="forbid"` is what refuses the operator-only fields.
+         */
+        ClientVoiceTuningIn: {
+            /** Emotion */
+            emotion?: string | null;
+            /** Speed */
+            speed?: number | string | null;
+            /** Volume */
+            volume?: number | string | null;
+        };
+        /** ClientVoiceTuningOptionsOut */
+        ClientVoiceTuningOptionsOut: {
+            /** Emotions */
+            emotions: string[];
+            /** Previews Per Day */
+            previews_per_day: number;
+            /** Speed Max */
+            speed_max: string;
+            /** Speed Min */
+            speed_min: string;
+            /** Volume Max */
+            volume_max: string;
+            /** Volume Min */
+            volume_min: string;
+        };
+        /** ClientVoiceTuningOut */
+        ClientVoiceTuningOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Emotion */
+            emotion: string | null;
+            options: components["schemas"]["ClientVoiceTuningOptionsOut"];
+            /** Previews Left Today */
+            previews_left_today: number | null;
+            /** Speed */
+            speed: string | null;
+            /** Studio */
+            studio: boolean;
+            /** Volume */
+            volume: string | null;
         };
         /**
          * CloneConsentOut
@@ -36753,6 +36844,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TryChatOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_agent_voice_tuning_v1_agents__agent_id__voice_tuning_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientVoiceTuningOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_agent_voice_tuning_v1_agents__agent_id__voice_tuning_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientVoiceTuningIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientVoiceTuningOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    preview_agent_voice_tuning_v1_agents__agent_id__voice_tuning_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientVoiceTuningIn"];
+            };
+        };
+        responses: {
+            /** @description The preview audio. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/mpeg": string;
+                    "audio/wav": string;
                 };
             };
             /** @description RFC-9457 problem+json */

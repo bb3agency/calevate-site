@@ -18,6 +18,7 @@ import type { PlatformFee } from "@/lib/api/platformFee";
 import type { Spend } from "@/lib/api/spend";
 import type { Wallet } from "@/lib/api/wallet";
 import type { AlertOptIn } from "@/lib/api/whatsappAlerts";
+import type { ClientVoiceTuning } from "@/lib/api/voiceTuning";
 
 /**
  * Reads that many screens make and few tests are about, answered in their ordinary state.
@@ -687,5 +688,26 @@ export function callLinesRoute(tenantId: string) {
       paid_default: 2,
       trial_default: 1,
     },
+  };
+}
+
+/** How an agent's Studio voice sounds (D-843): a Studio voice on calm, every sample left. */
+export function clientVoiceTuning(agentId = "agent-1", over: Partial<ClientVoiceTuning> = {}): ClientVoiceTuning {
+  return {
+    agent_id: agentId,
+    studio: true,
+    speed: null,
+    volume: null,
+    emotion: "calm",
+    options: {
+      speed_min: "0.6",
+      speed_max: "1.5",
+      volume_min: "0.5",
+      volume_max: "2.0",
+      emotions: ["neutral", "calm", "content", "sad", "angry", "scared", "happy", "excited"],
+      previews_per_day: 20,
+    },
+    previews_left_today: 20,
+    ...over,
   };
 }

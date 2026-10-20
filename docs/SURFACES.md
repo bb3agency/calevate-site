@@ -283,7 +283,12 @@ Client realm (`/c/<slug>/…`)
   an agent. Apply and Undo are still deliberately absent: both are admin-realm, because the
   staged SCRIPT is authored admin-realm — as are the extraction schema and the voice
   (D-21), which the detail screen shows as facts with who moves them rather than as
-  disabled inputs) ·
+  disabled inputs). The Voice section's **How it sounds** (D-843) sets a Studio agent's speed
+  and loudness (sliders, Normal in the middle, Reset) and emotion ("None (the words decide)"
+  or one of eight), `GET`/`PATCH /v1/agents/{agent_id}/voice-tuning` on `org:manage`,
+  audited, live apply; **Hear it** (`POST …/voice-tuning/preview`) speaks a fixed sample in
+  the agent's main language, 20 per account per IST day, at our cost. The voice model and
+  pronunciation dictionary stay operator-only ·
   **`/lead-sources`** (`GET /v1/lead-sources/activity`, `POST /v1/lead-sources/{id}/test` —
   the §2b webhook-activity view and its no-call "test webhook", shipped — plus the Meta
   Lead Ads setup card, `POST /v1/lead-sources/{webhook_id}/meta/setup`, which prints what
@@ -407,15 +412,16 @@ Admin realm (`/admin/…`)
   publishing one is refused (`agent_has_no_script`) rather than filled in with a
   placeholder. The panel states that it publishes and signs nothing off: FLOWS §1 step 7's
   test call and regression run are pilot-gated.
-- **How it sounds** (D-767), on that same page's Voice section, operators only: for an agent
-  whose voice is a Studio one, speed, volume, emotion (English calls), the voice model and a
+- **How it sounds** (D-767), on that same page's Voice section: for an agent
+  whose voice is a Studio one, speed, volume, emotion, the voice model and a
   pronunciation dictionary id, each empty for the voice's own default
   (`GET`/`PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning`, audited).
   "Hear it" speaks a short line with the form's settings, unsaved
   (`POST …/voice-tuning/preview`, charged per character on our voice key, so on a press
   only); "Save settings" stores them and a live agent takes them from its next call (live
   apply). An agent on a Clear voice is told the settings are for Studio voices. Clients
-  never see this panel.
+  set speed, loudness and emotion on their own Voice section (D-843, which superseded the
+  13 Oct operators-only decision); the model and dictionary are set only here.
 - **Pending invitations for a client** (on the wizard's invite step;
   `GET`/`DELETE /v1/admin/tenants/{tenant_id}/invitations[/{invitation_id}]`) — the live
   keys to a client's account, with a cancel. The address is shown in full (D-436) — one

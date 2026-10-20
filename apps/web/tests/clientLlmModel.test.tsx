@@ -17,6 +17,7 @@ import {
   clientLlmTiers,
   spendThisMonth,
   agentCallHandling,
+  clientVoiceTuning,
 } from "./fixtures/sharedReads";
 import { ENGINE_CATALOGUE_PATH } from "@/lib/api/engineCatalogue";
 import { businessProfileFixture } from "./businessProfileFixture";
@@ -688,10 +689,12 @@ describe("a client's screens never name a model", () => {
           "/v1/legal/readiness": LEGAL_READY,
           "/v1/billing/wallet": prepaidWallet(),
           "/v1/calls?agent_id=agent-1&limit=5": [],
+          "/v1/agents/agent-1/voice-tuning": clientVoiceTuning(),
         }),
       );
       await screen.findAllByText("Reception");
       if (section === "voice") await screen.findByText("Anjali");
+      if (section === "voice") await screen.findByRole("heading", { name: "How it sounds" });
       if (section === "model") await screen.findByRole("radio", { name: /^Standard/ });
       expect(leaking(container.textContent ?? "")).toEqual([]);
       expect(container.textContent ?? "").not.toMatch(VENDOR_WORDS);

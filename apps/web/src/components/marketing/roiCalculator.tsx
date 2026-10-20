@@ -88,6 +88,7 @@ import Link from "next/link";
 import { useId, useMemo, useState } from "react";
 import { Bot, Filter, Handshake, TrendingDown, UserRound } from "lucide-react";
 
+import { RANGE_INPUT } from "@/components/ui";
 import {
   cardFromRate,
   cheapestPack,
@@ -175,22 +176,10 @@ function Control({
         aria-label={label}
         aria-valuetext={unit ? `${value} ${unit}` : String(value)}
         /*
-         * A 24px THUMB UNDER A COARSE POINTER, and the number is derived rather than
-         * chosen. A 16px thumb is a comfortable mouse target and a poor thumb target: it
-         * is under WCAG 2.2 SC 2.5.8's 24px AA minimum, and this is the one control on the
-         * page a phone user is expected to DRAG rather than tap.
-         *
-         * The webkit thumb is positioned by a negative top margin against a 6px runnable
-         * track, so the offset is not free: it is −(thumb − track) / 2, which is where the
-         * existing −5px comes from (16 − 6) / 2. At 24px it is (24 − 6) / 2 = 9. Firefox
-         * centres `::-moz-range-thumb` itself and needs no offset, which is why only the
-         * webkit rule has one.
-         *
-         * The 44px path to the same value still exists and is the one to reach for if a
-         * finger cannot manage this: every slider on this surface is paired with the
-         * labelled number field above it, which carries `touch:min-h-11`.
+         * The 44px path to the same value is the labelled number field above, which carries
+         * `touch:min-h-11`; the slider's own thumb is sized in `RANGE_INPUT`.
          */
-        className="mt-3 w-full cursor-pointer appearance-none bg-transparent [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-brand-strong [&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-line [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-line [&::-webkit-slider-thumb]:-mt-[5px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-brand-strong focus-visible:outline-none focus-visible:[&::-moz-range-thumb]:ring-2 focus-visible:[&::-moz-range-thumb]:ring-brand-strong focus-visible:[&::-moz-range-thumb]:ring-offset-2 focus-visible:[&::-webkit-slider-thumb]:ring-2 focus-visible:[&::-webkit-slider-thumb]:ring-brand-strong focus-visible:[&::-webkit-slider-thumb]:ring-offset-2 touch:[&::-moz-range-thumb]:h-6 touch:[&::-moz-range-thumb]:w-6 touch:[&::-webkit-slider-thumb]:-mt-[9px] touch:[&::-webkit-slider-thumb]:h-6 touch:[&::-webkit-slider-thumb]:w-6 dark:[&::-moz-range-thumb]:bg-brand-bright dark:[&::-webkit-slider-thumb]:bg-brand-bright"
+        className={`mt-3 ${RANGE_INPUT}`}
       />
       {hint && <p className="mt-2 text-sm text-ink-faint">{hint}</p>}
     </div>

@@ -159,6 +159,7 @@ import {
   VOICE_ORGANIZATION_NONE,
   VOICE_OWN_NONE,
   VOICE_SOURCES_PLATFORM,
+  clientVoiceTuning,
 } from "./fixtures/sharedReads";
 import { operatorEngineCatalogue } from "./fixtures/engineCatalogue";
 
@@ -5205,6 +5206,8 @@ const AGENT_SECTION_SCREENS: Screen[] = [
         routes: {
           ...AGENT_WORKSPACE.routes,
           "/v1/agents/engine-catalogue": operatorEngineCatalogue({ models: [] }),
+          // A Studio voice, so the sweep reads the sliders and the emotion picker (D-843).
+          "/v1/agents/agent-1/voice-tuning": clientVoiceTuning("agent-1", { speed: "1.10" }),
         },
       }
     : {}),

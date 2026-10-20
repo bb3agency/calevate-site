@@ -1,13 +1,19 @@
 """How a Studio voice sounds on one agent: speed, volume, emotion, the voice model and a
-pronunciation dictionary (operators only, founder decision 13 Oct 2026).
+pronunciation dictionary.
+
+Who sets what (D-843, founder 21 Oct 2026, superseding the 13 Oct operators-only decision):
+a client sets speed, loudness (volume) and emotion on its own Studio agents and hears them
+on a capped sample (`voice_tuning_routes.router`); the voice model and the pronunciation
+dictionary stay with operators (`voice_tuning_routes.admin_router`). One service serves both
+doors, and the client route refuses the operator-only fields by its schema.
 
 A Studio agent speaks a voice of our own Cartesia key through ThinnestAI, and each agent can
-carry its own settings for that voice (`PUT /agents/{id}/byok-voice`, snapshots/2026-10-13/
-pages/api-reference/bring-your-own-keys.md:362-407, agents/set-agent-byok-voice.md:425-440,
-:587-627). They are stored on the agent, refused here as the platform refuses them, sent on
-every publish of a Studio agent (`engine/thinnest.ThinnestEngine._apply_own_key_voice`), read
-back by the settings sweep (`voice_tuning`), and reach a live agent through the live apply
-(D-720) in the saving transaction.
+carry its own settings for that voice (`PUT /agents/{id}/byok-voice`, snapshots/2026-10-19/
+pages/api-reference/agents/set-agent-byok-voice.md, bring-your-own-keys.md:380-425). They are
+stored on the agent, refused here as the platform refuses them, sent on every publish of a
+Studio agent (`engine/thinnest.ThinnestEngine._apply_own_key_voice`), read back by the
+settings sweep (`voice_tuning`), and reach a live agent through the live apply (D-720) in the
+saving transaction.
 
 What the platform refuses, refused first here with our own codes:
 
@@ -22,7 +28,13 @@ Speed on a Professional Voice Clone is refused by the platform alone, at publish
 cannot know beforehand. The adapter turns that refusal into `voice_speed_not_for_this_voice`.
 
 The emotion list is the eight the docs name as examples ("such as", bring-your-own-keys.md:
-384); Cartesia may accept more, and a value outside these is refused rather than guessed.
+400); Cartesia may accept more, and a value outside these is refused rather than guessed. The
+Cartesia playground offers emotion for Telugu on Sonic 3.6 (founder, 21 Oct 2026), and the
+written docs page still says English-only (:415). Emotion is offered on every Studio agent in
+every language (D-843), and nothing here refuses it by language.
+
+An agent whose voice becomes a Studio one with no emotion set starts on
+`DEFAULT_STUDIO_EMOTION` (`lifecycle.update_agent`, the one writer of an agent's voice).
 """
 
 from __future__ import annotations
@@ -30,11 +42,13 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Final
+from typing import Final, Literal
 from uuid import UUID
 
 from calevate_shared.engine import ByokVoiceTuning
+from calevate_shared.spoken_style import opening_in
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,10 +64,16 @@ from apps.api.agents.models import (
     STUDIO_VOICE_VOLUME_MAX,
     STUDIO_VOICE_VOLUME_MIN,
 )
+from apps.api.billing.plans import IST
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.redis import get_redis
 
 log = get_logger(__name__)
+
+#: Who is asking: an operator reads the ground they can fix (the voice model by name); a
+#: client reads the one action they have, with no provider or model named (D-679).
+Audience = Literal["operator", "client"]
 
 SPEED_MIN: Final = STUDIO_VOICE_SPEED_MIN
 SPEED_MAX: Final = STUDIO_VOICE_SPEED_MAX
@@ -69,6 +89,19 @@ _HUNDREDTH: Final = Decimal("0.01")
 
 #: The writable fields, in the order the columns are read.
 FIELDS: Final[tuple[str, ...]] = ("speed", "volume", "emotion", "model", "dictionary_id")
+#: The fields a client sets (D-843); the model and dictionary stay with operators.
+CLIENT_FIELDS: Final[tuple[str, ...]] = ("speed", "volume", "emotion")
+#: The emotion an agent starts on when its voice becomes a Studio one with none set
+#: (founder decision 21 Oct 2026, D-843). Never written over an emotion a person set.
+DEFAULT_STUDIO_EMOTION: Final = "calm"
+#: Samples a client account may hear per IST day (D-843). Each is spoken on our voice key and
+#: charged to us per character, so the cap bounds what we absorb.
+CLIENT_PREVIEWS_PER_DAY: Final = 20
+#: The counter outlives its IST day by an hour, so no key is immortal and none expires early.
+_PREVIEW_COUNTER_TTL_S: Final = 25 * 3600
+_PREVIEW_COUNTER_PREFIX: Final = "calevate:voice-preview"
+#: The engine caps a spoken preview line (the adapter refuses longer).
+PREVIEW_TEXT_MAX_CHARS: Final = 200
 #: The fields the old model refuses.
 _NEEDS_NEWER_MODEL: Final = ("speed", "volume", "emotion")
 
@@ -132,8 +165,8 @@ def _within(value: Decimal | None, low: Decimal, high: Decimal) -> bool:
     return value is None or (low <= value <= high and value % _HUNDREDTH == 0)
 
 
-def refuse_invalid_tuning(tuning: ByokVoiceTuning) -> None:
-    """Refuse what the platform would refuse, in words an operator can act on."""
+def refuse_invalid_tuning(tuning: ByokVoiceTuning, *, audience: Audience = "operator") -> None:
+    """Refuse what the platform would refuse, in words the reader can act on."""
     if not _within(tuning.speed, SPEED_MIN, SPEED_MAX):
         raise _refuse(
             "voice_speed_out_of_range",
@@ -174,6 +207,14 @@ def refuse_invalid_tuning(tuning: ByokVoiceTuning) -> None:
         )
     if tuning.model == OLD_VOICE_MODEL:
         set_fields = [f for f in _NEEDS_NEWER_MODEL if getattr(tuning, f) is not None]
+        if set_fields and audience == "client":
+            raise _refuse(
+                "voice_tuning_needs_newer_model",
+                "This voice takes no speed, loudness or emotion",
+                "This agent's voice is set up in a way that does not take speed, loudness or "
+                "emotion settings.",
+                "Clear those settings, or contact us to change how the voice is set up.",
+            )
         if set_fields:
             raise _refuse(
                 "voice_tuning_needs_newer_model",
@@ -227,15 +268,26 @@ async def read_voice_tuning(session: AsyncSession, agent_id: UUID) -> VoiceTunin
     )
 
 
-def _refuse_on_a_voice_not_studio(state: VoiceTuningState, wanted: ByokVoiceTuning) -> None:
-    if not state.studio and not wanted.is_empty:
+def refuse_on_a_voice_not_studio(
+    state: VoiceTuningState, wanted: ByokVoiceTuning, *, audience: Audience = "operator"
+) -> None:
+    if state.studio or wanted.is_empty:
+        return
+    if audience == "client":
         raise _refuse(
             "voice_tuning_needs_studio_voice",
             "These settings are for Studio voices",
-            "Speed, volume, emotion, voice model and pronunciation dictionary apply to a "
-            "Studio voice only, and this agent's voice is not one.",
-            "Choose a Studio voice for the agent first, or clear the settings.",
+            "Speed, loudness and emotion apply to a Studio voice only, and this agent's voice "
+            "is not one.",
+            "Choose a Studio voice for the agent first.",
         )
+    raise _refuse(
+        "voice_tuning_needs_studio_voice",
+        "These settings are for Studio voices",
+        "Speed, volume, emotion, voice model and pronunciation dictionary apply to a "
+        "Studio voice only, and this agent's voice is not one.",
+        "Choose a Studio voice for the agent first, or clear the settings.",
+    )
 
 
 async def set_voice_tuning(
@@ -244,12 +296,13 @@ async def set_voice_tuning(
     tenant_id: UUID,
     agent_id: UUID,
     changes: Mapping[str, object],
+    audience: Audience = "operator",
 ) -> tuple[VoiceTuningState, tuple[str, ...]]:
     """Write the named fields (None clears one; a field left out is kept) and queue the
     agent's live apply when it is live. The row is locked first, so the comparison and the
     write are one step and a repeat of the held values writes and queues nothing. Answers
-    the new state and the fields that moved."""
-    unknown = set(changes) - set(FIELDS)
+    the new state and the fields that moved. A client may name only `CLIENT_FIELDS`."""
+    unknown = set(changes) - set(FIELDS if audience == "operator" else CLIENT_FIELDS)
     if unknown:
         raise ValueError(f"not a voice tuning field: {sorted(unknown)}")
     row = (await session.execute(text(_READ_SQL + " FOR UPDATE OF a"), {"aid": agent_id})).first()
@@ -258,14 +311,14 @@ async def set_voice_tuning(
     current = tuning_from_row(tuple(row))
     named = tuning_of(changes)
     wanted = replace_fields(current, {f: getattr(named, f) for f in FIELDS if f in changes})
-    refuse_invalid_tuning(wanted)
+    refuse_invalid_tuning(wanted, audience=audience)
     state = VoiceTuningState(
         agent_id=agent_id,
         tuning=current,
         studio=is_studio_voice(row[5]),
         voice_id=str(row[5]) if row[5] else None,
     )
-    _refuse_on_a_voice_not_studio(state, wanted)
+    refuse_on_a_voice_not_studio(state, wanted, audience=audience)
     moved = tuple(f for f in FIELDS if getattr(wanted, f) != getattr(current, f))
     if moved:
         await session.execute(
@@ -288,23 +341,106 @@ def replace_fields(tuning: ByokVoiceTuning, values: Mapping[str, object]) -> Byo
     return tuning.model_copy(update=dict(values))
 
 
+def sample_line(*, language: str | None, direction: str, business: str) -> str | None:
+    """The fixed line a client's sample speaks: the starter greeting in the agent's main
+    language, with the account's own name (`spoken_style.opening_in`). Never caller data.
+    None where the table has no greeting for the language or the line would be too long;
+    the engine then speaks its own short greeting in that language
+    (snapshots/2026-10-19/pages/api-reference/bring-your-own-keys/preview-byok-voice.md:7)."""
+    template = opening_in(language, "outbound" if direction == "outbound" else "inbound")
+    if template is None:
+        return None
+    line = template.replace("{business}", business).strip()
+    return line if line and len(line) <= PREVIEW_TEXT_MAX_CHARS else None
+
+
+def _preview_key(tenant_id: UUID, now: datetime | None) -> str:
+    day = (now or datetime.now(UTC)).astimezone(IST).date()
+    return f"{_PREVIEW_COUNTER_PREFIX}:{tenant_id}:{day.isoformat()}"
+
+
+async def client_previews_left(tenant_id: UUID, *, now: datetime | None = None) -> int | None:
+    """Samples the account may still hear today (IST), or None when the counter is
+    unreadable (the take then refuses, so the screen says nothing it cannot back)."""
+    try:
+        raw = await get_redis().get(_preview_key(tenant_id, now))
+    except Exception as exc:
+        log.warning("voice_preview_counter_unreadable", extra={"error": type(exc).__name__})
+        return None
+    return max(0, CLIENT_PREVIEWS_PER_DAY - int(raw or 0))
+
+
+async def take_client_preview(tenant_id: UUID, *, now: datetime | None = None) -> None:
+    """Count one sample against the account's IST day and refuse past the cap.
+
+    INCR and EXPIRE NX in one round trip, `core/ratelimit.consume`'s shape, so no failure
+    between them can leave a counter with no expiry. It fails CLOSED, unlike request limiting:
+    each sample is spoken on our key at our cost, and an unreadable counter is no bound."""
+    key = _preview_key(tenant_id, now)
+    try:
+        pipe = get_redis().pipeline()
+        pipe.incr(key)
+        pipe.expire(key, _PREVIEW_COUNTER_TTL_S, nx=True)
+        count = int((await pipe.execute())[0])
+    except Exception as exc:
+        log.warning("voice_preview_counter_unreadable", extra={"error": type(exc).__name__})
+        raise ProblemError(
+            kind="transient",
+            code="voice_preview_unavailable",
+            title="Samples cannot be played right now",
+            detail="We could not play a sample just now.",
+            remediation="Try again in a few minutes.",
+            status=503,
+            headers={"Retry-After": "60"},
+        ) from exc
+    if count > CLIENT_PREVIEWS_PER_DAY:
+        raise ProblemError(
+            kind="business_rule",
+            code="voice_preview_daily_cap",
+            title=f"You have heard {CLIENT_PREVIEWS_PER_DAY} samples today",
+            detail=f"Each account can hear {CLIENT_PREVIEWS_PER_DAY} samples a day. Your saved "
+            "settings still apply to calls.",
+            remediation="Try again tomorrow.",
+            status=429,
+        )
+
+
+async def refund_client_preview(tenant_id: UUID, *, now: datetime | None = None) -> None:
+    """Give back a sample the engine did not speak, so a refusal (a voice that keeps its own
+    pace) does not use up the day. Best effort: a failed refund only costs the account one."""
+    try:
+        await get_redis().decr(_preview_key(tenant_id, now))
+    except Exception as exc:
+        log.warning("voice_preview_refund_failed", extra={"error": type(exc).__name__})
+
+
 __all__ = [
+    "CLIENT_FIELDS",
+    "CLIENT_PREVIEWS_PER_DAY",
+    "DEFAULT_STUDIO_EMOTION",
     "DICTIONARY_ID_PATTERN",
     "EMOTIONS",
     "FIELDS",
     "OLD_VOICE_MODEL",
+    "PREVIEW_TEXT_MAX_CHARS",
     "SPEED_MAX",
     "SPEED_MIN",
     "TUNING_COLUMNS",
     "VOICE_MODELS",
     "VOLUME_MAX",
     "VOLUME_MIN",
+    "Audience",
     "VoiceTuningState",
+    "client_previews_left",
     "config_tuning",
     "is_studio_voice",
     "read_voice_tuning",
+    "refund_client_preview",
     "refuse_invalid_tuning",
+    "refuse_on_a_voice_not_studio",
+    "sample_line",
     "set_voice_tuning",
+    "take_client_preview",
     "tuning_from_row",
     "tuning_of",
 ]
