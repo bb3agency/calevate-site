@@ -1312,7 +1312,7 @@ reply-language rule, not ours, produced the English reply.
 > Hi Ashutosh,
 >
 > Thanks for the quick answers and for building ownRules, call mode and `to`. We'll switch them
-> on the day you confirm the release. Four things from today's calls:
+> on the day you confirm the release. Five things from today's calls:
 >
 > 1. **Billing blocks on own-key minutes.** A 63-second `llm_voice` call
 >    (out_4ee76842-a834-49f0-81a4-1bac7db41c68) was billed 90 seconds. Most of our clients' calls
@@ -1334,6 +1334,24 @@ reply-language rule, not ours, produced the English reply.
 >    greeted in Telugu, the caller said only "Hello", and the agent answered in English; the
 >    caller then had to ask for Telugu. Could `language: "auto"` stay in the language of the
 >    greeting until the caller speaks a full sentence in another language?
+> 5. **Latency.** Our replies start about 1.7 s after the caller stops (median; `responseMs`
+>    1690 / 1703 ms on the two calls above), and `firstTokenMs` is about 930 ms of that. Four
+>    questions:
+>    - **Ear mode for Telugu.** Is real-time recognition available for Telugu on Indian phone
+>      lines for an agent on `llm_voice`? Which recogniser runs it, and what does
+>      `turnSilenceSeconds` do in Ear? Are its "haan ji" acknowledgements synthesised on our
+>      Cartesia key and counted in `ttsCharacters`? We'd like to try Ear instead of Timer, because
+>      callers here often pause mid-sentence and get answered on half a sentence.
+>    - **Empty reply.** If our model returns nothing for a caller turn (an obviously unfinished
+>      phrase), does the agent stay silent and keep listening, or apologise and count a model
+>      error? Is there a supported "no reply" marker?
+>    - **Dropped early answers.** When an early answer is dropped because the caller was not
+>      finished, are those tokens billed to our Google key and counted in `usage.inputTokens`?
+>    - **The Gemini request.** Which Google endpoint and region do you call with our key, is it
+>      streamed, and could an agent opt in to Google's priority tier (`service_tier: "priority"`,
+>      which lists 3.1 Flash-Lite)? And does `firstTokenMs` run from the caller's speech end or
+>      from your request? A split of the rest of `responseMs` (speech-recognition final, voice
+>      first audio) would show us where the remaining ~0.75 s goes.
 >
 > And one documentation question:
 > - What exactly does the `call.completed` body carry (status, seconds, `analysedAt`; never
@@ -1349,4 +1367,5 @@ reply-language rule, not ours, produced the English reply.
 | 2 | 34–35% cached input although they state the system prompt is identical every turn and the time rides on the caller's line (§18, 19 Oct; rememory f4ecc712) | same Get Call read; `usage.cachedInputTokens` |
 | 3 | `voice.callInstructions` replaces the ~1,675-character default call rules; we hold none of their text | §21 item 8 |
 | 4 | Call 2 transcript, 21 Oct 2026 10:00 IST (founder-pasted) | pending AGENTQ2 |
+| 5 | Latency research with sources: `docs/evidence/latency-research-2026-10-21.md` (Ear mode `channels/voice.md:931-976`, `update-agent.md:1418-1439`; empty reply `agent/behaviour.md:145-148`; priority tier ai.google.dev/gemini-api/docs/priority-inference) | same Get Call `quality` read |
 | doc | Our post-call pipeline took a transcript-less `call.completed` as the whole record; fixed on our side (lane CALLTRUTH) | `webhooks.md:74` "outcome and duration" |
