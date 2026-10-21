@@ -1373,6 +1373,58 @@ async def rewrite_opening_in_language(
     return OpeningRewrittenOut(opening_line=done.opening_line, saved_at=done.saved_at)
 
 
+class OpeningLineIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: The new opening line, in the agent's main language. `CallScript.opening_line`'s bound.
+    opening_line: str = Field(min_length=1, max_length=1000)
+
+
+class OpeningLineOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    opening_line: str
+    #: The new version of the script, or null when it already had this line.
+    version: int | None
+
+
+@router.put(
+    "/opening-line",
+    response_model=OpeningLineOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Replace the opening line in the script callers hear, and put it live",
+    description=(
+        "For shortening the opening line where a notice switch was refused for want of room "
+        "(D-846). The rest of the script is kept. Refused while other script changes are "
+        "waiting to go live, and when the line would not fit after the notices switched on."
+    ),
+)
+async def replace_opening_line(
+    agent_id: UUID, payload: OpeningLineIn, request: Request, principal: ScriptWriter
+) -> OpeningLineOut:
+    assert principal.tenant_id is not None
+    async with tenant_session(principal.tenant_id) as session:
+        done = await script_builder.replace_opening_line(
+            session,
+            tenant_id=principal.tenant_id,
+            agent_id=agent_id,
+            opening_line=payload.opening_line,
+            created_by=principal.user_id,
+        )
+        if done.version is not None:
+            await write_audit(
+                session,
+                action="agent.opening_line_replaced",
+                actor=principal,
+                tenant_id=principal.tenant_id,
+                object_type="agent",
+                object_id=str(agent_id),
+                ip=client_request_ip(request),
+                summary={"version": done.version},
+            )
+    return OpeningLineOut(opening_line=done.opening_line, version=done.version)
+
+
 class ApplyScriptIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

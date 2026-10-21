@@ -28,6 +28,7 @@ import {
 import { agentKeys } from "./agents";
 import { apiRequest, type Session } from "./client";
 import { publishingKeys } from "./publishing";
+import type { components } from "./schema";
 
 /** One `{{ }}` merge field the author declared. Mirrors `ScriptVariable`. */
 export interface ScriptVariable {
@@ -427,6 +428,32 @@ export function useRewriteOpeningInLanguage(
         { method: "POST" },
       ),
     onSuccess: () => invalidateScript(client, session, agentId),
+  });
+}
+
+export type OpeningLineOut = components["schemas"]["OpeningLineOut"];
+
+/**
+ * Replace the opening line in the script callers hear and put it live, keeping the rest
+ * (D-846). The way back from a notice switch refused for want of room. Awaits the agent
+ * reads too, so a retried switch is measured against the new line.
+ */
+export function useReplaceOpeningLine(
+  session: Session,
+  agentId: string,
+): UseMutationResult<OpeningLineOut, Error, string> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (openingLine: string) =>
+      apiRequest<OpeningLineOut>(session, `${base(agentId)}/opening-line`, {
+        method: "PUT",
+        body: { opening_line: openingLine },
+      }),
+    onSuccess: () =>
+      Promise.all([
+        invalidateScript(client, session, agentId),
+        client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
+      ]),
   });
 }
 

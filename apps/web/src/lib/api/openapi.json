@@ -3045,6 +3045,16 @@
             "title": "First Words",
             "type": "string"
           },
+          "greeting_budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GreetingBudgetOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -19930,6 +19940,46 @@
         "title": "GrantOut",
         "type": "object"
       },
+      "GreetingBudgetOut": {
+        "additionalProperties": false,
+        "description": "What the agent says first, against the most the calling system speaks there (D-846).\n\nEach room is how many characters the opening line may have after the notices: with\nthe switches as they are, and with that one switch turned on. Negative when the notices\nalone leave none. Counted the way the publish counts (`engine_limits.greeting_chars`),\nso a screen counting down from here and the publish refusal agree.",
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "opening_chars": {
+            "title": "Opening Chars",
+            "type": "integer"
+          },
+          "opening_room": {
+            "title": "Opening Room",
+            "type": "integer"
+          },
+          "opening_room_with_ai_disclosure": {
+            "title": "Opening Room With Ai Disclosure",
+            "type": "integer"
+          },
+          "opening_room_with_caller_memory": {
+            "title": "Opening Room With Caller Memory",
+            "type": "integer"
+          },
+          "opening_room_with_recording_notice": {
+            "title": "Opening Room With Recording Notice",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "limit",
+          "opening_chars",
+          "opening_room",
+          "opening_room_with_ai_disclosure",
+          "opening_room_with_recording_notice",
+          "opening_room_with_caller_memory"
+        ],
+        "title": "GreetingBudgetOut",
+        "type": "object"
+      },
       "HandoffAttemptOut": {
         "additionalProperties": false,
         "description": "One handover that actually happened, as the client sees it.\n\n**THE NUMBER IS NOT ON THIS OBJECT AND THE LABEL MAY BE NULL**, which is deliberate\nrather than an oversight. `handoff_attempts.destination_e164` records the number that\nrang because an operator may have to answer for it; a client's own screen already knows\nwho is on the list and gains nothing from seeing the digits again on every row (hard\nrule 6, minimum necessary). `member` is null when that person has since been removed\nfrom the roster \u2014 the FK is `SET NULL` precisely so removing somebody does not rewrite\nthe history of the calls they took \u2014 and the row still says what happened.",
@@ -28441,6 +28491,48 @@
           "teaching"
         ],
         "title": "OpenTeachingOut",
+        "type": "object"
+      },
+      "OpeningLineIn": {
+        "additionalProperties": false,
+        "properties": {
+          "opening_line": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Opening Line",
+            "type": "string"
+          }
+        },
+        "required": [
+          "opening_line"
+        ],
+        "title": "OpeningLineIn",
+        "type": "object"
+      },
+      "OpeningLineOut": {
+        "additionalProperties": false,
+        "properties": {
+          "opening_line": {
+            "title": "Opening Line",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "opening_line",
+          "version"
+        ],
+        "title": "OpeningLineOut",
         "type": "object"
       },
       "OpeningRewrittenOut": {
@@ -58882,6 +58974,57 @@
           }
         },
         "summary": "Autosave the working copy (no version, never reaches a call)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/opening-line": {
+      "put": {
+        "description": "For shortening the opening line where a notice switch was refused for want of room (D-846). The rest of the script is kept. Refused while other script changes are waiting to go live, and when the line would not fit after the notices switched on.",
+        "operationId": "replace_opening_line_v1_agents__agent_id__script_opening_line_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpeningLineIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpeningLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Replace the opening line in the script callers hear, and put it live",
         "tags": [
           "agents"
         ],

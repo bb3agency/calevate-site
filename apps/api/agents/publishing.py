@@ -85,6 +85,7 @@ from decimal import Decimal
 from typing import Final, Literal
 from uuid import UUID
 
+from calevate_shared.call_script import opening_line_of
 from calevate_shared.engine import (
     AgentConfig,
     DisclosurePosture,
@@ -94,6 +95,7 @@ from calevate_shared.engine import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.engine_limits import refuse_notice_without_room
 from apps.api.agents.hosted_voices import parse_hosted_voice_id, source_rate_key
 from apps.api.agents.service import (
     effective_call_cap,
@@ -1297,6 +1299,62 @@ async def undo_staged(*, tenant_id: UUID, agent_id: UUID) -> UndoResult:
     )
 
 
+#: The applied script's body for `agents a`: the version `publish_agent` sends, whose
+#: opening line follows the notices.
+_APPLIED_BODY_SQL: Final = (
+    "(SELECT pv.body FROM prompt_versions pv "
+    "WHERE pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id))"
+)
+
+#: What each switch adds to the first words, for the refusal that names it (D-846).
+_NOTICE_ADDED: Final[dict[str, str]] = {
+    "ai_disclosure_enabled": (
+        "Saying that it is an AI assistant adds a sentence your agent says at the start of "
+        "every call, before its opening line."
+    ),
+    "recording_notice_enabled": (
+        "Saying that the call is recorded adds a sentence your agent says at the start of "
+        "every call, before its opening line."
+    ),
+    "caller_memory_enabled": (
+        "Remembering callers adds a sentence your agent says at the start of every call, "
+        "before its opening line, telling callers it keeps a short note."
+    ),
+}
+
+
+def _refuse_notices_without_room(
+    *,
+    agent_id: UUID,
+    direction: str,
+    posture: DisclosurePosture,
+    body: str | None,
+    turned_on: tuple[str, ...],
+) -> None:
+    """Refuse switching on a notice the first words have no room for, before anything is
+    written, naming the switch. Switching a notice OFF is never refused here: it only
+    makes room."""
+    if not turned_on:
+        return
+    engine = get_engine()
+    cause = (
+        _NOTICE_ADDED[turned_on[0]]
+        if len(turned_on) == 1
+        else "These notices add sentences your agent says at the start of every call, "
+        "before its opening line."
+    )
+    refuse_notice_without_room(
+        engine,
+        agent_id=str(agent_id),
+        direction=direction,
+        notices=compose_opening_line(
+            posture, call_is_recorded=engine_capabilities(engine).records_audio
+        ),
+        opening=opening_line_of(body),
+        cause=cause,
+    )
+
+
 async def set_disclosure_posture(
     *,
     tenant_id: UUID,
@@ -1348,8 +1406,9 @@ async def set_disclosure_posture(
                     # selected so the recomposed opening carries it — a toggle flip that
                     # dropped the memory sentence would republish an agent that still
                     # remembers callers and has stopped saying so.
-                    "caller_memory_notice_line, caller_memory_enabled "
-                    "FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
+                    "caller_memory_notice_line, caller_memory_enabled, "
+                    f"a.direction, {_APPLIED_BODY_SQL} "
+                    "FROM agents a WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
                 ),
                 {"aid": agent_id},
             )
@@ -1376,6 +1435,13 @@ async def set_disclosure_posture(
             recording_notice_enabled=wanted["recording_notice_enabled"],
             caller_memory_notice_line=str(row[6]),
             caller_memory_enabled=bool(row[7]),
+        )
+        _refuse_notices_without_room(
+            agent_id=agent_id,
+            direction=str(row[8]),
+            posture=posture,
+            body=row[9],
+            turned_on=tuple(field for field in changed if wanted[field]),
         )
         is_live = str(row[4]) == "live" and bool(row[5])
         if changed:
@@ -1489,7 +1555,7 @@ async def set_caller_memory(
                     # has attested yet, or the person who did has left and the FK went to
                     # NULL. An inner join would drop the whole agent row for either, which
                     # is a 404 on a switch because somebody was offboarded.
-                    "u.name "
+                    f"u.name, a.direction, {_APPLIED_BODY_SQL} "
                     "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
                     "LEFT JOIN users u ON u.id = o.caller_memory_attested_by "
                     "WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
@@ -1515,6 +1581,23 @@ async def set_caller_memory(
                     "be changed here; the feature is not available for this account."
                 ),
             )
+        posture = DisclosurePosture(
+            ai_disclosure_line=str(row[1]),
+            ai_disclosure_enabled=bool(row[2]),
+            recording_notice_line=str(row[3]),
+            recording_notice_enabled=bool(row[4]),
+            caller_memory_notice_line=str(row[5]),
+            caller_memory_enabled=enabled,
+        )
+        # Before the attestation is asked for, so an owner shortens the opening line first
+        # and confirms once rather than confirming and then being refused.
+        _refuse_notices_without_room(
+            agent_id=agent_id,
+            direction=str(row[11]),
+            posture=posture,
+            body=row[12],
+            turned_on=("caller_memory_enabled",) if enabled and not current else (),
+        )
         if enabled and attested_at is None and attested_by is None:
             raise ProblemError.business_rule(
                 "caller_memory_attestation_required",
@@ -1559,14 +1642,6 @@ async def set_caller_memory(
                 ),
                 {"on": enabled, "aid": agent_id},
             )
-        posture = DisclosurePosture(
-            ai_disclosure_line=str(row[1]),
-            ai_disclosure_enabled=bool(row[2]),
-            recording_notice_line=str(row[3]),
-            recording_notice_enabled=bool(row[4]),
-            caller_memory_notice_line=str(row[5]),
-            caller_memory_enabled=enabled,
-        )
         is_live = str(row[6]) == "live" and bool(row[7])
         if current != enabled and is_live:
             await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)

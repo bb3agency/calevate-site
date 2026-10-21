@@ -3810,6 +3810,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/script/opening-line": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace the opening line in the script callers hear, and put it live
+         * @description For shortening the opening line where a notice switch was refused for want of room (D-846). The rest of the script is kept. Refused while other script changes are waiting to go live, and when the line would not fit after the notices switched on.
+         */
+        put: operations["replace_opening_line_v1_agents__agent_id__script_opening_line_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/script/opening-line/in-language": {
         parameters: {
             query?: never;
@@ -12107,6 +12127,7 @@ export interface components {
              * @default
              */
             first_words: string;
+            greeting_budget?: components["schemas"]["GreetingBudgetOut"] | null;
             /**
              * Id
              * Format: uuid
@@ -18589,6 +18610,29 @@ export interface components {
             tenant_id: string;
         };
         /**
+         * GreetingBudgetOut
+         * @description What the agent says first, against the most the calling system speaks there (D-846).
+         *
+         *     Each room is how many characters the opening line may have after the notices: with
+         *     the switches as they are, and with that one switch turned on. Negative when the notices
+         *     alone leave none. Counted the way the publish counts (`engine_limits.greeting_chars`),
+         *     so a screen counting down from here and the publish refusal agree.
+         */
+        GreetingBudgetOut: {
+            /** Limit */
+            limit: number;
+            /** Opening Chars */
+            opening_chars: number;
+            /** Opening Room */
+            opening_room: number;
+            /** Opening Room With Ai Disclosure */
+            opening_room_with_ai_disclosure: number;
+            /** Opening Room With Caller Memory */
+            opening_room_with_caller_memory: number;
+            /** Opening Room With Recording Notice */
+            opening_room_with_recording_notice: number;
+        };
+        /**
          * HandoffAttemptOut
          * @description One handover that actually happened, as the client sees it.
          *
@@ -21930,6 +21974,18 @@ export interface components {
         /** OpenTeachingOut */
         OpenTeachingOut: {
             teaching: components["schemas"]["TeachingOut"] | null;
+        };
+        /** OpeningLineIn */
+        OpeningLineIn: {
+            /** Opening Line */
+            opening_line: string;
+        };
+        /** OpeningLineOut */
+        OpeningLineOut: {
+            /** Opening Line */
+            opening_line: string;
+            /** Version */
+            version: number | null;
         };
         /** OpeningRewrittenOut */
         OpeningRewrittenOut: {
@@ -36220,6 +36276,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DraftSavedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    replace_opening_line_v1_agents__agent_id__script_opening_line_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpeningLineIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpeningLineOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

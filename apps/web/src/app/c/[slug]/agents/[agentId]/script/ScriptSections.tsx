@@ -43,6 +43,8 @@ import type {
   SpeakingStyle,
 } from "@/lib/api/script";
 
+import { RoomCounter, roomLabel } from "../../panels/openingLineFix";
+
 /** The two text controls a merge field can be inserted into. */
 export type Focusable = HTMLInputElement | HTMLTextAreaElement;
 type Track = (el: Focusable | null) => void;
@@ -72,6 +74,9 @@ function TextBox({
   placeholder,
   onChange,
   trackFocus,
+  describedBy,
+  invalid,
+  children,
 }: {
   id: string;
   label: string;
@@ -84,6 +89,11 @@ function TextBox({
   placeholder?: string;
   onChange: (v: string) => void;
   trackFocus: Track;
+  /** The id of a line under the box that describes it, such as a counter. */
+  describedBy?: string;
+  invalid?: boolean;
+  /** Shown under the box. */
+  children?: ReactNode;
 }) {
   return (
     <div>
@@ -109,6 +119,8 @@ function TextBox({
           value={value}
           maxLength={maxLength}
           placeholder={placeholder}
+          aria-describedby={describedBy}
+          aria-invalid={invalid}
           onFocus={(e) => trackFocus(e.currentTarget)}
           onChange={(e) => onChange(e.target.value)}
         />
@@ -120,10 +132,13 @@ function TextBox({
           value={value}
           maxLength={maxLength}
           placeholder={placeholder}
+          aria-describedby={describedBy}
+          aria-invalid={invalid}
           onFocus={(e) => trackFocus(e.currentTarget)}
           onChange={(e) => onChange(e.target.value)}
         />
       )}
+      {children}
     </div>
   );
 }
@@ -268,23 +283,41 @@ export function OpeningSection({
   value,
   onChange,
   trackFocus,
+  room,
 }: {
   value: string;
   onChange: (v: string) => void;
   trackFocus: Track;
+  /** How many characters the line may have after the notices switched on (D-846);
+   *  undefined where nothing limits it. */
+  room?: number;
 }) {
+  const over = room !== undefined && roomLabel(value, room).over;
   return (
     <Section id="opening">
       <TextBox
         id="opening-line"
         label="Opening line"
         hint="The first thing it says on every call."
-        info="If you have switched on the AI or recording notice, that is said just before this line."
+        info="Any notices you have switched on are said just before this line, and together they have to be short enough to be said first."
         value={value}
         placeholder="For example: Namaskaram andi, cheppandi, em kavali?"
         onChange={onChange}
         trackFocus={trackFocus}
-      />
+        describedBy={room !== undefined ? "opening-line-room" : undefined}
+        invalid={over || undefined}
+      >
+        {room !== undefined && (
+          <>
+            <RoomCounter id="opening-line-room" text={value} room={room} />
+            {over && (
+              <p className="mt-1 text-xs text-ink-muted">
+                Shorten it before you put it live, or it cannot be said first.
+              </p>
+            )}
+          </>
+        )}
+      </TextBox>
     </Section>
   );
 }

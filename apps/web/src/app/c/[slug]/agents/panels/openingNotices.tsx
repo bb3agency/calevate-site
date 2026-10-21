@@ -11,13 +11,15 @@
 
 import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { ProblemNotice, RestrictionNote, ToggleSwitch, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
-import { useSetDisclosure, type Agent } from "@/lib/api/agents";
+import { useSetDisclosure, type Agent, type DisclosureIn } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { Term } from "@/lib/glossary";
+
+import { NOTICE_NEEDS_ROOM, OpeningLineFix, problemCode } from "./openingLineFix";
 
 /**
  * The two opening notices, as switches — and the one sentence the switches do not reach.
@@ -81,6 +83,21 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
   const locked = setDisclosure.isPending || !write.allowed;
   const opening = agent.script_opening_line;
   const firstWords = agent.first_words;
+  // The switch last turned on, so a refusal for want of room can offer the room that
+  // switch needs and turn the same one on again once the line is shorter.
+  const [lastOn, setLastOn] = useState<DisclosureIn | null>(null);
+  const flip = (payload: DisclosureIn, next: boolean) => {
+    setLastOn(next ? payload : null);
+    setDisclosure.mutate(payload);
+  };
+  const budget = agent.greeting_budget;
+  const room =
+    budget && lastOn
+      ? lastOn.ai_disclosure_enabled
+        ? budget.opening_room_with_ai_disclosure
+        : budget.opening_room_with_recording_notice
+      : undefined;
+  const needsRoom = problemCode(setDisclosure.error) === NOTICE_NEEDS_ROOM && room !== undefined;
 
   return (
     <section aria-labelledby="opening-notices-heading" className="max-w-3xl">
@@ -95,7 +112,16 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
         <span>{agent.truthful_answer_rule}</span>
       </p>
 
-      {setDisclosure.error && <ProblemNotice error={setDisclosure.error} />}
+      {setDisclosure.error && !needsRoom && <ProblemNotice error={setDisclosure.error} />}
+      {needsRoom && lastOn && (
+        <OpeningLineFix
+          agent={agent}
+          error={setDisclosure.error}
+          room={room}
+          retrying={setDisclosure.isPending}
+          retry={() => setDisclosure.mutate(lastOn)}
+        />
+      )}
       {write.reason && (
         <div className="mt-3">
           <RestrictionNote reason={write.reason} />
@@ -112,7 +138,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
           checked={agent.ai_disclosure_enabled}
           pending={locked}
           offNote="Callers are not told at the start of the call. If one asks, the agent still says it is an AI."
-          onChange={(next) => setDisclosure.mutate({ ai_disclosure_enabled: next })}
+          onChange={(next) => flip({ ai_disclosure_enabled: next }, next)}
         />
         <NoticeToggle
           label="Say the call is being recorded"
@@ -128,7 +154,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
               consent. If a caller asks, the agent still says yes.
             </>
           }
-          onChange={(next) => setDisclosure.mutate({ recording_notice_enabled: next })}
+          onChange={(next) => flip({ recording_notice_enabled: next }, next)}
         />
 
         {/* NO SWITCH, deliberately (D-507): this sentence is spoken exactly when the agent

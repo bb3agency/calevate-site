@@ -53,9 +53,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import prompt_size
-from apps.api.agents.engine_limits import PromptTooLongError
+from apps.api.agents.engine_limits import PromptTooLongError, refuse_opening_over_limit
 from apps.api.agents.prompts import insert_prompt_version, write_prompt_version
 from apps.api.agents.t0_block import block_of, splice_t0_block
+from apps.api.agents.write_guard import archived_refusal
 from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.errors import ProblemError
 from apps.api.engine import engine_capabilities, get_engine
@@ -484,6 +485,7 @@ async def rewrite_script(
     agent_id: UUID,
     script: CallScript | None,
     notes: str,
+    created_by: UUID | None = None,
 ) -> int | None:
     """Write `script` (None: the draft's own structure, recompiled) as a platform-made version.
 
@@ -491,7 +493,7 @@ async def rewrite_script(
     for changes the platform makes on the owner's behalf: the version is applied, and a live
     agent republished, unless the owner has a script edit staged, in which case it rides
     with that edit. A freeform draft is left alone. Returns the new version, or None when
-    the compiled body would not change.
+    the compiled body would not change. `created_by` names the owner when they asked for it.
     """
     # Local import: `agents/service` imports this module.
     from apps.api.agents.service import publish_agent
@@ -526,7 +528,7 @@ async def rewrite_script(
         agent_id=agent_id,
         body=body,
         notes=notes,
-        created_by=None,
+        created_by=created_by,
         compiled_t0_context=row[5],
         structured_script=script.model_dump(mode="json"),
         apply_live=not staged,
@@ -674,11 +676,99 @@ async def restore_into_draft(session: AsyncSession, agent_id: UUID, version: int
     return Draft(script=script, saved_at=saved_at)
 
 
+@dataclass(frozen=True, slots=True)
+class ReplacedOpening:
+    opening_line: str
+    #: The new version, or None when the script already had this line.
+    version: int | None
+
+
+async def replace_opening_line(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    opening_line: str,
+    created_by: UUID | None,
+) -> ReplacedOpening:
+    """Put a new opening line into the script callers hear and keep the rest of it (D-846).
+
+    The way back from a notice switch refused for want of room: the owner shortens the line
+    where they were refused, and it goes live at once, which "Put it live" would also do but
+    with the whole working copy. So it is refused while another script change is waiting to
+    go live, since applying this would either carry that change with it or leave it behind.
+    An autosaved working copy still holding the old line gets the new one too; one that the
+    owner had already changed there is theirs and is left alone.
+    """
+    line = opening_line.strip()
+    row = (
+        await session.execute(
+            text(
+                "SELECT a.status, a.direction, pv.structured_script, "
+                "(a.live_prompt_id IS NOT NULL "
+                "AND a.system_prompt_id IS DISTINCT FROM a.live_prompt_id) AS staged, "
+                "a.ai_disclosure_line, a.ai_disclosure_enabled, "
+                "a.recording_notice_line, a.recording_notice_enabled, "
+                "a.caller_memory_notice_line, a.caller_memory_enabled "
+                "FROM agents a JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
+                "WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
+            ),
+            {"aid": agent_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Agent")
+    if str(row.status) == "archived":
+        raise archived_refusal("edited")
+    if row.staged:
+        raise ProblemError.conflict(
+            "script_change_waiting",
+            "This agent has script changes that are not live yet.",
+            remediation=(
+                "Open the script and put those changes live or discard them, then shorten "
+                "the opening line there."
+            ),
+        )
+    if not isinstance(row.structured_script, dict):
+        raise ProblemError.business_rule(
+            "opening_line_in_written_script",
+            "This agent's script is written as one piece of text.",
+            remediation=(
+                "Open the script, shorten the line under the opening heading, then put it live."
+            ),
+        )
+    engine = get_engine()
+    refuse_opening_over_limit(
+        engine,
+        agent_id=str(agent_id),
+        direction=str(row.direction),
+        notices=compose_opening_line(
+            _posture(row), call_is_recorded=engine_capabilities(engine).records_audio
+        ),
+        opening=line,
+    )
+    script = CallScript.model_validate(row.structured_script)
+    old_line = script.opening_line.strip()
+    version = await rewrite_script(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        script=script.model_copy(update={"opening_line": line}),
+        notes="Opening line shortened",
+        created_by=created_by,
+    )
+    draft = await read_draft(session, agent_id)
+    if draft is not None and draft.script.opening_line.strip() == old_line:
+        await save_draft(session, agent_id, draft.script.model_copy(update={"opening_line": line}))
+    return ReplacedOpening(opening_line=line, version=version)
+
+
 __all__ = [
     "MAX_VERSIONS_PAGE",
     "Draft",
     "LoadedScript",
     "Preview",
+    "ReplacedOpening",
     "SavedScript",
     "VersionEntry",
     "assert_agent_visible",
@@ -690,6 +780,7 @@ __all__ = [
     "load_agent_script",
     "read_draft",
     "recompile_collect",
+    "replace_opening_line",
     "restore_into_draft",
     "rewrite_script",
     "save_agent_script",

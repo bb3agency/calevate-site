@@ -33,6 +33,7 @@ what proves that rather than this sentence.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any, cast
 from uuid import UUID
 
@@ -42,14 +43,15 @@ from calevate_shared.lead_fields import business_only
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.engine_limits import greeting_budget
 from apps.api.agents.languages import Language, published_extra_languages
 from apps.api.agents.llm_models import resolve_llm_model
 from apps.api.agents.llm_tiers import engine_model_token, tier_label, tier_of_model
 from apps.api.agents.models import AgentStatus
-from apps.api.agents.schemas import AgentOut
+from apps.api.agents.schemas import AgentOut, GreetingBudgetOut
 from apps.api.billing.rates import llm_surcharge_applies
 from apps.api.compliance.disclosure import truthful_answer_promise
-from apps.api.engine import engine_capabilities
+from apps.api.engine import engine_capabilities, get_engine
 
 #: The roster query, spelled once and reached from every reader (D-302).
 #:
@@ -121,18 +123,17 @@ def agent_out(r: Any) -> AgentOut:
     recorded = engine_capabilities().records_audio
     # Through the ONE composer, so the roster, the publish path and the engine cannot
     # disagree about which notices this agent says first (D-163).
-    notices = compose_opening_line(
-        DisclosurePosture(
-            ai_disclosure_line=str(r[9]),
-            ai_disclosure_enabled=bool(r[10]),
-            recording_notice_line=str(r[11]),
-            recording_notice_enabled=bool(r[12]),
-            caller_memory_notice_line=str(r[17]),
-            caller_memory_enabled=bool(r[18]),
-        ),
-        call_is_recorded=recorded,
+    posture = DisclosurePosture(
+        ai_disclosure_line=str(r[9]),
+        ai_disclosure_enabled=bool(r[10]),
+        recording_notice_line=str(r[11]),
+        recording_notice_enabled=bool(r[12]),
+        caller_memory_notice_line=str(r[17]),
+        caller_memory_enabled=bool(r[18]),
     )
+    notices = compose_opening_line(posture, call_is_recorded=recorded)
     opening = opening_line_of(r[21])
+    budget = greeting_budget(get_engine(), posture=posture, opening=opening, direction=str(r[2]))
     return AgentOut(
         id=r[0],
         name=r[1],
@@ -168,6 +169,7 @@ def agent_out(r: Any) -> AgentOut:
         opening_line=notices,
         script_opening_line=opening,
         first_words=join_first_words(notices, opening),
+        greeting_budget=None if budget is None else GreetingBudgetOut(**asdict(budget)),
         truthful_answer_rule=truthful_answer_promise(call_is_recorded=recorded),
     )
 
