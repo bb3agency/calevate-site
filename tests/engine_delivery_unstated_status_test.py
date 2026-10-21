@@ -1,8 +1,11 @@
-"""A signed delivery that states no status is not taken as the call's outcome.
+"""The ingest read takes a signed delivery alone only while the call is live or when it is the
+call's final record.
 
-The adapter reads an absent status as `failed`, which is terminal: kept, it would stop the
-later `call.analysed` from recording `no_answer`, `busy` or `voicemail`. So the ingest read
-asks the engine's fetch instead, and keeps the delivery only when the fetch cannot answer.
+A `call.completed` body states the call's `outcome` but carries no `analysedAt` (ThinnestAI's
+email of 21 Oct 2026, §23 item 5), so the engine's fetch is asked, which may already hold the
+analysed call. A delivery stating no status at all reads as `failed`, which is terminal: kept,
+it would stop the later `call.analysed` from recording `no_answer`, `busy` or `voicemail`, so
+the fetch is asked for it too. The delivery stands only when the fetch cannot answer.
 """
 
 from __future__ import annotations
@@ -10,6 +13,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
 from apps.api.core.errors import ProblemError
 from apps.api.engine.thinnest import ThinnestEngine
 from apps.api.reliability.engine_intake_keys import seal_delivery
@@ -46,28 +50,38 @@ def _fetched(status: str) -> ExecutionSnapshot:
     )
 
 
-async def test_a_delivery_without_a_status_asks_the_fetch() -> None:
+@pytest.mark.parametrize(
+    "data",
+    [{"callRef": CALL, "outcome": "missed", "hangup": "no_answer"}, {"callRef": CALL}],
+    ids=["call.completed", "no status"],
+)
+async def test_a_delivery_that_is_not_the_final_record_asks_the_fetch(data: dict[str, Any]) -> None:
     engine = _Engine(_fetched("missed"))
-    snapshot = await engine_delivery.execution_truth(
-        engine, CALL, _delivery({"id": CALL, "outcome": "missed"})
-    )
+    snapshot = await engine_delivery.execution_truth(engine, CALL, _delivery(data))
     assert engine.fetches == 1
     assert snapshot.status == "busy" and snapshot.raw_status == "missed"
 
 
-async def test_a_delivery_with_a_status_is_read_without_a_fetch() -> None:
+async def test_a_final_or_live_delivery_is_read_without_a_fetch() -> None:
     engine = _Engine(_fetched("missed"))
+    analysed = {"id": CALL, "status": "completed", "analysedAt": "2026-10-21T05:00:00Z"}
     snapshot = await engine_delivery.execution_truth(
-        engine, CALL, _delivery({"id": CALL, "status": "completed"}, event="call.analysed")
+        engine, CALL, _delivery(analysed, event="call.analysed")
     )
-    assert engine.fetches == 0
     assert snapshot.status == "completed"
+    live = await engine_delivery.execution_truth(
+        engine, CALL, _delivery({"id": CALL, "status": "ringing"}, event="call.analysed")
+    )
+    assert live.status == "ringing"
+    assert engine.fetches == 0
 
 
-async def test_when_the_fetch_cannot_answer_the_delivery_stands() -> None:
+async def test_when_the_fetch_cannot_answer_the_delivery_stands_with_its_outcome() -> None:
     engine = _Engine(ProblemError.not_found("Call"))
     snapshot = await engine_delivery.execution_truth(
-        engine, CALL, _delivery({"id": CALL, "outcome": "missed"})
+        engine, CALL, _delivery({"callRef": CALL, "outcome": "missed", "hangup": "voicemail"})
     )
     assert engine.fetches == 1
-    assert snapshot.raw_status == engine_delivery.UNSTATED_STATUS
+    assert (snapshot.status, snapshot.raw_status) == ("voicemail", "missed")
+    unstated = await engine_delivery.execution_truth(engine, CALL, _delivery({"callRef": CALL}))
+    assert unstated.raw_status == engine_delivery.UNSTATED_STATUS

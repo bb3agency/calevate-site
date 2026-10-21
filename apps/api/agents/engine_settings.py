@@ -86,6 +86,8 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         "reply_length",
         # Whether the engine's own lead and hand-over sentences are left out (D-847).
         "own_rules",
+        # Our call rules in place of the engine's defaults, or the defaults (D-850).
+        "call_instructions",
     }
 )
 

@@ -7,8 +7,7 @@ below cites the hash-pinned mirror `thinnest-findings/mirror/pages/` (VERIFIED-V
 as `path:line`. No request has been made against a live ThinnestAI account from this tree.
 
 Where the mirror is silent the value is marked UNVERIFIED at the line and the adapter either
-sends nothing or refuses by name. The open items: the shape of a `call.completed` body, and
-which number `from` names on an inbound call.
+sends nothing or refuses by name.
 
 ONE CUSTOMER WORKSPACE PER CLIENT (D-693). A client's agents, calls, numbers and webhooks live
 in its own ThinnestAI customer workspace; every request about them carries the workspace
@@ -53,6 +52,7 @@ from urllib.parse import quote, urlsplit
 import httpx
 from calevate_shared.call_script import business_line_of, substitute_variables
 from calevate_shared.engine import (
+    CALL_INSTRUCTIONS,
     E164,
     AccountKBListing,
     AccountKBObject,
@@ -265,11 +265,17 @@ INSTRUCTIONS_MAX_CHARS: Final = 20_000
 #: turn, never a limit and never money.
 ENGINE_ADDED_PROMPT_CHARS: Final = 4_700
 #: ThinnestAI's default call rules, about 1,675 characters, added on every call turn on top of
-#: `ENGINE_ADDED_PROMPT_CHARS`: only `voice.callInstructions` replaces them, `instructions` and
-#: `steps` do not, and we send no `callInstructions` (VENDOR-STATED, ThinnestAI's email of
-#: 21 Oct 2026, `docs/vendor/thinnest-replies-2026-10-12.md` §21.0; update-agent.md:1641-1647
-#: of the 19 Oct snapshot). We do not hold the default rules' text, so we cannot replace them.
+#: `ENGINE_ADDED_PROMPT_CHARS` unless `voice.callInstructions` replaces them; `instructions` and
+#: `steps` do not (VENDOR-STATED, ThinnestAI's emails of 21 Oct 2026,
+#: `docs/vendor/thinnest-replies-2026-10-12.md` §21.0 item 8 and §23.0 item 3, the text).
 ENGINE_DEFAULT_CALL_RULES_CHARS: Final = 1_675
+#: `voice.callInstructions`: "4000 characters or fewer, separate from the agent's
+#: `instructions` limit. It REPLACES the built-in call rules and is added after the agent's
+#: instructions in the call prompt. Longer is refused with a 400, never cut. `null` or blank
+#: goes back to the built-in rules" (live https://app.thinnest.ai/openapi.json, read 21 Oct
+#: 2026; snapshots/2026-10-18/pages/channels/voice.md:200-206).
+CALL_INSTRUCTIONS_FIELD: Final = "callInstructions"
+CALL_INSTRUCTIONS_MAX_CHARS: Final = 4_000
 #: `businessDescription`, "One line about what the business is" (snapshots/2026-10-08/pages/
 #: api-reference/agents/update-agent.md:531-534).
 BUSINESS_DESCRIPTION_MAX_CHARS: Final = 200
@@ -573,6 +579,15 @@ def _our_number(call: dict[str, Any], direction: CallDirection) -> str | None:
 def _items(payload: dict[str, Any]) -> list[dict[str, Any]]:
     rows = payload.get("items")
     return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
+
+def _raw_status_of(call: dict[str, Any]) -> str:
+    """How a call stands, lower-cased; "" when unstated. A call object states `status`
+    (get-call.md); a `call.completed` body has no `status` and states `outcome` instead,
+    `completed`, `missed` or `failed`, read with `hangup` like a status (ThinnestAI's email
+    of 21 Oct 2026, §23 item 5, and the `call.completed` example in the live
+    https://app.thinnest.ai/openapi.json, both read 21 Oct 2026)."""
+    return (_str(call.get("status")) or _str(call.get("outcome")) or "").lower()
 
 
 def _our_status(raw_status: str, hangup: str | None) -> CallStatus:
@@ -1261,6 +1276,7 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "end_phrases": ("voice.endPhrases",),
     "reask_wait": ("voice.reaskAfterSeconds",),
     "reply_length": ("maxReplyTokens",),
+    "call_instructions": (f"voice.{CALL_INSTRUCTIONS_FIELD}",),
 }
 _LANGUAGE_KEYS: Final = frozenset({"language", "voice.language"})
 
@@ -1387,7 +1403,7 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
                 same = _same_surfaces(want, have)
             elif key in ("voice.thinkingLines", "voice.endPhrases"):
                 same = _same_words(want, have, ordered=True)
-            elif key == "voice.nudgePhrase":
+            elif key in ("voice.nudgePhrase", f"voice.{CALL_INSTRUCTIONS_FIELD}"):
                 same = present and (have or None) == want
             elif key == "voice.ambienceVolume":
                 same = _same_hundredths(want, have)
@@ -1431,6 +1447,21 @@ def _refuse_unsaved_reply_length(wanted: dict[str, Any], saved: dict[str, Any]) 
             "engine_reply_length_not_saved",
             title="The voice platform did not save this agent's reply length",
             detail="The longest reply read back from the voice platform differs from the one sent.",
+            remediation="Publish again. If it keeps happening, contact us.",
+        )
+
+
+def _refuse_unsaved_call_instructions(wanted: dict[str, Any], saved: dict[str, Any]) -> None:
+    """The publish read-back of the call rules (D-850): an agent left on rules we did not
+    send would follow the engine's defaults, or ours after the switch went off. A blank
+    answer is the built-in rules, like `null`."""
+    present, have = _field(saved, f"voice.{CALL_INSTRUCTIONS_FIELD}")
+    if present and (have or None) != wanted["voice"][CALL_INSTRUCTIONS_FIELD]:
+        log.warning("thinnest_call_instructions_not_saved")
+        raise _business_refusal(
+            "engine_call_instructions_not_saved",
+            title="The voice platform did not save this agent's call rules",
+            detail="The call rules read back from the voice platform differ from the ones sent.",
             remediation="Publish again. If it keeps happening, contact us.",
         )
 
@@ -1944,6 +1975,16 @@ class ThinnestEngine:
             # decimals, 0.05-1 (same page); we hold whole percent.
             "ambience": cfg.ambience,
             "ambienceVolume": round(cfg.ambience_volume_pct / 100, 2),
+            # Our call rules in place of the engine's defaults (D-850), or `null` for the
+            # defaults; always stated, so switching off puts every agent back on them.
+            CALL_INSTRUCTIONS_FIELD: self._within(
+                CALL_INSTRUCTIONS,
+                CALL_INSTRUCTIONS_MAX_CHARS,
+                code="engine_call_instructions_too_long",
+                what="call rules",
+            )
+            if cfg.engine_call_instructions
+            else None,
             **PLATFORM_VOICE_VALUES,
         }
         if cfg.engine_voice_id and cfg.engine_byok_voice_id:
@@ -2537,6 +2578,7 @@ class ThinnestEngine:
                 raise _bad_response("The voice platform did not return an agent id.")
         _refuse_unsaved_steps(body, data)
         _refuse_unsaved_reply_length(body, data)
+        _refuse_unsaved_call_instructions(body, data)
         await self._settle_own_rules(raw, workspace, body, data)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_own_model(raw, workspace, cfg)
@@ -2550,6 +2592,7 @@ class ThinnestEngine:
         saved = await self._write_agent("PATCH", f"/agents/{raw}", "/agents/{ref}", workspace, body)
         _refuse_unsaved_steps(body, saved)
         _refuse_unsaved_reply_length(body, saved)
+        _refuse_unsaved_call_instructions(body, saved)
         await self._settle_own_rules(raw, workspace, body, saved)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_own_model(raw, workspace, cfg)
@@ -3750,7 +3793,7 @@ class ThinnestEngine:
         """
         raw_call = _call_id_of(payload)
         call_id = scoped_handle(raw_call, workspace) if raw_call else fallback_id
-        raw_status = (_str(payload.get("status")) or "").lower()
+        raw_status = _raw_status_of(payload)
         hangup = _str(payload.get("hangup"))
         terminal = raw_status in _TERMINAL_RAW
         direction: CallDirection = (
@@ -3958,11 +4001,12 @@ class ThinnestEngine:
         the envelope is read as the call object itself. An unknown or absent status degrades
         to `failed`, an unstated direction to outbound, and no tenant is ever read from it.
 
-        UNVERIFIED: the `call.completed` body is described only as "outcome and duration"
-        (webhooks.md:74); it is read with the call object's field names."""
+        A `call.completed` body carries `callRef`, `outcome`, `hangup`, `seconds`, `endedAt`
+        and `quality`, and never a transcript, recording, summary or `analysedAt` (§23 item 5
+        and the live openapi.json example, 21 Oct 2026): its `outcome` is read as the status."""
         data = payload.get("data")
         call: dict[str, Any] = data if isinstance(data, dict) else payload
-        raw_status = (_str(call.get("status")) or "").lower()
+        raw_status = _raw_status_of(call)
         hangup = _str(call.get("hangup"))
         direction: CallDirection = "inbound" if call.get("direction") == "inbound" else "outbound"
         customer = _e164(call.get("phone"))

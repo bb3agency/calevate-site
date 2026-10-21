@@ -869,6 +869,8 @@ def _to_config(
         and not call_backs_withheld(agent.get("prompt")),
         # The engine's own hand-over and lead sentences left out, ours in the prompt (D-847).
         engine_own_rules=engine.name == "thinnest" and settings.thinnest_own_rules,
+        # Our call rules in place of the engine's default call rules (D-850).
+        engine_call_instructions=engine.name == "thinnest" and settings.thinnest_call_instructions,
         detect_machines=bool(agent.get("detect_machines", False)),
         **_call_settings_fields(agent),
         max_reply_tokens=resolve_max_reply_tokens(agent.get("max_reply_tokens")),

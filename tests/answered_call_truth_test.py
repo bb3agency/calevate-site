@@ -69,11 +69,23 @@ def _whole(call_id: str, ref: str, *, transcript: bool = True) -> dict[str, Any]
 
 
 def _completed_hint(call_id: str, ref: str) -> dict[str, Any]:
-    """A `call.completed` body: how the call ended and how long it lasted. Its exact fields
-    are undocumented, and the production outcome (`missed` on a completed row, no recording)
-    is what a body without `status` produces."""
+    """A `call.completed` body: how the call ended and how long it lasted, as `outcome`, never
+    `status`, and no transcript, recording or `analysedAt` (the live openapi.json example and
+    ThinnestAI's email of 21 Oct 2026, §23 item 5)."""
     whole = _whole(call_id, ref, transcript=False)
-    return {k: whole[k] for k in ("id", "direction", "agent", "startedAt", "endedAt", "seconds")}
+    return {
+        "callRef": call_id,
+        "conversationId": "conv_1",
+        "outcome": "completed",
+        "hangup": "answered",
+        "seconds": whole["seconds"],
+        "direction": "outbound",
+        "surface": "phone",
+        "phone": whole["phone"],
+        "id": call_id,
+        "quality": None,
+        "endedAt": whole["endedAt"],
+    }
 
 
 def _seal(event: str, call_id: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -224,6 +236,27 @@ async def test_the_last_attempt_settles_loudly_and_never_says_nothing_was_said(
     assert call["outcome"] != "missed"
 
 
+async def test_a_call_completed_hint_records_its_outcome_when_get_call_cannot_answer(
+    vendor: dict[str, Any],
+) -> None:
+    """Get Call 404: the hint stands, its `outcome` read as the status, so the row says the
+    call was answered rather than `failed`, and nothing is settled until `call.analysed`."""
+    tenant_id, ref, execution_id = await _staged(vendor)
+    hint = _seal("call.completed", execution_id, _completed_hint(execution_id, ref))
+
+    assert await _ingest(ref, execution_id, hint) == "awaiting_completion:completed"
+    assert vendor["gets"] == 1
+    assert not [job for job, _ in vendor["enqueued"] if job == pipeline.POSTCALL_JOB]
+    async with tenant_session(tenant_id) as session:
+        status, seconds = (
+            await session.execute(
+                text("SELECT status, duration_s FROM calls WHERE engine_call_id = :e"),
+                {"e": execution_id},
+            )
+        ).one()
+    assert (status, seconds) == ("completed", 58)
+
+
 async def test_the_later_analysed_delivery_rereads_a_call_settled_without_turns_and_bills_once(
     vendor: dict[str, Any],
 ) -> None:
@@ -294,7 +327,9 @@ async def test_a_completed_row_reads_as_answered_whatever_the_snapshot_states(
     call_id = UUID(_queued(vendor)["call_id"])
     engine = pipeline.get_engine()
     assert isinstance(engine, ThinnestEngine)
-    unstated = engine.snapshot_from_delivery({"data": _completed_hint(execution_id, ref)})
+    hint = _completed_hint(execution_id, ref)
+    del hint["outcome"]
+    unstated = engine.snapshot_from_delivery({"data": hint})
     assert unstated.status != "completed"
 
     assert await pipeline._record_outcome(tenant_id, call_id, unstated) != "missed"
