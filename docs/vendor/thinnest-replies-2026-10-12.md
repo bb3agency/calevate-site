@@ -1307,7 +1307,7 @@ regulation 4, prompt order, volume price and carrier tests are excluded at the f
 direction, 21 Oct 2026). Item 4 waits on lane AGENTQ2's finding: it goes in only if their
 reply-language rule, not ours, produced the English reply.
 
-> Subject: Calevate: billing blocks, the per-turn prompt, and two small doc questions
+> Subject: Calevate: billing blocks, the per-turn prompt, and one doc question
 >
 > Hi Ashutosh,
 >
@@ -1335,7 +1335,7 @@ reply-language rule, not ours, produced the English reply.
 >    caller then had to ask for Telugu. Could `language: "auto"` stay in the language of the
 >    greeting until the caller speaks a full sentence in another language?
 >
-> And two documentation questions:
+> And one documentation question:
 > - What exactly does the `call.completed` body carry (status, seconds, `analysedAt`; never
 >   the transcript or recording?), and can it ever arrive after `call.analysed`?
 >
