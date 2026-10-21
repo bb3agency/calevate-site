@@ -73,8 +73,10 @@ BASE_RATE_KEY: Final[EngineRateKey] = "platform"
 #: call is not carrier-only (:1249-1254, D-835): see `engine_minute_cost`.
 CARRIER_RATE_KEY: Final = "carrier"
 #: The voice plan a forwarded call is billed at when no agent is attached to the number
-#: (snapshots/2026-10-19/pages/api-reference/calls/get-call.md:1249-1253). Our calls always
-#: carry an agent, so it is reached only for a call whose agent has no route row.
+#: (snapshots/2026-10-19/pages/api-reference/calls/get-call.md:1249-1253); in a workspace on
+#: our own keys it is that key setting's price instead (§21.0 of `docs/vendor/
+#: thinnest-replies-2026-10-12.md`). Our calls always carry an agent, so it is reached only for
+#: a call whose agent has no route row, where which key set ran is not known to us.
 FORWARD_WITHOUT_AGENT_RATE_KEY: Final[EngineRateKey] = "standard"
 #: Every key a per-minute price may be attested for: the route keys and the carrier's fee.
 PRICED_RATE_KEYS: Final[tuple[str, ...]] = (*ENGINE_RATE_KEYS, CARRIER_RATE_KEY)
@@ -96,6 +98,13 @@ BYOK_LLM_VOICE_RATE_KEY: Final[EngineRateKey] = "byok_llm_voice"
 #: The rate keys of a minute spoken on our own voice key: the Studio rung, with or without
 #: our model (D-764).
 OWN_VOICE_RATE_KEYS: Final[frozenset[str]] = frozenset({"byok_voice", "byok_llm_voice"})
+#: The rate keys of an agent on one of our flat-priced key sets, `voice` (`byok_voice`) and
+#: `llm_voice` (`byok_llm_voice`). A forward on such an agent is billed at that key set's flat
+#: price although no key is used (VENDOR-STATED, ThinnestAI's email of 21 Oct 2026,
+#: `docs/vendor/thinnest-replies-2026-10-12.md` §21.0, correcting D-835). The third flat set,
+#: all three keys, is refused at publish (`agents/engine_choice.KEYS_NOT_ON_SALE`); scope
+#: `llm` is not flat: its minute is the voice band's, so it keeps that band's key.
+OWN_KEY_SET_RATE_KEYS: Final[frozenset[str]] = OWN_VOICE_RATE_KEYS
 
 #: Engines whose own voices are sold by band (D-687), keyed by the client rung map below.
 BAND_SOLD_ENGINES: Final = frozenset({"thinnest"})
@@ -469,7 +478,10 @@ async def engine_minute_cost(
     no agent is attached; on a number the client brought nothing is charged
     (snapshots/2026-10-19/pages/api-reference/calls/get-call.md:1249-1254,
     api-reference/phone-numbers/update-phone-number.md:654-657; D-835, replacing D-813's
-    carrier fee for a forward).
+    carrier fee for a forward). On an agent of our own key sets it is that set's flat price
+    (`OWN_KEY_SET_RATE_KEYS`, D-847), also on a brought number: whether a brought number
+    still bills nothing there is open with the vendor, and the higher figure keeps our cost
+    floor safe.
 
     The whole minute is ONE leg (`platform_inr`): ThinnestAI sells telephony, speech and
     model as one per-minute price (evaluation §2), so splitting it across our per-leg rows
@@ -503,7 +515,11 @@ async def engine_minute_cost(
     pulse = CARRIER_BLOCK_SECONDS[engine] if carrier_only else PULSE_SECONDS[engine]
     minutes = billed_minutes(seconds, pulse_s=pulse)
     fee = await wallet_topup_fee(session, engine=engine, at=at)
-    if forwarded and await _on_brought_number(session, tenant_id=tenant_id, call_id=call_id):
+    if (
+        forwarded
+        and rate_key not in OWN_KEY_SET_RATE_KEYS
+        and await _on_brought_number(session, tenant_id=tenant_id, call_id=call_id)
+    ):
         return MinuteCost(
             rate_key=rate_key,
             client_rate_key=route_key,
@@ -555,6 +571,7 @@ __all__ = [
     "FEE_CORRECTION_META_KIND",
     "FEE_RESTATEMENT_META_KIND",
     "FORWARD_WITHOUT_AGENT_RATE_KEY",
+    "OWN_KEY_SET_RATE_KEYS",
     "OWN_VOICE_RATE_KEYS",
     "PRICED_RATE_KEYS",
     "PULSE_SECONDS",

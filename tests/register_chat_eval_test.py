@@ -295,7 +295,12 @@ class FakeVendor:
         return f"kb_{ref}"
 
     async def test_chat(
-        self, ref: EngineAgentRef, message: str, *, session: str | None = None
+        self,
+        ref: EngineAgentRef,
+        message: str,
+        *,
+        session: str | None = None,
+        call_mode: bool = False,
     ) -> ChatTurn:
         self.chats += 1
         if self.fail_chat_after is not None and self.chats > self.fail_chat_after:

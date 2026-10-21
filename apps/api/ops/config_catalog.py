@@ -303,6 +303,22 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "it is cut off mid-sentence. 300 is ThinnestAI's own default.",
         _THINNEST,
     ),
+    "thinnest_own_rules": _m(
+        "voice-engine",
+        "thinnest",
+        "Agents follow only our hand-over and lead rules (ownRules)",
+        "On: ThinnestAI stops adding its lead, hand-over and call-back lines; ours state "
+        "them. Leave off until ThinnestAI says the release is live and its docs show it.",
+        _THINNEST,
+    ),
+    "thinnest_test_chat_call_mode": _m(
+        "voice-engine",
+        "thinnest",
+        "Practice tests run as a call (Test Chat call mode)",
+        "On: practice tests use the agent's call prompt, model and thinking level. Leave off "
+        "until ThinnestAI says the release is live and its docs show it.",
+        _THINNEST,
+    ),
     "reply_time_target_ms": _m(
         "voice-engine",
         "thinnest",
@@ -1207,6 +1223,8 @@ HIGH_RISK: Final[dict[str, str]] = {
     "thinnest_byok_enabled": "Every minute moves to the ₹1 full-BYOK rate on our own speech, "
     "model and voice keys, and every agent's voice and model choice is locked.",
     "thinnest_clear_voice_band": "Changes which ThinnestAI band clients are sold as Clear.",
+    "thinnest_own_rules": "Every live agent is republished, and its hand-over, lead and "
+    "call-back rules come from our prompt alone (on) or from ThinnestAI as well (off).",
     "thinnest_in_call_default_model": "Changes the language model every agent with none of its "
     "own answers calls with, from its next call.",
     "thinnest_own_model": "Every live agent, free-trial agents in our developer workspace "

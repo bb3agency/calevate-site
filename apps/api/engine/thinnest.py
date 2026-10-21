@@ -140,7 +140,13 @@ from apps.api.engine.forwarding_probe import (
 )
 from apps.api.engine.health import PlatformStatus
 from apps.api.engine.recording_source import EngineRecordingSource, RecordingFetchRules
-from apps.api.engine.test_chat import TEST_CHAT_UNAVAILABLE, TestChatTool, TestChatTurn
+from apps.api.engine.test_chat import (
+    TEST_CALL_NOT_SET_UP,
+    TEST_CHAT_UNAVAILABLE,
+    TestChatMode,
+    TestChatTool,
+    TestChatTurn,
+)
 from apps.api.engine.text_split import split_for_text_cap
 from apps.api.engine.thinnest_workspace import (
     trial_agent_allowed,
@@ -254,14 +260,15 @@ INSTRUCTIONS_MAX_CHARS: Final = 20_000
 #: rule 64-601, date line 228, fence wrapper about 290, speaking rules 1,876 (about 1,000 more
 #: with a transfer target) (ThinnestAI email of 19 Oct 2026, VENDOR-STATED; not in the docs).
 #: The 4,700 EXCLUDES the default call rules below: the other parts sum to 3,680-4,982, and
-#: 1,675 on top would put even the smallest case past 4,700. An estimate for sizing what the
-#: model reads per turn, never a limit and never money.
+#: 1,675 on top would put even the smallest case past 4,700. With `ownRules` on (D-847) the
+#: hand-over and lead parts are left out. An estimate for sizing what the model reads per
+#: turn, never a limit and never money.
 ENGINE_ADDED_PROMPT_CHARS: Final = 4_700
-#: ThinnestAI's default call rules, 1,675 characters, "added only if you haven't written your
-#: own" (same email, VENDOR-STATED). Which field counts as our own is not stated: the docs say
-#: `callInstructions` "REPLACES the built-in call rules" (snapshots/2026-10-19/pages/
-#: api-reference/agents/update-agent.md:1641-1647), and our publish does not send it, so the
-#: per-turn size is reported as a range with and without these.
+#: ThinnestAI's default call rules, about 1,675 characters, added on every call turn on top of
+#: `ENGINE_ADDED_PROMPT_CHARS`: only `voice.callInstructions` replaces them, `instructions` and
+#: `steps` do not, and we send no `callInstructions` (VENDOR-STATED, ThinnestAI's email of
+#: 21 Oct 2026, `docs/vendor/thinnest-replies-2026-10-12.md` §21.0; update-agent.md:1641-1647
+#: of the 19 Oct snapshot). We do not hold the default rules' text, so we cannot replace them.
 ENGINE_DEFAULT_CALL_RULES_CHARS: Final = 1_675
 #: `businessDescription`, "One line about what the business is" (snapshots/2026-10-08/pages/
 #: api-reference/agents/update-agent.md:531-534).
@@ -512,6 +519,20 @@ def _test_chat_tool(item: dict[str, Any], name: str) -> TestChatTool:
     )
 
 
+#: The documented refusal of an agent that does not answer the phone (`Error.code`,
+#: snapshots/2026-10-19/pages/api-reference/agents/test-chat.md; place-call's 409).
+CALLING_NOT_SET_UP: Final = "calling_not_set_up"
+
+
+def _test_chat_mode(stated: Any, *, asked_call: bool) -> TestChatMode | None:
+    """The mode a test-chat turn ran in: the answer's `mode` when it names one we know, else
+    `chat` when none was asked for (the endpoint is the agent's website chat, test-chat.md:7),
+    else None: call mode asked for and not confirmed."""
+    if stated in ("chat", "call"):
+        return cast(TestChatMode, stated)
+    return None if asked_call else "chat"
+
+
 def _tidy_spoken(text: str) -> str:
     """A sentence with an unfilled `{{name}}` removed, without the gap it leaves.
 
@@ -538,6 +559,17 @@ def _e164(value: Any) -> str | None:
         return None
     digits = "".join(ch for ch in value if ch.isdigit())
     return f"+{digits}" if digits else None
+
+
+def _our_number(call: dict[str, Any], direction: CallDirection) -> str | None:
+    """The client's number on a call: `from`, the number an outbound call rang from, or `to`,
+    the number an inbound call came in on. `from` is "always null on a call that came in"
+    (snapshots/2026-10-19/pages/api-reference/calls/get-call.md:872-883); Get Call and List
+    Calls carry `to` from ThinnestAI's release after 21 Oct 2026, empty on calls we placed and
+    on calls before it (VENDOR-STATED, its email of 21 Oct 2026, `docs/vendor/
+    thinnest-replies-2026-10-12.md` §21.0). Without it the pipeline takes the answering
+    agent's number (`workers/pipeline._INBOUND_NUMBER_SQL`, D-842)."""
+    return _e164(call.get("to") if direction == "inbound" else call.get("from"))
 
 
 def _items(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -939,7 +971,7 @@ _DIAL_NOT_PLACED_CODES: Final = frozenset(
         "number_never_callable",
         "call_in_progress",
         "call_already_scheduled",
-        "calling_not_set_up",
+        CALLING_NOT_SET_UP,
         "carrier_unavailable",
         "agent_not_found",
         "agent_ambiguous",
@@ -955,7 +987,7 @@ _DIAL_NOT_PLACED_CODES: Final = frozenset(
 #: dial fails the same way until an operator acts, so each is alarmed by its code.
 _DIAL_SETUP_CODES: Final = frozenset(
     {
-        "calling_not_set_up",
+        CALLING_NOT_SET_UP,
         "agent_not_found",
         "agent_ambiguous",
         "from_number_invalid",
@@ -1366,6 +1398,8 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
             if not same:
                 drifted.append(label)
                 break
+    if _own_rules_drift(wanted, held):
+        drifted.append("own_rules")
     return drifted
 
 
@@ -1401,6 +1435,34 @@ def _refuse_unsaved_reply_length(wanted: dict[str, Any], saved: dict[str, Any]) 
             detail="The longest reply read back from the voice platform differs from the one sent.",
             remediation="Publish again. If it keeps happening, contact us.",
         )
+
+
+#: The agent field that leaves ThinnestAI's lead, hand-over and call-back sentences out
+#: (VENDOR-STATED, its email of 21 Oct 2026, `docs/vendor/thinnest-replies-2026-10-12.md`
+#: §21.0; not in the 19 Oct docs). Sent only while `AgentConfig.engine_own_rules` is on, so a
+#: server that does not know it never receives it; switched back off only on an agent whose
+#: answer showed the field, which proves the server knows it. Whether an answer echoes it is
+#: not stated, so a field absent from an answer is not compared.
+OWN_RULES_FIELD: Final = "ownRules"
+
+
+def _own_rules_wanted(body: dict[str, Any]) -> bool:
+    return body.get(OWN_RULES_FIELD) is True
+
+
+def _own_rules_drift(wanted: dict[str, Any], held: dict[str, Any]) -> bool:
+    """`held` (an agent answer) states `ownRules` and it is not what `wanted` means."""
+    return OWN_RULES_FIELD in held and (held[OWN_RULES_FIELD] is True) != _own_rules_wanted(wanted)
+
+
+def _own_rules_not_saved() -> ProblemError:
+    log.warning("thinnest_own_rules_not_saved")
+    return _business_refusal(
+        "engine_own_rules_not_saved",
+        title="The voice platform did not save which rules this agent follows",
+        detail="The voice platform's own rule switch read back differently from the one sent.",
+        remediation="Publish again. If it keeps happening, contact us.",
+    )
 
 
 def _same_words(wanted: list[str], held: Any, *, ordered: bool) -> bool:
@@ -1929,6 +1991,11 @@ class ThinnestEngine:
             # create-agent.md:760-768). Always stated, so a console edit reads as drift.
             "maxReplyTokens": cfg.max_reply_tokens,
         }
+        if cfg.engine_own_rules:
+            # The vendor's lead, hand-over and call-back sentences left out; the prompt
+            # carries ours (`OWN_RULES_HANDOVER_RULE`, D-847). Kept by the vendor whatever is
+            # sent: the boundary, AI disclosure, reply language, date and transfer put-through.
+            body[OWN_RULES_FIELD] = True
         # Ids from `GET /voices` and `GET /models`, checked against the catalogue before
         # publish (`agents/engine_choice.py`). A voice of our own voice key goes to
         # `PUT /agents/{id}/byok-voice` after the write instead (`_apply_own_key_voice`).
@@ -2470,6 +2537,7 @@ class ThinnestEngine:
                 raise _bad_response("The voice platform did not return an agent id.")
         _refuse_unsaved_steps(body, data)
         _refuse_unsaved_reply_length(body, data)
+        await self._settle_own_rules(raw, workspace, body, data)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_own_model(raw, workspace, cfg)
         await self._apply_built_in_tools(raw, workspace, cfg)
@@ -2482,9 +2550,27 @@ class ThinnestEngine:
         saved = await self._write_agent("PATCH", f"/agents/{raw}", "/agents/{ref}", workspace, body)
         _refuse_unsaved_steps(body, saved)
         _refuse_unsaved_reply_length(body, saved)
+        await self._settle_own_rules(raw, workspace, body, saved)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_own_model(raw, workspace, cfg)
         await self._apply_built_in_tools(raw, workspace, cfg)
+
+    async def _settle_own_rules(
+        self, raw: str, workspace: str | None, body: dict[str, Any], saved: dict[str, Any]
+    ) -> None:
+        """The publish read-back of `ownRules` from the agent the write answered with. Sent
+        on: an answer stating anything else is refused. Not sent (the switch is off): the
+        field is omitted, which leaves a value an earlier publish set, so an answer still
+        stating `true` is switched off with a second write and read back."""
+        if not _own_rules_drift(body, saved):
+            return
+        if _own_rules_wanted(body):
+            raise _own_rules_not_saved()
+        again = await self._write_agent(
+            "PATCH", f"/agents/{raw}", "/agents/{ref}", workspace, {OWN_RULES_FIELD: False}
+        )
+        if _own_rules_drift(body, again):
+            raise _own_rules_not_saved()
 
     async def override_call_script(
         self, ref: EngineAgentRef, *, opening_line: str, system_prompt: str
@@ -2633,6 +2719,10 @@ class ThinnestEngine:
                     body[key] = wanted[key]
         if voice:
             body["voice"] = voice
+        if "own_rules" in drifted:
+            # Reported only from an answer stating the field, so `false` reaches a server
+            # that knows it (`OWN_RULES_FIELD`).
+            body[OWN_RULES_FIELD] = _own_rules_wanted(wanted)
         if body:
             await self._write_agent("PATCH", f"/agents/{raw}", "/agents/{ref}", workspace, body)
         if {"built_in_tools", "hand_over"} & set(drifted):
@@ -2678,7 +2768,12 @@ class ThinnestEngine:
         return out
 
     async def test_chat(
-        self, ref: EngineAgentRef, message: str, *, session: str | None = None
+        self,
+        ref: EngineAgentRef,
+        message: str,
+        *,
+        session: str | None = None,
+        call_mode: bool = False,
     ) -> TestChatTurn:
         """`POST /agents/{id}/test-chat` (snapshots/2026-10-08/pages/api-reference/agents/
         test-chat.md:328-460): the real agent through its website chat, in a sandbox where
@@ -2686,11 +2781,22 @@ class ThinnestEngine:
         Playground (the rate is not published). Our own actions still run; with no call
         behind them they write nothing, and the opt-out answers as on a real call while a
         test is open for the agent (`agents/test_window`). `409` is an agent whose website
-        chat is off or absent, which we report as not testable rather than as an error."""
+        chat is off or absent, which we report as not testable rather than as an error.
+
+        `call_mode` sends `mode: "call"`: the agent's call prompt, the model its calls use
+        and, on our own Gemini key, the call's thinking level; not the voice, the hearing or
+        the call's own tools. It "needs calling set up on the agent", and the answer includes
+        `mode` (VENDOR-STATED, ThinnestAI's email of 21 Oct 2026, `docs/vendor/
+        thinnest-replies-2026-10-12.md` §21.0; not in the 19 Oct docs). Which refusal that
+        is, is not stated: the documented error code `calling_not_set_up` (test-chat.md
+        `Error.code` of the 19 Oct snapshot) or any `409` in call mode is reported as an
+        agent not set up for calls."""
         raw, workspace = self._at(ref)
         body: dict[str, Any] = {"message": message[:4000]}
         if session:
             body["session"] = session
+        if call_mode:
+            body["mode"] = "call"
         try:
             data = await self._request(
                 "POST",
@@ -2702,6 +2808,14 @@ class ThinnestEngine:
                 timeout=TEST_CHAT_TIMEOUT,
             )
         except EngineRejectedError as exc:
+            if call_mode and (exc.vendor_code == CALLING_NOT_SET_UP or exc.vendor_status == 409):
+                raise _business_refusal(
+                    TEST_CALL_NOT_SET_UP,
+                    title="This agent cannot be tested as a call yet",
+                    detail="Practice tests run as a phone call, and this agent is not set up "
+                    "to take calls yet.",
+                    remediation="Contact us to set up calling for this agent, then test again.",
+                ) from exc
             if exc.vendor_status != 409:
                 raise
             raise _business_refusal(
@@ -2722,6 +2836,7 @@ class ThinnestEngine:
             tools=tuple(tool.name for tool in results),
             failed_part_way=data.get("error") is not None,
             tool_results=results,
+            mode=_test_chat_mode(data.get("mode"), asked_call=call_mode),
         )
 
     # --- calls ---------------------------------------------------------------
@@ -3642,11 +3757,7 @@ class ThinnestEngine:
             "inbound" if payload.get("direction") == "inbound" else "outbound"
         )
         customer = _e164(payload.get("phone"))
-        # `phone` is "The customer's number" and `from` is "Your number the call rang from
-        # ... always null on a call that came in" (snapshots/2026-10-19/pages/api-reference/
-        # calls/get-call.md:872-883). So an inbound call names only the caller, and its
-        # `to_e164` is None here; the pipeline fills it from the agent that answered.
-        ours = _e164(payload.get("from"))
+        ours = _our_number(payload, direction)
         recording = payload.get("recording")
         recording_url = _str(recording.get("url")) if isinstance(recording, dict) else None
         started = _parse_dt(payload.get("startedAt"))
@@ -3855,7 +3966,7 @@ class ThinnestEngine:
         hangup = _str(call.get("hangup"))
         direction: CallDirection = "inbound" if call.get("direction") == "inbound" else "outbound"
         customer = _e164(call.get("phone"))
-        ours = _e164(call.get("from"))
+        ours = _our_number(call, direction)
         recording = call.get("recording")
         recording_url = _str(recording.get("url")) if isinstance(recording, dict) else None
         return CallEvent(

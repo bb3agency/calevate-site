@@ -27099,9 +27099,9 @@ export interface components {
             /**
              * Channel
              * @default test_chat
-             * @constant
+             * @enum {string}
              */
-            channel: "test_chat";
+            channel: "test_chat" | "test_chat_call";
             /**
              * Counted
              * @default false

@@ -294,6 +294,12 @@ describe("the practice tests in Training", () => {
     expect(JSON.parse(posted[0]?.body ?? "null")).toEqual({ retest_of: "run-1" });
   });
 
+  it("says a run that could not be asked as a call needs calling set up, naming no provider", async () => {
+    await page(tests(run({ status: "failed", error_code: "engine_test_call_not_set_up", results: [] })));
+    expect(await screen.findByText("The test did not finish")).toBeTruthy();
+    expect(screen.getByText(/this agent is not set up to take calls yet/)).toBeTruthy();
+  });
+
   it("invites the first run", async () => {
     await page(tests(null));
     expect(await screen.findByRole("heading", { name: "Check your agent before your callers do" })).toBeTruthy();

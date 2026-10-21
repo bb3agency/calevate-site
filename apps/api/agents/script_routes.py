@@ -512,8 +512,10 @@ class TestResultOut(BaseModel):
     change: TestChange | None = None
     #: How its replies sounded, when wrong: notes for us, never the verdict.
     sounds: list[TestSoundOut] = Field(default_factory=list)
-    #: Where it was produced: `test_chat`, the engine's website-chat sandbox.
-    channel: Literal["test_chat"] = "test_chat"
+    #: Where it was produced: `test_chat`, the engine's website-chat sandbox, or
+    #: `test_chat_call`, the same sandbox with the agent's call prompt, model and thinking
+    #: level (D-847). Runs in different channels are not compared.
+    channel: test_conversations.TestChannel = "test_chat"
     #: Every try, in order.
     tries: list[TestTryOut] = Field(default_factory=list)
 
@@ -814,6 +816,7 @@ def _result_out(
         counted=trial_results.in_owner_score(raw, wrong_keys),
         change=change,
         sounds=_sounds_out(raw),
+        channel=test_conversations.result_channel(raw),
         tries=tries,
     )
 

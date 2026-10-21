@@ -221,6 +221,8 @@ def platform_prompt_revision() -> str:
             # so a change to either rendering moves the revision.
             caller_memory_enabled=callbacks,
             caller_memory_in_engine=in_knowledge,
+            # Our hand-over rule (D-847) is composed only under `ownRules`.
+            engine_own_rules=callbacks,
         )
         parts.append(compose_engine_prompt(cfg))
     # The fixed call-behaviour values too (filler timing, interruptions, re-ask), so a deploy

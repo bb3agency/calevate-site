@@ -27,6 +27,7 @@ from uuid import UUID
 
 from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis
+from apps.api.core.settings import get_settings
 from apps.api.engine.test_chat import RunsTestChat, TestChatTurn
 
 log = get_logger(__name__)
@@ -61,9 +62,16 @@ async def send_test_message(
     message: str,
     session: str | None = None,
 ) -> TestChatTurn:
-    """One test message to the live agent, with its test window open."""
+    """One test message to the live agent, with its test window open, in call mode while the
+    console switch is on (`Settings.thinnest_test_chat_call_mode`, D-847): every test path
+    asks in the same mode, so no two results of one moment are from different modes."""
     await open_window(agent_id)
-    return await engine.test_chat(engine_agent_ref, message, session=session)
+    return await engine.test_chat(
+        engine_agent_ref,
+        message,
+        session=session,
+        call_mode=get_settings().thinnest_test_chat_call_mode,
+    )
 
 
 __all__ = ["WINDOW_S", "open_window", "send_test_message", "window_open"]

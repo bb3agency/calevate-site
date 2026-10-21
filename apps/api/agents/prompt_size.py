@@ -98,20 +98,17 @@ class PromptSize:
     #: About how much the engine adds around this on every turn, outside the box
     #: (`HostedAgentLimits.added_prompt_chars`); None where nothing is known.
     engine_added: int | None = None
-    #: The engine's default call rules, which it adds on top of `engine_added` only when it
-    #: judges the agent has none (`HostedAgentLimits.default_call_rules_chars`).
+    #: The engine's default call rules, which it adds on top of `engine_added` on every turn
+    #: (`HostedAgentLimits.default_call_rules_chars`).
     engine_default_rules: int = 0
 
     @property
     def per_turn(self) -> int | None:
         """About what the model reads as instructions each turn, before the history and the
-        tool schemas: ours plus the engine's own, without its default call rules."""
-        return self.total + self.engine_added if self.engine_added is not None else None
-
-    @property
-    def per_turn_with_default_rules(self) -> int | None:
-        """`per_turn` when the engine also adds its default call rules: the top of the range."""
-        return self.per_turn + self.engine_default_rules if self.per_turn is not None else None
+        tool schemas: ours, the engine's own and its default call rules."""
+        if self.engine_added is None:
+            return None
+        return self.total + self.engine_added + self.engine_default_rules
 
     @property
     def over(self) -> int:
@@ -266,14 +263,9 @@ def lines(size: PromptSize) -> Sequence[str]:
         out.append(f"{'TOTAL':<44} {size.total:>6,} of {size.limit:,}  {verdict}")
     if size.per_turn is not None and size.engine_added is not None:
         out.append(f"{'Added by the calling system (its estimate)':<44} {size.engine_added:>6,}")
-        each_turn = f"{size.per_turn:>6,}"
         if size.engine_default_rules:
-            out.append(
-                f"{'  plus its default call rules, if it adds them':<44} "
-                f"{size.engine_default_rules:>6,}"
-            )
-            each_turn += f" to {size.per_turn_with_default_rules:,}"
-        out.append(f"{'Read by the model each turn, before history':<44} {each_turn}")
+            out.append(f"{'  plus its default call rules':<44} {size.engine_default_rules:>6,}")
+        out.append(f"{'Read by the model each turn, before history':<44} {size.per_turn:>6,}")
     return out
 
 

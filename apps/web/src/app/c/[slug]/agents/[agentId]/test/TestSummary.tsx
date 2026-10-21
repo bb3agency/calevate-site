@@ -112,7 +112,9 @@ export function Stopped({ run, canRun, onRetry }: { run: TestRun; canRun: boolea
   const why =
     run.error_code === "stalled"
       ? "It stopped answering part-way, so we stopped it."
-      : "Something on our side stopped it before it finished. Nothing about your agent was judged.";
+      : run.error_code === "engine_test_call_not_set_up"
+        ? "Tests run as a phone call, and this agent is not set up to take calls yet. Contact us to set up calling for it, then test again."
+        : "Something on our side stopped it before it finished. Nothing about your agent was judged.";
   return (
     <NoticeBox
       tone="warn"

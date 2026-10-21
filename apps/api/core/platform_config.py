@@ -565,6 +565,15 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         LIVE_AGENTS,
         f"saving it moves every live agent with no reply length of its own onto it{_NOW}",
     ),
+    # `ownRules` and the hand-over rule it moves into our prompt are both stamped at publish
+    # (D-847), so saving it republishes every live agent.
+    "thinnest_own_rules": AppliesRule(
+        LIVE_AGENTS,
+        "saving it republishes every live agent with the voice platform's lead, hand-over "
+        f"and call-back sentences left out (on) or added back (off){_NOW}",
+    ),
+    # Read on every practice-test message (`agents/test_window.send_test_message`, D-847).
+    "thinnest_test_chat_call_mode": AppliesRule(LIVE),
     # Read inside every ThinnestAI dial's intent transaction (`agents/service.dispatch_call`)
     # and once per dispatch tick for the outbound pool, like `carrier_concurrency`.
     "thinnest_max_concurrent_calls": AppliesRule(LIVE),
