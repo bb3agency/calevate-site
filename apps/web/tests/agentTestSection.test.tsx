@@ -249,8 +249,9 @@ describe("the practice tests in Training", () => {
     expect(await screen.findByRole("heading", { name: "1 fixed, 1 newly broken since the last test." })).toBeTruthy();
     expect(screen.getByText("Fixed")).toBeTruthy();
     expect(screen.getByText("Newly broken")).toBeTruthy();
-    // Undo is the one primary action while a change broke a test.
-    expect(screen.queryByRole("button", { name: "Let Pip suggest fixes" })).toBeNull();
+    // Undo leads while a change broke a test; the fixes stay offered beside it.
+    expect(screen.getByRole("button", { name: "Undo the last change" }).className).toContain("bg-brand-strong");
+    expect(screen.getByRole("button", { name: "Let Pip suggest fixes" }).className).not.toContain("bg-brand-strong");
     fireEvent.click(screen.getByRole("button", { name: "Undo the last change" }));
     expect(await screen.findByText("The earlier script is in your draft")).toBeTruthy();
     expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/versions/11/restore"))).toBe(true);

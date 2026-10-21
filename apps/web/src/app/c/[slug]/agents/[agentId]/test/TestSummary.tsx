@@ -308,8 +308,15 @@ export function NextStepBlock(props: NextStepProps) {
                 Open the suggested fixes
               </button>
             )}
-            {step === "fix" && props.canWrite && (
-              <button type="button" className={PRIMARY_BUTTON_SM} onClick={props.onFix}>
+            {/* Offered whenever a test can be fixed, not only when fixing is the next step:
+                a newly broken test makes Undo the lead action, and the fixes for the
+                tests that were already failing must not disappear behind it. */}
+            {fixable > 0 && props.canWrite && step !== "review" && step !== "retest" && (
+              <button
+                type="button"
+                className={step === "fix" ? PRIMARY_BUTTON_SM : SECONDARY_BUTTON_SM}
+                onClick={props.onFix}
+              >
                 <PipMark size={16} className="shrink-0" />
                 Let {ASSISTANT_NAME} suggest fixes
               </button>
