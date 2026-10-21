@@ -492,8 +492,17 @@ def formal_words(reply: str, language: str) -> list[str]:
     return [formal for formal, _spoken in formal_swaps(reply, language)]
 
 
-#: The channel a result was produced on (`result["channel"]`).
+#: The channel a result was produced on (`result["channel"]`): the engine's test chat, as
+#: the agent's chat or in its call mode (the call prompt, model and thinking level, D-847).
+#: A result in one is not compared with a result in the other (`trial_results.compare`).
 TEST_CHAT: Final = "test_chat"
+TEST_CHAT_CALL: Final = "test_chat_call"
+TestChannel = Literal["test_chat", "test_chat_call"]
+
+
+def result_channel(raw: dict[str, Any]) -> TestChannel:
+    """A stored result's channel; one stored before D-847 is the chat."""
+    return TEST_CHAT_CALL if raw.get("channel") == TEST_CHAT_CALL else TEST_CHAT
 
 
 @dataclass(frozen=True, slots=True)
@@ -739,6 +748,7 @@ def decide(
     language: str,
     unjudged_reason: str,
     rules: RuleContext | None = None,
+    channel: TestChannel = TEST_CHAT,
 ) -> dict[str, Any]:
     """One scenario's verdict and owner: the code checks first, then the judge, and the
     spoken-style list."""
@@ -780,9 +790,9 @@ def decide(
         "formal_words": words,
         "limit": hard.limit,
         "sounds": [{"kind": p.kind, "reason": p.reason} for p in hard.sounds],
-        # Every result so far comes from the engine's sandboxed test chat, which is a
-        # website chat, not a phone call: a problem seen only here may not happen on a call.
-        "channel": TEST_CHAT,
+        # The engine's sandboxed test chat, as a chat or in its call mode; neither is the
+        # voice or the hearing, so a problem seen only here may not happen on a call.
+        "channel": channel,
     }
 
 
@@ -1735,6 +1745,7 @@ __all__ = [
     "STALLED_CODE",
     "STALLED_RUN_S",
     "TEST_CHAT",
+    "TEST_CHAT_CALL",
     "AgentBrief",
     "HardCheck",
     "ImproveStop",
@@ -1742,6 +1753,7 @@ __all__ = [
     "Owner",
     "RuleContext",
     "Scenario",
+    "TestChannel",
     "TestReadiness",
     "TestRun",
     "Turn",
@@ -1772,6 +1784,7 @@ __all__ = [
     "recent_runs",
     "request_improvement",
     "request_run",
+    "result_channel",
     "result_owner",
     "result_verdict",
     "standard_scenarios",

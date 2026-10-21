@@ -41961,8 +41961,11 @@
             "title": "Change"
           },
           "channel": {
-            "const": "test_chat",
             "default": "test_chat",
+            "enum": [
+              "test_chat",
+              "test_chat_call"
+            ],
             "title": "Channel",
             "type": "string"
           },

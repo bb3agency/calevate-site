@@ -867,6 +867,8 @@ def _to_config(
         # script must not withhold them. `.get`: test fixtures build partial rows.
         callbacks_offered=bool(agent.get("callbacks_offered", True))
         and not call_backs_withheld(agent.get("prompt")),
+        # The engine's own hand-over and lead sentences left out, ours in the prompt (D-847).
+        engine_own_rules=engine.name == "thinnest" and settings.thinnest_own_rules,
         detect_machines=bool(agent.get("detect_machines", False)),
         **_call_settings_fields(agent),
         max_reply_tokens=resolve_max_reply_tokens(agent.get("max_reply_tokens")),

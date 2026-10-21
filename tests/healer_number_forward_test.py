@@ -314,6 +314,34 @@ async def test_a_forward_on_a_brought_number_costs_nothing() -> None:
     assert priced.billed_minutes == Decimal("1.5") and priced.client_rate_key == "premium"
 
 
+@pytest.mark.parametrize(
+    ("rate_key", "inr", "owned"),
+    [
+        ("byok_voice", "1.50", True),
+        ("byok_llm_voice", "1.00", True),
+        ("byok_voice", "1.50", False),
+        ("byok_llm_voice", "1.00", False),
+    ],
+)
+async def test_a_forward_on_an_own_key_agent_costs_its_key_sets_flat_price(
+    rate_key: str, inr: str, owned: bool
+) -> None:
+    """A forward on an agent running on our own keys is billed at its key set's flat price,
+    ₹1.00 for `llm_voice` and ₹1.50 for `voice`, although no key is used (ThinnestAI's email
+    of 21 Oct 2026, §21.0, correcting D-835). On a brought number too: that case is open with
+    the vendor, and the higher figure keeps the cost floor safe (D-847)."""
+    at = datetime(2002, 1, 4, tzinfo=UTC) + timedelta(
+        microseconds=uuid.uuid4().int % 86_400_000_000
+    )
+    await _attest(at, {rate_key: inr})
+    tenant_id, agent_id = await _seed_tenant(f"fwdown_{uuid.uuid4().hex[:10]}")
+    call_id = await _forwarded_call(tenant_id, agent_id, rate_key=rate_key, owned=owned)
+    priced = await _cost(tenant_id, call_id, at, 60)
+    assert priced.rate_key == rate_key and priced.inr_per_min == Decimal(inr)
+    fee = Decimal(1) + priced.topup_fee
+    assert priced.cost.total_inr == (Decimal(inr) * fee).quantize(Decimal("0.0001"))
+
+
 async def test_a_forwarded_call_is_marked_on_its_row_and_shown_as_forwarded() -> None:
     """The row says the call was forwarded, a later event that does not name the forward
     keeps the mark, and the call page reads it to say why there is no recording."""

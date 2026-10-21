@@ -56,10 +56,13 @@ from apps.api.agents.test_conversations import (
     NOTHING_FOR_THE_SCRIPT,
     PROBES,
     RUN_JOB,
+    TEST_CHAT,
+    TEST_CHAT_CALL,
     AgentBrief,
     ImproveStop,
     Judged,
     Scenario,
+    TestChannel,
     TestRun,
     Turn,
     WrongTests,
@@ -92,7 +95,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.catalogue import HoldsCatalogue
 from apps.api.engine.hosted_platform import hosted_agent_limits
-from apps.api.engine.test_chat import RunsTestChat, TestChatTool
+from apps.api.engine.test_chat import RunsTestChat, TestChatMode, TestChatTool
 from apps.workers.agent_test_ai import (
     conversation_text,
     generate_scenarios,
@@ -365,8 +368,10 @@ async def talk(
     engine_agent_ref: str,
     scenarios: list[Scenario],
     pause: Pause,
+    modes: set[TestChatMode | None] | None = None,
 ) -> list[list[Turn]]:
-    """Each scenario as one conversation with the live agent, its turns in order."""
+    """Each scenario as one conversation with the live agent, its turns in order. `modes`
+    collects the mode each turn ran in (`TestChatTurn.mode`)."""
     out: list[list[Turn]] = []
     first = True
     for scenario in scenarios:
@@ -384,6 +389,8 @@ async def talk(
                 session=session,
             )
             session = reply.session or session
+            if modes is not None:
+                modes.add(reply.mode)
             results = reply.tool_results or tuple(TestChatTool(name=n) for n in reply.tools)
             for tool in results:
                 # What each action answered, for us: the evidence for a verdict about an
@@ -409,6 +416,18 @@ async def talk(
             )
         out.append(turns)
     return out
+
+
+def run_channel(modes: set[TestChatMode | None], *, run_id: UUID) -> TestChannel:
+    """The channel a try's results are filed under, from the modes its turns ran in (D-847).
+    Call mode asked for and not confirmed is filed as call mode, what was asked: the vendor
+    states every call-mode answer includes `mode`, so an unconfirmed one is logged for us."""
+    if None in modes or len(modes) > 1:
+        log.warning(
+            "agent_tests_mode_unconfirmed",
+            extra={"run_id": str(run_id), "modes": ",".join(sorted(str(m) for m in modes))},
+        )
+    return TEST_CHAT_CALL if modes - {"chat"} else TEST_CHAT
 
 
 async def agent_in_call_model(tenant_id: UUID, agent_id: UUID, engine: VoiceEngine) -> str | None:
@@ -677,13 +696,16 @@ async def run_agent_test_conversations(
         # A test the owner marked wrong since the set was made is not asked again; a rule
         # check always is (`WrongTests.keeps`).
         scenarios = [s for s in scenarios if wrong.keeps(s)]
+        modes: set[TestChatMode | None] = set()
         conversations = await talk(
             engine,
             agent_id=agent_id,
             engine_agent_ref=str(engine_agent_ref),
             scenarios=scenarios,
             pause=pause,
+            modes=modes,
         )
+        channel = run_channel(modes, run_id=run_id)
         judged, unjudged_reason, judge_record = await judge_all(
             brief,
             scenarios,
@@ -712,6 +734,7 @@ async def run_agent_test_conversations(
                 language=brief.language,
                 unjudged_reason=unjudged_reason,
                 rules=rules,
+                channel=channel,
             ),
             "judge": judge_record.get(scenario.key),
         }

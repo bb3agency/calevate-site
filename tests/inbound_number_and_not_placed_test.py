@@ -104,6 +104,33 @@ def test_an_inbound_call_names_the_caller_and_not_the_number_it_rang() -> None:
     assert (outbound.from_e164, outbound.to_e164) == ("+914049998888", "+919812345678")
 
 
+def test_an_inbound_call_carrying_to_names_the_number_it_rang() -> None:
+    """Get Call / List Calls carry `to` on a call that came in (ThinnestAI's email of
+    21 Oct 2026, §21.0, D-847); a call we placed keeps `from` and ignores `to`."""
+    engine = ThinnestEngine(api_key="ta_x")
+    call = {
+        "callRef": "c_2",
+        "status": "completed",
+        "direction": "inbound",
+        "phone": "+919812345678",
+        "from": None,
+        "to": "918045678901",
+    }
+    assert engine.snapshot_from_delivery({"data": call}).to_e164 == "+918045678901"
+    assert engine.parse_webhook({"data": call}).to_e164 == "+918045678901"
+    placed = {**call, "id": "out_2", "direction": "outbound", "from": "+914049998888"}
+    snapshot = engine.snapshot_from_delivery({"data": placed})
+    assert (snapshot.from_e164, snapshot.to_e164) == ("+914049998888", "+919812345678")
+
+
+async def test_an_inbound_call_naming_its_number_keeps_it_over_the_agents() -> None:
+    tenant_id, agent_id = await _seed_tenant(f"inbto_{uuid.uuid4().hex[:10]}")
+    await _attach(tenant_id, agent_id, owned=True)
+    rang = _number()
+    call_id = await pipeline._upsert_call(tenant_id, agent_id, _snapshot(to_e164=rang), None)
+    assert await _to_e164(tenant_id, call_id) == rang
+
+
 def test_a_booked_call_that_was_not_placed_carries_our_reason_only() -> None:
     engine = ThinnestEngine(api_key="ta_x")
 
@@ -149,15 +176,17 @@ async def test_an_outbound_call_never_takes_the_agents_number() -> None:
 # --- the brought-number check without a number on the row ----------------------------------
 
 
-async def _forward_cost(tenant_id: uuid.UUID, agent_id: uuid.UUID, at: datetime) -> Decimal:
+async def _forward_cost(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID, at: datetime, rate_key: str = "premium"
+) -> Decimal:
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
                 "agent_id, active, engine_rate_key, created_at, updated_at) VALUES "
-                "('thinnest', :r, :t, :a, true, 'premium', now(), now())"
+                "('thinnest', :r, :t, :a, true, :k, now(), now())"
             ),
-            {"r": f"np_{uuid.uuid4().hex}", "t": tenant_id, "a": agent_id},
+            {"r": f"np_{uuid.uuid4().hex}", "t": tenant_id, "a": agent_id, "k": rate_key},
         )
     call_id = await pipeline._upsert_call(tenant_id, agent_id, _snapshot(forwarded=True), None)
     assert await _to_e164(tenant_id, call_id) is None
@@ -184,6 +213,19 @@ async def test_a_forward_to_an_agent_whose_numbers_are_all_brought_costs_nothing
     await _attach(tenant_id, agent_id, owned=False)
     await _attach(tenant_id, agent_id, owned=False)
     assert await _forward_cost(tenant_id, agent_id, at) == Decimal(0)
+
+
+async def test_a_forward_to_an_own_key_agent_with_only_brought_numbers_costs_its_key_set() -> None:
+    """D-847: on our own keys a forward bills the key set's flat price; whether a brought
+    number is free there is open with the vendor, so the higher figure is costed."""
+    at = datetime(2002, 2, 6, tzinfo=UTC) + timedelta(
+        microseconds=uuid.uuid4().int % 86_400_000_000
+    )
+    await _attest(at, {"byok_voice": "1.50"})
+    tenant_id, agent_id = await _seed_tenant(f"npown_{uuid.uuid4().hex[:10]}")
+    await _attach(tenant_id, agent_id, owned=False)
+    await _attach(tenant_id, agent_id, owned=False)
+    assert await _forward_cost(tenant_id, agent_id, at, "byok_voice") == Decimal("1.50")
 
 
 async def test_a_forward_to_an_agent_holding_a_rented_number_stays_rented() -> None:

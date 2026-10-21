@@ -76,7 +76,11 @@ What it does now:
 - `engine_minute_cost(..., forwarded=True)` prices a forward at the agent's route rate key, the
   plan "the call was admitted as" (`get-call.md:1249-1253`); with no route row, at
   `FORWARD_WITHOUT_AGENT_RATE_KEY = "standard"`; on a number recorded as brought
-  (`phone_numbers.engine_owned` false, matched on `calls.to_e164`) at zero. A number we hold no
+  (`phone_numbers.engine_owned` false, matched on `calls.to_e164`) at zero. **Corrected 21 Oct
+  2026 (D-847, VENDOR-STATED, `docs/vendor/thinnest-replies-2026-10-12.md` §21.0):** an agent
+  on our own keys has no voice plan, and a forward on it is billed at its key set's flat price
+  (₹1.00 `llm_voice`, ₹1.50 `voice`); we cost it at that rate even on a brought number until
+  ThinnestAI answers that case (`engine_minutes.OWN_KEY_SET_RATE_KEYS`). A number we hold no
   row for is read as rented, so an error over-states cost and the charge reconciler
   (`costMicro` against our total) names it.
 - `billing_findings` compares a forward like any call; a brought-number forward has no

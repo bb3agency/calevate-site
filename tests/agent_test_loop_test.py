@@ -484,7 +484,7 @@ class _FakeChat:
         self.sent: list[str] = []
 
     async def test_chat(
-        self, ref: str, message: str, *, session: str | None = None
+        self, ref: str, message: str, *, session: str | None = None, call_mode: bool = False
     ) -> TestChatTurn:
         self.sent.append(message)
         if "number" in message or "call చేయకండి" in message:

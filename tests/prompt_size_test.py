@@ -116,20 +116,20 @@ def test_the_report_carries_counts_and_never_text() -> None:
 
 def test_the_report_adds_what_the_calling_system_puts_around_it() -> None:
     """ThinnestAI adds about 4,700 characters of its own rules on every turn, outside the
-    box (email of 19 Oct 2026, VENDOR-STATED): the per-turn figure is ours plus theirs, and
-    the box verdict still counts ours alone. Its 1,675-character default call rules come on
-    top only when it judges the agent has none, so the per-turn figure is a range."""
+    box (email of 19 Oct 2026, VENDOR-STATED), and its 1,675-character default call rules on
+    top, because only `voice.callInstructions` replaces them and we send none (email of
+    21 Oct 2026, §21): the per-turn figure is one number, and the box verdict still counts
+    ours alone."""
     cfg = _cfg(SCRIPT)
     size = prompt_size.measure_config(cfg, _thinnest())
     assert size.engine_added == 4_700 and size.engine_default_rules == 1_675
-    assert size.per_turn == size.total + 4_700
-    assert size.per_turn_with_default_rules == size.total + 4_700 + 1_675
+    assert size.per_turn == size.total + 4_700 + 1_675
     assert size.over == 0
     report = "\n".join(prompt_size.lines(size))
-    assert f"{size.per_turn:,} to {size.per_turn_with_default_rules:,}" in report
-    assert "4,700" in report and "1,675" in report
+    assert report.splitlines()[-1].endswith(f" {size.per_turn:>6,}")
+    assert "4,700" in report and "1,675" in report and " to " not in report.splitlines()[-1]
     unknown = prompt_size.measure(cfg, 8_000)
-    assert unknown.per_turn is None and unknown.per_turn_with_default_rules is None
+    assert unknown.per_turn is None
     without_defaults = prompt_size.measure(cfg, 8_000, engine_added=4_700)
     last = prompt_size.lines(without_defaults)[-1]
     assert last.endswith(f" {without_defaults.per_turn:>6,}")

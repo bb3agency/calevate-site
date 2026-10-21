@@ -2888,6 +2888,18 @@ ACTION_CLAIM_RULE: Final = (
     "did it on this call; say the team will confirm."
 )
 
+#: When to use the hand-over tool, for an agent the engine adds no hand-over rule to
+#: (`AgentConfig.engine_own_rules`, D-847). ThinnestAI's own `onRequest` text also hands over
+#: a caller who is upset and cannot drop that clause (its email of 21 Oct 2026,
+#: `docs/vendor/thinnest-replies-2026-10-12.md` §21.0); ours hands over on request only, as
+#: `escalation.onRequest` was meant to. Phrased by the tool rather than the rota, so the
+#: prompt does not change when the person on duty does: the tool is attached only while
+#: someone is (`AgentConfig.handoff`).
+OWN_RULES_HANDOVER_RULE: Final = (
+    "- Hand-over tool, if you have one: use it only when they ask for a person; never guess "
+    "an answer instead."
+)
+
 #: The number a call is on is already the lead's (`leads.phone_e164` comes from the call), so
 #: asking for it again is re-asking known data, and on an outbound call it asks the person we
 #: rang for the number we rang. After the client script, so a script that lists a phone number
@@ -2953,6 +2965,8 @@ def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
     # (`agents/config_versions`). When someone is on duty the hand-over tool is attached,
     # and its own description says when to use it (`agents/handoff.HANDOFF_TRIGGER_DEFAULT`).
     person = f"- Asked for a person with no hand-over tool: say nobody is free and {nobody}."
+    if cfg.engine_own_rules:
+        person = f"{OWN_RULES_HANDOVER_RULE}\n{person}"
     return (
         f"{CANNOT_HELP_HEADER}\n"
         # The two-tries limit lives here rather than in HOW TO SPEAK so a script cannot undo
@@ -3585,6 +3599,11 @@ class AgentConfig(BaseModel):
     #: not promise one (founder decision 1, 10 Oct 2026). Read at publish, so an account that
     #: starts paying gets the call-back wording at its agents' next publish or settings sweep.
     callbacks_offered: bool = True
+    #: The engine leaves its own lead, hand-over and call-back sentences out and our prompt
+    #: carries the hand-over rule instead (`OWN_RULES_HANDOVER_RULE`, D-847). Read at publish
+    #: from the console switch, only on an engine that has one. Excluded from every dump for
+    #: `detect_machines`' reason.
+    engine_own_rules: bool = Field(default=False, exclude=True)
     #: The client forwards a published number to its Calevate number (D-746): the agent
     #: carries `FORWARDED_LINE_RULE`, to ask for a call-back number when the network hides
     #: the caller's. Read at publish; adding or removing a forwarded number republishes.
@@ -5752,6 +5771,7 @@ __all__ = [
     "FORWARDED_LINE_RULE",
     "LAYER_SEPARATOR",
     "MAX_CALLER_MEMORY_CHARS",
+    "OWN_RULES_HANDOVER_RULE",
     "PIPECAT_REF_PREFIX",
     "PLATFORM_RULES_HEADER",
     "PLATFORM_RULES_PREAMBLE",

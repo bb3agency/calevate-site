@@ -40,7 +40,12 @@ lies wholly below the interval of A.
 What test chat is not: it is the agent's website chat (`thinnest-findings/mirror/snapshots/
 2026-10-18/pages/api-reference/agents/test-chat.md:7`), so ThinnestAI composes its chat
 wrapper, not necessarily the call one, and "a chat reply keeps the model's default" thinking
-level where a call sends minimal (§18, VENDOR-STATED). The copies hold no hand-over, no
+level where a call sends minimal (§18, VENDOR-STATED). With the console switch
+`thinnest_test_chat_call_mode` on, every reply asks Test Chat's call mode instead: the call
+prompt, the call's model and, on our Gemini key, its thinking level, though not the voice or
+the hearing (§21, VENDOR-STATED, D-847). It "needs calling set up on the agent", and a copy
+holds no number, so a copy it refuses counts each reply as failed with
+`engine_test_call_not_set_up`. The record names the mode. The copies hold no hand-over, no
 in-call actions and the client's knowledge only as the [T0 FACTS] text.
 
 It spends money: ₹0.02 a reply on an own-model agent (`TEST_CHAT_REPLY_INR`), plus the
@@ -301,6 +306,9 @@ class Reply:
     cut_short: bool = False
     empty: bool = False
     error: str | None = None
+    #: The mode the reply ran in (`TestChatTurn.mode`): `chat`, `call`, or None when call
+    #: mode was asked for and not confirmed.
+    mode: str | None = None
 
 
 def wilson(k: int, n: int) -> tuple[float, float]:
@@ -364,7 +372,8 @@ def render(record: dict[str, Any]) -> str:
     base = tallies.get(BASELINE)
     lines = [
         f"source agent {record['source_agent']} | model {record['model']} | "
-        f"{record['replies_per_variant']} replies per variant",
+        f"{record['replies_per_variant']} replies per variant | test chat mode "
+        f"{record.get('test_chat_mode', 'chat')}",
         f"{'variant':<34} {'replies':>7} {'failed':>6} {'with textbook':>13} "
         f"{'95% Wilson':>15} {'words/reply':>11}",
     ]
@@ -408,7 +417,12 @@ class EvalEngine(Protocol):
     ) -> str: ...
 
     async def test_chat(
-        self, ref: EngineAgentRef, message: str, *, session: str | None = None
+        self,
+        ref: EngineAgentRef,
+        message: str,
+        *,
+        session: str | None = None,
+        call_mode: bool = False,
     ) -> TestChatTurn: ...
 
     async def delete_agent(self, ref: EngineAgentRef) -> None: ...
@@ -471,10 +485,12 @@ async def converse(
     replies: int,
     pause: Pause,
     say: Callable[[str], None] = print,
+    call_mode: bool = False,
 ) -> list[Reply]:
     """`replies` replies from every variant's agent, one conversation at a time per variant in
     turn, so time-of-day drift falls on every variant alike. A failed turn ends that
-    conversation and counts towards `replies`, so a dead agent cannot loop for ever."""
+    conversation and counts towards `replies`, so a dead agent cannot loop for ever. With
+    `call_mode` every turn asks Test Chat's call mode (D-847)."""
     scripts = conversations()
     out: list[Reply] = []
     done = dict.fromkeys(refs, 0)
@@ -490,7 +506,7 @@ async def converse(
                 await pause()
                 done[variant] += 1
                 try:
-                    turn = await engine.test_chat(ref, line, session=session)
+                    turn = await engine.test_chat(ref, line, session=session, call_mode=call_mode)
                 except Exception as exc:  # a failed reply is a count, not the end of the run
                     out.append(Reply(variant, key, at, error=_code(exc)))
                     break
@@ -503,6 +519,7 @@ async def converse(
                         words=tuple(w for w, _ in textbook_words(turn.reply, LANGUAGE)),
                         cut_short=turn.failed_part_way,
                         empty=not turn.reply.strip(),
+                        mode=turn.mode,
                     )
                 )
         say(f"{min(done.values())} of {replies} replies per variant")
@@ -531,10 +548,13 @@ async def evaluate(
     pause: Pause = _sleep,
     create_scope: Callable[[], AbstractContextManager[None]] = nullcontext,
     say: Callable[[str], None] = print,
+    call_mode: bool = False,
 ) -> dict[str, Any]:
     """Create one copy per variant, talk to them, delete them whatever happens, and return
     the record. `create_scope` is the context the creates run in (the developer-workspace
-    permission in production)."""
+    permission in production). `call_mode` asks Test Chat's call mode (D-847), and the record
+    names the mode asked and the modes the replies ran in, so runs in different modes are
+    never read as one series."""
     refs: dict[str, EngineAgentRef] = {}
     try:
         for variant in variants:
@@ -553,7 +573,9 @@ async def evaluate(
                     ),
                 )
             say(f"created {cfg.name}")
-        got = await converse(engine, refs, replies=replies, pause=pause, say=say)
+        got = await converse(
+            engine, refs, replies=replies, pause=pause, say=say, call_mode=call_mode
+        )
     finally:
         left = await delete_all(engine, list(refs.values()))
     tallies = tally(got)
@@ -564,6 +586,8 @@ async def evaluate(
         "model": source.config.engine_own_model,
         "language": LANGUAGE,
         "replies_per_variant": replies,
+        "test_chat_mode": "call" if call_mode else "chat",
+        "modes_seen": sorted({str(r.mode) for r in got if r.error is None}),
         "variants": [v.key for v in variants],
         "variant_titles": {v.key: v.title for v in variants},
         "example_calls": DRAFT_NOTE,
@@ -712,6 +736,7 @@ async def spend(
         replies=replies,
         run_tag=run_tag,
         create_scope=trial_agent_in_developer_workspace,
+        call_mode=get_settings().thinnest_test_chat_call_mode,
     )
 
 

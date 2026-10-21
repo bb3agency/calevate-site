@@ -241,6 +241,11 @@ class Comparison:
         return len(self.keys(change))
 
 
+def _channel(result: dict[str, Any]) -> str:
+    """Where a result was produced; a result stored before D-847 is the test chat."""
+    return str(result.get("channel") or "test_chat")
+
+
 def compare(
     before: Sequence[dict[str, Any]],
     after: Sequence[dict[str, Any]],
@@ -250,7 +255,8 @@ def compare(
 ) -> Comparison:
     """Each test of the owner's score in `after`, against the same test in `before`. A test
     with no counted result before (new to the set, or nobody could judge it then) is `new`
-    and moves no headline."""
+    and moves no headline, and so is a test asked in the chat before and in call mode now, or
+    the other way round (D-847): a reply under the call prompt is a different measurement."""
     wrong = set(wrong_keys)
     then = {
         str(r.get("key")): r for r in before if in_owner_score(r, set(before_wrong_keys) | wrong)
@@ -261,7 +267,7 @@ def compare(
         if not in_owner_score(result, wrong):
             continue
         earlier = then.get(key)
-        if earlier is None:
+        if earlier is None or _channel(earlier) != _channel(result):
             changes[key] = "new"
             continue
         was = reliability(earlier) == "passed"

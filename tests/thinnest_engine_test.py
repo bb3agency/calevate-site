@@ -452,7 +452,10 @@ def test_a_missed_call_is_refined_by_its_hangup(hangup: str, status: str) -> Non
 
 
 def test_an_inbound_call_swaps_the_numbers() -> None:
-    snapshot = _engine(_recorder({})[0])._snapshot(_call(direction="inbound"), workspace=None)
+    """`from` is null on a call that came in (get-call.md:872-883); `to` names the number it
+    rang (ThinnestAI's email of 21 Oct 2026, D-847)."""
+    inbound = _call(direction="inbound", to="918045678901") | {"from": None}
+    snapshot = _engine(_recorder({})[0])._snapshot(inbound, workspace=None)
     assert (snapshot.from_e164, snapshot.to_e164) == ("+919876543210", "+918045678901")
 
 

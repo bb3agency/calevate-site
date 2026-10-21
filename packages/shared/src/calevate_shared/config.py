@@ -480,6 +480,20 @@ class Settings(BaseSettings):
     thinnest_reply_length: int = Field(
         default=REPLY_TOKENS_DEFAULT, ge=REPLY_TOKENS_MIN, le=REPLY_TOKENS_MAX
     )
+    #: Every agent is published with `ownRules: true` (D-847): ThinnestAI then leaves out its
+    #: contact-details sentence, its hand-over rule ("never promise that someone will follow
+    #: up") and its "cannot arrange a call back" sentence, and our own prompt states the
+    #: hand-over rule instead (`calevate_shared.engine.OWN_RULES_HANDOVER_RULE`).
+    #: VENDOR-STATED, ThinnestAI's email of 21 Oct 2026 (`docs/vendor/
+    #: thinnest-replies-2026-10-12.md` §21). The field is not in the 19 Oct docs and a strict
+    #: server may refuse a field it does not know, so it stays off until the release is live
+    #: and the docs show it (OPERATIONS gate T-31). Saving it republishes every live agent.
+    thinnest_own_rules: bool = False
+    #: Practice tests and the register eval talk to the agent through Test Chat's call mode
+    #: (`mode: "call"`, D-847): the agent's call prompt, the model its calls use and, on our
+    #: Gemini key, the call's thinking level. VENDOR-STATED (same email); off until the
+    #: release is live and the docs show the field (OPERATIONS gate T-32).
+    thinnest_test_chat_call_mode: bool = False
     #: How long a caller may wait for a reply, in milliseconds: from the moment they stop
     #: speaking to the agent's first audio, as the voice platform measures it per call
     #: (`CallQuality.reply_ms_*`). A call is over target when its p90 reply exceeds this: more

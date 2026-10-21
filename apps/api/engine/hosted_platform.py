@@ -75,9 +75,9 @@ class HostedAgentLimits:
     #: About how many characters the engine adds around our prompt on every turn (its own
     #: rules, outside `prompt_chars`). None where it adds nothing we know of.
     added_prompt_chars: int | None = None
-    #: Rules the engine adds on top of `added_prompt_chars` only when the agent has none of
-    #: its own, where which of our fields counts as "its own" is not known. None where the
-    #: engine has no such default.
+    #: The engine's default call rules, added on top of `added_prompt_chars` on every turn of
+    #: an agent that does not replace them, which none of ours does. None where the engine
+    #: has no such default.
     default_call_rules_chars: int | None = None
 
 

@@ -52,7 +52,7 @@ class _Chat:
         self.calls = 0
 
     async def test_chat(
-        self, ref: str, message: str, *, session: str | None = None
+        self, ref: str, message: str, *, session: str | None = None, call_mode: bool = False
     ) -> TestChatTurn:
         self.calls += 1
         if self.calls == 2:

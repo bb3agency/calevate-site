@@ -84,6 +84,8 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         "reask_wait",
         # The longest reply, in tokens: the agent's own or the console's (D-769).
         "reply_length",
+        # Whether the engine's own lead and hand-over sentences are left out (D-847).
+        "own_rules",
     }
 )
 

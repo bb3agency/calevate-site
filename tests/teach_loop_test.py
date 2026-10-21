@@ -443,7 +443,7 @@ class _FakeChat:
         self.sent: list[tuple[str, str | None]] = []
 
     async def test_chat(
-        self, ref: str, message: str, *, session: str | None = None
+        self, ref: str, message: str, *, session: str | None = None, call_mode: bool = False
     ) -> TestChatTurn:
         self.sent.append((message, session))
         return TestChatTurn(
