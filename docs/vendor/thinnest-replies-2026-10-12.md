@@ -1414,7 +1414,7 @@ reply-language rule, not ours, produced the English reply.
 | 5 | `call.completed`: `callRef`, `conversationId`, `outcome` (completed/missed/failed), `hangup`, `seconds`, `endedAt`, `quality`; never transcript, recording, summary, details or billing; no `status`/`analysedAt`; usually before `call.analysed`, not guaranteed; join on `callRef`, `call.analysed` is fuller | D-850: read `outcome` (not `status`) and `endedAt` from `call.completed`; D-848 already treats it as a hint and waits for the full record |
 | §21 | ownRules, call mode, `to` live | OPERATIONS T-31 and T-32 are met (fields verified in the live openapi.json, 21 Oct 2026): the founder flips `thinnest_own_rules` and `thinnest_test_chat_call_mode` in the ops console |
 
-## 24. Draft of the next email (21 Oct 2026, unsent; the founder sends)
+## 24. The email of 21 Oct 2026 (sent by the founder; answered the same day, §25)
 
 What §23 left open: the latency questions (drafted into §22 after the founder had sent it), the
 own-key forward on a brought number (§21 item 7), and the §20 items still unanswered (1–3, 13, 14).
@@ -1462,3 +1462,54 @@ own-key forward on a brought number (§21 item 7), and the §20 items still unan
 >
 > Thanks,
 > Umesh
+
+## 25. Ashutosh's answer to the §24 email, received 21 Oct 2026
+
+- **From:** Ashutosh K, ThinnestAI, 21 Oct 2026. **Relayed by:** the founder.
+- **Evidence class:** VENDOR-STATED. `AgentVoice.earlyAnswers` / `AgentVoiceInput.earlyAnswers`
+  **VERIFIED** in the live `https://app.thinnest.ai/openapi.json` on 21 Oct 2026 ("On by
+  default ... billed to your key and are not counted in the call's `usage`. `false` starts a
+  reply only once the caller has finished."). `usageMetadata.serviceTier` is Google's field,
+  not ThinnestAI's: test it with our key.
+- **Answers:** §24 item 1 (Ear, empty reply, dropped early answers, the model's start time)
+  and item 2 (forward to a brought number). **Not answered:** §24 item 3 (DPA, training
+  exclusion, regulation 4 and the access provider, volume price, carrier tests).
+- **Corrects:** D-847's costing of an own-key forward on a brought number (item 2 below).
+
+### 25.0 The email, verbatim
+
+> Hi Umesh,
+>
+> Thank you. The early-answers switch is out, and the rest of your questions are answered below.
+>
+> Ear for Telugu on llm_voice. It's available: llm_voice keeps our speech recognition, and Ear runs on our own real-time recogniser for Indian languages, on our account, not your key. Telugu is among the languages that recogniser supports. We haven't measured Ear on Telugu or on Indian phone lines ourselves, so try it on a few of your calls first.
+>
+> In Ear, turnSilenceSeconds is the quiet the recogniser waits before it declares speech over (0.25 seconds if unset). A second check then decides at each pause whether the caller has finished or is mid-thought, which is what keeps a half-sentence from being answered. Since your callers pause mid-sentence, that is the reason to move to Ear.
+>
+> The "haan ji" acknowledgements are spoken in the call's own voice, so on your Cartesia key, and their characters are counted in ttsCharacters. They are not part of the conversation record.
+>
+> Empty reply. There is no "no reply" marker. If the model returns nothing and runs no tool, the agent speaks its short fixed apology line, counts a model error and raises call.problem once for the call (byok_failed on your own key). What keeps an unfinished phrase from reaching your model in the first place is Ear's pause check.
+>
+> Dropped early answers. You now have the option. We start the model on a turn the moment we hear it, and if the caller goes on, that run is discarded. Those tokens are billed to your Google key and are not counted in usage.inputTokens. Set voice.earlyAnswers: false on an agent (the Early answers switch in the Voice page's Listening section) and a reply starts only once the caller has finished: nothing is thrown away, and each reply arrives a little later. It's on by default, so nothing changes until you set it.
+>
+> The model's start time. Your reading is right. From here, the first byte of a one-word reply from gemini-3.1-flash-lite at minimal thinking took about 0.9 s at a 6k prompt and 1.2 s at 1k, so about a second is Google's floor.
+>
+> service_tier: "priority" is accepted on the ordinary generateContent endpoint too, and Google reports the tier it used in usageMetadata.serviceTier. On our key it came back "standard" and the first byte didn't change (907 ms against 875 ms), so whether it applies depends on your Google account. Please test it with your key and tell us what serviceTier says. If it helps, we can add an opt-in per agent.
+>
+> firstTokenMs runs from the turn reaching our service to the first speakable word, not from the caller's speech end, and responseMs is speech end to the agent's first audio. The split of the rest (end-of-speech wait, recognition final, first sentence complete, voice first audio) is in our per-turn timing logs, not the call record. If you'd like, we can pull those lines for your two calls.
+>
+> A forward to a number you brought, on an own-key agent. Still nothing is billed. The charge covers only the agent's share, up to the moment of the forward, and a forward is answered and forwarded at the same instant, so it comes to zero seconds whatever key set the call was quoted under.
+
+### 25.1 What it closes and what Calevate does
+
+| Topic | Answer | What Calevate does |
+|---|---|---|
+| Ear for Telugu | Available on `llm_voice`; their own real-time recogniser for Indian languages, on their account; Telugu supported; not measured by them on Telugu or Indian phone lines | Nothing to build (`thinnest_turn_detection`, D-849). The founder switches to `ear` and compares two calls' `quality` |
+| `turnSilenceSeconds` in Ear | The quiet before speech is declared over (0.25 s unset); a second check then decides finished vs mid-thought | Console and Call handling copy say what the pause means under Ear (D-851) |
+| Ear acknowledgements | Spoken on our Cartesia key, counted in `ttsCharacters`, not in the conversation record | Already costed: the meter prices the vendor's `ttsCharacters` when present (`pipeline.spoken_characters`) |
+| Empty reply | No "no reply" marker; nothing back = fixed apology, a model error and `call.problem` (`byok_failed`) | Confirms our choice: never aim for silence; the D-849 short "go on" nudge stays, Ear prevents the turn |
+| Dropped early answers | On by default; discarded early runs are billed to our Google key and NOT counted in `usage.inputTokens`; `voice.earlyAnswers: false` waits for the caller to finish, replies a little later | D-851: console setting `thinnest_early_answers` (default on = vendor default, no change), drift-checked; the cost notes say Gemini cost read from `usage` is a lower bound while it is on |
+| Model start time | ~0.9 s at 6k tokens, 1.2 s at 1k: about a second is Google's floor | Matches our measurement (rememory 688797e1). Nothing to build |
+| Priority tier | Accepted on `generateContent`; Google reports `usageMetadata.serviceTier`; came back `standard` on their key | Founder re-tests with our key reading `serviceTier`; if it reports `priority` and the first byte drops, ask for the per-agent opt-in |
+| `firstTokenMs` / `responseMs` | `firstTokenMs`: turn reaching their service → first speakable word; `responseMs`: speech end → first audio. Per-turn split is in their logs | Admin Reply times copy defines both correctly (D-851). Reply "yes" to pulling the per-turn lines for the two calls |
+| Forward to a brought number, own-key agent | Nothing is billed: zero seconds whatever the key set | D-851: remove D-847's own-key exception; a forward to a brought number costs ₹0 on every key set |
