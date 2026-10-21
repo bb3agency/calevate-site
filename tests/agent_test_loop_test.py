@@ -970,3 +970,44 @@ def test_a_judge_fail_about_wording_alone_is_a_pass_with_a_note() -> None:
         unjudged_reason="",
     )
     assert real["verdict"] == "failed"
+
+
+@pytest.mark.parametrize(
+    ("reason", "fault", "verdict"),
+    [
+        # The founder's run of 21 Oct 2026: "instead of" read as a task fault.
+        (
+            "The agent used a formal, bookish closing phrase instead of everyday spoken language.",
+            None,
+            "passed",
+        ),
+        ("It closed with a phrase people do not say.", "wording", "passed"),
+        ("The agent used a bookish word and kept pitching after a no.", "task", "needs_fix"),
+    ],
+)
+def test_the_judges_own_fault_decides_whether_wording_alone_failed_it(
+    reason: str, fault: str | None, verdict: str
+) -> None:
+    scenario = Scenario(
+        key="k", title="Not interested", category="objection", turns=("x",), expect=""
+    )
+    result = decide(
+        scenario,
+        [_turn("సరే అండి, thanks అండి.")],
+        Judged(verdict="needs_fix", reason=reason, fix="script_step", fault=fault),
+        language="te-IN",
+        unjudged_reason="",
+    )
+    assert result["verdict"] == verdict
+
+
+def test_the_judge_reads_the_fault_it_was_asked_for() -> None:
+    raw = {
+        "results": [
+            {"key": "a", "reason": "r", "verdict": "failed", "fault": "wording"},
+            {"key": "b", "reason": "r", "verdict": "failed", "fault": "louder"},
+        ]
+    }
+    judged = agent_test_ai.judgements_from_model(raw, {"a", "b"})
+    assert judged is not None
+    assert (judged["a"].fault, judged["b"].fault) == ("wording", None)

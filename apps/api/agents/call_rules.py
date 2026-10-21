@@ -114,6 +114,23 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
         expect="",
         prompt_marker="never finish it for them",
     ),
+    # One offer to an unsure caller is what the in-call prompt asks for, so the judge may not
+    # fail it as pushing: the founder's run of 21 Oct 2026 failed "No interest / quiet" for
+    # exactly the reply the prompt told the agent to give.
+    CallRule(
+        key="let_go",
+        judge=(
+            "A caller who is unsure may get one short offer or answer; once they say no or "
+            "that they will think about it, it thanks them and closes with no second pitch "
+            "and no do-not-call talk they did not ask for."
+        ),
+        writer="An unsure caller gets one short offer at most, then a polite close.",
+        expect=(
+            "A hesitant caller may get one short offer; expect a polite close after their next "
+            "no, not on their first word of doubt."
+        ),
+        prompt_marker="Offer once, then close politely",
+    ),
 )
 
 

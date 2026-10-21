@@ -128,6 +128,8 @@ ImproveStop = Literal["completed", "no_change", "nothing_fixable_by_script", "bu
 
 FIX_KINDS: Final[tuple[str, ...]] = get_args(FixKind)
 JUDGED_FIXES: Final[tuple[str, ...]] = get_args(JudgedFix)
+#: What the judge says went wrong: the task, only how it sounded (D-828), or nothing.
+JUDGED_FAULTS: Final[tuple[str, ...]] = ("none", "task", "wording")
 PROBES: Final[tuple[Probe, ...]] = ("ai", "recording", "stop_calling", "person")
 CATEGORIES: Final[tuple[str, ...]] = get_args(Category)
 #: The owners the improver works for: everything else is somebody else's to fix.
@@ -630,7 +632,7 @@ _PRETENDS_TO_CONNECT: Final = re.compile(
 _WORDING_ONLY: Final = re.compile(r"\b(?:formal|textbook|bookish)\b", re.IGNORECASE)
 _TASK_FAULT: Final = re.compile(
     r"\b(?:invent|made up|wrong|claim|pushy|push|ignor|repeat|re-ask|again|price|did not|"
-    r"didn't|failed to|instead of|never)\w*",
+    r"didn't|failed to|never)\w*",
     re.IGNORECASE,
 )
 _WORDING_IS_A_NOTE: Final = (
@@ -769,6 +771,8 @@ class Judged:
     fix: str | None = None
     step_id: str | None = None
     formal_words: tuple[str, ...] = ()
+    #: One of `JUDGED_FAULTS`, None when the judge did not say.
+    fault: str | None = None
 
 
 _SEVERITY: Final[dict[str, int]] = {"passed": 0, "unjudged": 1, "needs_fix": 2, "failed": 3}
@@ -799,9 +803,15 @@ def decide(
         verdict, reason = judged.verdict, judged.reason
         fix = judged.fix if judged.fix in JUDGED_FIXES else None
         # How a reply sounds never decides the verdict (D-828), whatever the judge returned:
-        # a fail whose only stated fault is a textbook word is a pass, and the word stays on
-        # the result as a spoken-style note (`formal_words`).
-        if verdict != "passed" and _WORDING_ONLY.search(reason) and not _TASK_FAULT.search(reason):
+        # a fail whose only fault is wording is a pass, and the word stays on the result as a
+        # spoken-style note (`formal_words`). The judge's own `fault` decides; the reason is
+        # read only when it gave none.
+        wording_only = (
+            judged.fault == "wording"
+            if judged.fault in ("task", "wording")
+            else bool(_WORDING_ONLY.search(reason)) and not _TASK_FAULT.search(reason)
+        )
+        if verdict != "passed" and wording_only:
             verdict, reason, fix = "passed", _WORDING_IS_A_NOTE, None
     else:
         verdict, reason, fix = "unjudged", unjudged_reason, None
@@ -1798,6 +1808,7 @@ __all__ = [
     "HAND_OVER_TEST_LIMIT",
     "IMPROVE_JOB",
     "IMPROVE_PENDING_S",
+    "JUDGED_FAULTS",
     "JUDGED_FIXES",
     "MAX_GENERATED",
     "MAX_MESSAGES",
