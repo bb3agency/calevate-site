@@ -287,8 +287,6 @@ CALL_SECONDS_MAX: Final = 1200
 #: default (`voice.ringSeconds`, 10-60, default 30; docs.thinnest.ai api-reference/agents/
 #: update-agent, read 10 Oct 2026) and stated on every publish so a console edit is repaired.
 RING_SECONDS: Final = 30
-#: `voice.turnDetection` on every agent: a stretch of silence ends the caller's turn.
-TURN_DETECTION: Final = "timer"
 #: Where an agent answers besides the phone (`voice.surfaces`), as the drift panel names
 #: each place. We send phone only (`_agent_body`), so any of these is drift and is repaired
 #: (founder decision F1, 12 Oct 2026, superseding D-720's "information only").
@@ -1239,7 +1237,7 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "caller_memory": ("voice.pastConversations",),
     "machine_detection": ("voice.detectMachines",),
     "end_call_on_finish": ("voice.endCallOnFinish",),
-    "turn_silence": ("voice.turnSilenceSeconds", "voice.turnDetection"),
+    "turn_silence": ("voice.turnSilenceSeconds", "voice.turnDetection", "voice.acknowledgements"),
     "do_not_call_tool": ("voice.recordDoNotCall",),
     "ring_seconds": ("voice.ringSeconds",),
     "call_summaries": ("voice.summariseCalls",),
@@ -1913,12 +1911,14 @@ class ThinnestEngine:
             # stated, so a console reset to null reads as drift. Whole milliseconds on our
             # side (`agents/call_handling`), divided only here.
             "turnSilenceSeconds": cfg.turn_silence_ms / 1000,
-            # The mode that makes that number "the silence that ends a turn": `timer`, the
-            # platform's own choice today, stated so a change of their default cannot change
-            # what the client's pause means (`null` follows the platform, and `smart` turns
-            # the same number into a ceiling; snapshots/2026-10-13/pages/api-reference/agents/
-            # update-agent.md:1349-1381, channels/voice.md:871-895).
-            "turnDetection": TURN_DETECTION,
+            # The console's mode (D-849), always stated so a change of the vendor's default
+            # (`null`) cannot change what the client's pause means: under `timer` that number
+            # is the silence that ends a turn, under `smart` a ceiling (snapshots/2026-10-13/
+            # pages/api-reference/agents/update-agent.md:1349-1381, channels/voice.md:871-895).
+            "turnDetection": cfg.turn_detection,
+            # An Ear-only field, so sent only under `ear` (update-agent.md:1548-1553, 19 Oct
+            # 2026 snapshot; vendor default on).
+            **({"acknowledgements": cfg.acknowledgements} if cfg.turn_detection == "ear" else {}),
             # The platform's own do-not-call tool stays on beside our opt-out action (founder
             # decision, 13 Oct 2026): a missed opt-out costs more than a false one. Stated,
             # because it is a boolean defaulting to true (update-agent.md:1168-1175) and a

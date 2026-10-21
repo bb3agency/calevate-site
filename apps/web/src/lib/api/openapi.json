@@ -41834,6 +41834,14 @@
             "title": "Max Replies",
             "type": "integer"
           },
+          "missing_facts": {
+            "items": {
+              "const": "prices",
+              "type": "string"
+            },
+            "title": "Missing Facts",
+            "type": "array"
+          },
           "practice_offered": {
             "default": false,
             "title": "Practice Offered",

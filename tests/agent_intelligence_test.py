@@ -260,8 +260,9 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # Not the engine's box (20,000, `engine/thinnest.INSTRUCTIONS_MAX_CHARS`): this prompt's
     # size, held so the platform text cannot regrow unnoticed; the guide's whole-prompt target
     # (`docs/PROMPT-GUIDE.md` §2) is 8,000. D-845 added the START OF THE CALL section (5,832
-    # before), which tells the model its opening line was already said.
-    assert len(prompt) <= 5_948
+    # before), which tells the model its opening line was already said; D-849 the
+    # greeting-language, cut-off, recall and price rules (5,948 before).
+    assert len(prompt) <= 6_239
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

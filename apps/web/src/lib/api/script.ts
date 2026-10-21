@@ -742,6 +742,8 @@ export interface TestConversations {
   waiting_tests?: number;
   /** Practice callers may be asked for: the agent has few real calls. */
   practice_offered?: boolean;
+  /** Facts callers ask for that the business has not given anywhere its agents read. */
+  missing_facts?: "prices"[];
   /** Tries per test, and the most test-chat replies one run may use. */
   trials?: number;
   max_replies?: number;

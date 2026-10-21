@@ -141,7 +141,7 @@ def test_the_judge_is_told_the_notices_are_never_a_fault() -> None:
 def test_the_writers_never_ask_for_what_the_agent_cannot_truthfully_do() -> None:
     assert "never expect it to state it" in GENERATE_INSTRUCTION
     assert "never expect it to say it is done" in GENERATE_INSTRUCTION
-    assert "say an order is placed or confirmed" in IMPROVE_INSTRUCTION
+    assert "says an order or booking is placed, noted or confirmed" in IMPROVE_INSTRUCTION
     assert "only those the caller has not already said" in _SYSTEM_INSTRUCTION
     assert "takes the details for the team to confirm" in _SYSTEM_INSTRUCTION
     products = next(
