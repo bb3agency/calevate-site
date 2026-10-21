@@ -1347,11 +1347,17 @@ reply-language rule, not ours, produced the English reply.
 >      error? Is there a supported "no reply" marker?
 >    - **Dropped early answers.** When an early answer is dropped because the caller was not
 >      finished, are those tokens billed to our Google key and counted in `usage.inputTokens`?
->    - **The Gemini request.** Which Google endpoint and region do you call with our key, is it
->      streamed, and could an agent opt in to Google's priority tier (`service_tier: "priority"`,
->      which lists 3.1 Flash-Lite)? And does `firstTokenMs` run from the caller's speech end or
->      from your request? A split of the rest of `responseMs` (speech-recognition final, voice
->      first audio) would show us where the remaining ~0.75 s goes.
+>    - **The Gemini request.** From a server in India, our own key reaches Google in about 4 ms,
+>      yet the first byte of a one-word reply from `gemini-3.1-flash-lite` at minimal thinking
+>      takes about 1.0 s (0.75–1.35 s over five tries); `gemini-3.5-flash-lite` is the same.
+>      So about a second looks like the model's floor on the standard tier, not distance. Do
+>      you see the same from your side? Which Google endpoint do you call, and is it streamed?
+>      Google's priority tier (`service_tier: "priority"`, 3.1 Flash-Lite listed) is offered
+>      on its Interactions API; sent on `generateContent` it came back without the tier header,
+>      so it was not applied. Could you send it for an agent that opts in? And does
+>      `firstTokenMs` run from the caller's speech end or from your request? A split of the rest
+>      of `responseMs` (speech-recognition final, voice first audio) would show us where the
+>      remaining ~0.75 s goes.
 >
 > And one documentation question:
 > - What exactly does the `call.completed` body carry (status, seconds, `analysedAt`; never
