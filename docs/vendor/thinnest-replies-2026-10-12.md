@@ -1300,7 +1300,7 @@ exclusion, regulation 4 notice and access provider), 13 (volume price for own-ke
 (item 8); and the 21 Oct test calls that ThinnestAI reported `missed` though the founder
 answered and spoke (pending the Get Call read-back).
 
-## 22. Draft of the next email (21 Oct 2026, unsent; the founder sends)
+## 22. The email of 21 Oct 2026 (sent by the founder; answered the same day, §23)
 
 Only what today's evidence raised. Nothing from §20 is asked again (the DPA, training exclusion,
 regulation 4, prompt order, volume price and carrier tests are excluded at the founder's
@@ -1375,3 +1375,41 @@ reply-language rule, not ours, produced the English reply.
 | 4 | Call 2 transcript, 21 Oct 2026 10:00 IST (founder-pasted) | pending AGENTQ2 |
 | 5 | Latency research with sources: `docs/evidence/latency-research-2026-10-21.md` (Ear mode `channels/voice.md:931-976`, `update-agent.md:1418-1439`; empty reply `agent/behaviour.md:145-148`; priority tier ai.google.dev/gemini-api/docs/priority-inference) | same Get Call `quality` read |
 | doc | Our post-call pipeline took a transcript-less `call.completed` as the whole record; fixed on our side (lane CALLTRUTH) | `webhooks.md:74` "outcome and duration" |
+
+## 23. Ashutosh's answer to the §22 email, received 21 Oct 2026
+
+- **From:** Ashutosh K, ThinnestAI, 21 Oct 2026. **Relayed by:** the founder.
+- **Evidence class:** VENDOR-STATED; items 3–5 and the §21 fields **VERIFIED** in the live
+  `https://app.thinnest.ai/openapi.json` on 21 Oct 2026: `Agent.ownRules` (also on create and
+  update), `TestChatRequest.mode` `chat|call` ("Needs calling set up on the agent (`409`
+  otherwise)"), `TestChatResponse.mode`, `CallSummary.to`, and the `call.completed` example
+  (`callRef`, `conversationId`, `outcome`, `hangup`, `seconds`, `direction`, `surface`, `phone`,
+  no `status`).
+- **"Everything is deployed and live"**: the §21 release (ownRules, Test Chat call mode, `to`).
+
+### 23.0 The email, verbatim
+
+> Hi,
+> 1. Billing blocks on own-key minutes: Currently it's a 30-second pulse because of the telephony provider. If you manage your own telephony, we can switch to per-second billing.
+> 2. Caching - We achieved 90% or higher caching on OpenAI models using the same settings.
+> 3. The default call rules, verbatim:
+>  "You are speaking with this person on a phone call, out loud. Keep replies to one or two sentences. They cannot see anything you write, so never refer to lists, links, buttons or images. Write titles and abbreviations in full — say Doctor rather than Dr., Street rather than St. Never use brackets, bullet points or symbols: everything you write is read aloud exactly as written. If you need a moment to look something up, say so rather than going quiet. If you do not know, say so. Never state an address, a price, a duration, a reference number or a policy unless a tool has just told you it or it is in the information you were given. If you were not told, say you do not have it. Do not answer from general knowledge about how businesses like this usually work. How long something takes, what to bring, whether reminders are sent - these are facts about THIS business, and if you were not told them you do not have them. Only say something is booked, cancelled or confirmed if a tool has just told you it succeeded. If a tool failed or you did not call one, say you could not complete it. When a tool gives you a figure, say that figure and no other. Open differently each time. Never begin two turns in a row the same way, and never repeat a sentence you have already said. Acknowledge what they just said before you answer it. Ask ONE question per turn, never two. If you have two, ask the more useful one and keep the other for later. Never reply with only an acknowledgement and a question. Say one thing that shows you understood what they told you in between. Do not recite things they already know. If the booking is made, do not read it back again unless they ask."
+>
+> Some of this is already covered by the speaking rules we always add, so your shorter version can drop it: titles and abbreviations in full, numbers as words, never asking the same question twice, and a short first sentence. Keep what you care about from the rest: no brackets or symbols, one or two sentences, nothing specific without a source, saying "booked" only after a tool succeeded, the tool's figure and no other, one question a turn, and opening differently each time.
+>
+> 4. Reply language on a one-word greeting. We are not changing the built-in rule. We reproduced it: an agent that opened in Telugu answers "Hello" in English, because "follow the language they opened in" reads the greeting as the caller's language. You can put the rule in your own instructions (stay in the language of the greeting until the caller says a full sentence in another one) and try it in Test Chat call mode before you rely on it.
+>
+> 5.call.completed. The body carries callRef, conversationId, outcome (completed, missed or failed), hangup, seconds, direction, surface, phone, quality (null if the figures weren't ready) and endedAt. It also carries campaignId, id, reference, metadata and forwardedTo when they apply. It never carries the transcript, recording, summary, collected details or billing, and it has no status or analysedAt field; use outcome and endedAt. It is sent first and the analysis waits up to five seconds for it, so call.analysed normally follows. That isn't a guarantee: a retried delivery or a restart can swap them, so join the two on callRef and treat call.analysed as the fuller record. This is now in the webhook docs.
+>
+> Everything is deployed and live.
+
+### 23.1 What it closes and what Calevate does
+
+| §22 | Answer | What Calevate does |
+|---|---|---|
+| 1 | 30-second pulses come from the telephony provider; per-second only on our own telephony | Nothing to build. Per-second billing needs our own carrier (the Vobiz route is test-only until resale consent, rememory vobiz-resale-consent). Recorded as a cost input |
+| 2 | 90%+ caching on OpenAI models "using the same settings" | Implies the 34–35% is Gemini's implicit caching, not their request shape (cause still UNVERIFIED). An OpenAI in-call model is a founder decision on cost, Telugu quality and latency evidence; nothing built |
+| 3 | Default call rules, verbatim; drop what the speaking rules already cover | D-850: send a lean `voice.callInstructions` keeping only what our prompt does not already say, behind a switch, tried in Test Chat call mode first |
+| 4 | Built-in rule unchanged and reproduced ("Hello" read as the caller's language); put our own rule in our instructions | Already built: D-849's greeting-language rule is in our instructions. Verify it in Test Chat call mode once switched on |
+| 5 | `call.completed`: `callRef`, `conversationId`, `outcome` (completed/missed/failed), `hangup`, `seconds`, `endedAt`, `quality`; never transcript, recording, summary, details or billing; no `status`/`analysedAt`; usually before `call.analysed`, not guaranteed; join on `callRef`, `call.analysed` is fuller | D-850: read `outcome` (not `status`) and `endedAt` from `call.completed`; D-848 already treats it as a hint and waits for the full record |
+| §21 | ownRules, call mode, `to` live | OPERATIONS T-31 and T-32 are met (fields verified in the live openapi.json, 21 Oct 2026): the founder flips `thinnest_own_rules` and `thinnest_test_chat_call_mode` in the ops console |
