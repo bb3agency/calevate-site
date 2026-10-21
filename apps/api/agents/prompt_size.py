@@ -20,6 +20,7 @@ from uuid import UUID
 
 from calevate_shared.call_script import STYLE_HEADER
 from calevate_shared.engine import (
+    CALL_INSTRUCTIONS,
     CLIENT_SCRIPT_CLOSE,
     CLIENT_SCRIPT_OPEN,
     LAYER_SEPARATOR,
@@ -98,17 +99,19 @@ class PromptSize:
     #: About how much the engine adds around this on every turn, outside the box
     #: (`HostedAgentLimits.added_prompt_chars`); None where nothing is known.
     engine_added: int | None = None
-    #: The engine's default call rules, which it adds on top of `engine_added` on every turn
-    #: (`HostedAgentLimits.default_call_rules_chars`).
-    engine_default_rules: int = 0
+    #: The call rules read on top of `engine_added` on every turn: the engine's defaults
+    #: (`HostedAgentLimits.default_call_rules_chars`), or ours when they replace them
+    #: (`call_rules_ours`, D-850).
+    call_rules: int = 0
+    call_rules_ours: bool = False
 
     @property
     def per_turn(self) -> int | None:
         """About what the model reads as instructions each turn, before the history and the
-        tool schemas: ours, the engine's own and its default call rules."""
+        tool schemas: ours, the engine's own and the call rules."""
         if self.engine_added is None:
             return None
-        return self.total + self.engine_added + self.engine_default_rules
+        return self.total + self.engine_added + self.call_rules
 
     @property
     def over(self) -> int:
@@ -170,7 +173,8 @@ def measure(
     *,
     native_steps: int = 0,
     engine_added: int | None = None,
-    engine_default_rules: int = 0,
+    call_rules: int = 0,
+    call_rules_ours: bool = False,
 ) -> PromptSize:
     """The size of `compose_engine_prompt(cfg)` by layer. Counts only."""
     layers = engine_prompt_layers(cfg)
@@ -187,7 +191,8 @@ def measure(
         script_parts=script_parts(script) if script else (),
         native_steps=native_steps,
         engine_added=engine_added,
-        engine_default_rules=engine_default_rules,
+        call_rules=call_rules,
+        call_rules_ours=call_rules_ours,
     )
 
 
@@ -220,12 +225,15 @@ async def publish_config(
 
 def measure_config(cfg: AgentConfig, engine: VoiceEngine) -> PromptSize:
     limits = hosted_agent_limits(engine)
+    # Ours replace the engine's default call rules only where it has them (D-850).
+    ours = cfg.engine_call_instructions and limits.default_call_rules_chars is not None
     return measure(
         cfg,
         limits.prompt_chars,
         native_steps=len(cfg.script_steps),
         engine_added=limits.added_prompt_chars,
-        engine_default_rules=limits.default_call_rules_chars or 0,
+        call_rules=len(CALL_INSTRUCTIONS) if ours else limits.default_call_rules_chars or 0,
+        call_rules_ours=ours,
     )
 
 
@@ -263,8 +271,11 @@ def lines(size: PromptSize) -> Sequence[str]:
         out.append(f"{'TOTAL':<44} {size.total:>6,} of {size.limit:,}  {verdict}")
     if size.per_turn is not None and size.engine_added is not None:
         out.append(f"{'Added by the calling system (its estimate)':<44} {size.engine_added:>6,}")
-        if size.engine_default_rules:
-            out.append(f"{'  plus its default call rules':<44} {size.engine_default_rules:>6,}")
+        if size.call_rules:
+            whose = (
+                "  plus our call rules" if size.call_rules_ours else "  plus its default call rules"
+            )
+            out.append(f"{whose:<44} {size.call_rules:>6,}")
         out.append(f"{'Read by the model each turn, before history':<44} {size.per_turn:>6,}")
     return out
 

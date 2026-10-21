@@ -25,6 +25,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
 from calevate_shared.call_script import CallScript, ScriptStep
 from calevate_shared.engine import (
+    CALL_INSTRUCTIONS,
     CONFIDENTIALITY_RULE,
     TRUTHFUL_ANSWER_MARKER,
     AgentConfig,
@@ -122,7 +123,7 @@ def test_the_report_adds_what_the_calling_system_puts_around_it() -> None:
     ours alone."""
     cfg = _cfg(SCRIPT)
     size = prompt_size.measure_config(cfg, _thinnest())
-    assert size.engine_added == 4_700 and size.engine_default_rules == 1_675
+    assert size.engine_added == 4_700 and size.call_rules == 1_675
     assert size.per_turn == size.total + 4_700 + 1_675
     assert size.over == 0
     report = "\n".join(prompt_size.lines(size))
@@ -133,6 +134,20 @@ def test_the_report_adds_what_the_calling_system_puts_around_it() -> None:
     without_defaults = prompt_size.measure(cfg, 8_000, engine_added=4_700)
     last = prompt_size.lines(without_defaults)[-1]
     assert last.endswith(f" {without_defaults.per_turn:>6,}")
+
+
+def test_our_call_rules_replace_the_default_ones_in_the_per_turn_figure() -> None:
+    """With `thinnest_call_instructions` on, `voice.callInstructions` replaces the 1,675
+    default characters (D-850): the per-turn figure counts ours instead, and says so."""
+    off = prompt_size.measure_config(_cfg(SCRIPT), _thinnest())
+    on = prompt_size.measure_config(_cfg(SCRIPT, engine_call_instructions=True), _thinnest())
+    assert on.total == off.total
+    assert (on.call_rules, on.call_rules_ours) == (len(CALL_INSTRUCTIONS), True)
+    assert on.per_turn == off.total + 4_700 + len(CALL_INSTRUCTIONS)
+    assert on.per_turn is not None and off.per_turn is not None and on.per_turn < off.per_turn
+    report = "\n".join(prompt_size.lines(on))
+    assert "plus our call rules" in report and "default call rules" not in report
+    assert CALL_INSTRUCTIONS not in report
 
 
 # --- the refusal ----------------------------------------------------------------------

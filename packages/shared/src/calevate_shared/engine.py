@@ -2745,6 +2745,9 @@ def platform_rules_preamble(cfg: AgentConfig) -> str:
 #: them (founder, 18 Oct 2026); their text is `docs/vendor/thinnest-speaking-rules-2026-10-18.md`
 #: (VENDOR-STATED, ThinnestAI email of 18 Oct 2026). So the turn length, one question per
 #: turn, titles in full, no brackets and varying the opening are theirs and not said here.
+#: That text is the engine's DEFAULT CALL RULES (§23.0 item 3 of the replies file, 21 Oct
+#: 2026), not the speaking rules it always adds: with `engine_call_instructions` on (D-850)
+#: `CALL_INSTRUCTIONS` replaces it and carries each of these.
 #: Those rules are "the rules the agent follows on calls, and only on calls" and leave chat
 #: replies untouched (`channels/voice.md:180-181`, 19 Oct 2026 snapshot), and the practice
 #: tests run in the engine's chat. So the few of theirs that keep an agent honest (never
@@ -2924,6 +2927,35 @@ ACTION_CLAIM_RULE: Final = (
 OWN_RULES_HANDOVER_RULE: Final = (
     "- Hand-over tool, if you have one: use it only when they ask for a person; never guess "
     "an answer instead."
+)
+
+#: Our call rules, sent as ThinnestAI's `voice.callInstructions` while
+#: `AgentConfig.engine_call_instructions` is on (D-850). That field REPLACES the engine's
+#: default call rules (about 1,675 characters on every turn, verbatim in
+#: `docs/vendor/thinnest-replies-2026-10-12.md` §23.0 item 3, the same text as
+#: `docs/vendor/thinnest-speaking-rules-2026-10-18.md`), so this keeps every default sentence
+#: that neither the speaking rules the engine always adds nor our own layers say, and nothing
+#: else; `tests/call_instructions_test.py` maps each default sentence to where it now lives.
+#: Dropped because their always-added speaking rules say it (VENDOR-STATED, same email):
+#: titles and abbreviations in full. Dropped because our layers say it: saying you do not
+#: know, never repeating a sentence, showing you understood (read back what you heard).
+#: "Acknowledge what they just said before you answer it" is dropped for HOW TO SPEAK's "Lead
+#: with the answer": the acknowledgement became "two kg noted" with nothing noted (D-849).
+#: The facts sentence names no clinic detail ("what to bring", "reminders"), D-722.
+CALL_INSTRUCTIONS: Final = (
+    "You are on a phone call, speaking out loud. The caller sees nothing you write: never "
+    "mention lists, links, buttons or images, and use no brackets, bullet points or symbols. "
+    "Keep replies to one or two sentences. Ask one question a turn; if you have two, ask the "
+    "more useful one and keep the other for later. Never reply with only an acknowledgement "
+    "and a question. Never begin two turns in a row the same way. Do not recite what they "
+    "already know, and do not read back something already done unless they ask. If you need "
+    "a moment to look something up, say so rather than going quiet. Never state an address, "
+    "a price, a duration, a reference number or a policy unless a tool has just told you it "
+    "or it is in your facts; if not, say you do not have it. Never answer from how businesses "
+    "like this usually work: how long things take and what happens next are facts about this "
+    "business. Say something is booked, cancelled or confirmed only when a tool has just told "
+    "you it succeeded; if a tool failed or you did not call one, say you could not complete "
+    "it. When a tool gives you a figure, say that figure and no other."
 )
 
 #: The number a call is on is already the lead's (`leads.phone_e164` comes from the call), so
@@ -3638,6 +3670,10 @@ class AgentConfig(BaseModel):
     #: from the console switch, only on an engine that has one. Excluded from every dump for
     #: `detect_machines`' reason.
     engine_own_rules: bool = Field(default=False, exclude=True)
+    #: The engine's default call rules are replaced by ours (`CALL_INSTRUCTIONS`, D-850).
+    #: Read at publish from the console switch, only on an engine that has the field.
+    #: Excluded from every dump for `detect_machines`' reason.
+    engine_call_instructions: bool = Field(default=False, exclude=True)
     #: The client forwards a published number to its Calevate number (D-746): the agent
     #: carries `FORWARDED_LINE_RULE`, to ask for a call-back number when the network hides
     #: the caller's. Read at publish; adding or removing a forwarded number republishes.
@@ -5798,6 +5834,7 @@ __all__ = [
     "CALLER_MEMORY_GUIDANCE",
     "CALLER_MEMORY_SLOT",
     "CALLER_MEMORY_VARIABLE",
+    "CALL_INSTRUCTIONS",
     "CALL_NUMBER_RULE",
     "CANNOT_HELP_HEADER",
     "CLIENT_SCRIPT_CLOSE",

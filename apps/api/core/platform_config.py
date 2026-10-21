@@ -572,6 +572,13 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "saving it republishes every live agent with the voice platform's lead, hand-over "
         f"and call-back sentences left out (on) or added back (off){_NOW}",
     ),
+    # `voice.callInstructions` is stamped at publish (D-850), so saving it republishes every
+    # live agent.
+    "thinnest_call_instructions": AppliesRule(
+        LIVE_AGENTS,
+        "saving it republishes every live agent with our call rules in place of the voice "
+        f"platform's default call rules (on) or back on the defaults (off){_NOW}",
+    ),
     # Read on every practice-test message (`agents/test_window.send_test_message`, D-847).
     "thinnest_test_chat_call_mode": AppliesRule(LIVE),
     # Stamped on every agent at publish (D-849), like the reply length.

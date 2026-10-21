@@ -76,8 +76,8 @@ class HostedAgentLimits:
     #: rules, outside `prompt_chars`). None where it adds nothing we know of.
     added_prompt_chars: int | None = None
     #: The engine's default call rules, added on top of `added_prompt_chars` on every turn of
-    #: an agent that does not replace them, which none of ours does. None where the engine
-    #: has no such default.
+    #: an agent that does not replace them (ours do while `engine_call_instructions` is on,
+    #: D-850). None where the engine has no such default.
     default_call_rules_chars: int | None = None
 
 

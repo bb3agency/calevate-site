@@ -174,6 +174,8 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         "thinkingLines": [],
         "ambience": None,
         "ambienceVolume": 0.15,
+        # The engine's default call rules while our switch is off (D-850).
+        "callInstructions": None,
         # The same on every agent (F3, F4, F10).
         "interruptWords": 3,
         "holdShortSpeech": True,
@@ -510,6 +512,96 @@ def test_a_verified_delivery_becomes_a_full_snapshot() -> None:
     engine = _engine(_recorder({})[0])
     snapshot = engine.snapshot_from_delivery({"event": "call.analysed", "data": _call(id="inb_1")})
     assert snapshot.engine_call_id == "inb_1" and snapshot.transcript
+
+
+#: The `call.completed` example of the live https://app.thinnest.ai/openapi.json, read
+#: 21 Oct 2026 (ThinnestAI's email of the same day, §23 item 5): `outcome`, never `status`,
+#: and no transcript, recording, summary or `analysedAt`.
+CALL_COMPLETED_EXAMPLE: dict[str, Any] = {
+    "id": "evt_3c9a5e1b-7d4f-4b2a-8e6c-1f0d9a3b5c49",
+    "event": "call.completed",
+    "sentAt": "2026-10-06T04:33:12.020Z",
+    "data": {
+        "callRef": "out_9f2c1a44-6b0e-4c1d-8a7f-2e5b3c9d1f60",
+        "conversationId": "conv_3f6b2d1e-8a4c-4f7b-9e21-6c0d5a7b8e94",
+        "outcome": "completed",
+        "hangup": "answered",
+        "seconds": 182,
+        "direction": "outbound",
+        "surface": "phone",
+        "phone": "919876543210",
+        "campaignId": "cmp_7a1e9c3b-2d4f-4b8a-a6e0-1f5c8d2b9e47",
+        "id": "out_9f2c1a44-6b0e-4c1d-8a7f-2e5b3c9d1f60",
+        "reference": "LSQ-42",
+        "metadata": {"deal_id": "D-19", "owner": "Ravi"},
+        "quality": {
+            "turns": 14,
+            "responseMs": {"median": 1180, "p90": 1920, "max": 3410},
+            "firstTokenMs": {"median": 610, "p90": 940, "max": 1730},
+            "longSilences": 1,
+            "longSilenceSeconds": 10,
+            "longestSilenceSeconds": 12.4,
+            "interruptions": 2,
+            "modelErrors": 0,
+            "rescues": 1,
+        },
+        "endedAt": "2026-10-06T04:33:11.902Z",
+    },
+}
+
+
+def test_a_call_completed_body_states_its_outcome_and_is_only_a_hint() -> None:
+    from datetime import UTC, datetime
+
+    engine = _engine(_recorder({})[0])
+    event = engine.parse_webhook(CALL_COMPLETED_EXAMPLE)
+    snapshot = engine.snapshot_from_delivery(CALL_COMPLETED_EXAMPLE)
+    ended = datetime(2026, 10, 6, 4, 33, 11, 902000, tzinfo=UTC)
+    assert (event.call_id, event.status, event.raw_status, event.ended_at) == (
+        "out_9f2c1a44-6b0e-4c1d-8a7f-2e5b3c9d1f60",
+        "completed",
+        "completed",
+        ended,
+    )
+    assert (snapshot.status, snapshot.raw_status, snapshot.terminal) == (
+        "completed",
+        "completed",
+        True,
+    )
+    assert (snapshot.duration_s, snapshot.ended_at) == (182, ended)
+    assert snapshot.quality is not None and snapshot.quality.reply_ms_median == 1180
+    # No `analysedAt` and no transcript: the post-call pipeline reads the whole record.
+    assert not snapshot.billable_ready and not snapshot.transcript
+    assert snapshot.engine_summary is None and snapshot.recording_url is None
+
+
+@pytest.mark.parametrize(
+    ("outcome", "hangup", "ours"),
+    [
+        ("missed", "no_answer", "no_answer"),
+        ("missed", "busy", "busy"),
+        ("missed", "voicemail", "voicemail"),
+        ("failed", "not_placed", "failed"),
+    ],
+)
+def test_a_call_completed_outcome_maps_like_a_status(outcome: str, hangup: str, ours: str) -> None:
+    data = CALL_COMPLETED_EXAMPLE["data"] | {
+        "outcome": outcome,
+        "hangup": hangup,
+        "seconds": 0,
+        "quality": None,
+    }
+    engine = _engine(_recorder({})[0])
+    snapshot = engine.snapshot_from_delivery({"event": "call.completed", "data": data})
+    assert (snapshot.status, snapshot.raw_status, snapshot.terminal) == (ours, outcome, True)
+    assert engine.parse_webhook({"event": "call.completed", "data": data}).status == ours
+    assert snapshot.quality is None
+
+
+def test_a_status_wins_over_an_outcome() -> None:
+    data = CALL_COMPLETED_EXAMPLE["data"] | {"status": "missed", "hangup": "busy"}
+    snapshot = _engine(_recorder({})[0]).snapshot_from_delivery({"data": data})
+    assert (snapshot.status, snapshot.raw_status) == ("busy", "missed")
 
 
 # --- webhooks ----------------------------------------------------------------

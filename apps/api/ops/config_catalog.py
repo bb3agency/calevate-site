@@ -308,15 +308,23 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "thinnest",
         "Agents follow only our hand-over and lead rules (ownRules)",
         "On: ThinnestAI stops adding its lead, hand-over and call-back lines; ours state "
-        "them. Leave off until ThinnestAI says the release is live and its docs show it.",
+        "them. Live at ThinnestAI since 21 Oct 2026.",
         _THINNEST,
     ),
     "thinnest_test_chat_call_mode": _m(
         "voice-engine",
         "thinnest",
         "Practice tests run as a call (Test Chat call mode)",
-        "On: practice tests use the agent's call prompt, model and thinking level. Leave off "
-        "until ThinnestAI says the release is live and its docs show it.",
+        "On: practice tests use the agent's call prompt, model and thinking level. Needs "
+        "calling set up on the agent. Live at ThinnestAI since 21 Oct 2026.",
+        _THINNEST,
+    ),
+    "thinnest_call_instructions": _m(
+        "voice-engine",
+        "thinnest",
+        "Agents use our shorter call rules (callInstructions)",
+        "On: our call rules replace ThinnestAI's default ones, about 1,675 characters read "
+        "on every turn. Try a Telugu agent in practice tests (call mode) first.",
         _THINNEST,
     ),
     "thinnest_turn_detection": _m(
@@ -1248,6 +1256,8 @@ HIGH_RISK: Final[dict[str, str]] = {
     "thinnest_clear_voice_band": "Changes which ThinnestAI band clients are sold as Clear.",
     "thinnest_own_rules": "Every live agent is republished, and its hand-over, lead and "
     "call-back rules come from our prompt alone (on) or from ThinnestAI as well (off).",
+    "thinnest_call_instructions": "Every live agent is republished, and how it speaks on calls "
+    "follows our call rules (on) or ThinnestAI's default call rules (off).",
     "thinnest_in_call_default_model": "Changes the language model every agent with none of its "
     "own answers calls with, from its next call.",
     "thinnest_own_model": "Every live agent, free-trial agents in our developer workspace "

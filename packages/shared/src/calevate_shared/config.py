@@ -486,15 +486,22 @@ class Settings(BaseSettings):
     #: up") and its "cannot arrange a call back" sentence, and our own prompt states the
     #: hand-over rule instead (`calevate_shared.engine.OWN_RULES_HANDOVER_RULE`).
     #: VENDOR-STATED, ThinnestAI's email of 21 Oct 2026 (`docs/vendor/
-    #: thinnest-replies-2026-10-12.md` §21). The field is not in the 19 Oct docs and a strict
-    #: server may refuse a field it does not know, so it stays off until the release is live
-    #: and the docs show it (OPERATIONS gate T-31). Saving it republishes every live agent.
+    #: thinnest-replies-2026-10-12.md` §21); `Agent.ownRules` is in the live openapi.json
+    #: (21 Oct 2026, §23), so OPERATIONS gate T-31 is met and the founder flips it. Saving it
+    #: republishes every live agent.
     thinnest_own_rules: bool = False
     #: Practice tests and the register eval talk to the agent through Test Chat's call mode
     #: (`mode: "call"`, D-847): the agent's call prompt, the model its calls use and, on our
-    #: Gemini key, the call's thinking level. VENDOR-STATED (same email); off until the
-    #: release is live and the docs show the field (OPERATIONS gate T-32).
+    #: Gemini key, the call's thinking level. `TestChatRequest.mode` is in the live
+    #: openapi.json (21 Oct 2026, §23): OPERATIONS gate T-32 is met.
     thinnest_test_chat_call_mode: bool = False
+    #: Every agent is published with our call rules (`calevate_shared.engine.
+    #: CALL_INSTRUCTIONS`) as `voice.callInstructions`, which replaces ThinnestAI's ~1,675
+    #: character default call rules on every turn (D-850; field in the live openapi.json,
+    #: 21 Oct 2026). Off: `null`, the defaults. Flip only after a Test Chat call-mode run on
+    #: a Telugu agent shows no regression (OPERATIONS gate T-33). Saving it republishes every
+    #: live agent.
+    thinnest_call_instructions: bool = False
     #: How every agent decides the caller has finished (`voice.turnDetection`, D-849). `timer`
     #: is what agents have always been sent (D-767); `ear` is for the founder's trial of
     #: real-time recognition, which waits through a pause mid-sentence. Saving it republishes

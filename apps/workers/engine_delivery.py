@@ -62,7 +62,9 @@ def awaiting_transcript(snapshot: ExecutionSnapshot) -> bool:
     call in which nothing was said (D-848). A `call.completed` delivery is the first kind:
     ThinnestAI sends it "the moment it ends" with how it ended and how long it lasted, and
     the transcript only with `call.analysed` (snapshots/2026-10-19/pages/api-reference/
-    webhooks/create-webhook.md:281-285)."""
+    webhooks/create-webhook.md:281-285); it never carries `analysedAt`, so it is
+    `billable_ready` only for a call that was never placed (ThinnestAI's email of 21 Oct
+    2026, §23 item 5)."""
     return talked(snapshot) and not snapshot.transcript and not snapshot.content_deleted
 
 
@@ -168,21 +170,24 @@ async def execution_truth(
 ) -> ExecutionSnapshot:
     """The ingest job's read: a delivery, else the fetch, else (404) the listing row.
 
-    A delivery that states no status (a `call.completed` body is not documented field by
-    field) is not taken as the call's outcome: the fetch is asked instead, because an
-    unstated status reads as `failed`, which is terminal and would stop the later
-    `call.analysed` from recording `no_answer`, `busy` or `voicemail`. When the fetch
-    cannot answer, the delivery's snapshot stands."""
+    A delivery stands alone while the call is still live, or when it is the call's final
+    record. Otherwise the fetch is asked first: a `call.completed` body (its `outcome`, no
+    `analysedAt`) because Get Call may already hold the analysed call, which queues the
+    post-call job now rather than at the next delivery; and a delivery stating no status at
+    all because that reads as `failed`, which is terminal and would stop the later
+    `call.analysed` from recording `no_answer`, `busy` or `voicemail`. When the fetch cannot
+    answer, the delivery's snapshot stands."""
     document = delivered_document(engine.name, execution_id, delivery)
     if document is not None:
         delivered = snapshot_of_document(engine, document, execution_id=execution_id)
-        if delivered.raw_status not in (None, UNSTATED_STATUS):
+        stated = delivered.raw_status not in (None, UNSTATED_STATUS)
+        if stated and (delivered.billable_ready or not delivered.terminal):
             return delivered
         try:
             fetched = await engine.get_execution(execution_id)
         except ProblemError as exc:
             log.info(
-                "engine_delivery_status_unstated",
+                "engine_delivery_fetch_unavailable",
                 extra={"execution_id": execution_id, "reason": type(exc).__name__},
             )
             return delivered
