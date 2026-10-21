@@ -178,9 +178,11 @@ from apps.workers import extraction as extraction_module
 from apps.workers.engine_charges import reconcile_call_charge
 from apps.workers.engine_delivery import (
     UNSTATED_STATUS,
+    awaiting_transcript,
     execution_truth,
     post_call_truth,
     seal_listing,
+    talked,
 )
 from apps.workers.extraction import (
     MODEL_FAILURE,
@@ -608,7 +610,7 @@ async def _ingest_stages(
         # goes back to `claim_inbox_event`'s CAS and the retry re-drives the whole job.
         # The reverse order — closing the row first — turned this same failure into a
         # permanently deduped webhook with no pipeline behind it.
-        await enqueue(
+        queued = await enqueue(
             POSTCALL_JOB,
             {
                 "tenant_id": str(tenant_id),
@@ -619,9 +621,14 @@ async def _ingest_stages(
                 # serve by id it is the only record (`engine_delivery`).
                 **{key: payload[key] for key in ("delivery", "listed") if payload.get(key)},
             },
+            # Keyed on the call alone, so two runs of one call never overlap. A run that
+            # has FINISHED keeps no result (`settings.RESULT_WINDOW_S`), so a later, fuller
+            # delivery or a re-drive is queued again rather than swallowed (D-848). A run
+            # still queued or in flight answers for this delivery: it reads the engine's
+            # whole record and waits for the transcript of an answered call.
             job_id=job_id_for(POSTCALL_JOB, str(call_id)),
         )
-        outcome = "pipeline_enqueued"
+        outcome = "pipeline_enqueued" if queued else "pipeline_deduped"
     else:
         outcome = f"awaiting_completion:{snapshot.raw_status}"
 
@@ -898,6 +905,7 @@ async def run_post_call_pipeline(ctx: dict[str, Any], payload: dict[str, Any]) -
             execution_id,
             delivery=payload.get("delivery"),
             listed=payload.get("listed"),
+            attempt=attempt,
         )
     except Retry:
         # A stage that already chose its own ladder — `StorageUnavailableError` is an
@@ -1211,7 +1219,9 @@ async def _post_call_stages(
     *,
     delivery: Mapping[str, Any] | None = None,
     listed: Mapping[str, Any] | None = None,
+    attempt: int | None = None,
 ) -> str:
+    """`attempt` is arq's `job_try`; None (a direct call) settles at once."""
     started = time.perf_counter()
 
     snapshot = await post_call_truth(
@@ -1222,6 +1232,29 @@ async def _post_call_stages(
         delivery=delivery,
         listed=listed,
     )
+
+    # An answered call whose record has no turns yet is waited for, on the retry ladder,
+    # before anything is written: settled now it would read "nothing was said" and its
+    # reading would be reused when the turns arrive (D-848). The last try settles what the
+    # engine holds and says so.
+    if awaiting_transcript(snapshot):
+        if attempt is not None and attempt < WORKER_MAX_TRIES:
+            log.info(
+                "post_call_awaiting_transcript",
+                extra={"call_id": str(call_id), "execution_id": execution_id, "attempt": attempt},
+            )
+            raise Retry(defer=_retry_after(attempt))
+        alert(
+            "WORKER_DELIVERY",
+            "engine_call_answered_without_transcript",
+            detail=(
+                "an answered call with talk time was settled with no transcript: the engine's "
+                "record carried none after every try. Its status, minutes and recording are "
+                "kept and its summary reads as not written"
+            ),
+            call_id=str(call_id),
+            execution_id=execution_id,
+        )
 
     # A DELIVERED document is archived BEFORE the recording copy: for a call the engine
     # will not serve by id it is the only record, and a recording copy that exhausts its
@@ -2188,9 +2221,13 @@ async def _settled_extraction(
     reader of the reconstructed object gets, exactly as a reader of the stored row gets
     nothing.
 
-    THREE CONDITIONS REFUSE THE REUSE, each because a re-run is then the repair:
+    FOUR CONDITIONS REFUSE THE REUSE, each because a re-run is then the repair:
 
     - **no row** — the first run never got that far, which is the re-drive's whole reason;
+    - **a turn written after the row** — the stored answer read an earlier transcript,
+      typically none at all: an answered call settled before its transcript reached us and
+      re-driven once it did (D-848). Turns are upserted on `(call_id, idx)`, so a re-run
+      over the same transcript creates none and keeps the reuse;
     - **a different `schema_version`** — the agent's schema changed between runs, and the
       stored answer is an answer to a different question;
     - **`errors` carries `_model`** — the provider never answered at all (`extract_call`'s
@@ -2210,7 +2247,10 @@ async def _settled_extraction(
                     "FROM call_extractions ce "
                     "JOIN calls c ON c.id = ce.call_id AND c.tenant_id = ce.tenant_id "
                     "WHERE ce.call_id = :cid AND ce.tenant_id = :tid "
-                    "  AND ce.schema_version = :ver"
+                    "  AND ce.schema_version = :ver "
+                    "  AND NOT EXISTS (SELECT 1 FROM transcript_turns t "
+                    "    WHERE t.call_id = ce.call_id AND t.tenant_id = ce.tenant_id "
+                    "      AND t.created_at > ce.updated_at)"
                 ),
                 {"cid": call_id, "tid": tenant_id, "ver": schema_version},
             )
@@ -2489,7 +2529,9 @@ async def _record_reading(
     # has a summary to read behind the toggle.
     if english or local:
         state = "ready"
-    elif model_failed and not snapshot.engine_summary:
+    elif (model_failed and not snapshot.engine_summary) or (not turns and talked(snapshot)):
+        # An answered call with talk time and no turns was not a silence: its transcript
+        # never reached us, and "nothing was said" would be false (D-848).
         state = "failed"
     else:
         state = "empty"
@@ -2548,7 +2590,7 @@ _OUTCOME_FACTS_SQL = (
     "            AND s.status <> 'cancelled'), "
     "  (SELECT h.outcome FROM handoff_attempts h WHERE h.source_call_id = c.id "
     "     ORDER BY h.started_at DESC LIMIT 1), "
-    "  ce.outcome_hint, ce.out_of_scope, c.callback_requested "
+    "  ce.outcome_hint, ce.out_of_scope, c.callback_requested, c.status "
     "FROM calls c "
     "LEFT JOIN call_extractions ce ON ce.call_id = c.id AND ce.tenant_id = c.tenant_id "
     "WHERE c.id = :cid AND c.tenant_id = :tid"
@@ -2569,10 +2611,13 @@ async def _record_outcome(
         ).first()
         if row is None:
             return None
-        booked, handoff_outcome, hint, out_of_scope, callback_requested = row
+        booked, handoff_outcome, hint, out_of_scope, callback_requested, row_status = row
         outcome = derive_outcome(
             CallFacts(
-                status=snapshot.status,
+                # The row's `completed` wins: the upsert writes it only from a reading
+                # that stated it, while a snapshot can be a hint whose unstated status
+                # reads `failed`, which made an answered call `missed` (D-848).
+                status="completed" if row_status == "completed" else snapshot.status,
                 duration_s=snapshot.duration_s,
                 caller_turns=caller_turns,
                 callback_booked=bool(booked),
@@ -4874,7 +4919,12 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
     expected = _expected_artifacts(
         snapshot, extraction_owed=bool(extraction_owed), crm_fanout_owed=bool(crm_fanout_owed)
     )
-    if not expected and late and not any(present.values()):
+    # A listing row carries no turns, so an answered call that settled without its
+    # transcript reads as settled from it; the fetch says whether the engine now holds
+    # one (D-848). Bounded like the confirm read below: only late, only for a call with
+    # talk time and no stored turn.
+    unconfirmed_silence = late and not present["transcript"] and awaiting_transcript(snapshot)
+    if unconfirmed_silence or (not expected and late and not any(present.values())):
         # THE SNAPSHOT THE POLLER HOLDS IS A LISTING ROW, AND A LISTING ROW IS A SUMMARY
         # (D-187). `_expected_artifacts` reads what a call was owed off the engine's own
         # record, which is only sound while that record is COMPLETE.

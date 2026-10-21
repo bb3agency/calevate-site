@@ -12,7 +12,8 @@ fetch for.
 So, in order:
 
 1. a SEALED DELIVERY on the job (voice-runtime verified it and sealed it under the engine
-   intake key) is opened and read by the adapter;
+   intake key) is opened and read by the adapter, and stands as the call's record only
+   when it is a whole one (`content_final`);
 2. otherwise `get_execution`;
 3. and when the engine will not serve the call by id (404) and a delivery for it was
    archived on an earlier run, that archive is read instead — a reconciliation re-drive
@@ -47,6 +48,27 @@ log = get_logger(__name__)
 
 #: The raw status an adapter records when the engine stated none (`raw_status or "unknown"`).
 UNSTATED_STATUS: Final = "unknown"
+
+
+def talked(snapshot: ExecutionSnapshot) -> bool:
+    """The call was answered and ran: `completed` with talk time."""
+    return snapshot.status == "completed" and (snapshot.duration_s or 0) > 0
+
+
+def awaiting_transcript(snapshot: ExecutionSnapshot) -> bool:
+    """An answered call whose record carries no turns, and not because they were deleted.
+
+    That is the record before the engine finished analysing the call, or a loss; never a
+    call in which nothing was said (D-848). A `call.completed` delivery is the first kind:
+    ThinnestAI sends it "the moment it ends" with how it ended and how long it lasted, and
+    the transcript only with `call.analysed` (snapshots/2026-10-19/pages/api-reference/
+    webhooks/create-webhook.md:281-285)."""
+    return talked(snapshot) and not snapshot.transcript and not snapshot.content_deleted
+
+
+def content_final(snapshot: ExecutionSnapshot) -> bool:
+    """Can the post-call pipeline settle the call's content from this record alone?"""
+    return snapshot.billable_ready and not awaiting_transcript(snapshot)
 
 
 @runtime_checkable
@@ -204,11 +226,26 @@ async def post_call_truth(
     delivery: Mapping[str, Any] | None,
     listed: Mapping[str, Any] | None = None,
 ) -> ExecutionSnapshot:
-    """The post-call read: a delivery, else the fetch, else (404) the archived delivery,
-    else the listing row."""
+    """The post-call read: a whole delivery, else the fetch, else (404) the archived
+    delivery, else the listing row.
+
+    A delivery that is not `content_final` is a hint: a `call.completed` body, or one sent
+    before the engine finished the call. Settling content from it wrote an answered call
+    with no turns, no recording and outcome `missed` (D-848), so the fetch is asked and the
+    hint stands only when the engine will not serve the call by id."""
     document = delivered_document(engine.name, execution_id, delivery)
     if document is not None:
-        return snapshot_of_document(engine, document, execution_id=execution_id)
+        delivered = snapshot_of_document(engine, document, execution_id=execution_id)
+        if content_final(delivered):
+            return delivered
+        try:
+            fetched = await engine.get_execution(execution_id)
+        except EngineRejectedError as exc:
+            if not _absent(exc):
+                raise
+            log.info("engine_delivery_hint_only", extra={"execution_id": execution_id})
+            return delivered
+        return fetched if content_final(fetched) or not delivered.billable_ready else delivered
     try:
         return await engine.get_execution(execution_id)
     except EngineRejectedError as exc:
@@ -236,9 +273,12 @@ async def post_call_truth(
 __all__ = [
     "UNSTATED_STATUS",
     "ReadsDeliveries",
+    "awaiting_transcript",
+    "content_final",
     "delivered_document",
     "execution_truth",
     "post_call_truth",
     "seal_listing",
     "snapshot_of_document",
+    "talked",
 ]

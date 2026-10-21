@@ -18,7 +18,8 @@ be corrected by an UPDATE — the remedy is a compensating entry somebody writes
 if anybody ever notices.
 
 The defence that existed was the ARQ job id, keyed on the call. It is real and it is the
-FIRST line, not the last: its window is `keep_result` (3600s), a `job_timeout = 300`
+FIRST line, not the last: it holds only while a run is queued or in flight (D-848), a
+`job_timeout = 300`
 cancellation can leave a transaction in flight while its retry starts, and an operator
 replay or a lost Redis removes it entirely. `lock_call_writes` makes it a database fact.
 

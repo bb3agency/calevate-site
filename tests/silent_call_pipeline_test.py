@@ -167,7 +167,12 @@ async def test_a_call_with_no_transcript_buys_no_provider_round_trip(
     """
     tenant_id, execution_id, call_id = await _staged("none")
     real = await get_engine().get_execution(execution_id)
-    _pin_snapshot(monkeypatch, real.model_copy(update={"transcript": [], "recording_url": None}))
+    # No talk time: an answered call that ran and has no turns is not a silence, it is a
+    # transcript still to come (D-848, `answered_call_truth_test`).
+    _pin_snapshot(
+        monkeypatch,
+        real.model_copy(update={"transcript": [], "recording_url": None, "duration_s": 0}),
+    )
     spy = _CountingExtractor()
     monkeypatch.setattr(extraction_module, "get_extractor", lambda: spy)
 
@@ -233,7 +238,7 @@ async def test_a_re_drive_of_a_silent_call_stays_free(monkeypatch: pytest.Monkey
     """
     tenant_id, execution_id, call_id = await _staged("redrive")
     real = await get_engine().get_execution(execution_id)
-    _pin_snapshot(monkeypatch, real.model_copy(update={"transcript": []}))
+    _pin_snapshot(monkeypatch, real.model_copy(update={"transcript": [], "duration_s": 0}))
     spy = _CountingExtractor()
     monkeypatch.setattr(extraction_module, "get_extractor", lambda: spy)
 
