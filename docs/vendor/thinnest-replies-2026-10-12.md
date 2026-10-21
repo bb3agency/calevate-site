@@ -1513,3 +1513,31 @@ own-key forward on a brought number (§21 item 7), and the §20 items still unan
 | Priority tier | Accepted on `generateContent`; Google reports `usageMetadata.serviceTier`; came back `standard` on their key | Founder re-tests with our key reading `serviceTier`; if it reports `priority` and the first byte drops, ask for the per-agent opt-in |
 | `firstTokenMs` / `responseMs` | `firstTokenMs`: turn reaching their service → first speakable word; `responseMs`: speech end → first audio. Per-turn split is in their logs | Admin Reply times copy defines both correctly (D-852). Reply "yes" to pulling the per-turn lines for the two calls |
 | Forward to a brought number, own-key agent | Nothing is billed: zero seconds whatever the key set | D-852: remove D-847's own-key exception; a forward to a brought number costs ₹0 on every key set |
+
+## 26. Reply to §25 (21 Oct 2026; the founder sends)
+
+> Subject: Re: Calevate: call latency, one billing case, and the items still open
+>
+> Hi Ashutosh,
+>
+> Thanks, that's all clear, and we're building the early-answers switch and the brought-number
+> correction on our side now.
+>
+> 1. **Per-turn timing logs:** yes, please. Could you pull the per-turn lines (end-of-speech
+>    wait, recognition final, first sentence complete, voice first audio) for these two calls?
+>    out_cd17adc9-e7cc-4ae4-bae7-b679b749c2e6 and out_4ee76842-a834-49f0-81a4-1bac7db41c68.
+> 2. **Priority tier:** we tested it with our key reading `usageMetadata.serviceTier`, and it also
+>    came back `standard` on all three priority requests, with no change in first byte. So no
+>    need to add the per-agent opt-in for now; we'll come back to you if Google enables it on
+>    our project.
+> 3. **Ear:** we'll move our Telugu agent to Ear and share how it does on a few calls.
+>
+> Still open from earlier: the signed DPA and sub-processor list, the written training
+> exclusion, the TRAI regulation 4 notice and access provider, a volume price for own-key
+> minutes, and dates for the live carrier tests.
+>
+> Thanks,
+> Umesh
+
+Evidence for item 2: rememory 0d9429bf (founder's VPS test, 21 Oct 2026: standard 1167/973/1187 ms,
+priority 1166/1231/834 ms, `serviceTier=standard` on every request).
