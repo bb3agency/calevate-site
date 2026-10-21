@@ -1299,3 +1299,54 @@ exclusion, regulation 4 notice and access provider), 13 (volume price for own-ke
 14 (live carrier tests); item 7's brought-number case; the text of the default call rules
 (item 8); and the 21 Oct test calls that ThinnestAI reported `missed` though the founder
 answered and spoke (pending the Get Call read-back).
+
+## 22. Draft of the next email (21 Oct 2026, unsent; the founder sends)
+
+Only what today's evidence raised. Nothing from §20 is asked again (the DPA, training exclusion,
+regulation 4, prompt order, volume price and carrier tests are excluded at the founder's
+direction, 21 Oct 2026). Item 4 waits on lane AGENTQ2's finding: it goes in only if their
+reply-language rule, not ours, produced the English reply.
+
+> Subject: Calevate: billing blocks, the per-turn prompt, and two small doc questions
+>
+> Hi Ashutosh,
+>
+> Thanks for the quick answers and for building ownRules, call mode and `to`. We'll switch them
+> on the day you confirm the release. Four things from today's calls:
+>
+> 1. **Billing blocks on own-key minutes.** A 63-second `llm_voice` call
+>    (out_4ee76842-a834-49f0-81a4-1bac7db41c68) was billed 90 seconds. Most of our clients' calls
+>    run one to two minutes, so the 30-second block is a large share of the minute. Could
+>    own-key minutes (`llm_voice`, `voice`) be billed per second, or in 6-second blocks?
+> 2. **The per-turn parts of the prompt, and caching.** On our own Gemini key, two calls cached
+>    34% and 35% of their input (out_cd17adc9-e7cc-4ae4-bae7-b679b749c2e6: 14,117 of 41,053
+>    tokens; out_4ee76842…: 16,146 of 46,709). That is about 2,300 cached tokens per reply out
+>    of about 6,000, which looks like the fixed rules being cached and the conversation never
+>    being. If the date line or the per-turn blocks sit before the conversation history and
+>    change every reply, everything after them misses the cache. Could anything that changes
+>    per reply go after the conversation (at the end of the request) instead? The fixed rules
+>    stay where they are, so the reply-language rule still comes last in the instructions. This
+>    is the different order we'd like to test on our Telugu calls, as you offered.
+> 3. **The default call rules, verbatim.** Since `voice.callInstructions` replaces them and every
+>    turn carries about 1,675 characters of them, could you share the text? We'd like to send a
+>    shorter version that keeps what matters, to cut what the model reads before its first word.
+> 4. *(Only if confirmed as your rule.)* **Reply language on a one-word greeting.** The agent
+>    greeted in Telugu, the caller said only "Hello", and the agent answered in English; the
+>    caller then had to ask for Telugu. Could `language: "auto"` stay in the language of the
+>    greeting until the caller speaks a full sentence in another language?
+>
+> And two documentation questions:
+> - What exactly does the `call.completed` body carry (status, seconds, `analysedAt`; never
+>   the transcript or recording?), and can it ever arrive after `call.analysed`?
+>
+> Thanks,
+> Umesh
+
+### 22.1 Why each item is in (evidence)
+| # | Evidence | Where |
+|---|---|---|
+| 1 | 63 s talk, `billedSeconds` 90, ₹1.50 `costMicro`; call 1 58 s billed 60 | Get Call read by the founder on the VPS, 21 Oct 2026 |
+| 2 | 34–35% cached input; their stated order puts the date line and per-turn blocks after the reply-language and speaking rules (§16, 18 Oct; rememory D-814) | same Get Call read; `usage.cachedInputTokens` |
+| 3 | `voice.callInstructions` replaces the ~1,675-character default call rules; we hold none of their text | §21 item 8 |
+| 4 | Call 2 transcript, 21 Oct 2026 10:00 IST (founder-pasted) | pending AGENTQ2 |
+| doc | Our post-call pipeline took a transcript-less `call.completed` as the whole record; fixed on our side (lane CALLTRUTH) | `webhooks.md:74` "outcome and duration" |
