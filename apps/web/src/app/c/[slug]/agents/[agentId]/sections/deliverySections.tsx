@@ -92,20 +92,24 @@ export function CallHandlingSection({ agent }: { agent: Agent }) {
   });
   return (
     <div className="space-y-8">
-      {pending.isLoading ? (
-        <Skeleton rows={2} />
-      ) : pending.error || !pending.data ? (
-        <ProblemNotice
-          error={pending.error ?? new Error("This agent's call limit could not be read just now.")}
-          onRetry={() => void pending.refetch()}
-        />
-      ) : (
-        <SettingRows className="border-y border-line">
-          <CallCapChoice agentId={agent.id} state={pending.data} />
-          <WorstCaseCost state={pending.data} />
-        </SettingRows>
-      )}
-      <AgentCallHandlingRows agentId={agent.id} />
+      {/* One list: the call-handling rows continue the call-limit rows, so the two share
+          a single rule between them rather than each drawing its own edge. */}
+      <div>
+        {pending.isLoading ? (
+          <Skeleton rows={2} />
+        ) : pending.error || !pending.data ? (
+          <ProblemNotice
+            error={pending.error ?? new Error("This agent's call limit could not be read just now.")}
+            onRetry={() => void pending.refetch()}
+          />
+        ) : (
+          <SettingRows className="border-t border-line">
+            <CallCapChoice agentId={agent.id} state={pending.data} />
+            <WorstCaseCost state={pending.data} />
+          </SettingRows>
+        )}
+        <AgentCallHandlingRows agentId={agent.id} />
+      </div>
       <Handover agent={agent} />
       <CallerContinuity agent={agent} />
     </div>
