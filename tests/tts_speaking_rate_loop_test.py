@@ -66,6 +66,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.ops import config_routes
 from sqlalchemy import text
+from tests.cost_floor_test import _inputs as _floor_inputs
 
 
 #: A month of this case's own, from a range no real row can be in — the counter is a SHARED
@@ -500,6 +501,7 @@ def test_the_rate_card_prices_the_clear_column_at_the_measured_rate() -> None:
         fx=fx,
         clear=clear,
         own_model_prompt_tokens=None,
+        inputs=_floor_inputs(wallet_fee=None),
     )
     sarvam = [cell for cell in cells if cell.voice_tier == "clear"]
     assert sarvam, "the card has a Clear column"
@@ -586,6 +588,7 @@ def test_the_committed_plan_panel_names_the_frozen_basis_it_refuses_on() -> None
     margin = _margin_out(
         CommercialTerms(monthly_fee=Decimal("10000"), included_min=1000, overage_rate=None),
         own_model=None,
+        inputs=_floor_inputs(wallet_fee=None),
     )
     assert margin.cost_floor_inr_per_min == str(SELF_SERVE_COST_FLOOR_INR_PER_MIN)
     assert margin.cost_floor_basis == ASSUMED_SPEAKING_RATE.label

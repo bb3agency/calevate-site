@@ -41,6 +41,7 @@ from apps.api.core.fx import UsdInrRate
 from apps.api.db.session import untenanted_session
 from apps.api.ops import config_routes
 from sqlalchemy import text
+from tests.cost_floor_test import _inputs as _floor_inputs
 
 
 def _month() -> str:
@@ -166,6 +167,7 @@ def test_the_wire_carries_the_volume_the_fx_and_a_breakeven_for_every_studio_run
         fx=fx,
         clear=clear_cost_floor_at(ASSUMED_SPEAKING_RATE),
         own_model_prompt_tokens=None,
+        inputs=_floor_inputs(wallet_fee=None),
     )
     studio = [cell for cell in cells if cell.voice_tier == "studio"]
     assert len(studio) == len(PACK_CATALOGUE)
