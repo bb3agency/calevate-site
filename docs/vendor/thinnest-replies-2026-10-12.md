@@ -1307,7 +1307,7 @@ regulation 4, prompt order, volume price and carrier tests are excluded at the f
 direction, 21 Oct 2026). Item 4 waits on lane AGENTQ2's finding: it goes in only if their
 reply-language rule, not ours, produced the English reply.
 
-> Subject: Calevate: billing blocks, the per-turn prompt, and one doc question
+> Subject: Calevate: billing blocks, caching on our Gemini key, and the default call rules
 >
 > Hi Ashutosh,
 >
