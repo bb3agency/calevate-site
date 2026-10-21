@@ -59542,6 +59542,57 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/agents/{agent_id}/script/tests/{run_id}/improvement/settle": {
+      "post": {
+        "description": "Called after the kept fixes are saved to the draft or put live. Separate from\n`apply`, which saves nothing, so a save that fails leaves the fixes on offer.",
+        "operationId": "settle_suggested_edits_v1_agents__agent_id__script_tests__run_id__improvement_settle_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestConversationsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The suggested fixes were kept: stop offering them",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/agents/{agent_id}/script/tests/{run_id}/results/{key}/wrong": {
       "post": {
         "operationId": "mark_test_wrong_v1_agents__agent_id__script_tests__run_id__results__key__wrong_post",

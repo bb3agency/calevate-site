@@ -252,3 +252,40 @@ async def test_kept_edits_are_applied_to_the_owners_copy_one_by_one() -> None:
     assert body["script"]["stages"][0]["instruction"] == "Greet and ask the need."
     assert body["script"]["ending"] == "" and body["script"]["opening_line"] == "Namaskaram"
     assert unknown.json()["type"].endswith("/agent_tests_unknown_edit"), unknown.text
+
+
+async def test_kept_fixes_are_not_offered_again_after_a_reload() -> None:
+    """FAILS IF: suggested fixes the owner kept come back on the next read of the tests
+    (founder, 21 Oct 2026: still shown after Keep and a page refresh)."""
+    tenant_id, slug, token = await _make_tenant()
+    async with tenant_session(tenant_id) as session:
+        agent_id = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar_one()
+    run_id = await _failed_run(tenant_id, agent_id, [{"key": "k1", "verdict": "failed"}])
+    edit = {
+        "id": "e1",
+        "op": "set_step",
+        "step_id": "s1",
+        "text": "Greet and ask the need.",
+        "label": "Step “Greet”",
+        "before": "Greet them.",
+        "after": "Greet and ask the need.",
+        "because": "k1",
+        "why": "It never asked what they needed.",
+    }
+    proposal = {"base": "live", "edits": [edit], "facts": [], "created_at": "2026-10-21T10:00:00Z"}
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agent_test_runs SET improvement = CAST(:i AS jsonb) WHERE id = :id"),
+            {"id": run_id, "i": json.dumps(proposal)},
+        )
+    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
+    base = f"/v1/agents/{agent_id}/script/tests"
+    async with _client() as http:
+        before = await http.get(base, headers=headers)
+        settled = await http.post(f"{base}/{run_id}/improvement/settle", headers=headers)
+        after = await http.get(base, headers=headers)
+    assert before.status_code == 200, before.text
+    assert before.json()["latest"]["improvement"] is not None, before.text
+    assert settled.status_code == 200, settled.text
+    assert settled.json()["latest"]["improvement"] is None
+    assert after.json()["latest"]["improvement"] is None

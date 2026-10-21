@@ -807,6 +807,22 @@ export function useMarkTestWrong(
   });
 }
 
+/**
+ * The kept fixes are saved: the server stops offering them, after a reload too. The tests
+ * cache is left alone so the "Kept" notice stays until the owner closes it; closing refetches.
+ */
+export function useSettleImprovement(
+  session: Session,
+  agentId: string,
+): UseMutationResult<TestConversations, Error, { runId: string }> {
+  return useMutation({
+    mutationFn: ({ runId }) =>
+      apiRequest<TestConversations>(session, `${base(agentId)}/tests/${runId}/improvement/settle`, {
+        method: "POST",
+      }),
+  });
+}
+
 export interface AppliedEdits {
   script: CallScript;
   /** Kept edits that no longer fit the working copy, left out. */

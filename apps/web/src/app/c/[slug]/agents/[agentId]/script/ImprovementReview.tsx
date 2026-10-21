@@ -31,6 +31,7 @@ import {
   usePublishScript,
   useSaveDraft,
   useScript,
+  useSettleImprovement,
   type CallScript,
   type Improvement,
   type ProposedFact,
@@ -70,6 +71,7 @@ export function ImprovementReview({
   const saveDraft = useSaveDraft(session, agentId);
   const publish = usePublishScript(session, agentId);
   const apply = useApplySuggestedEdits(session, agentId);
+  const settle = useSettleImprovement(session, agentId);
   const addFact = useAddFact(session);
   const editFact = useEditFact(session);
 
@@ -129,6 +131,7 @@ export function ImprovementReview({
       } else {
         await saveFacts();
       }
+      await settle.mutateAsync({ runId: run.id });
       setDone({ where: goLive ? "live" : "draft", skipped });
     } catch {
       // Each mutation renders its own refusal below.
@@ -224,6 +227,7 @@ export function ImprovementReview({
       {editFact.error && <ProblemNotice error={editFact.error} />}
       {saveDraft.error && <ProblemNotice error={saveDraft.error} />}
       {publish.error && <ProblemNotice error={publish.error} />}
+      {settle.error && <ProblemNotice error={settle.error} />}
       <div className="flex flex-wrap gap-2">
         {!nothing && (
           <button

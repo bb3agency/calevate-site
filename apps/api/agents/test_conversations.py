@@ -1567,6 +1567,20 @@ async def store_improvement(
     )
 
 
+async def settle_improvement(session: AsyncSession, *, agent_id: UUID, run_id: UUID) -> None:
+    """The owner kept the suggested fixes: the proposal stops being offered, after a reload
+    too. Kept in the proposal itself rather than cleared, so what was suggested stays on
+    record."""
+    await session.execute(
+        text(
+            "UPDATE agent_test_runs SET improvement = improvement || "
+            "jsonb_build_object('settled_at', now()), updated_at = now() "
+            "WHERE id = :id AND agent_id = :aid AND improvement IS NOT NULL"
+        ),
+        {"id": run_id, "aid": agent_id},
+    )
+
+
 async def store_improve_stop(
     session: AsyncSession, *, agent_id: UUID, run_id: UUID, stop: ImproveStop, note: str
 ) -> None:
@@ -1872,6 +1886,7 @@ __all__ = [
     "result_channel",
     "result_owner",
     "result_verdict",
+    "settle_improvement",
     "standard_scenarios",
     "store_improve_stop",
     "store_improvement",

@@ -709,6 +709,9 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/agents/{agent_id}/script/tests/{run_id}/results/{key}/wrong": BoundedByConstruction(
         by="the same shape as `GET .../script/tests`, read back after the label is written."
     ),
+    "POST /v1/agents/{agent_id}/script/tests/{run_id}/improvement/settle": BoundedByConstruction(
+        by="the same shape as `GET .../script/tests`, read back after the proposal is settled."
+    ),
     "POST /v1/agents/{agent_id}/script/tests/{run_id}/improvement/apply": BoundedByConstruction(
         by="one `CallScript` under the `calevate_shared.call_script` ceilings, and `skipped`, "
         "ids of the kept edits sent, at most `script_edits.MAX_EDITS` (`ApplyEditsIn.edits` "

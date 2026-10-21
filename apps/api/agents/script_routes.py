@@ -830,7 +830,8 @@ _EDIT_FIELDS: Final = frozenset(ScriptEditOut.model_fields)
 def _improvement_out(raw: dict[str, Any] | None) -> ImprovementOut | None:
     """The stored proposal, or None. A proposal made before D-823 is a whole script with no
     edits, which nothing on today's screen can review; the owner asks for fixes again."""
-    if not raw or not isinstance(raw.get("edits"), list):
+    # One the owner already kept is not offered again (`settle_improvement`).
+    if not raw or not isinstance(raw.get("edits"), list) or raw.get("settled_at"):
         return None
     return ImprovementOut(
         base=raw.get("base") or "live",
@@ -1109,6 +1110,26 @@ async def apply_suggested_edits(
         upgrade_to_v2(payload.script), [ScriptEdit.of(by_id[i]) for i in payload.edits]
     )
     return ApplyEditsOut(script=script, skipped=[edit.id for edit, _why in rejected])
+
+
+@router.post(
+    "/tests/{run_id}/improvement/settle",
+    response_model=TestConversationsOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="The suggested fixes were kept: stop offering them",
+)
+async def settle_suggested_edits(
+    agent_id: UUID,
+    run_id: UUID,
+    session: Session,
+    principal: ScriptWriter,
+) -> TestConversationsOut:
+    """Called after the kept fixes are saved to the draft or put live. Separate from
+    `apply`, which saves nothing, so a save that fails leaves the fixes on offer."""
+    assert principal.tenant_id is not None
+    await test_conversations.get_run(session, agent_id, run_id)
+    await test_conversations.settle_improvement(session, agent_id=agent_id, run_id=run_id)
+    return await _tests_out(session, agent_id, principal.tenant_id)
 
 
 # --- the suggestion Pip prepared (D-820) ------------------------------------------------

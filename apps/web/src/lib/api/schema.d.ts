@@ -3995,6 +3995,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/script/tests/{run_id}/improvement/settle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The suggested fixes were kept: stop offering them
+         * @description Called after the kept fixes are saved to the draft or put live. Separate from
+         *     `apply`, which saves nothing, so a save that fails leaves the fixes on offer.
+         */
+        post: operations["settle_suggested_edits_v1_agents__agent_id__script_tests__run_id__improvement_settle_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/script/tests/{run_id}/results/{key}/wrong": {
         parameters: {
             query?: never;
@@ -36646,6 +36667,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApplyEditsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    settle_suggested_edits_v1_agents__agent_id__script_tests__run_id__improvement_settle_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestConversationsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

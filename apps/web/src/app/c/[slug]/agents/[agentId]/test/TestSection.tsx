@@ -206,7 +206,10 @@ export function TestSection({
               agentId={agent.id}
               run={done}
               improvement={proposal}
-              onClose={() => setClosed(proposal.created_at)}
+              onClose={() => {
+                setClosed(proposal.created_at);
+                void tests.refetch();
+              }}
               onTestAgain={testAgain}
             />
           )}
