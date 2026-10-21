@@ -522,11 +522,18 @@ FUNCTIONS: list[Any] = [
 #:   claim lapses after `OUTBOX_CLAIM_LEASE` and the next tick re-enqueues it under the same
 #:   job id, which the result key must still be there to refuse. So the window outlives the
 #:   lease and a tick, and nothing else, instead of the worker-wide hour.
+#: * `run_post_call_pipeline` keeps nothing, for the dedupe rather than the args. Its id is
+#:   the call, so a kept result swallowed every later run of that call for an hour: the
+#:   `call.analysed` delivery that carried the transcript and the poller's re-drive were both
+#:   dropped after a run on `call.completed` (D-848). Overlapping runs are still refused while
+#:   one is queued or in flight; a finished one leaves the id free, and every stage is
+#:   re-runnable (metering and the CRM fan-out are claimed once per call in the database).
 OUTBOX_RESULT_WINDOW_S: Final[int] = int(
     (OUTBOX_CLAIM_LEASE + timedelta(minutes=3)).total_seconds()
 )
 RESULT_WINDOW_S: Final[Mapping[str, int]] = {
     deliver_auth_email.__name__: 0,
+    run_post_call_pipeline.__name__: 0,
     deliver_outbound_webhook.__name__: OUTBOX_RESULT_WINDOW_S,
     recall_dials_for_dnc.__name__: OUTBOX_RESULT_WINDOW_S,
     notify_account_closed.__name__: OUTBOX_RESULT_WINDOW_S,

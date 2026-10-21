@@ -88,7 +88,8 @@ function Summary({ detail, view }: { detail: CallDetail; view: CallView }) {
   if (detail.summary_state === "failed" && !detail.summary) {
     return (
       <p className="max-w-prose text-body text-ink-muted">
-        The summary could not be written for this call. The conversation below is complete.
+        The summary could not be written for this call.
+        {detail.transcript?.length ? " The conversation below is complete." : ""}
       </p>
     );
   }
