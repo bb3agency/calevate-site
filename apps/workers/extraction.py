@@ -162,10 +162,14 @@ SARVAM_CHAT_URL: Final = "https://api.sarvam.ai/v1/chat/completions"
 
 #: The per-leg provider budget for the POST-CALL pipeline, where nobody is waiting.
 #:
-#: 30s is right there: an ARQ job holds no HTTP connection and no pooled Postgres
-#: connection across the call, so the only cost of waiting is the job's own wall clock.
+#: An ARQ job holds no HTTP connection and no pooled Postgres connection across the call,
+#: so the only cost of waiting is the job's own wall clock. 60s, not 30s: Sarvam counts its
+#: reasoning in `max_tokens` (4096 here and in `call_language.MAX_TOKENS`) and produced
+#: about 100 tokens a second from production (82 in 0.84 s, 21 Oct 2026), so a full answer
+#: takes about 41 s; at 30s every long call's reading timed out. A reading, its repair and
+#: two translation batches at 60s each stay inside `WorkerSettings.job_timeout` (300s).
 #: `pipeline.py` names this number in its retry arithmetic.
-EXTRACTION_TIMEOUT_S: Final = 30.0
+EXTRACTION_TIMEOUT_S: Final = 60.0
 
 #: The ceiling on ONE extraction answer, in tokens. It is a safety valve, not a target: an
 #: extraction reply is a JSON object of short field values plus a two-sentence summary, well
