@@ -54,8 +54,8 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: after D-849's greeting-language, cut-off and recall rules;
 #: both digests moved).
 PINNED = (
-    "7ead2c46fa7ba2934b395b02af9846f4e8242a1cdeb5fdf76ef4f39a87093e76",
-    "8e8e78f07b5007a96363dedc65b82b07de8e1d7d620695b96fa86f39dd076e3c",
+    "cce9ab996dd37e9a1d4e5fe9521dd6b4d091a592819a2ddd1c84868415515d6c",
+    "ea30a0be9da11393d63b7b1626262484618b1abe3cb604fc6449c10988b3c3b4",
 )
 
 
