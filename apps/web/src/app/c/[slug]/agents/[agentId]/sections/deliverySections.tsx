@@ -41,7 +41,8 @@ export function VoiceSection({ agent }: { agent: Agent }) {
   }
   return (
     <div className="space-y-6">
-      <SettingRows className="border-y border-line">
+      {/* No top rule: this list opens the tab, directly under the tab bar's own line. */}
+      <SettingRows className="border-b border-line">
         <VoiceNow state={pending.data} published={agent.published} />
       </SettingRows>
       <VoiceChoice agentId={agent.id} state={pending.data} />
