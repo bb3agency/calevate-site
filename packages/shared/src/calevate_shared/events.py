@@ -199,7 +199,9 @@ class CallQuality(BaseModel):
     reply_ms_median: int | None = None
     reply_ms_p90: int | None = None
     reply_ms_max: int | None = None
-    #: The model's share of that wait: turn reaches the model -> its first word.
+    #: Part of that wait: the turn reaching the voice platform -> the first speakable word,
+    #: not counted from the caller's speech end (VENDOR-STATED, `docs/vendor/
+    #: thinnest-replies-2026-10-12.md` §25.0).
     first_token_ms_median: int | None = None
     first_token_ms_p90: int | None = None
     first_token_ms_max: int | None = None

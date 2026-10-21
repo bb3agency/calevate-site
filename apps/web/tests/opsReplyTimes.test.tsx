@@ -43,6 +43,13 @@ describe("the voice response time report", () => {
     expect(container.textContent).toContain("1,460 ms");
   });
 
+  it("times the model's first word from the turn reaching the platform", async () => {
+    renderAdminPage(<ReplyTimesPage />, routes());
+
+    fireEvent.click(await screen.findByRole("button", { name: /What these figures are/ }));
+    await screen.findByText(/from the turn reaching\s+the voice platform/);
+  });
+
   it("shows a withheld slow figure as a dash, never as zero", async () => {
     renderAdminPage(<ReplyTimesPage />, routes());
 

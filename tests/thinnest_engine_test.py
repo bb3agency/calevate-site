@@ -161,6 +161,8 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         "turnSilenceSeconds": 0.25,
         # Silence ends the turn, stated rather than left to the platform's default.
         "turnDetection": "timer",
+        # Early answers stated at the vendor's default (D-852).
+        "earlyAnswers": True,
         # The platform's own do-not-call tool stays on (13 Oct 2026).
         "recordDoNotCall": True,
         # No number attached yet: nowhere, never the website button or WhatsApp (F1).

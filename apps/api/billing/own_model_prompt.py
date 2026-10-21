@@ -17,7 +17,10 @@ module decides that prompt size, best source first:
    definitions, knowledge results). Only provider-reported counts are sampled: a call whose
    input count the engine estimated from the prompt's length (`inputTokensEstimated`,
    snapshots/2026-10-15/pages/api-reference/calls/get-call.md:1208-1217) would feed the
-   floor the engine's guess at our prompt instead of a measurement of it (D-796).
+   floor the engine's guess at our prompt instead of a measurement of it (D-796). While
+   `thinnest_early_answers` is on the count is a lower bound: discarded early replies are
+   billed to our Google key but left out of `usage` (§25.0 of
+   `docs/vendor/thinnest-replies-2026-10-12.md`, D-852).
 2. **Published**: the largest engine prompt any live agent would publish now, composed by
    the publish path itself (`agents/prompt_size.publish_config`), in tokens.
 3. **Ceiling**: the engine's own prompt ceiling (`THINNEST_LIMITS.prompt_chars`, which the

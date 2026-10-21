@@ -124,6 +124,11 @@ export function ReplyTimesScreen() {
                 (median), slow (90th percentile) and slowest reply once the call ends.
               </p>
               <p>
+                The model&rsquo;s first word is part of that wait, timed from the turn reaching
+                the voice platform to the first word it can speak, not from when the caller
+                stopped.
+              </p>
+              <p>
                 Each call counts once, however long it was. Typical is the middle of the
                 calls&rsquo; own typical replies; slow is the point nine calls in ten had their
                 slow replies under.
