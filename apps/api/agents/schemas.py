@@ -30,6 +30,24 @@ from apps.api.agents.llm_models import LlmModelSource
 from apps.api.agents.models import AgentDirection, AgentStatus
 
 
+class GreetingBudgetOut(BaseModel):
+    """What the agent says first, against the most the calling system speaks there (D-846).
+
+    Each room is how many characters the opening line may have after the notices: with
+    the switches as they are, and with that one switch turned on. Negative when the notices
+    alone leave none. Counted the way the publish counts (`engine_limits.greeting_chars`),
+    so a screen counting down from here and the publish refusal agree."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int
+    opening_chars: int
+    opening_room: int
+    opening_room_with_ai_disclosure: int
+    opening_room_with_recording_notice: int
+    opening_room_with_caller_memory: int
+
+
 class AgentOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -92,6 +110,9 @@ class AgentOut(BaseModel):
     script_opening_line: str = ""
     #: What a caller hears first: `opening_line`, then `script_opening_line`.
     first_words: str = ""
+    #: How much room the opening line has in what the agent says first. Null where the
+    #: calling system sets no ceiling there.
+    greeting_budget: GreetingBudgetOut | None = None
     #: The one sentence no toggle reaches, in words a client can read. Server-composed for
     #: the same reason the lane table's `why` strings are: a screen that paraphrases this
     #: is a screen that can accidentally promise the opposite. REQUIRED rather than

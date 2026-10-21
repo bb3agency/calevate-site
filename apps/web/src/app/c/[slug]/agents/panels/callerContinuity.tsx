@@ -39,14 +39,10 @@ import { useSetCallerMemory, type Agent } from "@/lib/api/agents";
 import { useActAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 
+import { NOTICE_NEEDS_ROOM, OpeningLineFix, problemCode } from "./openingLineFix";
+
 /** The refusal code the API uses when this account has not confirmed what its calls hold. */
 const NEEDS_ATTESTATION = "caller_memory_attestation_required";
-
-function problemCode(error: unknown): string | null {
-  if (!error || typeof error !== "object") return null;
-  const code = (error as { code?: unknown }).code;
-  return typeof code === "string" ? code : null;
-}
 
 function remediation(error: unknown): string | null {
   if (!error || typeof error !== "object") return null;
@@ -81,6 +77,11 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
 
   const needsAttestation = problemCode(setCallerMemory.error) === NEEDS_ATTESTATION;
   const statement = needsAttestation ? remediation(setCallerMemory.error) : null;
+  // The memory sentence is said before the opening line, and the line left it no room: the
+  // fix is offered here, where the switch was refused, rather than on the script page.
+  const room = agent.greeting_budget?.opening_room_with_caller_memory;
+  const needsRoom =
+    problemCode(setCallerMemory.error) === NOTICE_NEEDS_ROOM && room !== undefined;
 
   return (
     <section>
@@ -102,8 +103,17 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
         they ask for.
       </p>
 
-      {setCallerMemory.error && !needsAttestation && (
+      {setCallerMemory.error && !needsAttestation && !needsRoom && (
         <ProblemNotice error={setCallerMemory.error} />
+      )}
+      {needsRoom && (
+        <OpeningLineFix
+          agent={agent}
+          error={setCallerMemory.error}
+          room={room}
+          retrying={setCallerMemory.isPending}
+          retry={() => setCallerMemory.mutate({ enabled: true, accept: readStatement })}
+        />
       )}
 
       <div className="mt-4">

@@ -186,6 +186,7 @@ export function ScriptBuilder({
           trainingHref={trainingHref}
           agentName={agent.data?.name ?? "This agent"}
           agentOn={agent.data ? agent.data.published && agent.data.status === "live" : false}
+          openingRoom={agent.data?.greeting_budget?.opening_room}
         />
       ) : null}
     </div>
@@ -199,6 +200,7 @@ function Editor({
   trainingHref,
   agentName,
   agentOn,
+  openingRoom,
 }: {
   agentId: string;
   out: ScriptOut;
@@ -206,6 +208,8 @@ function Editor({
   trainingHref: string;
   agentName: string;
   agentOn: boolean;
+  /** Characters the opening line may have after the notices switched on (D-846). */
+  openingRoom?: number;
 }) {
   const session = useClientSession();
   const queryClient = useQueryClient();
@@ -671,7 +675,12 @@ function Editor({
           ) : (
             <fieldset disabled={!write.allowed} className="min-w-0 space-y-3">
               <legend className="sr-only">Opening line</legend>
-              <OpeningSection value={script.opening_line} onChange={(v) => setField("opening_line", v)} trackFocus={trackFocus} />
+              <OpeningSection
+                value={script.opening_line}
+                onChange={(v) => setField("opening_line", v)}
+                trackFocus={trackFocus}
+                room={openingRoom}
+              />
               <VariableBar
                 standard={out.standard_variables}
                 custom={script.variables}
