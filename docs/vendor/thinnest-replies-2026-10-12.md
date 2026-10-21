@@ -1413,3 +1413,52 @@ reply-language rule, not ours, produced the English reply.
 | 4 | Built-in rule unchanged and reproduced ("Hello" read as the caller's language); put our own rule in our instructions | Already built: D-849's greeting-language rule is in our instructions. Verify it in Test Chat call mode once switched on |
 | 5 | `call.completed`: `callRef`, `conversationId`, `outcome` (completed/missed/failed), `hangup`, `seconds`, `endedAt`, `quality`; never transcript, recording, summary, details or billing; no `status`/`analysedAt`; usually before `call.analysed`, not guaranteed; join on `callRef`, `call.analysed` is fuller | D-850: read `outcome` (not `status`) and `endedAt` from `call.completed`; D-848 already treats it as a hint and waits for the full record |
 | §21 | ownRules, call mode, `to` live | OPERATIONS T-31 and T-32 are met (fields verified in the live openapi.json, 21 Oct 2026): the founder flips `thinnest_own_rules` and `thinnest_test_chat_call_mode` in the ops console |
+
+## 24. Draft of the next email (21 Oct 2026, unsent; the founder sends)
+
+What §23 left open: the latency questions (drafted into §22 after the founder had sent it), the
+own-key forward on a brought number (§21 item 7), and the §20 items still unanswered (1–3, 13, 14).
+
+> Subject: Calevate: call latency, one billing case, and the items still open
+>
+> Hi Ashutosh,
+>
+> Thank you, everything from your last two notes is built on our side, and the switches go on
+> this week. A few things left:
+>
+> **1. Latency on our Telugu calls.** Replies start about 1.7 s after the caller stops
+> (`responseMs` median 1690 / 1703 ms on out_cd17adc9-e7cc-4ae4-bae7-b679b749c2e6 and
+> out_4ee76842-a834-49f0-81a4-1bac7db41c68), and `firstTokenMs` is about 930 ms of that.
+> - **Ear mode for Telugu.** Is real-time recognition available for Telugu on Indian phone lines
+>   for an agent on `llm_voice`? Which recogniser runs it, and what does `turnSilenceSeconds` do
+>   in Ear? Are the "haan ji" acknowledgements voiced on our Cartesia key and counted in
+>   `ttsCharacters`? Callers here often pause mid-sentence, so we want to move to Ear.
+> - **Empty reply.** If our model returns nothing for an obviously unfinished phrase, does the
+>   agent stay silent and keep listening, or apologise and count a model error? Is there a
+>   supported "no reply" marker?
+> - **Dropped early answers.** When an early answer is dropped because the caller was not
+>   finished, are those tokens billed to our Google key and counted in `usage.inputTokens`?
+> - **The model's start time.** From a server in India our key reaches Google in about 4 ms, yet
+>   the first byte of a one-word reply from `gemini-3.1-flash-lite` at minimal thinking takes
+>   about 1.0 s (`gemini-3.5-flash-lite` is the same), so about a second looks like the model's
+>   floor, not distance. Do you see the same? Google's priority tier (`service_tier:
+>   "priority"`, 3.1 Flash-Lite listed) is offered on its Interactions API; could you send it for
+>   an agent that opts in? And does `firstTokenMs` run from the caller's speech end or from your
+>   request? A split of the rest of `responseMs` (recognition final, first voice audio) would show
+>   us where the remaining ~0.75 s goes.
+>
+> **2. One billing case.** You said a forward on an agent running on our own keys is billed at
+> its key set's price. For a forward to a number we brought ourselves (where a forward was billed
+> nothing), does that still bill nothing, or ₹1.00 / ₹1.50 a minute?
+>
+> **3. Still open from 20 October.**
+> - The signed DPA and the list of sub-processors that handle a call on your stack.
+> - Written confirmation that our developer workspace and every customer workspace under it are
+>   excluded from model training.
+> - Any update on the TRAI regulation 4 notice, and which access provider holds the numbers you
+>   rent to us.
+> - A volume price for own-key minutes (₹1.00 `llm_voice`, ₹1.50 `voice`).
+> - Dates for the live Airtel, Jio, Vi and BSNL test calls you offered.
+>
+> Thanks,
+> Umesh
