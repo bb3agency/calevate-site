@@ -101,7 +101,7 @@ class _Spy:
 
     async def run(self, spec: Any, transcript: str) -> dict[str, Any]:
         self.inputs.append(transcript)
-        return {}
+        return {"outcome_tag": "answered"}
 
 
 @pytest.fixture
@@ -423,3 +423,53 @@ async def test_the_repair_script_lists_then_re_drives_a_call_settled_without_tur
     assert call["summary_state"] == "ready"
     assert await _usage(tenant_id, call_id) == billed
     assert await redrive_empty_calls.candidates(window=window, cap=10, only_tenant=tenant_id) == []
+
+
+async def _settle_with_turns(vendor: dict[str, Any]) -> tuple[UUID, UUID, str, str]:
+    tenant_id, ref, execution_id = await _staged(vendor)
+    vendor["get_call"] = _whole(execution_id, ref)
+    await _ingest(ref, execution_id, None)
+    job = _queued(vendor)
+    assert await pipeline.run_post_call_pipeline({"job_try": 1}, job) == "ok"
+    return tenant_id, UUID(job["call_id"]), ref, execution_id
+
+
+async def test_a_run_without_the_transcript_reads_the_stored_turns_not_a_silence(
+    vendor: dict[str, Any],
+) -> None:
+    """21 Oct 2026: a run whose reading of the call held no transcript reached extraction
+    after another run had stored the turns, took the no-words shortcut and wrote "hung up
+    early" on an answered call. The stored turns are the call's words."""
+    tenant_id, call_id, ref, execution_id = await _settle_with_turns(vendor)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("DELETE FROM call_extractions WHERE call_id = :c"), {"c": call_id}
+        )
+    reads = len(vendor["spy"].inputs)
+    vendor["get_call"] = _whole(execution_id, ref, transcript=False)
+    await _ingest(ref, execution_id, None)
+    await pipeline.run_post_call_pipeline({"job_try": 1}, _queued(vendor))
+    fresh = vendor["spy"].inputs[reads:]
+    assert fresh and fresh[-1].strip(), "the extraction read a silence over a stored call"
+    assert (await _call(tenant_id, call_id))["outcome"] != "hung_up_early"
+
+
+async def test_a_stored_no_words_reading_over_a_conversation_is_read_again(
+    vendor: dict[str, Any],
+) -> None:
+    """The no-words row was newer than the turns, so the "turn written after the row"
+    guard reused it on every re-drive; a hung_up_early reading over caller speech is not
+    reused."""
+    tenant_id, call_id, ref, execution_id = await _settle_with_turns(vendor)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE call_extractions SET outcome_hint = 'hung_up_early', "
+                "updated_at = now() + interval '1 second' WHERE call_id = :c"
+            ),
+            {"c": call_id},
+        )
+    reads = len(vendor["spy"].inputs)
+    await _ingest(ref, execution_id, None)
+    await pipeline.run_post_call_pipeline({"job_try": 1}, _queued(vendor))
+    assert len(vendor["spy"].inputs) > reads, "the no-words reading was reused"

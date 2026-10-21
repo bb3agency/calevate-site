@@ -1233,6 +1233,15 @@ async def _post_call_stages(
         listed=listed,
     )
 
+    # A reading without the transcript (a listing row, a hint) is not evidence that nobody
+    # spoke: the turns another run stored are the call's words. Without this, a run that
+    # reached extraction after another had stored the turns took the no-words shortcut and
+    # wrote "hung up early" on two answered calls of 21 Oct 2026.
+    if not snapshot.transcript:
+        stored = await _stored_turns(tenant_id, call_id)
+        if stored:
+            snapshot = snapshot.model_copy(update={"transcript": stored})
+
     # An answered call whose record has no turns yet is waited for, on the retry ladder,
     # before anything is written: settled now it would read "nothing was said" and its
     # reading would be reused when the turns arrive (D-848). The last try settles what the
@@ -1853,6 +1862,35 @@ def hot_lead_dedupe_key(*, lead_id: UUID, call_id: UUID) -> str:
     return f"hot-lead:{lead_id}:{call_id}"
 
 
+async def _stored_turns(tenant_id: UUID, call_id: UUID) -> list[TranscriptTurn]:
+    """The turns a run of this pipeline already stored for the call, RAW text, in order."""
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT idx, speaker, text, text_redacted, lang, start_ms, end_ms, "
+                    "start_approximate FROM transcript_turns "
+                    "WHERE call_id = :cid AND tenant_id = :tid ORDER BY idx"
+                ),
+                {"cid": call_id, "tid": tenant_id},
+            )
+        ).all()
+    return [
+        TranscriptTurn(
+            call_id=str(call_id),
+            idx=int(row[0]),
+            speaker=row[1],
+            text=str(row[2] or ""),
+            text_redacted=row[3],
+            lang=row[4],
+            start_ms=row[5],
+            end_ms=row[6],
+            start_approximate=bool(row[7]),
+        )
+        for row in rows
+    ]
+
+
 async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> str:
     """Store raw + redacted turns. Idempotent on (call_id, idx) so a re-run rewrites
     rather than duplicates.
@@ -2221,13 +2259,16 @@ async def _settled_extraction(
     reader of the reconstructed object gets, exactly as a reader of the stored row gets
     nothing.
 
-    FOUR CONDITIONS REFUSE THE REUSE, each because a re-run is then the repair:
+    FIVE CONDITIONS REFUSE THE REUSE, each because a re-run is then the repair:
 
     - **no row** — the first run never got that far, which is the re-drive's whole reason;
     - **a turn written after the row** — the stored answer read an earlier transcript,
       typically none at all: an answered call settled before its transcript reached us and
       re-driven once it did (D-848). Turns are upserted on `(call_id, idx)`, so a re-run
       over the same transcript creates none and keeps the reuse;
+    - **a no-words answer over a conversation** — `hung_up_early` stored while the caller
+      has spoken: written by a run that read the call without its transcript (21 Oct 2026),
+      and newer than the turns, so the condition above cannot see it;
     - **a different `schema_version`** — the agent's schema changed between runs, and the
       stored answer is an answer to a different question;
     - **`errors` carries `_model`** — the provider never answered at all (`extract_call`'s
@@ -2251,6 +2292,10 @@ async def _settled_extraction(
                     "  AND NOT EXISTS (SELECT 1 FROM transcript_turns t "
                     "    WHERE t.call_id = ce.call_id AND t.tenant_id = ce.tenant_id "
                     "      AND t.created_at > ce.updated_at)"
+                    "  AND NOT (ce.outcome_hint = 'hung_up_early' AND EXISTS (SELECT 1 "
+                    "    FROM transcript_turns t WHERE t.call_id = ce.call_id "
+                    "      AND t.tenant_id = ce.tenant_id AND t.speaker = 'caller' "
+                    "      AND btrim(t.text) <> ''))"
                 ),
                 {"cid": call_id, "tid": tenant_id, "ver": schema_version},
             )

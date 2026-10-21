@@ -6,7 +6,8 @@ Run inside the workers container (it reaches Postgres, Redis and the engine):
     python -m scripts.redrive_empty_calls --hours 48 --apply    # queues each re-drive
 
 A candidate is a call recorded `completed` with talk time (`duration_s > 0`) that holds no
-transcript turn or whose summary was settled `empty`, ended inside the window and at least
+transcript turn, whose summary was settled `empty`, or that reads "hung up early" although the
+caller spoke (a no-words reading, 21 Oct 2026), ended inside the window and at least
 `PIPELINE_STALL_AFTER` ago (younger ones may still be on the pipeline's ladder). Before
 D-848 such a call was settled from the `call.completed` delivery, which carries no
 transcript or recording link, and the later `call.analysed` delivery was deduped.
@@ -47,7 +48,11 @@ _CANDIDATES_SQL: Final = (
     "AND COALESCE(c.ended_at, c.created_at) > now() - :window "
     "AND COALESCE(c.ended_at, c.created_at) < now() - :grace "
     "AND (c.summary_state = 'empty' OR NOT EXISTS (SELECT 1 FROM transcript_turns t "
-    "  WHERE t.call_id = c.id AND t.tenant_id = c.tenant_id)) "
+    "  WHERE t.call_id = c.id AND t.tenant_id = c.tenant_id) "
+    # Read as "hung up early" although the caller spoke: a no-words reading (21 Oct 2026).
+    "OR (c.outcome_tag = 'hung_up_early' AND EXISTS (SELECT 1 FROM transcript_turns t "
+    "  WHERE t.call_id = c.id AND t.tenant_id = c.tenant_id AND t.speaker = 'caller' "
+    "  AND btrim(t.text) <> ''))) "
     "ORDER BY COALESCE(c.ended_at, c.created_at) LIMIT :cap"
 )
 
