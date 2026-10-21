@@ -1253,6 +1253,7 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "machine_detection": ("voice.detectMachines",),
     "end_call_on_finish": ("voice.endCallOnFinish",),
     "turn_silence": ("voice.turnSilenceSeconds", "voice.turnDetection", "voice.acknowledgements"),
+    "early_answers": ("voice.earlyAnswers",),
     "do_not_call_tool": ("voice.recordDoNotCall",),
     "ring_seconds": ("voice.ringSeconds",),
     "call_summaries": ("voice.summariseCalls",),
@@ -1950,6 +1951,12 @@ class ThinnestEngine:
             # An Ear-only field, so sent only under `ear` (update-agent.md:1548-1553, 19 Oct
             # 2026 snapshot; vendor default on).
             **({"acknowledgements": cfg.acknowledgements} if cfg.turn_detection == "ear" else {}),
+            # The console's switch (D-852), always stated so a console change reads as drift.
+            # On (the vendor default) a run discarded because the caller kept talking is
+            # billed to our Google key and left out of `usage`; off, a reply starts only once
+            # the caller has finished (`AgentVoiceInput.earlyAnswers`, live openapi.json, 21
+            # Oct 2026).
+            "earlyAnswers": cfg.early_answers,
             # The platform's own do-not-call tool stays on beside our opt-out action (founder
             # decision, 13 Oct 2026): a missed opt-out costs more than a false one. Stated,
             # because it is a boolean defaulting to true (update-agent.md:1168-1175) and a

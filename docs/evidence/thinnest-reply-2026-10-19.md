@@ -79,8 +79,9 @@ What it does now:
   (`phone_numbers.engine_owned` false, matched on `calls.to_e164`) at zero. **Corrected 21 Oct
   2026 (D-847, VENDOR-STATED, `docs/vendor/thinnest-replies-2026-10-12.md` §21.0):** an agent
   on our own keys has no voice plan, and a forward on it is billed at its key set's flat price
-  (₹1.00 `llm_voice`, ₹1.50 `voice`); we cost it at that rate even on a brought number until
-  ThinnestAI answers that case (`engine_minutes.OWN_KEY_SET_RATE_KEYS`). A number we hold no
+  (₹1.00 `llm_voice`, ₹1.50 `voice`). On a brought number it is zero on every key set: "it
+  comes to zero seconds whatever key set the call was quoted under" (VENDOR-STATED, §25.0,
+  D-852, which removed D-847's own-key exception). A number we hold no
   row for is read as rented, so an error over-states cost and the charge reconciler
   (`costMicro` against our total) names it.
 - `billing_findings` compares a forward like any call; a brought-number forward has no

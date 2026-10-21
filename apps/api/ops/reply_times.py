@@ -2,11 +2,14 @@
 
 The figures are the voice platform's own, written once per call when it ends
 (`calls.engine_quality`, a `calevate_shared.events.CallQuality`): `reply_ms_*` is the wait
-from the caller falling silent to the agent's first audio, and `first_token_ms_*` is the
-model's share of it, each as that call's median, p90 and max over its turns
+from the caller falling silent to the agent's first audio, and `first_token_ms_*` runs from
+the turn reaching the voice platform to the first speakable word, not from the caller's
+speech end, each as that call's median, p90 and max over its turns
 (VERIFIED-VENDOR-DOCS: `thinnest-findings/mirror/snapshots/2026-10-13/pages/api-reference/
-calls/get-call.md:327-335,984-1080`). Beside them, the platform's live `slow_reply` problem
-(a reply that took more than 5 s to start, :300-307) from `call_engine_signals`.
+calls/get-call.md:327-335,984-1080`; both start points VENDOR-STATED in
+`docs/vendor/thinnest-replies-2026-10-12.md` §25.0). Beside them, the platform's live
+`slow_reply` problem (a reply that took more than 5 s to start, :300-307) from
+`call_engine_signals`.
 
 AGGREGATION. The unit is the CALL, not the turn: the platform publishes per-call summaries,
 not turns, and a percentile of percentiles is not a percentile of the underlying turns. So
@@ -124,9 +127,10 @@ class ReplyTimeFigures(BaseModel):
     reply_slow_ms: float | None = None
     #: The single slowest reply on any call in the group.
     reply_worst_ms: float | None = None
-    #: The model's share: median of the calls' median time to the model's first word.
+    #: Median of the calls' median time from the turn reaching the voice platform to the
+    #: first speakable word.
     first_token_typical_ms: float | None = None
-    #: 90th percentile of the calls' p90 time to the model's first word.
+    #: 90th percentile of the calls' p90 of that time.
     first_token_slow_ms: float | None = None
     #: Measured calls whose p90 reply exceeded the target.
     calls_over_target: int

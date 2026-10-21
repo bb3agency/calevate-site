@@ -82,7 +82,7 @@ function figureColumns<T extends ReplyTimeFigures>(): DataColumn<T>[] {
       header: "Model's first word",
       renderHeader: glossed(
         "Model's first word",
-        "The model's share of the typical reply: from the turn reaching it to its first word.",
+        "From the turn reaching the voice platform to the first speakable word, not from when the caller stopped.",
       ),
       hideBelow: "md",
       className: "tabular-nums",

@@ -876,6 +876,7 @@ def _to_config(
         max_reply_tokens=resolve_max_reply_tokens(agent.get("max_reply_tokens")),
         turn_detection=settings.thinnest_turn_detection,
         acknowledgements=settings.thinnest_acknowledgements,
+        early_answers=settings.thinnest_early_answers,
         has_phone_number=bool(agent.get("has_phone_number", False)),
         forwarded_line=bool(agent.get("forwarded_line", False)),
         # THE NOTICES THE AGENT VOLUNTEERS BEFORE ITS OPENING LINE, composed from this

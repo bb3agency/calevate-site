@@ -313,8 +313,9 @@ future second adapter cheap to add (BRD R-02).
 > were removed with the Pipecat loop that fed them (D-763), and `call_engine_latency` has no
 > writer (it stays until its drop migration, hard rule 8). What the platform DOES report,
 > once per call, is `quality` on `call.completed`, `call.analysed` and Get Call:
-> `responseMs` (caller falls silent → the agent's first audio) and `firstTokenMs` (the
-> model's share), each as median/p90/max, plus long silences, interruptions, model errors
+> `responseMs` (caller falls silent → the agent's first audio) and `firstTokenMs` (the turn
+> reaching the platform → the first speakable word, not from speech end; §25.0 of
+> `docs/vendor/thinnest-replies-2026-10-12.md`), each as median/p90/max, plus long silences, interruptions, model errors
 > and rescues; and a live `call.problem` of kind `slow_reply` when a reply takes more than
 > 5 s to start (VERIFIED-VENDOR-DOCS, `thinnest-findings/mirror/snapshots/2026-10-13/pages/
 > api-reference/calls/get-call.md:300-307,327-335,984-1080`). We store it on
@@ -326,7 +327,7 @@ future second adapter cheap to add (BRD R-02).
 > admin **Voice response time** screen (`/admin/ops/reply-times`, `GET /v1/ops/reply-times`,
 > `apps/api/ops/reply_times.py`) reports it across every client: per window (1/7/30/90
 > days) the calls measured, the median of the calls' own median reply, the 90th percentile
-> of the calls' own p90 (withheld below ten calls), the model's share, calls over target,
+> of the calls' own p90 (withheld below ten calls), the model's first word, calls over target,
 > slow-reply problems, model errors, rescues, interruptions and long silences, broken down
 > by client, agent, Clear/Studio rung and IST day, with the slowest calls listed. The
 > healer counts a call as slow when its p90 reply passes 2.5 s or it raised `slow_reply`.

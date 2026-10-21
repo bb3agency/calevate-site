@@ -215,9 +215,8 @@ async def test_a_forward_to_an_agent_whose_numbers_are_all_brought_costs_nothing
     assert await _forward_cost(tenant_id, agent_id, at) == Decimal(0)
 
 
-async def test_a_forward_to_an_own_key_agent_with_only_brought_numbers_costs_its_key_set() -> None:
-    """D-847: on our own keys a forward bills the key set's flat price; whether a brought
-    number is free there is open with the vendor, so the higher figure is costed."""
+async def test_a_forward_to_an_own_key_agent_with_only_brought_numbers_costs_nothing() -> None:
+    """A brought-number forward bills zero seconds on every key set (§25.0, D-852)."""
     at = datetime(2002, 2, 6, tzinfo=UTC) + timedelta(
         microseconds=uuid.uuid4().int % 86_400_000_000
     )
@@ -225,7 +224,7 @@ async def test_a_forward_to_an_own_key_agent_with_only_brought_numbers_costs_its
     tenant_id, agent_id = await _seed_tenant(f"npown_{uuid.uuid4().hex[:10]}")
     await _attach(tenant_id, agent_id, owned=False)
     await _attach(tenant_id, agent_id, owned=False)
-    assert await _forward_cost(tenant_id, agent_id, at, "byok_voice") == Decimal("1.50")
+    assert await _forward_cost(tenant_id, agent_id, at, "byok_voice") == Decimal(0)
 
 
 async def test_a_forward_to_an_agent_holding_a_rented_number_stays_rented() -> None:

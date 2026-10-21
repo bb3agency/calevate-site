@@ -51,6 +51,8 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         "end_call_on_finish",
         # The silence that ends the caller's turn (D-751), and the turn mode that makes it so.
         "turn_silence",
+        # Whether a reply may start before the caller has finished (D-852).
+        "early_answers",
         # The platform's own do-not-call tool, kept on beside our opt-out action.
         "do_not_call_tool",
         # How a Studio voice sounds: speed, volume, emotion, model, pronunciation dictionary.

@@ -331,16 +331,24 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "voice-engine",
         "thinnest",
         "How agents know the caller has finished",
-        "Silence uses the pause in Call handling. Ear listens live and waits through a "
-        "mid-sentence pause; Telugu support is undocumented, and it falls back to Silence.",
+        "Silence uses the Call handling pause. Ear listens live and waits through a "
+        "mid-sentence pause; there the pause only starts its check that the caller is done.",
         _THINNEST,
     ),
     "thinnest_acknowledgements": _m(
         "voice-engine",
         "thinnest",
         'Agents say "haan ji" while callers explain',
-        "Only when turns end by ear. Whether those words are billed as voice characters is "
-        "not yet known.",
+        "Only when turns end by ear. Spoken in the agent's voice and billed as voice "
+        "characters on Studio.",
+        _THINNEST,
+    ),
+    "thinnest_early_answers": _m(
+        "voice-engine",
+        "thinnest",
+        "Agents start replying before the caller has finished",
+        "On: replies start sooner, but one dropped because the caller kept talking is still "
+        "billed to our Google key, outside usage. Off: replies wait till they finish.",
         _THINNEST,
     ),
     "reply_time_target_ms": _m(

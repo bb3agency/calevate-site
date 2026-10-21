@@ -3543,6 +3543,10 @@ def _own_model_rows(
     these tokens and are not on our key: ThinnestAI runs them on its own light model on its
     own account (snapshots/2026-10-18/pages/api-reference/calls/get-call.md:1180-1181;
     ThinnestAI email of 18 Oct 2026, VENDOR-STATED), so no cost of ours is owed for them.
+    While `thinnest_early_answers` is on, this cost is a LOWER BOUND: a reply started early
+    and discarded because the caller kept talking is billed to our Google key but is not in
+    `usage.inputTokens` (VENDOR-STATED, `docs/vendor/thinnest-replies-2026-10-12.md` §25.0,
+    D-852).
 
     Input Google served from its prompt cache is its own `llm_10ktok_cached_in` row at the
     attested cached rung (D-817, the call-side twin of D-816's `ai_assist_10ktok_cached_in`):

@@ -508,9 +508,17 @@ class Settings(BaseSettings):
     #: every live agent.
     thinnest_turn_detection: TurnDetection = "timer"
     #: Under `ear` only, whether the agent says a short "haan ji" while a caller explains (the
-    #: vendor's default is on; founder, 21 Oct 2026: acceptable). Whether those words are
-    #: billed as voice characters is UNKNOWN (asked of ThinnestAI, 21 Oct 2026).
+    #: vendor's default is on; founder, 21 Oct 2026: acceptable). They are spoken on our
+    #: Cartesia key and counted in `usage.ttsCharacters` (VENDOR-STATED, ThinnestAI's email
+    #: of 21 Oct 2026, `docs/vendor/thinnest-replies-2026-10-12.md` §25.0).
     thinnest_acknowledgements: bool = True
+    #: Whether the engine starts the model on a turn before the caller has finished
+    #: (`voice.earlyAnswers`, D-852). On, the vendor's default, replies start sooner, but a
+    #: run discarded because the caller kept talking is billed to our Google key and is not
+    #: in the call's `usage`; off, a reply starts only once the caller has finished, a little
+    #: later (live openapi.json and §25.0, 21 Oct 2026). Saving it republishes every live
+    #: agent.
+    thinnest_early_answers: bool = True
     #: How long a caller may wait for a reply, in milliseconds: from the moment they stop
     #: speaking to the agent's first audio, as the voice platform measures it per call
     #: (`CallQuality.reply_ms_*`). A call is over target when its p90 reply exceeds this: more

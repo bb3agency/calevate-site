@@ -129,8 +129,8 @@ export function PauseRow({
         hint={sourceHint ?? sourceLabel(source)}
         info={
           <p>
-            The silence that ends the caller&apos;s turn: once they have been quiet this long,
-            the agent takes it that they have finished and replies. A short pause answers
+            The quiet the agent waits for before it decides whether the caller has finished
+            and replies. A short pause answers
             quickly but can cut in while someone is reading out a phone number. A longer one
             waits for them, and every reply comes that much later.
           </p>
