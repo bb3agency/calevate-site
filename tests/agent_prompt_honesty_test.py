@@ -90,7 +90,7 @@ def test_an_agent_with_only_one_of_them_is_told_about_that_one() -> None:
 
 def test_the_chat_hears_the_honesty_rules_the_call_rules_would_have_given() -> None:
     assert "Never re-ask what they said or repeat a sentence." in VOICE_STYLE_GUIDANCE
-    assert "placed or noted" in ACTION_CLAIM_RULE
+    assert "Never say an order's placed or booked" in ACTION_CLAIM_RULE
     assert "say the team will confirm." in ACTION_CLAIM_RULE
     assert "what happens next" not in ACTION_CLAIM_RULE
     prompt = compose_engine_prompt(_cfg())
@@ -100,10 +100,14 @@ def test_the_chat_hears_the_honesty_rules_the_call_rules_would_have_given() -> N
 # --- what counts as a claim -------------------------------------------------------------
 
 
-def test_a_telugu_noted_it_down_is_a_claim_and_a_question_is_not() -> None:
-    assert claims_done("సరే అండి, ఒక కేజీ chilli powder order నోట్ చేసుకున్నాను.")
-    assert claims_done("మీ details note చేసుకున్నాం.")
-    assert claims_done("OK, noted the order for one kg chilli powder.")
+def test_noting_what_the_caller_asked_is_no_claim_but_placing_or_booking_is() -> None:
+    """Founder, 21 Oct 2026: "noted" is true, because the post-call reading records it."""
+    assert not claims_done("సరే అండి, అర కేజీ కారం పొడి నోట్ చేసుకున్నాను.")
+    assert not claims_done("మీ details రాసుకున్నాను.")
+    assert not claims_done("OK, noted the order for one kg chilli powder.")
+    assert claims_done("సరే అండి, మీ order place చేశాను.")
+    assert claims_done("మీ booking confirm అయింది.")
+    assert claims_done("OK, I've placed your order.")
     assert not claims_done("మీరు నోట్ చేసుకున్నారా?")
     assert not claims_done("మీ details తీసుకుని team confirm చేస్తారు.")
 
@@ -141,7 +145,7 @@ def test_the_judge_is_told_the_notices_are_never_a_fault() -> None:
 def test_the_writers_never_ask_for_what_the_agent_cannot_truthfully_do() -> None:
     assert "never expect it to state it" in GENERATE_INSTRUCTION
     assert "never expect it to say it is done" in GENERATE_INSTRUCTION
-    assert "says an order or booking is placed, noted or confirmed" in IMPROVE_INSTRUCTION
+    assert "says an order or booking is placed, booked or confirmed" in IMPROVE_INSTRUCTION
     assert "only those the caller has not already said" in _SYSTEM_INSTRUCTION
     assert "takes the details for the team to confirm" in _SYSTEM_INSTRUCTION
     products = next(

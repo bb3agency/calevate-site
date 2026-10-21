@@ -2,7 +2,8 @@
 
 Call 2 opened with a Telugu greeting, the caller said "Hello", and the agent went on in English
 until asked to speak Telugu. It finished the caller's broken-off "ఒక" as "one kg", said
-"noted" with no action behind it, said "I told you the price is six hundred rupees, right?"
+"noted" (which is fine: the post-call reading records it), said "I told you the price is six
+hundred rupees, right?"
 about a price it had never said, and call 1 ended on a doubled goodbye. Every check here is
 deterministic: the composed prompt carries each rule, the reply checks catch each break, and
 the four AI writers and the judge read one rule list.
@@ -174,9 +175,10 @@ def test_said_before_phrases() -> None:
     assert not claims_said_before("ధర చెప్పమంటారా?")
 
 
-def test_noted_with_no_action_fails_both_calls() -> None:
+def test_noting_what_the_caller_asked_is_not_flagged_on_either_call() -> None:
+    """Founder, 21 Oct 2026: "నోట్ చేసుకున్నాను" is true (the post-call reading records it)."""
     for call in (CALL_1, CALL_2):
-        assert "unconfirmed_action" in [p.kind for p in conversation_problems(call)]
+        assert "unconfirmed_action" not in [p.kind for p in conversation_problems(call)]
 
 
 def test_finishing_the_callers_broken_off_number_is_their_part() -> None:
@@ -258,7 +260,7 @@ def test_the_173_character_greeting_is_sent_back_to_the_writer() -> None:
         opening_line=short,
         example_exchange=[
             ExampleLine(speaker="caller", text="రెండు కేజీలు కావాలి."),
-            ExampleLine(speaker="agent", text="రెండు కేజీలు నోట్ చేసుకున్నాను అండి."),
+            ExampleLine(speaker="agent", text="రెండు కేజీలు order place చేశాను అండి."),
         ],
     )
     problems = language_problems(draft, TE)

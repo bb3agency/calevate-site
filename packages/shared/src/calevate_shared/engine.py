@@ -2907,12 +2907,14 @@ CANNOT_HELP_HEADER: Final = "--- PLATFORM RULES: WHAT YOU CAN DO ---"
 #: (`docs/vendor/thinnest-speaking-rules-2026-10-18.md`), read on calls only, so "placed" is
 #: named for the chat (D-845). What to say instead is concrete, the starters' own "for the
 #: team to confirm" (`agents/starters.py`): "say what happens next" left the model to invent
-#: a next step, and a practice reply said "I have noted the order".
+#: a next step. Noting what the caller asked for is NOT a claim (founder, 21 Oct 2026): the
+#: post-call reading records every detail from the transcript, so "noted" is true; placed,
+#: booked, confirmed, saved or sent are what need a tool behind them.
 #: The second line is D-849's: on the call of 21 Oct 2026 an agent said "I told you the price
 #: is six hundred rupees, right?" about a price it had never said, which is how a made-up fact
 #: reads as an agreed one.
 ACTION_CLAIM_RULE: Final = (
-    "- Never say an order is placed or noted, details saved or anything sent unless a tool "
+    "- Never say an order's placed or booked, details saved or anything sent unless a tool "
     "did it on this call; say the team will confirm.\n"
     '- Never say "as I said" about anything you did not say on this call.'
 )

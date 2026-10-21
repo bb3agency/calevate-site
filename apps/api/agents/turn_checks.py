@@ -740,23 +740,24 @@ class Exchange(Protocol):
     def tools(self) -> Sequence[str]: ...
 
 
-#: Words that say something is DONE: an order placed or noted, details saved, a booking
-#: made, a message sent. Past or perfect only: "I'll note it and the team will confirm" is
-#: the honest future the platform rule asks for (`ACTION_CLAIM_RULE`).
+#: Words that say something is DONE: an order placed, details saved, a booking made, a
+#: message sent. Past or perfect only: "the team will confirm" is the honest future the
+#: platform rule asks for (`ACTION_CLAIM_RULE`). "Noted" / "నోట్ చేసుకున్నాను" /
+#: "రాసుకున్నాను" is NOT a claim (founder, 21 Oct 2026): the post-call reading records what
+#: the caller asked for, so saying it was noted is true.
 _CLAIMS_DONE: Final = re.compile(
     r"\b(?:i(?:['\u2019]ve| have)|we(?:['\u2019]ve| have)|it(?:['\u2019]s| is| has been)|(?:your )?"
     r"(?:order|details|booking|number|request|name|slot)(?: is| are| has been| have "
-    r"been)) (?:now |already |all )?(?:placed|booked|saved|noted(?: down)?|recorded|sent|added|"
+    r"been)) (?:now |already |all )?(?:placed|booked|saved|recorded|sent|added|"
     r"confirmed|registered|scheduled)\b"
-    r"|\b(?:noted|booked|placed|saved)(?: down)? (?:your|the) (?:order|details|booking)\b"
-    # "Noted it down for myself" (చేసుకున్నాను) is how a Telugu reply says an order is noted;
-    # the bare form must not be followed by a letter, so "చేసుకున్నారా?" (did you?) is no claim.
-    r"|(?:నమోదు|సేవ్|save|నోట్|note|బుక్|book|రికార్డ్|record|confirm|కన్ఫర్మ్|place|ప్లేస్|add|"
+    r"|\b(?:booked|placed|saved)(?: down)? (?:your|the) (?:order|details|booking)\b"
+    # The bare Telugu form must not be followed by a letter, so "చేసుకున్నారా?" (did you?)
+    # is no claim.
+    r"|(?:నమోదు|సేవ్|save|బుక్|book|రికార్డ్|record|confirm|కన్ఫర్మ్|place|ప్లేస్|add|"
     r"యాడ్|ఆర్డర్ పెట్టే|order పెట్టే)\s*(?:చేసా|చేశా|చేసేసా|చేసేశా|అయిపోయింది|అయింది|ఐంది|"
     r"చేసుకున్నాను|చేసుకున్నాం|చేసుకున్నా(?![ఀ-౿]))"
-    r"|రాసుకున్నాను|రాసుకున్నాం"
     r"|పంపాను|పంపాం|పంపించాను|పంపించాం|పంపేశాను|పంపేసాను|పంపేశాం|పంపేసాం"
-    r"|(?:सेव|नोट|बुक|दर्ज|रिकॉर्ड|कन्फर्म|प्लेस|ऐड|save|note|book|confirm|add)\s*"
+    r"|(?:सेव|बुक|दर्ज|रिकॉर्ड|कन्फर्म|प्लेस|ऐड|save|book|confirm|add)\s*"
     r"(?:कर\s*(?:दिया|दी|दिए|लिया|ली|लिए)|हो\s*(?:गया|गई|गए))|भेज\s*(?:दिया|दी|दिए)",
     re.IGNORECASE,
 )

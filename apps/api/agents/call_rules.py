@@ -67,19 +67,20 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
     CallRule(
         key="done",
         judge=(
-            "It never says an order is placed or noted, a booking made or details saved unless "
+            "Saying it noted what the caller asked for is right; it never says an order is "
+            "placed, booked or confirmed, or details saved, unless "
             "one of its actions did it; taking the details and saying the team will confirm "
             "is right."
         ),
         writer=(
-            "No line or step says an order or booking is placed, noted or confirmed: it takes "
+            "No line or step says an order or booking is placed, booked or confirmed: it takes "
             "the details for the team to confirm."
         ),
         expect=(
             "Asked to order or book with no action for it, a good agent takes the details and "
             "says the team will confirm; never expect it to say it is done."
         ),
-        prompt_marker="Never say an order is placed or noted",
+        prompt_marker="Never say an order's placed or booked",
     ),
     CallRule(
         key="said_before",
