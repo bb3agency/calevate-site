@@ -688,6 +688,9 @@ class TestConversationsOut(BaseModel):
     waiting_tests: int = 0
     #: AI-written practice callers may be asked for: the agent has few real calls.
     practice_offered: bool = False
+    #: Facts callers ask for that the business has not given (`prices`), shown before a run
+    #: so the owner can add them first (D-849).
+    missing_facts: list[test_conversations.MissingFact] = Field(default_factory=list)
     #: Tries per test and the most test-chat replies one run may use.
     trials: int = trial_results.TRIALS
     max_replies: int = test_conversations.MAX_REPLIES_PER_RUN
@@ -942,6 +945,7 @@ async def _tests_out(
             await test_conversations.count_real_calls(session, agent_id)
             < test_conversations.ENOUGH_REAL_CALLS
         ),
+        missing_facts=await test_conversations.missing_facts(session),
     )
 
 

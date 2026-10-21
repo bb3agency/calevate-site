@@ -189,7 +189,12 @@ export function TestSection({
             />
           </>
         ) : (
-          <FirstRun data={data} canRun={canRun} onRun={() => start({})} />
+          <FirstRun
+            data={data}
+            canRun={canRun}
+            onRun={() => start({})}
+            knowledgeHref={href(`/c/${slug}/knowledge`)}
+          />
         ))}
       {run.error && !refusal && <ProblemNotice error={run.error} />}
       {restore.error && <ProblemNotice error={restore.error} />}

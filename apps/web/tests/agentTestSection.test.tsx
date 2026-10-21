@@ -299,6 +299,12 @@ describe("the practice tests in Training", () => {
     expect(await screen.findByRole("heading", { name: "Check your agent before your callers do" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Run the tests" })).toBeTruthy();
   });
+  it("asks for prices before the first run when nothing the agent knows has one (D-849)", async () => {
+    await page(tests(null, { missing_facts: ["prices"] }));
+    expect(await screen.findByText("Add your prices first")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Add prices" }).getAttribute("href")).toContain("/knowledge");
+    expect(screen.getByRole("button", { name: "Run the tests" })).toBeTruthy();
+  });
 
   it("shows the fixes being worked out, and why they could not be", async () => {
     await page(tests(run({ improving: true })));

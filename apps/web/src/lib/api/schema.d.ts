@@ -27106,6 +27106,8 @@ export interface components {
              * @default 60
              */
             max_replies: number;
+            /** Missing Facts */
+            missing_facts?: "prices"[];
             /**
              * Practice Offered
              * @default false

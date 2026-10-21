@@ -2750,32 +2750,54 @@ def platform_rules_preamble(cfg: AgentConfig) -> str:
 #: tests run in the engine's chat. So the few of theirs that keep an agent honest (never
 #: ask again or repeat a sentence, say when it does not know, nothing is done until a tool
 #: did it) are said here as well, in one clause each.
+#:
+#: WHAT COUNTS AS THE CALLER SWITCHING LANGUAGE (D-849). Every agent follows the caller
+#: (`language: auto`, D-830), and on a call the recogniser decides each sentence's language
+#: afresh, so a short reply can be heard as another language (`agent/behaviour.md:91-95`, 19
+#: Oct 2026 snapshot). On the call of 21 Oct 2026 a Telugu agent greeted in Telugu, the
+#: caller said "Hello", and it answered in English until asked to speak Telugu. ThinnestAI's
+#: own chat rule draws the line where this does: a few words in another script do not move a
+#: conversation under way, a real sentence or a request does, and a message too short to tell
+#: is left to the agent (`agent/behaviour.md:80-89`). `_SWITCH_RULE` is that judgement, said
+#: for calls too, so it agrees with their reply-language rule rather than fighting it.
+_SWITCH_RULE: Final = (
+    '"Hello", "OK" or a word or two is no switch: keep the language you greeted in until they '
+    "say a sentence in another or ask."
+)
 #: Each language's own script and its English words are in its SPOKEN REGISTER line.
 _REGISTER_BULLET: Final = (
     "- Match the caller's language and register; never formal or written-style words, never "
-    '"uhm".\n'
+    f'"uhm". {_SWITCH_RULE}\n'
 )
+#: The cut-off bullet answers the calls of 21 Oct 2026, where the caller's half sentence
+#: ("నాకొక", "కారం పొడి కావాలండి ఒక") was finished for them as "one kg". The turn timer stays at
+#: 0.25 s because a longer one delays every reply (founder, 21 Oct 2026); a two-word "go on"
+#: costs one short turn instead. The read-back says what was heard, never "noted":
+#: ThinnestAI's speaking rules ask the model to show it understood before it answers, and the
+#: echo became "two kg noted" with nothing noted.
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
     "- Lead with the answer, then wait; more only if asked. Never re-ask what they said or "
     "repeat a sentence.\n"
-    "- Say only your own part, never the caller's.\n"
+    '- Say only your own part, never the caller\'s. Cut off mid-sentence? Say only "go on" in '
+    "their words and let them finish, never finish it for them.\n"
     "- Unsure or not interested? Offer once, then close politely.\n"
     "- Talked over? Stop, answer, then carry on.\n"
     '- Write for a voice: a comma where you breathe, "?" on every question. No markdown, '
     "emoji, dashes, slashes, ellipses, actions or notes; never say the time.\n"
     '- Prices, quantities and times in English words ("one twenty rupees", "one kg"), never '
     "₹ or digits.\n"
-    "- Read back what you note and wait for a yes. Numbers and codes one digit at a time, a "
-    "few at a time; a mobile has ten, never fewer.\n"
+    "- Read back what you heard and wait for a yes; numbers a few digits at a time, a mobile "
+    "has ten.\n"
     f"{_REGISTER_BULLET}"
     "- Missed it? Ask them to repeat it; never guess. Asked to repeat? Say it shorter.\n"
-    "- After a tool or search, never narrate or greet again.\n"
-    "- End the call only after a goodbye or when asked, never while they talk or ask."
+    "- After a tool or search, never narrate it.\n"
+    "- End the call only after a goodbye or when asked, never while they talk or ask; say "
+    "goodbye once."
 )
 #: With a language pack (D-830) the pack says how the language is spoken and LANGUAGES which
 #: language to answer in, so this bullet keeps only what neither says.
-_PACK_REGISTER_BULLET: Final = '- Never say "uhm".\n'
+_PACK_REGISTER_BULLET: Final = f'- Never say "uhm". {_SWITCH_RULE}\n'
 
 
 def _how_to_speak(pack: PackChoice | None) -> str:
@@ -2812,15 +2834,15 @@ def _knowledge_section(cfg: AgentConfig, pack: PackChoice | None = None) -> str:
     else:
         where = "Answer about the business from the facts in this prompt and your knowledge search."
     # Said elsewhere and not here: that the quick facts win (their own `[QUICK FACTS]` lead),
-    # what to say when nothing answers (the cannot-help rules after the script), and never
-    # guessing a price, duration, address or policy, which ThinnestAI's own speaking rules say
-    # (`docs/vendor/thinnest-speaking-rules-2026-10-18.md`, D-824). What those rules do not
-    # name stays: a product's nature and making (D-749), stock, and anything medical, legal
-    # or financial.
+    # and what to say when nothing answers (the cannot-help rules after the script). Never
+    # guessing a price or an offer is also ThinnestAI's speaking rule, but that is read on
+    # calls only and the practice tests run in chat (D-845), so the two are named here (D-849)
+    # beside what their rules do not name: a product's nature and making (D-749), stock, and
+    # anything medical, legal or financial.
     return (
         "--- BUSINESS FACTS ---\n"
-        f"{where} Never add to a fact: what a product is or how it is made, stock, anything "
-        f"medical, legal or financial.{'' if pack else _NAMES_RULE} "
+        f"{where} Never guess or add to a fact: a price, an offer, stock, what a product is or "
+        f"how it is made, anything medical, legal or financial.{'' if pack else _NAMES_RULE} "
         "Two possible answers? Ask which they meant."
     )
 
@@ -2883,9 +2905,13 @@ CANNOT_HELP_HEADER: Final = "--- PLATFORM RULES: WHAT YOU CAN DO ---"
 #: named for the chat (D-845). What to say instead is concrete, the starters' own "for the
 #: team to confirm" (`agents/starters.py`): "say what happens next" left the model to invent
 #: a next step, and a practice reply said "I have noted the order".
+#: The second line is D-849's: on the call of 21 Oct 2026 an agent said "I told you the price
+#: is six hundred rupees, right?" about a price it had never said, which is how a made-up fact
+#: reads as an agreed one.
 ACTION_CLAIM_RULE: Final = (
     "- Never say an order is placed or noted, details saved or anything sent unless a tool "
-    "did it on this call; say the team will confirm."
+    "did it on this call; say the team will confirm.\n"
+    '- Never say "as I said" about anything you did not say on this call.'
 )
 
 #: The number a call is on is already the lead's (`leads.phone_e164` comes from the call), so
@@ -3465,6 +3491,14 @@ REPLY_TOKENS_MIN: Final = 100
 REPLY_TOKENS_MAX: Final = 800
 REPLY_TOKENS_DEFAULT: Final = 300
 
+#: How the engine decides the caller has finished speaking (`voice.turnDetection`,
+#: `snapshots/2026-10-19/pages/api-reference/agents/update-agent.md:1418-1439`): `timer`, a
+#: stretch of silence (`turnSilenceSeconds`); `ear`, real-time recognition that "waits
+#: through a pause mid-thought" and costs nothing extra, falling back to `timer` where it is
+#: not available (`channels/voice.md:931-976`); `smart`, a model that makes the silence a
+#: ceiling. Held here because the setting and `AgentConfig` share it.
+TurnDetection = Literal["timer", "ear", "smart"]
+
 
 class AgentConfig(BaseModel):
     """What an agent IS, in our terms. The adapter renders this into the vendor's
@@ -3600,6 +3634,11 @@ class AgentConfig(BaseModel):
     #: settings reads them; excluded from every dump for `detect_machines`' reason.
     turn_silence_ms: int = Field(default=250, exclude=True)
     end_call_on_finish: bool = Field(default=True, exclude=True)
+    #: How the engine decides the caller has finished, and whether it says a short "haan ji"
+    #: while they explain (D-849): the console's `thinnest_turn_detection` and
+    #: `thinnest_acknowledgements`. Excluded from every dump for `detect_machines`' reason.
+    turn_detection: TurnDetection = Field(default="timer", exclude=True)
+    acknowledgements: bool = Field(default=True, exclude=True)
     #: The reply ceiling in tokens (D-769): the agent's own, else the console's
     #: `thinnest_reply_length`, resolved by `apps/api/agents/reply_length`. Excluded from
     #: every dump for `detect_machines`' reason.

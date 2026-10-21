@@ -30,6 +30,8 @@ from calevate_shared.call_script import (
 from calevate_shared.spoken_guard import english_problem, textbook_problem
 from pydantic import ValidationError
 
+from apps.api.agents.call_rules import said_line_problem
+
 EditOp = Literal["set_step", "add_step", "set_objection", "set_part"]
 EditPart = Literal[
     "opening_line", "ending", "identity", "goal", "business_line", "outbound_purpose"
@@ -215,14 +217,18 @@ def language_problem(
     """What breaks the language rules in an edit the AI proposed (D-831), or None.
 
     The new words are an instruction (plain English) unless they are said: the opening line
-    and a "say" step, which must not use a textbook word. Only for the improver's answer:
+    and a "say" step, which must not use a textbook word or break the call rules the tests
+    check (`call_rules.said_line_problem`, D-849). Only for the improver's answer:
     `apply_edit` applies the owner's kept edits and never judges their language."""
-    spoken = edit.op == "set_part" and edit.part == "opening_line"
+    opening = edit.op == "set_part" and edit.part == "opening_line"
+    spoken = opening
     if edit.op == "set_step":
         stage = next((s for s in script.stages if s.id == edit.step_id), None)
         spoken = stage is not None and stage.mode == "say"
     if spoken:
-        return textbook_problem(where, edit.text, language)
+        return textbook_problem(where, edit.text, language) or said_line_problem(
+            where, edit.text, opening=opening
+        )
     return english_problem(where, edit.text)
 
 

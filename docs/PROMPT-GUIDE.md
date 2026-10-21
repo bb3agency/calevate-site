@@ -227,6 +227,15 @@ invitation to trim guardrails.
 
 - Primary language per agent; agent mirrors the caller's language and register, including
   mid-sentence Tenglish. Never force pure formal Telugu on a code-switching caller.
+- **A greeting is not a language switch (D-849).** "Hello", "OK" or a word or two keeps the
+  language the agent greeted in; it switches when the caller says a sentence in another
+  language or asks. On 21 Oct 2026 a Telugu agent answered a pickup "Hello" in English until
+  the caller asked for Telugu. The rule is in HOW TO SPEAK (`engine._SWITCH_RULE`) and agrees
+  with ThinnestAI's own chat rule, which leaves a message too short to tell to the agent.
+- **The rules a call is judged by are written once (D-849).** `apps/api/agents/call_rules`
+  feeds the script writer, the practice-caller writer, the judge and the improver, and each
+  rule names the words the in-call prompt carries for it; `tests/agent_call_rules_test.py`
+  fails if any of the five drifts.
 - The register is concrete, not abstract (D-714): `spoken_style.json` holds, per language,
   the spoken register (Telugu: neutral Telangana/Andhra spoken, andi/garu), a list of formal
   words and the spoken words people use instead, and example calls per business type. All

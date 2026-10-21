@@ -35,6 +35,7 @@ from calevate_shared.engine import (
     GoogleDirectModel,
     LlmModelName,
     SarvamSttModel,
+    TurnDetection,
 )
 
 #: Environment variables the deployment's `.env` legitimately carries FOR SOMEONE ELSE.
@@ -480,6 +481,15 @@ class Settings(BaseSettings):
     thinnest_reply_length: int = Field(
         default=REPLY_TOKENS_DEFAULT, ge=REPLY_TOKENS_MIN, le=REPLY_TOKENS_MAX
     )
+    #: How every agent decides the caller has finished (`voice.turnDetection`, D-849). `timer`
+    #: is what agents have always been sent (D-767); `ear` is for the founder's trial of
+    #: real-time recognition, which waits through a pause mid-sentence. Saving it republishes
+    #: every live agent.
+    thinnest_turn_detection: TurnDetection = "timer"
+    #: Under `ear` only, whether the agent says a short "haan ji" while a caller explains (the
+    #: vendor's default is on; founder, 21 Oct 2026: acceptable). Whether those words are
+    #: billed as voice characters is UNKNOWN (asked of ThinnestAI, 21 Oct 2026).
+    thinnest_acknowledgements: bool = True
     #: How long a caller may wait for a reply, in milliseconds: from the moment they stop
     #: speaking to the agent's first audio, as the voice platform measures it per call
     #: (`CallQuality.reply_ms_*`). A call is over target when its p90 reply exceeds this: more

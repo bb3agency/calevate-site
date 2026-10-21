@@ -1690,6 +1690,39 @@ async def waiting_tests(session: AsyncSession, agent_id: UUID, run: TestRun | No
     return len(new_saved) + len(new_real)
 
 
+#: A fact the agent is commonly asked for, which the owner can add before the first test run.
+MissingFact = Literal["prices"]
+
+#: Something that reads as a price in a fact or a knowledge document: a rupee sign or word, a
+#: "price" word in English, Telugu or Hindi, or the "450/-" shop form. Postgres regex.
+_PRICE_PATTERN: Final = (
+    r"₹|\mrs\.?\s?[0-9]|rupee|\minr\M|\mprice|\m[0-9]+\s*/-|రూపాయ|ధర|रुपय|रुपए|रुपये|कीमत|दाम"
+)
+
+
+async def missing_facts(session: AsyncSession) -> list[MissingFact]:
+    """Facts callers ask for that this business has not given anywhere its agents read.
+
+    The first practice run should pass (founder, 21 Oct 2026): a test a caller asks the price
+    in passes only by the agent saying it does not have it, and a real caller gets the same
+    answer. So the owner is told before the first run, where adding the facts helps, rather
+    than after a run that looks like the agent's fault (D-849). Read from the business's
+    facts and its published knowledge documents, which every agent of the client carries
+    (D-689)."""
+    has_price = (
+        await session.execute(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM kb_facts WHERE removed_at IS NULL "
+                "AND text ~* :pattern) OR EXISTS (SELECT 1 FROM kb_documents d "
+                "JOIN kb_sources s ON s.id = d.source_id WHERE s.is_active "
+                "AND s.published_at IS NOT NULL AND d.content ~* :pattern)"
+            ),
+            {"pattern": _PRICE_PATTERN},
+        )
+    ).scalar_one()
+    return [] if has_price else ["prices"]
+
+
 def result_verdict(raw: dict[str, Any]) -> Verdict:
     """A stored verdict on today's wire. Runs before D-724 stored `attention` and `read`."""
     verdict = str(raw.get("verdict") or "unjudged")
@@ -1739,6 +1772,7 @@ __all__ = [
     "HardCheck",
     "ImproveStop",
     "Judged",
+    "MissingFact",
     "Owner",
     "RuleContext",
     "Scenario",
@@ -1761,6 +1795,7 @@ __all__ = [
     "latest_run",
     "load_brief",
     "mark_wrong",
+    "missing_facts",
     "needs_improving",
     "owner_of",
     "probe_scenario",

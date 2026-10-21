@@ -68,6 +68,7 @@ from calevate_shared.engine import (
 from calevate_shared.spoken_guard import english_problem, generation_guidance, textbook_problem
 from pydantic import ValidationError
 
+from apps.api.agents.call_rules import OPENING_LINE_RULE, said_line_problem, writer_rules
 from apps.api.core import provider_health
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -123,21 +124,19 @@ _SYSTEM_INSTRUCTION = (
     "exchanges sound, never their facts. Keep every spoken line to one short sentence with "
     'a comma where you breathe and a "?" on every question; no dashes, slashes, brackets, '
     "ellipses or dotted abbreviations.\n"
-    "Rules: NEVER invent prices, stock, hours, addresses, phone numbers, offers or any fact "
-    "the owner did not give; facts live in the knowledge base, which the agent searches. "
+    f"Rules, the same ones the agent's tests check: {writer_rules()} Facts live in the "
+    "knowledge base, which the agent searches. "
     "quick_facts only restates facts the owner wrote. The example_exchange shows style "
     "only and contains no fact. Do not write anything about being an AI, about recording, "
     "about call backs or transfers, or about do-not-call requests: the platform adds those "
-    "rules itself and knows what this account can do. The opening_line greets and names the "
-    "business; do not put an AI or recording notice in it. For an agent that places calls, "
+    f"rules itself and knows what this account can do. {OPENING_LINE_RULE} For an agent that "
+    "places calls, "
     "outbound_purpose is one sentence on why we are calling, and a stage confirms it is a "
     "good time and that this is the right person ({{lead_name}} is the merge field for the "
     "lead's name); for an agent that only answers calls leave outbound_purpose empty. "
     "Stages are 3 to 6, each with a short name, an English instruction, exit_when, and "
-    "sounds_like: one short line in the call language showing how that stage sounds. Ask "
-    "only for the listed details, and only those the caller has not already said. No stage "
-    "says an order or booking is placed or confirmed: it takes the details for the team to "
-    "confirm. 2 to 5 objections the business really meets. 3 to 6 sample "
+    "sounds_like: one short line in the call language showing how that stage sounds. "
+    "2 to 5 objections the business really meets. 3 to 6 sample "
     "phrases. pronunciations only for names a voice might misread. code_mix is light, "
     "natural or heavy. business_line is one line under 200 characters on what the business "
     "is.\n"
@@ -175,9 +174,10 @@ EDIT_INSTRUCTION = (
     "instructions, objection responses, ending) stay in plain English letters, never in the "
     "call language's script; words the agent says stay in the call language, spoken, with "
     "the English words people use, following the spoken-style guide in the brief (spoken "
-    "words, never their formal forms; its number and punctuation rules). Never invent "
-    "prices or facts. Do not write about being "
-    "an AI, recording, call backs, transfers or do-not-call. Return ONLY JSON."
+    "words, never their formal forms; its number and punctuation rules). What you write "
+    f"keeps the rules the agent's tests check: {writer_rules()} {OPENING_LINE_RULE} Do not "
+    "write about being an AI, recording, call backs, transfers or do-not-call. Return ONLY "
+    "JSON."
 )
 
 Parser = Callable[[dict[str, Any]], "CallScript | None"]
@@ -251,8 +251,9 @@ def language_problems(
     instructions: bool = True,
 ) -> list[str]:
     """What the model must fix in a script it wrote (D-831): an instruction in an Indic
-    script, and a spoken line with a textbook word (`spoken_guard`) or a provider's name
-    (`business_copy.provider_problem`, D-679: callers hear these lines).
+    script, and a spoken line with a textbook word (`spoken_guard`), a provider's name
+    (`business_copy.provider_problem`, D-679: callers hear these lines) or a break of the call
+    rules the practice tests check (`call_rules.said_line_problem`, D-849).
 
     Only the model's own writing is judged: with `before` (an edit), a field whose text the
     script already held is the owner's and is skipped, and a textbook word that appears in
@@ -270,6 +271,11 @@ def language_problems(
             for path, text in _instruction_fields(script)
             if text not in kept and (problem := english_problem(path, text))
         ]
+    callers = {
+        f"example_exchange.{i}.text"
+        for i, line in enumerate(script.example_exchange)
+        if line.speaker == "caller"
+    }
     for path, text in _spoken_fields(script):
         if text in kept:
             continue
@@ -278,6 +284,11 @@ def language_problems(
             for problem in (
                 textbook_problem(path, text, language, allowed=allowed),
                 provider_problem(path, text, allowed=allowed),
+                # The call rules the practice tests hold the agent to (D-849); a caller's
+                # example line is not the agent's to keep, and the owner's own line is theirs.
+                None
+                if path in callers or (allowed and text.strip() in allowed)
+                else said_line_problem(path, text, opening=path == "opening_line"),
             )
             if problem
         ]

@@ -303,6 +303,22 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "it is cut off mid-sentence. 300 is ThinnestAI's own default.",
         _THINNEST,
     ),
+    "thinnest_turn_detection": _m(
+        "voice-engine",
+        "thinnest",
+        "How agents know the caller has finished",
+        "Silence uses the pause in Call handling. Ear listens live and waits through a "
+        "mid-sentence pause; Telugu support is undocumented, and it falls back to Silence.",
+        _THINNEST,
+    ),
+    "thinnest_acknowledgements": _m(
+        "voice-engine",
+        "thinnest",
+        'Agents say "haan ji" while callers explain',
+        "Only when turns end by ear. Whether those words are billed as voice characters is "
+        "not yet known.",
+        _THINNEST,
+    ),
     "reply_time_target_ms": _m(
         "voice-engine",
         "thinnest",
@@ -1178,6 +1194,13 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "whatsapp_message_inr": ControlHint(unit="rupees"),
     "thinnest_max_concurrent_calls": ControlHint(unit="calls at once"),
     "thinnest_reply_length": ControlHint(unit="tokens"),
+    "thinnest_turn_detection": ControlHint(
+        options=(
+            OptionLabel("timer", "Silence", "The pause set in Call handling ends the turn."),
+            OptionLabel("ear", "Ear", "Real-time listening; waits through a mid-sentence pause."),
+            OptionLabel("smart", "Smart", "A model judges; replies start later."),
+        )
+    ),
     "reply_time_target_ms": ControlHint(kind="duration", unit="milliseconds"),
     "carrier_concurrency": ControlHint(unit="calls at once"),
     "inbound_reserved_lines": ControlHint(

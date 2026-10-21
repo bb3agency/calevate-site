@@ -65,8 +65,19 @@ export function HowItWorks({ data }: { data: TestConversations }) {
   );
 }
 
-export function FirstRun({ data, canRun, onRun }: { data: TestConversations; canRun: boolean; onRun: () => void }) {
+export function FirstRun({
+  data,
+  canRun,
+  onRun,
+  knowledgeHref,
+}: {
+  data: TestConversations;
+  canRun: boolean;
+  onRun: () => void;
+  knowledgeHref: string;
+}) {
   if (!data.available) return null;
+  const noPrices = data.missing_facts?.includes("prices") ?? false;
   return (
     <section aria-labelledby="tests-first-heading" className="space-y-3">
       <div className="flex items-start gap-2">
@@ -79,6 +90,20 @@ export function FirstRun({ data, canRun, onRun }: { data: TestConversations; can
         It is asked what real callers ask, {data.trials ?? 3} times each, and you see which answers it gets right every
         time. It takes a few minutes; you can leave this page.
       </p>
+      {noPrices && (
+        <NoticeBox
+          tone="neutral"
+          title="Add your prices first"
+          action={
+            <Link href={knowledgeHref} className="text-meta font-medium text-ink underline underline-offset-2">
+              Add prices
+            </Link>
+          }
+        >
+          Callers ask what things cost, and nothing your agent knows has a price yet. Until you add them, it tells
+          callers the team will confirm the price.
+        </NoticeBox>
+      )}
       <button type="button" className={PRIMARY_BUTTON_SM} disabled={!canRun} onClick={onRun}>
         Run the tests
       </button>

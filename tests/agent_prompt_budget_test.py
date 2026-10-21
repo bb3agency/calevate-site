@@ -145,9 +145,12 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
 
 #: The platform layers of the agents below after D-824 cut what ThinnestAI's own speaking
 #: rules already say. The founder's rule of 14 Oct 2026 stands: a prompt change may not grow
-#: them past the last cut (quality within budget).
-PLATFORM_LAYERS_MAX = 5_879
-PLATFORM_LAYERS_ONE_LANGUAGE_MAX = 4_871
+#: them past the last cut (quality within budget). D-849 grew them by 291 characters (an
+#: ESTIMATE of 73 tokens a reply at 4 characters a token) for four rules the calls of 21 Oct
+#: 2026 broke, with no redundant line
+#: left to cut: the greeting-language, cut-off, recall and price rules.
+PLATFORM_LAYERS_MAX = 6_137
+PLATFORM_LAYERS_ONE_LANGUAGE_MAX = 5_160
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:

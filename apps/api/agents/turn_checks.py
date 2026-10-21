@@ -57,6 +57,8 @@ Kind = Literal[
     "partial_number",
     "goodbye_while_asking",
     "repeated_turn",
+    # The calls of 21 Oct 2026 (D-849): "I told you the price" about a price never said.
+    "false_recall",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -95,6 +97,7 @@ JOB_KINDS: Final = frozenset(
         "asked_known_number",
         "partial_number",
         "goodbye_while_asking",
+        "false_recall",
     }
 )
 
@@ -331,6 +334,71 @@ def _caller_order(parts: list[str]) -> str | None:
     return None
 
 
+#: English number words, for the figures a "said before" claim names.
+_EN_NUMBER: Final = "one|two|three|four|five|six|seven|eight|nine|ten|half|hundred|thousand"
+#: Telugu joins "నాకు" and "ఒక" into "నాకొక", so a word ending in "కొక" ends on "ఒక".
+_TE_JOINED_ONE: Final = "కొక"
+#: A unit right after the number the agent supplied ("ఒక కేజీ", "one kg").
+_UNIT: Final = re.compile(
+    r"^(?:kg|kgs|kilo|kilos|g|gm|grams?|litres?|liters?|packets?|packs?|pieces?|dozen|boxes?|"
+    r"bags?|bottles?|కిలో\S*|కేజీ\S*|ప్యాకెట్\S*|लीटर|किलो|पैकेट)$",
+    re.IGNORECASE,
+)
+
+
+#: Telugu number forms that need a noun after them: "ఒక" (a, one) and "అర" (half). The
+#: standalone answers are "ఒకటి" and "అర కేజీ", so a line ending on one of these was cut. A
+#: bare "two" or "రెండు" answering "how many?" is complete, so other numbers are left alone.
+_NEEDS_A_NOUN: Final = frozenset({"ఒక", "అర"})
+
+
+def _number_word(word: str) -> str | None:
+    """The noun-needing number a caller's last word ends on, or None."""
+    if word.endswith(_TE_JOINED_ONE):
+        return "ఒక"
+    return word if word in _NEEDS_A_NOUN else None
+
+
+#: Words a caller's line cannot end on unless the turn timer cut it ("మాకు", "to us").
+_DANGLING: Final = frozenset({"నాకు", "మాకు", "मुझे", "हमें"})
+#: The longest reply that is still only a "go on" ("చెప్పండి అండి", "हाँ जी, बोलिए").
+NUDGE_MAX_WORDS: Final = 4
+
+
+def broke_off(caller_said: str) -> bool:
+    """Does the caller's line stop mid-sentence: on a number ("ఒక") or a dangling "to me"?"""
+    said = _words(caller_said)
+    return bool(said) and (_number_word(said[-1]) is not None or said[-1] in _DANGLING)
+
+
+def _finished_cut_line(caller_said: str, reply: str) -> str | None:
+    """The caller's line stopped on a number ("నాకొక", cut by the turn timer on the call of 21
+    Oct 2026) and the reply supplied the unit as if they had said it ("ఒక కేజీ"): the agent
+    finished the caller's sentence. The words it supplied, or None."""
+    said = _words(caller_said)
+    number = _number_word(said[-1]) if said else None
+    if number is None:
+        return None
+    words = _words(reply)
+    for i, word in enumerate(words[:-1]):
+        if word == number.lower() and _UNIT.match(words[i + 1]):
+            return f"{words[i]} {words[i + 1]}"
+    return None
+
+
+def _repeated_sentence(parts: list[str]) -> str | None:
+    """A statement whose words all came earlier in the same reply ("మంచిది అండి, thanks అండి."
+    after "మంచిది అండి, ... thanks అండి."): the double goodbye of 21 Oct 2026. Questions are
+    `repeated_question`'s, and a statement after a question answers it (`caller_line`)."""
+    for i, later in enumerate(parts):
+        words = set(_words(later))
+        if _is_question(later) or len(words) < 2:
+            continue
+        if any(words <= set(_words(earlier)) for earlier in parts[:i] if not _is_question(earlier)):
+            return later
+    return None
+
+
 def _symbol_problems(reply: str) -> list[TurnProblem]:
     found: list[TurnProblem] = []
     bracket = _BRACKETED.search(reply)
@@ -418,6 +486,44 @@ def _question_problems(parts: list[str]) -> list[TurnProblem]:
     return found
 
 
+#: What a caller says on picking up or to keep the line alive, in English letters: no reason
+#: to leave the language the agent greeted in (D-849, `calevate_shared.engine._SWITCH_RULE`).
+_GREETING_WORDS: Final = frozenset(
+    {
+        "hello",
+        "helo",
+        "hallo",
+        "hi",
+        "hey",
+        "ok",
+        "okay",
+        "yes",
+        "yeah",
+        "yup",
+        "haan",
+        "haa",
+        "ha",
+        "han",
+        "ji",
+        "haanji",
+        "hmm",
+        "hm",
+        "sure",
+        "fine",
+        "sir",
+        "madam",
+        "andi",
+    }
+)
+#: The most words a greeting-only caller line has.
+_GREETING_MAX_WORDS: Final = 2
+
+
+def _only_a_greeting(caller_said: str) -> bool:
+    words = _words(caller_said)
+    return 0 < len(words) <= _GREETING_MAX_WORDS and all(w in _GREETING_WORDS for w in words)
+
+
 def _language_problems(reply: str, caller_said: str, language: str) -> list[TurnProblem]:
     """A reply in another language than the caller's, and a reply that talks about the caller.
 
@@ -428,16 +534,24 @@ def _language_problems(reply: str, caller_said: str, language: str) -> list[Turn
     """
     found: list[TurnProblem] = []
     script = _SCRIPT_OF.get(language.split("-")[0].lower())
-    if (
+    in_english = (
         script is not None
-        and len(script[1].findall(caller_said)) >= 3
         and not script[1].search(reply)
         and len(_LATIN_WORD.findall(reply)) >= MIN_COUNTED_WORDS
-    ):
+    )
+    if script is not None and in_english and len(script[1].findall(caller_said)) >= 3:
         found.append(
             TurnProblem(
                 "wrong_language",
                 f"The caller spoke {script[0]} and it answered in English.",
+            )
+        )
+    elif script is not None and in_english and _only_a_greeting(caller_said):
+        found.append(
+            TurnProblem(
+                "wrong_language",
+                f"The caller only said {_quoted(caller_said)} and it switched to English. A "
+                f"greeting or a word or two is no reason to leave {script[0]}.",
             )
         )
     if _THIRD_PERSON.search(reply):
@@ -472,6 +586,7 @@ def turn_problems(reply: str, *, caller_said: str = "", language: str = "") -> l
         )
     else:
         own = _answered_own_choice(parts) or _caller_order(parts)
+        finished = None if own else _finished_cut_line(caller_said, reply)
         if own:
             found.append(
                 TurnProblem(
@@ -479,9 +594,33 @@ def turn_problems(reply: str, *, caller_said: str = "", language: str = "") -> l
                     f"It said the caller's part ({_quoted(own)}) as if the caller had answered.",
                 )
             )
+        elif finished:
+            found.append(
+                TurnProblem(
+                    "caller_line",
+                    f"The caller broke off mid-sentence and it finished it for them "
+                    f"({_quoted(finished)}). It should ask them to go on.",
+                )
+            )
     found += _question_problems(parts)
+    repeated = _repeated_sentence(parts)
+    if repeated:
+        found.append(
+            TurnProblem(
+                "repeated_turn",
+                f"It said {_quoted(repeated)} twice in one reply.",
+            )
+        )
     counted = [s for s in parts if len(_words(s)) >= MIN_COUNTED_WORDS]
-    if len(counted) > MAX_SENTENCES and not _ASKS_DETAIL.search(caller_said):
+    if broke_off(caller_said) and len(_words(reply)) > NUDGE_MAX_WORDS:
+        found.append(
+            TurnProblem(
+                "too_long",
+                f'The caller stopped mid-sentence ({_quoted(caller_said)}). A short "go on" '
+                "lets them finish; a full reply guesses what they meant.",
+            )
+        )
+    elif len(counted) > MAX_SENTENCES and not _ASKS_DETAIL.search(caller_said):
         found.append(
             TurnProblem(
                 "too_long",
@@ -683,6 +822,48 @@ def claims_done(text: str) -> bool:
     return bool(_CLAIMS_DONE.search(text))
 
 
+#: The agent saying it already told the caller something: "as I said", "చెప్పాను కదా",
+#: "ముందే చెప్పాను", "मैंने बताया था". The caller's own "మీరు చెప్పినట్టు" (as you said) is not one.
+_SAID_BEFORE: Final = re.compile(
+    r"\b(?:as|like) i (?:said|told you|mentioned)\b|\bi (?:already |just )?(?:told|said to) you\b"
+    r"|\bi (?:already |just )?mentioned\b"
+    r"|చెప్పాను\s*(?:కదా|కద|గా)|(?:ముందే|ఇందాకే?|ఇంతకు ముందే?)\s+(?:\S+\s+){0,3}చెప్పాను"
+    r"|मैंने (?:पहले |अभी )?(?:ही )?(?:बताया|कहा)"
+    r"|बताया था (?:ना|न)",
+    re.IGNORECASE,
+)
+_PRICE_WORD: Final = re.compile(
+    r"rupee|rupees|price|ధర|రూపాయ\S*|रुपय\S*|रुपए|रुपये|कीमत|दाम", re.IGNORECASE
+)
+
+
+def claims_said_before(text: str) -> bool:
+    """Does this agent line say it already told the caller something?"""
+    return bool(_SAID_BEFORE.search(text))
+
+
+def _fact_words(sentence: str) -> set[str]:
+    """The words of a sentence that carry a fact a caller could be wrong-footed by: digits,
+    number words and price words."""
+    numbers = re.compile(f"(?:{_EN_NUMBER}|{_TE_NUMBER}|{_HI_NUMBER})", re.IGNORECASE)
+    return {
+        w
+        for w in _words(sentence)
+        if any(ch.isdigit() for ch in w) or numbers.fullmatch(w) or _PRICE_WORD.fullmatch(w)
+    }
+
+
+def _false_recall(reply: str, said_before: str) -> str | None:
+    """The sentence of `reply` that claims it already said a figure no earlier reply said, or
+    None. Only figures count (a number or a price), so "as I said, we deliver" about a line
+    in the greeting, which a test conversation does not show, is left alone."""
+    earlier = set(_words(said_before))
+    for sentence in sentences(reply):
+        if claims_said_before(sentence) and _fact_words(sentence) - earlier:
+            return sentence
+    return None
+
+
 def _asks_for_number(reply: str) -> bool:
     return any(
         _PHONE_NUMBER.search(s) and _ASKS_FOR.search(s) and not _SAME_NUMBER.search(s)
@@ -720,6 +901,7 @@ def conversation_problems(
     caller_raised_number = False
     awaiting: int | None = None  # digits given since the agent asked for a number
     previous_reply = ""
+    said_before = ""
     for exchange in exchanges:
         said, reply = exchange.said, exchange.reply
         acted = acted or any(not _LOOKUP_TOOL.search(tool) for tool in exchange.tools)
@@ -732,6 +914,17 @@ def conversation_problems(
             awaiting = _digit_count(said)
         if not reply.strip():
             continue
+        recalled = _false_recall(reply, said_before)
+        if recalled:
+            found.setdefault(
+                "false_recall",
+                TurnProblem(
+                    "false_recall",
+                    f"It said it had already told the caller {_quoted(recalled)}, but it had "
+                    "not said that earlier. It must never present a figure as agreed.",
+                ),
+            )
+        said_before = f"{said_before} {reply}"
         if claims_done(reply) and not acted:
             found.setdefault(
                 "unconfirmed_action",
@@ -801,6 +994,7 @@ __all__ = [
     "Exchange",
     "TurnProblem",
     "claims_done",
+    "claims_said_before",
     "conversation_problems",
     "formal_swaps",
     "sentences",

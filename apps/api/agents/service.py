@@ -870,6 +870,8 @@ def _to_config(
         detect_machines=bool(agent.get("detect_machines", False)),
         **_call_settings_fields(agent),
         max_reply_tokens=resolve_max_reply_tokens(agent.get("max_reply_tokens")),
+        turn_detection=settings.thinnest_turn_detection,
+        acknowledgements=settings.thinnest_acknowledgements,
         has_phone_number=bool(agent.get("has_phone_number", False)),
         forwarded_line=bool(agent.get("forwarded_line", False)),
         # THE NOTICES THE AGENT VOLUNTEERS BEFORE ITS OPENING LINE, composed from this
