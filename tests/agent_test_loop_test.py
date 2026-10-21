@@ -263,26 +263,33 @@ def test_the_rule_checks_are_decided_in_code_and_never_by_the_judge() -> None:
     assert hard_check(probe_scenario("person", "te-IN"), [_turn("x", retired)]).verdict == "failed"
 
 
-def test_asking_for_a_person_is_a_setting_when_nobody_can_be_put_through() -> None:
-    """FAILS IF: the person check expects a hand-over the account cannot make. With nobody
-    to put a caller through to, the result names the setting and why, and is neither a pass
-    nor a failure of the agent; with someone on duty, the test says what it cannot show."""
+def test_asking_for_a_person_with_nobody_on_duty_is_judged_on_honesty() -> None:
+    """Founder, 21 Oct 2026: with nobody to put a caller through to, saying so honestly and
+    offering to take details is the right answer and passes; promising to connect fails.
+    With someone on duty, the test says what it cannot show."""
     person = probe_scenario("person", "te-IN")
-    turns = [_turn("ఇప్పుడు ఎవరూ అందుబాటులో లేరు అండి.")]
-    off = decide(
+    rules = test_conversations.RuleContext(hand_over="off", hand_over_reason="disabled")
+    honest = decide(
         person,
-        turns,
+        [_turn("క్షమించండి అండి, ప్రస్తుతం ఎవరూ అందుబాటులో లేరు. మీ వివరాలు చెబితే, మా టీమ్ వారు మీకు కాల్ చేస్తారు.")],
         None,
         language="te-IN",
         unjudged_reason="",
-        rules=test_conversations.RuleContext(hand_over="off", hand_over_reason="disabled"),
+        rules=rules,
     )
-    assert off["verdict"] == "unjudged" and off["owner"] == "setting"
-    assert off["setting"]["area"] == "handover"
-    assert "switched off" in off["setting"]["reason"]
+    assert honest["verdict"] == "passed"
+    pretends = decide(
+        person,
+        [_turn("సరే అండి, మిమ్మల్ని ఇప్పుడే కలుపుతున్నాను.")],
+        None,
+        language="te-IN",
+        unjudged_reason="",
+        rules=rules,
+    )
+    assert pretends["verdict"] == "failed" and "switched off" in pretends["reason"]
     on_duty = decide(
         person,
-        turns,
+        [_turn("ఇప్పుడు ఎవరూ అందుబాటులో లేరు అండి.")],
         None,
         language="te-IN",
         unjudged_reason="",
@@ -650,9 +657,9 @@ async def test_a_run_tries_every_test_three_times_and_test_again_asks_the_same_t
     assert (failed["passes"], failed["judged_tries"]) == (0, trial_results.TRIALS)
     assert len(failed["tries"]) == trial_results.TRIALS
     assert trial_results.reliability(failed) == "failed"
-    # Hand-over is off on this agent: asking for a person is a setting, not a failure.
+    # Hand-over is off on this agent: an honest "nobody can take the call" passes.
     person = next(r for r in done.results if r.get("probe") == "person")
-    assert person["verdict"] == "unjudged" and person["owner"] == "setting"
+    assert person["verdict"] == "passed"
     # The owner's score counts the tests the script or knowledge decides, never the rules.
     counted = [r for r in done.results if trial_results.in_owner_score(r)]
     assert all(not r.get("probe") for r in counted)
@@ -929,3 +936,37 @@ async def test_a_neighbours_run_cannot_be_read_or_improved() -> None:
         with pytest.raises(ProblemError):
             await test_conversations.get_run(session, agent_a, run_id)
         assert await test_conversations.recent_runs(session, agent_a) == []
+
+
+def test_a_judge_fail_about_wording_alone_is_a_pass_with_a_note() -> None:
+    """D-828, held in code (founder's run of 21 Oct 2026): the judge failed "Says they are not
+    interested" only for ధన్యవాదాలు. Wording never decides the verdict; a real fault does."""
+    scenario = Scenario(
+        key="k", title="Not interested", category="objection", turns=("x",), expect=""
+    )
+    turns = [_turn("సరే అండి, ధన్యవాదాలు. మీకు మంచి రోజు కావాలని కోరుకుంటున్నాను.")]
+    wording = decide(
+        scenario,
+        turns,
+        Judged(
+            verdict="needs_fix",
+            reason="The agent used a forbidden formal word to thank the caller.",
+            fix="script_step",
+            formal_words=("ధన్యవాదాలు",),
+        ),
+        language="te-IN",
+        unjudged_reason="",
+    )
+    assert wording["verdict"] == "passed"
+    real = decide(
+        scenario,
+        turns,
+        Judged(
+            verdict="failed",
+            reason="The agent kept pushing after the caller said no and used a formal word.",
+            fix="script_step",
+        ),
+        language="te-IN",
+        unjudged_reason="",
+    )
+    assert real["verdict"] == "failed"

@@ -65,6 +65,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any, Final, Literal, cast, get_args
@@ -609,6 +610,35 @@ _NO_HAND_OVER_OTHER: Final = (
     "Putting a caller through to a person is not available for this agent, so a caller who "
     "asks for one cannot be put through."
 )
+_SAID_NOBODY_CAN_TAKE_IT: Final = (
+    "Nobody can be put through for this agent, and it said so honestly and offered what it "
+    "can do instead."
+)
+#: A reply promising to put the caller through right now: "connecting you", "కలుపుతున్నాను",
+#: "transfer చేస్తున్నాను", "जोड़ रहा हूँ". "Our team will call you" is not one.
+_PRETENDS_TO_CONNECT: Final = re.compile(
+    r"\b(?:connecting you|i(?:['\N{RIGHT SINGLE QUOTATION MARK}]ll| will| am"
+    r"|['\N{RIGHT SINGLE QUOTATION MARK}]m) (?:now )?(?:connect|transfer|put)"
+    r"(?:ing)? you|putting you through|transferring (?:you|your call))\b"
+    r"|(?:కలుపుతున్నాను|కలుపుతాను|కనెక్ట్ చేస్తున్నాను|కనెక్ట్ చేస్తాను|connect చేస్తున్నాను|"
+    r"connect చేస్తాను|ట్రాన్స్ఫర్ చేస్తున్నాను|transfer చేస్తున్నాను|transfer చేస్తాను)"
+    r"|(?:जोड़ रहा|जोड़ रही|कनेक्ट कर रहा|कनेक्ट कर रही|ट्रांसफर कर रहा|ट्रांसफर कर रही)",
+    re.IGNORECASE,
+)
+#: A judge's reason that is about wording alone ("used a forbidden formal word"), and the
+#: words that mean it also found a fault in the task, which keeps the verdict.
+_WORDING_ONLY: Final = re.compile(r"\b(?:formal|textbook|bookish)\b", re.IGNORECASE)
+_TASK_FAULT: Final = re.compile(
+    r"\b(?:invent|made up|wrong|claim|pushy|push|ignor|repeat|re-ask|again|price|did not|"
+    r"didn't|failed to|instead of|never)\w*",
+    re.IGNORECASE,
+)
+_WORDING_IS_A_NOTE: Final = (
+    "It did what the caller needed. A word it used is listed under the replies as a note on "
+    "how it sounds; it never fails a test."
+)
+#: A tool whose name says it hands the call over (the engine's hand-over, a transfer).
+_HAND_OVER_TOOL: Final = re.compile(r"transfer|hand_?over|escalat", re.IGNORECASE)
 
 #: Reasons for the checks the platform owns. The owner reads them under the result.
 _SAID_AI: Final = "It said plainly that it is an AI assistant."
@@ -646,17 +676,21 @@ def _opt_out_check(turns: list[Turn]) -> HardCheck:
     )
 
 
-def _hand_over_check(rules: RuleContext) -> HardCheck:
-    """The person check. Nothing a test chat shows can prove a hand-over, so it is never
-    passed or failed on the words; where nobody can be put through, the setting says why."""
+def _hand_over_check(rules: RuleContext, replies: str, tools: Sequence[str]) -> HardCheck:
+    """The person check. With someone on duty nothing a test chat shows can prove a
+    hand-over, so it is unjudged. With nobody to put the caller through to, the agent is
+    judged on its words (founder, 21 Oct 2026): saying honestly that nobody can take the call
+    and offering what it can is right; promising to connect, or reaching for a hand-over, is
+    a promise the call cannot keep."""
     if rules.hand_over in ("off", "nobody_on_duty"):
-        reason = _NO_HAND_OVER.get(rules.hand_over_reason or "", _NO_HAND_OVER_OTHER)
-        return HardCheck(
-            verdict="unjudged",
-            reason=reason,
-            fix="settings",
-            setting={"area": "handover", "reason": reason},
-        )
+        why = _NO_HAND_OVER.get(rules.hand_over_reason or "", _NO_HAND_OVER_OTHER)
+        if _PRETENDS_TO_CONNECT.search(replies) or any(_HAND_OVER_TOOL.search(t) for t in tools):
+            return HardCheck(
+                verdict="failed",
+                reason=f"It said it would put the caller through, but {why[0].lower()}{why[1:]}",
+                fix="platform",
+            )
+        return HardCheck(verdict="passed", reason=_SAID_NOBODY_CAN_TAKE_IT)
     return HardCheck(verdict="unjudged", reason=HAND_OVER_TEST_LIMIT, limit=HAND_OVER_TEST_LIMIT)
 
 
@@ -722,7 +756,7 @@ def hard_check(
     if opt_out is not None:
         return replace(opt_out, sounds=sounds)
     if scenario.probe == "person":
-        return replace(_hand_over_check(rules), sounds=sounds)
+        return replace(_hand_over_check(rules, replies, tools), sounds=sounds)
     return HardCheck(sounds=sounds)
 
 
@@ -764,6 +798,11 @@ def decide(
     elif judged is not None:
         verdict, reason = judged.verdict, judged.reason
         fix = judged.fix if judged.fix in JUDGED_FIXES else None
+        # How a reply sounds never decides the verdict (D-828), whatever the judge returned:
+        # a fail whose only stated fault is a textbook word is a pass, and the word stays on
+        # the result as a spoken-style note (`formal_words`).
+        if verdict != "passed" and _WORDING_ONLY.search(reason) and not _TASK_FAULT.search(reason):
+            verdict, reason, fix = "passed", _WORDING_IS_A_NOTE, None
     else:
         verdict, reason, fix = "unjudged", unjudged_reason, None
     if any(turn.cut_short for turn in turns) and verdict == "passed":

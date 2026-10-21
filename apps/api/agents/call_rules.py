@@ -67,7 +67,8 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
     CallRule(
         key="done",
         judge=(
-            "Saying it noted what the caller asked for is right; it never says an order is "
+            "Saying it noted, or is taking down, what the caller asked for is right; it never "
+            "says an order is "
             "placed, booked or confirmed, or details saved, unless "
             "one of its actions did it; taking the details and saying the team will confirm "
             "is right."
@@ -94,7 +95,11 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
     ),
     CallRule(
         key="ask_once",
-        judge="It uses what the caller already said and does not ask it again.",
+        judge=(
+            "It uses what the caller already said and does not ask it again. Asking for a "
+            "detail the caller has not given yet, or checking an amount that was unclear "
+            '("two kg or two packets?"), is right, not a repeat.'
+        ),
         writer="Ask only for the listed details, and only those the caller has not already said.",
         expect="",
         prompt_marker="Never re-ask what they said",
