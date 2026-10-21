@@ -1170,7 +1170,7 @@ Two sentences ThinnestAI adds to every agent's prompt contradict our scripts (§
    be left out when the agent has a call-back action of its own, or replaced with a neutral
    "You cannot transfer this call"?
 
-## 20. Draft of the next email (21 Oct 2026, unsent; the founder sends)
+## 20. The email of 21 Oct 2026 (sent by the founder; items 4–12 answered 21 Oct 2026, §21; 1–3, 13–14 open)
 
 Built from a ledger of §1–§19, the docs snapshot of 19 Oct 2026 and our adapter at 61758231.
 What the docs already answer is not asked again: Test Chat on an agent with `surfaces: []`
@@ -1253,3 +1253,49 @@ Google's implicit-cache minimum for `gemini-3.1-flash-lite` is Google's question
 | 12 | `calls.to_e164` cannot be filled from the engine on inbound | `get-call.md:877-883` |
 | 13 | Studio margin at ₹6.00 is thin (about 4% on the 20 Oct call) | founder decision 0b8fed6b |
 | 14 | Closes OPERATIONS F-1 and F-4 | `docs/OPERATIONS.md` F-1, F-4 |
+
+## 21. Ashutosh's answer to the §20 email, received 21 Oct 2026
+
+- **From:** Ashutosh K, founder of ThinnestAI, 21 Oct 2026. **Relayed by:** the founder.
+- **Evidence class:** **VENDOR-STATED**. Nothing here is in the 19 Oct docs snapshot yet: the new
+  fields "arrive with the next release, and we'll tell you the day it's live". Until that day
+  and a docs re-read, every new field below is sent only behind a switch that is off.
+- **Answers:** §20 items 4–12. **Not answered:** 1–3 (DPA and sub-processors, written training
+  exclusion, regulation 4 and the access provider), 13 (volume price for own-key minutes),
+  14 (live carrier tests).
+- **Corrects:** §18 item 2 / D-835 for agents on our own keys (item 7 below).
+
+### 21.0 The email, verbatim
+
+> Hi Umesh,
+>
+> Thank you. Four of your thirteen items are built; the rest are answered below. Everything new arrives with the next release, and we'll tell you the day it's live.
+>
+> Two sentences we add that contradict your scripts (4, 5, 9) Both come from the same cause, and a general switch fixes both. Set ownRules: true on Create Agent or Update Agent (and update_agent over MCP). We then leave out exactly three things: the sentence about asking for contact details (or saying the business does not collect them), the hand-over rule (or "never promise that someone will follow up"), and the "cannot arrange a call back" sentence. Kept whatever you send: the boundary, the AI disclosure, the reply language, the date, your own instructions, and how a call is put through to a person when you configure a transfer line. It is off by default, so nothing changes for an agent until you set it. We did not change captureLeads: false itself, because for other customers it means "this business does not collect details" and they rely on that.
+>
+> The hand-over text with only onRequest on (6) "If the customer asks for a person, or they are upset, hand the conversation to a human and tell them you have. Never guess to avoid handing over — a wrong answer costs the business more than a wait does. Nothing else is a reason to hand over. A greeting, small talk, a question you can answer, or a caller who simply has not said much yet are all just the conversation." "Or they are upset" is part of onRequest and cannot be switched off separately today. With ownRules on, none of this is sent, and the hand-over tool still describes when it applies.
+>
+> Billing and prompt size (7, 8) 7. A forward on an agent running on your own keys is billed at the flat price of its key set: ₹1.00 a minute for all and llm_voice, ₹1.50 for voice, with voicePlan null, even though a forward uses none of your keys. With no agent attached it uses the workspace's key setting. I told you on 19 October that it is billed at the agent's voice plan; that holds only when no own keys apply, and the docs now say so. 8. The field that replaces the default call rules is voice.callInstructions. instructions and steps do not. Your agents send neither, so each call turn carries the default call rules (about 1,675 characters) and the speaking rules (about 1,876).
+>
+> Requests 10. Done: mode: "call" on Test Chat. The turn uses the agent's call prompt, the model its calls use and, on your own Gemini key, the thinking level a call uses, with no cards or buttons. It shows the words a caller will be given, which is how to try Telugu wording. It is not the voice or the hearing, and not the call's own tools (transferring, hanging up). It needs calling set up on the agent. The answer includes mode, and test_chat over MCP takes it too. 11. We are not moving them. The reply-language rule is after your block on purpose: placed earlier, it lost to long instructions on three live calls and held once it was last. The speaking rules sit at the end of your block for the same reason. The prompt is already identical on every turn of a call, so the cache works there. What you control for reuse across calls is to put your own {{variables}} late in your instructions. If you want, we can test a different order on your Telugu calls and measure both. 12. Done: Get Call and List Calls now carry to, the number of yours a call came in on (+918045678901). It is empty on calls you placed (phone is who you rang, from the number it rang from) and on calls that came in before this release.
+>
+> Ashutosh K
+> Founder, Thinnest AI
+
+### 21.1 What it closes, what it corrects, and what stays open
+
+| §20 | Answer | What Calevate does |
+|---|---|---|
+| 4, 5, 9 | New per-agent `ownRules: true` leaves out the contact-details sentence, the hand-over rule ("never promise that someone will follow up") and "cannot arrange a call back". Kept: boundary, AI disclosure, reply language, date, our instructions, the transfer line's put-through text. Off by default. `captureLeads: false` unchanged | Send `ownRules: true` on every agent, behind a console switch that stays off until the release is live; our own layers must then carry the hand-over and lead rules the vendor stops adding (D-847) |
+| 6 | The `onRequest` hand-over text, verbatim (above). "Or they are upset" is part of `onRequest` and cannot be switched off alone | With `ownRules` on it is not sent; our hand-over layer states when to hand over |
+| 7 | **Correction.** A forward on an own-key agent is billed at its key set's flat price (₹1.00 `all`/`llm_voice`, ₹1.50 `voice`) even though no key is used; no agent attached: the workspace's key setting | Cost a forward on an own-key agent at the key set's rate, not the voice plan (D-847). OPEN: whether a forward to a number we brought still bills nothing on an own-key agent (§18 item 2 said "nothing on a brought number"); until answered, cost it at the key-set price, the higher figure |
+| 8 | `voice.callInstructions` replaces the default call rules; `instructions` and `steps` do not. Every turn carries the default call rules (~1,675 characters) and the speaking rules (~1,876) | `ENGINE_ADDED_PROMPT_CHARS` now cites this. Replacing the default call rules needs their text, which we do not hold: ask for it before sending `callInstructions` |
+| 10 | Test Chat `mode: "call"`: the call prompt, the call's model and, on our Gemini key, its thinking level; no cards or buttons; not voice, hearing or call tools. Needs calling set up on the agent | Practice tests and the register eval run in call mode once live, behind the same switch (D-847) |
+| 11 | Order not moved: the reply-language rule and speaking rules stay after our block on purpose. Put our own `{{variables}}` late | Nothing to build now; caller memory and per-call variables already sit after the fixed layers. Their offer to A/B the order on Telugu calls is open |
+| 12 | Get Call / List Calls carry `to` (our number an inbound call came in on); empty on calls we placed and on calls before the release | Read `to` for an inbound `to_e164`; keep D-842's agent-number fallback for older calls (D-847) |
+
+**Still open, for the next email:** §20 items 1–3 (DPA and sub-processors, written training
+exclusion, regulation 4 notice and access provider), 13 (volume price for own-key minutes),
+14 (live carrier tests); item 7's brought-number case; the text of the default call rules
+(item 8); and the 21 Oct test calls that ThinnestAI reported `missed` though the founder
+answered and spoke (pending the Get Call read-back).
