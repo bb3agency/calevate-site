@@ -1318,15 +1318,15 @@ reply-language rule, not ours, produced the English reply.
 >    (out_4ee76842-a834-49f0-81a4-1bac7db41c68) was billed 90 seconds. Most of our clients' calls
 >    run one to two minutes, so the 30-second block is a large share of the minute. Could
 >    own-key minutes (`llm_voice`, `voice`) be billed per second, or in 6-second blocks?
-> 2. **The per-turn parts of the prompt, and caching.** On our own Gemini key, two calls cached
->    34% and 35% of their input (out_cd17adc9-e7cc-4ae4-bae7-b679b749c2e6: 14,117 of 41,053
->    tokens; out_4ee76842…: 16,146 of 46,709). That is about 2,300 cached tokens per reply out
->    of about 6,000, which looks like the fixed rules being cached and the conversation never
->    being. If the date line or the per-turn blocks sit before the conversation history and
->    change every reply, everything after them misses the cache. Could anything that changes
->    per reply go after the conversation (at the end of the request) instead? The fixed rules
->    stay where they are, so the reply-language rule still comes last in the instructions. This
->    is the different order we'd like to test on our Telugu calls, as you offered.
+> 2. **Caching on our own Gemini key.** You told us the system prompt is built once per call and
+>    is identical on every turn, with the time of day on the caller's line. Even so, two calls
+>    cached only 34% and 35% of their input (out_cd17adc9-e7cc-4ae4-bae7-b679b749c2e6: 14,117 of
+>    41,053 tokens; out_4ee76842…: 16,146 of 46,709), about 2,300 tokens per reply out of about
+>    6,000. Since each turn resends the previous turn plus one exchange, we expected most of it to
+>    be reused. Could you look at one of these calls: is the conversation sent as `contents` after
+>    an unchanged system instruction and tool list, and does anything (the tool list, a per-turn
+>    note) change between turns? If it helps, we are happy to run the order test you offered on
+>    our Telugu calls.
 > 3. **The default call rules, verbatim.** Since `voice.callInstructions` replaces them and every
 >    turn carries about 1,675 characters of them, could you share the text? We'd like to send a
 >    shorter version that keeps what matters, to cut what the model reads before its first word.
@@ -1346,7 +1346,7 @@ reply-language rule, not ours, produced the English reply.
 | # | Evidence | Where |
 |---|---|---|
 | 1 | 63 s talk, `billedSeconds` 90, ₹1.50 `costMicro`; call 1 58 s billed 60 | Get Call read by the founder on the VPS, 21 Oct 2026 |
-| 2 | 34–35% cached input; their stated order puts the date line and per-turn blocks after the reply-language and speaking rules (§16, 18 Oct; rememory D-814) | same Get Call read; `usage.cachedInputTokens` |
+| 2 | 34–35% cached input although they state the system prompt is identical every turn and the time rides on the caller's line (§18, 19 Oct; rememory f4ecc712) | same Get Call read; `usage.cachedInputTokens` |
 | 3 | `voice.callInstructions` replaces the ~1,675-character default call rules; we hold none of their text | §21 item 8 |
 | 4 | Call 2 transcript, 21 Oct 2026 10:00 IST (founder-pasted) | pending AGENTQ2 |
 | doc | Our post-call pipeline took a transcript-less `call.completed` as the whole record; fixed on our side (lane CALLTRUTH) | `webhooks.md:74` "outcome and duration" |
