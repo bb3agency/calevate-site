@@ -35,8 +35,9 @@ Trigger: Sri opens Admin → New Client: one screen, one "Create and invite" (D-
      its own transaction and can be passed by both; the UNIQUE index is the arbiter, and
      its violation is translated back into the same 409 the probe would have given.
 2. **Plan**: setup fee, retainer, included minutes, overage rate, hard caps → plans row.
-3. **Business setup, by the CLIENT (D-695; was the operator's "intake")**: on first login the
-   owner is taken to `/c/{slug}/setup`, a guided wizard with one topic per step — hours
+3. **Business setup, by the CLIENT (D-695; was the operator's "intake")**: reached from the
+   dashboard checklist and Settings (since D-855 a new owner meets their agent first, 3a),
+   `/c/{slug}/setup` is a guided wizard with one topic per step — hours
    (closed is an answer, distinct from not answered), addresses/branches, services +
    prices (digit strings), common questions, staff names and how to say them, booking
    rules, people who can take a call (Indian mobiles), languages — every step skippable. The
@@ -50,16 +51,22 @@ Trigger: Sri opens Admin → New Client: one screen, one "Create and invite" (D-
    re-syncs every agent (facts and, on ThinnestAI, the facts document) with no publishing
    by anyone. An agent cannot go LIVE until the profile has hours, an address, a service
    and someone to take calls (`business_profile_incomplete`, with links to each step).
-3a. **The first agent, by the CLIENT (D-854)**: an account with no agent is led from the
-   wizard's last screen, the dashboard and the Agents screen to `/c/{slug}/agents/first`.
-   Two doors: a chat with Pip that asks one thing at a time (job, name and language, voice,
-   greeting under 120 characters ending with a question, the three things callers ask most,
-   what it notes down) and builds the agent with its own tools, or the ready-made job form.
-   A card beside the chat fills in as each piece lands; progress is read from the agent, the
-   pinned facts and its calls, so it resumes wherever the owner left it. The end is the
-   agent ringing the owner's phone through the trial test line (`/prepare`, then
-   `POST /v1/trial/calls`); a paid account tries it in the chat. Pip stays off until the
-   owner turns it on (D-788); anyone who cannot is given the form.
+3a. **"Meet your agent", the first run (D-855, evolving D-854)**: after sign-up (and at the
+   `/c` junction while `GET /v1/first-run` says `due`) a new owner, signed up or invited, goes
+   to `/c/{slug}/agents/first`; the dashboard, the Agents screen and the wizard's last screen
+   link there while the account has no agent. Four steps beside a card that fills in:
+   **Its job** (answer my calls, call new leads instantly, call my list; all open on a trial)
+   and its languages; **Tell it about you** (one brief, pre-filled from the trade, typed or
+   spoken in up to three 30-second pieces whose audio is deleted once heard; or Pip's chat
+   instead), then up to three follow-up questions from a fixed set whose answers go into the
+   business profile, then the build, ticked step by step (a Studio voice, or Clear with the
+   reason when Studio cannot be used; a name to suit it; the script written from the brief
+   and applied as version one; the greeting; the AI notice); **Hear it** (three honest lines,
+   each outstanding agreement, the no-cold-calls pledge and "this number is mine" as separate
+   ticks, the number, and the call shown as it happens through the trial test line); then
+   what it caught, and **Make it yours** (calls left, add credit to go live, the agent page's
+   tour). Where the owner is lives in `first_runs`, so it resumes anywhere; "Skip for now"
+   puts it aside. A paid account hears its agent in the chat instead.
 4. **Agent draft** (made by the owner, or with them; no agent exists at creation, D-853): system prompt generated from the business profile (template + LLM assist), reviewed/
    edited by admin; both notice sentences auto-inserted and not client-editable, each
    switched ON at birth and switchable by the client afterwards (D-163 — the truthful

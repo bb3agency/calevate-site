@@ -13123,8 +13123,12 @@ export interface components {
         };
         /** BuildStepOut */
         BuildStepOut: {
+            /** Fallback */
+            fallback?: ("studio_unavailable" | "studio_minutes_used" | "no_studio_voice") | null;
             /** Label */
             label: string | null;
+            /** Rung */
+            rung?: ("clear" | "studio") | null;
             /** State */
             state: string;
             /**

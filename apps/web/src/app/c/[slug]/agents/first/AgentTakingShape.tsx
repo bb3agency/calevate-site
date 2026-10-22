@@ -1,126 +1,131 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 
 import { StatusPill } from "@/components/console/statusPill";
+import { TEXT_ACTION } from "@/components/console/section";
 import { VoicePreviewButton } from "@/components/voicePreviewButton";
 import type { Agent } from "@/lib/api/agents";
 import { useEngineCatalogue } from "@/lib/api/engineCatalogue";
-import { useClientSession } from "@/lib/api/session";
+import type { FirstRunJob } from "@/lib/api/firstRun";
+import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { CLIENT_PREVIEW_PATH } from "@/lib/api/voicePreview";
 import {
   GREETING_MAX_CHARS,
-  QUESTIONS_WANTED,
   charCount,
   greetingFits,
+  jobCard,
   jobOf,
+  languageLabel,
+  studioFallbackLine,
   type Piece,
   type PieceId,
-  type PinnedAnswer,
 } from "@/lib/firstAgent";
 import { useBusinessSuggestions, useVerticalExamples } from "@/lib/useVerticalExamples";
 
 /**
- * THE AGENT TAKING SHAPE (D-854): the card beside the chat, filling in as each piece lands.
+ * THE AGENT TAKING SHAPE (D-854, D-855): the card that fills in as each piece lands.
  *
- * Every value on it is read from the server (the agent row, the pinned facts, the voice
- * list), so it shows what the agent IS, never what the chat said it would be. An empty piece
- * shows the business's own example, faint and marked as one, so a real-estate account sees
- * site visits and never somebody else's trade (D-827).
+ * Every value on it is read from the server (the first run, the agent row, the voice list),
+ * so it shows what the agent IS, never what a screen said it would be. An empty piece shows
+ * the business's own example, faint and marked as one, so a real-estate account sees site
+ * visits and never somebody else's trade (D-827).
  *
- * A piece that turns done while the screen is open gets a short tick pop (`piece-done` in
- * globals.css, off under reduced motion) and one polite announcement; a piece that was done
- * when the screen opened is simply there.
+ * Two shapes. Beside the steps on a wide screen it is the whole card. On a phone it is one
+ * line (initial, name, job, pieces done) that opens into the card, so the step stays the
+ * first thing under the thumb.
  */
 export function AgentTakingShape({
   agent,
-  answers,
+  job,
+  language,
+  brief,
   pieces,
   loaded,
-  footer,
+  compact = false,
+  voiceFallback = null,
 }: {
   agent: Agent | null;
-  answers: readonly PinnedAnswer[];
+  job: FirstRunJob | null;
+  language: string | null;
+  brief: string | null;
   pieces: readonly Piece[];
   /** False until the reads the pieces come from have answered, so nothing pops on arrival. */
   loaded: boolean;
-  /** The finale: the call button, under the pieces. */
-  footer: ReactNode;
+  compact?: boolean;
+  /** Why a Clear voice stands in for Studio (the build's voice step), shown under the voice. */
+  voiceFallback?: string | null;
 }) {
   const fresh = useFreshlyDone(pieces, loaded);
-  const done = (id: PieceId) => pieces.find((piece) => piece.id === id)?.done === true;
-  const examples = useVerticalExamples();
-  const suggestions = useBusinessSuggestions();
-  const exampleQuestions =
-    suggestions.exampleQuestions.length > 0 ? suggestions.exampleQuestions : [examples.factQuestion];
+  const done = pieces.filter((piece) => piece.done).length;
+  const title = agent?.name ?? null;
+  const subtitle = jobCard(job)?.title ?? (agent ? jobOf(agent) : null);
+
+  const header = (
+    <div className="flex min-w-0 items-center gap-3">
+      <Monogram name={title} />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-heading text-ink">{title ?? <span className="text-ink-faint">Your agent</span>}</p>
+        <p className="truncate text-meta text-ink-muted">
+          {subtitle ?? "Its job appears here first"}
+          {language ? ` · ${languageLabel(language)}` : ""}
+        </p>
+      </div>
+    </div>
+  );
+
+  const body = (
+    <>
+      <ol className="divide-y divide-line">
+        <Row id="voice" title="Voice" pieces={pieces} fresh={fresh}>
+          <VoiceLine agent={agent} fallback={voiceFallback} />
+        </Row>
+        <Row id="greeting" title="How it greets" pieces={pieces} fresh={fresh}>
+          <GreetingLine line={agent?.script_opening_line ?? null} />
+        </Row>
+        <Row id="about" title="What it knows about you" pieces={pieces} fresh={fresh}>
+          <BriefLine brief={brief} />
+        </Row>
+        <Row id="notes" title="What it notes down" pieces={pieces} fresh={fresh}>
+          <NotesLine agent={agent} />
+        </Row>
+      </ol>
+      <Announcer pieces={pieces} fresh={fresh} />
+    </>
+  );
+
+  if (compact) {
+    return (
+      <details className="group rounded-card border border-line bg-surface shadow-card">
+        <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+          <div className="min-w-0 flex-1">{header}</div>
+          <span className="shrink-0 text-meta tabular-nums text-ink-muted">
+            {done} of {pieces.length}
+          </span>
+          <ChevronDown
+            aria-hidden
+            className="h-4 w-4 shrink-0 text-ink-muted transition-transform duration-(--duration-fast) group-open:rotate-180 motion-reduce:transition-none"
+          />
+          <span className="sr-only">Show your agent so far</span>
+        </summary>
+        <div className="border-t border-line">{body}</div>
+      </details>
+    );
+  }
 
   return (
-    <section
-      aria-labelledby="first-agent-card"
-      className="overflow-hidden rounded-card border border-line bg-surface shadow-card"
-    >
+    <section aria-labelledby="first-agent-card" className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
       <header className="flex items-center gap-3 border-b border-line px-5 py-4">
-        <Monogram name={agent?.name ?? null} />
-        <div className="min-w-0 flex-1">
-          <h2 id="first-agent-card" className="truncate text-heading text-ink">
-            {agent?.name ?? <span className="text-ink-faint">Your agent</span>}
-          </h2>
-          <p className="truncate text-meta text-ink-muted">
-            {agent ? jobOf(agent) : "Its job appears here first"}
-          </p>
-        </div>
+        <h2 id="first-agent-card" className="sr-only">
+          Your agent so far
+        </h2>
+        <div className="min-w-0 flex-1">{header}</div>
         {agent && !agent.published ? <StatusPill>Draft</StatusPill> : null}
         {agent?.published ? <StatusPill tone="ok">Ready to try</StatusPill> : null}
       </header>
-
-      <ol className="divide-y divide-line">
-        <Row id="voice" title="Voice" done={done("voice")} fresh={fresh}>
-          <VoiceLine agent={agent} />
-        </Row>
-        <Row id="greeting" title="How it greets callers" done={done("greeting")} fresh={fresh}>
-          <GreetingLine line={agent?.script_opening_line ?? null} />
-        </Row>
-        <Row id="questions" title="What callers ask most" done={done("questions")} fresh={fresh}>
-          {answers.length > 0 ? (
-            <ul className="space-y-2">
-              {answers.slice(0, QUESTIONS_WANTED).map((answer) => (
-                <li key={answer.question} className="min-w-0">
-                  <p className="break-words text-meta font-medium text-ink">{answer.question}</p>
-                  <p className="break-words text-meta text-ink-muted">{answer.answer}</p>
-                </li>
-              ))}
-              {answers.length < QUESTIONS_WANTED ? (
-                <li className="text-meta text-ink-faint">
-                  {QUESTIONS_WANTED - answers.length} more to go
-                </li>
-              ) : null}
-            </ul>
-          ) : (
-            <Example>{exampleQuestions.slice(0, 2).join(" · ")}</Example>
-          )}
-        </Row>
-        <Row id="notes" title="What it notes down" done={done("notes")} fresh={fresh}>
-          {agent && agent.extraction_fields.length > 0 ? (
-            <ul className="flex flex-wrap gap-1.5">
-              {agent.extraction_fields.map((field) => (
-                <li
-                  key={field.key}
-                  className="max-w-full truncate rounded-full border border-line px-2.5 py-0.5 text-meta text-ink-muted"
-                >
-                  {field.label}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <Example>{suggestions.callerDetails.slice(0, 3).join(", ") || examples.extractionLabel}</Example>
-          )}
-        </Row>
-      </ol>
-
-      <div className="border-t border-line bg-ink/[0.02] px-5 py-4">{footer}</div>
-
-      <Announcer pieces={pieces} fresh={fresh} />
+      {body}
     </section>
   );
 }
@@ -131,7 +136,7 @@ function Monogram({ name }: { name: string | null }) {
   return (
     <span
       aria-hidden
-      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[17px] font-semibold ${
+      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[16px] font-semibold ${
         initial ? "bg-brand-soft text-brand-strong" : "border-[1.5px] border-dashed border-ink/20"
       }`}
     >
@@ -143,16 +148,17 @@ function Monogram({ name }: { name: string | null }) {
 function Row({
   id,
   title,
-  done,
+  pieces,
   fresh,
   children,
 }: {
   id: PieceId;
   title: string;
-  done: boolean;
+  pieces: readonly Piece[];
   fresh: ReadonlySet<PieceId>;
   children: ReactNode;
 }) {
+  const done = pieces.find((piece) => piece.id === id)?.done === true;
   return (
     <li className="flex gap-3 px-5 py-4">
       <Tick done={done} pop={fresh.has(id)} />
@@ -190,21 +196,43 @@ function Example({ children }: { children: ReactNode }) {
   );
 }
 
-function VoiceLine({ agent }: { agent: Agent | null }) {
+function VoiceLine({ agent, fallback }: { agent: Agent | null; fallback: string | null }) {
   const session = useClientSession();
+  const { href } = useClientRealm();
   const catalogue = useEngineCatalogue(session);
   const voiceId = agent?.engine_voice_id ?? null;
+  if (agent === null) return <p className="text-meta text-ink-faint">Chosen for its language when it is built.</p>;
+  const change = (
+    <Link href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=voice`)} className={TEXT_ACTION}>
+      {voiceId ? "Change" : "Choose one"}
+    </Link>
+  );
   if (voiceId === null) {
-    return <p className="text-meta text-ink-faint">Pick one you like the sound of.</p>;
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-meta text-ink-muted">No voice yet. It needs one before it can ring you.</p>
+        {change}
+      </div>
+    );
   }
   const voice = catalogue.data?.voices.find((entry) => entry.voice_id === voiceId);
   const label = voice?.label ?? "Chosen";
+  const note = studioFallbackLine(fallback);
   return (
-    <div className="flex min-w-0 items-center justify-between gap-3">
-      <p className="min-w-0 truncate text-body text-ink">{label}</p>
-      {voice?.preview_available ? (
-        <VoicePreviewButton session={session} path={CLIENT_PREVIEW_PATH} voiceId={voiceId} label={label} />
-      ) : null}
+    <div className="space-y-1">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <p className="min-w-0 truncate text-body text-ink">
+          {label}
+          {voice ? <span className="text-ink-muted"> · {voice.rung === "studio" ? "Studio" : "Clear"}</span> : null}
+        </p>
+        <span className="flex items-center gap-3">
+          {voice?.preview_available ? (
+            <VoicePreviewButton session={session} path={CLIENT_PREVIEW_PATH} voiceId={voiceId} label={label} />
+          ) : null}
+          {change}
+        </span>
+      </div>
+      {note ? <p className="text-meta text-ink-muted">{note}</p> : null}
     </div>
   );
 }
@@ -223,6 +251,35 @@ function GreetingLine({ line }: { line: string | null }) {
       </p>
     </div>
   );
+}
+
+/** How much of the brief the card shows: enough to recognise it, not to reread it. */
+const BRIEF_PREVIEW_CHARS = 160;
+
+function BriefLine({ brief }: { brief: string | null }) {
+  const examples = useVerticalExamples();
+  const text = (brief ?? "").trim();
+  if (text === "") return <Example>{examples.scriptBrief}</Example>;
+  const chars = Array.from(text);
+  const shown = chars.length > BRIEF_PREVIEW_CHARS ? `${chars.slice(0, BRIEF_PREVIEW_CHARS).join("").trimEnd()}…` : text;
+  return <p className="break-words text-meta text-ink">{shown}</p>;
+}
+
+function NotesLine({ agent }: { agent: Agent | null }) {
+  const examples = useVerticalExamples();
+  const suggestions = useBusinessSuggestions();
+  if (agent && agent.extraction_fields.length > 0) {
+    return (
+      <ul className="flex flex-wrap gap-1.5">
+        {agent.extraction_fields.map((field) => (
+          <li key={field.key} className="max-w-full truncate rounded-full border border-line px-2.5 py-0.5 text-meta text-ink-muted">
+            {field.label}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  return <Example>{suggestions.callerDetails.slice(0, 3).join(", ") || examples.extractionLabel}</Example>;
 }
 
 /**

@@ -9,7 +9,8 @@
    the profile's empty sections are asked instead: the step never stops for lack of AI.
 3. BUILD the first agent (`build_first_agent`), each step written to the row as it lands so
    the screen ticks what really happened:
-   - **voice**: a Clear voice for its language (`agents/voice_pick`), and a name to suit it;
+   - **voice**: a Studio voice for its language, or Clear when Studio cannot be used here
+     (`agents/voice_pick`), and a name to suit it;
    - **script**: the agent created from its job's ready-made script, then the script written
      from the brief by the script writer (`script_assist.draft_script`) and applied at once
      as its first version. Without a usable answer the ready-made script stays, and the
@@ -46,7 +47,7 @@ from apps.api.agents.script_builder import (
 )
 from apps.api.agents.script_proposals import brief_for
 from apps.api.agents.starters import JOB_DIRECTION, StarterJob, starter_for
-from apps.api.agents.voice_pick import pick_clear_voice
+from apps.api.agents.voice_pick import pick_voice
 from apps.api.billing.ai_quota import new_assist_ref, platform_brake_tripped
 from apps.api.billing.models import ASSIST_FEATURE_FIRST_RUN
 from apps.api.core.errors import ProblemError
@@ -498,7 +499,8 @@ async def build_first_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str
             agent_id, name = run.agent_id, str(held_voice[1])
             voice_state: dict[str, Any] = {"state": "kept" if held_voice[0] else "none"}
         else:
-            voice = await pick_clear_voice(language)
+            picked = await pick_voice(tenant_id, language)
+            voice = picked.row if picked else None
             name = suggested_name(language, gender_of(voice.gender if voice else None))
             agent_id, voiced = await _create(
                 tenant_id,
@@ -508,7 +510,14 @@ async def build_first_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str
                 created_by=created_by,
             )
             voice_state = (
-                {"state": "done", "label": voice.label} if voice and voiced else {"state": "none"}
+                {
+                    "state": "done",
+                    "label": picked.row.label,
+                    "rung": picked.rung,
+                    "fallback": picked.fallback,
+                }
+                if picked and voiced
+                else {"state": "none"}
             )
         if not await _tick(tenant_id, run_id, build, "voice", voice_state):
             return "replaced"

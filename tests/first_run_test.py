@@ -23,7 +23,7 @@ from apps.api.agents.starters import (
     starter_for,
 )
 from apps.api.agents.trial_calls import own_number_ref
-from apps.api.agents.voice_pick import rank_clear_voices
+from apps.api.agents.voice_pick import choose_voice, rank_voices
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.first_run import names, questions
@@ -402,7 +402,7 @@ async def _ready_to_build(tenant_id: uuid.UUID, brief: str) -> None:
         await first_run.request_build(session, tenant_id=tenant_id, user_id=None)
 
 
-async def _no_voice(_language: str) -> None:
+async def _no_voice(_tenant_id: uuid.UUID, _language: str) -> None:
     return None
 
 
@@ -434,7 +434,7 @@ async def test_the_build_writes_the_script_from_the_brief_and_names_the_agent(
             usage=None,
         )
 
-    monkeypatch.setattr(worker, "pick_clear_voice", _no_voice)
+    monkeypatch.setattr(worker, "pick_voice", _no_voice)
     monkeypatch.setattr(worker, "draft_script", drafted)
     monkeypatch.setattr(worker, "_meter", _no_meter)
     payload = {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
@@ -475,7 +475,7 @@ async def test_a_short_brief_keeps_the_ready_made_script_and_still_names_it(
     async def never(*_args: Any, **_kwargs: Any) -> None:
         raise AssertionError("no model for a short brief")
 
-    monkeypatch.setattr(worker, "pick_clear_voice", _no_voice)
+    monkeypatch.setattr(worker, "pick_voice", _no_voice)
     monkeypatch.setattr(worker, "draft_script", never)
     await worker.build_first_agent(
         {}, {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
@@ -494,7 +494,7 @@ async def test_the_job_is_locked_once_the_agent_is_built(monkeypatch: pytest.Mon
     headers = await _owner(tenant_id)
     await _ready_to_build(tenant_id, "Flats")
     run = await _run(tenant_id)
-    monkeypatch.setattr(worker, "pick_clear_voice", _no_voice)
+    monkeypatch.setattr(worker, "pick_voice", _no_voice)
     await worker.build_first_agent(
         {}, {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
     )
@@ -624,20 +624,79 @@ def _voice(
     )
 
 
-def test_the_picked_voice_is_clear_and_speaks_the_language_with_its_accent_first() -> None:
+def _ranked(rows: list[HostedVoiceRow], rung: str, attested: set[str]) -> list[str]:
+    return [
+        row.label
+        for row in rank_voices(
+            rows,
+            rung=rung,  # type: ignore[arg-type]
+            engine="thinnest",
+            language="te-IN",
+            attested=attested,
+            platform="the platform",
+            voice_key_priced=True,
+        )
+    ]
+
+
+def test_each_rung_ranks_voices_that_speak_the_language_with_its_accent_first() -> None:
     rows = [
         _voice("engine:a", accent="en-IN", label="Asha"),
         _voice("engine:b", accent="te-IN", label="Bindu"),
         _voice("byok:c", accent="te-IN", label="Chitra", source="byok"),
+        _voice("byok:d", accent="en-IN", label="Deepa", source="byok"),
     ]
     attested = {rows[0].rate_key, rows[2].rate_key}
-    ranked = rank_clear_voices(
-        rows, engine="thinnest", language="te-IN", attested=attested, platform="the platform"
+    assert _ranked(rows, "clear", attested) == ["Bindu", "Asha"]
+    assert _ranked(rows, "studio", attested) == ["Chitra", "Deepa"]
+    assert _ranked(rows, "clear", set()) == [] and _ranked(rows, "studio", set()) == []
+
+
+def test_studio_is_picked_first_and_clear_stands_in_with_the_reason() -> None:
+    studio = [_voice("byok:c", accent="te-IN", label="Chitra", source="byok")]
+    clear = [_voice("engine:b", accent="te-IN", label="Bindu")]
+    first = choose_voice(studio, clear, None)
+    assert first is not None and (first.row.label, first.rung, first.fallback) == (
+        "Chitra",
+        "studio",
+        None,
     )
-    assert [row.label for row in ranked] == ["Bindu", "Asha"]
-    assert (
-        rank_clear_voices(
-            rows, engine="thinnest", language="te-IN", attested=set(), platform="the platform"
+    used = choose_voice(studio, clear, "studio_minutes_used")
+    assert used is not None and (used.row.label, used.rung, used.fallback) == (
+        "Bindu",
+        "clear",
+        "studio_minutes_used",
+    )
+    none_listed = choose_voice([], clear, None)
+    assert none_listed is not None and none_listed.fallback == "no_studio_voice"
+    assert choose_voice([], [], None) is None
+
+
+async def test_a_trial_whose_studio_minutes_are_used_gets_clear(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.agents import voice_pick
+    from apps.api.billing.trials import start_new_account_trial
+
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await start_new_account_trial(
+            session, tenant_id=tenant_id, actor=None, ip=None, reason="test"
         )
-        == []
-    )
+
+    async def open_to(_session: Any, *, tenant_id: uuid.UUID | None) -> bool:
+        return True
+
+    async def used_all(_session: Any, *, tenant_id: uuid.UUID, trial: Any) -> int:
+        return 10_000
+
+    monkeypatch.setattr(voice_pick, "studio_open_to", open_to)
+    assert await voice_pick.studio_hindrance(tenant_id) is None
+    monkeypatch.setattr(voice_pick, "trial_studio_seconds_used", used_all)
+    assert await voice_pick.studio_hindrance(tenant_id) == "studio_minutes_used"
+
+    async def closed(_session: Any, *, tenant_id: uuid.UUID | None) -> bool:
+        return False
+
+    monkeypatch.setattr(voice_pick, "studio_open_to", closed)
+    assert await voice_pick.studio_hindrance(tenant_id) == "studio_unavailable"

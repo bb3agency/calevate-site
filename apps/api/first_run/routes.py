@@ -18,7 +18,7 @@ with names and counts, never the words (hard rule 6).
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, cast
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -35,7 +35,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.base import uuid7
 from apps.api.first_run import service
-from apps.api.first_run.models import BUILD_STEPS, MAX_BUILD_RUNS, MAX_RECORDINGS
+from apps.api.first_run.models import BUILD_STEPS, MAX_BUILD_RUNS, MAX_RECORDINGS, BuildStep
 from apps.api.first_run.questions import question_for, trade_choices
 from apps.api.first_run.schemas import (
     AnswersIn,
@@ -67,6 +67,17 @@ async def _vertical(session: AsyncSession) -> str | None:
     return None if value is None else str(value)
 
 
+def _step_out(step: BuildStep, found: dict[str, Any]) -> BuildStepOut:
+    """One build step as the worker wrote it; a step it has not reached is `waiting`."""
+    return BuildStepOut(
+        step=step,
+        state=str(found.get("state", "waiting")),
+        label=found.get("label"),
+        rung=found.get("rung"),
+        fallback=found.get("fallback"),
+    )
+
+
 async def _out(session: AsyncSession, tenant_id: UUID) -> FirstRunOut:
     state = await service.read_state(session, tenant_id=tenant_id)
     vertical = await _vertical(session)
@@ -81,14 +92,7 @@ async def _out(session: AsyncSession, tenant_id: UUID) -> FirstRunOut:
         for key in state.questions
         if (question := question_for(key, vertical)) is not None
     ]
-    steps = [
-        BuildStepOut(
-            step=step,
-            state=str((state.build_steps.get(step) or {}).get("state", "waiting")),
-            label=(state.build_steps.get(step) or {}).get("label"),
-        )
-        for step in BUILD_STEPS
-    ]
+    steps = [_step_out(step, state.build_steps.get(step) or {}) for step in BUILD_STEPS]
     return FirstRunOut(
         due=state.due,
         job=cast("StarterJob | None", state.job),

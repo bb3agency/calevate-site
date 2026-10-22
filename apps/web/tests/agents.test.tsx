@@ -360,7 +360,7 @@ describe("what the screen says when it could not read the agents", () => {
 
     await screen.findByText(/No agents yet/);
     expect(
-      screen.getByRole("link", { name: /Build your first agent/ }),
+      screen.getByRole("link", { name: /Meet your agent/ }),
     ).toBeTruthy();
     // The lane table hangs off the roster: explaining how changes reach agents that do not
     // exist yet is noise, and one more request for nothing.

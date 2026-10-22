@@ -63,7 +63,7 @@ export function SetupDone({
             answered are what its ready-made script is written from. */}
         {agents.data?.length === 0 ? (
           <Link href={href("/agents/first")} className={PRIMARY_BUTTON}>
-            Build your first agent
+            Meet your agent
           </Link>
         ) : null}
         <Link href={href("")} className={agents.data?.length === 0 ? SECONDARY_BUTTON : PRIMARY_BUTTON}>

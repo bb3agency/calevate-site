@@ -5210,6 +5210,22 @@
       "BuildStepOut": {
         "additionalProperties": false,
         "properties": {
+          "fallback": {
+            "anyOf": [
+              {
+                "enum": [
+                  "studio_unavailable",
+                  "studio_minutes_used",
+                  "no_studio_voice"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallback"
+          },
           "label": {
             "anyOf": [
               {
@@ -5220,6 +5236,21 @@
               }
             ],
             "title": "Label"
+          },
+          "rung": {
+            "anyOf": [
+              {
+                "enum": [
+                  "clear",
+                  "studio"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rung"
           },
           "state": {
             "title": "State",

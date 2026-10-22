@@ -47,6 +47,12 @@ class BuildStepOut(Strict):
     state: str
     #: The chosen voice's name, on the voice step.
     label: str | None
+    #: The chosen voice's rung, on the voice step: `studio` first, `clear` when Studio cannot
+    #: be used here (D-855).
+    rung: Literal["clear", "studio"] | None = None
+    #: Why a Clear voice stands in for Studio: `studio_unavailable`, `studio_minutes_used`
+    #: (the trial's Studio test minutes are used) or `no_studio_voice`. Null otherwise.
+    fallback: Literal["studio_unavailable", "studio_minutes_used", "no_studio_voice"] | None = None
 
 
 class BuildOut(Strict):

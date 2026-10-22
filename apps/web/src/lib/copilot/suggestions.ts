@@ -33,7 +33,7 @@ const QUESTIONS: Record<Screen, readonly string[]> = {
   lead: ["What does this person want?", "When did we last speak to them?", "What should I do next?"],
   agents: ["Which agents are answering right now?", "What does each agent do?", "How do I test an agent?"],
   agent: ["Is this agent working right now?", "What does it say when it answers?", "How do I let it take bookings?"],
-  first_agent: ["Answer my calls", "Call my leads", "Both"],
+  first_agent: ["Answer my calls", "Call new leads instantly", "Call my list"],
   campaigns: ["Which campaign is running?", "Why can't my campaign launch?", "How many people did we reach?"],
   integrations: ["What is connected?", "Why did a delivery fail?", "How do I send leads to my CRM?"],
   billing: ["How long will my credit last?", "What did I spend this month?", "Where did my credit go?"],

@@ -249,7 +249,7 @@ export function recapActions({
   const noAgent = agents !== undefined && agents.length === 0;
   const create: Candidate | null = access.createAgent
     ? noAgent
-      ? { key: "create-agent", label: "Build your first agent", href: "/agents/first" }
+      ? { key: "create-agent", label: "Meet your agent", href: "/agents/first" }
       : { key: "create-agent", label: "Add an agent", href: "/agents/new" }
     : null;
   const allOff = agents !== undefined && agents.length > 0 && !agents.some(isAnsweringNow);
