@@ -31,7 +31,6 @@ async def test_the_roster_tool_opens_a_session_only_for_the_accounts_it_shows(
             slug=f"rps-{uuid.uuid4().hex[:8]}",
             vertical_template="clinic",
             billing_email=None,
-            language="te-IN",
             created_by=None,
         )
 
