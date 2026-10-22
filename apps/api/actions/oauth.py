@@ -14,7 +14,8 @@ flight across a deploy still completes.
 Vendor facts, each read on the vendor's own page on 9 Oct 2026:
 
 * Google: authorize `https://accounts.google.com/o/oauth2/v2/auth` with `access_type=offline`
-  and `prompt=consent`; token and refresh `POST https://oauth2.googleapis.com/token`
+  and `prompt=select_account consent`; token and refresh
+  `POST https://oauth2.googleapis.com/token`
   (form); revoke `POST https://oauth2.googleapis.com/revoke` with `token`
   (developers.google.com/identity/protocols/oauth2/web-server). A refresh token is "only
   returned on the first authorization", which is why `prompt=consent` is sent.
@@ -365,7 +366,11 @@ def authorize_url(kind: OAuthKind, *, state: str, login_hint: str | None = None)
             "response_type": "code",
             "scope": " ".join(scopes),
             "access_type": "offline",
-            "prompt": "consent",
+            # `select_account` shows every Google account signed in on the device instead of
+            # quietly taking the default one; `consent` is what returns a refresh token. The
+            # parameter is a space-delimited list (developers.google.com/identity/protocols/
+            # oauth2/web-server, "prompt").
+            "prompt": "select_account consent",
             "include_granted_scopes": "true",
             "state": state,
         }

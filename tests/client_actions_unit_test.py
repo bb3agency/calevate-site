@@ -203,7 +203,7 @@ def test_each_consent_url_asks_for_offline_access_with_its_own_scopes(oauth_apps
     zoho = oauth.authorize_url("zoho_crm", state="s")
     hubspot = oauth.authorize_url("hubspot", state="s")
     assert google.startswith("https://accounts.google.com/o/oauth2/v2/auth?")
-    assert "access_type=offline" in google and "prompt=consent" in google
+    assert "access_type=offline" in google and "prompt=select_account+consent" in google
     assert zoho.startswith("https://accounts.zoho.in/oauth/v2/auth?")
     assert "ZohoSearch.securesearch.READ" in zoho and "access_type=offline" in zoho
     assert hubspot.startswith("https://app.hubspot.com/oauth/authorize?")
