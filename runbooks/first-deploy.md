@@ -28,9 +28,12 @@ Nothing below can be improvised, and each is somebody else's to provide:
       The STARTER profile is **1 vCPU / 4 GB / 50 GB** and is what a launch and the first
       client need; §2a's ≥4 vCPU is the PRODUCTION profile, for 250 concurrent in-flight
       deliveries, and Hostinger resizes in place when §2b's trigger fires. On the starter,
-      two §2b settings are load-bearing before you begin: **4 GB of swap** (not the §2
-      baseline's 2 — `next build` peaks over 2 GB and the image is built on the box) and
-      **`DB_POOL_SIZE=6`** (not the default 16 — §2a's pools assume 7 processes; you run 3).
+      one §2b setting is yours before you begin: **4 GB of swap** (not the §2 baseline's 2
+      — `next build` peaks over 2 GB and the image is built on the box). The process
+      counts, pools, ARQ concurrency and Redis cap are `compose.prod.yml`'s defaults and
+      are already the starter's: set none of them in `.env`, and NEVER `DB_POOL_SIZE`,
+      which compose overrides per service (a bigger box sets `API_DB_POOL_SIZE` and its
+      siblings, §2b).
       24.04 rather than 22.04: it ships the Python 3.12 the host scripts need, and it is the
       only archive the restore drill has ever been exercised against (DEPLOYMENT §1).
 - [ ] `calevate.tech` in a Cloudflare account you control.
@@ -84,10 +87,10 @@ gives when you put 3 processes on 1 core instead of 7 on 4.
 | Step | Production says | **On KVM1 use** | Why |
 |---|---|---|---|
 | §1 | 2 GB swap | **4 GB swap** | `next build` peaks >2 GB beside a resident Postgres. On 4 GB RAM the BUILD is what OOMs, at §5, before any call exists. |
-| §2 | `max_connections = 200` | **`100`** | The 200 is for §2a's ~101-connection budget across 7 processes. You run 3 at `DB_POOL_SIZE=6` → ~23. |
+| §2 | `max_connections = 200` | **`100`** | The 200 is for §2a's ~114-connection budget across 7 processes. You run 3 with pools of 6 (+1 overflow each) → 32 with `migrate` and ops (`tests/starter_sizing_test.py`). |
 | §2 | (unstated) | **`shared_buffers = 768MB`** | Postgres's default on 4 GB leaves too little for the build spike. |
-| §3 | `DB_POOL_SIZE=16` | **`6`** | 3 services × 16 = 48 idle backends, each costing RAM the build needs. A pool is not free because it is idle. |
-| §6 | 4 voice-runtime workers | **1 worker** | "Never more workers than vCPU" (§2a). 1 vCPU = 1 worker. |
+| §3 | pools of 12–16 | **6, the compose default: set nothing** | 3 services × 16 = 48 idle backends, each costing RAM the build needs. A pool is not free because it is idle. A bigger box sets `API_DB_POOL_SIZE`, `VOICE_RUNTIME_DB_POOL_SIZE` and `WORKERS_DB_POOL_SIZE`; a `DB_POOL_SIZE` line in `.env` is overridden by compose and does nothing. |
+| §6 | 4 voice-runtime and 2 api workers | **1 each, the compose default: set nothing** | "Never more workers than vCPU" (§2a). 1 vCPU = 1 worker. ARQ's 5 jobs at once and Redis's 256mb `noeviction` cap are starter defaults too (DEPLOYMENT §2b). |
 | §10 | install the Actions runner | **DO NOT** | A build peaking >2 GB on the one shared core, beside a live call, is the worst thing you can put on this box. |
 
 **§5 is the step that will bite, and it is not about traffic.** Before you build:

@@ -1,8 +1,8 @@
 """One alarm per service, however many worker processes there are (D-160).
 
 `alert_delivery_test.py` pins what one process does. Everything here is about what FOUR
-of them do, because that is what production runs: `compose.prod.yml` starts voice-runtime
-with `--workers=${VOICE_RUNTIME_WORKERS:-4}`, D-55's measured answer to the 500ms ack
+of them do, because that is what the production profile runs: voice-runtime starts
+with `VOICE_RUNTIME_WORKERS=4` there (DEPLOYMENT §2a), D-55's measured answer to the 500ms ack
 budget, and uvicorn workers are processes rather than threads.
 
 Before this, `alerting`'s window and token bucket were module globals, so the shipped
@@ -110,8 +110,8 @@ def service() -> str:
 def test_four_workers_firing_one_alarm_page_the_operator_once(service: str) -> None:
     """THE regression this closes. Four processes, one fingerprint, one email.
 
-    Four because that is `VOICE_RUNTIME_WORKERS`'s default, not an arbitrary number: this
-    test is a statement about the shipped topology. Before the shared gate every one of
+    Four because that is the production profile's `VOICE_RUNTIME_WORKERS`, not an arbitrary
+    number: this test is a statement about the shipped topology. Before the shared gate every one of
     them delivered, so a single bad deploy arrived on a phone four times and the operator
     learned to expect duplicates — which is how the fifth copy, the one that was a
     different fault, gets skimmed past.

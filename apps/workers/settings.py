@@ -86,6 +86,7 @@ from apps.api.core.platform_config import start_config_refresher, stop_config_re
 from apps.api.core.queue import WORKER_MAX_TRIES, close_queue, redis_settings
 from apps.api.core.redis import close_redis
 from apps.api.core.settings import (
+    get_settings,
     runtime_config_missing_keys,
     settings_scope,
     validate_bootstrap_env,
@@ -1813,6 +1814,9 @@ class WorkerSettings:
     on_job_start = on_job_start
     on_job_end = on_job_end
     max_tries = WORKER_MAX_TRIES
+    # Concurrency, from the environment: arq's own default where unset, and below the
+    # worker's pool on a small box (`Settings.worker_max_jobs`, DEPLOYMENT §2b).
+    max_jobs = get_settings().worker_max_jobs
     # `max_tries` only counts attempts for jobs that ask to be retried. arq 0.28 retries
     # a job for `arq.Retry`, `RetryJob` or `CancelledError` and for NOTHING else — a job
     # that fails by raising anything else is finished on its first attempt, whatever this

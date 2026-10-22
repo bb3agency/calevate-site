@@ -513,16 +513,16 @@ preflight_plan() {
   fi
 
   # §2a is unambiguous: "NEVER more workers than vCPU — each one saturates a core, so
-  # oversubscribing trades throughput for context switching." The default is 4, sized for
-  # the production box; on a smaller host it silently costs ack latency, which is the one
+  # oversubscribing trades throughput for context switching." The default is 1, for the
+  # starter box (§2b); a value above the host's vCPU silently costs ack latency, the one
   # budget hard rule 3 spends. A refusal, not a warning: the honest fix is fewer workers
   # and a lower supported concurrency, and it is one environment variable.
   if in_plan voice-runtime; then
     # THE VALUE THIS CHECK READS MUST BE THE VALUE THE CONTAINER GETS, and it was not.
-    # `compose.prod.yml` interpolates `${VOICE_RUNTIME_WORKERS:-4}`, and compose resolves
+    # `compose.prod.yml` interpolates `${VOICE_RUNTIME_WORKERS:-1}`, and compose resolves
     # that from the shell FIRST and from the project `.env` second. This check only ever
     # looked at the shell — so `VOICE_RUNTIME_WORKERS=1` sitting in `.env`, which is where
-    # a durable host setting belongs, left the refusal reading the default 4 and aborting
+    # a durable host setting belongs, left the refusal reading the default (then 4) and aborting
     # a deploy that would have started exactly one worker. The mirror case is worse: a
     # future check that passed on a shell value while `.env` said something larger would
     # wave through the oversubscription it exists to prevent.
@@ -533,7 +533,7 @@ preflight_plan() {
     vcpu=$(nproc)
     from_env=$(sed -n 's/^VOICE_RUNTIME_WORKERS=[[:space:]]*"\{0,1\}\([0-9]\{1,\}\)"\{0,1\}[[:space:]]*$/\1/p' \
       "$ROOT/.env" 2>/dev/null | tail -n 1)
-    workers=${VOICE_RUNTIME_WORKERS:-${from_env:-4}}
+    workers=${VOICE_RUNTIME_WORKERS:-${from_env:-1}}
     (( workers <= vcpu )) || die \
       "VOICE_RUNTIME_WORKERS is $workers on a ${vcpu}-vCPU host. DEPLOYMENT §2a: never more
      workers than vCPU — each saturates a core, and oversubscription is paid out of the

@@ -111,7 +111,8 @@ def test_the_shipped_worker_count_is_the_one_the_measurement_prescribes() -> Non
     """The config and the document that justifies it, compared.
 
     D-55 derives `processes = peak in-flight ÷ (0.25 x acks-per-second)` and tabulates 4
-    for production. The compose default is where that becomes real, and the two drifting
+    for production; DEPLOYMENT §2b's 1 vCPU starter, the box the compose defaults are
+    sized for, runs 1 because no host may run more workers than vCPU. The two drifting
     apart is the defect class `check_docs_drift` exists for — a documented capacity plan
     nothing implements reads exactly like one that is implemented.
     """
@@ -122,7 +123,7 @@ def test_the_shipped_worker_count_is_the_one_the_measurement_prescribes() -> Non
         f"{workers[0]} hard-codes the worker count; it must stay overridable per "
         "environment — DEPLOYMENT §2a prescribes 2 for staging and 4 for production"
     )
-    assert ":-4}" in workers[0], (
-        f"{workers[0]} no longer defaults to 4 processes, which is what DEPLOYMENT §2a "
-        "derives for production from D-55's measured rate"
+    assert ":-1}" in workers[0], (
+        f"{workers[0]} no longer defaults to 1 process, which is what DEPLOYMENT §2b "
+        "prescribes for the 1 vCPU starter the compose defaults are sized for"
     )

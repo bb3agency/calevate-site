@@ -336,6 +336,13 @@ class Settings(BaseSettings):
     # legitimate configuration.
     db_pool_size: int = Field(default=16, ge=1, le=32)
 
+    # How many ARQ jobs ONE worker process runs at once (`WorkerSettings.max_jobs`). The
+    # default is arq 0.28's own (10), so nothing changes where it is unset. A job holds a
+    # pooled connection and sometimes a nested second (`db/session.MAX_NESTED_CONNECTIONS`),
+    # so on a small box it is kept below the worker's `DB_POOL_SIZE`: more jobs than pooled
+    # connections only queue on the pool and fail at its 5s timeout (DEPLOYMENT §2b).
+    worker_max_jobs: int = Field(default=10, ge=1, le=32)
+
     # How long ONE statement on a session from `apps/api/db/session.py` may run before
     # Postgres cancels it. `db_pool_size` bounds how many connections exist and
     # `db/session._POOL_TIMEOUT_S` bounds the WAIT for one; NOTHING bounded what the
