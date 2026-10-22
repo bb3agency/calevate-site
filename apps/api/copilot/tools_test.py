@@ -619,14 +619,14 @@ async def test_the_platform_directory_says_zeros_as_words(monkeypatch: pytest.Mo
     no leads yet" is the same fact stated as the finding it is.
 
     The directory reader is STUBBED rather than seeded, and that is deliberate: this asserts
-    the RENDERER, and `tenant_overview` walks every account on the platform (it is N+1 by
-    construction and says so), so a seeded version of this test would grow with the shared
-    database while proving the same one line. Its own correctness is `admin/service`'s.
+    the RENDERER, and a seeded version would depend on which accounts the shared database
+    holds while proving the same one line. Its own correctness is `admin/service`'s.
     """
+    monkeypatch.setattr(admin_service, "tenant_directory_total", lambda session: _resolved(1))
     monkeypatch.setattr(
         admin_service,
         "tenant_overview",
-        lambda session: _resolved(
+        lambda session, **_page: _resolved(
             [
                 {
                     "name": "Quiet Clinic",

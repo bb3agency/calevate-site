@@ -994,6 +994,13 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Database connection pool size",
         "Connections each process keeps open. Read from the environment at start-up only.",
     ),
+    "worker_max_jobs": _m(
+        "infrastructure",
+        "database",
+        "Background jobs at once",
+        "Jobs the background worker runs at the same time. Kept below its connection pool. "
+        "Read from the environment at start-up only.",
+    ),
     "db_statement_timeout_ms": _m(
         "infrastructure",
         "database",
@@ -1243,6 +1250,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "cartesia_agent_cap": ControlHint(unit="agents", help="0 switches the Studio voice off."),
     "auto_recharge_max_failures": ControlHint(unit="failures in a row"),
     "db_pool_size": ControlHint(unit="connections"),
+    "worker_max_jobs": ControlHint(unit="jobs"),
     # ---- formats --------------------------------------------------------------------
     "engine_actions_base_url": ControlHint(placeholder="https://api.calevate.tech"),
     "tls_origin_address": ControlHint(placeholder="api.calevate.tech:443", help="host:port"),
