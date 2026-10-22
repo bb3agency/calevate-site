@@ -33,6 +33,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from apps.api.db.migration_offline import is_offline
+
 revision: str = "a3d8f1c6e092"
 down_revision: str | None = "d8a4c2e7f150"
 branch_labels: str | Sequence[str] | None = None
@@ -97,11 +99,23 @@ def downgrade() -> None:
     # so an unbracketed count reads zero on any deployment and the refusal below never fires
     # (`b6e41d9c3a72`'s bracket; DDL is transactional, so FORCE is back before commit).
     op.execute(f"ALTER TABLE {CONSENTS} NO FORCE ROW LEVEL SECURITY")
-    withdrawn = (
-        op.get_bind()
-        .execute(sa.text(f"SELECT count(*) FROM {CONSENTS} WHERE kind = 'withdrawn'"))
-        .scalar_one()
-    )
+    if is_offline():
+        # Offline (`--sql`) there are no rows to count, so the refusal is emitted as SQL and
+        # runs where the script is applied, rather than skipped: skipping it would let the
+        # rendered downgrade turn Pip back on for an owner who turned it off.
+        op.execute(
+            f"DO $$ BEGIN IF EXISTS (SELECT 1 FROM {CONSENTS} WHERE kind = 'withdrawn') THEN "
+            "RAISE EXCEPTION 'an account has turned Pip off; dropping copilot_consents.kind "
+            "would read that row as an acceptance and turn Pip back on. Not downgraded.'; "
+            "END IF; END $$"
+        )
+        withdrawn = 0
+    else:
+        withdrawn = (
+            op.get_bind()
+            .execute(sa.text(f"SELECT count(*) FROM {CONSENTS} WHERE kind = 'withdrawn'"))
+            .scalar_one()
+        )
     op.execute(f"ALTER TABLE {CONSENTS} FORCE ROW LEVEL SECURITY")
     if withdrawn:
         raise RuntimeError(

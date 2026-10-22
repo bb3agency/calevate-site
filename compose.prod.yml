@@ -57,7 +57,23 @@ services:
     # DELIBERATELY NO `ports:`. Redis holds the ARQ queue and the webhook dedupe keys;
     # published on the host it is reachable from the internet the moment ufw is
     # misconfigured, with no authentication in front of it.
-    command: ["redis-server", "--appendonly", "yes", "--save", "900", "1"]
+    # A ceiling so Redis cannot grow into the RAM Postgres and the web build need (Redis's
+    # 64-bit default is no limit), with NOEVICTION: arq stores each queued job's payload as
+    # a key with a TTL (`psetex`, arq 0.28 connections.py), so any evicting policy can drop
+    # a queued job and leave its queue entry pointing at nothing. At the ceiling, writes
+    # fail loudly instead (redis.io/docs/latest/develop/reference/eviction). 256mb on the
+    # 4 GB starter; raise `REDIS_MAXMEMORY` on a bigger box.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --save
+      - "900"
+      - "1"
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-256mb}
+      - --maxmemory-policy
+      - noeviction
     # Its log lines in IST like everything else on the host (D-709); the image carries
     # /usr/share/zoneinfo. The three Python services get TZ from the Dockerfile.
     environment:
@@ -79,7 +95,10 @@ services:
       - apps.api.main:app
       - --host=0.0.0.0
       - --port=8000
-      - --workers=${API_WORKERS:-2}
+      # EVERY DEFAULT BELOW IS THE 1 vCPU / 4 GB STARTER (DEPLOYMENT §2b); a bigger box
+      # raises them in `.env`. One async process per core: each saturates a core (§2a), and
+      # on the starter this one shares it with voice-runtime, the worker and Postgres.
+      - --workers=${API_WORKERS:-1}
       # BOUNDS THE DRAIN, and it needs bounding now that the drain works. D-101 fixed a
       # SIGTERM handler that had been replacing uvicorn's, so `Server.shutdown()` never
       # closed sockets and waited; with it fixed, uvicorn waits for open connections
@@ -90,9 +109,13 @@ services:
       - --timeout-graceful-shutdown=25
     environment:
       # Per-process pool. DEPLOYMENT §2a's connection budget is arithmetic over the
-      # CLUSTER (DB_POOL_SIZE x processes must fit under the host's max_connections), so
-      # it has to be set per service and not once in .env.
-      DB_POOL_SIZE: ${API_DB_POOL_SIZE:-16}
+      # CLUSTER ((DB_POOL_SIZE + 1 overflow) x processes must fit under the host's
+      # max_connections), so it has to be set per service and not once in .env — a
+      # `DB_POOL_SIZE` in `.env` is overridden here. 6 on the starter: one core runs about
+      # 2-3 active Postgres connections usefully (core_count x 2 + spindles,
+      # wiki.postgresql.org/wiki/Number_Of_Database_Connections), so more pooled backends
+      # buy only idle RAM.
+      DB_POOL_SIZE: ${API_DB_POOL_SIZE:-6}
     ports: ["127.0.0.1:8000:8000"]
     depends_on:
       redis: {condition: service_healthy}
@@ -131,9 +154,10 @@ services:
       - --host=0.0.0.0
       - --port=8100
       # DEPLOYMENT §2a (D-55): processes = peak in-flight ÷ (0.25 x acks-per-second).
-      # 4 at 250 concurrent in production, 2 at 100 for staging/pilot. NEVER more than
-      # the host has vCPU — each worker saturates one core.
-      - --workers=${VOICE_RUNTIME_WORKERS:-4}
+      # 4 at 250 concurrent in production, 2 at 100 for staging/pilot, 1 on the 1 vCPU
+      # starter (§2b). NEVER more than the host has vCPU — each worker saturates one core,
+      # and `vps-deploy.sh` refuses a count above `nproc`.
+      - --workers=${VOICE_RUNTIME_WORKERS:-1}
       # 20s against a 30s grace — a wider margin than the api's because this is the
       # service carrying live calls, and the 10s remainder is what the lifespan gets to
       # flush spans and close Redis before docker escalates. A webhook that cannot be
@@ -142,7 +166,8 @@ services:
       # deploy.
       - --timeout-graceful-shutdown=20
     environment:
-      DB_POOL_SIZE: ${VOICE_RUNTIME_DB_POOL_SIZE:-12}
+      # 12 is §2a's 4-process production pool; 6 on the starter, the api's reason.
+      DB_POOL_SIZE: ${VOICE_RUNTIME_DB_POOL_SIZE:-6}
       # THE KEK STAYS OUT OF THE INTERNET-FACING SERVICE. The shared `env_file` carries it,
       # and this service never unwraps a DEK (`start_config_refresher(with_secrets=False)`
       # in `apps/voice-runtime/main.py`), so holding it only widens what a compromise of
@@ -174,7 +199,11 @@ services:
     <<: *python-service
     command: ["arq", "apps.workers.settings.WorkerSettings"]
     environment:
-      DB_POOL_SIZE: ${WORKERS_DB_POOL_SIZE:-16}
+      DB_POOL_SIZE: ${WORKERS_DB_POOL_SIZE:-6}
+      # Below the pool, so every running job can hold a connection with one spare for a
+      # nested read; more jobs than connections only queue on the pool's 5s timeout
+      # (`Settings.worker_max_jobs`). arq's own default is 10.
+      WORKER_MAX_JOBS: ${WORKERS_MAX_JOBS:-5}
     depends_on:
       redis: {condition: service_healthy}
     # ARQ jobs are idempotent with 3 retries and a DLQ, but a job killed mid-flight still

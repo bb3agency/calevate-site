@@ -142,6 +142,7 @@ def test_the_worker_reads_every_cron_field_as_ist() -> None:
 #: that set it. They have no UTC slot to have moved from, so they are not in IST_SLOTS.
 BORN_IST_SLOTS: dict[str, tuple[int, int, str]] = {
     "cron:sweep_business_copies": (10, 44, "D-827"),
+    "cron:expire_credit_lots": (8, 11, "D-840"),
 }
 
 

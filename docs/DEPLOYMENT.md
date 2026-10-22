@@ -297,21 +297,25 @@ D-55; `X-Ack-Ms` on every response and the `webhook_ack_ms` metric are the instr
 so this can be measured in staging with real traffic and no extra tooling.
 
 **Connection budget.** Every process builds its own pool, so the cluster total is
-`DB_POOL_SIZE x processes` and it must fit under Postgres `max_connections`. There is no
-overflow (`apps/api/db/session.py` — overflow connections are single-use and cost ~6ms
-of CPU each to re-authenticate under `scram-sha-256`, which is latency taken straight out
-of the ack budget). Size each pool by Little's Law again: measured connection HOLD time
+`(DB_POOL_SIZE + 1) x processes` and it must fit under Postgres `max_connections`. The
+overflow is exactly one connection per process, a deadlock valve for a task that holds two
+(`apps/api/db/session.py`, D-182) — overflow connections are single-use and cost ~6ms of
+CPU each to re-authenticate under `scram-sha-256`, which is latency taken straight out of
+the ack budget, so the pool carries the load. Size each pool by Little's Law again: measured connection HOLD time
 per delivery is ~10ms uncontended and ~35ms with the loop busy, so a process running at
 250 acks/s keeps `250 x 0.035 ≈ 9` connections busy. 12 is that with headroom; going far
 beyond it buys nothing but Postgres backends.
 
-| service | processes | `DB_POOL_SIZE` | connections |
+The PRODUCTION profile (set these in `.env`; `compose.prod.yml`'s defaults are §2b's
+starter):
+
+| service | processes | `DB_POOL_SIZE` | connections (pool + 1) |
 |---|---|---|---|
-| voice-runtime | 4 | 12 | 48 |
-| api | 2 | 16 | 32 |
-| workers (ARQ) | 1 | 16 | 16 |
-| migrations, psql, ops | — | — | ~5 |
-| **total** | | | **~101** |
+| voice-runtime | 4 | 12 | 52 |
+| api | 2 | 16 | 34 |
+| workers (ARQ) | 1 | 16 | 17 |
+| migrations, psql, ops | — | — | ~11 |
+| **total** | | | **~114** |
 
 PostgreSQL's default `max_connections = 100` (minus 3 superuser-reserved) cannot hold
 that, so **set `max_connections = 200` on the VPS** alongside the §2 baseline — or cut
@@ -332,8 +336,11 @@ and nothing in this repo pins a core count. Move when the trigger fires, not bef
 | vCPU / RAM | **1 / 4 GB** | 2 / 8 GB | ≥4 / ≥8 GB |
 | Disk | 50 GB NVMe | 100 GB | 100 GB+ |
 | `voice-runtime --workers` (`VOICE_RUNTIME_WORKERS` in `.env`) | **1** | 2 | 4 |
+| `api --workers` (`API_WORKERS`) | **1** | 1 | 2 |
 | Supported peak in-flight | ~1–20 (test + first client) | ~100 (pilot) | 250+ (§2a) |
-| `DB_POOL_SIZE` | **6** | 12 | 12–16 (§2a table) |
+| Pools (`API_`/`VOICE_RUNTIME_`/`WORKERS_DB_POOL_SIZE`) | **6 / 6 / 6** | 12 / 12 / 12 | 16 / 12 / 16 (§2a table) |
+| ARQ jobs at once (`WORKERS_MAX_JOBS`) | **5** | 10 | 10 |
+| Redis `maxmemory` (`REDIS_MAXMEMORY`), policy `noeviction` | **256mb** | raise with RAM | raise with RAM |
 | Postgres `max_connections` | **100** | 200 | 200 |
 | Postgres `shared_buffers` | **768 MB** | 2 GB | 2 GB |
 | Swap (`/etc/fstab`) | **4 GB** | 2 GB | 2 GB |
@@ -345,27 +352,38 @@ in-flight** and only reaches 531–589 ms at 150. Bringing the site online, onbo
 testing never approach that. What the starter cannot do is absorb a campaign whose calls
 hang up together — which is the trigger below, and is a resize away.
 
-**Two settings on the starter are not optional, and neither is about traffic.**
+**Four settings on the starter, none of them about traffic. The first is the operator's; the other three are `compose.prod.yml`'s defaults.**
 
 1. **4 GB of swap, not 2.** `next build` peaks over 2 GB (§1) and the image is built ON
    the box, beside a resident Postgres, Redis and three containers. On 4 GB of RAM the
    build is what OOMs, on the first deploy, before a single call exists. NVMe is cheap and
    there are 50 GB.
-2. **`DB_POOL_SIZE=6`, not the default 16.** §2a's pools are sized for 7 processes; the
-   starter runs 3. At the default that is 48 idle Postgres backends costing RAM the build
-   spike needs — the pool is not free memory just because it is idle.
+2. **Pools of 6 and one process per service.** §2a's pools are sized for 7 processes on
+   4 cores; the starter runs 3 on one, where about 2-3 ACTIVE Postgres connections give
+   the best throughput (`core_count x 2 + spindles`,
+   https://wiki.postgresql.org/wiki/Number_Of_Database_Connections). Larger pools are
+   idle backends costing RAM the build spike needs. **`compose.prod.yml`'s defaults ARE
+   the starter**, so a starter `.env` sets none of these; a bigger box sets them.
 
-   ⚠ **`DB_POOL_SIZE=6` in `.env` DOES NOTHING, and this row said to put it there.**
-   `compose.prod.yml` sets `DB_POOL_SIZE` in each service's `environment:` block
-   (`:84,:134,:163`), and a compose `environment:` entry overrides `env_file:` — so the
-   `.env` value is read and discarded. What those blocks interpolate is
-   **`API_DB_POOL_SIZE`, `VOICE_RUNTIME_DB_POOL_SIZE` and `WORKERS_DB_POOL_SIZE`**, each
-   defaulting to §2a's production number; compose resolves them from the project `.env`
-   at parse time. Those three are the knobs. Set them, not `DB_POOL_SIZE`, and the
-   `migrate` one-shot is fixed at 5 (`:191`) and is not tunable — correctly, it runs
-   alone between the build and the swap.
+   **The knobs are `API_DB_POOL_SIZE`, `VOICE_RUNTIME_DB_POOL_SIZE` and
+   `WORKERS_DB_POOL_SIZE`, never `DB_POOL_SIZE`.** `compose.prod.yml` sets `DB_POOL_SIZE`
+   in each service's `environment:` block from those three, and a compose `environment:`
+   entry overrides `env_file:`, so a `DB_POOL_SIZE` line in `.env` is read and discarded.
+   The `migrate` one-shot is fixed at 5 and is not tunable — correctly, it runs alone
+   between the build and the swap. Starter budget: `3 x (6 + 1) + (5 + 1) + ~5 ops = 32`
+   of `max_connections = 100` (`tests/starter_sizing_test.py` does the sum).
+3. **ARQ runs 5 jobs at once (`WORKERS_MAX_JOBS`, arq's default is 10).** A job holds a
+   pooled connection, so more jobs than the worker's 6 connections only queue on the
+   pool's 5-second timeout and fail; 5 leaves one for a nested read.
+4. **Redis is capped (`REDIS_MAXMEMORY`, 256mb) with `maxmemory-policy noeviction`.**
+   Redis's 64-bit default is no limit. ARQ keeps each queued job's payload as a key with a
+   TTL (`psetex` in arq 0.28's `connections.py`), so an evicting policy could drop a
+   queued job and leave its queue entry pointing at nothing; under `noeviction` a full
+   Redis refuses writes loudly instead
+   (https://redis.io/docs/latest/develop/reference/eviction/). arq's own docs say nothing
+   about eviction.
 
-**Better than either: stop building on the box.** Build the image in GitHub-hosted CI,
+**Better still: stop building on the box.** Build the image in GitHub-hosted CI,
 push it to a registry, and have the VPS pull. Then `docker build` and `next build` never
 run beside a live call and 4 GB stops being tight — which also removes the reason §1 wants
 the Actions runner co-located. This is the recommended starter shape; the swap and pool
@@ -639,7 +657,7 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
    Two host facts are checked here as well, both stated as rules by this document and
    neither previously verified anywhere: **`VOICE_RUNTIME_WORKERS ≤ nproc`** (§2a — a
    refusal; oversubscribing cores is paid out of the 500ms ack budget), resolved the same
-   way compose resolves it — shell first, then the project `.env`, then the default 4, so
+   way compose resolves it — shell first, then the project `.env`, then the default 1, so
    the number the check judges is the number the container gets and **2GB of swap
    when `web` is in the plan** (§2 — a warning, since a large-RAM box legitimately needs
    none, and because the OOM killer takes `next build` with no error at all). With

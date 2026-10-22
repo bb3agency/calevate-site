@@ -68,6 +68,13 @@ overrides:
   # bare `>=4.3.2` lets pnpm satisfy a `^3` consumer with 5.x, and a security override
   # that silently crosses a major is a broken build wearing a patch's clothes.
   "js-yaml@>=4 <4.3.2": "^4.3.2"
+  # GHSA-587h-7wmj-h5pm (high, published 20 Oct 2026): vite 8.2.0-8.2.3 bundles a
+  # launch-editor whose `fs.existsSync()` check can be bypassed on Windows; fixed in 8.2.4.
+  # Reached only as `vitest > vite`, the test runner. Kept inside the 8.2 line the lockfile
+  # already resolved, so the patch is the only change it brings (vitest moved 4.1.11 ->
+  # 4.1.12 with it, inside apps/web's `^4.1.11`). Drop the entry when a vitest upgrade
+  # needs a later vite line.
+  vite: "~8.2.4"
 
 # braces has NO patched release: GHSA-vfj7-8cjw-p6xm covers "through 3.0.3" and 3.0.3 is
 # the latest version (npm, 8 Oct 2026). It is reached only as

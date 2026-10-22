@@ -1473,9 +1473,15 @@ impossible, and the runbook is the only thing forbidding it.
 step 9 of 11) · `calevate-web` pm2 process exists (P5.4) · `apps/web/.env.local` (P5.5) · the five
 nginx exports (P5.9) · `sudo` non-interactive · nginx installed and its dirs exist · TLS certs
 exist · host Postgres reachable and roles exist (P5.14) · `PLATFORM_KEK` present and 32 bytes ·
-`AWS_*` (P5.6) · **Postgres `max_connections ≥ 200`** — §2a's budget totals ~101 against a default
-of 100 · **host has ≥4 vCPU** for `VOICE_RUNTIME_WORKERS=4`, which §2a says must never exceed
-vCPU · 2GB swap (the `next build` OOM is `deploy-failed.md` §5's first cause).
+`AWS_*` (P5.6) · **Postgres `max_connections`** against the pools · 2GB swap (the `next build`
+OOM is `deploy-failed.md` §5's first cause).
+
+**Sizing half CLOSED (22 Oct 2026).** `compose.prod.yml`'s defaults are now DEPLOYMENT §2b's
+1 vCPU / 4 GB starter (1 api and 1 voice-runtime worker, pools of 6, 5 ARQ jobs, Redis
+256mb `noeviction`), and `tests/starter_sizing_test.py` sums them against the starter's
+`max_connections = 100`. `vps-deploy.sh` already refuses `VOICE_RUNTIME_WORKERS > nproc`
+(swap is a warning there). What stays unchecked is the live server's `max_connections` when
+an operator raises the pools for a bigger box.
 
 ### P5.17 — Silent-on-absence environment variables · SERIOUS · OURS
 
@@ -1483,9 +1489,12 @@ vCPU · 2GB swap (the `next build` OOM is `deploy-failed.md` §5's first cause).
 `DATABASE_URL`, `REDIS_URL`, `OBJECT_STORE_ENDPOINT`, `OBJECT_STORE_BUCKET`.
 **Loud but late** (not in `BOOTSTRAP_REQUIRED`, dies at the migrate step): `ALEMBIC_DATABASE_URL`.
 **Silent — deploy reports DEPLOYED:** `PLATFORM_KEK` (fails only at the first secret read) ·
-`AWS_*` · `CALEVATE_IMAGE_TAG` · `API_WORKERS`/`VOICE_RUNTIME_WORKERS`/`*_DB_POOL_SIZE` (defaults
-sized for ≥4 vCPU and `max_connections=200`; a smaller box silently oversubscribes both) · every
+`AWS_*` · `CALEVATE_IMAGE_TAG` · every
 `NEXT_PUBLIC_*` · `ALERTS_EMAIL`/`SMTP_*` on the database host.
+The sizing variables (`API_WORKERS`, `VOICE_RUNTIME_WORKERS`, `*_DB_POOL_SIZE`,
+`WORKERS_MAX_JOBS`, `REDIS_MAXMEMORY`) left this list on 22 Oct 2026: absent, they now
+default to the starter box (P5.16), so an unset one under-uses a bigger box rather than
+oversubscribing the small one.
 **Red on `/healthz/ready`, which the pre-launch checklist now polls** (`docs/OPERATIONS.md:828`; P5.13 is CLOSED and this line read "which nothing polls" until 10 Sep 2026): the nine credentials.
 
 ### Checked and clean (ops/deploy)

@@ -257,6 +257,13 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "the database pool is sized from DB_POOL_SIZE in the environment before console "
         "settings are read.",
     ),
+    # Read once when `apps.workers.settings` is imported, before the store is loaded, for
+    # `db_pool_size`'s reason: arq builds its worker from the class attribute.
+    "worker_max_jobs": AppliesRule(
+        ENV_ONLY,
+        "the worker's job concurrency is read from WORKER_MAX_JOBS in the environment when "
+        "the worker starts, before console settings are read.",
+    ),
     # ---- on_restart: consumed once, at process start -------------------------------
     # Tracing is initialised once at boot (`init_tracing` returns early when a provider
     # already exists — a second provider would double every span), so the endpoint is read

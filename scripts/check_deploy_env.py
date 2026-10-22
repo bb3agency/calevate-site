@@ -159,10 +159,11 @@ RETIRED_PAIRS: tuple[tuple[str, str], ...] = (
 )
 
 #: Set per SERVICE in `compose.prod.yml`, on purpose: DEPLOYMENT §2a's connection budget is
-#: arithmetic over the whole cluster, so the pool size cannot be one number in `.env`. It
-#: is therefore an environment declaration of a console-managed key that is DELIBERATE, and
+#: arithmetic over the whole cluster, so the pool size cannot be one number in `.env`, and
+#: the worker's job count is sized against the worker's own pool (DEPLOYMENT §2b). Each is
+#: therefore an environment declaration of a console-managed key that is DELIBERATE, and
 #: warning about it would train an operator to ignore the warning that is not.
-COMPOSE_INJECTED: frozenset[str] = frozenset({"DB_POOL_SIZE"})
+COMPOSE_INJECTED: frozenset[str] = frozenset({"DB_POOL_SIZE", "WORKER_MAX_JOBS"})
 
 #: Hosts that resolve to the container itself. Every one of them is wrong in the compose
 #: topology: Postgres runs on the HOST and is reached at `host.docker.internal` (D-26), and
