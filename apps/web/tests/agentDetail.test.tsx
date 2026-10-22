@@ -8,6 +8,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
+import { TOUR_STEPS } from "@/app/c/[slug]/agents/[agentId]/tour/tourModel";
 import type { Agent } from "@/lib/api/agents";
 import { ENGINE_CATALOGUE_PATH } from "@/lib/api/engineCatalogue";
 import type { PendingState } from "@/lib/api/publishing";
@@ -2547,5 +2548,24 @@ describe("the header's Try it asks before leaving unsaved edits (D-826)", () => 
     });
     expect(await screen.findByRole("dialog", { name: "Leave without saving?" })).toBeTruthy();
     expect(nav.push).not.toHaveBeenCalled();
+  });
+});
+
+describe("Show me around points at what the agent page draws (D-855)", () => {
+  it("finds the tabs and Try it the tour steps name", async () => {
+    await renderClientPage(page, routes());
+    await screen.findByRole("button", { name: "Show me around" });
+    const found = Object.fromEntries(TOUR_STEPS.map((step) => [step.id, step.target(document) !== null]));
+    // The assistant's launcher is the console header's, which a page render does not mount.
+    expect(found).toEqual({ script: true, pip: false, try: true, teach: true, voice: true });
+  });
+
+  it("is not offered on a deleted agent", async () => {
+    await renderClientPage(
+      page,
+      routes({ "/v1/agents/agent-1": agent({ status: "archived", archived_at: "2026-07-02T09:30:00Z", published: false }) }),
+    );
+    await screen.findByRole("button", { name: "Bring it back" });
+    expect(screen.queryByRole("button", { name: "Show me around" })).toBeNull();
   });
 });

@@ -5265,6 +5265,8 @@ const AGENT_SECTION_SCREENS: Screen[] = [
       }
     : {}),
 }));
+// The page with its tour open (D-855): `?tour=1` opens it on mount, as the first-call link does.
+AGENT_SECTION_SCREENS.push({ ...AGENT_WORKSPACE, search: "tour=1" });
 
 /**
  * The platform-configuration screen's other sections (D-661). Calling is swept by the
