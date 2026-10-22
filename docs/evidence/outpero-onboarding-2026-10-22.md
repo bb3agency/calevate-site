@@ -266,7 +266,31 @@ What the transcript and screens show, without judging quality yet:
 
 Prices exclude 18% GST. The figures are VENDOR-PUBLISHED, read from the pages named at the top.
 
-## 8. Open questions put to the founder (answers to be added here)
+## 8. The founder's answers (23 Oct 2026)
 
-Listed in the conversation of 22 Oct 2026, together with the reply. Until answered, the points in
-§4 marked "to be confirmed" stay unconfirmed.
+- **Job choice.** Whether the test-call screen differs for Inbound or Instant was not checked; it
+  may differ. Bulk was the path walked.
+- **Brief.** The Real estate template was used unchanged, not spoken.
+- **Quick details.** All five property types were ticked, and a location was typed (hence "Areas you
+  cover: Hyderabad").
+- **Name.** "Sanjana" was heard on the call, not a transcript artefact. No screen explained it.
+- **Phone number.** The founder typed a different number after taking the launch-screen screenshot;
+  Outpero called the number typed.
+- **Voice.** No voice choice and no preview were offered during setup; P02 was picked for the
+  employee.
+- **How the call felt, founder's judgement.**
+  - The phone rang about 15 seconds after launch.
+  - Replies came well under 500–600 ms.
+  - Talking over it was handled very well.
+  - The Telugu, the emotion and the stress were "as if a real human would do based on
+    conversational awareness".
+  - The opening line was heard in full.
+- **WhatsApp.** Nothing arrived after the call, which the founder expected: it was a test call
+  simulating a real one.
+- **Timing.** The 22:36 to 23:00 gap is unexplained and was judged unimportant.
+- **Scope.** The compass, bell and the Overview, Actions, Outcomes and Settings tabs are deferred.
+
+**The founder's reading of §4's observations.** The point of a trial test call is to show how the
+agent really behaves in production. A confident "fixed" booking, a WhatsApp promise and a generic
+next step are fine there, and could be better. Calevate takes this flow as the inspiration and
+core, not as something to copy: the aim is a functionally better, research-backed version.
