@@ -24,7 +24,6 @@ import json
 import re
 import uuid
 
-from apps.api.admin import service as admin_service
 from apps.api.compliance.caller_notice import DRAFT_WARNING, build_caller_notice
 from apps.api.compliance.caller_notice_routes import router as caller_notice_router
 from apps.api.core.errors import install_error_handlers
@@ -32,6 +31,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 BASE = "/v1/compliance/caller-notice"
 
@@ -84,7 +84,7 @@ async def _tenant(vertical: str = "real_estate") -> tuple[uuid.UUID, uuid.UUID, 
     a tenant whose agents can never remember anybody — passing for the wrong reason. The
     refusal tests ask for the clinic by name.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Notice Estates",
         slug=f"ntc-{uuid.uuid4().hex[:8]}",
         vertical_template=vertical,

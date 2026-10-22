@@ -12,18 +12,18 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.ai_quota import AssistMetered, new_assist_ref, record_absorbed_stt_usage
 from apps.api.billing.models import AI_STT_UNIT_TYPE
 from apps.api.billing.rates import stt_rate_inr_per_minute
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Voice Note Clinic",
         slug=f"stt-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

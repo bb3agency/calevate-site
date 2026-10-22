@@ -19,7 +19,6 @@ from typing import Any
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance import engine_dnc
 from apps.api.compliance.processor_erasure import (
     VOICE_PLATFORM_CONTENT_AND_CONTACT_DELETION,
@@ -39,6 +38,7 @@ from apps.workers import retention
 from apps.workers.settings import WorkerSettings
 from arq import Retry
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 WORKSPACE = "org_3fKq9TzQ1mN8vB2xR7cLpA"
 
@@ -112,7 +112,7 @@ def _provisioned(monkeypatch: pytest.MonkeyPatch, workspace: str | None = WORKSP
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Own Workspace Clinic",
         slug=f"ow-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

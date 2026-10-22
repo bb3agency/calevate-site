@@ -16,19 +16,22 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from sqlalchemy import text
-from tests.conftest import INSERT_HANDOFF_MEMBER_SQL, accept_agreements
+from tests.conftest import (
+    INSERT_HANDOFF_MEMBER_SQL,
+    accept_agreements,
+    create_org_with_receptionist,
+)
 
 pytestmark = pytest.mark.asyncio
 
 
 async def _org() -> tuple[uuid.UUID, uuid.UUID]:
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Handoff RLS",
         slug=f"handoff-rls-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

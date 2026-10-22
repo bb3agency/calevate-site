@@ -15,7 +15,6 @@ from typing import Any
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import engine_numbers
 from apps.api.campaigns.number_pricing import record_attested_price_inr
 from apps.api.core.errors import ProblemError
@@ -24,6 +23,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.thinnest_numbers import ThinnestNumbers, set_thinnest_numbers
 from apps.workers import number_moves
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.workspace_support import give_own_workspace
 
 WORKSPACE_HEADER = "Thinnest-Workspace"
@@ -43,7 +43,7 @@ async def _admin() -> uuid.UUID:
 
 
 async def _client_with_agent() -> tuple[uuid.UUID, uuid.UUID, str]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Moving Numbers",
         slug=f"mv-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

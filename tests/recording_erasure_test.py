@@ -41,7 +41,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance import deletion, deletion_proof, export
 from apps.api.compliance.caller_ref import active_caller_ref
 from apps.api.db.base import uuid7
@@ -49,13 +48,13 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import retention, storage
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import FakeS3, accept_agreements
+from tests.conftest import FakeS3, accept_agreements, create_org_with_receptionist
 
 RECORDING_BYTES = b"RIFF....WAVEfmt not-really-audio"
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Erasure Clinic",
         slug=f"eras-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

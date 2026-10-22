@@ -37,7 +37,6 @@ import uuid
 from pathlib import Path
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import publishing, roster, script_builder
 from apps.api.agents.service import _load_agent, posture_of
 from apps.api.compliance.disclosure import (
@@ -48,6 +47,7 @@ from apps.api.db.session import tenant_session
 from calevate_shared.engine import DisclosurePosture, compose_opening_line
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from tests.conftest import create_org_with_receptionist
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MIGRATION = (
@@ -80,7 +80,7 @@ def _posture(
 
 
 async def _tenant(language: str = "te-IN") -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sunrise Clinic",
         slug=f"mem-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

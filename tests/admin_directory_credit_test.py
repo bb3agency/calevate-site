@@ -28,10 +28,11 @@ from apps.api.db.session import admin_session, tenant_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 async def _tenant(plan_tier: str, *, topup: Decimal | None = None) -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Directory Credit Traders",
         slug=f"dircredit-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

@@ -13,7 +13,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
@@ -30,6 +29,7 @@ from apps.workers import engine_workspaces as jobs
 from apps.workers import workspace_walk
 from calevate_shared.engine_scope import scoped_handle
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.thinnest_fake_account import DEVELOPER, FakeAccount
 from tests.workspace_support import give_own_workspace
 
@@ -37,7 +37,7 @@ pytestmark = [pytest.mark.rls]
 
 
 async def _tenant(name: str = "Workspace Clinic") -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=name,
         slug=f"ws-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

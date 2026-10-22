@@ -20,6 +20,7 @@ import uuid
 
 import pytest
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 from apps.api.admin import service as admin_service
 from apps.api.copilot import admin_tools, console_reads, tools, write_tools
@@ -31,7 +32,7 @@ from apps.api.kb import service as kb_service
 
 
 async def _tenant(name: str = "Tool Clinic") -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=name,
         slug=f"tools-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

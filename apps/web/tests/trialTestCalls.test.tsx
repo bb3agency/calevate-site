@@ -18,6 +18,12 @@ import { renderClientPage } from "./harness";
 afterEach(cleanup);
 
 const CREDITS = "/c/acme/billing?tab=credits";
+const HREFS = {
+  creditsHref: CREDITS,
+  verifyHref: "/c/acme/verify-business",
+  agentsHref: "/c/acme/agents",
+  newAgentHref: "/c/acme/agents/new",
+};
 const ENDS = new Date("2026-10-10T17:28:00Z");
 
 function panel(over: Partial<TrialPanel> = {}): TrialPanel {
@@ -85,7 +91,7 @@ describe("the test-call panel", () => {
   it("shows days, minutes and today's calls, and places a test call with a held key", async () => {
     const agent = agentRow({ id: "agent-out", name: "Caller", direction: "outbound" });
     const page = await renderClientPage(
-      <TrialCallCard trial={panel()} creditsHref={CREDITS} verifyHref="/c/acme/verify-business" />,
+      <TrialCallCard trial={panel()} {...HREFS} />,
       {
         "/v1/agents": [agent],
         "/v1/trial/calls": { status: "queued", call_handle: "out_1", blocked_reason: null, blocked_rule: null },
@@ -141,8 +147,7 @@ describe("the test-call panel", () => {
     await renderClientPage(
       <TrialCallCard
         trial={panel({ pledge_accepted: false, can_call: false, blocked_reason: "Accept the promise." })}
-        creditsHref={CREDITS}
-        verifyHref="/c/acme/verify-business"
+        {...HREFS}
       />,
       { "/v1/agents": [agentRow({ direction: "outbound" })] },
     );
@@ -150,5 +155,34 @@ describe("the test-call panel", () => {
     const button = screen.getByRole("button", { name: "Make a test call" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(screen.getByRole("link", { name: "Add credit to go live" }).getAttribute("href")).toBe(CREDITS);
+  });
+});
+
+describe("the test-call panel's agents (D-853)", () => {
+  it("offers any ready agent, including one that only answers calls, and never a draft", async () => {
+    await renderClientPage(<TrialCallCard trial={panel()} {...HREFS} />, {
+      "/v1/agents": [
+        agentRow({ id: "front", name: "Front desk", direction: "inbound", status: "paused", published: true }),
+        agentRow({ id: "off", name: "Switched off", direction: "outbound", status: "paused", published: true }),
+        agentRow({ id: "draft", name: "Still a draft", direction: "outbound", status: "draft", published: false }),
+      ],
+    });
+    const select = (await screen.findByRole("combobox")) as HTMLSelectElement;
+    const names = Array.from(select.options).map((option) => option.textContent);
+    expect(names).toEqual(["Front desk", "Switched off"]);
+  });
+
+  it("links an account with no agents to its first one", async () => {
+    await renderClientPage(<TrialCallCard trial={panel()} {...HREFS} />, { "/v1/agents": [] });
+    const link = await screen.findByRole("link", { name: "Create your first agent" });
+    expect(link.getAttribute("href")).toBe("/c/acme/agents/new");
+  });
+
+  it("sends an account whose agents are all drafts to get one ready", async () => {
+    await renderClientPage(<TrialCallCard trial={panel()} {...HREFS} />, {
+      "/v1/agents": [agentRow({ status: "draft", published: false })],
+    });
+    expect(await screen.findByText(/Get an agent ready first/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Your agents" }).getAttribute("href")).toBe("/c/acme/agents");
   });
 });

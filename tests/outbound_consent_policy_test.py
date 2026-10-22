@@ -31,7 +31,6 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle as agent_lifecycle
 from apps.api.callbacks.service import GRACE
 from apps.api.compliance import consent
@@ -51,6 +50,7 @@ from sqlalchemy import text
 from tests.conftest import (
     accept_agreements,
     arm_agent_for_outbound,
+    create_org_with_receptionist,
     fund_wallet,
 )
 
@@ -61,7 +61,7 @@ async def _tenant(prefix: str = "d624") -> tuple[UUID, UUID]:
     """An account AND an agent, because the gate refuses `agent_missing` before it ever
     reaches the consent clause — so a fixture without one would pass this suite while
     proving nothing about consent."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Consent Posture Co",
         slug=f"{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="salon",

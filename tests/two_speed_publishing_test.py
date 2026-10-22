@@ -31,7 +31,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts, publishing, t0
 from apps.api.agents.service import publish_agent
 from apps.api.core.errors import ProblemError
@@ -39,14 +38,14 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import FakeEngine
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 APPLIED = "Applied script: greet in Telugu, then take the appointment details."
 STAGED = "Staged script: greet in Telugu, then upsell the whitening package."
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Two Speed Clinic",
         slug=f"ts-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

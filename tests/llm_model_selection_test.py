@@ -39,7 +39,6 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle, llm_models, prompts
 from apps.api.agents.llm_models import (
     CLIENT_UNAVAILABLE_REASON,
@@ -87,7 +86,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.live_apply_support import drain_live_apply
 
 # `-m rls` picks the cross-tenant case up with the rest of the isolation suite.
@@ -533,7 +532,7 @@ def _client(app: FastAPI) -> AsyncClient:
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID, str]:
     """(tenant_id, seeded receptionist id, client owner bearer) for a fresh account."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Model Picker Clinic",
         slug=f"mp-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

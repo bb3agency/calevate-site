@@ -13,19 +13,19 @@ from __future__ import annotations
 
 import uuid
 
-from apps.api.admin import service as admin_service
 from apps.api.core.rbac import ROLE_PERMISSIONS
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 EXPORT = "/v1/leads/export.csv"
 
 
 async def _tenant_with_member(role: str) -> tuple[uuid.UUID, str, str, str]:
     """(tenant_id, slug, token, phone) — one org, one member in `role`, one lead."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Export Motors",
         slug=f"exp-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

@@ -432,14 +432,16 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "self_serve_trial_days": _m(
         "calling-limits",
         "trial",
-        "Free trial days for self sign-up",
-        "How many days of free trial a business gets when it signs itself up.",
+        "Free trial days for a new account",
+        "How many days of free trial every new account starts with, whether the business "
+        "signed itself up or was invited. A trial you set for a client replaces it.",
     ),
     "self_serve_trial_free_minutes": _m(
         "calling-limits",
         "trial",
-        "Free trial minutes for self sign-up",
-        "How many free test-call minutes a business gets when it signs itself up.",
+        "Free trial minutes for a new account",
+        "How many free test-call minutes every new account starts with, whether the business "
+        "signed itself up or was invited. A trial you set for a client replaces it.",
     ),
     "thinnest_action_source_ips": _m(
         "voice-engine",

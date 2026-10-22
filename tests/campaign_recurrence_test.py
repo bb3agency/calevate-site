@@ -37,7 +37,6 @@ from datetime import UTC, datetime, time, timedelta, timezone
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import scheduling, service
 from apps.api.campaigns.scheduling import (
     MAX_HORIZON,
@@ -56,7 +55,12 @@ from apps.api.engine import reset_engine_cache
 from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import ACTIVE_STATUSES, dispatch_campaign_tick
 from sqlalchemy import text
-from tests.conftest import accept_agreements, bind_number_for_tests, fund_wallet
+from tests.conftest import (
+    accept_agreements,
+    bind_number_for_tests,
+    create_org_with_receptionist,
+    fund_wallet,
+)
 from tests.national_dnd_test import record_test_scrub
 
 # 11:00 IST on 2026-08-11 — inside the platform window, so a refusal is never the clock.
@@ -139,7 +143,7 @@ async def _leave_the_platform_quiet() -> AsyncIterator[None]:
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Repeat Motors",
         slug=f"rep-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

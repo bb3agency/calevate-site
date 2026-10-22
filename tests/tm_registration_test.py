@@ -43,7 +43,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import service
 from apps.api.core.rbac import iter_api_routes
 from apps.api.db.base import uuid7
@@ -52,7 +51,12 @@ from apps.api.main import app
 from apps.api.ops.service import read_tm_registration, set_tm_registration
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements, bind_number_for_tests, fund_wallet
+from tests.conftest import (
+    accept_agreements,
+    bind_number_for_tests,
+    create_org_with_receptionist,
+    fund_wallet,
+)
 from tests.impersonation_grant_test import view_as_headers
 from tests.national_dnd_test import record_test_scrub
 
@@ -105,7 +109,7 @@ async def _make_member(tenant_id: uuid.UUID, role: str = "owner") -> str:
 
 
 async def _tenant() -> dict[str, Any]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Telemarketer Motors",
         slug=f"tm-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

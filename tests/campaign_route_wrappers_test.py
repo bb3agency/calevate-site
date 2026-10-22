@@ -47,13 +47,13 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import service
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 CAMPAIGNS = "/v1/campaigns"
 NUMBERS = f"{CAMPAIGNS}/numbers"
@@ -112,7 +112,7 @@ async def _make_member(tenant_id: uuid.UUID, role: str = "owner") -> str:
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID, str]:
     """(tenant, agent, slug) — an outbound-capable tenant with a live agent."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Route Motors",
         slug=f"crw-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

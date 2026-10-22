@@ -890,7 +890,7 @@ describe("this week", () => {
     const card = await recap({ "/v1/agents": [] });
     expect(card.textContent).toContain("You have no agent yet");
     const buttons = await actions(card);
-    expect(buttons[0]).toEqual({ name: "Create an agent", primary: true });
+    expect(buttons[0]).toEqual({ name: "Create your first agent", primary: true });
     expect(buttons.map((b) => b.name)).not.toContain("Open campaigns");
   });
 

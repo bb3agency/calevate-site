@@ -10,15 +10,15 @@ from __future__ import annotations
 
 import uuid
 
-from apps.api.admin import service as admin_service
 from apps.api.crm.performance import performance
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Perf Clinic",
         slug=f"perf-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

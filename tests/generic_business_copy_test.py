@@ -10,7 +10,7 @@ import re
 
 from apps.api.actions import in_call
 from apps.api.actions import service as actions_service
-from apps.api.admin import service as admin_service
+from apps.api.agents.starters import captured_fields
 from scripts.seed import CUSTOM_EXTRACTION_FIELDS, VERTICAL_TEMPLATES
 
 CLINICAL = re.compile(
@@ -19,7 +19,7 @@ CLINICAL = re.compile(
 
 
 def test_custom_business_starts_with_neutral_fields() -> None:
-    fields = admin_service.starting_fields("custom")
+    fields = captured_fields("custom")
     assert fields == CUSTOM_EXTRACTION_FIELDS
     assert fields is not VERTICAL_TEMPLATES["clinic"]
     for field in fields:
@@ -28,7 +28,7 @@ def test_custom_business_starts_with_neutral_fields() -> None:
 
 def test_each_template_keeps_its_own_fields() -> None:
     for vertical, fields in VERTICAL_TEMPLATES.items():
-        assert admin_service.starting_fields(vertical) is fields
+        assert captured_fields(vertical) is fields
 
 
 def test_in_call_booking_guidance_names_no_clinic() -> None:

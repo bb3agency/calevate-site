@@ -24,7 +24,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
@@ -33,6 +32,7 @@ from apps.workers.pipeline import run_post_call_pipeline
 from calevate_shared.engine import ExecutionSnapshot
 from calevate_shared.events import TranscriptTurn
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 # A caller who reads out a number while asking a pricing question, and an agent that
 # deflects. The number MUST NOT survive into the stored quote.
@@ -43,7 +43,7 @@ _TURNS = (
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Worker Gaps",
         slug=f"wgap-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

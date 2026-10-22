@@ -16,6 +16,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
+from tests.conftest import create_org_with_receptionist
 from tests.impersonation_grant_test import view_as_headers
 
 
@@ -38,7 +39,7 @@ def _client() -> AsyncClient:
 
 async def test_admin_guc_opens_the_directory_but_not_tenant_data() -> None:
     """The precise claim migration b57e2f9c4a13 makes, asserted rather than trusted."""
-    created = await service.create_organization(
+    created = await create_org_with_receptionist(
         name="Guc Test Clinic",
         slug=f"guc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -86,7 +87,7 @@ async def test_admin_guc_grants_no_writes() -> None:
 async def test_onboarding_creates_retention_policies_and_a_schema() -> None:
     """A tenant with no retention policy is a compliance gap from its first call, and a
     tenant with no extraction schema produces leads with no columns."""
-    created = await service.create_organization(
+    created = await create_org_with_receptionist(
         name="Wizard Clinic",
         slug=f"wiz-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -133,7 +134,7 @@ async def test_an_invitation_can_only_be_burned_once() -> None:
     used_at IS NULL, BACKEND-PATTERNS §5)."""
     from apps.api.core.errors import ProblemError
 
-    created = await service.create_organization(
+    created = await create_org_with_receptionist(
         name="Invite Clinic",
         slug=f"inv-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -210,7 +211,7 @@ async def test_an_invitee_arrives_with_no_account_and_leaves_with_a_membership()
     test is a caller with NO credential at all, and the "after" half is the session the
     call handed back.
     """
-    created = await service.create_organization(
+    created = await create_org_with_receptionist(
         name="Accept Clinic",
         slug=f"acc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -262,7 +263,7 @@ async def test_the_invite_guc_grants_no_writes_and_no_other_rows() -> None:
     """The widening is READ-ONLY and scoped to the single named row (c93a17d0e5b4)."""
     from apps.api.db.session import invite_session
 
-    created = await service.create_organization(
+    created = await create_org_with_receptionist(
         name="Guc Invite Clinic",
         slug=f"gi-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -306,7 +307,7 @@ async def test_view_as_client_actually_resolves_the_tenant(monkeypatch: pytest.M
     `admin_session`) is for.
     """
     token = await _make_admin()
-    created = await service.create_organization(
+    created = await create_org_with_receptionist(
         name="Impersonation Clinic",
         slug=f"imp-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -364,7 +365,7 @@ async def test_the_invitation_deadline_is_measured_by_one_clock() -> None:
     The `pg_sleep` makes that measurable rather than sub-millisecond; it stands in for
     those three reads on a busy database (D-322).
     """
-    created = await service.create_organization(
+    created = await create_org_with_receptionist(
         name="Deadline Clinic",
         slug=f"dl-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

@@ -14,15 +14,15 @@ import pytest
 from apps.api.actions import credentials as creds
 from apps.api.actions import service
 from apps.api.actions.credentials import credential_context
-from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle as agent_lifecycle
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 async def _tenant(slug: str) -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Actions Co",
         slug=f"{slug}-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

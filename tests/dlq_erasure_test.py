@@ -29,7 +29,6 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance.deletion import request_erasure
 from apps.api.compliance.tenant_erasure import request_tenant_erasure
 from apps.api.core.logging import MESSAGE_WITHHELD
@@ -42,6 +41,7 @@ from apps.api.reliability.service import (
 )
 from apps.workers.retention import execute_deletion_request, execute_tenant_erasure
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -59,7 +59,7 @@ def _phone() -> str:
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="DLQ Clinic",
         slug=f"dlq-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

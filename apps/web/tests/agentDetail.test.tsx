@@ -265,6 +265,8 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/agents/agent-1": agent(),
     "/v1/business-profile": businessProfileFixture(),
     "/v1/agents/agent-1/pending": settled(),
+    // The header reads the trial to lock an answer-only agent's switch on a trial (D-853).
+    "/v1/trial": { on_trial: false },
     "/v1/kb/sources": [],
     "/v1/organization/llm-defaults": LLM_DEFAULTS,
     // The Actions tab's reads, so the panel renders rather than raising its own alert —
@@ -1575,6 +1577,40 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     expect((screen.getByRole("switch", { name: "Taking calls" }) as HTMLInputElement).checked).toBe(false);
     const panel = card("Delete this agent");
     expect(within(panel).getByRole("button", { name: /^Delete…$/ })).toBeTruthy();
+  });
+
+  it("locks a trial account's answer-only agent's switch, with the server's sentence (D-853)", async () => {
+    const reason =
+      "Answering calls starts after your first top-up and business check. Until then, use Try it, or give it a test call from your dashboard.";
+    await renderClientPage(
+      page,
+      routes({
+        ...SWITCHED_OFF,
+        "/v1/trial": {
+          on_trial: true,
+          calls_today: 0,
+          daily_cap: 10,
+          max_call_seconds: 180,
+          minutes_used: 0,
+          pledge_accepted: true,
+          can_call: true,
+          answering_locked_reason: reason,
+        },
+      }),
+    );
+
+    await screen.findByText("Reception");
+    const toggle = screen.getByRole("switch", { name: "Taking calls" }) as HTMLInputElement;
+    await waitFor(() => expect(toggle.disabled).toBe(true));
+    expect(screen.getAllByText(reason).length).toBeGreaterThan(0);
+  });
+
+  it("leaves the switch alone for an answer-only agent on an account that has paid", async () => {
+    await renderClientPage(page, routes({ ...SWITCHED_OFF, "/v1/trial": { on_trial: false } }));
+
+    await screen.findByText("Reception");
+    const toggle = screen.getByRole("switch", { name: "Taking calls" }) as HTMLInputElement;
+    await waitFor(() => expect(toggle.disabled).toBe(false));
   });
 
   it("offers an archived agent a restore and nothing else, and says it comes back switched off", async () => {

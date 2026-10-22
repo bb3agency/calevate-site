@@ -38,7 +38,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance.deletion_proof import certificate
 from apps.api.compliance.deletion_routes import ErasureProofOut
 from apps.api.compliance.export import subject_ref
@@ -49,6 +48,7 @@ from apps.api.insights import service as insights
 from apps.api.insights.detection import RedactedTurn
 from apps.workers.retention import execute_deletion_request, execute_tenant_erasure
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -64,7 +64,7 @@ def _phone() -> str:
 
 
 async def _org() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Gap Account Clinic",
         slug=f"ega-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

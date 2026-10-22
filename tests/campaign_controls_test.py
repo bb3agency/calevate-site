@@ -14,7 +14,6 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.service import current_billing_month, record_entry
 from apps.api.campaigns import controls
 from apps.api.campaigns import service as campaigns
@@ -29,7 +28,7 @@ from apps.workers.inbound_cutover import apply_inbound_credit_state
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements, fund_wallet
+from tests.conftest import accept_agreements, create_org_with_receptionist, fund_wallet
 
 pytestmark = pytest.mark.asyncio
 
@@ -50,7 +49,7 @@ class Account:
 
 async def _account(*, funded: bool = True) -> Account:
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Controls Motors",
         slug=f"ctl-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

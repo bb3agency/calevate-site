@@ -26,7 +26,6 @@
 
 import { useMutation } from "@tanstack/react-query";
 
-import { LANGUAGE_CHOICES } from "@/lib/agentState";
 import { clientRealmSession } from "@/lib/authn/realmSessions";
 import { BUSINESS_TYPES } from "@/lib/businessTypes";
 
@@ -37,7 +36,6 @@ type Schemas = components["schemas"];
 
 export type SignupIn = Schemas["SignupIn"];
 export type SignupOut = Schemas["SignupOut"];
-export type SignupLanguage = SignupIn["language"];
 
 /**
  * The signup caller's session: a client-realm identity with an EMPTY org slug.
@@ -54,17 +52,6 @@ export function signupSession(): Session {
 /** The business types (`lib/businessTypes.ts`, the one list). The API refuses anything else
  * with `unknown_vertical_template`, so this stays a list and never a free text. */
 export const SIGNUP_VERTICALS = BUSINESS_TYPES;
-
-/** The languages a business may sign itself up in — the console's one table of language
- *  names (`lib/agentState.LANGUAGE_CHOICES`).
- *
- *  It carried its own copy of the three labels, which is a public-facing page and a
- *  console screen able to disagree about what a language is called with nothing to notice
- *  it. The annotation is the guard as well as the type: the list is `AgentLanguage`, and
- *  it only assigns here while every agent language is still a signup language — the day
- *  the signup route stops accepting one, this line stops compiling instead of offering a
- *  business a choice the API will refuse. */
-export const SIGNUP_LANGUAGES: { value: SignupLanguage; label: string }[] = LANGUAGE_CHOICES;
 
 /** Mirrors `admin_service.slugify` closely enough to PREVIEW the URL. The server
  * derives, validates, reserves and de-collides the real one — and the slug is

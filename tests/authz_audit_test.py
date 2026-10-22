@@ -21,7 +21,6 @@ import uuid
 from typing import Annotated
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.core import auth as auth_module
 from apps.api.core.auth import current_any, requires
@@ -42,7 +41,7 @@ from apps.api.main import app
 from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.impersonation_grant_test import view_as_headers
 
 # Dependency aliases for the throwaway apps the registry tests build below. At module
@@ -80,7 +79,7 @@ async def _make_admin(role: str = "superadmin") -> str:
 
 
 async def _make_org() -> dict[str, object]:
-    return await admin_service.create_organization(
+    return await create_org_with_receptionist(
         name="Authz Audit Clinic",
         slug=f"az-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

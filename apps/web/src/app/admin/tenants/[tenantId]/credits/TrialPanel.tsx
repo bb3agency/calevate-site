@@ -40,6 +40,9 @@ import { StartTrialForm } from "./StartTrialForm";
  * in a drawer, where each keeps its blast radius above its button. A trial is a BILLING state
  * and nothing else: the start form says what it does NOT suspend.
  *
+ * Every new account starts with the platform's new-account trial (D-853); starting one
+ * here while a trial runs REPLACES it with the terms typed, counted from that moment.
+ *
  * Three exclusive branches: loading is a `Skeleton`; a failed read is a `ProblemNotice` and
  * offers no control (a failed read is not "they never had one", and the difference decides
  * whether an operator opens a second trial over a live one); "never given a trial" is stated
@@ -91,9 +94,16 @@ export function TrialPanel({
     <Section
       title="Trial period"
       action={
-        <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setMode(active ? "end" : "start")}>
-          {active ? "End trial" : "Start trial"}
-        </button>
+        <span className="flex flex-wrap gap-2">
+          <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setMode("start")}>
+            {active ? "Set new terms" : "Start trial"}
+          </button>
+          {active && (
+            <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setMode("end")}>
+              End trial
+            </button>
+          )}
+        </span>
       }
     >
       <p className="text-meta text-ink-muted">
@@ -112,14 +122,14 @@ export function TrialPanel({
       <Drawer
         open={mode !== null}
         onClose={() => setMode(null)}
-        title={mode === "end" ? "End this trial" : "Start a trial"}
+        title={mode === "end" ? "End this trial" : active ? "Set new trial terms" : "Start a trial"}
         description={clientName}
         width="lg"
       >
         {mode === "end" ? (
           <EndTrialForm clientName={clientName} end={end} write={write} />
         ) : (
-          <StartTrialForm clientName={clientName} start={start} write={write} />
+          <StartTrialForm clientName={clientName} start={start} write={write} replacing={active} />
         )}
       </Drawer>
     </Section>

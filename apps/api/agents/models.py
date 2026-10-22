@@ -6,7 +6,7 @@ agents) use use_alter so Alembic emits them as separate ALTERs after both tables
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal, get_args
+from typing import Any, Final, Literal, get_args
 from uuid import UUID
 
 from calevate_shared.business_outcomes import MAX_BUSINESS_OUTCOMES
@@ -78,6 +78,11 @@ AgentStatus = Literal["draft", "live", "paused", "archived"]
 #: `ck_agents_status_enum`, so a fifth status changes the CHECK in the same edit or it
 #: changes neither.
 AGENT_STATUSES: tuple[AgentStatus, ...] = get_args(AgentStatus)
+#: A published agent in this state takes no calls: "Ready, not taking calls" (D-838) is this
+#: state with an engine agent. It is the one state besides `live` a free-trial TEST call may
+#: come from (D-853); `scripts/check_compliance_invariants` holds it equal to the state
+#: `lifecycle.prepare_agent` moves to.
+AGENT_READY_STATUS: Final[AgentStatus] = "paused"
 
 #: Derived, never retyped (D-104). This WAS a hand-typed pair, and it is the copy that had
 #: teeth: it renders `ck_agents_engine_enum`, and

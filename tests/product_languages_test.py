@@ -51,7 +51,6 @@ from pathlib import Path
 from typing import get_args
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import handoff, voice_sync
 from apps.api.agents.languages import (
     LANGUAGE_LABELS,
@@ -78,7 +77,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import CheckConstraint, text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -373,7 +372,7 @@ def _app() -> FastAPI:
 
 async def _tenant() -> tuple[uuid.UUID, str]:
     """(tenant_id, client dev bearer) for a fresh account that may create agents."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Language Motors",
         slug=f"lang-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

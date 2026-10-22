@@ -27,7 +27,6 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import service as agents_service
 from apps.api.billing import number_rental
 from apps.api.billing.number_rental import record_number_rental, rental_ref
@@ -39,7 +38,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from calevate_shared.engine import NumberSearch, NumberSpec
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -65,7 +64,7 @@ def authorized(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Guntur Clinic",
         slug=f"clinic-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -712,7 +711,7 @@ async def _tenant_with_agent() -> tuple[uuid.UUID, uuid.UUID]:
     `_tenant()` above throws the agent away because most of this file is about numbers with
     nothing attached. These three cases are about what happens when something IS.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Guntur Clinic",
         slug=f"clinic-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

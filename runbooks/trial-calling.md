@@ -10,8 +10,12 @@ Design: `docs/THINNEST-INTEGRATION.md` §3c.
 
 ## What a trial account can do
 
-An account on a trial it has not paid for builds agents and places outbound test calls to an
-Indian number it types, from ONE shared Calevate number. It cannot answer calls, run
+Every new account starts on a trial, signed up or invited (console **Free trial days /
+minutes for a new account**, defaults 7 and 15, D-853); setting a trial from the client's
+Credits page replaces it, counted from that moment. An account on a trial it has not paid
+for builds agents and places outbound test calls to an Indian number it types, from ONE
+shared Calevate number, from any agent it has got ready (Get it ready), including one that
+only answers calls: that agent's own greeting opens the call. It cannot answer calls, run
 campaigns, buy or record a number, verify its business or call its leads. Its first top-up of
 at least the minimum (₹100 today, `billing/payment_routes.MIN_TOPUP_INR`) ends the trial at
 once, makes the account paid, and queues its own voice workspace; then KYC, a number, and live
@@ -48,9 +52,9 @@ write the number itself into a ticket, a commit or a log; the console shows it t
    `voice.surfaces: ["phone"]`), because ThinnestAI places a call only from an agent that
    "answers the phone". A lent agent "calls out on it without answering it"
    (`update-phone-number` `callingAgent`), so no client agent ever answers the number.
-4. **Smoke test.** Admin → the test client's Credits page → start a trial (days and free
-   minutes). As that client's owner: accept the no-cold-calls promise on Verify your
-   business, publish an agent that places calls, then the dashboard's **Your free trial**
+4. **Smoke test.** A new test account is already on its trial (or set one on its Credits
+   page). As that client's owner: accept the no-cold-calls promise on Verify your
+   business, make an agent and press **Get it ready**, then the dashboard's **Your free trial**
    panel → pick the agent, type your own mobile → **Make a test call**. An operator can run
    the same path without the client's login:
 
@@ -82,6 +86,11 @@ write the number itself into a ticket, a commit or a log; the console shows it t
   if the founder agrees.
 - **"Your free trial has ended."** The days or the free minutes ran out, or it was stopped.
   Extend by starting a new trial, or the client adds credit.
+- **"Get this agent ready first"** (`agent_not_ready`). The agent is a draft. The owner
+  presses **Get it ready** on its page; no Taking calls switch is needed for a test call.
+- **"Answering calls starts after your first top-up and business check."** Shown beside an
+  answer-only agent's locked Taking calls switch on a trial. Expected: it answers calls once
+  the account pays and verifies; until then it can be tried in the chat or by a test call.
 
 ## `trial_line_lend_failed`
 

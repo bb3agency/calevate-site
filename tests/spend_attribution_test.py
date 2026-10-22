@@ -29,7 +29,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import attribution, spend_routes
 from apps.api.billing import service as billing
 from apps.api.billing.ai_quota import read_ai_quota
@@ -48,6 +47,7 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from tests.conftest import create_org_with_receptionist
 
 # Anything whose NAME would be our supplier pricing. Substrings rather than an exact
 # match: the field this test exists to catch would be called `cost_inr`, `unit_cost_paid`,
@@ -102,7 +102,7 @@ async def _tenant(
     overage_rate_value: str | None = None,
 ) -> tuple[UUID, UUID]:
     """A fresh org with a plan. Returns (tenant_id, its first agent's id)."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Spend Clinic",
         slug=f"spend-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

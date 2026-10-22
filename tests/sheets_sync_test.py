@@ -36,7 +36,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.logging import JsonFormatter
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.core.settings import get_settings
@@ -56,6 +55,7 @@ from apps.workers.sheets_sync import (
 )
 from arq import Retry
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 # The id of the client's own Google connection, which is all `secret_ref` holds for a sheet
 # (D-703). It is not a credential: the token is unsealed from that connection at send time.
@@ -81,7 +81,7 @@ async def _tenant_with_sheet(
     mapping: dict[str, Any] | None = None,
     active: bool = True,
 ) -> tuple[UUID, UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sheet Clinic",
         slug=f"sheet-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

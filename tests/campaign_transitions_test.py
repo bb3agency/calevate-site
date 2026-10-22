@@ -31,7 +31,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import service
 from apps.api.campaigns.routes import router as campaigns_router
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError, install_error_handlers
@@ -41,7 +40,12 @@ from apps.api.engine import reset_engine_cache
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements, bind_number_for_tests, fund_wallet
+from tests.conftest import (
+    accept_agreements,
+    bind_number_for_tests,
+    create_org_with_receptionist,
+    fund_wallet,
+)
 from tests.national_dnd_test import record_test_scrub
 
 
@@ -59,7 +63,7 @@ def _client() -> AsyncClient:
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID, str]:
     """(tenant, agent, client bearer) — an owner, so `leads:dispatch` is held."""
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Transition Motors",
         slug=f"trn-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

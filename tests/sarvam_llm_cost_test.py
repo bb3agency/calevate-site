@@ -22,7 +22,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import ai_quota, rates
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_usage
 from apps.api.billing.models import ASSIST_FEATURE_CALL_EXTRACTION, ASSIST_FEATURE_STANDBY
@@ -37,6 +36,7 @@ from apps.workers.extraction import AssistCapability, AssistResult, SarvamExtrac
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
 from calevate_shared.extraction import ExtractionOutput
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 ATTESTED = rates.InrLlmPriceAttestation(
     model=SARVAM_DEFAULT_LLM,
@@ -68,7 +68,7 @@ def attested() -> Iterator[None]:
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sarvam Cost Clinic",
         slug=f"svc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

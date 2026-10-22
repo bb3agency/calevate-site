@@ -23,7 +23,6 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import voice_offer
 from apps.api.billing import rates
 from apps.api.billing.credit_routes import (
@@ -53,6 +52,7 @@ from apps.api.ops.pricing_snapshot import (
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.credit_lots_helpers import add_lot
 
 pytestmark = [pytest.mark.rls]
@@ -92,7 +92,7 @@ async def _make_admin(role: str = "superadmin") -> str:
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Wire Clinic",
         slug=f"wire-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

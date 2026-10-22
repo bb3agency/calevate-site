@@ -36,12 +36,12 @@ import uuid
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.plans import ist_month_window
 from apps.api.billing.service import _IST_MONTH_WINDOW
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.conftest import create_org_with_receptionist
 
 #: index -> the table it is on. Read from `pg_indexes`, which is the database an
 #: operator's queries actually hit.
@@ -79,7 +79,7 @@ def _index_names(nodes: list[dict[str, Any]]) -> set[str]:
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Index Probe",
         slug=f"idx-probe-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

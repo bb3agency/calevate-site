@@ -12,7 +12,6 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.lots import CallDemand
 from apps.api.billing.service import LotRates, charge_for_call, get_balance, record_entry
 from apps.api.compliance.service import check_dispatch
@@ -20,11 +19,11 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 
 async def _tenant(plan_tier: str = "self_serve") -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Credit Clinic",
         slug=f"cred-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

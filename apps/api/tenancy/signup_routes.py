@@ -22,8 +22,6 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from scripts.seed import VERTICAL_TEMPLATES
 
-from apps.api.admin.service import DISCLOSURE_TEMPLATES
-from apps.api.agents.languages import OfferedLanguage
 from apps.api.core.auth import client_request_ip, current_identity
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -43,13 +41,6 @@ router = APIRouter(prefix="/v1/auth", tags=["signup"])
 
 Identity = Annotated[UUID, Depends(current_identity)]
 
-# The languages an agent can actually disclose itself in. Not a free string: hard rule
-# 5 says the disclosure line is never null, and `create_organization` derives it from
-# `compliance/disclosure.AI_DISCLOSURE_TEMPLATES` — an unknown language would silently
-# fall back to English on a Telugu-first product (D-36). It used to declare its OWN
-# Literal of the same three tags, which is the copy that would have kept accepting a
-# language after the product stopped selling it.
-
 
 class SignupIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -61,7 +52,6 @@ class SignupIn(BaseModel):
     slug: str | None = Field(default=None, min_length=3, max_length=40)
     #: REQUIRED, with no default (D-722): the business says what it is.
     vertical_template: str = Field(max_length=40)
-    language: OfferedLanguage = "te-IN"
     billing_email: EmailStr | None = None
     # `managed` is deliberately not in this Literal: it is the invoiced motion, the one
     # with no wallet gate in front of it, and it is not self-assignable.
@@ -77,8 +67,6 @@ class SignupOut(BaseModel):
     plan_tier: str
     status: str
     role: str
-    agent_id: UUID
-    extraction_schema_id: UUID
     # What the account still needs before it can dial (R-11): credit, and a
     # KYC-verified number. Stated by the API so the UI does not have to encode the
     # compliance rules a second time.
@@ -92,9 +80,9 @@ class SignupOut(BaseModel):
     summary="Create a self-serve tenant for the signed-in user (D-34, FLOWS §2)",
     description=(
         "The caller holds a first-party session and no organization yet. Creates the "
-        "organization, its receptionist agent, its extraction schema and its retention "
-        "policies, makes the caller its owner and starts the self-serve free trial "
-        "(test calls only until the first payment)."
+        "organization and its retention policies, makes the caller its owner and starts "
+        "the free trial (test calls only until the first payment). No agent is made: the "
+        "owner makes the first one (D-853)."
     ),
 )
 async def signup(payload: SignupIn, request: Request, user_id: Identity) -> SignupOut:
@@ -134,7 +122,6 @@ async def signup(payload: SignupIn, request: Request, user_id: Identity) -> Sign
                 }
             ],
         )
-    assert payload.language in DISCLOSURE_TEMPLATES  # the Literal above guarantees it
 
     # Cleaned BEFORE the slug is derived from it, so the derivation and the stored name
     # see the same string — a name whose only content is spacing or invisible characters
@@ -146,7 +133,6 @@ async def signup(payload: SignupIn, request: Request, user_id: Identity) -> Sign
         name=business_name,
         slug=slug,
         vertical_template=payload.vertical_template,
-        language=payload.language,
         billing_email=str(payload.billing_email) if payload.billing_email else None,
         plan_tier=payload.plan_tier,
         ip=caller_ip,
@@ -159,11 +145,9 @@ async def signup(payload: SignupIn, request: Request, user_id: Identity) -> Sign
         plan_tier=created["plan_tier"],
         status=created["status"],
         role=created["role"],
-        agent_id=created["agent_id"],
-        extraction_schema_id=created["extraction_schema_id"],
         next_steps=[
-            "Your free trial has started: tell us about your business, then place test "
-            "calls to your own phone from the dashboard.",
+            "Your free trial has started: tell us about your business, make your first "
+            "agent, then give it a test call to your own phone from the dashboard.",
             "When you are ready to go live, add credit. Then verify your business and "
             "choose your phone number.",
         ],

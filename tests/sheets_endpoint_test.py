@@ -46,7 +46,6 @@ from uuid import UUID
 
 import pytest
 from apps.api.actions import credentials as creds
-from apps.api.admin import service as admin_service
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import JsonFormatter
@@ -79,6 +78,7 @@ from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from starlette.requests import Request
+from tests.conftest import create_org_with_receptionist
 
 # A real-shaped Google spreadsheet id (44 url-safe chars). Names a document nobody owns.
 SHEET_ID = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
@@ -97,7 +97,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sheet Desk",
         slug=f"sheetcfg-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

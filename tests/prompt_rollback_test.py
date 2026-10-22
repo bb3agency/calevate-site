@@ -11,7 +11,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
@@ -19,11 +18,11 @@ from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import FakeEngine
 from calevate_shared.engine import AgentSnapshot, EngineAgentRef
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Prompt Clinic",
         slug=f"pr-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

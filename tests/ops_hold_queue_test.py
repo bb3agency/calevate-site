@@ -31,12 +31,12 @@ import uuid
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.rbac import MUTATING_PERMISSIONS
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -88,7 +88,7 @@ async def _make_member(tenant_id: uuid.UUID, role: str = "owner") -> str:
 async def _tenant(plan_tier: str = "self_serve") -> dict[str, Any]:
     """A tenant on the given motion. Nothing else: the queue asks one question and it
     does not need an agent, a number or a campaign."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Queue Motors",
         slug=f"queue-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

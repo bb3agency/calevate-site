@@ -15,14 +15,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.agents import service as agents_service
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 
 @pytest.fixture(autouse=True)
@@ -109,7 +108,7 @@ async def test_an_untenanted_session_can_never_dial() -> None:
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Binding Properties",
         slug=f"binding-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

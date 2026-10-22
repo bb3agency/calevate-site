@@ -126,9 +126,6 @@ export function NewClientScreen() {
                     name: owner.name.trim() || null,
                     phone_e164: owner.phone.trim() || null,
                   },
-                  // The draft receptionist starts in Telugu; each agent's language is set on
-                  // the agent's own screens, not here.
-                  language: "te-IN",
                 },
                 {
                   onSuccess: (account) =>

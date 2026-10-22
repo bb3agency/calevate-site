@@ -24,7 +24,6 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.wallet import record_attempt, settle_attempt
 from apps.api.db.session import tenant_session
 from apps.workers import topup_settlement
@@ -36,13 +35,13 @@ from apps.workers.topup_settlement import (
     sweep_topup_settlement,
 )
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Settlement Clinic",
         slug=f"stl-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

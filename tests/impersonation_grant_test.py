@@ -30,7 +30,6 @@ from typing import Any
 
 import jwt
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core import impersonation as grant_module
 from apps.api.core.errors import ProblemError
 from apps.api.core.impersonation import (
@@ -45,6 +44,7 @@ from apps.api.db.session import untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 GRANT_PATH = "/v1/admin/impersonation-grants"
 STARTED_ACTION = "admin.impersonation_started"
@@ -69,7 +69,7 @@ async def _make_admin(role: str = "operator") -> tuple[uuid.UUID, str]:
 
 
 async def _make_org() -> dict[str, Any]:
-    return await admin_service.create_organization(
+    return await create_org_with_receptionist(
         name="Grant Clinic",
         slug=f"gr-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

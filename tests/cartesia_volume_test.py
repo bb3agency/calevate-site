@@ -41,6 +41,7 @@ from apps.api.core.fx import UsdInrRate
 from apps.api.db.session import untenanted_session
 from apps.api.ops import config_routes
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.cost_floor_test import _inputs as _floor_inputs
 
 
@@ -290,7 +291,6 @@ async def test_the_post_call_meter_moves_the_counter_exactly_once_for_a_studio_c
     is on the ONE derivation (`agents/voices.voice_tier`, plan §2.3 invariant 7), which is
     exactly the seam a real Cartesia agent would come through.
     """
-    from apps.api.admin import service as admin_service
     from apps.api.billing.plans import ist_billing_month
     from apps.api.db.base import uuid7
     from apps.api.db.session import tenant_session
@@ -298,7 +298,7 @@ async def test_the_post_call_meter_moves_the_counter_exactly_once_for_a_studio_c
     from apps.workers import pipeline
     from calevate_shared.engine import CostBreakdown, ExecutionSnapshot
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Studio Clinic",
         slug=f"cartvol-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

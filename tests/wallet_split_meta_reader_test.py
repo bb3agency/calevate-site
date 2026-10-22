@@ -24,12 +24,12 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.service import record_entry
 from apps.api.billing.wallet_routes import read_wallet_ledger
 from apps.api.core.context import Principal
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 _GOOD_SPLIT = {
     "kind": "call",
@@ -42,7 +42,7 @@ _GOOD_SPLIT = {
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Splits Clinic",
         slug=f"splits-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

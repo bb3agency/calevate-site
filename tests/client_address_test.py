@@ -160,7 +160,6 @@ def _signup_body() -> dict[str, str]:
         "business_name": "Sunrise Dental",
         "slug": f"ip-{uuid.uuid4().hex[:8]}",
         "vertical_template": "clinic",
-        "language": "te-IN",
     }
 
 

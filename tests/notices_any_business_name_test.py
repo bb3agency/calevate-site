@@ -12,9 +12,9 @@ from types import ModuleType
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from apps.api.admin import service as admin_service
 from apps.api.core.settings import get_settings
 from sqlalchemy import create_engine, text
+from tests.conftest import create_org_with_receptionist
 
 STEM = "f8c3a1d9e4b2_notices_any_business_name"
 
@@ -29,7 +29,7 @@ def _revision() -> ModuleType:
 
 
 async def _agent() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=f"Account {uuid.uuid4().hex[:6]}",
         slug=f"anb-{uuid.uuid4().hex[:8]}",
         vertical_template="retail",

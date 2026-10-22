@@ -40,7 +40,6 @@ from uuid import UUID
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import payment_routes
 from apps.api.billing.payment_routes import TopUpIntentIn, create_topup_intent
 from apps.api.billing.payments import (
@@ -68,6 +67,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 # Test values. They name no real account and no request in this file leaves the process.
 TEST_KEY_ID = "rzp_test_orderslice"
@@ -97,7 +97,7 @@ def _payments_configured(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def _prepaid_tenant() -> tuple[UUID, Principal]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Order Clinic",
         slug=f"order-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

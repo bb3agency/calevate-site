@@ -43,6 +43,7 @@ from apps.api.db.session import admin_session, tenant_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 def _last_month() -> str:
@@ -57,7 +58,7 @@ async def _tenant_capped_in(month: str | None) -> UUID:
     `None` seeds no row at all — a client who has never metered anything, which is what
     every freshly onboarded account looks like.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Cap Directory Motors",
         slug=f"capdir-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

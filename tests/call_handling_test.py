@@ -12,7 +12,6 @@ import uuid
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.agents.call_handling import (
     END_CALL_ON_FINISH_DEFAULT,
@@ -31,7 +30,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.thinnest_engine_test import WS, _cfg, _engine, _recorder
 
 # --- resolution ----------------------------------------------------------------------
@@ -146,7 +145,7 @@ def _client() -> AsyncClient:
 
 
 async def _tenant(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, dict[str, str]]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Call Handling Store",
         slug=f"ch-{uuid.uuid4().hex[:8]}",
         vertical_template="retail",

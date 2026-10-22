@@ -31,7 +31,6 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance.kyc import read_kyc
 from apps.api.compliance.kyc_providers.fake import SIGNATURE_HEADER, sign
 from apps.api.core.settings import get_settings
@@ -40,7 +39,11 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import accept_agreements, put_business_on_file_for_tests
+from tests.conftest import (
+    accept_agreements,
+    create_org_with_receptionist,
+    put_business_on_file_for_tests,
+)
 
 pytestmark = [pytest.mark.rls]
 
@@ -91,7 +94,7 @@ async def _make_member(tenant_id: uuid.UUID, role: str = "owner") -> str:
 
 
 async def _tenant() -> dict[str, Any]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Verified Motors",
         slug=f"kycv-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

@@ -15,14 +15,13 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.errors import ProblemError
 from apps.api.crm import service
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 
 @pytest.fixture(autouse=True)
@@ -35,7 +34,7 @@ def _daytime(monkeypatch: pytest.MonkeyPatch) -> None:
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Callback Clinic",
         slug=f"cb-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

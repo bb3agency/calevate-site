@@ -33,6 +33,7 @@ from types import SimpleNamespace
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
+from tests.conftest import create_org_with_receptionist
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = next((REPO_ROOT / "alembic" / "versions").glob("b7e35c2f81da_*.py"))
@@ -99,9 +100,8 @@ async def _owner_tx() -> AsyncIterator[AsyncConnection]:
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    from apps.api.admin import service as admin_service
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Repair Clinic",
         slug=f"repair-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

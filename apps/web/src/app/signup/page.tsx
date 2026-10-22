@@ -27,7 +27,6 @@ import { ClientSessionProvider, useClientSessionRow } from "@/lib/authn/clientSe
 import { lookup } from "@/lib/lookup";
 import {
   SIGNUP_CONTACT_EMAIL,
-  SIGNUP_LANGUAGES,
   SIGNUP_VERTICALS,
   isSignupClosed,
   isSignupDeferred,
@@ -35,7 +34,6 @@ import {
   previewSlug,
   slugIsDerivable,
   useSignup,
-  type SignupLanguage,
 } from "@/lib/api/signup";
 
 /**
@@ -84,7 +82,6 @@ const FIELD_IDS = {
   business_name: "signup-business-name",
   slug: "signup-slug",
   vertical_template: "signup-vertical",
-  language: "signup-language",
   billing_email: "signup-billing-email",
 } satisfies Record<string, string>;
 
@@ -297,7 +294,6 @@ function SignupForm() {
   // No default (founder, REDESIGN-2): the trade shapes every agent, script and lead column
   // this business gets, so it is a choice the person makes, never one we make for them.
   const [vertical, setVertical] = useState<string>("");
-  const [language, setLanguage] = useState<SignupLanguage>("te-IN");
   const [email, setEmail] = useState("");
 
   const derived = slug || previewSlug(businessName);
@@ -454,7 +450,6 @@ function SignupForm() {
               // collision checks that only it can do.
               ...(slug.trim() ? { slug: slug.trim() } : {}),
               vertical_template: vertical,
-              language,
               plan_tier: "self_serve",
               ...(email.trim() ? { billing_email: email.trim() } : {}),
             });
@@ -551,27 +546,6 @@ function SignupForm() {
           </Field>
 
           <Field
-            id={FIELD_IDS.language}
-            label="Language your agent speaks"
-            error={fieldMessage(fields, "language")}
-          >
-            {(props) => (
-              <select
-                {...props}
-                value={language}
-                onChange={(e) => setLanguage(e.target.value as SignupLanguage)}
-                className={FIELD}
-              >
-                {SIGNUP_LANGUAGES.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-
-          <Field
             id={FIELD_IDS.billing_email}
             label="Billing email"
             hint="Optional — where invoices go."
@@ -601,8 +575,8 @@ function SignupForm() {
               {signup.isPending ? "Creating…" : "Create workspace"}
             </button>
             <p className="text-xs text-ink-faint">
-              Your free trial starts straight away: you can build your agents and place
-              test calls to your own phone. Calling your customers opens once you add
+              Your free trial starts straight away: you make your first agent and give
+              it test calls to your own phone. Calling your customers opens once you add
               credit and verify your business.
             </p>
           </div>

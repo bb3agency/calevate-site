@@ -61,6 +61,7 @@ from apps.api.billing.trials import (
     end_trial,
     minutes_of,
     read_trial,
+    replace_open_trial,
     start_trial,
     trial_cost_breakdown,
     trial_seconds_used,
@@ -274,7 +275,9 @@ async def _assert_tenant_exists(tenant_id: UUID, session: object) -> None:
         "number, billed to nobody (D-697); inbound, campaigns, numbers, KYC and live calling "
         "open on the first payment, which also ends the trial. Every minute is still "
         "METERED, and do-not-call, calling hours, the pledge, the agreements and the AI "
-        "disclosure still apply. There is no spend ceiling beyond the minutes, so the header "
+        "disclosure still apply. A trial already running, such as the one every new account starts "
+        "with, is REPLACED: this one's days and minutes count from now (D-853). There is no "
+        "spend ceiling beyond the minutes, so the header "
         "`X-Confirm-Action: start_trial:<tenant_id>:<days>` is required on every call and "
         "the read publishes what the trial is costing us."
     ),
@@ -293,6 +296,9 @@ async def open_trial(
     at = datetime.now(UTC)
     async with tenant_session(tenant_id) as scoped:
         await _assert_tenant_exists(tenant_id, scoped)
+        # The operator's terms REPLACE a running trial rather than being refused or
+        # stacked beside it (founder, 22 Oct 2026, D-853), in one transaction.
+        replaced = await replace_open_trial(scoped, tenant_id=tenant_id, at=at)
         state = await start_trial(
             scoped,
             tenant_id=tenant_id,
@@ -318,6 +324,7 @@ async def open_trial(
                 "erasure_grace_days": str(payload.erasure_grace_days),
                 "free_minutes": str(payload.free_minutes),
                 "reason": payload.reason,
+                "replaced_trial_id": str(replaced.id) if replaced is not None else "",
             },
         )
         # The client's "your trial has started" email (D-685), promised in the trial row's

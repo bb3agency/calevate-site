@@ -22,20 +22,19 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.agents.service import publish_agent
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 pytestmark = pytest.mark.asyncio
 
 
 async def _publishable_tenant() -> tuple[uuid.UUID, uuid.UUID]:
     """A fresh org whose agent can actually be published, so a refusal below is THIS rule."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Lifecycle Clinic",
         slug=f"lif-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

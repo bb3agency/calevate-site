@@ -34,7 +34,6 @@ from collections.abc import Iterator
 from typing import cast
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.agents.publishing import engine_drift_for, pending_state_for
 from apps.api.agents.service import _load_agent, publish_agent
@@ -43,7 +42,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine.capabilities import ENGINE_CAPABILITY_ABSENT, EngineCapabilityAbsentError
 from apps.api.engine.fake import EXTERNAL_DEPLOYMENT_CAPABILITIES, FakeEngine
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 # NO `pytestmark = pytest.mark.asyncio` HERE, DELIBERATELY. `pyproject.toml` sets
 # `asyncio_mode = "auto"`, so every `async def test_` is collected as a coroutine test with
@@ -78,7 +77,7 @@ def externally_deployed_engine() -> Iterator[FakeEngine]:
 
 async def _publishable_agent() -> tuple[uuid.UUID, uuid.UUID]:
     """A fresh org with a script, so a refusal below is THIS rule and not `agent_has_no_script`."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Deployed Clinic",
         slug=f"dep-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -177,7 +176,7 @@ async def test_the_refusal_comes_before_the_agent_row_is_even_read(
     On a real vendor the same ordering is what keeps the third party untouched, which is
     the difference between a refusal and a billed object nobody can address.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Scriptless Clinic",
         slug=f"nos-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -263,7 +262,7 @@ async def test_the_dial_prompt_merges_the_leads_variables_where_the_engine_carri
     before the merge (its engine does its own substitution)."""
     from apps.api.agents.service import _call_prompt_for
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Merge Clinic",
         slug=f"mrg-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

@@ -20,18 +20,17 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.trials import read_trial, start_trial
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 pytestmark = pytest.mark.asyncio
 
 
 async def _org_with_trial() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Trial RLS",
         slug=f"trial-rls-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

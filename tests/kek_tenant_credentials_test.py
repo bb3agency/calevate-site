@@ -19,11 +19,11 @@ from uuid import UUID
 import pytest
 from apps.api.actions import credentials as creds
 from apps.api.actions.credentials import credential_context
-from apps.api.admin import service as admin_service
 from apps.api.core.envelope import Envelope, KekRing, build_ring, seal, unseal
 from apps.api.db.session import tenant_session
 from apps.api.ops.secret_service import count_tenant_credential_keks, rewrap_tenant_credentials
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 SECRET = "aisensy-test-value-7f3a"
 
@@ -39,7 +39,7 @@ def _ring(active: bytes, retired: bytes | None = None) -> KekRing:
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="KEK Co",
         slug=f"kek-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

@@ -14,7 +14,6 @@ from typing import Any
 
 import pytest
 from apps.api.admin import number_routes
-from apps.api.admin import service as admin_service
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.fake import FakeEngine
 from apps.api.engine.hosted_platform import THINNEST_NUMBER_CONSOLE
@@ -22,6 +21,7 @@ from apps.api.main import app
 from calevate_shared.engine import ProvisionedNumber
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 OUR_REF = f"ag_{uuid.uuid4().hex[:8]}"
 
@@ -81,7 +81,7 @@ async def _admin_headers() -> dict[str, str]:
 
 
 async def _tenant_with_published_agent() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Numbers Clinic",
         slug=f"num-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

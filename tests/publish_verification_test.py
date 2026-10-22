@@ -38,7 +38,6 @@ from contextlib import contextmanager
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import experiments, prompts, publishing
 from apps.api.agents.service import publish_agent, publish_variant
 from apps.api.agents.verification import judge
@@ -57,7 +56,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
 )
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 SCRIPT = "Sunrise Clinic receptionist. Greet in Telugu, then take the appointment."
 NEXT_SCRIPT = "Sunrise Clinic receptionist. Greet in Telugu, then quote the new price list."
@@ -259,7 +258,7 @@ def _engine(instance: FakeEngine) -> Iterator[FakeEngine]:
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Verification Clinic",
         slug=f"vf-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

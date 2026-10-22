@@ -7,13 +7,12 @@ is explicitly not stubbed here, and step 6's number is not ours to obtain at all
 client takes the connection on their own operator account (Model B, FLOWS §10) and an
 operator RECORDS it with `POST /v1/admin/tenants/{tenant_id}/numbers`.
 
-Two things happen at creation that are easy to forget later and expensive to retrofit:
+**Retention policies** are written at creation. SEC-COMP §1's 90-day recording floor is a
+legal obligation from the first call, not from whenever someone remembers to configure it —
+and the DB CHECK will reject anything lower.
 
-- **Retention policies** are written immediately. SEC-COMP §1's 90-day recording floor
-  is a legal obligation from the first call, not from whenever someone remembers to
-  configure it — and the DB CHECK will reject anything lower.
-- **The extraction schema** is seeded from the vertical template, because a tenant with
-  no schema produces leads with no columns, and that is what the whole product is.
+No agent is made at creation (D-853): the owner makes the first one, and a starter job
+brings its extraction fields from the business type (`agents/starters`).
 """
 
 from __future__ import annotations
@@ -27,26 +26,16 @@ from hashlib import sha256
 from typing import Any, Final, Literal
 from uuid import UUID
 
-from scripts.seed import (
-    CUSTOM_EXTRACTION_FIELDS,
-    DEFAULT_RETENTION_POLICIES,
-    VERTICAL_TEMPLATES,
-)
+from scripts.seed import DEFAULT_RETENTION_POLICIES
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.holds import NO_HOLDS, read_tenant_holds
-from apps.api.agents.lifecycle import create_agent
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import get_balance, to_paise
 from apps.api.billing.trials import read_trial
 from apps.api.billing.wallet import tier_minutes
-from apps.api.compliance.disclosure import (
-    AI_DISCLOSURE_TEMPLATES,
-    RECORDING_NOTICE_TEMPLATES,
-    bundled_disclosure_line,
-)
 from apps.api.compliance.service import SELF_SERVE_TIERS, spend_capped
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -62,25 +51,6 @@ log = get_logger(__name__)
 
 SLUG_RE = re.compile(r"^[a-z0-9-]{3,40}$")
 INVITE_TTL = timedelta(hours=72)
-
-# DERIVED, NEVER RETYPED (D-163). This table used to be the literal source of the bundled
-# line, and the bundling was the defect: SEC-COMP §2's two invariants — the AI sentence
-# and the recording notice — could only ever be switched on and off together because they
-# were one string. They are two strings now (`compliance/disclosure`), and this stays as
-# the composition of the pair so nothing that quotes "the disclosure line" has to be
-# rewritten and no fourth spelling of these sentences can appear.
-#
-# It is what a NEW agent's `disclosure_line` (the legacy bundle) starts as; the split
-# halves and the two toggles are written beside it. FLOWS §1 step 4's "inserted by us"
-# still holds for the TEXT — a client cannot author it — while WHETHER each half is
-# volunteered is now theirs to decide (D-163).
-DISCLOSURE_TEMPLATES = {
-    language: bundled_disclosure_line(
-        ai_disclosure_line=AI_DISCLOSURE_TEMPLATES[language],
-        recording_notice_line=RECORDING_NOTICE_TEMPLATES[language],
-    )
-    for language in AI_DISCLOSURE_TEMPLATES
-}
 
 
 async def tenant_exists(session: AsyncSession, tenant_id: UUID) -> bool:
@@ -210,30 +180,28 @@ DEFAULT_PLAN_TIER = _DEFAULT_PLAN_TIER
 TenantRootHook = Callable[[AsyncSession, UUID], Awaitable[None]]
 
 
-def starting_fields(vertical_template: str) -> list[dict[str, Any]]:
-    """The extraction fields a new client starts with: its template's, or the neutral set."""
-    return VERTICAL_TEMPLATES.get(vertical_template, CUSTOM_EXTRACTION_FIELDS)
-
-
 async def create_organization(
     *,
     name: str,
     slug: str,
     vertical_template: str,
     billing_email: str | None,
-    language: str,
     created_by: UUID | None,
     plan_tier: str | None = None,
     owner_user_id: UUID | None = None,
     on_created: TenantRootHook | None = None,
 ) -> dict[str, Any]:
-    """Wizard steps 1 + 4's skeleton: org, retention defaults, agent draft, schema —
-    plus, for the motions that know them at creation time, the PLAN TIER and the OWNER.
+    """Wizard step 1's skeleton: org and retention defaults, plus, for the motions that
+    know them at creation time, the PLAN TIER and the OWNER. No agent (D-853): a new
+    account has none until its owner makes the first, which brings its own extraction
+    fields (`agents/starters`). The free trial a new account starts with is each creation
+    route's own `on_created` write (`billing/trials.start_new_account_trial`), not this
+    function's: the dev seed and test fixtures call it too and are not customer accounts.
 
-    Runs in ONE transaction: a half-created tenant (org but no retention policy, or
-    agent but no schema) is worse than no tenant, because the pipeline would happily
-    process calls for it. A failure at any statement therefore rolls the whole thing
-    back and leaves the slug free for the retry.
+    Runs in ONE transaction: a half-created tenant (an org with no retention policy) is
+    worse than no tenant, because the pipeline would happily process calls for it. A
+    failure at any statement therefore rolls the whole thing back and leaves the slug free
+    for the retry.
 
     `plan_tier` and `owner_user_id` exist so self-serve signup does not have to open a
     SECOND transaction for the two facts that distinguish its motion (D-34). It used
@@ -264,7 +232,6 @@ async def create_organization(
     back into the SAME 409 the probe would have produced — see the handler below.
     """
     tenant_id = uuid7()
-    schema_id = uuid7()
 
     # The uniqueness probe MUST see every tenant's slug. Under `untenanted_session`
     # RLS would hide them all and the check would always pass, leaving the unique
@@ -272,21 +239,16 @@ async def create_organization(
     async with admin_session() as probe:
         await assert_slug_available(probe, slug)
 
-    fields = starting_fields(vertical_template)
-
     # FORCE RLS derives WITH CHECK from USING, so creating a tenant root requires the
     # new org's own GUC — generate the id first, then insert under it (the pattern the
     # RLS tests pin down).
     try:
-        agent_id = await _write_tenant_root(
+        await _write_tenant_root(
             tenant_id=tenant_id,
-            schema_id=schema_id,
             name=name,
             slug=slug,
             vertical_template=vertical_template,
             billing_email=billing_email,
-            language=language,
-            fields=fields,
             created_by=created_by,
             plan_tier=plan_tier or DEFAULT_PLAN_TIER,
             owner_user_id=owner_user_id,
@@ -313,8 +275,6 @@ async def create_organization(
     return {
         "id": tenant_id,
         "slug": slug,
-        "agent_id": agent_id,
-        "extraction_schema_id": schema_id,
         "status": "onboarding",
         # Echoed so the wizard's intake step can pick this trade's examples from the
         # SERVER's answer rather than from the radio button it happens to still hold —
@@ -329,27 +289,16 @@ async def create_organization(
 async def _write_tenant_root(
     *,
     tenant_id: UUID,
-    schema_id: UUID,
     name: str,
     slug: str,
     vertical_template: str,
     billing_email: str | None,
-    language: str,
-    fields: Any,
     created_by: UUID | None,
     plan_tier: str,
     owner_user_id: UUID | None,
     on_created: TenantRootHook | None,
-) -> UUID:
-    """The single transaction the tenant is born in — see `create_organization`.
-
-    Returns the receptionist's id, which it now MINTS rather than receives: the agent row
-    is written by `agents/lifecycle.create_agent`, the one INSERT into `agents` in this
-    repository (D-440). It used to be spelled out here, which was fine while a tenant got
-    exactly one agent and nobody else could make another — the moment a client can create
-    their own, a second INSERT is a second place deciding what a new agent is born with,
-    and four of those columns are hard rule 5.
-    """
+) -> None:
+    """The single transaction the tenant is born in — see `create_organization`."""
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
@@ -381,30 +330,6 @@ async def _write_tenant_root(
                     "action": policy["action"],
                 },
             )
-        # D-38: the inbound receptionist is the headline capability, so the default agent
-        # a new client gets IS the receptionist. Everything else about how it is born —
-        # both disclosure sentences, both toggles, the legacy bundle, the platform engine,
-        # `status = 'draft'` — belongs to `create_agent`, which is now the only writer of
-        # this table (D-440).
-        agent_id = await create_agent(
-            session,
-            tenant_id=tenant_id,
-            name=f"{name} receptionist",
-            direction="inbound",
-            language_primary=language,
-        )
-        await session.execute(
-            text(
-                "INSERT INTO extraction_schemas (id, tenant_id, agent_id, version, fields, "
-                "created_at, updated_at) VALUES (:id, :tid, :aid, 1, CAST(:fields AS jsonb), "
-                "now(), now())"
-            ),
-            {"id": schema_id, "tid": tenant_id, "aid": agent_id, "fields": _json(fields)},
-        )
-        await session.execute(
-            text("UPDATE agents SET extraction_schema_id = :sid WHERE id = :aid"),
-            {"sid": schema_id, "aid": agent_id},
-        )
         if owner_user_id is not None:
             # `ON CONFLICT DO NOTHING` for the same reason `accept_invitation` has it:
             # one owner per (tenant, user) whatever the caller retries. The user must
@@ -427,13 +352,6 @@ async def _write_tenant_root(
         # decided elsewhere; the operator's "Create workspace now" queues one by hand.
         if on_created is not None:
             await on_created(session, tenant_id)
-    return agent_id
-
-
-def _json(value: Any) -> str:
-    import json
-
-    return json.dumps(value, default=str)
 
 
 async def create_invitation(
@@ -1287,7 +1205,6 @@ async def _directory_credit(session: AsyncSession, *, tenant_id: UUID) -> dict[s
 
 __all__ = [
     "DEFAULT_PLAN_TIER",
-    "DISCLOSURE_TEMPLATES",
     "EDITABLE_TENANT_FIELDS",
     "INVITE_TTL",
     "RESEND_MAX_SENDS",

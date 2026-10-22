@@ -43,7 +43,6 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.agents import service as agents_service
 from apps.api.billing.service import INBOUND_CUTOVER_JOB, record_entry
@@ -62,7 +61,7 @@ from apps.api.engine.fake import FakeEngine
 from apps.api.tenancy import business_copy
 from apps.workers.inbound_cutover import apply_inbound_credit_state
 from sqlalchemy import text
-from tests.conftest import accept_agreements, mark_paid_for_tests
+from tests.conftest import accept_agreements, create_org_with_receptionist, mark_paid_for_tests
 
 pytestmark = pytest.mark.asyncio
 
@@ -70,7 +69,7 @@ pytestmark = pytest.mark.asyncio
 async def _tenant(*, tier: str = "prepaid") -> tuple[UUID, UUID]:
     """A prepaid tenant with a scripted inbound agent and an empty wallet."""
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Rescue Clinic",
         slug=f"rescue-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

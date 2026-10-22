@@ -42,7 +42,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import ai_quota
 from apps.api.billing.ai_quota import (
     AI_OVERAGE_BLOCK_INR,
@@ -84,6 +83,7 @@ from calevate_shared.engine import AZURE_OPENAI_DEFAULT_MODEL, AZURE_OPENAI_MODE
 from fastapi import Request
 from pydantic import ValidationError
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 # A barrier this file waits on is either released by the other party (the race happened)
 # or times out (the lock stopped the other party getting that far). Both are information;
@@ -144,7 +144,7 @@ def _the_platform_brake_is_not_this_suites_business(monkeypatch: pytest.MonkeyPa
 
 
 async def _tenant(plan_tier: str = "self_serve") -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Quota Clinic",
         slug=f"aiq-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

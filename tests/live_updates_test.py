@@ -23,7 +23,6 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from apps.api.admin import service as admin_service
 from apps.api.authn.sessions import (
     issue_session,
     revoke_session,
@@ -47,6 +46,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, text
 from sqlalchemy.orm import Session
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -97,7 +97,7 @@ def captured(
 async def _tenant(role: str = "owner") -> tuple[uuid.UUID, str, uuid.UUID]:
     """(tenant_id, slug, user_id) — a fresh org with one member."""
     slug = f"live-{uuid.uuid4().hex[:8]}"
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Live Updates Clinic",
         slug=slug,
         vertical_template="clinic",

@@ -23,17 +23,17 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance import tenant_erasure
 from apps.api.copilot import memory
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import chat, copilot_memory, retention
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 async def _tenant_with_user() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Lifecycle Clinic",
         slug=f"mlc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

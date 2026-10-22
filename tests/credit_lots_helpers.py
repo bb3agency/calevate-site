@@ -17,7 +17,6 @@ from typing import Any, Final
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import lots
 from apps.api.billing import service as billing_service
 from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
@@ -25,6 +24,7 @@ from apps.api.billing.rates import PREMIUM_VOICE_TIER, VALUE_VOICE_TIER
 from apps.api.billing.service import record_entry
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 # TWO FROZEN RATE PAIRS, FROM THE CARD THAT WAS IN FORCE ON 7 SEP 2026 — NOT FROM THE CARD
 # ON SALE TODAY, AND THAT IS THE POINT RATHER THAN AN OVERSIGHT.
@@ -105,7 +105,7 @@ def graduated_card(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def make_tenant(prefix: str = "lot") -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Lots Clinic",
         slug=f"{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

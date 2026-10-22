@@ -144,10 +144,9 @@ DEFAULT_LANGUAGE = get_language("english_india").bcp47
 
 #: Sentence one: **"you are talking to an AI"** — the TRAI/UCC-side obligation.
 #:
-#: Split out of `admin/service.DISCLOSURE_TEMPLATES`, which bundled it with the recording
-#: notice in one string. That bundling is why the two invariants SEC-COMP §2 states
-#: separately could only ever be switched on and off together: there was one column, so
-#: there was one answer.
+#: A string of its own, never bundled with the recording notice: the two invariants SEC-COMP
+#: §2 states separately can only be switched separately if they are separate strings
+#: (D-163).
 #:
 #: IN THE LANGUAGE'S OWN SCRIPT (D-745): a Telugu or Hindi sentence in Latin letters is
 #: read by the voice as if it were English. The English words people use (AI assistant,

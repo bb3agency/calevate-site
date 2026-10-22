@@ -30,7 +30,6 @@ from uuid import UUID
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import payments
 from apps.api.billing.credit_packs import CreditPack, pack_by_id
 from apps.api.billing.payment_objects import record_route
@@ -52,6 +51,7 @@ from apps.api.db.session import tenant_session
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -116,7 +116,7 @@ def _refund_id(tag: str) -> str:
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Refund Clinic",
         slug=f"rf-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

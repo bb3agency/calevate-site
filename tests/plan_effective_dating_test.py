@@ -28,7 +28,6 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import caps as billing_caps
 from apps.api.billing import service as billing
 from apps.api.billing.invoice import build_invoice
@@ -38,6 +37,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.conftest import create_org_with_receptionist
 
 
 def _month_start_ist(month: str) -> datetime:
@@ -58,7 +58,7 @@ def _next_month(month: str) -> str:
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Effective Dating Clinic",
         slug=f"eff-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

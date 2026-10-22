@@ -35,7 +35,6 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import spend_routes, tts_speaking_rate
 from apps.api.billing.rates import (
     TTS_ASSUMED_CHARS_PER_CALL_MINUTE,
@@ -55,6 +54,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from scripts import check_docs_drift as guard
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 ROUTE = "/v1/admin/spend/tts-speaking-rate"
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -102,7 +102,7 @@ async def _make_member(tenant_id: UUID) -> str:
 
 
 async def _tenant() -> tuple[UUID, UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Speaking Rate Clinic",
         slug=f"ttsrate-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

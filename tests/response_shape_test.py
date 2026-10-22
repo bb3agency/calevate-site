@@ -35,7 +35,6 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from apps.api.admin import service as admin_service
 from apps.api.admin.routes import MarginOut, TierSplitOut
 from apps.api.agents import prompts
 from apps.api.agents.llm_tiers import client_model_labels
@@ -56,6 +55,7 @@ from apps.api.ingest.routes import IngestActivityOut, LeadSourceDryRunOut
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 # The client-realm panels, and the admin-realm ones. Kept as constants because the
 # OpenAPI test below reads the same paths off the live spec.
@@ -76,7 +76,7 @@ async def _owner_tenant(prefix: str) -> tuple[uuid.UUID, uuid.UUID, dict[str, st
     Freshly created on purpose: other agents run pytest against the same Postgres, and
     every assertion here is about one tenant's own rows.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Shape Clinic",
         slug=f"{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

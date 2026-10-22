@@ -23,7 +23,6 @@ import uuid
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import starters
 from apps.api.agents.routes import router as agents_router
 from apps.api.compliance.disclosure import (
@@ -53,7 +52,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from scripts.seed import VERTICAL_TEMPLATES
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 #: `apps/web/tests/genericCopyGuard.test.ts`'s CLINIC_ONLY, plus the Python copy test's
 #: "symptom": words that belong to the clinic business type only.
@@ -163,11 +162,6 @@ def test_the_clinic_keeps_its_own_words_and_the_others_their_booking() -> None:
     assert starters.TRADES[starters.NEUTRAL_VERTICAL].booking == "a booking"
 
 
-def test_captured_details_are_the_onboarding_fields() -> None:
-    for vertical in ALL_VERTICALS:
-        assert starters.captured_fields(vertical) is admin_service.starting_fields(vertical)
-
-
 def test_an_unknown_business_type_gets_the_neutral_starter() -> None:
     for unknown in (None, "", "bakery", "constructor"):
         assert starters.vertical_of(unknown) == starters.NEUTRAL_VERTICAL
@@ -201,7 +195,7 @@ def _code(body: dict[str, Any]) -> str:
 
 async def _tenant(vertical: str, name: str) -> tuple[uuid.UUID, str]:
     """(tenant_id, owner bearer) for a fresh account of this business type."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=name,
         slug=f"starter-{uuid.uuid4().hex[:8]}",
         vertical_template=vertical,

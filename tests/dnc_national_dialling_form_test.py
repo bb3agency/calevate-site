@@ -25,13 +25,17 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance import dnc
 from apps.api.compliance.service import check_dispatch
 from apps.api.db.session import tenant_session
 from apps.api.ingest.service import normalize_phone
 from sqlalchemy import text
-from tests.conftest import accept_agreements, arm_agent_for_outbound, fund_wallet
+from tests.conftest import (
+    accept_agreements,
+    arm_agent_for_outbound,
+    create_org_with_receptionist,
+    fund_wallet,
+)
 
 
 def _national_form() -> str:
@@ -52,7 +56,7 @@ def _daytime(monkeypatch: pytest.MonkeyPatch) -> None:
 async def _dialable_tenant() -> tuple[uuid.UUID, uuid.UUID]:
     """A tenant that lawfully CAN dial, so a refusal below is the suppression and not the
     paperwork. Exactly `dnc_test._tenant`'s arming and for its stated reasons."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Trunk Prefix Motors",
         slug=f"tp-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

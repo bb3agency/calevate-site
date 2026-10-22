@@ -18,7 +18,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import ai_quota
 from apps.api.billing import models as billing_models
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_usage
@@ -30,6 +29,7 @@ from apps.api.db.session import tenant_session
 from apps.workers import call_language, chat, document_ocr, script_assist
 from apps.workers.extraction import AssistCapability, PaidTurn, TenantModelLeg
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 GEMINI = "gemini-3.1-flash-lite"
 GOOGLE_LEG = TenantModelLeg(model=GEMINI, provider="google", serves_dashboard=True)
@@ -144,7 +144,7 @@ async def test_a_repair_answered_without_usage_keeps_the_first_attempt_as_incomp
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Unused Turn Store",
         slug=f"unused-{uuid.uuid4().hex[:8]}",
         vertical_template="retail",

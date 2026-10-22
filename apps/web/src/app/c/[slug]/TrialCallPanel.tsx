@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { CheckCircle2, PhoneOutgoing } from "lucide-react";
 
@@ -13,7 +14,8 @@ import {
   formatIST,
 } from "@/components/ui";
 import { RowLink } from "@/components/console/checklist";
-import { canDialOut } from "@/lib/agentState";
+import { TEXT_ACTION } from "@/components/console/section";
+import { canTestCall } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import { useClientRealm } from "@/lib/api/session";
 import { usePlaceTrialCall, type TrialPanel } from "@/lib/api/trialCalls";
@@ -43,6 +45,8 @@ export function TrialCallPanel({ slug, trial }: { slug: string; trial: TrialPane
       trial={trial}
       creditsHref={href(`/c/${slug}/billing?tab=credits`)}
       verifyHref={href(`/c/${slug}/verify-business`)}
+      agentsHref={href(`/c/${slug}/agents`)}
+      newAgentHref={href(`/c/${slug}/agents/new`)}
     />
   );
 }
@@ -57,10 +61,14 @@ export function TrialCallCard({
   trial,
   creditsHref,
   verifyHref,
+  agentsHref,
+  newAgentHref,
 }: {
   trial: TrialPanel;
   creditsHref: string;
   verifyHref: string;
+  agentsHref: string;
+  newAgentHref: string;
 }) {
   const { session } = useClientRealm();
   const agents = useAgents(session);
@@ -68,7 +76,8 @@ export function TrialCallCard({
   const [agentId, setAgentId] = useState("");
   const [number, setNumber] = useState("");
 
-  const dialers = agents.data?.filter(canDialOut);
+  // Any ready agent, including one that only answers calls: its greeting opens the call.
+  const dialers = agents.data?.filter(canTestCall);
   const chosen = agentId || (dialers !== undefined && dialers.length > 0 ? dialers[0].id : "");
   const ready = trial.can_call && chosen !== "" && number.trim() !== "" && !place.isPending;
 
@@ -105,7 +114,7 @@ export function TrialCallCard({
 
         <p className="text-sm text-ink-muted">
           Try your agent on a real phone: pick an agent, type an Indian number, and it calls
-          that number from a shared Calevate number. Each test call ends after{" "}
+          that number from a shared Calevate number, opening with its usual greeting. Each test call ends after{" "}
           {minutesText(trial.max_call_seconds)}. The do-not-call list and calling hours (9am to
           9pm) still apply, and the agent always says it is an AI when asked.
         </p>
@@ -140,9 +149,19 @@ export function TrialCallCard({
               <span className="mt-1 block text-sm text-ink-muted">
                 Your agents did not load. Reload the page to try again.
               </span>
+            ) : agents.data !== undefined && agents.data.length === 0 ? (
+              <span className="mt-1 block text-sm text-ink-muted">
+                You have no agents yet.{" "}
+                <Link href={newAgentHref} className={TEXT_ACTION}>
+                  Create your first agent
+                </Link>
+              </span>
             ) : dialers !== undefined && dialers.length === 0 ? (
               <span className="mt-1 block text-sm text-ink-muted">
-                Switch on an agent that places calls first.
+                Get an agent ready first, then call it here.{" "}
+                <Link href={agentsHref} className={TEXT_ACTION}>
+                  Your agents
+                </Link>
               </span>
             ) : (
               <select

@@ -30,7 +30,6 @@ from decimal import ROUND_DOWN, Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import credit_routes
 from apps.api.billing import service as billing
 from apps.api.billing.credit_routes import router as credit_router
@@ -45,7 +44,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 # A barrier this test file waits on is either released by the other party (the race
 # happened) or times out (the lock stopped the other party getting that far). Both are
@@ -86,7 +85,7 @@ async def _admin_token() -> str:
 
 
 async def _tenant(plan_tier: str = "self_serve") -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Audit Clinic",
         slug=f"aud-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

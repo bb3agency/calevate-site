@@ -34,12 +34,12 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.models import UNIT_TYPES
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError, ProgrammingError
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -100,7 +100,7 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     test that hand-writes a row passes against a schema the real writer no longer
     produces. `organizations` has already lost a column a fixture like this used to set.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Index Fixture",
         slug=f"uxidx-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

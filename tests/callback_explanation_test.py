@@ -13,12 +13,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.callbacks import service as callbacks
 from apps.api.callbacks.routes import _ENDINGS, _view
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -27,7 +27,7 @@ NO_CREDIT = "This account has no calling credit."
 
 
 async def test_a_deferral_reason_does_not_outlive_the_dial_that_followed_it() -> None:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Explained Estates",
         slug=f"cbx-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

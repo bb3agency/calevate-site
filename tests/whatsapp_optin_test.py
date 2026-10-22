@@ -39,7 +39,6 @@ from typing import Any, get_args
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance import whatsapp_optin, whatsapp_optin_routes
 from apps.api.compliance.models import (
     ALERT_OPTIN_CHANNELS,
@@ -59,6 +58,7 @@ from fastapi import Request
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from tests.conftest import create_org_with_receptionist
 
 # A documented test-range number, so the "no number anywhere" assertions have something
 # to search FOR.
@@ -93,7 +93,7 @@ def _settings_with(**overrides: Any) -> Any:
 
 async def _tenant(prefix: str, *, role: str = "owner", phone: str | None = OWNER_E164) -> Any:
     """(tenant_id, slug, dev bearer token, user_id) for a fresh org with one member."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Alert Motors",
         slug=f"wa-{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

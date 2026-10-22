@@ -28,14 +28,13 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from apps.api.admin import service as admin_service
 from apps.api.agents.business_hours import count_after_hours_calls, is_after_hours
 from apps.api.crm.service import dashboard
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from tests.conftest import SET_BUSINESS_HOURS_SQL
+from tests.conftest import SET_BUSINESS_HOURS_SQL, create_org_with_receptionist
 
 _IST_OFFSET = timedelta(hours=5, minutes=30)
 
@@ -134,7 +133,7 @@ def test_a_naive_instant_is_refused_rather_than_guessed() -> None:
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Night Owl Diagnostics",
         slug=f"afterhours-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

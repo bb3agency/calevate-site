@@ -36,7 +36,6 @@ import uuid
 from pathlib import Path
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.copilot import service as copilot_service
 from apps.api.copilot import write_tools
 from apps.api.copilot.schemas import CopilotConfirmOut
@@ -46,6 +45,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb import proposals
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -56,7 +56,7 @@ BODY = "We are open until 9pm on Saturdays, and closed on public holidays."
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="KB Proposals",
         slug=f"kbprop-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

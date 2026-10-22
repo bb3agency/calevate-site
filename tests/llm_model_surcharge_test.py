@@ -42,7 +42,6 @@ from unittest import mock
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents.llm_tiers import client_model_label
 from apps.api.billing.invoice import build_invoice
 from apps.api.billing.models import Plan
@@ -75,6 +74,7 @@ from calevate_shared.engine import (
     LlmPrice,
 )
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.smoke_pipeline_test import _seed_tenant
 
 OVERAGE_RATE = Decimal("8.0000")
@@ -88,7 +88,7 @@ UPGRADED_MODEL = min(AZURE_OPENAI_MODELS - {BASE_RATE_LLM_MODEL})
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Surcharge Clinic",
         slug=f"surcharge-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

@@ -19,7 +19,6 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import platform_ai, rates
 from apps.api.billing.ai_quota import (
     assist_ledger_rows,
@@ -33,6 +32,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.ops import model_pricing, pricing_snapshot
 from apps.workers.chat import TokenUsage, usage_from_body
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 MODEL = "gemini-3.1-flash-lite"
 CACHED_UNIT = "ai_assist_10ktok_cached_in"
@@ -142,7 +142,7 @@ def test_a_reported_count_is_told_apart_from_a_missing_one() -> None:
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Cache Clinic",
         slug=f"cache-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

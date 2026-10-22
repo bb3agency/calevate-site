@@ -35,7 +35,6 @@ from types import ModuleType
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance import caller_memory
 from apps.api.crm.assist import ASSIST_FEATURE_CALLER_MEMORY
 from apps.api.db.base import uuid7
@@ -48,6 +47,7 @@ from apps.workers.caller_memory_distil import (
     within_scope,
 )
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -71,7 +71,7 @@ FACT = "asked about a two-bedroom flat in Gachibowli"
 
 
 async def _tenant(vertical: str = "real_estate") -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Producer Estates",
         slug=f"prod-{uuid.uuid4().hex[:8]}",
         vertical_template=vertical,

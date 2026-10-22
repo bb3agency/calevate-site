@@ -40,7 +40,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import service as campaign_service
 from apps.api.compliance import dnc, preference_scrub
 from apps.api.compliance.export import subject_ref
@@ -60,7 +59,12 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from tests.conftest import accept_agreements, bind_number_for_tests, fund_wallet
+from tests.conftest import (
+    accept_agreements,
+    bind_number_for_tests,
+    create_org_with_receptionist,
+    fund_wallet,
+)
 
 PROVIDER = "airtel-dlt"
 
@@ -104,7 +108,7 @@ async def _admin_token(role: str = "superadmin") -> str:
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID, str, str]:
     """(tenant_id, agent_id, slug, client bearer token) for a fresh org with an owner."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Preference Motors",
         slug=f"pref-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

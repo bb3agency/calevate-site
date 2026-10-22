@@ -38,7 +38,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance.export import subject_ref
 from apps.api.db.session import get_engine, tenant_session
 from apps.workers import retention
@@ -52,7 +51,7 @@ from apps.workers.retention import (
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec, validate_extraction
 from scripts.seed import DEFAULT_RETENTION_POLICIES
 from sqlalchemy import event, text
-from tests.conftest import FakeS3, accept_agreements
+from tests.conftest import FakeS3, accept_agreements, create_org_with_receptionist
 
 # Model-written prose about what the caller said. Distinctive enough that a leak of it
 # into a log line or a proof certificate is unmistakable.
@@ -70,7 +69,7 @@ async def _org() -> tuple[uuid.UUID, uuid.UUID]:
     `agents.engine_agent_ref`; `_due_tenants` resolves the sweep's worklist from it, so a
     tenant with call rows and no route is a shape production cannot produce.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Retention Conflicts",
         slug=f"rcf-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

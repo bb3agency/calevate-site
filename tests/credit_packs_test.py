@@ -365,7 +365,6 @@ async def _self_serve_tenant() -> tuple[uuid.UUID, str]:
         "business_name": "Sunrise Dental",
         "slug": f"sun-{uuid.uuid4().hex[:8]}",
         "vertical_template": "clinic",
-        "language": "te-IN",
     }
     async with _client() as http:
         response = await http.post("/v1/auth/signup", headers=_headers(token), json=body)

@@ -33,7 +33,6 @@ import uuid
 from collections.abc import AsyncIterator, Iterator
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core import ratelimit
 from apps.api.core.context import bearer_token
 from apps.api.core.ratelimit import LimitProfile
@@ -41,6 +40,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -59,7 +59,7 @@ def _address() -> str:
 
 
 async def _make_org() -> dict[str, object]:
-    return await admin_service.create_organization(
+    return await create_org_with_receptionist(
         name="Adversarial Clinic",
         slug=f"adv-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

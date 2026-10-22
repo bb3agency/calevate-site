@@ -33,7 +33,6 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.service import get_balance, record_entry
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -47,10 +46,11 @@ from scripts.reconcile_credit_ledger import (
 )
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
+from tests.conftest import create_org_with_receptionist
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Reconcile Clinic",
         slug=f"rec-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

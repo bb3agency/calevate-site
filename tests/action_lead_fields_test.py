@@ -14,12 +14,12 @@ import pytest
 from apps.api.actions import service
 from apps.api.actions.execution import CallFacts, captured_values, lead_values
 from apps.api.actions.schema import ParamSpec, lead_field_key
-from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle as agent_lifecycle
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 PHONE = "+919876543210"
 
@@ -45,7 +45,7 @@ def test_call_variables_ignore_field_bindings() -> None:
 
 
 async def _tenant(slug: str) -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Lead Fields Co",
         slug=f"{slug}-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

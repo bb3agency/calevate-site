@@ -16,11 +16,11 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
-from apps.api.admin import service as admin_service
 from apps.api.billing import service as billing
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 async def _tenant_with_usage(
@@ -31,7 +31,7 @@ async def _tenant_with_usage(
     included_min: int = 100,
     overage_rate: str = "8.0000",
 ) -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Billing Clinic",
         slug=f"bill-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

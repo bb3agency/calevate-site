@@ -62,13 +62,13 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 import pytest
-from apps.api.admin import service
 from apps.api.db.registry import RLS_EXEMPT_TENANT_COLUMNS
 from apps.api.db.session import tenant_session, untenanted_session
 from calevate_shared.config import Settings
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -157,7 +157,7 @@ async def sweep() -> AsyncIterator[Sweep]:
     never written at all. Never use that role in app code paths; a test's ground truth
     is the one legitimate use.
     """
-    a = await service.create_organization(
+    a = await create_org_with_receptionist(
         name="Sweep Clinic A",
         slug=f"sweep-a-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -165,7 +165,7 @@ async def sweep() -> AsyncIterator[Sweep]:
         language="te-IN",
         created_by=None,
     )
-    b = await service.create_organization(
+    b = await create_org_with_receptionist(
         name="Sweep Clinic B",
         slug=f"sweep-b-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

@@ -36,20 +36,20 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.invoice import build_invoice
 from apps.api.billing.models import Plan
 from apps.api.billing.service import split_overage, to_paise, usage_summary
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 PREMIUM_RATE = Decimal("8.0000")
 VALUE_RATE = Decimal("5.0000")
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Ladder Clinic",
         slug=f"ladder-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

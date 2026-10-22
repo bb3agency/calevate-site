@@ -28,7 +28,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import payments
 from apps.api.billing.gst import GST_STATUS_SENTENCE
 from apps.api.billing.payment_routes import webhook_router
@@ -67,7 +66,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.credit_lots_helpers import add_lot
 
 pytestmark = [pytest.mark.rls]
@@ -86,7 +85,7 @@ def _configured(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def _tenant(plan_tier: str = "self_serve") -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Wallet Clinic",
         slug=f"wal-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

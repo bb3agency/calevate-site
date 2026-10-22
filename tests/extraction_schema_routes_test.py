@@ -27,7 +27,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents.extraction_routes import (
     MAX_ENUM_VALUES,
     MAX_EXTRACTION_FIELDS,
@@ -46,6 +45,7 @@ from calevate_shared.lead_fields import CORE_LEAD_FIELDS
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -65,7 +65,7 @@ def _client(app: FastAPI) -> AsyncClient:
 
 async def _tenant(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, str]:
     """(tenant_id, seeded receptionist id, client dev bearer) for a fresh clinic org."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Capture Clinic",
         slug=f"cap-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

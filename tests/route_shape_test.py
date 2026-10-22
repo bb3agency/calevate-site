@@ -31,7 +31,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.core.auth import tenant_of
 from apps.api.core.rbac import (
@@ -47,7 +46,7 @@ from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.impersonation_grant_test import view_as_headers
 
 # A realistic Telugu turn with an E.164 number inside it — the exact pair hard rule 6
@@ -75,7 +74,7 @@ async def _make_admin(role: str = "superadmin") -> str:
 
 
 async def _make_org() -> dict[str, object]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Route Shape Clinic",
         slug=f"rs-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

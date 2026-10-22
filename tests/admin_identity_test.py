@@ -26,12 +26,12 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.rbac import MUTATING_PERMISSIONS, ROLE_PERMISSIONS, iter_api_routes
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 ADMIN_ME = "/v1/admin/me"
 
@@ -55,7 +55,7 @@ async def _make_admin(role: str = "superadmin") -> str:
 
 
 async def _make_org() -> dict[str, object]:
-    return await admin_service.create_organization(
+    return await create_org_with_receptionist(
         name="Admin Identity Clinic",
         slug=f"ai-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

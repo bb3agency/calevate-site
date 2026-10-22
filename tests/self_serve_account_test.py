@@ -321,7 +321,6 @@ async def test_a_self_serve_business_starts_its_trial_at_once(
         name="Corner Bakery",
         slug=f"bakery-{uuid.uuid4().hex[:8]}",
         vertical_template="custom",
-        language="te-IN",
         billing_email=None,
         plan_tier="self_serve",
     )

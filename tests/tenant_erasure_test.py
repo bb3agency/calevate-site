@@ -49,6 +49,7 @@ from apps.workers.retention import ANONYMIZED_PHONE, REDACTED_MARK, execute_tena
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from tests.conftest import create_org_with_receptionist
 
 BASE = "/v1/admin/tenants/{tenant_id}/erasure"
 
@@ -77,7 +78,7 @@ async def _admin(role: str = "superadmin") -> str:
 
 async def _tenant() -> tuple[UUID, UUID, str]:
     """(tenant_id, agent_id, slug) for a fresh client."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Offboarding Clinic",
         slug=f"erase-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

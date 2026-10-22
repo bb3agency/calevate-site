@@ -16,7 +16,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts, script_builder, t0
 from apps.api.agents.t0_block import T0_HEADER
 from apps.api.core.errors import ProblemError
@@ -24,10 +23,11 @@ from apps.api.db.session import tenant_session
 from calevate_shared.call_script import CallScript, FaqEntry, ScriptStep
 from calevate_shared.engine import TRUTHFUL_ANSWER_MARKER
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Script Clinic",
         slug=f"sc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

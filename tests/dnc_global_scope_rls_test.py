@@ -35,11 +35,11 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.settings import Settings
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+from tests.conftest import create_org_with_receptionist
 
 
 #: A fresh dialable Indian mobile per test. `dnc_list` global rows outlive a test (they
@@ -55,7 +55,7 @@ async def _tenant_id() -> uuid.UUID:
     an untenanted session cannot write one at all — which is itself the §1 pattern working,
     and is why `admin_service.create_organization` exists.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="DNC Scope",
         slug=f"dnc-scope-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

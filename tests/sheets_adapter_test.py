@@ -40,7 +40,6 @@ from uuid import UUID
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.logging import JsonFormatter, configure_logging
 from apps.api.core.settings import get_settings
 from apps.api.crm import attention
@@ -63,6 +62,7 @@ from apps.workers.google_sheets import (
 from apps.workers.sheets_sync import AppendStatus, SheetAppend
 from arq import Retry
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 SHEET_ID = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
 SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit#gid=0"
@@ -484,7 +484,7 @@ def test_the_http_library_is_not_allowed_to_print_our_urls() -> None:
 
 
 async def _tenant_with_sheet_endpoint(secret_ref: str = CREDENTIAL_REF) -> tuple[UUID, UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sheet Clinic",
         slug=f"sheetadp-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

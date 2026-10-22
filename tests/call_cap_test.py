@@ -39,7 +39,6 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts, publishing
 from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_MIN_S
 from apps.api.agents.service import effective_call_cap, publish_agent
@@ -50,14 +49,14 @@ from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import FakeEngine
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.credit_lots_helpers import GROWTH, add_lot
 
 SCRIPT = "The receptionist script this clinic approved before anyone touched the cap."
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Runaway Clinic",
         slug=f"cap-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

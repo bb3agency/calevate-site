@@ -24,7 +24,6 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from apps.api.admin import service as admin_service
 from apps.api.authn.cookies import cookie_name
 from apps.api.authn.sessions import issue_session
 from apps.api.authn.stepup import REAUTH_MAX_AGE, record_action_proof
@@ -33,6 +32,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
+from tests.conftest import create_org_with_receptionist
 from tests.impersonation_grant_test import view_as_headers
 
 ADMIN_COOKIE = cookie_name("admin", secure=False)
@@ -77,7 +77,7 @@ async def _stale_admin_cookie(admin_id: uuid.UUID) -> str:
 
 
 async def _org() -> dict[str, Any]:
-    return await admin_service.create_organization(
+    return await create_org_with_receptionist(
         name="Gate Clinic",
         slug=f"gt-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

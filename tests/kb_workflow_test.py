@@ -11,13 +11,12 @@ import asyncio
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb import service
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.impersonation_grant_test import view_as_headers
 
 
@@ -64,7 +63,7 @@ async def give_agent_a_script(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> uuid
 
 
 async def _tenant_with_published_agent() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="KB Clinic",
         slug=f"kb-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -408,7 +407,7 @@ async def test_an_unpublished_agent_is_given_no_vendor_copy() -> None:
     """Pushing a KB to an agent the engine has never seen would silently no-op, so nothing
     is pushed; the client's knowledge still goes live (D-689) and reaches the agent when it
     is published."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Draft Clinic",
         slug=f"draft-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

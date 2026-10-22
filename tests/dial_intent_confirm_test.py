@@ -37,7 +37,6 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import service as agents_service
 from apps.api.agents.service import UNCONFIRMED_ENGINE_CALL_PREFIX, unconfirmed_engine_call_id
 from apps.api.db.base import uuid7
@@ -46,7 +45,7 @@ from apps.api.engine import reset_engine_cache
 from apps.api.engine.fake import FakeEngine
 from calevate_shared.engine import CallContext
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 _TENANTS: list[uuid.UUID] = []
 
@@ -78,7 +77,7 @@ async def _dialable_tenant() -> tuple[uuid.UUID, uuid.UUID]:
     will accept. No campaign and no DLT paperwork: the per-dial gate is not on this
     function (its callers run it), and every rule it would ask is proved elsewhere."""
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Stamp Motors",
         slug=f"stamp-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

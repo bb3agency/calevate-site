@@ -236,8 +236,9 @@ describe("the trial control on the credits screen", () => {
     expect(startButton().disabled).toBe(true);
     expect(screen.getByText(/These two do not match/)).toBeTruthy();
 
-    // Free minutes start at the founder's default of 30, so matching days is the last step.
-    expect((screen.getByLabelText("Free test-call minutes") as HTMLInputElement).value).toBe("30");
+    // Free minutes start at the new-account default of 15 (D-853), so matching days is the
+    // last step.
+    expect((screen.getByLabelText("Free test-call minutes") as HTMLInputElement).value).toBe("15");
     fireEvent.change(screen.getByLabelText("Type the number of days again"), {
       target: { value: "14" },
     });
@@ -275,19 +276,24 @@ describe("the trial control on the credits screen", () => {
     expect(startButton().textContent).toContain("14");
   });
 
-  it("shows what a running trial has cost us, and offers to end it rather than start a second", async () => {
+  it("shows what a running trial has cost us, and offers to end it or replace its terms", async () => {
     await render({ [TRIAL_PATH]: trial() });
     await screen.findByText(/Cost to Calevate so far/);
 
     const text = document.body.textContent ?? "";
     expect(text).toContain("₹1,284.50");
     expect(text).toContain("never shown to the client");
-    // The route refuses a second open trial with a 409; offering the form anyway would be
-    // a control that can only fail.
     expect(screen.queryByLabelText("Days on us")).toBeNull();
     // The card offers the END control, which opens its form in a drawer.
     fireEvent.click(screen.getByRole("button", { name: "End trial" }));
     expect(await screen.findByRole("button", { name: "End this trial" })).toBeTruthy();
+  });
+
+  it("offers new terms over a running trial, and says they replace it (D-853)", async () => {
+    await render({ [TRIAL_PATH]: trial({ started_by: null }) });
+    fireEvent.click(await screen.findByRole("button", { name: "Set new terms" }));
+    expect(await screen.findByText(/It replaces the trial running now/)).toBeTruthy();
+    expect(screen.getByLabelText("Days on us")).toBeTruthy();
   });
 
   it("reports a trial that has ENDED rather than showing nothing", async () => {

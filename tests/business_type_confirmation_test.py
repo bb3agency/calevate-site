@@ -20,7 +20,6 @@ from typing import Any
 
 import pytest
 from apps.api.admin import business_type
-from apps.api.admin import service as admin_service
 from apps.api.admin.routes import CreateOrgIn
 from apps.api.agents import lead_fields
 from apps.api.agents.extraction_routes import write_schema
@@ -38,6 +37,7 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 from scripts.seed import VERTICAL_TEMPLATES
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 CLINIC_KEYS = [f["key"] for f in VERTICAL_TEMPLATES["clinic"]]
 RETAIL_KEYS = [f["key"] for f in VERTICAL_TEMPLATES["retail"]]
@@ -97,7 +97,7 @@ def test_the_suggestion_prompt_offers_every_type_and_no_default() -> None:
 
 
 async def _tenant(vertical: str, name: str = "Raghava Organics") -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=name,
         slug=f"btype-{uuid.uuid4().hex[:8]}",
         vertical_template=vertical,

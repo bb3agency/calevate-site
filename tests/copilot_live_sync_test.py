@@ -27,7 +27,6 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from apps.api.admin import service as admin_service
 from apps.api.billing import ai_quota
 from apps.api.copilot import admin_routes, live_sync, service, transcript
 from apps.api.copilot.schemas import CopilotAskIn
@@ -46,6 +45,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, text
 from sqlalchemy.orm import Session
+from tests.conftest import create_org_with_receptionist
 from tests.conftest import make_tenant_with_pip as _make_tenant
 
 BODY: dict[str, Any] = {
@@ -473,7 +473,7 @@ async def test_a_colleague_on_the_same_account_never_hears_my_conversation(
     """THE ZERO-LEAK PROOF over the real route, real Redis and the real hub: two members of
     one account each hold `GET /v1/live`; a conversation note for one of them reaches that
     stream and not the other, while an account note reaches both."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Live Sync Clinic",
         slug=(slug := f"sync-{uuid.uuid4().hex[:8]}"),
         vertical_template="clinic",

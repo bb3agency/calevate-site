@@ -24,7 +24,6 @@ import json
 import logging
 import uuid
 
-from apps.api.admin import service as admin_service
 from apps.api.compliance.deletion import (
     DELETION_JOB,
     ERASURE_EXCEPTIONS,
@@ -41,6 +40,7 @@ from apps.workers.retention import REDACTED_MARK, execute_deletion_request
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 BASE = "/v1/compliance/deletion-requests"
 
@@ -74,7 +74,7 @@ async def _member(tenant_id: uuid.UUID, role: str) -> str:
 
 async def _tenant(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, str, str]:
     """(tenant_id, agent_id, org slug, dev bearer token) for a fresh org with a member."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Erasure Clinic",
         slug=f"del-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

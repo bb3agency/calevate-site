@@ -49,7 +49,6 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.lots import CallDemand
 from apps.api.billing.service import LotRates, charge_for_call, find_topup, record_entry
 from apps.api.db.session import tenant_session
@@ -60,6 +59,7 @@ from scripts.reconcile_credit_ledger import (
 )
 from sqlalchemy import text
 from tests import credit_reconciliation_test as residue
+from tests.conftest import create_org_with_receptionist
 
 # The index this file is about. Written out once so every assertion below is checked
 # against the same shape the migration will carry.
@@ -67,7 +67,7 @@ INDEX_KEY = ("tenant_id", "reason", "ref")
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Uniqueness Clinic",
         slug=f"uniq-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

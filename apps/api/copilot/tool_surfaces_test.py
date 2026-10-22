@@ -12,8 +12,8 @@ import json
 import uuid
 
 import pytest
+from tests.conftest import create_org_with_receptionist
 
-from apps.api.admin import service as admin_service
 from apps.api.copilot import admin_actions, admin_screens, admin_tools, tools, write_tools
 from apps.api.copilot import service as copilot_service
 from apps.api.copilot.actions import WriteRefusedError
@@ -81,7 +81,7 @@ def test_the_admin_surfaces_drop_only_tools_that_could_not_run_there() -> None:
 
 async def test_a_client_write_tool_refuses_every_admin_principal() -> None:
     """The two shapes an admin principal has: no tenant, or a tenant inside view-as."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Surface Clinic",
         slug=f"surface-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

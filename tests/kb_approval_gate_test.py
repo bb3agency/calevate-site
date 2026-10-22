@@ -23,12 +23,12 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.kb import service
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.kb_workflow_test import _tenant_with_published_agent, give_agent_a_script
 
 
@@ -226,7 +226,7 @@ async def test_a_client_with_no_published_agent_publishes_and_no_vendor_copy_is_
     never seen has no handle to attach to, so nothing is pushed — and since D-689 that is
     not a refusal: the knowledge is the client's and goes live for them, and each agent
     receives its copy when it is published."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Draft Clinic",
         slug=f"gate-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

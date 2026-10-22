@@ -28,7 +28,6 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.agents.service import publish_agent
 from apps.api.core.loadshed import get_platform_status, set_platform_status
@@ -36,7 +35,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.ops.maintenance import InFlight, read_window, schedule_window
 from apps.workers.maintenance import NOTIFY_JOB, maintenance_tick
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 pytestmark = pytest.mark.asyncio
 
@@ -92,7 +91,7 @@ async def _live_tenant() -> tuple[uuid.UUID, uuid.UUID]:
     directory every walk in the worker uses — without it the tick would find no tenants and
     the test would pass having exercised nothing.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Tick Clinic",
         slug=f"tick-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

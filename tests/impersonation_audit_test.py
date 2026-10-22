@@ -31,7 +31,6 @@ import uuid
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core import auth as auth_module
 from apps.api.core.auth import IMPERSONATION_AUDIT_WINDOW_S, IMPERSONATION_READ_ACTION
 from apps.api.core.rbac import iter_api_routes
@@ -40,6 +39,7 @@ from apps.api.db.session import untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.impersonation_grant_test import view_as_headers
 
 
@@ -62,7 +62,7 @@ async def _make_admin(role: str = "operator") -> tuple[uuid.UUID, str]:
 
 
 async def _make_org() -> dict[str, Any]:
-    return await admin_service.create_organization(
+    return await create_org_with_receptionist(
         name="Impersonation Audit Clinic",
         slug=f"ia-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

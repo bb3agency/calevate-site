@@ -18,12 +18,12 @@ from typing import Any
 import httpx
 import pytest
 from apps.api.actions import calendar
-from apps.api.admin import service as admin_service
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 CALLBACK = "/v1/actions/calendar/callback"
 CONNECT = "/v1/actions/calendar/connect"
@@ -37,7 +37,7 @@ def _client() -> AsyncClient:
 
 
 async def _owner() -> tuple[uuid.UUID, uuid.UUID, dict[str, str]]:
-    org = await admin_service.create_organization(
+    org = await create_org_with_receptionist(
         name="Calendar Clinic",
         slug=f"cal-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

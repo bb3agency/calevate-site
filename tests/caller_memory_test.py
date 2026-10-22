@@ -38,7 +38,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance import caller_memory
 from apps.api.compliance.caller_ref import active_caller_ref
 from apps.api.db.session import tenant_session
@@ -55,6 +54,7 @@ from apps.api.retrieval.models import (
     SUBJECT_RETENTION,
 )
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -76,7 +76,7 @@ async def _tenant(vertical: str = "real_estate") -> tuple[uuid.UUID, uuid.UUID]:
     against an implementation that wrote nothing. `test_a_refused_vertical_...` asks for
     the clinic explicitly, which is the only place the difference should be invisible.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Memory Estates",
         slug=f"mem-{uuid.uuid4().hex[:8]}",
         vertical_template=vertical,

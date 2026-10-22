@@ -15,13 +15,13 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.trials import start_trial
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -52,7 +52,7 @@ async def _admin_token() -> str:
 
 
 async def _trial_client_with_prod_rows() -> tuple[UUID, Decimal]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Usage Visibility Organics",
         slug=f"usage-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

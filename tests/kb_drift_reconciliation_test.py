@@ -34,7 +34,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.errors import ProblemError
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import tenant_session, untenanted_session
@@ -53,7 +52,7 @@ from apps.workers.settings import WorkerSettings
 from arq import Retry
 from calevate_shared.engine import EngineAgentRef, EngineKBRef, KBSourceRef
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.kb_workflow_test import give_agent_a_script
 
 FEES = "A consultation costs 500 rupees and is payable at reception."
@@ -202,7 +201,7 @@ async def _agent_with_knowledge(
     engine: FakeEngine, *sources: tuple[str, str]
 ) -> tuple[uuid.UUID, uuid.UUID, str]:
     """A tenant with a live agent holding `sources`, routed under `engine.name`."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="KB Drift Clinic",
         slug=f"kbd-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

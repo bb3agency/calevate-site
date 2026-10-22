@@ -29,7 +29,6 @@ from typing import get_args
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.authn import operators
 from apps.api.authn.bootstrap import ADMIN_REALM
 from apps.api.authn.credentials import delete_password, set_password, subjects_with_password
@@ -54,6 +53,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.admin_security_test import _make_admin
+from tests.conftest import create_org_with_receptionist
 from tests.impersonation_grant_test import view_as_headers
 
 REASON = {"reason": "lane S1 test"}
@@ -759,7 +759,7 @@ async def test_a_view_as_session_cannot_manage_operators_even_as_a_superadmin() 
     names — and the test would be green for the wrong reason.
     """
     token = await _make_admin()
-    org = await admin_service.create_organization(
+    org = await create_org_with_receptionist(
         name="View As Clinic",
         slug=f"vas-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

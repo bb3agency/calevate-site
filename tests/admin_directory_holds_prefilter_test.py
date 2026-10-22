@@ -35,10 +35,11 @@ from apps.api.admin.holds import NO_HOLDS, read_tenant_holds
 from apps.api.compliance.service import SELF_SERVE_TIERS
 from apps.api.db.session import admin_session, get_engine, tenant_session
 from sqlalchemy import event, text
+from tests.conftest import create_org_with_receptionist
 
 
 async def _tenant(plan_tier: str) -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Holds Prefilter Motors",
         slug=f"holdpf-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

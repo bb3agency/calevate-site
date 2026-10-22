@@ -47,7 +47,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance import caller_memory
 from apps.api.compliance.caller_ref import active_caller_ref
 from apps.api.db.base import uuid7
@@ -62,6 +61,7 @@ from apps.api.retrieval.models import (
 )
 from apps.workers.retention import sweep_tenant
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -102,7 +102,7 @@ VALUES (
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     """A tenant with the shipped retention rows and one agent that remembers callers."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Memory Retention Agency",
         slug=f"mrc-{uuid.uuid4().hex[:8]}",
         # NOT `clinic`: `caller_memory.SPDI_REFUSED_VERTICALS` refuses to write a memory at

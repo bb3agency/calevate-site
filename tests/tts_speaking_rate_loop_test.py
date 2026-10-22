@@ -40,7 +40,6 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.credit_packs import PACK_CATALOGUE
 from apps.api.billing.plans import ist_billing_month
 from apps.api.billing.rates import (
@@ -66,6 +65,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.ops import config_routes
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.cost_floor_test import _inputs as _floor_inputs
 
 
@@ -95,7 +95,7 @@ async def _purge_counter_rows() -> AsyncIterator[None]:
 
 
 async def _tenant() -> tuple[UUID, UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Loop Clinic",
         slug=f"ttsloop-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

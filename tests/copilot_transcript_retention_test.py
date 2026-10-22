@@ -21,19 +21,19 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance.tenant_erasure import request_tenant_erasure
 from apps.api.copilot import transcript
 from apps.api.db.session import credential_session, tenant_session, untenanted_session
 from apps.workers.copilot_transcript import WORKLIST_REASON, sweep_ended_conversations
 from apps.workers.retention import apply_retention, execute_tenant_erasure
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = pytest.mark.asyncio
 
 
 async def _tenant_with_user() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sweep Clinic",
         slug=f"swp-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

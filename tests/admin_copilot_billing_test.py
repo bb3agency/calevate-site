@@ -30,7 +30,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import platform_ai
 from apps.api.billing.ai_quota import (
     ASSIST_REF_PREFIX,
@@ -58,6 +57,7 @@ from apps.api.db.session import untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -527,7 +527,7 @@ async def test_a_memory_formed_on_one_account_is_not_recalled_on_another() -> No
     admin_id = await _make_admin()
     # ITS OWN ACCOUNT, so nothing here depends on another suite's rows (`ai_quota_test.py`'s
     # concurrency discipline) and the foreign key on `viewing_tenant_id` is satisfied.
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Copilot Clinic",
         slug=f"adc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -536,7 +536,7 @@ async def test_a_memory_formed_on_one_account_is_not_recalled_on_another() -> No
         created_by=None,
     )
     tenant_a: uuid.UUID = created["id"]
-    other_created = await admin_service.create_organization(
+    other_created = await create_org_with_receptionist(
         name="Other Clinic",
         slug=f"adc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

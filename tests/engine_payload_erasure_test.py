@@ -28,13 +28,12 @@ import json
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance import deletion_proof, export, tenant_erasure
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers import retention, storage
 from sqlalchemy import text
-from tests.conftest import FakeS3
+from tests.conftest import FakeS3, create_org_with_receptionist
 
 # What a vendor document actually looks like: the number and the spoken text, which is
 # exactly why this store has an erasure duty. Never logged, only written to the fake.
@@ -54,7 +53,7 @@ def _document(phone: str) -> bytes:
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Payload Clinic",
         slug=f"pay-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

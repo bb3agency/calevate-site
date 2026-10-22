@@ -30,14 +30,18 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents.service import agent_outbound_numbers
 from apps.api.compliance import registration
 from apps.api.compliance.service import check_dispatch
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
-from tests.conftest import accept_agreements, arm_agent_for_outbound, fund_wallet
+from tests.conftest import (
+    accept_agreements,
+    arm_agent_for_outbound,
+    create_org_with_receptionist,
+    fund_wallet,
+)
 
 _INDIA = "+919876500001"
 
@@ -65,7 +69,7 @@ async def _tenant_agent(*, direction: str = "outbound") -> tuple[uuid.UUID, uuid
     """A live, published agent with a disclosure line — so the gate reaches the DLT layer
     rather than stopping on an agent question. NOTHING is armed: each test adds exactly
     the paperwork it is measuring."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Reg Motors",
         slug=f"reg-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

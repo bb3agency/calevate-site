@@ -33,7 +33,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.logging import JsonFormatter
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.core.settings import get_settings
@@ -53,6 +52,7 @@ from apps.workers.whatsapp import (
 )
 from arq import Retry
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 # A documented test number in the TRAI-reserved test range shape. It exists so the
 # hard-rule-6 test has something to search the log output FOR — it is never a real
@@ -66,7 +66,7 @@ OWNER_TEST_E164 = "+919000000001"
 
 
 async def _tenant_with_agent(prefix: str) -> tuple[UUID, UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=f"{prefix.title()} Clinic",
         slug=f"wa-{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

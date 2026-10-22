@@ -13779,16 +13779,6 @@
             ],
             "title": "Billing Email"
           },
-          "language": {
-            "default": "te-IN",
-            "enum": [
-              "te-IN",
-              "hi-IN",
-              "en-IN"
-            ],
-            "title": "Language",
-            "type": "string"
-          },
           "name": {
             "maxLength": 120,
             "minLength": 2,
@@ -13836,16 +13826,6 @@
       "CreateOrgOut": {
         "additionalProperties": false,
         "properties": {
-          "agent_id": {
-            "format": "uuid",
-            "title": "Agent Id",
-            "type": "string"
-          },
-          "extraction_schema_id": {
-            "format": "uuid",
-            "title": "Extraction Schema Id",
-            "type": "string"
-          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -13872,8 +13852,6 @@
         "required": [
           "id",
           "slug",
-          "agent_id",
-          "extraction_schema_id",
           "status",
           "vertical_template",
           "invitation_id"
@@ -37582,16 +37560,6 @@
             "title": "Business Name",
             "type": "string"
           },
-          "language": {
-            "default": "te-IN",
-            "enum": [
-              "te-IN",
-              "hi-IN",
-              "en-IN"
-            ],
-            "title": "Language",
-            "type": "string"
-          },
           "plan_tier": {
             "default": "self_serve",
             "enum": [
@@ -37630,16 +37598,6 @@
       "SignupOut": {
         "additionalProperties": false,
         "properties": {
-          "agent_id": {
-            "format": "uuid",
-            "title": "Agent Id",
-            "type": "string"
-          },
-          "extraction_schema_id": {
-            "format": "uuid",
-            "title": "Extraction Schema Id",
-            "type": "string"
-          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -37680,8 +37638,6 @@
           "plan_tier",
           "status",
           "role",
-          "agent_id",
-          "extraction_schema_id",
           "next_steps"
         ],
         "title": "SignupOut",
@@ -44177,6 +44133,17 @@
         "additionalProperties": false,
         "description": "The trial as its own client reads it. `on_trial` false means none of the rest\napplies: the account has paid, or was never given a trial.",
         "properties": {
+          "answering_locked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answering Locked Reason"
+          },
           "blocked_reason": {
             "anyOf": [
               {
@@ -52542,7 +52509,7 @@
         "x-calevate-permission": "admin:tenants"
       },
       "post": {
-        "description": "The audit row is the birth transaction's LAST WRITE, not a second transaction.\n\n`on_created` is the hook `admin/service.py` already exposes for exactly this and\nself-serve signup already uses (`tenancy/signup.py::_audit`); the wizard was writing\nits row afterwards, on a different session, which is a second way of doing one thing\nand \u2014 when that write is the one that fails \u2014 a client account whose creation nobody\nrecorded. Same transaction now: the tenant and the record of who created it commit\ntogether or not at all.\n\nThe `global_db` dependency this route used to carry went with it: it existed only to\ngive the second transaction a session, and a dependency nobody reads is a session\nopened per request for nothing.",
+        "description": "Creates the organization and its retention policies, starts the free trial every new account starts with (the console's new-account trial terms; a trial set on the client's Credits page replaces it) and invites the owner. No agent is made: the owner makes the first one (D-853).",
         "operationId": "create_tenant_v1_admin_tenants_post",
         "parameters": [
           {
@@ -52590,7 +52557,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "New client: the account and its owner's invitation, in one transaction",
+        "summary": "New client: the account, its free trial and its owner's invitation, in one transaction",
         "tags": [
           "admin"
         ],
@@ -57070,7 +57037,7 @@
         "x-calevate-permission": "billing:read"
       },
       "post": {
-        "description": "For the length of the trial, or until its free minutes are used, a client that has not paid may build agents and place outbound test calls from the shared trial number, billed to nobody (D-697); inbound, campaigns, numbers, KYC and live calling open on the first payment, which also ends the trial. Every minute is still METERED, and do-not-call, calling hours, the pledge, the agreements and the AI disclosure still apply. There is no spend ceiling beyond the minutes, so the header `X-Confirm-Action: start_trial:<tenant_id>:<days>` is required on every call and the read publishes what the trial is costing us.",
+        "description": "For the length of the trial, or until its free minutes are used, a client that has not paid may build agents and place outbound test calls from the shared trial number, billed to nobody (D-697); inbound, campaigns, numbers, KYC and live calling open on the first payment, which also ends the trial. Every minute is still METERED, and do-not-call, calling hours, the pledge, the agreements and the AI disclosure still apply. A trial already running, such as the one every new account starts with, is REPLACED: this one's days and minutes count from now (D-853). There is no spend ceiling beyond the minutes, so the header `X-Confirm-Action: start_trial:<tenant_id>:<days>` is required on every call and the read publishes what the trial is costing us.",
         "operationId": "open_trial_v1_admin_tenants__tenant_id__trial_post",
         "parameters": [
           {
@@ -61617,7 +61584,7 @@
     },
     "/v1/auth/signup": {
       "post": {
-        "description": "The caller holds a first-party session and no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, makes the caller its owner and starts the self-serve free trial (test calls only until the first payment).",
+        "description": "The caller holds a first-party session and no organization yet. Creates the organization and its retention policies, makes the caller its owner and starts the free trial (test calls only until the first payment). No agent is made: the owner makes the first one (D-853).",
         "operationId": "signup_v1_auth_signup_post",
         "requestBody": {
           "content": {

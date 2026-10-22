@@ -37,7 +37,6 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.admin.health import (
     TREND_BASELINE_MIN,
     WINDOW_DAYS,
@@ -57,7 +56,7 @@ from apps.api.db.session import admin_session, tenant_session, untenanted_sessio
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import _owner_of, accept_agreements, fund_wallet
+from tests.conftest import _owner_of, accept_agreements, create_org_with_receptionist, fund_wallet
 
 pytestmark = [pytest.mark.rls]
 
@@ -117,7 +116,7 @@ async def _account(
 
     `agreements=False` leaves the four blocking agreements unaccepted, the state of a client
     that has not yet re-accepted a materially changed document."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=f"Health Motors {uuid.uuid4().hex[:6]}",
         slug=f"health-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

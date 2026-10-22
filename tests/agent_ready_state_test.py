@@ -158,7 +158,7 @@ async def test_a_trial_sees_answer_my_calls_locked_with_the_reason() -> None:
     assert [s["locked_reason"] for s in before["starters"]] == [None, None]
     locked = {s["job"]: s["locked_reason"] for s in after["starters"]}
     assert locked["call_leads"] is None
-    assert locked["answer_calls"] and "chat" in locked["answer_calls"]
+    assert locked["answer_calls"] and "test call" in locked["answer_calls"]
 
 
 async def test_the_starter_preview_greets_in_the_language_asked_for() -> None:

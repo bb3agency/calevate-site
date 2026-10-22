@@ -29,7 +29,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance.deletion import request_erasure
 from apps.api.compliance.tenant_erasure import request_tenant_erasure
 from apps.api.db.base import uuid7
@@ -40,6 +39,7 @@ from apps.workers.retention import (
     sweep_tenant,
 )
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -55,7 +55,7 @@ def _phone() -> str:
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Handoff Clinic",
         slug=f"handoff-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

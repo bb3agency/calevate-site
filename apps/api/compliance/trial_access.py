@@ -76,10 +76,8 @@ TRIAL_REFUSALS: Final[dict[TrialLocked, tuple[str, str]]] = {
     "inbound": _refusal(
         rule="trial_inbound_unavailable",
         reason=(
-            "An agent that only answers calls needs your own phone number, which comes after "
-            "you add credit and verify your business. During your free trial you can get it "
-            "ready and try it in the chat, or make an agent that places calls and try it "
-            "with a test call."
+            "Answering calls starts after your first top-up and business check. Until then, "
+            "use Try it, or give it a test call from your dashboard."
         ),
     ),
     "live_outbound": _refusal(

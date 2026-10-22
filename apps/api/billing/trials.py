@@ -152,8 +152,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.caps import lock_tenant_spend_state, recompute_capped
+from apps.api.compliance.audit import write_audit
+from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.reliability.service import enqueue_outbox
 
@@ -607,6 +610,82 @@ async def start_trial(
     return _state(row)
 
 
+async def start_new_account_trial(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    actor: Principal | None,
+    ip: str | None,
+    reason: str,
+) -> TrialState:
+    """The trial every new account starts with, signed up or invited (D-703, D-853), on
+    the console's terms, and its audit row. Called inside the account's birth transaction,
+    so no new account exists without its trial.
+
+    `started_by` stays NULL: it names an operator who chose terms, and nobody chose these.
+    An operator's own trial later replaces this one (`replace_open_trial`)."""
+    settings = get_settings()
+    trial = await start_trial(
+        session,
+        tenant_id=tenant_id,
+        days=settings.self_serve_trial_days,
+        actor_user_id=None,
+        free_minutes=settings.self_serve_trial_free_minutes,
+    )
+    await write_audit(
+        session,
+        action="trial.started",
+        actor=actor,
+        actor_type=None if actor is not None else "user",
+        tenant_id=tenant_id,
+        object_type="tenant_trials",
+        object_id=str(trial.id),
+        ip=ip,
+        summary={
+            "days": str(settings.self_serve_trial_days),
+            "free_minutes": str(settings.self_serve_trial_free_minutes),
+            "reason": reason,
+        },
+    )
+    return trial
+
+
+#: The `ended_reason` of a trial an operator's own trial replaced (D-853).
+REPLACED_REASON: Final = "Replaced by the trial Calevate set for this account."
+
+
+async def replace_open_trial(
+    session: AsyncSession, *, tenant_id: UUID, at: datetime | None = None
+) -> TrialState | None:
+    """Close this tenant's open trial so an operator's trial can replace it (D-853), and
+    return what it was; None when no trial is open. Does not commit: the caller starts the
+    replacement in the same transaction, so the account is never between trials.
+
+    Not `end_trial`, because a replaced trial did not end in any of its three ways: it is
+    recorded `stopped` with `REPLACED_REASON` and NO erasure date, since the client is
+    still on a trial and the replacement carries its own. The counting period restarts at
+    the replacement's start, as at any trial boundary (`counter_epoch`), so the live
+    counters are zeroed here as `end_trial` zeroes them."""
+    now = at or datetime.now(UTC)
+    await _lock_tenant_trial(session, tenant_id)
+    trial = await read_trial(session, tenant_id=tenant_id)
+    if trial is None or trial.status != TRIAL_ACTIVE:
+        return None
+    await session.execute(
+        text(
+            "UPDATE tenant_trials SET status = :status, ended_at = :at, ended_reason = :why, "
+            "erase_after = NULL, updated_at = :at WHERE id = :id AND status = 'active'"
+        ),
+        {"status": TRIAL_STOPPED, "at": now, "why": REPLACED_REASON, "id": trial.id},
+    )
+    await reset_client_counters(session, tenant_id=tenant_id)
+    log.info(
+        "trial_replaced",
+        extra={"tenant_id": str(tenant_id), "trial_id": str(trial.id)},
+    )
+    return trial
+
+
 async def end_trial(
     session: AsyncSession,
     *,
@@ -808,6 +887,7 @@ __all__ = [
     "MIN_TRIAL_DAYS",
     "ON_TRIAL_ROW_SQL",
     "PAID_REASON",
+    "REPLACED_REASON",
     "TRIAL_ACTIVE",
     "TRIAL_CONVERTED",
     "TRIAL_EXPIRED",
@@ -819,7 +899,9 @@ __all__ = [
     "mark_erasure_filed",
     "minutes_of",
     "read_trial",
+    "replace_open_trial",
     "reset_client_counters",
+    "start_new_account_trial",
     "start_trial",
     "trial_billing_active",
     "trial_calls_since",

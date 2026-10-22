@@ -17,7 +17,6 @@ from contextlib import contextmanager
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.agents.engine_facts import FACTS_TITLE
 from apps.api.agents.engine_limits import refuse_over_engine_limits
@@ -39,7 +38,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
 )
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.workspace_support import give_own_workspace
 
 FACTS = f"{T0_HEADER}\nHours: mon 09:30-18:00; sun closed\nService: Root canal - Rs 8000"
@@ -204,7 +203,7 @@ def _priced_and_no_webhook(monkeypatch: pytest.MonkeyPatch) -> None:
 
 async def _agent(script: str) -> tuple[uuid.UUID, uuid.UUID]:
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Facts Clinic",
         slug=f"fct-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

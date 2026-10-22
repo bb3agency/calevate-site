@@ -29,7 +29,6 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import service as agents_service
 from apps.api.agents.models import series_for_e164
 from apps.api.campaigns import service as campaigns_service
@@ -47,6 +46,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.smoke_pipeline_test import _seed_tenant
 
 SUBJECT = "+919000000123"
@@ -54,7 +54,7 @@ EVIDENCE = {"form": "enquiry-v1", "notice_version": "2026-01"}
 
 
 async def _tenant(prefix: str) -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Consent Chain Motors",
         slug=f"cc-{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

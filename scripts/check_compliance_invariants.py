@@ -78,6 +78,12 @@ what actually exists, never against a list of the paths we happen to remember:
      dispatcher's refusal would be two gates disagreeing in front of a client" — and it is
      the shape a widening actually takes, because nobody edits both files at once.
 
+   A FREE-TRIAL TEST CALL is the one explicit exception (D-853): the dial gate asked with
+   `trial_call=True` must admit EXACTLY the active state plus the ready state, the one
+   `lifecycle.prepare_agent` moves to (read off `AGENT_MOVERS`, not named here). A trial
+   arm that admits a draft or a retired agent, or that the ready state has drifted away
+   from, fails like a widened live gate.
+
    NO STATE NAME IS WRITTEN DOWN HERE, deliberately: the check is about the SHAPE of the
    allow-list, not about the word `live`, so a renamed state passes and a widened gate
    fails. And because the vocabulary comes from the type rather than from a list, a FIFTH
@@ -163,6 +169,7 @@ import re
 import sys
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, text
@@ -364,9 +371,14 @@ class GateRegistry:
     agent_statuses: frozenset[str]
     dial_status_refusal: Callable[[str], tuple[str, str] | None]
     launch_status_refusal: Callable[[str], object | None]
+    #: D-853. The dial gate as a free-trial test call asks it, and the state it may add:
+    #: the target of the lifecycle's `prepare` move, read off the table.
+    trial_dial_status_refusal: Callable[[str], tuple[str, str] | None]
+    ready_status: str
 
 
 def gate_registry() -> GateRegistry:
+    from apps.api.agents.lifecycle import AGENT_MOVERS
     from apps.api.agents.models import AGENT_STATUSES
     from apps.api.agents.service import dispatch_call
     from apps.api.campaigns.service import (
@@ -438,6 +450,8 @@ def gate_registry() -> GateRegistry:
         agent_statuses=frozenset(AGENT_STATUSES),
         dial_status_refusal=dial_refusal_for_agent_status,
         launch_status_refusal=launch_refusal_for_agent_status,
+        trial_dial_status_refusal=partial(dial_refusal_for_agent_status, trial_call=True),
+        ready_status=AGENT_MOVERS["prepare"][1],
     )
 
 
@@ -790,6 +804,18 @@ def dialable_lifecycle_states(registry: GateRegistry | None = None) -> list[str]
             "contact by contact, or (worse) dial an agent the launch screen would have "
             "stopped. Fix `dial_refusal_for_agent_status` / "
             "`launch_refusal_for_agent_status` so they agree about every state"
+        )
+    trial_dialable = sorted(
+        status for status in live.agent_statuses if live.trial_dial_status_refusal(status) is None
+    )
+    expected = sorted({*dialable, live.ready_status} & live.agent_statuses)
+    if trial_dialable != expected or live.ready_status in dialable:
+        failures.append(
+            f"a free-trial test call admits {trial_dialable}; D-853 admits exactly the "
+            f"active state and the ready state ({expected}). Anything more puts a draft "
+            "or retired agent on the phone; anything less, or a ready state the live gate "
+            "also admits, means the trial exception and the lifecycle have drifted. Fix "
+            "`dial_refusal_for_agent_status`'s `trial_call` arm"
         )
     return failures
 
@@ -1640,7 +1666,8 @@ def main() -> int:
         f"home their declared agent hosting gives it, {len(SCHEMA_INVARIANTS)} schema "
         "invariants verified against "
         f"pg_catalog, 1 of {len(gate_registry().agent_statuses)} agent lifecycle states "
-        f"dialable and both gates agreeing on which, {len(AGENT_STATE_WRITERS)} registered "
+        "dialable and both gates agreeing on which, plus the ready state for a trial test "
+        f"call, {len(AGENT_STATE_WRITERS)} registered "
         "writers of an agent's existence or status)"
     )
     return 0

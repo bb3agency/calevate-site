@@ -14,7 +14,6 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
-from apps.api.admin import service as admin_service
 from apps.api.billing import payments
 from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
 from apps.api.billing.credit_routes import (
@@ -30,6 +29,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.credit_lots_helpers import lot_rows
 
 
@@ -77,7 +77,7 @@ async def _make_admin() -> str:
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Lot Routes Clinic",
         slug=f"lotr-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

@@ -33,7 +33,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle, prompts
 from apps.api.agents import service as agents_service
 from apps.api.core.errors import ProblemError
@@ -43,7 +42,7 @@ from apps.api.engine.fake import FakeEngine
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 NUMBER_AGENT = "/v1/admin/tenants/{tenant_id}/numbers/{number_id}/agent"
 
@@ -69,7 +68,7 @@ def _alerts(caplog: pytest.LogCaptureFixture) -> list[str]:
 
 async def _tenant(name: str = "Attach Clinic") -> tuple[uuid.UUID, uuid.UUID, str]:
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=name,
         slug=f"attach-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

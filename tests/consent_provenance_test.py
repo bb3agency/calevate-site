@@ -32,13 +32,17 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import service
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
-from tests.conftest import accept_agreements, bind_number_for_tests, fund_wallet
+from tests.conftest import (
+    accept_agreements,
+    bind_number_for_tests,
+    create_org_with_receptionist,
+    fund_wallet,
+)
 from tests.national_dnd_test import record_test_scrub
 
 pytestmark = [pytest.mark.rls]
@@ -47,7 +51,7 @@ COLLECTED_AT = datetime(2026, 5, 1, 9, 0, tzinfo=UTC)
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Provenance Motors",
         slug=f"prov-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

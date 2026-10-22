@@ -17,7 +17,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import auto_recharge, auto_recharge_routes, payments
 from apps.api.billing.payment_objects import MANDATE, record_route, route_for
 from apps.api.billing.razorpay_api import MANDATE_MAX_DEBIT_INR, ProviderPayment
@@ -29,6 +28,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import Request
 from pydantic import ValidationError
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -52,7 +52,7 @@ def _id(prefix: str) -> str:
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Recharge Clinic",
         slug=f"ar-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

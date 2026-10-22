@@ -17,7 +17,6 @@ from typing import Any, cast
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import assist_leg, lifecycle, test_conversations
 from apps.api.agents.llm_models import install_dashboard_data_use_reader
 from apps.api.agents.service import AgentRow, in_call_model
@@ -30,6 +29,7 @@ from apps.workers import agent_test_conversations as worker
 from apps.workers.extraction import TenantModelLeg
 from calevate_shared.engine import COPILOT_FAST_MODEL_DEFAULT
 from scripts import judge_calibration as calibration
+from tests.conftest import create_org_with_receptionist
 from tests.hosted_voice_fakes import HostingEngine
 
 
@@ -104,7 +104,7 @@ def test_the_judge_is_told_the_platform_rules_are_not_its_to_judge() -> None:
 
 
 async def test_a_brief_reads_the_engines_recording_fact(monkeypatch: pytest.MonkeyPatch) -> None:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Judge Test",
         slug=f"tests-{uuid.uuid4().hex[:8]}",
         vertical_template="retail",

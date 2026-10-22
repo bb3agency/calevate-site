@@ -13,13 +13,13 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.invoice import build_invoice
 from apps.api.billing.service import overage_rungs, tier_usage, to_paise, usage_summary
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 _TWO_DECIMALS = re.compile(r"\.\d{2}$")
 
@@ -32,7 +32,7 @@ async def _tenant_with_usage(
     included_min: int = 100,
     overage_rate: str = "8.0000",
 ) -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Invoice Clinic",
         slug=f"inv-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -102,7 +102,7 @@ async def _tenant_with_two_rungs(
     conversion: `telephony_s` is what the pipeline writes and `qty / 60` is where a
     minute count acquires a fraction of a paisa.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Two Rung Clinic",
         slug=f"rung-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

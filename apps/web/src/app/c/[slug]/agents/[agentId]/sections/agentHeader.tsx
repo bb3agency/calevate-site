@@ -8,6 +8,9 @@
  *   on the calling system, and is refused with the server's reason while there is no
  *   script or the agreements are outstanding); off is `POST .../deactivate`. No confirm
  *   step: the consequence is in the ⓘ beside it, and switching back is the same switch.
+ *   On a free trial an agent that only answers calls cannot take them, so its switch is
+ *   shown locked with the server's sentence under the header rather than offered to fail
+ *   (D-853).
  * - **Get it ready** (a draft only) publishes it without taking calls, so the chat can try it
  *   (D-838); a refused move shows its reason, with setup links when it is missing facts.
  * - **Try it** opens the Training tab, where the chat and the practice call are (D-825),
@@ -35,6 +38,7 @@ import { useAgentLifecycle, type Agent, type LifecycleMove } from "@/lib/api/age
 import { useWriteAccess } from "@/lib/api/hooks";
 import { usePendingChanges } from "@/lib/api/publishing";
 import { useScript, useUndoScript } from "@/lib/api/script";
+import { useTrialPanel } from "@/lib/api/trialCalls";
 import { type Spend, useSpend } from "@/lib/api/spend";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -69,6 +73,11 @@ export function AgentHeader({
 
   const live = liveState(agent);
   const moves = movesFor(agent.status);
+  // Read only where a trial could lock the switch: an answer-only agent that is off.
+  const couldLock = !deleted && agent.direction === "inbound" && moves.includes("activate");
+  const trial = useTrialPanel(session, couldLock);
+  const answeringLocked =
+    couldLock && trial.data?.on_trial ? (trial.data.answering_locked_reason ?? null) : null;
   const staged = pending.data ? stagedScript(pending.data) : undefined;
   const base = `/c/${slug}/agents/${agent.id}`;
   // Guarded by the layout when the header is drawn inside it; a plain link otherwise.
@@ -128,7 +137,7 @@ export function AgentHeader({
             {restoreButton}
             {!deleted && (
               <>
-                <OnOffSwitch agent={agent} canWrite={write.allowed} move={move} />
+                <OnOffSwitch agent={agent} canWrite={write.allowed} locked={answeringLocked !== null} move={move} />
                 {moves.includes("prepare") && (
                   <button
                     type="button"
@@ -159,6 +168,7 @@ export function AgentHeader({
         }
       />
       <RestrictionNote reason={write.reason} />
+      <RestrictionNote reason={answeringLocked} />
       <LifecycleError error={move.error} />
       {undo.error && <ProblemNotice error={undo.error} />}
     </div>
@@ -168,10 +178,13 @@ export function AgentHeader({
 function OnOffSwitch({
   agent,
   canWrite,
+  locked,
   move,
 }: {
   agent: Agent;
   canWrite: boolean;
+  /** Switching it on would be refused (a trial account's answer-only agent). */
+  locked: boolean;
   move: ReturnType<typeof useAgentLifecycle>;
 }) {
   const moves = movesFor(agent.status);
@@ -188,7 +201,7 @@ function OnOffSwitch({
         className="touch:min-h-11 flex items-center px-1"
         label={busy ? MOVE_COPY[next ?? "activate"].busy : "Taking calls"}
         checked={on}
-        disabled={!canWrite || next === null || move.isPending}
+        disabled={!canWrite || locked || next === null || move.isPending}
         onChange={() => {
           if (next !== null) move.mutate(next);
         }}

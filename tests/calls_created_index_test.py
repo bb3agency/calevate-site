@@ -13,19 +13,19 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from apps.api.admin import service as admin_service
 from apps.api.core.settings import Settings
 from apps.api.crm.attention import failed_calls
 from apps.api.crm.performance import performance
 from apps.api.db.session import get_engine, tenant_session
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import create_async_engine
+from tests.conftest import create_org_with_receptionist
 
 INDEX = "ix_calls_tenant_created"
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Created At Motors",
         slug=f"created-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

@@ -28,7 +28,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.admin_security_test import _make_admin
-from tests.conftest import accept_agreements
+from tests.conftest import create_org_with_receptionist
 from tests.kb_workflow_test import _tenant_with_published_agent
 
 
@@ -53,30 +53,27 @@ async def _org_exists(slug: str) -> bool:
 # --------------------------------------------------------------------------------
 
 
-async def test_a_wizard_failure_after_the_agent_leaves_no_tenant_behind(
+async def test_a_wizard_failure_mid_birth_leaves_no_tenant_behind(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The headline property of FLOWS §1: org created + agent created + extraction
-    schema NOT created must roll back to nothing.
+    """The headline property of FLOWS §1: a failure after the organization and its
+    retention rows are written must roll back to nothing, and free the slug for the retry.
 
-    A tenant with an agent and no schema produces leads with no columns, and the
-    post-call pipeline would happily process calls for it — worse than no tenant.
-    The injection point is `_json`, which is evaluated while building the
-    `extraction_schemas` INSERT, i.e. after the organization and agent rows exist.
+    The injection point is the business-copy job, queued after those rows inside the birth
+    transaction.
     """
     slug = _run_slug("atomic")
 
-    def _boom(value: object) -> str:
+    async def _boom(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("engine of failure, halfway through the wizard")
 
-    monkeypatch.setattr(admin_service, "_json", _boom)
+    monkeypatch.setattr(admin_service, "queue_generation", _boom)
     with pytest.raises(RuntimeError):
         await admin_service.create_organization(
             name="Atomic Clinic",
             slug=slug,
             vertical_template="clinic",
             billing_email=None,
-            language="te-IN",
             created_by=None,
         )
 
@@ -89,57 +86,35 @@ async def test_a_wizard_failure_after_the_agent_leaves_no_tenant_behind(
         slug=slug,
         vertical_template="clinic",
         billing_email=None,
-        language="te-IN",
         created_by=None,
     )
-    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
-    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
-    # publish gate now refuses an organisation that has not accepted them, so a fixture
-    # without this reports `agreements_not_accepted` in place of the answer under test.
-    await accept_agreements(uuid.UUID(str(created["id"])))
     assert created["slug"] == slug
 
 
-async def test_a_created_tenant_is_complete_enough_to_take_a_call() -> None:
-    """Every part FLOWS §1 promises exists in the same transaction: retention floor,
-    a disclosure line, an extraction schema, and the agent POINTING at that schema.
-
-    The last one is the easy one to lose: an agent whose `extraction_schema_id` is
-    NULL looks configured and extracts nothing.
-    """
+async def test_a_created_tenant_has_its_retention_floor_and_no_agent() -> None:
+    """Every part FLOWS §1 promises at creation exists in the same transaction: the
+    retention floor from call one. No agent: the owner makes the first one (D-853)."""
     created = await admin_service.create_organization(
         name="Complete Clinic",
         slug=_run_slug("complete"),
         vertical_template="real_estate",
         billing_email=None,
-        language="te-IN",
         created_by=None,
     )
-    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
-    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
-    # publish gate now refuses an organisation that has not accepted them, so a fixture
-    # without this reports `agreements_not_accepted` in place of the answer under test.
-    await accept_agreements(uuid.UUID(str(created["id"])))
     async with tenant_session(created["id"]) as session:
-        agent = (
+        policies = (
             await session.execute(
-                text(
-                    "SELECT extraction_schema_id, disclosure_line, status FROM agents WHERE id = :a"
-                ),
-                {"a": created["agent_id"]},
-            )
-        ).first()
-        fields = (
-            await session.execute(
-                text("SELECT fields FROM extraction_schemas WHERE id = :s"),
-                {"s": created["extraction_schema_id"]},
+                text("SELECT count(*) FROM retention_policies WHERE tenant_id = :t"),
+                {"t": created["id"]},
             )
         ).scalar()
-    assert agent is not None
-    assert agent[0] == created["extraction_schema_id"], "the agent must point at its schema"
-    assert agent[1] and agent[1].strip(), "hard rule 5: a non-null disclosure line, always"
-    assert agent[2] == "draft", "nothing is client-visible until publish (FLOWS §1)"
-    assert fields, "the vertical template seeds the columns the CRM renders"
+        agents = (
+            await session.execute(
+                text("SELECT count(*) FROM agents WHERE tenant_id = :t"), {"t": created["id"]}
+            )
+        ).scalar()
+    assert int(policies or 0) >= 1
+    assert agents == 0
 
 
 async def test_a_slug_collision_that_beats_the_probe_is_a_conflict_not_a_crash(
@@ -153,7 +128,7 @@ async def test_a_slug_collision_that_beats_the_probe_is_a_conflict_not_a_crash(
     pages someone.
     """
     slug = _run_slug("race")
-    await admin_service.create_organization(
+    await create_org_with_receptionist(
         name="Race Clinic",
         slug=slug,
         vertical_template="clinic",
@@ -168,7 +143,7 @@ async def test_a_slug_collision_that_beats_the_probe_is_a_conflict_not_a_crash(
     # Exactly what a lost race looks like: the probe saw nothing, the index disagrees.
     monkeypatch.setattr(admin_service, "assert_slug_available", _lost_the_race)
     with pytest.raises(ProblemError) as exc:
-        await admin_service.create_organization(
+        await create_org_with_receptionist(
             name="Race Clinic Two",
             slug=slug,
             vertical_template="clinic",
@@ -278,7 +253,7 @@ def get_settings_obj() -> object:
 
 
 async def _org_for(prefix: str) -> dict[str, object]:
-    return await admin_service.create_organization(
+    return await create_org_with_receptionist(
         name=f"{prefix.title()} Clinic",
         slug=_run_slug(prefix),
         vertical_template="clinic",
