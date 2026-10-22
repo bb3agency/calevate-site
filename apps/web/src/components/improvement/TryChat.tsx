@@ -7,6 +7,7 @@ import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/component
 import { useTestConversations } from "@/lib/api/script";
 import { useClientSession } from "@/lib/api/session";
 import { useTryChat } from "@/lib/api/teach";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 type Turn = { from: "you" | "agent"; text: string; lookedUp?: boolean };
 
@@ -29,6 +30,7 @@ export function TryChat({
   headingLevel?: 2 | 3;
 }) {
   const session = useClientSession();
+  const eg = useVerticalExamples();
   const send = useTryChat(session, agentId);
   /* The same readiness the saved tests read: the chat talks to the agent the engine holds,
      so until it has been published there is nothing to talk to, and the server says why. */
@@ -156,7 +158,7 @@ export function TryChat({
             maxLength={1000}
             onChange={(event) => setMessage(event.target.value)}
             disabled={!canWrite}
-            placeholder="Do you have red chilli powder?"
+            placeholder={eg.factQuestion}
             className={`${FIELD} mt-0`}
           />
           <button

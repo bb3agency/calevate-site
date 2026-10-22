@@ -80,6 +80,7 @@ from apps.api.tenancy.business_copy import (
     StopReason,
     Trigger,
     copy_problems,
+    missing_placeholders,
 )
 from apps.api.tenancy.models import BUSINESS_COPY_TRIGGERS
 from apps.workers.fleet_walk import WalkBudget
@@ -99,7 +100,7 @@ JOB_NAME: Final = "generate_business_copy"
 
 #: Bumped when the instruction or the shape changes, so the next scheduled check rewrites
 #: copy written under the old one.
-PROMPT_VERSION: Final = 1
+PROMPT_VERSION: Final = 2
 
 #: The description handed to the model, in characters.
 MAX_INPUT_CHARS: Final = 9000
@@ -139,6 +140,30 @@ PLACEHOLDER_MEANINGS: Final[dict[str, str]] = {
     "lead_search": "what a caller asked for, as the owner would search for it",
     "booking_job_title": "the name of the booking job, 2 to 4 words, like 'Take bookings'",
     "booking_job_line": "one line saying the agent can check the calendar and book callers",
+    "teach_note": (
+        "two or three short sentences the owner types to teach the agents: a price, where "
+        "or when they serve, and one thing never to promise"
+    ),
+    "business_line": "the business in one line, lower case, like 'a family-run bakery in Guntur'",
+    "agent_role": "two sentences in the second person telling the agent its role on the phone",
+    "call_goal": "one sentence: what a good call achieves for this business",
+    "outbound_purpose": "one sentence the agent says to explain why it is calling a past enquirer",
+    "call_ending": "one sentence: how the agent should end a call",
+    "pronounce_word": "a product, place or person name callers of this business say",
+    "pronounce_say_as": "how to say that name aloud, in hyphenated syllables",
+    "script_change": "one change the owner might ask for in the agent's script",
+    "script_change_idea": "another such change, under eight words, starting with a verb",
+    "fact_question": "a short question callers ask that has a one-line answer",
+    "fact_answer": "the one-line answer to that question, as the agent should give it",
+    "test_expectation": "what the agent should have done on a call that went wrong, as an order",
+    "campaign_name": "the name of an outbound calling campaign, 2 to 5 words",
+    "message_title": "what a WhatsApp message to customers is for, 2 to 4 words",
+    "message_body": (
+        "that WhatsApp message, one sentence with {{1}} where the customer's name goes, "
+        "never at its start or end"
+    ),
+    "outcome_label": "how one kind of call ended, as a short label, like 'Wants to go ahead'",
+    "outcome_meaning": "one sentence saying what that outcome means",
 }
 
 _STR: Final[dict[str, object]] = {"type": "string"}
@@ -269,7 +294,8 @@ def parse_answer(raw: dict[str, Any], *, inputs: Inputs) -> GeneratedCopy:
             for error in invalid.errors(include_input=False, include_url=False)
         ]
         raise _unusable(problems) from None
-    problems = copy_problems(copy, clinic=inputs.clinic, language=inputs.language)
+    problems = [f"placeholders.{key}: missing" for key in missing_placeholders(copy.placeholders)]
+    problems += copy_problems(copy, clinic=inputs.clinic, language=inputs.language)
     for job, count in inputs.starter_counts.items():
         given = len(getattr(copy.starter_lines, job))
         if given != count:

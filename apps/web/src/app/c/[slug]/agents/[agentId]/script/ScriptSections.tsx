@@ -42,8 +42,21 @@ import type {
   ScriptPolicies,
   SpeakingStyle,
 } from "@/lib/api/script";
+import type { VerticalExamples } from "@/lib/verticalExamples";
 
 import { RoomCounter, roomLabel } from "../../panels/openingLineFix";
+
+/** The account's own examples these parts show as placeholders (`useVerticalExamples`, D-827). */
+export type ScriptExamples = Pick<
+  VerticalExamples,
+  | "businessLine"
+  | "agentRole"
+  | "callGoal"
+  | "outboundPurpose"
+  | "callEnding"
+  | "pronounceWord"
+  | "pronounceSayAs"
+>;
 
 /** The two text controls a merge field can be inserted into. */
 export type Focusable = HTMLInputElement | HTMLTextAreaElement;
@@ -209,10 +222,12 @@ type SetField = <K extends keyof CallScript>(key: K, value: CallScript[K]) => vo
 export function IdentitySection({
   script,
   set,
+  eg,
   trackFocus,
 }: {
   script: CallScript;
   set: SetField;
+  eg: ScriptExamples;
   trackFocus: Track;
 }) {
   return (
@@ -221,7 +236,7 @@ export function IdentitySection({
         id="business-line"
         label="Your business in one line"
         hint="Up to 200 letters."
-        placeholder="For example: an organic produce shop in Kukatpally"
+        placeholder={`For example: ${eg.businessLine}`}
         rows={1}
         maxLength={200}
         value={script.business_line}
@@ -232,7 +247,7 @@ export function IdentitySection({
         id="identity-text"
         label="Its role"
         value={script.identity}
-        placeholder="For example: You answer the phone for the shop. You help callers find what they need and take their order."
+        placeholder={`For example: ${eg.agentRole}`}
         onChange={(v) => set("identity", v)}
         trackFocus={trackFocus}
       />
@@ -244,11 +259,13 @@ export function GoalSection({
   script,
   set,
   direction,
+  eg,
   trackFocus,
 }: {
   script: CallScript;
   set: SetField;
   direction: string;
+  eg: ScriptExamples;
   trackFocus: Track;
 }) {
   const calls = direction === "outbound" || direction === "both";
@@ -258,7 +275,7 @@ export function GoalSection({
         id="goal-text"
         label="The goal"
         value={script.goal}
-        placeholder="For example: Answer their question and, if they want to buy, take the order and the delivery area."
+        placeholder={`For example: ${eg.callGoal}`}
         onChange={(v) => set("goal", v)}
         trackFocus={trackFocus}
       />
@@ -270,7 +287,7 @@ export function GoalSection({
           rows={1}
           maxLength={300}
           value={script.outbound_purpose}
-          placeholder="For example: You asked about our cold-pressed oils last week, so I am calling to help you order."
+          placeholder={`For example: ${eg.outboundPurpose}`}
           onChange={(v) => set("outbound_purpose", v)}
           trackFocus={trackFocus}
         />
@@ -332,11 +349,13 @@ export function StyleSection({
   style,
   onChange,
   context,
+  eg,
   trackFocus,
 }: {
   style: SpeakingStyle;
   onChange: (style: SpeakingStyle) => void;
   context: ScriptContext | null;
+  eg: ScriptExamples;
   trackFocus: Track;
 }) {
   const patch = (next: Partial<SpeakingStyle>) => onChange({ ...style, ...next });
@@ -418,7 +437,7 @@ export function StyleSection({
                   className={`${FIELD} mt-0`}
                   aria-label={`Word ${i + 1}`}
                   value={word.word}
-                  placeholder="Kukatpally"
+                  placeholder={eg.pronounceWord}
                   onFocus={(e) => trackFocus(e.currentTarget)}
                   onChange={(e) =>
                     setWords(style.pronunciations.map((w, j) => (j === i ? { ...w, word: e.target.value } : w)))
@@ -428,7 +447,7 @@ export function StyleSection({
                   className={`${FIELD} mt-0`}
                   aria-label={`Say word ${i + 1} as`}
                   value={word.say_as}
-                  placeholder="Koo-kut-pul-lee"
+                  placeholder={eg.pronounceSayAs}
                   onFocus={(e) => trackFocus(e.currentTarget)}
                   onChange={(e) =>
                     setWords(style.pronunciations.map((w, j) => (j === i ? { ...w, say_as: e.target.value } : w)))
@@ -557,10 +576,12 @@ export function PoliciesSection({
 export function EndingSection({
   value,
   onChange,
+  eg,
   trackFocus,
 }: {
   value: string;
   onChange: (v: string) => void;
+  eg: ScriptExamples;
   trackFocus: Track;
 }) {
   return (
@@ -569,7 +590,7 @@ export function EndingSection({
         id="ending-text"
         label="Ending"
         value={value}
-        placeholder="For example: Confirm the order and the delivery area, thank them by name and say goodbye."
+        placeholder={`For example: ${eg.callEnding}`}
         onChange={onChange}
         trackFocus={trackFocus}
       />

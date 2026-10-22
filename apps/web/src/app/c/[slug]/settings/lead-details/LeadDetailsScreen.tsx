@@ -103,6 +103,7 @@ export function LeadDetailsScreen() {
             canWrite={write.allowed}
             save={saveOutcomes}
             draft={draftOutcomes}
+            examples={eg}
           />
         )}
       </div>

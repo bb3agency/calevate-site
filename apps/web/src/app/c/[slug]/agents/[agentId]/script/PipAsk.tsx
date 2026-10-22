@@ -20,13 +20,14 @@ import { useActAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { openAssistant } from "@/lib/copilot/launcher";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
-/** Example changes, kept from the helper this replaced; each prefills Pip as written. */
+/** Example changes any business might ask for; each prefills Pip as written. The account's
+ * own idea (`scriptChangeIdea`, D-827) is offered after them. */
 export const IDEAS = [
   "Handle callers who say the price is too high",
   "Make the opening line warmer and shorter",
   "Sound more like people talk here",
-  "Ask for the delivery area before taking the order",
 ];
 
 /** What Pip is asked, in the words the owner sees in its ask box. */
@@ -42,6 +43,8 @@ export function PipAsk({ handWritten }: { handWritten: boolean }) {
   // Asking Pip spends the account's AI allowance, which a view-as operator may not.
   const write = useActAccess(session, "org:manage", "billing.ai_assist", `ask ${ASSISTANT_NAME} to change this script`);
   const [change, setChange] = useState("");
+  const eg = useVerticalExamples();
+  const ideas = IDEAS.includes(eg.scriptChangeIdea) ? IDEAS : [...IDEAS, eg.scriptChangeIdea];
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -76,7 +79,7 @@ export function PipAsk({ handWritten }: { handWritten: boolean }) {
               maxLength={600}
               disabled={!write.allowed}
               value={change}
-              placeholder="When someone asks for a discount, offer free delivery instead"
+              placeholder={eg.scriptChange}
               onChange={(e) => setChange(e.target.value)}
             />
             <button type="submit" className={SECONDARY_BUTTON} disabled={!write.allowed || change.trim().length === 0}>
@@ -86,7 +89,7 @@ export function PipAsk({ handWritten }: { handWritten: boolean }) {
           <div className="space-y-1.5">
             <p className="text-meta text-ink-muted">Or tap one:</p>
             <ul className="flex flex-wrap gap-1.5" aria-label="Ideas">
-              {IDEAS.map((idea) => (
+              {ideas.map((idea) => (
                 <li key={idea}>
                   <AskAssistant variant="chip" prompt={changeRequest(idea)} label={idea} disabled={!write.allowed} />
                 </li>

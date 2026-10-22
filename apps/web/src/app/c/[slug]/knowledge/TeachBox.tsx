@@ -23,6 +23,7 @@ import { useClientSession } from "@/lib/api/session";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { openAssistant } from "@/lib/copilot/launcher";
 import { lookup } from "@/lib/lookup";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import {
   isTeachingBusy,
   useDiscardTeaching,
@@ -81,6 +82,7 @@ export function TeachBox({
   headingLevel?: 2 | 3;
 }) {
   const session = useClientSession();
+  const eg = useVerticalExamples();
   const hear = useHearVoiceNote(session);
   const discardHeard = useDiscardTeaching(session);
   const open = useOpenTeaching(session);
@@ -179,10 +181,7 @@ export function TeachBox({
             value={words}
             onChange={(event) => setWords(event.target.value)}
             disabled={!allowed || listening}
-            placeholder={
-              "For example: Red chilli powder is ₹120 for 250 g. We deliver in Kukatpally " +
-              "and Miyapur. Never promise same-day delivery."
-            }
+            placeholder={`For example: ${eg.teachNote}`}
             className={`${FIELD} mt-0`}
           />
           {valid.error("teach")}

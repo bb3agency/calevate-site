@@ -24,6 +24,7 @@ import { Disclosure } from "@/components/ui";
 import { TEXT_ACTION } from "@/components/console/section";
 import type { CallScript, ScriptContext } from "@/lib/api/script";
 import { lookup } from "@/lib/lookup";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 import {
   EndingSection,
@@ -107,6 +108,7 @@ export function ScriptParts({
   trackFocus: (el: Focusable | null) => void;
 }) {
   const said = partSummaries(script, context);
+  const eg = useVerticalExamples();
   const toFinish = (id: string) => {
     const owns = lookup(PART_ISSUES, id);
     return owns ? issues.filter((i) => i.section === null && owns(i.field)).length : 0;
@@ -141,16 +143,28 @@ export function ScriptParts({
         About the agent
       </h3>
       <div className="border-y border-line">
-        {row("identity", "Who it is", <IdentitySection script={script} set={setField} trackFocus={trackFocus} />)}
+        {row("identity", "Who it is", <IdentitySection script={script} set={setField} eg={eg} trackFocus={trackFocus} />)}
         {row(
           "goal",
           "What a good call achieves",
-          <GoalSection script={script} set={setField} direction={context?.direction ?? "inbound"} trackFocus={trackFocus} />,
+          <GoalSection
+            script={script}
+            set={setField}
+            direction={context?.direction ?? "inbound"}
+            eg={eg}
+            trackFocus={trackFocus}
+          />,
         )}
         {row(
           "style",
           "How it speaks",
-          <StyleSection style={script.style} onChange={(v) => setField("style", v)} context={context} trackFocus={trackFocus} />,
+          <StyleSection
+            style={script.style}
+            onChange={(v) => setField("style", v)}
+            context={context}
+            eg={eg}
+            trackFocus={trackFocus}
+          />,
         )}
         {row(
           "objections",
@@ -162,7 +176,7 @@ export function ScriptParts({
           "What it may do",
           <PoliciesSection policies={script.policies} onChange={(v) => setField("policies", v)} context={context} />,
         )}
-        {row("ending", "How it ends the call", <EndingSection value={script.ending} onChange={(v) => setField("ending", v)} trackFocus={trackFocus} />)}
+        {row("ending", "How it ends the call", <EndingSection value={script.ending} onChange={(v) => setField("ending", v)} eg={eg} trackFocus={trackFocus} />)}
         {row(
           "example",
           "An example call",

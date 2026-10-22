@@ -30752,6 +30752,19 @@
         "additionalProperties": false,
         "description": "The per-trade table's keys (`verticalExamples.ts`), in snake case, for this business.\n\n`orgName` and `orgSlug` are not here: they are shown only while an operator creates an\naccount, before there is a business to write them for.",
         "properties": {
+          "agent_role": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Role"
+          },
           "ask_on_arrival": {
             "maxLength": 80,
             "minLength": 1,
@@ -30781,6 +30794,58 @@
             "minLength": 1,
             "title": "Branch Label",
             "type": "string"
+          },
+          "business_line": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Line"
+          },
+          "call_ending": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Ending"
+          },
+          "call_goal": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Goal"
+          },
+          "campaign_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Name"
           },
           "contact_name": {
             "maxLength": 80,
@@ -30812,6 +30877,32 @@
             "title": "Extraction Reason",
             "type": "string"
           },
+          "fact_answer": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fact Answer"
+          },
+          "fact_question": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fact Question"
+          },
           "faq_question": {
             "maxLength": 160,
             "minLength": 1,
@@ -30836,11 +30927,128 @@
             "title": "Lead Search",
             "type": "string"
           },
+          "message_body": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Body"
+          },
+          "message_title": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Title"
+          },
+          "outbound_purpose": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outbound Purpose"
+          },
+          "outcome_label": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Label"
+          },
+          "outcome_meaning": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Meaning"
+          },
+          "pronounce_say_as": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pronounce Say As"
+          },
+          "pronounce_word": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pronounce Word"
+          },
           "script_brief": {
             "maxLength": 300,
             "minLength": 1,
             "title": "Script Brief",
             "type": "string"
+          },
+          "script_change": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Script Change"
+          },
+          "script_change_idea": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Script Change Idea"
           },
           "service_name": {
             "maxLength": 80,
@@ -30882,6 +31090,32 @@
             "minLength": 1,
             "title": "Staff Why It Matters",
             "type": "string"
+          },
+          "teach_note": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Teach Note"
+          },
+          "test_expectation": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Expectation"
           }
         },
         "required": [

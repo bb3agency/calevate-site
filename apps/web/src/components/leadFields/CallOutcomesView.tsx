@@ -33,6 +33,9 @@ import type {
   LeadMove,
 } from "@/lib/api/callOutcomes";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
+import { examplesFor, type VerticalExamples } from "@/lib/verticalExamples";
+
+type OutcomeExamples = Pick<VerticalExamples, "outcomeLabel" | "outcomeMeaning">;
 
 /** How far a call moves the lead, in the owner's words. Never Won or Lost: those are a person's. */
 export const LEAD_MOVE_WORDS: Readonly<Record<LeadMove, string>> = {
@@ -109,11 +112,14 @@ export function CallOutcomesView({
   canWrite,
   save,
   draft,
+  examples = examplesFor(null),
 }: {
   data: CallOutcomes;
   canWrite: boolean;
   save: UseMutationResult<CallOutcomesAgent, Error, { agentId: string; outcomes: CallOutcomeIn[] }>;
   draft: DraftOutcomes;
+  /** The account's own examples (`useVerticalExamples`, D-827); trade-neutral without them. */
+  examples?: OutcomeExamples;
 }) {
   const [selected, setSelected] = useState<string>(data.agents[0]?.id ?? "");
   const agent = data.agents.find((each) => each.id === selected) ?? data.agents[0];
@@ -140,6 +146,7 @@ export function CallOutcomesView({
             canWrite={canWrite}
             save={save}
             draft={draft}
+            examples={examples}
           />
         </div>
       )}
@@ -153,12 +160,14 @@ function OutcomesEditor({
   canWrite,
   save,
   draft,
+  examples,
 }: {
   agent: CallOutcomesAgent;
   max: number;
   canWrite: boolean;
   save: UseMutationResult<CallOutcomesAgent, Error, { agentId: string; outcomes: CallOutcomeIn[] }>;
   draft: DraftOutcomes;
+  examples: OutcomeExamples;
 }) {
   const [rows, setRows] = useState<OutcomeRow[]>(() => toRows(agent));
   const validation = useFormValidation();
@@ -241,7 +250,7 @@ function OutcomesEditor({
                         value={row.label}
                         disabled={disabled}
                         onChange={(event) => patch(row.uid, { label: event.target.value })}
-                        placeholder="e.g. Wants to buy"
+                        placeholder={`e.g. ${examples.outcomeLabel}`}
                         className={FIELD}
                       />
                     </label>
@@ -270,7 +279,7 @@ function OutcomesEditor({
                     value={row.meaning}
                     disabled={disabled}
                     onChange={(event) => patch(row.uid, { meaning: event.target.value })}
-                    placeholder="e.g. The caller wants to order something we sell."
+                    placeholder={`e.g. ${examples.outcomeMeaning}`}
                     className={FIELD}
                   />
                 </label>

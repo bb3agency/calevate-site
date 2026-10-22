@@ -22793,6 +22793,8 @@ export interface components {
          *     account, before there is a business to write them for.
          */
         Placeholders: {
+            /** Agent Role */
+            agent_role?: string | null;
             /** Ask On Arrival */
             ask_on_arrival: string;
             /** Booking Job Line */
@@ -22803,6 +22805,14 @@ export interface components {
             booking_rules: string;
             /** Branch Label */
             branch_label: string;
+            /** Business Line */
+            business_line?: string | null;
+            /** Call Ending */
+            call_ending?: string | null;
+            /** Call Goal */
+            call_goal?: string | null;
+            /** Campaign Name */
+            campaign_name?: string | null;
             /** Contact Name */
             contact_name: string;
             /** End Call Rules */
@@ -22813,6 +22823,10 @@ export interface components {
             extraction_options: string;
             /** Extraction Reason */
             extraction_reason: string;
+            /** Fact Answer */
+            fact_answer?: string | null;
+            /** Fact Question */
+            fact_question?: string | null;
             /** Faq Question */
             faq_question: string;
             /** Knowledge Answer */
@@ -22821,8 +22835,26 @@ export interface components {
             knowledge_title: string;
             /** Lead Search */
             lead_search: string;
+            /** Message Body */
+            message_body?: string | null;
+            /** Message Title */
+            message_title?: string | null;
+            /** Outbound Purpose */
+            outbound_purpose?: string | null;
+            /** Outcome Label */
+            outcome_label?: string | null;
+            /** Outcome Meaning */
+            outcome_meaning?: string | null;
+            /** Pronounce Say As */
+            pronounce_say_as?: string | null;
+            /** Pronounce Word */
+            pronounce_word?: string | null;
             /** Script Brief */
             script_brief: string;
+            /** Script Change */
+            script_change?: string | null;
+            /** Script Change Idea */
+            script_change_idea?: string | null;
             /** Service Name */
             service_name: string;
             /** Service Note */
@@ -22837,6 +22869,10 @@ export interface components {
             staff_spoken: string;
             /** Staff Why It Matters */
             staff_why_it_matters: string;
+            /** Teach Note */
+            teach_note?: string | null;
+            /** Test Expectation */
+            test_expectation?: string | null;
         };
         /**
          * PlanMarginOut

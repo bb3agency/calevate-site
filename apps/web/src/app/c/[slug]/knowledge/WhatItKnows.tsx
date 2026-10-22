@@ -16,7 +16,7 @@ import {
 } from "@/components/ui";
 import type { useKbSources } from "@/lib/api/kb";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
-import { useBusinessSuggestions } from "@/lib/useVerticalExamples";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import { lookup } from "@/lib/lookup";
 import {
   useAddFact,
@@ -299,9 +299,9 @@ function PinnedForm({ onDone }: { onDone: () => void }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const add = useAddFact(session);
-  // The account's own example question once its copy lands (D-827); the pair below is the
-  // fallback, kept together so the answer matches the question.
-  const asked = useBusinessSuggestions().exampleQuestions[0];
+  // A question and its answer written as one pair (D-827), so the answer always fits the
+  // question shown above it.
+  const eg = useVerticalExamples();
   return (
     <form
       className="mb-4 max-w-2xl space-y-3"
@@ -323,7 +323,7 @@ function PinnedForm({ onDone }: { onDone: () => void }) {
           id="pinned-question"
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
-          placeholder={asked ?? "Do you deliver on Sundays?"}
+          placeholder={eg.factQuestion}
           className={FIELD}
         />
       </div>
@@ -336,7 +336,7 @@ function PinnedForm({ onDone }: { onDone: () => void }) {
           rows={2}
           value={answer}
           onChange={(event) => setAnswer(event.target.value)}
-          placeholder={asked ? "The answer, as your agent should give it." : "No, we deliver Monday to Saturday."}
+          placeholder={eg.factAnswer}
           className={FIELD}
         />
       </div>

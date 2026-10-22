@@ -10,6 +10,7 @@ import { FIELD, FIELD_HINT, FIELD_LABEL, formatPhone } from "@/components/ui";
 import { canDialOut } from "@/lib/agentState";
 import { usePeRegistration } from "@/lib/api/dltRegistration";
 import { useClientSession } from "@/lib/api/session";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import type { Agent } from "@/lib/api/agents";
 import {
   RETRY_GAP_CHOICES,
@@ -188,6 +189,7 @@ export function BasicsStep({
 }) {
   const usable = campaignNumbers(numbers.data, selectedAgentId);
   const registration = usePeRegistration(useClientSession());
+  const eg = useVerticalExamples();
   const classifications = offeredClassifications(
     registration.data?.calevate_tm_active === true,
     form.classification,
@@ -199,7 +201,7 @@ export function BasicsStep({
         <input
           value={form.name}
           onChange={(e) => form.setName(e.target.value)}
-          placeholder="e.g. Diwali service reminder"
+          placeholder={`e.g. ${eg.campaignName}`}
           className={FIELD}
         />
       </label>
