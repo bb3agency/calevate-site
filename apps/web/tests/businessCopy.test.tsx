@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { BusinessCopySection, REFRESH_REQUEST, lastRefreshed } from "@/app/c/[slug]/settings/business/BusinessCopySection";
+import { TeachBox } from "@/app/c/[slug]/knowledge/TeachBox";
 import { costLine, writtenLine } from "@/app/admin/tenants/[tenantId]/BusinessCopyPanel";
 import type { AdminBusinessCopy, BusinessCopy, GeneratedPlaceholders } from "@/lib/api/businessCopy";
 import { useClientSession } from "@/lib/api/session";
@@ -103,6 +104,40 @@ describe("useVerticalExamples reads the stored copy", () => {
     await renderClientPage(<Probe />, { "/v1/me": OWNER_ME, "/v1/business-copy": LANDED });
     expect((await screen.findByText("Cold-pressed groundnut oil (1 litre)")).textContent).toBeTruthy();
     expect(screen.getByTestId("question").textContent).toBe("Is the oil cold-pressed?");
+  });
+});
+
+describe("the teach box's example is the account's own", () => {
+  const teachBox = () => screen.getByRole("textbox", { name: "What should your agents know?" });
+  const TEACH_READS = { "/v1/me": OWNER_ME, "/v1/kb/teach/open": { teaching: null } };
+
+  it("shows the business's example once its copy lands", async () => {
+    const realEstate: BusinessCopy = {
+      ...LANDED,
+      placeholders: {
+        ...PLACEHOLDERS,
+        teach_note: "Villa plots in Shadnagar start at 45 lakh. Site visits on weekends. Never promise a loan.",
+      },
+    };
+    await renderClientPage(<TeachBox allowed reason={null} />, { ...TEACH_READS, "/v1/business-copy": realEstate });
+    await screen.findByRole("textbox", { name: "What should your agents know?" });
+    expect(teachBox().getAttribute("placeholder")).toBe(
+      "For example: Villa plots in Shadnagar start at 45 lakh. Site visits on weekends. Never promise a loan.",
+    );
+  });
+
+  it("falls back to the neutral example, never a grocery one, for a copy written before the key existed", async () => {
+    await renderClientPage(<TeachBox allowed reason={null} />, { ...TEACH_READS, "/v1/business-copy": LANDED });
+    await screen.findByRole("textbox", { name: "What should your agents know?" });
+    const shown = teachBox().getAttribute("placeholder") ?? "";
+    expect(shown).toBe(`For example: ${examplesFor(null).teachNote}`);
+    expect(shown).not.toMatch(/chilli|deliver/i);
+  });
+
+  it("is the same neutral example for every trade until the copy lands", () => {
+    for (const vertical of ["clinic", "retail", "real_estate", "custom"]) {
+      expect(examplesFor(vertical).teachNote).toBe(examplesFor(null).teachNote);
+    }
   });
 });
 

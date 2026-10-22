@@ -104,7 +104,7 @@ export function SectionEditor({
           rows={3}
           value={section.instruction}
           placeholder={
-            say ? "For example: Mee peru cheppagalara?" : "For example: Ask what they are looking for and how many they need."
+            say ? "For example: Mee peru cheppagalara?" : "For example: Ask what they are looking for and when they need it."
           }
           aria-invalid={errors("instruction").length > 0 || undefined}
           aria-describedby={describedBy || undefined}
@@ -432,7 +432,7 @@ function CollectEditor({
               className={`${FIELD} mt-0`}
               value={typed}
               maxLength={80}
-              placeholder={`For example: ${ideas[0] ?? "delivery area"}`}
+              placeholder={`For example: ${ideas[0] ?? "best time to call back"}`}
               onChange={(e) => setTyped(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {

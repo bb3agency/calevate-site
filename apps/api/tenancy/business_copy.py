@@ -125,10 +125,41 @@ class Placeholders(_Strict):
     lead_search: Short
     booking_job_title: Chip
     booking_job_line: Line
+    # Added with prompt version 2. Optional so a copy written under version 1 still reads
+    # (the screens fall back to a neutral example for a missing key); `missing_placeholders`
+    # makes every one of them required in a new answer.
+    teach_note: Prose | None = None
+    business_line: Line | None = None
+    agent_role: Prose | None = None
+    call_goal: Line | None = None
+    outbound_purpose: Line | None = None
+    call_ending: Line | None = None
+    pronounce_word: Short | None = None
+    pronounce_say_as: Short | None = None
+    script_change: Line | None = None
+    script_change_idea: Short | None = None
+    fact_question: Line | None = None
+    fact_answer: Line | None = None
+    test_expectation: Line | None = None
+    campaign_name: Short | None = None
+    message_title: Chip | None = None
+    #: A WhatsApp message with `{{1}}` where the customer's name goes.
+    message_body: Line | None = None
+    outcome_label: Chip | None = None
+    outcome_meaning: Line | None = None
 
 
 #: The keys, in the table's order, for the prompt and the strict schema.
 PLACEHOLDER_KEYS: Final[tuple[str, ...]] = tuple(Placeholders.model_fields)
+
+#: The one blank a generated message body holds, as the message form numbers it.
+MESSAGE_BLANK: Final = "{{1}}"
+
+
+def missing_placeholders(placeholders: Placeholders) -> list[str]:
+    """The keys a new answer left out. Every key is required of the model; only a stored
+    copy from an earlier prompt version may lack the later ones."""
+    return [key for key in PLACEHOLDER_KEYS if getattr(placeholders, key) is None]
 
 
 class StepSuggestion(_Strict):
@@ -207,6 +238,7 @@ def _strings(copy: GeneratedCopy) -> list[tuple[str, str, bool]]:
     out: list[tuple[str, str, bool]] = [
         (f"placeholders.{key}", str(value), False)
         for key, value in copy.placeholders.model_dump().items()
+        if value is not None
     ]
     for i, step in enumerate(copy.steps):
         out.append((f"steps.{i}.name", step.name, False))
@@ -243,7 +275,22 @@ def copy_problems(copy: GeneratedCopy, *, clinic: bool, language: str | None = N
             problems.append(worded)
         if spoken and _NOT_SPOKEN.search(value):
             problems.append(f"{path}: numbers in words, no digits, rupee signs or slashes")
+    if (body := copy.placeholders.message_body) is not None:
+        problem = _message_body_problem(body)
+        if problem:
+            problems.append(f"placeholders.message_body: {problem}")
     return problems
+
+
+def _message_body_problem(body: str) -> str | None:
+    """The message form refuses a blank other than 1, 2, 3 in order, and WhatsApp refuses a
+    message that starts or ends with one, so the example must be one the form would accept."""
+    if body.count(MESSAGE_BLANK) != 1 or body.count("{") != 2 or body.count("}") != 2:
+        return f"exactly one {MESSAGE_BLANK} and no other braces"
+    stripped = body.strip().rstrip(".!?। ")
+    if stripped.startswith(MESSAGE_BLANK) or stripped.endswith(MESSAGE_BLANK):
+        return f"{MESSAGE_BLANK} inside the sentence, not at its start or end"
+    return None
 
 
 # --- the read side --------------------------------------------------------------------------
@@ -342,6 +389,7 @@ __all__ = [
     "CLAIM_TTL",
     "CLINIC_WORDS",
     "JOB",
+    "MESSAGE_BLANK",
     "PLACEHOLDER_KEYS",
     "REFRESH_EVERY",
     "STOP_MESSAGES",
@@ -355,6 +403,7 @@ __all__ = [
     "Trigger",
     "claim_is_live",
     "copy_problems",
+    "missing_placeholders",
     "parse_stored",
     "provider_problem",
     "provider_words",

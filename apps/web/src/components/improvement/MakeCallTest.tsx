@@ -16,6 +16,7 @@ import { useToast } from "@/components/interior/toaster";
 import { useClientSession } from "@/lib/api/session";
 import { useCaseDraft, useDiscardPreparedTest, useMakeCallATest } from "@/lib/api/teach";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 /** What Pip is asked, in the words the person sees in its ask box. */
 export const MAKE_TEST_REQUEST = "Make this call a test for its agent.";
@@ -34,6 +35,7 @@ export const MAKE_TEST_REQUEST = "Make this call a test for its agent.";
  */
 export function MakeCallTest({ callId, canWrite = true }: { callId: string; canWrite?: boolean }) {
   const session = useClientSession();
+  const eg = useVerticalExamples();
   const draft = useCaseDraft(session, callId, canWrite);
   const make = useMakeCallATest(session, callId);
   const discard = useDiscardPreparedTest(session, callId);
@@ -127,7 +129,7 @@ export function MakeCallTest({ callId, canWrite = true }: { callId: string; canW
             rows={2}
             value={expected}
             onChange={(event) => setExpected(event.target.value)}
-            placeholder="Look up chilli in our knowledge and give the price."
+            placeholder={eg.testExpectation}
             className={FIELD}
           />
         </div>

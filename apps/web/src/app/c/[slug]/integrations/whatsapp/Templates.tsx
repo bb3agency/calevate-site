@@ -25,6 +25,7 @@ import {
 } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import {
   LANGUAGE_LABELS,
   PURPOSE_LABELS,
@@ -173,6 +174,7 @@ function TemplateForm({
   onDone: () => void;
 }) {
   const create = useCreateTemplate(session);
+  const eg = useVerticalExamples();
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<"UTILITY" | "MARKETING">("UTILITY");
   const [language, setLanguage] = useState<string>("en");
@@ -224,7 +226,7 @@ function TemplateForm({
           className={FIELD}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Order ready"
+          placeholder={eg.messageTitle}
           maxLength={60}
         />
         <span className={FIELD_HINT}>{name ? `Meta will know it as ${name}.` : "A few words you will recognise."}</span>
@@ -271,7 +273,7 @@ function TemplateForm({
           value={body}
           onChange={(e) => setBody(e.target.value)}
           maxLength={1024}
-          placeholder="Your order from Lakshmi Traders is ready for pickup, {{1}}. Thank you."
+          placeholder={eg.messageBody}
           aria-describedby={`${bodyId}-hint`}
         />
         <span id={`${bodyId}-hint`} className={FIELD_HINT}>

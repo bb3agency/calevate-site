@@ -50,6 +50,29 @@ def _starter_count(job: str) -> int:
     return len(starters.CATALOGUE[(starters.NEUTRAL_VERTICAL, job)].steps)  # type: ignore[index]
 
 
+#: The keys prompt version 2 added; a copy stored under version 1 has none of them.
+V2_PLACEHOLDERS: dict[str, str] = {
+    "teach_note": "Groundnut oil is 320 rupees a litre. We deliver in Miyapur. No stock promises.",
+    "business_line": "a cold-pressed oil shop in Kukatpally",
+    "agent_role": "You answer the phone for the oil shop. You help callers choose and order.",
+    "call_goal": "Answer their question and take the order with the delivery area.",
+    "outbound_purpose": "You asked about our groundnut oil last week, so I am calling to help.",
+    "call_ending": "Confirm the order and the delivery area, thank them and say goodbye.",
+    "pronounce_word": "Kukatpally",
+    "pronounce_say_as": "Koo-kut-pul-lee",
+    "script_change": "When someone asks for a discount, offer free delivery instead",
+    "script_change_idea": "Ask the delivery area before the order",
+    "fact_question": "Do you deliver on Sundays?",
+    "fact_answer": "No, we deliver Monday to Saturday.",
+    "test_expectation": "Look up groundnut oil in our knowledge and give the price.",
+    "campaign_name": "New batch reminder",
+    "message_title": "Order ready",
+    "message_body": "Your oil order is ready for pickup, {{1}}. Thank you.",
+    "outcome_label": "Wants to order",
+    "outcome_meaning": "The caller wants to order oil from us.",
+}
+
+
 def copy_dict() -> dict[str, Any]:
     """A valid answer for a neutral (non-clinic) account."""
     return {
@@ -76,6 +99,7 @@ def copy_dict() -> dict[str, Any]:
             "lead_search": "groundnut oil for Saturday",
             "booking_job_title": "Take orders",
             "booking_job_line": "Your agent can check your calendar and book pickup times.",
+            **V2_PLACEHOLDERS,
         },
         "steps": [
             {"name": "Find out what they need", "example_line": "Cheppandi andi, em kavali?"},
@@ -148,6 +172,12 @@ def test_the_placeholder_keys_are_the_web_tables_keys_less_the_two_shown_before_
         (("placeholders", "faq_question"), "Two\nlines", "one line"),
         (("placeholders", "end_call_rules"), "One\nTwo\nThree", "two rules"),
         (("caller_details", 0), "Area 🙂", "no emoji"),
+        (("placeholders", "teach_note"), "We see patients every morning.", "medical words"),
+        (("placeholders", "business_line"), "a shop run on **Claude**", "no markdown"),
+        (("placeholders", "message_body"), "Your order is ready.", "exactly one {{1}}"),
+        (("placeholders", "message_body"), "Hi {{1}}, {{2}} is ready.", "exactly one {{1}}"),
+        (("placeholders", "message_body"), "{{1}}, your order is ready.", "inside the sentence"),
+        (("placeholders", "message_body"), "Your order is ready, {{1}}.", "inside the sentence"),
     ],
 )
 def test_a_broken_rule_is_sent_back_by_path_never_by_text(
@@ -197,6 +227,35 @@ def test_starter_lines_must_be_one_per_step() -> None:
     with pytest.raises(script_assist.UnusableAnswerError) as unusable:
         worker.parse_answer(raw, inputs=_inputs())
     assert "starter_lines.answer_calls: exactly" in unusable.value.problems
+
+
+def test_a_new_answer_must_fill_every_placeholder() -> None:
+    """FAILS IF: a key added after version 1 may be left out of a new answer."""
+    raw = copy_dict()
+    del raw["placeholders"]["teach_note"]
+    with pytest.raises(script_assist.UnusableAnswerError) as unusable:
+        worker.parse_answer(raw, inputs=_inputs())
+    assert "placeholders.teach_note: missing" in unusable.value.problems
+
+
+def test_a_copy_stored_before_version_two_still_reads() -> None:
+    """FAILS IF: a stored copy without the version-2 keys stops reading, which would drop
+    every placeholder the account already had back to the per-trade table."""
+    raw = copy_dict()
+    for key in V2_PLACEHOLDERS:
+        del raw["placeholders"][key]
+    stored = business_copy.parse_stored(raw)
+    assert stored is not None
+    assert stored.placeholders.service_price == "320"
+    assert stored.placeholders.teach_note is None
+    assert business_copy.copy_problems(stored, clinic=False, language="te-IN") == []
+    assert set(business_copy.missing_placeholders(stored.placeholders)) == set(V2_PLACEHOLDERS)
+
+
+def test_the_instruction_explains_every_placeholder_key() -> None:
+    """FAILS IF: a key reaches the strict schema without the instruction saying what it is,
+    so the model guesses."""
+    assert tuple(worker.PLACEHOLDER_MEANINGS) == business_copy.PLACEHOLDER_KEYS
 
 
 def test_a_payment_name_is_not_a_provider_and_google_alone_still_is() -> None:
