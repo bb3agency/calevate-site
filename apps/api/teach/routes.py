@@ -328,8 +328,9 @@ def _teaching_out(found: teaching.Teaching) -> TeachingOut:
 _READ_CHUNK_BYTES = 1024 * 1024
 
 
-async def _read_bounded(file: UploadFile, limit: int) -> bytes:
-    """The upload, read a chunk at a time and refused one byte past `limit`."""
+async def read_bounded_upload(file: UploadFile, limit: int) -> bytes:
+    """The upload, read a chunk at a time and refused one byte past `limit`. Also the spoken
+    brief's reader (`first_run/routes.py`)."""
     chunks: list[bytes] = []
     total = 0
     while chunk := await file.read(_READ_CHUNK_BYTES):
@@ -376,7 +377,7 @@ async def teach_upload(
             "We could not play that recording.",
             remediation="Record the voice note again here.",
         )
-    data = await _read_bounded(file, teaching.MAX_VOICE_BYTES)
+    data = await read_bounded_upload(file, teaching.MAX_VOICE_BYTES)
     # Local import: `apps.workers.storage` holds the object-store client.
     from apps.workers.storage import kb_object_key, store_kb_object
 

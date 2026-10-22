@@ -278,5 +278,5 @@ def test_the_guide_names_only_tools_that_exist() -> None:
     from apps.api.copilot import service
 
     tools |= {tool.name for tool in service.realm_read_tools("client")}
-    arguments = {"job", "answer_calls", "both", "opening_line"}
+    arguments = {"job", "answer_calls", "call_new_leads", "call_leads", "opening_line"}
     assert named - arguments <= tools, named - arguments - tools

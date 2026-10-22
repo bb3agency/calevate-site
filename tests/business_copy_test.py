@@ -108,7 +108,7 @@ def copy_dict() -> dict[str, Any]:
         ],
         "starter_lines": {
             job: [f"Line {chr(65 + i)} andi" for i in range(_starter_count(job))]
-            for job in starters.STARTER_JOBS
+            for job in starters.LINE_SETS
         },
         "caller_details": ["Oil wanted", "Quantity", "Delivery area"],
         "example_questions": [
@@ -125,7 +125,7 @@ def _inputs(*, clinic: bool = False) -> worker.Inputs:
             (s.title, s.instruction)
             for s in starters.CATALOGUE[(starters.NEUTRAL_VERTICAL, job)].steps  # type: ignore[index]
         )
-        for job in starters.STARTER_JOBS
+        for job in starters.LINE_SETS
     }
     return worker.Inputs(
         description="Business name: Green Oils",

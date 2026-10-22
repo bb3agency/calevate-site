@@ -681,9 +681,15 @@ BUSINESS_COPY_STOP_REASONS: tuple[str, ...] = (
     "answer_unusable",
     "account_closed",
 )
-#: What asked for a run: account creation, the owner through Pip, the 15-day check, or an
-#: operator.
-BUSINESS_COPY_TRIGGERS: tuple[str, ...] = ("signup", "refresh", "scheduled", "operator")
+#: What asked for a run: account creation, the owner through Pip, the 15-day check, an
+#: operator, or the owner's first brief in "Meet your agent" (D-855).
+BUSINESS_COPY_TRIGGERS: tuple[str, ...] = (
+    "signup",
+    "refresh",
+    "scheduled",
+    "operator",
+    "first_run",
+)
 
 
 class BusinessCopy(PKMixin, TimestampMixin, Base):

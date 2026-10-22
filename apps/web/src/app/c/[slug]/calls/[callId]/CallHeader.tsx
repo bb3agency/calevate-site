@@ -52,6 +52,12 @@ export function CallHeader({ detail }: { detail: CallDetail }) {
       {detail.forwarding_test && (
         <p className="mt-1 text-meta text-ink-muted">This was a forwarding test call. It is not charged.</p>
       )}
+      {/* D-855: a free-trial test call, rung to a number the owner typed. */}
+      {detail.test_call && !detail.forwarding_test && (
+        <p className="mt-1 text-meta text-ink-muted">
+          This was a test call on your free trial. Its minutes count towards your free trial minutes.
+        </p>
+      )}
       {/* D-835: a whole-line forward put the caller through to a phone. */}
       {detail.forwarded_to_phone && (
         <p className="mt-1 text-meta text-ink-muted">

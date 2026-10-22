@@ -203,7 +203,6 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "deletion-request",
     "deletion-requests",
     "whatsapp-alerts",
-    "junction-business-profile",
     // A trial start or end writes only `tenant_trials`, which announces `account`; the
     // wallet shows the active trial, so these move with it.
     "trial",
@@ -291,6 +290,11 @@ export const STATIC_FAMILIES: Record<string, string> = {
   "integration-options": "the fixed list of services an account can connect",
   "admin/qa-sample":
     "one sampled call under review; every read writes an audit row, so it is read once when opened",
+  // "Meet your agent" (D-855): written only by its own screen and its workers, and polled
+  // while a worker is on it, so nothing needs announcing.
+  "first-run": "the first run, polled while its questions or build are being worked on",
+  "first-run-recording": "one spoken piece of the brief, polled until it is heard",
+  "junction-first-run": "read once by the sign-in junction to choose where to send an owner",
 };
 
 /** Every family a note about `topics` refetches. */

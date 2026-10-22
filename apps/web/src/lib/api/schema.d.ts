@@ -3079,7 +3079,7 @@ export interface paths {
          * Create an agent (starts as a draft)
          * @description The agent is created in `draft`: it takes no calls and places none until it is activated, and it cannot be activated until it has a script.
          *
-         *     Send `starter` (`answer_calls` or `call_leads`) to start from a ready-made agent for your business type: its script, opening line and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.
+         *     Send `starter` (`answer_calls`, `call_new_leads` or `call_leads`) to start from a ready-made agent for your business type: its script, opening line and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.
          *
          *     Both opening notices — the AI disclosure and the recording notice — are written for you from the chosen language and start switched off, so a new agent opens with its own opening line (part of its script). They cannot be supplied here: every agent on this platform has an AI disclosure on file, and no field on this form can change that. Switching a notice on adds it before the opening line; it never replaces the opening line.
          */
@@ -3162,7 +3162,7 @@ export interface paths {
         };
         /**
          * Preview the ready-made agents for this account's business type
-         * @description What `POST /v1/agents` with `starter` would create, for YOUR account's business type: the suggested name, the opening line, the script's step titles and the details the agent captures. `job` narrows it to one job; omitted, both jobs are returned ("Answer my calls" first). Nothing is created by this read.
+         * @description What `POST /v1/agents` with `starter` would create, for YOUR account's business type: the suggested name, the opening line, the script's step titles and the details the agent captures. `job` narrows it to one job; omitted, every job is returned ("Answer my calls" first). Every job is open on a free trial: a test call rings the owner from any ready agent (D-853, D-855). Nothing is created by this read.
          */
         get: operations["list_starters_v1_agents_starters_get"];
         put?: never;
@@ -7345,6 +7345,191 @@ export interface paths {
          *     not make it (`rbac.VIEW_AS_WITHHELD_ACTS["compliance.dnc_optout_restore"]`).
          */
         post: operations["restore_v1_dnc__entry_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/first-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Where the owner is in their first run, and whether it is still due */
+        get: operations["read_first_run_v1_first_run_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/first-run/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write the follow-up answers into the business profile
+         * @description Each answer is merged into the business profile (`PATCH /v1/business-profile`'s own save), so every agent of the business learns it. A skipped question is left out.
+         */
+        post: operations["post_answers_v1_first_run_answers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/first-run/brief": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Keep the brief and find its follow-up questions
+         * @description A brief with something to read is sent to a worker that chooses up to three follow-up questions from a fixed set (`questions.status` is `writing` until it answers; poll this resource). A short brief gets the business profile's own gaps at once.
+         */
+        put: operations["put_brief_v1_first_run_brief_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/first-run/build": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Build the agent from its job and the brief (a worker; poll this resource)
+         * @description The first build creates the agent; a later one rewrites the same agent's script from a changed brief. Each step (`voice`, `script`, `greeting`, `notice`) is marked as the worker finishes it.
+         */
+        post: operations["post_build_v1_first_run_build_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/first-run/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put the first run aside for now; the dashboard still offers it */
+        post: operations["post_dismiss_v1_first_run_dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/first-run/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The owner has met their agent: stop sending them here */
+        post: operations["post_finish_v1_first_run_finish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/first-run/job": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Choose the agent's job and the languages it speaks
+         * @description Refused with `first_run_job_locked` once the agent is built for another job: the job set its calling direction and its ready-made script.
+         */
+        put: operations["put_job_v1_first_run_job_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/first-run/name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Rename the agent before its first call */
+        put: operations["put_name_v1_first_run_name_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/first-run/recordings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hear one spoken piece of the brief (under 30 seconds)
+         * @description Up to 3 pieces per first run. A worker turns it into words (`status` `heard`, poll `GET /v1/first-run/recordings/{recording_id}`) and deletes the audio as soon as it has; only the words are kept.
+         */
+        post: operations["post_recording_v1_first_run_recordings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/first-run/recordings/{recording_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One spoken piece of the brief, and what was heard */
+        get: operations["read_recording_v1_first_run_recordings__recording_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -12042,7 +12227,7 @@ export interface components {
             /** Reply Languages */
             reply_languages?: ("te-IN" | "hi-IN" | "en-IN")[] | null;
             /** Starter */
-            starter?: ("answer_calls" | "call_leads") | null;
+            starter?: ("answer_calls" | "call_new_leads" | "call_leads") | null;
         };
         /** AgentDailySpendOut */
         AgentDailySpendOut: {
@@ -12509,6 +12694,21 @@ export interface components {
             /** Window Days */
             window_days: number;
         };
+        /**
+         * AnswersIn
+         * @description The follow-up answers the owner gave. A question skipped is simply left out.
+         */
+        AnswersIn: {
+            /** Booking */
+            booking?: string | null;
+            hours?: components["schemas"]["HoursIn"] | null;
+            /** Location */
+            location?: string | null;
+            /** Offer */
+            offer?: components["schemas"]["ServiceItem"][];
+            /** Trade */
+            trade?: string[];
+        };
         /** ApplyEditsIn */
         ApplyEditsIn: {
             /** Edits */
@@ -12777,6 +12977,16 @@ export interface components {
             /** Sample */
             sample: string;
         };
+        /** Body_post_recording_v1_first_run_recordings_post */
+        Body_post_recording_v1_first_run_recordings_post: {
+            /** File */
+            file: string;
+            /**
+             * Language
+             * @enum {string}
+             */
+            language: "te-IN" | "hi-IN" | "en-IN";
+        };
         /** Body_record_hosted_clone_consent_v1_ops_voices_hosted_clone_consent_post */
         Body_record_hosted_clone_consent_v1_ops_voices_hosted_clone_consent_post: {
             /**
@@ -12894,6 +13104,38 @@ export interface components {
             address: string;
             /** Label */
             label: string;
+        };
+        /** BriefIn */
+        BriefIn: {
+            /** Brief */
+            brief: string;
+        };
+        /** BuildOut */
+        BuildOut: {
+            /** Builds Left */
+            builds_left: number;
+            /** Disclosure */
+            disclosure: string | null;
+            /** Status */
+            status: string;
+            /** Steps */
+            steps: components["schemas"]["BuildStepOut"][];
+        };
+        /** BuildStepOut */
+        BuildStepOut: {
+            /** Fallback */
+            fallback?: ("studio_unavailable" | "studio_minutes_used" | "no_studio_voice") | null;
+            /** Label */
+            label: string | null;
+            /** Rung */
+            rung?: ("clear" | "studio") | null;
+            /** State */
+            state: string;
+            /**
+             * Step
+             * @enum {string}
+             */
+            step: "voice" | "script" | "greeting" | "notice";
         };
         /**
          * BusinessContactIn
@@ -18154,6 +18396,29 @@ export interface components {
             /** Scenarios */
             scenarios: number;
         };
+        /** FirstRunOut */
+        FirstRunOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Brief */
+            brief: string | null;
+            build: components["schemas"]["BuildOut"];
+            /** Dismissed At */
+            dismissed_at: string | null;
+            /** Due */
+            due: boolean;
+            /** Finished At */
+            finished_at: string | null;
+            /** Job */
+            job: ("answer_calls" | "call_new_leads" | "call_leads") | null;
+            /** Language Primary */
+            language_primary: string | null;
+            /** Languages Extra */
+            languages_extra: string[];
+            questions: components["schemas"]["QuestionsOut"];
+            /** Recordings Left */
+            recordings_left: number;
+        };
         /** FlagStateOut */
         FlagStateOut: {
             /** Enabled */
@@ -19057,6 +19322,15 @@ export interface components {
             /** Voices */
             voices: components["schemas"]["HostedVoiceOut"][];
         };
+        /** HoursIn */
+        HoursIn: {
+            /** Closed */
+            closed?: ("mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun")[];
+            /** Closes */
+            closes: string;
+            /** Opens */
+            opens: string;
+        };
         /** ImpersonationGrantIn */
         ImpersonationGrantIn: {
             /** Renew */
@@ -19647,6 +19921,21 @@ export interface components {
             included_minutes: number;
             /** Minutes Used */
             minutes_used: string;
+        };
+        /** JobIn */
+        JobIn: {
+            /**
+             * Job
+             * @enum {string}
+             */
+            job: "answer_calls" | "call_new_leads" | "call_leads";
+            /**
+             * Language Primary
+             * @enum {string}
+             */
+            language_primary: "te-IN" | "hi-IN" | "en-IN";
+            /** Languages Extra */
+            languages_extra?: ("te-IN" | "hi-IN" | "en-IN")[];
         };
         /**
          * KbDriftOut
@@ -21722,6 +22011,11 @@ export interface components {
             /** Tts Prices */
             tts_prices: components["schemas"]["TtsPriceOut"][];
         };
+        /** NameIn */
+        NameIn: {
+            /** Name */
+            name: string;
+        };
         /**
          * NationalDndScrubOut
          * @description The national preference scrub of this campaign's list, as evidence.
@@ -23658,6 +23952,34 @@ export interface components {
              */
             week_start: string;
         };
+        /** QuestionOut */
+        QuestionOut: {
+            /** Hint */
+            hint: string;
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "trade" | "location" | "offer" | "hours" | "booking";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "choices" | "address" | "services" | "hours" | "text";
+            /** Options */
+            options: string[];
+            /** Prompt */
+            prompt: string;
+        };
+        /** QuestionsOut */
+        QuestionsOut: {
+            /** Disclosure */
+            disclosure: string | null;
+            /** Items */
+            items: components["schemas"]["QuestionOut"][];
+            /** Status */
+            status: string;
+        };
         /** RateCardCancelIn */
         RateCardCancelIn: {
             /**
@@ -24066,6 +24388,20 @@ export interface components {
             expires_in_s: number;
             /** Url */
             url: string;
+        };
+        /** RecordingOut */
+        RecordingOut: {
+            /** Error Code */
+            error_code: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+            /** Words */
+            words: string | null;
         };
         /**
          * RecordingRecopyOut
@@ -25836,9 +26172,7 @@ export interface components {
              * Job
              * @enum {string}
              */
-            job: "answer_calls" | "call_leads";
-            /** Locked Reason */
-            locked_reason: string | null;
+            job: "answer_calls" | "call_new_leads" | "call_leads";
             /** Name Suggestion */
             name_suggestion: string;
             /** Opening Line */
@@ -27804,6 +28138,11 @@ export interface components {
             agent_id: string;
             /** Number */
             number: string;
+            /**
+             * Number Is Mine
+             * @default false
+             */
+            number_is_mine: boolean;
         };
         /** TrialCallOut */
         TrialCallOut: {
@@ -35172,7 +35511,7 @@ export interface operations {
     list_starters_v1_agents_starters_get: {
         parameters: {
             query?: {
-                job?: ("answer_calls" | "call_leads") | null;
+                job?: ("answer_calls" | "call_new_leads" | "call_leads") | null;
                 language?: ("te-IN" | "hi-IN" | "en-IN") | null;
             };
             header?: never;
@@ -42273,6 +42612,318 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_first_run_v1_first_run_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstRunOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_answers_v1_first_run_answers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswersIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstRunOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_brief_v1_first_run_brief_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BriefIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstRunOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_build_v1_first_run_build_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstRunOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_dismiss_v1_first_run_dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstRunOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_finish_v1_first_run_finish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstRunOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_job_v1_first_run_job_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstRunOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_name_v1_first_run_name_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NameIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstRunOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_recording_v1_first_run_recordings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_post_recording_v1_first_run_recordings_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_recording_v1_first_run_recordings__recording_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recording_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { VoiceButton } from "@/app/c/[slug]/knowledge/TeachBox";
+import { VoiceButton } from "@/components/voiceButton";
 
 /**
  * "Say it" asks for the microphone in our own words before the browser does: allowed

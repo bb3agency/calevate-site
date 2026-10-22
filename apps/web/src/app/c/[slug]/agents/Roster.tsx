@@ -61,7 +61,7 @@ export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
         action={
           <Link href={href(`/c/${slug}/agents/first`)} className={PRIMARY_BUTTON}>
             <Plus aria-hidden className="h-4 w-4" />
-            Build your first agent
+            Meet your agent
           </Link>
         }
       />

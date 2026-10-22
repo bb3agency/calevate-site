@@ -531,8 +531,10 @@ reviewed. No model is called, so nothing is metered and no allowance is checked.
   `prompt.build_messages` places it after the live block and before the closing rules. It is
   trusted text, so it is never sent as SCREEN STATE, and it is per-screen, so it never enters
   the cached prefix. Today only `/c/{slug}/agents/first` has one.
-* **The first-agent tools.** `agent_create` takes `job` (`answer_calls`, `call_leads`, or
-  null; `answer_calls` with direction `both` is widened after the starter is written).
+* **The first-agent tools.** `agent_create` takes `job` (`answer_calls`, `call_new_leads`,
+  `call_leads`, or null; `answer_calls` with direction `both` is widened after the starter is
+  written). Since D-855 the chat is "Talk it through with Pip instead" inside "Meet your
+  agent", not a door of its own.
   `agent_edit` and `agent_edit_live` take `opening_line`, applied through
   `script_builder.replace_opening_line` (D-846's budget) and checked against the language's
   spoken-style list; the Undo puts the previous line back. `knowledge_facts_pin`

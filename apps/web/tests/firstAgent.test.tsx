@@ -1,37 +1,44 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import FirstAgentPage from "@/app/c/[slug]/agents/first/page";
-import { chooseDoor } from "@/app/c/[slug]/agents/first/FirstAgentScreen";
+import { metaOf } from "@/app/c/[slug]/agents/first/BuildStep";
+import { answersOf } from "@/app/c/[slug]/agents/first/QuestionsStep";
+import { recordingMimeType } from "@/components/voiceButton";
 import type { Agent } from "@/lib/api/agents";
+import type { FirstRun } from "@/lib/api/firstRun";
 import {
   GREETING_MAX_CHARS,
+  callsLeft,
+  defaultLanguage,
   firstAgentOf,
   greetingFits,
-  nextPiece,
   piecesOf,
-  quickRepliesFor,
+  resumeStage,
+  studioFallbackLine,
+  trialMinutesLine,
 } from "@/lib/firstAgent";
 
+import { businessProfileFixture } from "./businessProfileFixture";
 import { OWNER_ME, agentRow } from "./fixtures/sharedReads";
 import { renderClientPage } from "./harness";
 
 /**
- * BUILD YOUR FIRST AGENT (D-854): two doors, Pip's chat beside a card that fills in from the
- * server's rows, progress that starts above zero, and the agent ringing the owner's phone.
+ * "MEET YOUR AGENT" (D-855): the job, the brief, the questions, the build ticked as it
+ * happens, one honest screen before the call, the call, and what it caught.
  */
 
-const nav = vi.hoisted(() => ({ params: new URLSearchParams(), replaced: [] as string[] }));
+const nav = vi.hoisted(() => ({ pushed: [] as string[] }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/c/acme/agents/first",
-  useSearchParams: () => nav.params,
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({
-    push: vi.fn(),
-    replace: (path: string) => nav.replaced.push(path),
+    push: (path: string) => nav.pushed.push(path),
+    replace: vi.fn(),
     refresh: vi.fn(),
     back: vi.fn(),
     forward: vi.fn(),
@@ -40,22 +47,71 @@ vi.mock("next/navigation", () => ({
 }));
 
 beforeEach(() => {
-  nav.params = new URLSearchParams();
-  nav.replaced = [];
+  nav.pushed = [];
 });
 
 const page = <FirstAgentPage params={Promise.resolve({ slug: "acme" })} />;
+const AGENT_ID = "0192f3a4-0000-7000-8000-00000000a001";
 
-const PIP_ON = {
-  status: "accepted",
-  can_accept: true,
-  can_withdraw: true,
-  text: "Pip reads what you type.",
-  text_sha256: "a".repeat(64),
-  version: 1,
-  accepted_at: "2026-10-22T05:00:00Z",
-  withdrawn_at: null,
-};
+const STEPS = ["voice", "script", "greeting", "notice"] as const;
+
+function run(over: Partial<FirstRun> = {}): FirstRun {
+  return {
+    due: true,
+    job: null,
+    language_primary: null,
+    languages_extra: [],
+    brief: null,
+    agent_id: null,
+    questions: { status: "idle", items: [], disclosure: null },
+    build: {
+      status: "idle",
+      steps: STEPS.map((step) => ({ step, state: "waiting", label: null })),
+      disclosure: null,
+      builds_left: 3,
+    },
+    recordings_left: 3,
+    finished_at: null,
+    dismissed_at: null,
+    ...over,
+  };
+}
+
+function built(over: Partial<FirstRun> = {}): FirstRun {
+  return run({
+    job: "answer_calls",
+    language_primary: "te-IN",
+    languages_extra: ["en-IN"],
+    brief: "We sell flats in Kondapur.",
+    agent_id: AGENT_ID,
+    questions: { status: "ready", items: [], disclosure: null },
+    build: {
+      status: "built",
+      steps: [
+        { step: "voice", state: "done", label: "Lakshmi" },
+        { step: "script", state: "done", label: null },
+        { step: "greeting", state: "done", label: null },
+        { step: "notice", state: "done", label: null },
+      ],
+      disclosure: null,
+      builds_left: 2,
+    },
+    ...over,
+  });
+}
+
+function agent(over: Partial<Agent> = {}): Agent {
+  return agentRow({
+    id: AGENT_ID,
+    name: "Sravani",
+    status: "draft",
+    published: false,
+    direction: "inbound",
+    engine_voice_id: "engine:v1",
+    script_opening_line: "Namaskaram, Madhav Homes. Meeku ela help cheyagalanu?",
+    ...over,
+  });
+}
 
 const TRIAL = {
   on_trial: true,
@@ -63,53 +119,88 @@ const TRIAL = {
   days_remaining: 7,
   ends_at: "2026-10-29T00:00:00Z",
   free_minutes: 15,
-  minutes_used: "0",
-  minutes_left: "15",
-  calls_today: 0,
-  daily_cap: 5,
+  minutes_used: 0,
+  minutes_left: 15,
+  calls_today: 1,
+  daily_cap: 10,
   can_call: true,
   blocked_reason: null,
   max_call_seconds: 180,
   pledge_accepted: false,
 };
 
-const NO_FACTS = { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] };
+const READINESS = {
+  acceptance_statement: "By ticking, you accept on behalf of the business.",
+  acceptance_statement_version: "s1",
+  blockers: [],
+  can_accept: true,
+  can_accept_reason: null,
+  documents: [
+    {
+      slug: "terms",
+      title: "Terms of Service",
+      version: "2026-10-01",
+      state: "never_accepted",
+      headline: "Not accepted yet",
+      href: "/legal/terms",
+      blocking: true,
+      accepted_at: null,
+      accepted_by_name: null,
+      accepted_version: null,
+      effective_date: "2026-10-01",
+      provisional: false,
+    },
+  ],
+  may_operate: false,
+  outstanding_documents: 1,
+  pending_legal_review: false,
+  provisional_notice: null,
+  verdict: "blocked",
+};
 
-const FIELDS: Agent["extraction_fields"] = [
-  { key: "budget", label: "Budget", type: "text", required: false, reason: "", enum_values: null },
-];
-
-function building(over: Partial<Agent> = {}): Agent {
-  return agentRow({
-    id: "0192f3a4-0000-7000-8000-00000000a001",
-    name: "Front desk",
-    status: "draft",
-    published: false,
-    engine_voice_id: null,
-    script_opening_line: "Namaskaram, Lakeview Properties. How can I help you today?",
-    extraction_fields: FIELDS,
-    ...over,
-  });
-}
+const PLEDGE = {
+  accepted_at: null,
+  accepted_version: null,
+  is_current: false,
+  pledge_text: "We only call people who asked us to.",
+  text_sha256: "b".repeat(64),
+  version: "1",
+};
 
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": OWNER_ME,
+    "/v1/first-run": run(),
     "/v1/agents": [],
-    "/v1/kb/knows": NO_FACTS,
-    "/v1/copilot/consent": PIP_ON,
-    "/v1/copilot/conversation?limit=50": { turns: [], has_more: false, consent: PIP_ON },
-    "/v1/trial": TRIAL,
+    "/v1/business-profile": businessProfileFixture(),
+    "/v1/business-copy": { placeholders: null, steps: [], caller_details: [], example_questions: [], language: null, generated_at: null, refresh: null },
+    "/v1/copilot/consent": { status: "accepted", can_accept: true, can_withdraw: true, text: "", text_sha256: "a", version: 1, accepted_at: null, withdrawn_at: null },
     "/v1/agents/engine-catalogue": { available: true, voices: [], models: [] },
     ...over,
   };
 }
 
-describe("the pieces, from the server's rows", () => {
+describe("the pieces and where an owner resumes", () => {
   it("starts above zero, with only the account done", () => {
-    const pieces = piecesOf({ agent: null, answers: [], calls: undefined });
+    const pieces = piecesOf({ run: run(), agent: null, calls: undefined });
     expect(pieces.filter((piece) => piece.done).map((piece) => piece.id)).toEqual(["account"]);
-    expect(nextPiece(pieces)?.id).toBe("job");
+    expect(pieces).toHaveLength(9);
+  });
+
+  it("resumes on the step the server's rows say", () => {
+    expect(resumeStage({ run: run(), agent: null, calls: undefined })).toBe("job");
+    expect(resumeStage({ run: run({ job: "call_leads" }), agent: null, calls: undefined })).toBe("brief");
+    expect(resumeStage({ run: run({ job: "call_leads", brief: "x" }), agent: null, calls: undefined })).toBe("questions");
+    const building = run({ job: "call_leads", build: { ...run().build, status: "building" } });
+    expect(resumeStage({ run: building, agent: null, calls: undefined })).toBe("build");
+    expect(resumeStage({ run: built(), agent: agent(), calls: [] })).toBe("hear");
+    expect(resumeStage({ run: built({ finished_at: "2026-10-23T05:00:00Z" }), agent: agent(), calls: [] })).toBe("team");
+  });
+
+  it("follows only the first run's own agent", () => {
+    expect(firstAgentOf([agent()], built())?.id).toBe(AGENT_ID);
+    expect(firstAgentOf([agent()], run())).toBeNull();
+    expect(firstAgentOf([agent({ status: "archived" })], built())).toBeNull();
   });
 
   it("counts a short greeting that ends on a question, in characters a person counts", () => {
@@ -119,137 +210,173 @@ describe("the pieces, from the server's rows", () => {
     expect(greetingFits(`${"a".repeat(GREETING_MAX_CHARS)}?`)).toBe(false);
   });
 
-  it("follows the newest working agent unless the address names one", () => {
-    const older = building({ id: "0192f3a4-0000-7000-8000-000000000001" });
-    const newer = building({ id: "0192f3a4-0000-7000-8000-000000000009" });
-    const gone = building({ id: "0192f3a4-0000-7000-8000-00000000000f", status: "archived" });
-    expect(firstAgentOf([older, newer, gone], null)?.id).toBe(newer.id);
-    expect(firstAgentOf([older, newer], older.id)?.id).toBe(older.id);
-    expect(firstAgentOf([], null)).toBeNull();
-  });
-
-  it("offers one-tap answers for the piece Pip is on", () => {
-    expect(quickRepliesFor("job")).toEqual(["Answer my calls", "Call my leads", "Both"]);
-    expect(quickRepliesFor(null)).toEqual([]);
-  });
-
-  it("keeps the greeting ceiling the server's guide names", () => {
+  it("keeps the greeting ceiling the server's guide and the build worker name", () => {
     const guide = readFileSync(resolve(__dirname, "../../api/copilot/screen_guides.py"), "utf8");
     expect(guide).toMatch(new RegExp(`FIRST_GREETING_MAX_CHARS: Final = ${GREETING_MAX_CHARS}\\b`));
+    const worker = readFileSync(resolve(__dirname, "../../workers/first_run.py"), "utf8");
+    expect(worker).toMatch(new RegExp(`GREETING_MAX_CHARS: Final = ${GREETING_MAX_CHARS}\\b`));
   });
 
-  it("opens Pip once an agent exists, and only the hand-built door when Pip cannot run", () => {
-    expect(chooseDoor(null, false, false)).toBeNull();
-    expect(chooseDoor(null, false, true)).toBe("pip");
-    expect(chooseDoor("manual", false, true)).toBe("manual");
-    expect(chooseDoor("pip", true, false)).toBe("manual");
-    expect(chooseDoor(null, true, false)).toBeNull();
+  it("starts in the profile's first language we sell, else Telugu", () => {
+    expect(defaultLanguage(["hi-IN", "en-IN"])).toBe("hi-IN");
+    expect(defaultLanguage(["ta-IN"])).toBe("te-IN");
+    expect(defaultLanguage(undefined)).toBe("te-IN");
+  });
+
+  it("says what a test call costs from the server's figures, calls rounded down", () => {
+    expect(callsLeft(15, 180)).toBe(5);
+    expect(callsLeft(4, 180)).toBe(1);
+    expect(callsLeft(null, 180)).toBeNull();
+    expect(trialMinutesLine(TRIAL)).toBe(
+      "Test calls use your 15 free trial minutes: 15 left, about 5 calls. Each call stops at 3 minutes. You can make 10 a day (1 today).",
+    );
+  });
+
+  it("records in WebM where it can and MP4 on an older iPhone", () => {
+    expect(recordingMimeType((type) => type.startsWith("audio/webm"))).toBe("audio/webm;codecs=opus");
+    expect(recordingMimeType((type) => type === "audio/mp4")).toBe("audio/mp4");
+    expect(recordingMimeType(() => false)).toBe("");
+  });
+
+  it("sends only the questions answered, in the profile's shape", () => {
+    const draft = {
+      trade: ["Villas"],
+      location: " Kondapur ",
+      offer: [
+        { name: "Villa", price: "₹95,00,000" },
+        { name: "", price: "" },
+      ],
+      hours: { opens: "09:00", closes: "18:00", closed: ["sun" as const] },
+      booking: "",
+    };
+    expect(answersOf(draft, new Set(["trade", "location", "offer"]))).toEqual({
+      trade: ["Villas"],
+      location: "Kondapur",
+      offer: [{ name: "Villa", price_inr: "9500000" }],
+    });
+    expect(answersOf(draft, new Set())).toEqual({});
+  });
+
+  it("says what really happened at each build step, fallbacks included", () => {
+    expect(metaOf({ step: "voice", state: "done", label: "Lakshmi", rung: "studio", fallback: null })).toBe("Lakshmi · Studio");
+    expect(metaOf({ step: "voice", state: "done", label: "Bindu", rung: "clear", fallback: "studio_minutes_used" })).toBe(
+      "Bindu · Clear. Your trial's Studio minutes are used, so it uses a Clear voice.",
+    );
+    expect(studioFallbackLine("studio_unavailable")).toBe("Studio voices aren't available right now, so it uses a Clear voice.");
+    expect(studioFallbackLine(null)).toBeNull();
+    expect(metaOf({ step: "voice", state: "none", label: null })).toMatch(/Pick one before the call/);
+    expect(metaOf({ step: "script", state: "ready_made", label: null })).toMatch(/ready-made script/);
   });
 });
 
-describe("build your first agent", () => {
-  it("offers Pip first and the manual door beside it, with the meter at one of nine", async () => {
-    await renderClientPage(page, routes());
-    expect(await screen.findByRole("button", { name: /Build it with Pip/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /I'll set it up myself/ })).toBeTruthy();
-    expect(screen.getByText("Account created · 1 of 9 done")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Build it with Pip/ }));
-    expect(nav.replaced.at(-1)).toContain("with=pip");
+describe("meet your agent", () => {
+  it("opens on its job with three cards, all open, and the meter at one of nine", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "PUT /v1/first-run/job": run({ job: "call_new_leads", language_primary: "te-IN", languages_extra: ["en-IN"] }),
+      }),
+    );
+    expect(await screen.findByRole("heading", { name: "What should your agent do?" })).toBeTruthy();
+    for (const name of [/Answer my calls/, /Call new leads instantly/, /Call my list/]) {
+      expect((screen.getByRole("radio", { name }) as HTMLInputElement).disabled).toBe(false);
+    }
+    expect(screen.getByText("1 of 9 ready")).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: /Call new leads instantly/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT" && call.path === "/v1/first-run/job")).toBe(true));
+    const sent = calls.find((call) => call.method === "PUT" && call.path === "/v1/first-run/job");
+    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ job: "call_new_leads", language_primary: "te-IN", languages_extra: ["en-IN"] });
+    expect(await screen.findByRole("heading", { name: "Tell it about your business" })).toBeTruthy();
   });
 
-  it("opens the chat with Pip's first question and the answers to it as one tap", async () => {
-    nav.params = new URLSearchParams("with=pip");
-    await renderClientPage(page, routes());
-    expect(await screen.findByText(/First, what should it do/)).toBeTruthy();
-    const replies = screen.getByRole("list", { name: "Quick answers" });
-    expect(within(replies).getByRole("button", { name: "Answer my calls" })).toBeTruthy();
-    // The card is there before anything is built, with the business's own example.
-    expect(screen.getByRole("heading", { name: "Your agent" })).toBeTruthy();
+  it("starts the brief from the trade's example and says the audio is not kept", async () => {
+    await renderClientPage(page, routes({ "/v1/first-run": run({ job: "answer_calls", language_primary: "te-IN" }) }));
+    const box = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
+    expect(box.value.length).toBeGreaterThan(20);
+    expect(screen.getByText("Your recording is turned into text. The audio is not kept.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Talk it through with Pip instead/ })).toBeTruthy();
   });
 
-  it("sends a member who cannot turn Pip on to the hand-built door, with the reason", async () => {
-    const locked = { ...PIP_ON, status: "required", can_accept: false, accepted_at: null };
+  it("shows the build's real steps ticked, then the agent by name", async () => {
     await renderClientPage(
       page,
       routes({
-        "/v1/me": { ...OWNER_ME, role: "admin" },
-        "/v1/copilot/consent": locked,
-        "/v1/copilot/conversation?limit=50": { turns: [], has_more: false, consent: locked },
+        "/v1/first-run": built(),
+        "/v1/agents": [agent()],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+        "/v1/trial": TRIAL,
+        "/v1/legal/readiness": READINESS,
+        "/v1/compliance/outbound-pledge": PLEDGE,
       }),
     );
-    const pip = await screen.findByRole("button", { name: /Build it with Pip/ });
-    expect((pip as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/off for this account until its owner turns it on/)).toBeTruthy();
+    // A built agent with no call yet resumes on "Hear it".
+    expect(await screen.findByRole("heading", { name: "Hear Sravani on your phone" })).toBeTruthy();
+    expect(screen.getByText("It rings you and answers as if you had called Sri Clinic.")).toBeTruthy();
+  });
+
+  it("holds the call until every outstanding tick is ticked, then accepts each and rings", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built(),
+        "/v1/agents": [agent()],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+        "/v1/trial": TRIAL,
+        "/v1/legal/readiness": READINESS,
+        "/v1/compliance/outbound-pledge": PLEDGE,
+        "POST /v1/legal/acceptances": { ...READINESS, documents: [], outstanding_documents: 0 },
+        "POST /v1/compliance/outbound-pledge": { ...PLEDGE, is_current: true },
+        [`POST /v1/agents/${AGENT_ID}/prepare`]: { status: "paused", changed: true, numbers_released: 0 },
+        "POST /v1/trial/calls": { status: "queued", call_handle: "h1", blocked_reason: null, blocked_rule: null },
+      }),
+    );
+    const call = await screen.findByRole("button", { name: /Call me now/ });
+    fireEvent.change(screen.getByRole("textbox", { name: "Your mobile number" }), { target: { value: "98765 43210" } });
+    expect((call as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: /I accept the Terms of Service/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /no-cold-calls pledge/ }));
+    expect((call as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: /The number below is my own/ }));
+    expect((call as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(call);
+    expect(await screen.findByText("Ringing your phone…")).toBeTruthy();
+    const posts = calls.filter((entry) => entry.method === "POST").map((entry) => entry.path);
+    expect(posts).toEqual([
+      "/v1/legal/acceptances",
+      "/v1/compliance/outbound-pledge",
+      `/v1/agents/${AGENT_ID}/prepare`,
+      "/v1/trial/calls",
+    ]);
+    const placed = calls.find((entry) => entry.path === "/v1/trial/calls");
+    expect(JSON.parse(placed?.body ?? "{}")).toMatchObject({ number_is_mine: true, agent_id: AGENT_ID });
+  });
+
+  it("says the trial line's refusal in the server's words", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built(),
+        "/v1/agents": [agent({ published: true })],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+        "/v1/trial": { ...TRIAL, can_call: false, blocked_reason: "You have used today's test calls." },
+        "/v1/legal/readiness": { ...READINESS, documents: [], outstanding_documents: 0 },
+        "/v1/compliance/outbound-pledge": { ...PLEDGE, is_current: true },
+      }),
+    );
+    expect(await screen.findByText("You have used today's test calls.")).toBeTruthy();
   });
 
   it("refuses a member who may not build agents, in the console's own words", async () => {
     await renderClientPage(page, routes({ "/v1/me": { ...OWNER_ME, role: "staff", permissions: ["agents:read"] } }));
-    expect(await screen.findByText(/cannot build an agent|build an agent/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Build it with Pip/ })).toBeNull();
+    expect(await screen.findByText(/build an agent/)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "What should your agent do?" })).toBeNull();
   });
 
-  it("resumes on the card from the server's rows, with the greeting counted", async () => {
-    const agent = building();
-    await renderClientPage(
-      page,
-      routes({
-        "/v1/agents": [agent],
-        [`/v1/calls?agent_id=${agent.id}&limit=1`]: [],
-        "/v1/kb/knows": {
-          ...NO_FACTS,
-          facts: [
-            {
-              id: "f1",
-              text: "No, Monday to Saturday.",
-              question: "Open on Sundays?",
-              pinned: true,
-              origin: "taught",
-              created_at: "2026-10-22T05:00:00Z",
-            },
-          ],
-        },
-      }),
-    );
-    expect(await screen.findByRole("heading", { name: "Front desk" })).toBeTruthy();
-    expect(screen.getByText("Answers your calls")).toBeTruthy();
-    expect(screen.getByText(/of 120 characters/)).toBeTruthy();
-    expect(screen.getByText("Open on Sundays?")).toBeTruthy();
-    expect(screen.getByText("2 more to go")).toBeTruthy();
-    // account, job, name, greeting and notes are done; voice, questions, ready and call are not.
-    expect(screen.getByText("5 of 9 done")).toBeTruthy();
-  });
-
-  it("gets a draft ready, then rings the number, from one press", async () => {
-    const agent = building();
-    const { calls } = await renderClientPage(
-      page,
-      routes({
-        "/v1/agents": [agent],
-        [`/v1/calls?agent_id=${agent.id}&limit=1`]: [],
-        [`POST /v1/agents/${agent.id}/prepare`]: { status: "draft", changed: true, numbers_released: 0 },
-        "POST /v1/trial/calls": { status: "queued", call_handle: "h1", blocked_reason: null, blocked_rule: null },
-      }),
-    );
-    const input = await screen.findByPlaceholderText("+91 98765 43210");
-    fireEvent.change(input, { target: { value: "+91 98765 43210" } });
-    fireEvent.click(screen.getByRole("button", { name: /Call me/ }));
-    expect(await screen.findByText("Ringing your phone…")).toBeTruthy();
-    const posts = calls.filter((call) => call.method === "POST").map((call) => call.path);
-    expect(posts).toEqual([`/v1/agents/${agent.id}/prepare`, "/v1/trial/calls"]);
-    await waitFor(() => expect(calls.some((call) => call.path === "/v1/trial" && call.method === "GET")).toBe(true));
-  });
-
-  it("shows the trial line's refusal in the server's words", async () => {
-    const agent = building({ published: true, status: "draft" });
-    await renderClientPage(
-      page,
-      routes({
-        "/v1/agents": [agent],
-        [`/v1/calls?agent_id=${agent.id}&limit=1`]: [],
-        "/v1/trial": { ...TRIAL, can_call: false, blocked_reason: "You have used today's test calls." },
-      }),
-    );
-    expect(await screen.findByText("You have used today's test calls.")).toBeTruthy();
-    expect((screen.getByRole("button", { name: /Call me/ }) as HTMLButtonElement).disabled).toBe(true);
+  it("puts the first run aside and goes to the dashboard", async () => {
+    const { calls } = await renderClientPage(page, routes({ "POST /v1/first-run/dismiss": run({ due: false }) }));
+    fireEvent.click(await screen.findByRole("button", { name: "Skip for now" }));
+    await waitFor(() => expect(nav.pushed).toEqual(["/c/acme"]));
+    expect(calls.some((call) => call.method === "POST" && call.path === "/v1/first-run/dismiss")).toBe(true);
   });
 });

@@ -27,14 +27,9 @@ import httpx
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import account_assist_leg
-from apps.api.billing.ai_quota import (
-    new_assist_ref,
-    read_ai_quota,
-    record_absorbed_stt_usage,
-)
+from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.teach.models import MAX_FACT_CHARS, MAX_RULE_CHARS, MAX_TEACH_WORDS
@@ -48,31 +43,13 @@ from apps.workers.extraction import (
     assist_capability,
 )
 from apps.workers.script_assist import ask_json
+from apps.workers.speech_to_text import meter_clip
+from apps.workers.speech_to_text import transcribe as transcribe_voice
 from apps.workers.storage import delete_objects, read_kb_object
 
 log = get_logger(__name__)
 
 JOB_NAME: Final = TEACH_JOB
-
-#: Sarvam's REST speech-to-text (sarvamai 0.1.28, `speech_to_text/raw_client.py`: POST
-#: `speech-to-text` on `https://api.sarvam.ai`, multipart `file`, form `model`/`mode`/
-#: `language_code`/`input_audio_codec`, header `api-subscription-key`; clips under 30 s).
-SARVAM_STT_URL: Final = "https://api.sarvam.ai/speech-to-text"
-#: `saaras:v3` in `codemix` mode keeps English words in English and Indian-language words in
-#: their own script, the way owners speak; `unknown` lets it detect the language.
-STT_MODEL: Final = "saaras:v3"
-STT_MODE: Final = "codemix"
-STT_TIMEOUT_S: Final = 40.0
-
-_CODECS: Final[dict[str, str]] = {
-    "audio/webm": "webm",
-    "audio/ogg": "ogg",
-    "audio/mpeg": "mp3",
-    "audio/mp4": "mp4",
-    "audio/wav": "wav",
-    "audio/x-wav": "wav",
-    "audio/aac": "aac",
-}
 
 MAX_ITEMS: Final = 30
 SORT_MAX_TOKENS: Final = 2000
@@ -216,48 +193,9 @@ async def sort_words(
     )
 
 
-async def transcribe_voice(data: bytes, content_type: str) -> str:
-    """The words in a voice note. Raises `httpx.HTTPError` when the provider fails."""
-    settings = get_settings()
-    if not settings.sarvam_api_key:
-        raise RuntimeError("no speech-to-text credential")
-    form = {"model": STT_MODEL, "mode": STT_MODE, "language_code": "unknown"}
-    codec = _CODECS.get(content_type.split(";")[0].strip().lower())
-    if codec:
-        form["input_audio_codec"] = codec
-    async with httpx.AsyncClient(timeout=STT_TIMEOUT_S, follow_redirects=False) as client:
-        response = await client.post(
-            SARVAM_STT_URL,
-            headers={"api-subscription-key": settings.sarvam_api_key},
-            data=form,
-            files={"file": ("voice-note", data, content_type)},
-        )
-        response.raise_for_status()
-        body = response.json()
-    transcript = body.get("transcript") if isinstance(body, dict) else None
-    return str(transcript or "").strip()
-
-
 #: `usage_events.meta.feature` for transcribing a teach-box voice note. Absorbed (founder,
 #: 11 Oct 2026): our cost, never the client's allowance or wallet.
 ASSIST_FEATURE_KB_VOICE: Final = "kb_teach_voice"
-#: The recorder stops a voice note at 30 seconds (`teach/teaching.MAX_VOICE_BYTES`) and the
-#: speech-to-text answer carries no audio length, so each note is metered at that ceiling:
-#: our recorded cost can only be above what the vendor bills, never below.
-VOICE_NOTE_CEILING_S: Final = 30
-
-
-async def _meter_voice(tenant_id: UUID) -> None:
-    async with tenant_session(tenant_id) as session:
-        await record_absorbed_stt_usage(
-            session,
-            tenant_id=tenant_id,
-            ref=new_assist_ref(),
-            audio_seconds=VOICE_NOTE_CEILING_S,
-            model=STT_MODEL,
-            feature=ASSIST_FEATURE_KB_VOICE,
-            basis="recorder_ceiling",
-        )
 
 
 async def read_upload(tenant_id: UUID, *, data: bytes, input_kind: str, content_type: str) -> str:
@@ -272,7 +210,7 @@ async def read_upload(tenant_id: UUID, *, data: bytes, input_kind: str, content_
     except (httpx.HTTPError, RuntimeError, ValueError) as failure:
         log.warning("kb_teach_stt_failed", extra={"error": type(failure).__name__})
         raise UnreadableError("voice_unreadable") from failure
-    await _meter_voice(tenant_id)
+    await meter_clip(tenant_id, feature=ASSIST_FEATURE_KB_VOICE)
     return heard
 
 

@@ -65,33 +65,13 @@ function routes(over: Record<string, unknown> = {}) {
 }
 
 describe("new agent from a job", () => {
-  it("offers the two jobs first, reading only whether either is locked", async () => {
+  it("offers the three jobs first, all open, and reads no preview until one is picked", async () => {
     const { calls } = await renderClientPage(page, routes());
     expect(await screen.findByRole("heading", { name: "What should your new agent do?" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Answer my calls/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Call my leads/ })).toBeTruthy();
-    await waitFor(() =>
-      expect(calls.filter((c) => c.path.includes("/starters")).map((c) => c.path)).toEqual([
-        "/v1/agents/starters?language=te-IN",
-      ]),
-    );
-  });
-
-  it("shows a job the account cannot use yet as locked, with the server's reason", async () => {
-    const reason = "An agent that only answers calls needs your own phone number.";
-    await renderClientPage(
-      page,
-      routes({
-        "/v1/agents/starters?language=te-IN": {
-          vertical: "real_estate",
-          starters: [{ ...ANSWER, locked_reason: reason }, LEADS],
-        },
-      }),
-    );
-    const locked = (await screen.findByRole("button", { name: /Answer my calls/ })) as HTMLButtonElement;
-    await waitFor(() => expect(locked.disabled).toBe(true));
-    expect(screen.getByText(reason)).toBeTruthy();
-    expect((screen.getByRole("button", { name: /Call my leads/ }) as HTMLButtonElement).disabled).toBe(false);
+    for (const name of [/Answer my calls/, /Call new leads instantly/, /Call my list/]) {
+      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false);
+    }
+    expect(calls.some((c) => c.path.includes("/starters"))).toBe(false);
   });
 
   it("previews the greeting in the language picked, the one the agent is created with", async () => {

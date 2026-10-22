@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { PhoneIncoming, PhoneOutgoing } from "lucide-react";
+import { PhoneIncoming, PhoneOutgoing, Zap } from "lucide-react";
 
 import { Chooser, ChooserItem } from "@/components/console/chooser";
 import { IconTile } from "@/components/console/iconTile";
@@ -20,7 +20,6 @@ import { LANGUAGE_CHOICES, LANGUAGE_NAMES } from "@/lib/agentState";
 import {
   useCreateAgent,
   useStarters,
-  type Agent,
   type AgentLanguage,
   type StarterJob,
 } from "@/lib/api/agents";
@@ -48,9 +47,15 @@ const JOBS: { job: StarterJob; title: string; line: string; icon: typeof PhoneIn
     icon: PhoneIncoming,
   },
   {
+    job: "call_new_leads",
+    title: "Call new leads instantly",
+    line: "It rings each new enquiry within minutes, while they are still interested, and notes what they want.",
+    icon: Zap,
+  },
+  {
     job: "call_leads",
-    title: "Call my leads",
-    line: "It rings the people you give it, follows up on what they asked about and notes what they want.",
+    title: "Call my list",
+    line: "It rings the people on your list, follows up on what they asked about and notes what they want.",
     icon: PhoneOutgoing,
   },
 ];
@@ -58,25 +63,9 @@ const JOBS: { job: StarterJob; title: string; line: string; icon: typeof PhoneIn
 /** The language a new agent starts in unless the owner picks another (Telugu-first, BRD §1). */
 const DEFAULT_LANGUAGE: AgentLanguage = "te-IN";
 
-export function StartFromJob({
-  slug,
-  onBlank,
-  onCreated,
-}: {
-  slug: string;
-  onBlank: () => void;
-  /** Where to go once it exists. Absent: its Script section. The first-agent screen keeps
-   *  the owner on its card instead (D-854). */
-  onCreated?: (agent: Agent) => void;
-}) {
-  const session = useClientSession();
+export function StartFromJob({ slug, onBlank }: { slug: string; onBlank: () => void }) {
   const [job, setJob] = useState<StarterJob | null>(null);
   const chosen = JOBS.find((j) => j.job === job);
-  /* Read for the server's lock: on a free trial "Answer my calls" is offered locked, with
-     the reason it would be refused at switch-on (D-697, D-838). */
-  const starters = useStarters(session, DEFAULT_LANGUAGE);
-  const lockedReason = (j: StarterJob) =>
-    starters.data?.starters.find((s) => s.job === j)?.locked_reason ?? null;
 
   if (!chosen) {
     return (
@@ -89,28 +78,15 @@ export function StartFromJob({
           </p>
         </div>
         <Chooser label="Jobs an agent can do">
-          {JOBS.map((j) => {
-            const locked = lockedReason(j.job);
-            return (
-              <ChooserItem
-                key={j.job}
-                title={j.title}
-                description={
-                  locked ? (
-                    <>
-                      {j.line}
-                      <span className="mt-1 block text-ink-muted">{locked}</span>
-                    </>
-                  ) : (
-                    j.line
-                  )
-                }
-                icon={<IconTile icon={j.icon} />}
-                disabled={locked !== null}
-                onSelect={() => setJob(j.job)}
-              />
-            );
-          })}
+          {JOBS.map((j) => (
+            <ChooserItem
+              key={j.job}
+              title={j.title}
+              description={j.line}
+              icon={<IconTile icon={j.icon} />}
+              onSelect={() => setJob(j.job)}
+            />
+          ))}
         </Chooser>
         <button type="button" className={TEXT_ACTION} onClick={onBlank}>
           Start from a blank agent instead
@@ -119,19 +95,17 @@ export function StartFromJob({
     );
   }
 
-  return <StarterPreviewStep slug={slug} job={chosen} onBack={() => setJob(null)} onCreated={onCreated} />;
+  return <StarterPreviewStep slug={slug} job={chosen} onBack={() => setJob(null)} />;
 }
 
 function StarterPreviewStep({
   slug,
   job,
   onBack,
-  onCreated,
 }: {
   slug: string;
   job: (typeof JOBS)[number];
   onBack: () => void;
-  onCreated?: (agent: Agent) => void;
 }) {
   const session = useClientSession();
   const { href } = useClientRealm();
@@ -202,10 +176,7 @@ function StarterPreviewStep({
         language_primary: language,
       },
       {
-        onSuccess: (agent) =>
-          onCreated
-            ? onCreated(agent)
-            : router.push(href(`/c/${slug}/agents/${agent.id}?section=script&from=starter`)),
+        onSuccess: (agent) => router.push(href(`/c/${slug}/agents/${agent.id}?section=script&from=starter`)),
       },
     );
   };

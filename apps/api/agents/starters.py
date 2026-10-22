@@ -1,10 +1,10 @@
 """Ready-made agents: pick a job and a business type, get a script to review (D-705).
 
 A new agent used to start with no script at all, and the owner faced a blank builder. The
-founder's rule (redesign #2, item 5) is that the owner picks a JOB, "Answer my calls" or
-"Call my leads", and their account's business type fills in a ready agent: a structured
-call script, an opening line and the details the agent captures. The owner reviews and
-adjusts it before switching it on.
+founder's rule (redesign #2, item 5) is that the owner picks a JOB, "Answer my calls",
+"Call new leads instantly" (D-855) or "Call my list", and their account's business type
+fills in a ready agent: a structured call script, an opening line and the details the agent
+captures. The owner reviews and adjusts it before switching it on.
 
 WHAT A STARTER MAY SAY. A starter is written by us and stored as the owner's own script, so
 it must hold for every business of its type:
@@ -69,7 +69,10 @@ from apps.api.agents.write_guard import archived_refusal
 from apps.api.core.errors import ProblemError
 from apps.api.tenancy.business_copy import read_state as read_business_copy
 
-StarterJob = Literal["answer_calls", "call_leads"]
+#: `call_new_leads` rings someone minutes after they enquire (speed to lead, the ingest
+#: webhook's job); `call_leads` works through a list of people who showed interest earlier.
+#: Both dial out; they differ in what the agent knows about the person it rings (D-855).
+StarterJob = Literal["answer_calls", "call_new_leads", "call_leads"]
 STARTER_JOBS: Final[tuple[StarterJob, ...]] = get_args(StarterJob)
 
 #: The job decides the calling direction. "Both" is not a starter: an agent that answers
@@ -81,13 +84,27 @@ STARTER_LANGUAGE: Final = get_language("telugu").bcp47
 
 JOB_DIRECTION: Final[Mapping[StarterJob, AgentDirection]] = {
     "answer_calls": "inbound",
+    "call_new_leads": "outbound",
     "call_leads": "outbound",
 }
 
 #: The job's name as the owner sees it, used in the version note.
 JOB_LABEL: Final[Mapping[StarterJob, str]] = {
     "answer_calls": "Answer my calls",
-    "call_leads": "Call my leads",
+    "call_new_leads": "Call new leads instantly",
+    "call_leads": "Call my list",
+}
+
+#: The business copy writes one set of example lines per step shape
+#: (`tenancy/business_copy.StarterLines`). The two outbound jobs share a shape step for step,
+#: so new-lead calls use the list's lines rather than a third set the model would have to
+#: write and the parser would have to count.
+LineSet = Literal["answer_calls", "call_leads"]
+LINE_SETS: Final[tuple[LineSet, ...]] = get_args(LineSet)
+LINES_OF_JOB: Final[Mapping[StarterJob, LineSet]] = {
+    "answer_calls": "answer_calls",
+    "call_new_leads": "call_leads",
+    "call_leads": "call_leads",
 }
 
 #: The business type an account with no template, or an unknown one, is treated as; never
@@ -506,7 +523,66 @@ def _call_leads(vertical: str, trade: Trade) -> Starter:
     )
 
 
-_BUILDERS: Final = {"answer_calls": _answer_calls, "call_leads": _call_leads}
+def _call_new_leads(vertical: str, trade: Trade) -> Starter:
+    """Rings a person minutes after they enquired. Step for step the list's shape, so the
+    business copy's example lines fit both (`LINES_OF_JOB`); what differs is that the agent
+    knows the enquiry is fresh and says so."""
+    listed = _call_leads(vertical, trade)
+    steps = list(listed.steps)
+    steps[2] = StarterStep(
+        title="Find out what they need",
+        instruction=(
+            "Thank them for the enquiry they just made, then ask what they are looking for, "
+            f"one thing per turn: {trade.capture}."
+        ),
+        exit_when="You know what they want, or that they are not interested.",
+    )
+    return Starter(
+        job="call_new_leads",
+        vertical=vertical,
+        name_suggestion=trade.caller_name,
+        opening_line=(
+            "Hello, I am calling from {business} about the enquiry you just made. Is this a "
+            "good time for a quick chat?"
+        ),
+        business_line="{business}",
+        identity=(
+            "You call people within minutes of their enquiry to {business}, while it is "
+            "still fresh. You are polite, brief and never pushy."
+        ),
+        goal=(
+            f"Help with the enquiry they just made and, if they are interested, arrange "
+            f"{trade.booking}. Take no for an answer."
+        ),
+        outbound_purpose=(
+            "They just made an enquiry with {business}, and you are calling to help with it."
+        ),
+        steps=tuple(steps),
+        objections=(
+            (
+                "Where did you get my number?",
+                "Say they left their number in an enquiry to the business a few minutes ago, "
+                "and the team can tell them exactly where.",
+            ),
+            (
+                "I'm not interested.",
+                "Thank them politely and end the call. Do not try again.",
+            ),
+            (
+                "I was only checking the price.",
+                f"Give the price if your knowledge has it, then ask if they would like "
+                f"{trade.booking}.",
+            ),
+        ),
+        ending=_CALL_LEADS_ENDING,
+    )
+
+
+_BUILDERS: Final = {
+    "answer_calls": _answer_calls,
+    "call_new_leads": _call_new_leads,
+    "call_leads": _call_leads,
+}
 
 #: Every starter, keyed by (vertical, job). Built once at import: the catalogue is
 #: constant, and building it here makes a malformed starter an import-time failure.
@@ -573,7 +649,7 @@ async def apply_starter(
     script = starter.call_script(business=business, language=language)
     stored = await read_business_copy(session)
     if stored is not None and stored.copy is not None and stored.language == language:
-        script = with_example_lines(script, getattr(stored.copy.starter_lines, job))
+        script = with_example_lines(script, getattr(stored.copy.starter_lines, LINES_OF_JOB[job]))
     saved = await save_agent_script(
         session,
         tenant_id=tenant_id,
@@ -610,8 +686,12 @@ def with_example_lines(script: CallScript, lines: Sequence[str]) -> CallScript:
     return script.model_copy(update={"stages": stages})
 
 
-#: The job an agent's direction implies. "both" has none: no starter makes such an agent.
-JOB_OF_DIRECTION: Final[Mapping[str, StarterJob]] = {d: j for j, d in JOB_DIRECTION.items()}
+#: The jobs an agent's direction may have come from. "both" has none: no starter makes such
+#: an agent. Outbound has two, told apart by the script's content (`starter_vertical_of`).
+JOBS_OF_DIRECTION: Final[Mapping[str, tuple[StarterJob, ...]]] = {
+    direction: tuple(job for job in STARTER_JOBS if JOB_DIRECTION[job] == direction)
+    for direction in set(JOB_DIRECTION.values())
+}
 
 
 def _canonical(script: CallScript) -> dict[str, Any]:
@@ -668,13 +748,25 @@ async def replace_unedited_starter(
     ).first()
     if row is None or row[4] is None or row[5] or row[6] or not isinstance(row[2], dict):
         return None
-    job = JOB_OF_DIRECTION.get(str(row[0]))
-    if job is None:
-        return None
     business, language = str(row[3]), str(row[1])
-    written_for = starter_vertical_of(row[2], job=job, business=business, language=language)
+    found = next(
+        (
+            (job, vertical)
+            for job in JOBS_OF_DIRECTION.get(str(row[0]), ())
+            if (
+                vertical := starter_vertical_of(
+                    row[2], job=job, business=business, language=language
+                )
+            )
+            is not None
+        ),
+        None,
+    )
+    if found is None:
+        return None
+    job, written_for = found
     target = vertical_of(str(row[4]))
-    if written_for is None or written_for == target:
+    if written_for == target:
         return None
     return await rewrite_script(
         session,
@@ -729,12 +821,15 @@ async def rewrite_opening_in_language(session: AsyncSession, agent_id: UUID) -> 
 
 __all__ = [
     "CATALOGUE",
+    "JOBS_OF_DIRECTION",
     "JOB_DIRECTION",
     "JOB_LABEL",
-    "JOB_OF_DIRECTION",
+    "LINES_OF_JOB",
+    "LINE_SETS",
     "NEUTRAL_VERTICAL",
     "STARTER_JOBS",
     "TRADES",
+    "LineSet",
     "RewrittenOpening",
     "Starter",
     "StarterJob",

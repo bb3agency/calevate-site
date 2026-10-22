@@ -42,13 +42,22 @@ export function usePlaceTrialCall(session: Session) {
   const held = useRef(new Map<string, string>());
   const attemptOf = (agentId: string, number: string) => JSON.stringify([agentId, number]);
   return useMutation({
-    mutationFn: ({ agentId, number }: { agentId: string; number: string }) => {
+    mutationFn: ({
+      agentId,
+      number,
+      numberIsMine = false,
+    }: {
+      agentId: string;
+      number: string;
+      /** The owner ticked "this number is mine" (D-855); recorded by the server. */
+      numberIsMine?: boolean;
+    }) => {
       const attempt = attemptOf(agentId, number);
       const key = held.current.get(attempt) ?? crypto.randomUUID();
       held.current.set(attempt, key);
       return apiRequest<TrialCallResult>(session, "/v1/trial/calls", {
         method: "POST",
-        body: { agent_id: agentId, number },
+        body: numberIsMine ? { agent_id: agentId, number, number_is_mine: true } : { agent_id: agentId, number },
         idempotencyKey: key,
       });
     },

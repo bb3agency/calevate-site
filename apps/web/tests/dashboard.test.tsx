@@ -890,21 +890,16 @@ describe("this week", () => {
     const card = await recap({ "/v1/agents": [] });
     expect(card.textContent).toContain("You have no agent yet");
     const buttons = await actions(card);
-    expect(buttons[0]).toEqual({ name: "Build your first agent", primary: true });
+    expect(buttons[0]).toEqual({ name: "Meet your agent", primary: true });
     expect(buttons.map((b) => b.name)).not.toContain("Open campaigns");
   });
 
-  it("invites an owner with no agent to build the first one, with Pip or by hand (D-854)", async () => {
+  it("invites an owner with no agent to meet their first one (D-855)", async () => {
     await recap({ "/v1/agents": [] });
-    const invite = (await screen.findByRole("heading", { name: "Build your first agent", level: 2 })).closest(
+    const invite = (await screen.findByRole("heading", { name: "Meet your agent", level: 2 })).closest(
       "section",
     ) as HTMLElement;
-    expect(within(invite).getByRole("link", { name: /Build it with Pip/ }).getAttribute("href")).toBe(
-      "/c/acme/agents/first?with=pip",
-    );
-    expect(within(invite).getByRole("link", { name: "Set it up myself" }).getAttribute("href")).toBe(
-      "/c/acme/agents/first?with=manual",
-    );
+    expect(within(invite).getByRole("link", { name: /Start/ }).getAttribute("href")).toBe("/c/acme/agents/first");
   });
 
   it("leads with the agent when none is switched on", async () => {

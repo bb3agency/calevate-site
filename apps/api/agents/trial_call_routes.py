@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.trial_calls import place_trial_call
+from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.trial_panel import TrialPanelOut
 from apps.api.agents.trial_panel import read_trial_panel as build_trial_panel
 from apps.api.core.auth import client_request_ip, requires
@@ -40,6 +40,9 @@ class TrialCallIn(Strict):
     agent_id: UUID
     #: The number to ring, as the client typed it: an Indian number only.
     number: str = Field(min_length=8, max_length=20)
+    #: The caller ticked "this number is mine" (D-855). Recorded in the audit log by keyed
+    #: reference, never the number itself.
+    number_is_mine: bool = False
 
 
 class TrialCallOut(Strict):
@@ -84,6 +87,10 @@ async def create_trial_call(
             title="A test call needs an Idempotency-Key header",
             detail="Each test call rings a real phone, so every attempt names itself.",
             remediation="Send an `Idempotency-Key` header — one fresh value per attempt.",
+        )
+    if payload.number_is_mine:
+        await attest_own_number(
+            session, principal=principal, number=payload.number, ip=client_request_ip(request)
         )
     result = await place_trial_call(
         session,

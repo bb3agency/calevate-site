@@ -390,7 +390,8 @@ AGENT_CREATE: Final = ActionTool(
             "job": {
                 "anyOf": [{"type": "string", "enum": list(STARTER_JOBS)}, {"type": "null"}],
                 "description": (
-                    "`answer_calls` or `call_leads` for a ready-made script (`answer_calls` "
+                    "`answer_calls`, `call_new_leads` or `call_leads` (a list) for a ready-made "
+                    "script (`answer_calls` "
                     "with direction `both`), or null for a blank agent."
                 ),
             },

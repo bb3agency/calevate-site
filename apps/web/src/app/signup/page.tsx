@@ -344,8 +344,8 @@ function SignupForm() {
           </p>
         </Card>
 
-        <Link href={`/c/${created.slug}/setup`} className={PRIMARY_BUTTON}>
-          Set up {created.name}
+        <Link href={`/c/${created.slug}/agents/first`} className={PRIMARY_BUTTON}>
+          Meet your agent
           <ArrowRight aria-hidden className="h-4 w-4" />
         </Link>
       </div>

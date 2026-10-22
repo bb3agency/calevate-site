@@ -2702,18 +2702,51 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
-    // D-854: an agent mid-build, so the sweep covers the card's filled rows, the greeting
-    // counter and the finale's number field, not only the two doors.
+    // D-855: a built agent on "Hear it", so the sweep covers the rail, the card's filled
+    // rows, the honest lines, every outstanding tick and the number field.
     file: "c/[slug]/agents/first/page.tsx",
     realm: "client",
     element: () => <FirstAgentPage params={slug} />,
     routes: {
       "/v1/me": ME,
+      "/v1/first-run": {
+        due: true,
+        job: "answer_calls",
+        language_primary: "te-IN",
+        languages_extra: ["en-IN"],
+        brief: "We sell flats in Kondapur.",
+        agent_id: AGENT.id,
+        questions: { status: "ready", items: [], disclosure: null },
+        build: {
+          status: "built",
+          steps: (["voice", "script", "greeting", "notice"] as const).map((step) => ({ step, state: "done", label: null })),
+          disclosure: null,
+          builds_left: 2,
+        },
+        recordings_left: 3,
+        finished_at: null,
+        dismissed_at: null,
+      },
       "/v1/agents": [{ ...AGENT, status: "draft", published: false, script_opening_line: "Namaskaram! How can I help you today?" }],
-      "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
+      "/v1/business-profile": businessProfileFixture(),
       "/v1/copilot/consent": { status: "accepted", can_accept: true, can_withdraw: true, text: "", text_sha256: "a", version: 1, accepted_at: null, withdrawn_at: null },
-      "/v1/copilot/conversation?limit=50": { turns: [], has_more: false },
-      "/v1/trial": { on_trial: true, status: "active", days_remaining: 7, ends_at: "2026-10-29T00:00:00Z", free_minutes: 15, minutes_used: "0", minutes_left: "15", calls_today: 0, daily_cap: 5, can_call: true, blocked_reason: null, max_call_seconds: 180, pledge_accepted: false },
+      "/v1/trial": { on_trial: true, status: "active", days_remaining: 7, ends_at: "2026-10-29T00:00:00Z", free_minutes: 15, minutes_used: 0, minutes_left: 15, calls_today: 0, daily_cap: 10, can_call: true, blocked_reason: null, max_call_seconds: 180, pledge_accepted: false },
+      "/v1/legal/readiness": {
+        acceptance_statement: "By ticking, you accept on behalf of the business.",
+        acceptance_statement_version: "s1",
+        blockers: [],
+        can_accept: true,
+        can_accept_reason: null,
+        documents: [
+          { slug: "terms", title: "Terms of Service", version: "1", state: "never_accepted", headline: "Not accepted yet", href: "/legal/terms", blocking: true, accepted_at: null, accepted_by_name: null, accepted_version: null, effective_date: "2026-10-01", provisional: false },
+        ],
+        may_operate: false,
+        outstanding_documents: 1,
+        pending_legal_review: false,
+        provisional_notice: null,
+        verdict: "blocked",
+      },
+      "/v1/compliance/outbound-pledge": { accepted_at: null, accepted_version: null, is_current: false, pledge_text: "We only call people who asked us to.", text_sha256: "b".repeat(64), version: "1" },
       "/v1/agents/engine-catalogue": { available: true, voices: [], models: [] },
       [`/v1/calls?agent_id=${AGENT.id}&limit=1`]: [],
     },
@@ -3503,7 +3536,7 @@ const CLIENT_SCREENS: Screen[] = [
     file: "c/page.tsx",
     realm: "client",
     element: () => <ClientConsoleJunction />,
-    routes: { "/v1/me": ME, "/v1/business-profile": businessProfileFixture(), "/v1/agents": [] },
+    routes: { "/v1/me": ME, "/v1/first-run": { due: false }, "/v1/agents": [] },
   },
   {
     file: "signup/page.tsx",

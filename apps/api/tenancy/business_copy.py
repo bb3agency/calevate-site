@@ -47,7 +47,7 @@ REFRESH_EVERY: Final = timedelta(days=15)
 #: 300 s `job_timeout`), so a live run is never taken over; a crashed one frees the row.
 CLAIM_TTL: Final = timedelta(minutes=10)
 
-Trigger = Literal["signup", "refresh", "scheduled", "operator"]
+Trigger = Literal["signup", "refresh", "scheduled", "operator", "first_run"]
 StopReason = Literal[
     "allowance_used_up",
     "ai_paused",
