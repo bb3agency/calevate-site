@@ -1230,15 +1230,12 @@ export const MAIN_CONTENT_ID = "main-content";
  * four places is the one that drifts.
  *
  * The width is the CSS variable `--shell-rail` (`globals.css`), set on the shell root, so
- * the header and the content always read the same number. A workbench page (the script
- * builder's canvas, the leads table) spreads `WIDE_RAIL` on its root and the whole shell
- * widens with it, header included; a per-page `max-w-*` on the content alone would put the
+ * the header and the content always read the same number. It is the same on every page:
+ * a wider rail on one tab moved the header and the page sideways whenever the tab changed
+ * (founder, 22 Oct 2026), and a per-page `max-w-*` on the content alone would put the
  * header back on a different rail from the page under it.
  */
 export const SHELL_RAIL_CLASS = "mx-auto w-full max-w-(--shell-rail)";
-
-/** Spread on a page's root to give the shell the wide rail while that page is open. */
-export const WIDE_RAIL = { "data-rail": "wide" } as const;
 
 /**
  * The shells' `<main>`: the one scroll container and its gutters. The sticky page bar

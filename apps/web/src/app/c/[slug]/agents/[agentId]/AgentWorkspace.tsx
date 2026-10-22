@@ -36,7 +36,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 
-import { NoticeBox, ProblemNotice, Skeleton, WIDE_RAIL } from "@/components/ui";
+import { NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
 import { PageHeader } from "@/components/console/pageHeader";
 import { SettingsLayout, useActiveSection } from "@/components/console/settingsLayout";
 import { isDeleted } from "@/lib/agentState";
@@ -141,7 +141,7 @@ function LiveAgent({ agent, slug, leadsLink }: { agent: Agent; slug: string; lea
   return (
     // The Script tab's flow picture and the editor beside it use the width a desktop has,
     // so the shell takes the wide rail while that tab is open.
-    <div className="space-y-6" {...(active === "script" ? WIDE_RAIL : {})}>
+    <div className="space-y-6">
       <SettingsLayout
         label="About this agent"
         menu="tabs"

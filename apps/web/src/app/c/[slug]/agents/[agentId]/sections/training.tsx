@@ -113,7 +113,7 @@ function Training({ agent, slug }: { agent: Agent; slug: string }) {
 
   const gaps = <KnowledgeGaps agentId={agent.id} headingLevel={3} />;
   return (
-    <div className="max-w-3xl space-y-12">
+    <div className="space-y-12">
       {gapsFirst && gaps}
 
       <TeachBox allowed={teach.allowed} reason={teach.reason} headingLevel={3} />

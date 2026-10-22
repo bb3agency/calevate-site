@@ -138,7 +138,7 @@ export function TestSection({
   const canRun = data?.available === true && write.allowed && !testing;
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="space-y-6">
       {data?.waiting_update && (
         <NoticeBox
           tone="warn"

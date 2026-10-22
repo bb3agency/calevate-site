@@ -44,7 +44,7 @@ export function SettingsTab({ agent, slug }: { agent: Agent; slug: string }) {
       realm="client"
       facts={[{ key: "agent_id", label: "Agent id", value: agent.id }]}
     >
-      <div className="max-w-3xl space-y-12">
+      <div className="space-y-12">
         <div id={CALL_HANDLING_ANCHOR} className="scroll-mt-24">
           <Section
             headingLevel={3}
