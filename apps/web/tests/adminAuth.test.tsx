@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import AdminLayout from "@/app/admin/layout";
 import { ADMIN_ME_PATH } from "@/app/admin/access";
 import { HOLDS_PATH } from "@/lib/api/holds";
+import { KYC_REVIEWS_PATH } from "@/lib/api/kycReview";
 import { adminAuthn, ADMIN_SIGN_IN_PATH } from "@/lib/authn/adminAuthn";
 
 import { problem, stubApi, type Routes } from "./harness";
@@ -54,6 +55,7 @@ const SHELL_ROUTES: Routes = {
   [SESSION_ROUTE]: LIVE_SESSION,
   [ADMIN_ME_PATH]: OPERATOR,
   [HOLDS_PATH]: [],
+  [KYC_REVIEWS_PATH]: [],
 };
 
 function renderShell(routes: Routes = SHELL_ROUTES) {

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { ChevronRight, CirclePause, Lock, Menu, ShieldCheck } from "lucide-react";
+import { Bell, ChevronRight, Lock, Menu, ShieldCheck } from "lucide-react";
 
 import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { ADMIN_NAV as NAV, type NavItem } from "@/app/admin/adminNav";
@@ -35,6 +35,8 @@ import {
   SkipLink,
 } from "@/components/ui";
 import { useHeldTenants, useTenant } from "@/lib/api/admin";
+import { useKycReviewQueue } from "@/lib/api/kycReview";
+import { Popover } from "@/components/interior/popover";
 import { ApiProblem } from "@/lib/api/client";
 import { currentNavItem } from "@/lib/nav";
 import { AdminIdleTimeoutModal } from "@/components/authn/adminIdleTimeoutModal";
@@ -368,58 +370,105 @@ function IdentityFooter({ isCollapsed }: { isCollapsed: boolean }) {
 }
 
 /**
- * The header's one number: how many accounts are waiting on a human right now.
+ * The header's bell: everything waiting on an operator, one number, one list.
  *
- * The client shell's bell shows that client's attention queue; the operator's equivalent
- * is the hold queue, and it is the number an operator should not have to navigate to find
- * — a held account is invisible precisely because nobody opens it (`admin/holds.py`).
+ * Two queues feed it: held accounts (`admin/holds.py`) and identity checks waiting for a
+ * reviewer (`compliance/kyc_admin_routes.kyc_review_queue`). Both are things nobody opens
+ * unprompted, which is why they belong in shell chrome rather than only in the sidebar.
+ * Each reuses its screen's query key, so the bell adds no request of its own.
  *
- * It reuses `useHeldTenants`, so it shares the queue screen's cache entry and its poll
- * rather than adding a second request for the same list. Nothing renders until the query
- * answers, and a `0` in shell chrome would be "nobody is waiting" in its most trusted
- * form — the one claim this queue must never make from a failure.
- *
- * The `?? 0` that used to stand here made exactly that claim, quietly. It collapsed "we
- * do not know" into "none", which the badge then rendered as no badge — the same pixels
- * an all-clear produces. §52's second clause is that failure is a REFUSAL, and nothing is
- * not a refusal: an operator whose console has lost the API sees a calm header. So the
- * unknown case is now its own mark, and the label says which of the two it is.
+ * "We do not know" is never shown as "none" (§52): a queue whose read failed marks the
+ * badge `?` and says so in its row, and the badge counts only queues that answered. The
+ * identity queue is not asked at all for an operator without `admin:tenants`, since that
+ * request could only be refused.
  */
-function HeldCount() {
-  const queue = useHeldTenants();
-  /** `undefined` = no answer yet. Never coalesced: see above. */
-  const waiting = queue.data?.length;
+function AttentionBell() {
+  const me = useAdminMe();
+  const mayReview = adminAccess(me, "admin:tenants", "open the identity review queue").allowed;
+  const held = useHeldTenants();
+  const reviews = useKycReviewQueue({ enabled: mayReview });
+
+  const queues: AttentionQueue[] = [
+    { label: "Held accounts", href: "/admin/holds", count: held.data?.length, failed: held.error != null },
+    ...(mayReview
+      ? [
+          {
+            label: "Identity checks to review",
+            href: "/admin/kyc-reviews",
+            count: reviews.data?.length,
+            failed: reviews.error != null,
+          },
+        ]
+      : []),
+  ];
+  const failed = queues.some((q) => q.failed);
+  const total = queues.reduce((sum, q) => sum + (q.count ?? 0), 0);
 
   return (
-    <Link
-      href="/admin/holds"
-      aria-label={
-        queue.error != null
-          ? "Held accounts: we could not read the queue"
-          : waiting !== undefined && waiting > 0
-            ? `Held accounts: ${waiting} waiting on us`
-            : "Held accounts"
-      }
-      className="press relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 dark:hover:bg-white/5"
-    >
-      <CirclePause className="h-4 w-4" />
-      {queue.error != null ? (
-        <span
-          title="We could not read the hold queue. Open Holds to try again."
-          className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-warn px-1 text-[9px] font-bold text-white"
+    <Popover
+      label="Waiting on us"
+      align="end"
+      className="w-72 max-w-[calc(100vw-1rem)]"
+      renderTrigger={(props) => (
+        <button
+          type="button"
+          {...props}
+          aria-label={
+            failed
+              ? "Waiting on us: we could not read every queue"
+              : total > 0
+                ? `Waiting on us: ${total}`
+                : "Waiting on us"
+          }
+          className="press relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 dark:hover:bg-white/5"
         >
-          ?
-        </span>
-      ) : (
-        waiting !== undefined &&
-        waiting > 0 && (
-          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-danger px-1 text-[9px] font-bold text-white">
-            {waiting > 99 ? "99+" : waiting}
-          </span>
-        )
+          <Bell className="h-4 w-4" />
+          {failed ? (
+            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-warn px-1 text-[9px] font-bold text-white">
+              ?
+            </span>
+          ) : (
+            total > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-danger px-1 text-[9px] font-bold text-white">
+                {total > 99 ? "99+" : total}
+              </span>
+            )
+          )}
+        </button>
       )}
-    </Link>
+    >
+      <p className="mb-2 text-meta font-semibold text-ink">Waiting on us</p>
+      <ul className="divide-y divide-line">
+        {queues.map((queue) => (
+          <li key={queue.href}>
+            <Link
+              href={queue.href}
+              className="flex items-center justify-between gap-3 rounded-sm py-2 text-body text-ink hover:text-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              <span>{queue.label}</span>
+              <span className={`text-meta tabular-nums ${queue.count ? "font-semibold text-danger" : "text-ink-muted"}`}>
+                {queue.failed
+                  ? "Could not read"
+                  : queue.count === undefined
+                    ? "…"
+                    : queue.count === 0
+                      ? "None"
+                      : `${queue.count} waiting`}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Popover>
   );
+}
+
+interface AttentionQueue {
+  label: string;
+  href: string;
+  /** `undefined` until the queue answers. Never coalesced to 0: see `AttentionBell`. */
+  count: number | undefined;
+  failed: boolean;
 }
 
 /** `/admin/tenants/<id>/...` -> `<id>`, or null off a client's pages. */
@@ -489,7 +538,7 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
 
         <div className="flex shrink-0 items-center gap-2 lg:gap-4">
           <AdminCommandPalette />
-          <HeldCount />
+          <AttentionBell />
         </div>
       </div>
     </header>

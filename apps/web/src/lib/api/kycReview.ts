@@ -12,6 +12,7 @@ import { adminSession } from "./admin";
 import { apiRequest } from "./client";
 import { openProtectedFile } from "./protectedFile";
 import { HOLDS_QUERY_KEY } from "./holds";
+import { livePoll } from "@/lib/live/liveStatus";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -20,12 +21,21 @@ export type KycReviewItem = Schemas["KycReviewItem"];
 export type AdminKyc = Schemas["AdminKycOut"];
 export type KycReviewIn = Schemas["KycReviewIn"];
 
+export const KYC_REVIEWS_PATH = "/v1/admin/kyc/reviews";
+
 const QUEUE_KEY = ["admin", "kyc-reviews"] as const;
 
-export function useKycReviewQueue(): UseQueryResult<KycReviewItem[]> {
+/**
+ * Clients whose identity check waits for a reviewer. Polled like the hold queue, because the
+ * header's bell counts it too. `enabled` is false for an operator without `admin:tenants`,
+ * whose request could only be refused.
+ */
+export function useKycReviewQueue(options: { enabled?: boolean } = {}): UseQueryResult<KycReviewItem[]> {
   return useQuery({
     queryKey: QUEUE_KEY,
-    queryFn: () => apiRequest<KycReviewItem[]>(adminSession(), "/v1/admin/kyc/reviews"),
+    queryFn: () => apiRequest<KycReviewItem[]>(adminSession(), KYC_REVIEWS_PATH),
+    enabled: options.enabled ?? true,
+    refetchInterval: livePoll(60_000),
   });
 }
 

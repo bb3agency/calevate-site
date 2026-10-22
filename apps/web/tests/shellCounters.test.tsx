@@ -7,6 +7,7 @@ import AdminLayout from "@/app/admin/layout";
 import ClientRealmLayout from "@/app/c/[slug]/layout";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import { HOLDS_PATH } from "@/lib/api/holds";
+import { KYC_REVIEWS_PATH } from "@/lib/api/kycReview";
 
 import {
   problem,
@@ -56,6 +57,7 @@ function adminRoutes(over: Partial<Routes> = {}): Routes {
   return {
     [ADMIN_ME_PATH]: ADMIN_ME,
     [HOLDS_PATH]: [],
+    [KYC_REVIEWS_PATH]: [],
     "/v1/admin/tenants": [],
     ...over,
   };
@@ -113,7 +115,7 @@ const HELD = [
   },
 ];
 
-describe("the admin shell's hold-queue badge", () => {
+describe("the admin shell's bell (held accounts and identity checks)", () => {
   it("says the queue could not be read, instead of looking like an all-clear", async () => {
     renderAdminShell({
       [HOLDS_PATH]: problem(503, { title: "Service unavailable" }),
@@ -122,7 +124,7 @@ describe("the admin shell's hold-queue badge", () => {
     // The mark is PRESENT and named. Its absence — the old `?? 0` behaviour — is exactly
     // what a healthy, empty queue looks like, so "no badge" proves nothing either way.
     const link = await screen.findByLabelText(
-      "Held accounts: we could not read the queue",
+      "Waiting on us: we could not read every queue",
     );
     expect(link.textContent).toContain("?");
   });
@@ -130,7 +132,7 @@ describe("the admin shell's hold-queue badge", () => {
   it("counts what the server sent when the server answered", async () => {
     renderAdminShell({ [HOLDS_PATH]: HELD });
 
-    const link = await screen.findByLabelText("Held accounts: 2 waiting on us");
+    const link = await screen.findByLabelText("Waiting on us: 2");
     expect(link.textContent).toContain("2");
   });
 
@@ -138,14 +140,47 @@ describe("the admin shell's hold-queue badge", () => {
     // The premise of both tests above: three states, three renderings.
     renderAdminShell();
 
-    const link = await screen.findByLabelText("Held accounts");
+    const link = await screen.findByLabelText("Waiting on us");
     expect(link.textContent).not.toContain("?");
+  });
+
+  it("adds the identity checks waiting for a reviewer to the held accounts", async () => {
+    renderAdminShell({
+      [HOLDS_PATH]: HELD,
+      [KYC_REVIEWS_PATH]: [{ tenant_id: "t3", name: "Vennela Nest", submitted_at: "2026-10-22T05:00:00Z" }],
+    });
+
+    const button = await screen.findByLabelText("Waiting on us: 3");
+    expect(button.textContent).toContain("3");
+    act(() => button.click());
+    expect(await screen.findByText("Identity checks to review")).toBeTruthy();
+    expect(screen.getByText("1 waiting")).toBeTruthy();
+    expect(screen.getByText("2 waiting")).toBeTruthy();
+  });
+
+  it("never asks for identity checks an operator may not review", async () => {
+    // No stub for the review queue: a request for it would fail the read and mark "?".
+    renderAdminPage(
+      <AdminLayout>
+        <p>screen</p>
+      </AdminLayout>,
+      {
+        [ADMIN_ME_PATH]: { ...ADMIN_ME, role: "support", permissions: ["org:read"] },
+        [HOLDS_PATH]: HELD,
+        "/v1/admin/tenants": [],
+      },
+    );
+
+    const button = await screen.findByLabelText("Waiting on us: 2");
+    act(() => button.click());
+    expect(await screen.findByText("2 waiting")).toBeTruthy();
+    expect(screen.queryByText("Identity checks to review")).toBeNull();
   });
 
   it("shows no count, and no mark, while the queue is still being read", async () => {
     renderAdminShell({ [HOLDS_PATH]: stillLoading() });
 
-    const link = await screen.findByLabelText("Held accounts");
+    const link = await screen.findByLabelText("Waiting on us");
     expect(link.textContent).not.toContain("?");
     expect(link.textContent).not.toContain("0");
   });

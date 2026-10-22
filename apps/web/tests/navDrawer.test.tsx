@@ -6,6 +6,7 @@ import AdminLayout from "@/app/admin/layout";
 import ClientRealmLayout from "@/app/c/[slug]/layout";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import { HOLDS_PATH } from "@/lib/api/holds";
+import { KYC_REVIEWS_PATH } from "@/lib/api/kycReview";
 
 import { renderAdminPage, type Routes } from "./harness";
 import { CLIENT_SHELL_ROUTES } from "./fixtures/sharedReads";
@@ -117,6 +118,7 @@ const ADMIN_ME: AdminMe = {
 const ADMIN_ROUTES: Routes = {
   [ADMIN_ME_PATH]: ADMIN_ME,
   [HOLDS_PATH]: [],
+  [KYC_REVIEWS_PATH]: [],
   "/v1/admin/tenants": [],
 };
 

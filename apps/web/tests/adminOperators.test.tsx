@@ -22,6 +22,7 @@ import {
   type Operator,
 } from "@/lib/api/adminOperators";
 import { HOLDS_PATH } from "@/lib/api/holds";
+import { KYC_REVIEWS_PATH } from "@/lib/api/kycReview";
 
 import {
   browserOffline,
@@ -318,6 +319,7 @@ describe("the nav entry that reaches this screen", () => {
     const shell = (identity: unknown): Routes => ({
       [ADMIN_ME_PATH]: identity,
       [HOLDS_PATH]: [],
+      [KYC_REVIEWS_PATH]: [],
     });
 
     const live = renderAdminPage(
