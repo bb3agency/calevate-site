@@ -33,6 +33,9 @@ export const AGENT_TABS = {
 
 export type AgentTab = keyof typeof AGENT_TABS;
 
+/** The tab list's accessible name; the page tour finds the tabs by it. */
+export const AGENT_TABS_LABEL = "About this agent";
+
 /** The sections the page had before D-825, and the tab that holds each now. */
 export const LEGACY_SECTIONS: Readonly<Record<string, AgentTab>> = {
   test: "training",

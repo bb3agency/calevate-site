@@ -19,13 +19,15 @@
  *   from what callers hear. It is the same step as the builder's (`script/PutLive.tsx`), so
  *   on the Script tab, where the builder shows its own, the header leaves it out.
  * - A deleted agent has one move: **Bring it back**.
+ * - **Show me around** (`tour`, live agents only) sits under the header line rather than
+ *   among the actions, so it never competes with them (D-855).
  *
  * Delete is in the ⋯ menu and only points at Settings, where its consequences are stated
  * above the button that does it.
  */
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { MessageSquareText } from "lucide-react";
 
 import { formatINR, ProblemNotice, PRIMARY_BUTTON, RestrictionNote, SECONDARY_BUTTON, ToggleSwitch } from "@/components/ui";
@@ -47,17 +49,21 @@ import { LiveBadge, liveState } from "../../AgentBadge";
 import { LifecycleError, MOVE_COPY } from "../../AgentLifecycle";
 import { stagedScript, voiceTierLine } from "../../panels/publishing";
 import { PutLiveDialog, usePutLive } from "../script/PutLive";
+import { TRY_IT_ANCHOR } from "../tour/tourModel";
 import { hasUnpublished, workingCopy } from "../script/scriptDraft";
 
 export function AgentHeader({
   agent,
   slug,
   onScriptTab = false,
+  tour,
 }: {
   agent: Agent;
   slug: string;
   /** The Script tab is open, and the builder there carries its own Put it live. */
   onScriptTab?: boolean;
+  /** The page tour's trigger, which also holds the tour. */
+  tour?: ReactNode;
 }) {
   const { href } = useClientRealm();
   const session = useClientSession();
@@ -153,6 +159,7 @@ export function AgentHeader({
                   href={training?.href ?? href(`${base}?section=training`)}
                   onClick={training?.onClick}
                   scroll={false}
+                  data-tour={TRY_IT_ANCHOR}
                   className={`${SECONDARY_BUTTON} flex-1 sm:flex-none`}
                 >
                   <MessageSquareText aria-hidden className="h-4 w-4" />
@@ -167,6 +174,7 @@ export function AgentHeader({
           </div>
         }
       />
+      {!deleted && tour}
       <RestrictionNote reason={write.reason} />
       <RestrictionNote reason={answeringLocked} />
       <LifecycleError error={move.error} />

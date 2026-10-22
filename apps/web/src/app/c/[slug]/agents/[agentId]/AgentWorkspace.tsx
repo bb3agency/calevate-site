@@ -51,11 +51,12 @@ import { Actions } from "../actions/Actions";
 import { ExtractionList } from "../panels/extraction";
 import { ScriptBuilder } from "./script/ScriptBuilder";
 import { AgentHeader } from "./sections/agentHeader";
-import { LEGACY_SECTIONS, useAgentSections } from "./sections/agentSections";
+import { AGENT_TABS_LABEL, LEGACY_SECTIONS, useAgentSections } from "./sections/agentSections";
 import { VoiceSection } from "./sections/deliverySections";
 import { Overview } from "./sections/overview";
 import { SettingsTab } from "./sections/settingsTab";
 import { TrainingTab } from "./sections/training";
+import { AgentTour } from "./tour/AgentTour";
 
 /** The screen, from the route's params. Loading, failure and the agent are three branches. */
 export function AgentWorkspace({ slug, agentId }: { slug: string; agentId: string }) {
@@ -143,11 +144,18 @@ function LiveAgent({ agent, slug, leadsLink }: { agent: Agent; slug: string; lea
     // so the shell takes the wide rail while that tab is open.
     <div className="space-y-6">
       <SettingsLayout
-        label="About this agent"
+        label={AGENT_TABS_LABEL}
         menu="tabs"
         // Inside the layout so its links to a tab ("Try it", "Delete…") take the
         // unsaved-edits guard the tabs themselves take.
-        header={<AgentHeader agent={agent} slug={slug} onScriptTab={active === "script"} />}
+        header={
+          <AgentHeader
+            agent={agent}
+            slug={slug}
+            onScriptTab={active === "script"}
+            tour={<AgentTour />}
+          />
+        }
         sections={sections}
         aliases={LEGACY_SECTIONS}
         renderSection={(id) => {
