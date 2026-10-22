@@ -76,7 +76,7 @@ def assert_expiry_may_switch_on(months: object) -> None:
         "Credit cannot be set to expire yet: the published Terms say credit does not expire.",
         remediation=(
             "Publish a Terms revision that states the expiry, approved by the founder, and "
-            "name it in billing/credit_expiry.TERMS_REVISION_STATING_EXPIRY; then set this."
+            "have engineering record it as the revision that states expiry; then set this."
         ),
     )
 

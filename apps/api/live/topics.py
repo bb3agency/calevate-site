@@ -203,6 +203,7 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "platform_ai_spend": "platform",
     "platform_ai_usage": "platform",
     "platform_config_version": "platform",
+    "platform_cost_attestations": "platform",
     "platform_dashboard_data_use": "platform",
     "platform_engine_health": "platform",
     "platform_engine_minute_prices": "platform",

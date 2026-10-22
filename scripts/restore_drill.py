@@ -247,6 +247,10 @@ _APPEND_ONLY_PROBE_SET = {
     # the constraint instead of on the trigger would report a protected ledger as
     # protected for the wrong reason (`fx_rate_observations`' own note).
     "platform_dashboard_data_use": "source_note = source_note || 'x'",
+    # D-839: the in-call twin of `platform_dashboard_data_use`, the same shape and CHECK.
+    "platform_in_call_data_use": "source_note = source_note || 'x'",
+    # D-840: platform-scoped; `source_note` because `value` and `subject` carry CHECKs.
+    "platform_cost_attestations": "source_note = source_note || 'x'",
     # D-492: not tenant-scoped either, for `platform_model_prices`' reason. `source_note`
     # rather than `inr_amount`, which carries `ck_platform_list_rates_positive` — a probe
     # that could fail on the constraint instead of on the trigger would report a protected
@@ -843,6 +847,16 @@ class RestoreDrill:
             "source_note) VALUES ('google', now(), "
             f"'{ADMIN_ID}', 'restore-drill-fixture-project', false, false, "
             "'restore-drill fixture')",
+            # D-839 and D-840, for the same reason. Fixtures, never read as a real
+            # attestation or cost; `value` 0 is inside the cost table's CHECKs.
+            "INSERT INTO platform_in_call_data_use (provider, attested_at, attested_by, "
+            "vendor_account_ref, paid_tier_confirmed, no_training_opt_in_confirmed, "
+            "source_note) VALUES ('google', now(), "
+            f"'{ADMIN_ID}', 'restore-drill-fixture-project', false, false, "
+            "'restore-drill fixture')",
+            "INSERT INTO platform_cost_attestations (subject, effective_from, value, "
+            "attested_by, source_note) VALUES ('thinnest_number_month', now(), 0, "
+            f"'{ADMIN_ID}', 'restore-drill fixture')",
             # D-492: one published list rate, for the same reason — `append_only_enforced`
             # needs a row on `platform_list_rates` for its FOR EACH ROW trigger to fire
             # against. `recorded_by` is the ADMIN_ID seeded above and the amount is inside

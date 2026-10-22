@@ -83,7 +83,10 @@ def test_the_style_layer_states_the_directives_the_guide_specifies() -> None:
     extraction accuracy depends on — fails the build rather than the next live call."""
     block = VOICE_STYLE_GUIDANCE.lower()
     assert "markdown" in block
-    assert "one digit at a time" in block
+    # PROMPT-GUIDE's HOW TO SPEAK list: "Take a number a few digits at a time; a mobile
+    # number has ten digits" (D-849 moved the prompt to it).
+    assert "a few digits at a time" in block
+    assert "a mobile has ten" in block
     assert "read back" in block
     # The language's own register moved to the SPOKEN REGISTER section (D-714), which names
     # each language the agent speaks; this block says to mirror the caller's register.

@@ -1909,6 +1909,11 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "cursor",
         "fields",
         "from",
+        # `to`, the number an inbound call came in on, pairs with `from` above and is a key
+        # our own WhatsApp and sign-in code senders write; `outcome` (D-850, `call.completed`) is
+        # our call and campaign result word (`campaigns/results.py`, `crm/service.py`).
+        "outcome",
+        "to",
         "greeting",
         "hangup",
         "instructions",
