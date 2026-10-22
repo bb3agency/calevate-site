@@ -258,7 +258,10 @@ Not answered yet: Q8 (the sign-up switch) and Q10 ("agent" or "employee"); see Â
   - The follow-up questions come from a fixed set tied to the business profile: location, what you
     offer and prices, opening hours, how bookings work, plus a trade multi-select.
 - **Voice and name:**
-  - The automatically picked voice is Clear; Studio is offered under "Change".
+  - The automatically picked voice is **Studio**, so clients hear the full potential (founder, 23
+    Oct 2026). This reverses the earlier "Clear" recommendation. Clear is offered under "Change". If
+    Studio is not ready, or the account has used its trial Studio minutes, a Clear voice is used and
+    the card says so.
   - The agent's name is suggested to suit the voice and language, so the screen and the call agree;
     the owner can rename it.
 - **"Call new leads instantly":** the end screen shows one line, "Connect your lead form later",
