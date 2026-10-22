@@ -84,3 +84,6 @@ apps/api/_ratchet_probe/
 
 # design-taste-frontend skill working files (direction sheets, inspector screenshots, downloaded credits)
 .taste-skill/
+
+# Founder-captured competitor screenshots: they show personal sign-in details, so they stay local.
+outpero_onboarding_screenshots/

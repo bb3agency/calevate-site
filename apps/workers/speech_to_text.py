@@ -26,6 +26,7 @@ from typing import Final
 from uuid import UUID
 
 import httpx
+from calevate_shared.languages import built_languages
 
 from apps.api.billing.ai_quota import new_assist_ref, record_absorbed_stt_usage
 from apps.api.core.settings import get_settings
@@ -37,10 +38,13 @@ STT_MODE: Final = "codemix"
 STT_TIMEOUT_S: Final = 40.0
 #: With no hint the provider detects the language itself.
 UNKNOWN_LANGUAGE: Final = "unknown"
-#: The tags the provider takes as a hint (same page). Anything else is sent as `unknown`.
-HINTABLE_LANGUAGES: Final = frozenset(
-    {"te-IN", "hi-IN", "en-IN", "ta-IN", "kn-IN", "ml-IN", "mr-IN"}
-)
+#: The provider's code for each language an agent can be stored in, from the one language
+#: table. A language it cannot take, or any other tag, is sent as `unknown`.
+HINTABLE_LANGUAGES: Final[dict[str, str]] = {
+    row.bcp47: code
+    for row in built_languages()
+    if (code := row.wire_code("sarvam", "stt")) is not None
+}
 
 #: The browser codecs a recorder may hand us, and the name the provider takes for each.
 CODECS: Final[dict[str, str]] = {
@@ -65,7 +69,7 @@ async def transcribe(data: bytes, content_type: str, *, language: str | None = N
     settings = get_settings()
     if not settings.sarvam_api_key:
         raise RuntimeError("no speech-to-text credential")
-    hint = language if language in HINTABLE_LANGUAGES else UNKNOWN_LANGUAGE
+    hint = HINTABLE_LANGUAGES.get(language or "", UNKNOWN_LANGUAGE)
     form = {"model": STT_MODEL, "mode": STT_MODE, "language_code": hint}
     codec = CODECS.get(content_type.split(";")[0].strip().lower())
     if codec:

@@ -238,6 +238,8 @@ _PERSONAL = (
 #: the other; the test refuses a table in neither.
 QUIET_TABLES: Final[dict[str, str]] = {
     "audit_log": "the tamper-evident ledger; read on demand, and every write would echo",
+    "first_run_recordings": "a brief clip kept only until it is text; its one screen polls it",
+    "first_runs": "one owner's first-run state; the first-run screen polls it while a job runs",
     "auth_credentials": _SECRET,
     "auth_email_tokens": _SECRET,
     "auth_identities": _SECRET,

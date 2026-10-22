@@ -12,6 +12,7 @@
  */
 
 import { formatCallCap } from "@/components/ui";
+import { LANGUAGE_CHOICES } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
 import type { CallSummary } from "@/lib/api/client";
 import type { FirstRun, FirstRunJob } from "@/lib/api/firstRun";
@@ -107,12 +108,11 @@ export function jobCard(job: FirstRunJob | null | undefined): JobCard | null {
   return JOBS.find((card) => card.job === job) ?? null;
 }
 
-/** The languages a client may choose today (the server's `OfferedLanguage`). */
-export const LANGUAGES = [
-  { tag: "te-IN", label: "Telugu" },
-  { tag: "hi-IN", label: "Hindi" },
-  { tag: "en-IN", label: "English" },
-] as const;
+/** The languages a client may choose today, from the one table in `agentState`. */
+export const LANGUAGES: readonly { tag: string; label: string }[] = LANGUAGE_CHOICES.map(({ value, label }) => ({
+  tag: value,
+  label,
+}));
 
 export function languageLabel(tag: string | null | undefined): string {
   return LANGUAGES.find((language) => language.tag === tag)?.label ?? "Telugu";

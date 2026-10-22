@@ -171,6 +171,12 @@ export const LANGUAGE_CHOICES: { value: AgentLanguage; label: string }[] = (
   .filter((value) => !STAGED_LANGUAGES.has(value))
   .map((value) => ({ value, label: LANGUAGE_NAMES[value] }));
 
+/** The language a new agent also speaks by default: English beside any other main
+ *  language, Telugu beside English. */
+export function defaultExtraLanguages(primary: string): AgentLanguage[] {
+  return [primary === "en-IN" ? "te-IN" : "en-IN"];
+}
+
 export const STATUS_COPY: Record<string, { label: string; hint: string }> = {
   draft: {
     label: "Draft",

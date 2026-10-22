@@ -7,6 +7,7 @@ import { ProblemNotice } from "@/components/ui";
 import type { FirstRun, FirstRunJob } from "@/lib/api/firstRun";
 import { useSaveJob } from "@/lib/api/firstRun";
 import { useClientSession } from "@/lib/api/session";
+import { defaultExtraLanguages } from "@/lib/agentState";
 import { JOBS, LANGUAGES } from "@/lib/firstAgent";
 
 import { ChipChoice, ChoiceCard, StepScreen } from "./shell";
@@ -33,7 +34,7 @@ export function JobStep({
   const [job, setJob] = useState<FirstRunJob | null>(run.job);
   const [primary, setPrimary] = useState(run.language_primary ?? defaultLanguage);
   const [extra, setExtra] = useState<string[]>(
-    run.language_primary ? run.languages_extra : [defaultLanguage === "en-IN" ? "te-IN" : "en-IN"],
+    run.language_primary ? run.languages_extra : defaultExtraLanguages(defaultLanguage),
   );
 
   const choosePrimary = (tag: string) => {
