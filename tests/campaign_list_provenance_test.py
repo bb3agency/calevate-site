@@ -17,17 +17,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import service as campaigns_service
 from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sunrise Dental",
         slug=f"prov-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

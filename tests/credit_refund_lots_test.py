@@ -29,13 +29,13 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import payments
 from apps.api.billing.credit_packs import CreditPack
 from apps.api.billing.lots import CallDemand, open_lot, read_open_lots, runway
 from apps.api.billing.service import LotRates, charge_for_call, get_balance, record_entry
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.credit_lots_helpers import (
     graduated_card,  # noqa: F401 - pytest fixture
     graduated_pack,
@@ -53,7 +53,7 @@ def _pack(pack_id: str) -> CreditPack:
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Refund Lots Clinic",
         slug=f"rfl-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

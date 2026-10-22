@@ -39,13 +39,13 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.logging import JsonFormatter
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import notifications, whatsapp
 from arq import Retry
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 # The owner's WhatsApp destination. A documented test number, never a subscriber; it
 # exists so the hard-rule-6 test has something to search the log output FOR.
@@ -63,7 +63,7 @@ CALLER_TEST_E164 = "+919876500111"
 async def _hot_lead(
     prefix: str, *, billing_email: str | None = "owner@example.test"
 ) -> dict[str, Any]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=f"{prefix.title()} Clinic",
         slug=f"hlc-{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

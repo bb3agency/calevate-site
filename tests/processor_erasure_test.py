@@ -24,7 +24,6 @@ import uuid
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance import deletion
 from apps.api.compliance.processor_erasure import (
     OVERDUE_AFTER_DAYS,
@@ -40,6 +39,7 @@ from apps.api.db.session import tenant_session
 from calevate_shared.engine import PIPECAT_REF_PREFIX
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from tests.conftest import create_org_with_receptionist
 
 # Only the DB-backed tests are async; the register and hard-rule-6 guards are pure, so
 # the mark is applied per-test rather than to the module (a module-wide asyncio mark on a
@@ -54,7 +54,7 @@ _REAL_EXECUTION_ID = "b7140255-af33-4608-8e97-04dd944b8e48"
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Erasure Reach",
         slug=f"proc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

@@ -7,6 +7,7 @@ Linux (CI, VPS) is unaffected.
 
 import asyncio
 import io
+import json
 import os
 import shutil
 import sys
@@ -24,6 +25,61 @@ from apps.workers import storage
 from botocore.exceptions import ClientError
 from sqlalchemy import text
 from tests.thinnest_fake_account import account  # noqa: F401 - the fake ThinnestAI account (D-693)
+
+
+async def create_org_with_receptionist(*, language: str = "te-IN", **kwargs: Any) -> dict[str, Any]:
+    """`admin.service.create_organization`, plus the draft inbound receptionist and its
+    extraction schema that every new account was born with before D-853.
+
+    A new account starts with no agent now; most suites need one to have anything to dial,
+    publish or bill, so they build it here (`add_receptionist_for_tests`). The result
+    carries `agent_id` and `extraction_schema_id` as the old return value did."""
+    from apps.api.admin import service as admin_service
+
+    created = await admin_service.create_organization(**kwargs)
+    agent_id, schema_id = await add_receptionist_for_tests(
+        created["id"],
+        name=kwargs["name"],
+        vertical_template=kwargs["vertical_template"],
+        language=language,
+    )
+    return {**created, "agent_id": agent_id, "extraction_schema_id": schema_id}
+
+
+async def add_receptionist_for_tests(
+    tenant_id: uuid.UUID, *, name: str, vertical_template: str, language: str = "te-IN"
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """A draft inbound receptionist for an existing account, made the way the birth
+    transaction made it before D-853: `create_agent` for the row and the business type's
+    fields as extraction schema version 1. Returns (agent_id, extraction_schema_id)."""
+    from apps.api.agents.lifecycle import create_agent
+    from apps.api.db.base import uuid7
+    from apps.api.db.session import tenant_session
+    from scripts.seed import CUSTOM_EXTRACTION_FIELDS, VERTICAL_TEMPLATES
+
+    schema_id = uuid7()
+    fields = VERTICAL_TEMPLATES.get(vertical_template, CUSTOM_EXTRACTION_FIELDS)
+    async with tenant_session(tenant_id) as session:
+        agent_id = await create_agent(
+            session,
+            tenant_id=tenant_id,
+            name=f"{name} receptionist",
+            direction="inbound",
+            language_primary=language,
+        )
+        await session.execute(
+            text(
+                "INSERT INTO extraction_schemas (id, tenant_id, agent_id, version, fields, "
+                "created_at, updated_at) VALUES (:id, :tid, :aid, 1, CAST(:fields AS jsonb), "
+                "now(), now())"
+            ),
+            {"id": schema_id, "tid": tenant_id, "aid": agent_id, "fields": json.dumps(fields)},
+        )
+        await session.execute(
+            text("UPDATE agents SET extraction_schema_id = :sid WHERE id = :aid"),
+            {"sid": schema_id, "aid": agent_id},
+        )
+    return agent_id, schema_id
 
 
 async def bind_number_for_tests(

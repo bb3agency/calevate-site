@@ -49,6 +49,7 @@ from apps.workers.account_closure import NOTICE_JOB, sweep_due_erasures
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from tests.conftest import create_org_with_receptionist
 
 BASE = "/v1/admin/tenants/{tenant_id}/closure"
 INVITES = "/v1/admin/tenants/{tenant_id}/invitations"
@@ -72,7 +73,7 @@ async def _admin(role: str = "superadmin") -> str:
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Closing Clinic",
         slug=f"close-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

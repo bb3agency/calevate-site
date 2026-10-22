@@ -29,7 +29,6 @@ import textwrap
 import uuid
 from typing import Any
 
-from apps.api.admin import service as admin_service
 from apps.api.core import auth as auth_module
 from apps.api.core.auth import ADMIN_TENANT_READ_ACTION
 from apps.api.core.redis import get_redis
@@ -37,6 +36,7 @@ from apps.api.db.session import untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 def _client() -> AsyncClient:
@@ -58,7 +58,7 @@ async def _make_admin(role: str = "superadmin") -> tuple[uuid.UUID, str]:
 
 
 async def _make_org() -> dict[str, Any]:
-    return await admin_service.create_organization(
+    return await create_org_with_receptionist(
         name="Direct Read Audit Clinic",
         slug=f"dra-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

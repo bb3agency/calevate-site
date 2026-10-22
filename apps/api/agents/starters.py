@@ -90,8 +90,8 @@ JOB_LABEL: Final[Mapping[StarterJob, str]] = {
     "call_leads": "Call my leads",
 }
 
-#: The business type an account with no template, or an unknown one, is treated as. The
-#: same fallback `admin.service.starting_fields` uses, never the clinic.
+#: The business type an account with no template, or an unknown one, is treated as; never
+#: the clinic.
 NEUTRAL_VERTICAL: Final = "custom"
 
 
@@ -240,9 +240,7 @@ def vertical_of(vertical_template: str | None) -> str:
 def captured_fields(vertical: str) -> list[dict[str, Any]]:
     """The extraction fields a starter gives the agent: the vertical template's.
 
-    The same answer as `admin.service.starting_fields`, which this module cannot import
-    (admin.service imports `agents.lifecycle`, which imports this). The starter test pins
-    the two to the same object for every vertical, so they cannot drift.
+    A business type with no template, or an unknown one, gets the neutral set.
     """
     return VERTICAL_TEMPLATES.get(vertical, CUSTOM_EXTRACTION_FIELDS)
 

@@ -31,7 +31,6 @@ import uuid
 from decimal import Decimal
 from pathlib import Path
 
-from apps.api.admin import service as admin_service
 from apps.api.billing.ai_quota import AI_QUOTA_INR
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import plan_tier_of, record_entry
@@ -44,7 +43,7 @@ from apps.api.compliance.service import (
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.tenancy.models import DEFAULT_PLAN_TIER, PLAN_TIERS
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -55,7 +54,7 @@ async def _tenant(plan_tier: str | None = None) -> uuid.UUID:
     `plan_tier=None` deliberately passes nothing to `create_organization`, because "what
     does a new account get" is the question this file is about.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Tier Split Clinic",
         slug=f"tier-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

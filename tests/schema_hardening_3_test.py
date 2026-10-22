@@ -31,7 +31,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
 from apps.api.ingest.routes import SECRET_HEADER
@@ -39,7 +38,7 @@ from apps.api.main import app
 from apps.workers.retention import _due_tenants, sweep_tenant
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 SECRET = "ingest-secret-for-tests"
 
@@ -71,7 +70,7 @@ async def _tenant_with_source(
     platform cannot reach.
     """
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Hardening Homes",
         slug=f"sh3-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

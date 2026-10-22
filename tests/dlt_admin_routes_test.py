@@ -38,12 +38,11 @@ import logging
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 NUMBERS = "/v1/admin/tenants/{tenant_id}/numbers"
 NUMBER_DLT = "/v1/admin/tenants/{tenant_id}/numbers/{number_id}/dlt-status"
@@ -111,7 +110,7 @@ async def _make_member(tenant_id: uuid.UUID, role: str = "owner") -> str:
 
 
 async def _tenant() -> tuple[uuid.UUID, str]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="DLT Clinic",
         slug=f"dlt-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

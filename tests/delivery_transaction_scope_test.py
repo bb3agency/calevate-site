@@ -31,14 +31,13 @@ from uuid import UUID
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.db.base import uuid7
 from apps.api.db.session import get_engine, tenant_session
 from apps.api.integrations import service
 from apps.workers import storage
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from sqlalchemy import text
-from tests.conftest import FakeS3
+from tests.conftest import FakeS3, create_org_with_receptionist
 
 SECRET = "whsec_transaction_scope_secret"
 ENDPOINT_URL = "https://crm.example/hook"
@@ -50,7 +49,7 @@ def _checked_out() -> int:
 
 
 async def _tenant_with_endpoint(kind: str = "webhook") -> tuple[UUID, UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Scope Clinic",
         slug=f"scope-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

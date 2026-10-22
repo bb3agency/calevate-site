@@ -36,6 +36,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from starlette.requests import Request
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -61,10 +62,9 @@ def _client(*, tls: bool) -> AsyncClient:
 async def subjects() -> AsyncIterator[dict[str, uuid.UUID]]:
     """One live subject per realm: an `admin_users` row and a `users` row with a
     membership, because the client realm resolves a membership on every request."""
-    from apps.api.admin import service as admin_service
 
     admin_id, user_id = uuid.uuid4(), uuid.uuid4()
-    org = await admin_service.create_organization(
+    org = await create_org_with_receptionist(
         name="Prefix Clinic",
         slug=f"prefix-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

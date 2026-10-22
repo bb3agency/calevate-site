@@ -40,7 +40,6 @@ from datetime import UTC, datetime, time, timedelta, timezone
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import scheduling, service
 from apps.api.campaigns.scheduling import (
     GRACE,
@@ -62,6 +61,7 @@ from sqlalchemy import text
 from tests.conftest import (
     accept_agreements,
     bind_number_for_tests,
+    create_org_with_receptionist,
     fund_wallet,
     verify_kyc_and_pledge_for_tests,
 )
@@ -151,7 +151,7 @@ async def _leave_the_platform_quiet() -> AsyncIterator[None]:
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     """A tenant whose agent is live, published and DLT-registered — launch-ready."""
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sched Motors",
         slug=f"sched-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

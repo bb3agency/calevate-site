@@ -19,7 +19,6 @@ from typing import Any
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle as agent_lifecycle
 from apps.api.agents import prompts
 from apps.api.agents import service as agents_service
@@ -55,7 +54,7 @@ from apps.workers import engine_workspaces
 from apps.workers import trials as trial_sweep
 from calevate_shared.engine import CallContext
 from sqlalchemy import text
-from tests.conftest import _owner_of, accept_agreements, fund_wallet
+from tests.conftest import _owner_of, accept_agreements, create_org_with_receptionist, fund_wallet
 
 pytestmark = pytest.mark.asyncio
 
@@ -67,7 +66,7 @@ async def _trial_tenant(
 ) -> tuple[uuid.UUID, uuid.UUID]:
     """An unpaid account on a trial, with one published agent. KYC is NOT verified: a test
     call must not need it."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Trial Tea House",
         slug=f"tt-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -155,7 +154,7 @@ async def test_an_unpaid_trial_account_is_restricted_and_a_paid_one_is_not() -> 
 
 
 async def test_an_account_with_no_trial_is_never_a_trial_account() -> None:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="No Trial Co",
         slug=f"nt-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -366,6 +365,78 @@ async def test_an_answer_only_agent_cannot_be_published_on_a_trial() -> None:
         with pytest.raises(ProblemError) as refused:
             await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
     assert refused.value.code == "trial_inbound_unavailable"
+
+
+# --- D-853: a test call from any READY agent ---------------------------------------------
+
+
+async def _ready(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> None:
+    """ "Get it ready" (D-838): published, taking no calls."""
+    async with tenant_session(tenant_id) as session:
+        await agent_lifecycle.prepare_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+
+
+async def _decide(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID, *, trial_call: bool
+) -> compliance_service.DispatchDecision:
+    async with tenant_session(tenant_id) as session:
+        return await check_dispatch(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            phone_e164="+919876543210",
+            trial_call=trial_call,
+        )
+
+
+async def test_a_ready_answer_only_agent_places_a_test_call(open_hours: None) -> None:
+    """The founder's rule (22 Oct 2026): during a trial any ready agent may ring the owner,
+    including one that only answers calls, with no "Taking calls" switch."""
+    tenant_id, agent_id = await _trial_tenant(direction="inbound")
+    await _ready(tenant_id, agent_id)
+    decision = await _decide(tenant_id, agent_id, trial_call=True)
+    assert decision.allowed, decision
+
+
+async def test_every_other_dial_still_refuses_a_ready_or_answer_only_agent(
+    open_hours: None,
+) -> None:
+    """The exception is the trial test call's alone: the same ready agent placing any other
+    call is still refused as not live."""
+    tenant_id, agent_id = await _trial_tenant(direction="inbound")
+    await _ready(tenant_id, agent_id)
+    decision = await _decide(tenant_id, agent_id, trial_call=False)
+    assert not decision.allowed
+    assert decision.rule == "agent_not_live"
+
+
+async def test_a_draft_agent_is_told_to_get_ready_first(open_hours: None) -> None:
+    tenant_id, agent_id = await _trial_tenant(direction="inbound")
+    decision = await _decide(tenant_id, agent_id, trial_call=True)
+    assert not decision.allowed
+    assert decision.rule == compliance_service.AGENT_NOT_READY_RULE
+    assert "Get it ready" in (decision.reason or "")
+
+
+async def test_a_switched_off_calling_agent_still_places_a_test_call(open_hours: None) -> None:
+    """Switched off is published and taking no calls, which is ready."""
+    tenant_id, agent_id = await _trial_tenant()
+    async with tenant_session(tenant_id) as session:
+        await agent_lifecycle.deactivate_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+    assert (await _decide(tenant_id, agent_id, trial_call=True)).allowed
+    assert (await _decide(tenant_id, agent_id, trial_call=False)).rule == "agent_not_live"
+
+
+async def test_a_paused_agent_with_no_engine_agent_is_not_ready(open_hours: None) -> None:
+    """Ready means published: a paused row the engine never received cannot place a call."""
+    tenant_id, agent_id = await _trial_tenant(direction="inbound")
+    await _ready(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET engine_agent_ref = NULL WHERE id = :aid"), {"aid": agent_id}
+        )
+    decision = await _decide(tenant_id, agent_id, trial_call=True)
+    assert decision.rule == compliance_service.AGENT_NOT_READY_RULE
 
 
 # --- the shared number ---------------------------------------------------------------

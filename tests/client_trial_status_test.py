@@ -23,7 +23,6 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.service import WALLET_LEVEL_EMPTY
 from apps.api.billing.trial_routes import TrialStatusOut
 from apps.api.billing.trials import end_trial, start_trial
@@ -33,13 +32,13 @@ from apps.api.crm.routes import usage_panel
 from apps.api.db.session import tenant_session
 from apps.workers.wallet_alerts import notify_low_balance
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
 
 async def _tenant(plan_tier: str = "self_serve") -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Raghava Organics",
         slug=f"trialview-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

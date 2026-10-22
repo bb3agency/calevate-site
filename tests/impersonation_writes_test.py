@@ -32,7 +32,6 @@ import uuid
 from typing import Any, cast
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance.audit import verify_chain
 from apps.api.compliance.disclosure import TRUTHFUL_ANSWER_PROMISE
 from apps.api.core.rbac import (
@@ -45,6 +44,7 @@ from apps.api.main import app
 from fastapi import Request
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.impersonation_grant_test import _make_admin, view_as_headers
 
 STARTED_ACTION = "admin.impersonation_started"
@@ -57,7 +57,7 @@ def _client() -> AsyncClient:
 async def _make_org(prefix: str = "vw") -> dict[str, Any]:
     """A fresh org. Its agent volunteers neither notice (D-669), so the toggle writes below
     switch one ON: re-asserting a state already held writes no audit row."""
-    return await admin_service.create_organization(
+    return await create_org_with_receptionist(
         name="View-As Clinic",
         slug=f"{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

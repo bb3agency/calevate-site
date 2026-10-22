@@ -35,6 +35,7 @@ from apps.api.ops import hosted_voice_routes as routes
 from apps.workers import storage
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import select, text
+from tests.conftest import create_org_with_receptionist
 from tests.hosted_voice_fakes import (
     MP3,
     OFF_KEY,
@@ -791,9 +792,8 @@ async def _routes_for(
 ) -> tuple[UUID, list[tuple[str, str]]]:
     """A new tenant with active `engine_agent_routes` rows (`{ref: rate_key}`), and, given
     `workspace`, an active voice workspace row for it."""
-    from apps.api.admin import service as admin_service
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Studio Switch",
         slug=f"ss-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

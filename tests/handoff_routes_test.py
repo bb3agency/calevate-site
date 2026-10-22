@@ -14,14 +14,13 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from apps.api.admin import service as admin_service
 from apps.api.agents.handoff import HANDOFF_TRIGGER_DEFAULT, MAX_HANDOFF_MEMBERS
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements, business_contact
+from tests.conftest import accept_agreements, business_contact, create_org_with_receptionist
 
 
 def _client() -> AsyncClient:
@@ -32,7 +31,7 @@ async def _account(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, dict[str,
     """A client whose business profile is open round the clock (`accept_agreements`), so
     "who is on duty" is decided by the roster rather than by the hour this suite runs."""
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Handoff routes",
         slug=f"handoff-rt-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

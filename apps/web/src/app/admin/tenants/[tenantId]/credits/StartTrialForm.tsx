@@ -53,7 +53,9 @@ const NO_START: StartDraft = {
   confirm: "",
   reason: "",
   grace: String(DEFAULT_ERASURE_GRACE_DAYS),
-  minutes: "30",
+  // The new-account trial's minutes (`self_serve_trial_free_minutes`, D-853); a prefill,
+  // and the operator types what the client was promised.
+  minutes: "15",
 };
 
 /** Whole days only, inside the bounds the route and the table both enforce. Parsed as an
@@ -72,10 +74,13 @@ export function StartTrialForm({
   clientName,
   start,
   write,
+  replacing = false,
 }: {
   clientName: string;
   start: ReturnType<typeof useStartTrial>;
   write: ReturnType<typeof useAdminAccess>;
+  /** A trial is running, and this one replaces it (D-853). */
+  replacing?: boolean;
 }) {
   const [draft, setDraft] = useState<StartDraft>(NO_START);
   const set = (key: keyof StartDraft, value: string) => {
@@ -259,6 +264,12 @@ export function StartTrialForm({
             every test call. A client that has already paid keeps everything it had, and a
             trial only puts its calls on us.
           </p>
+          {replacing && (
+            <p className="mt-1 font-semibold text-ink">
+              It replaces the trial running now. The days and minutes you enter start
+              again from the moment you press it.
+            </p>
+          )}
           <p className="mt-1 text-meta text-ink-muted">
             Their agents are told straight away, so a client whose line stopped for an empty wallet starts answering again
             without anyone republishing anything.

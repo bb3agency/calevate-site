@@ -30,14 +30,13 @@ import uuid
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.rbac import MUTATING_PERMISSIONS, iter_api_routes
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -86,7 +85,7 @@ async def _make_member(tenant_id: uuid.UUID, role: str = "owner") -> str:
 
 
 async def _tenant(plan_tier: str = "managed") -> dict[str, Any]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="KYC Motors",
         slug=f"kyc-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

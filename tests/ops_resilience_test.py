@@ -32,7 +32,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core import loadshed
 from apps.api.core.loadshed import PlatformStatus, get_platform_status
 from apps.api.core.queue import WORKER_MAX_TRIES
@@ -41,7 +40,7 @@ from apps.api.db.session import tenant_session
 from apps.workers import dispatcher, notifications
 from arq import Retry
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 # --------------------------------------------------------------------------------
 # Shared seeding
@@ -49,7 +48,7 @@ from tests.conftest import accept_agreements
 
 
 async def _tenant_with_agent(prefix: str, *, billing_email: str | None = None) -> tuple[UUID, UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=f"{prefix.title()} Clinic",
         slug=f"{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

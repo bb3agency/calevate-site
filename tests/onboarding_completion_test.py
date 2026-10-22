@@ -18,11 +18,11 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.tenancy.onboarding import complete_onboarding_if_finished
 from apps.api.tenancy.profile_service import ProfilePatch, save_profile
 from sqlalchemy import text
-from tests.conftest import seed_business_profile
+from tests.conftest import create_org_with_receptionist, seed_business_profile
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sunrise Dental",
         slug=f"onbd-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -178,7 +178,7 @@ async def test_the_sweep_reaches_a_finished_account_behind_unfinished_newer_ones
     prefix = f"onbdsa{uuid.uuid4().hex[:6]}"
 
     async def _named(suffix: str) -> uuid.UUID:
-        created = await admin_service.create_organization(
+        created = await create_org_with_receptionist(
             name="Sunrise Dental",
             slug=f"{prefix}-{suffix}",
             vertical_template="clinic",

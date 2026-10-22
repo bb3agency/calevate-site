@@ -27,7 +27,6 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.authn.cookies import cookie_name
 from apps.api.core import middleware, ratelimit
 from apps.api.core.ratelimit import LimitProfile
@@ -36,6 +35,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -103,7 +103,7 @@ def tight(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 async def _make_org() -> dict[str, object]:
-    return await admin_service.create_organization(
+    return await create_org_with_receptionist(
         name="Rate Limit Clinic",
         slug=f"rl-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -394,7 +394,6 @@ async def test_the_signup_quota_fails_closed_when_the_same_redis_is_gone(
                 "business_name": "Sunrise Dental",
                 "slug": f"rl-{uuid.uuid4().hex[:8]}",
                 "vertical_template": "clinic",
-                "language": "te-IN",
             },
         )
     assert refused.status_code == 503, refused.text

@@ -17,7 +17,6 @@ from types import ModuleType
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from apps.api.admin import service as admin_service
 from apps.api.compliance.disclosure import (
     ai_disclosure_for,
     caller_memory_notice_for,
@@ -25,6 +24,7 @@ from apps.api.compliance.disclosure import (
 )
 from apps.api.core.settings import get_settings
 from sqlalchemy import create_engine, text
+from tests.conftest import create_org_with_receptionist
 
 STEM = "e9b4c2a7d136_notices_in_their_own_script"
 
@@ -54,7 +54,7 @@ def test_new_agents_get_the_sentences_in_their_own_script() -> None:
 
 
 async def _agent(business: str) -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=business,
         slug=f"scr-{uuid.uuid4().hex[:8]}",
         vertical_template="retail",

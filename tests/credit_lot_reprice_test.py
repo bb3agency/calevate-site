@@ -36,7 +36,6 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import lots as credit_lots
 from apps.api.billing.credit_packs import CreditPack, pack_by_id
 from apps.api.billing.credit_routes import lot_reprice_confirmation
@@ -57,6 +56,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.credit_lots_helpers import (
     GRADUATED_CARD,
     add_lot,
@@ -104,7 +104,7 @@ async def _admin() -> str:
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Reprice Clinic",
         slug=f"rp-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

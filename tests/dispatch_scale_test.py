@@ -66,7 +66,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import service
 from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, get_engine, tenant_session, untenanted_session
@@ -78,6 +77,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import (
     accept_agreements,
     bind_number_for_tests,
+    create_org_with_receptionist,
     fund_wallet,
     verify_kyc_and_pledge_for_tests,
 )
@@ -400,7 +400,7 @@ async def _tenant(*, published: bool = True) -> tuple[uuid.UUID, uuid.UUID]:
     never be dialled for.
     """
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Scale Motors",
         slug=f"dscale-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

@@ -41,13 +41,13 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import service as billing
 from apps.api.billing.plans import IST, parse_billing_month
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 TERMS = "/v1/admin/tenants/{tenant_id}/commercial-terms"
 
@@ -72,7 +72,7 @@ async def _make_admin(role: str = "superadmin") -> str:
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Commercial Terms Clinic",
         slug=f"terms-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

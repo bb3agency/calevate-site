@@ -32,7 +32,6 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.gst import (
     GST_STATUS_SENTENCE,
     UT_WITHOUT_LEGISLATURE,
@@ -49,6 +48,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -127,7 +127,7 @@ async def _make_member(tenant_id: uuid.UUID, role: str = "owner") -> str:
 async def _tenant_with_usage(minutes: int = 120) -> dict[str, Any]:
     """A tenant with a plan fee and billable overage — the shape whose totals are worth
     comparing across two realms."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sri Traders",
         slug=f"gst-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

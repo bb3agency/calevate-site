@@ -34,7 +34,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.queue import enqueue as real_enqueue
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
@@ -42,6 +41,7 @@ from apps.workers import dispatcher
 from arq.jobs import SerializationError
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
+from tests.conftest import create_org_with_receptionist
 
 RUN = uuid.uuid4().hex[:12]
 
@@ -268,7 +268,7 @@ async def test_a_healthy_pipeline_raises_no_stall_alarm(monkeypatch: pytest.Monk
     enumeration itself is proved by `ops_resilience_test`, and what is measured here is
     the verdict for a tenant that is genuinely healthy.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Quiet Clinic",
         slug=f"quiet-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

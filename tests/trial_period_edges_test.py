@@ -35,7 +35,6 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.trial_routes import router as trial_router
 from apps.api.billing.trial_routes import start_trial_confirmation
 from apps.api.billing.trials import (
@@ -51,6 +50,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 def _app() -> FastAPI:
@@ -78,7 +78,7 @@ async def _make_admin(role: str = "operator") -> str:
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Trial Edge Clinic",
         slug=f"trialedge-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

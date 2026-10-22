@@ -33,7 +33,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.service import current_billing_month
 from apps.api.campaigns import service as campaigns
 from apps.api.compliance.service import add_to_dnc, check_dispatch
@@ -47,6 +46,7 @@ from sqlalchemy import text
 from tests.conftest import (
     accept_agreements,
     bind_number_for_tests,
+    create_org_with_receptionist,
     fund_wallet,
     verify_kyc_and_pledge_for_tests,
 )
@@ -82,7 +82,7 @@ def _roomy_platform_pool(monkeypatch: pytest.MonkeyPatch) -> None:
 async def _tenant(*, direction: str = "outbound") -> tuple[uuid.UUID, uuid.UUID]:
     """A tenant whose agent is live and published — the campaign-ready baseline."""
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Audit Motors",
         slug=f"audit-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

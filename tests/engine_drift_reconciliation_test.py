@@ -34,7 +34,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts, publishing
 from apps.api.agents.reconciliation import (
     DRIFT_STATES,
@@ -53,7 +52,7 @@ from apps.workers.engine_reconciliation import SWEEP_INTERVAL_S, sweep_engine_dr
 from arq import Retry
 from calevate_shared.engine import AgentConfig, AgentSnapshot, EngineAgentRef
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 SCRIPT = "Sunrise Clinic receptionist. Greet in Telugu, then take the appointment."
 VOICE = "legacy-voice:anushka"
@@ -154,7 +153,7 @@ def _engine(instance: FakeEngine) -> Iterator[FakeEngine]:
 async def _published_agent(engine: FakeEngine) -> tuple[uuid.UUID, uuid.UUID, str]:
     """A tenant with one agent that is genuinely live on `engine`, and its vendor ref."""
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Drift Clinic",
         slug=f"dr-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

@@ -31,7 +31,6 @@ from typing import Any, get_args
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance import consent
 from apps.api.compliance.consent_routes import ConsentSource, ConsentStatus
 from apps.api.compliance.models import (
@@ -48,6 +47,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from tests.conftest import create_org_with_receptionist
 
 # A documented test-range number, so the "no number in the response" assertions have
 # something to search FOR.
@@ -61,7 +61,7 @@ EVIDENCE = {"form": "enquiry-v1", "notice_version": "2026-01"}
 
 async def _tenant(prefix: str, role: str = "owner") -> tuple[UUID, str, str]:
     """(tenant_id, org slug, dev bearer token) for a fresh org with one member."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Consent Motors",
         slug=f"mc-{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

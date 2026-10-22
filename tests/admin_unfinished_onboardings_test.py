@@ -12,18 +12,17 @@ from __future__ import annotations
 
 import uuid
 
-from apps.api.admin import service as admin_service
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import seed_business_profile
+from tests.conftest import create_org_with_receptionist, seed_business_profile
 
 UNFINISHED_PATH = "/v1/admin/onboarding/unfinished"
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sunrise Dental",
         slug=f"unfin-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

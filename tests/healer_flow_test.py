@@ -13,7 +13,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.agents import service as agents_service
 from apps.api.db.base import uuid7
@@ -24,7 +23,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from tests.conftest import accept_agreements, fund_wallet
+from tests.conftest import accept_agreements, create_org_with_receptionist, fund_wallet
 
 pytestmark = pytest.mark.asyncio
 
@@ -37,7 +36,7 @@ TENANT_TABLES = (
 
 
 async def _org(prefix: str) -> tuple[UUID, UUID, str]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Healer Clinic",
         slug=f"heal-{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

@@ -36,14 +36,13 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from apps.api.admin import service as admin_service
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers import storage
 from apps.workers.retention import sweep_tenant
 from scripts.seed import DEFAULT_RETENTION_POLICIES
 from sqlalchemy import text
-from tests.conftest import FakeS3
+from tests.conftest import FakeS3, create_org_with_receptionist
 
 VERSIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
 
@@ -158,7 +157,7 @@ def _document() -> bytes:
 
 async def _org_with_an_expired_payload(s3: FakeS3) -> tuple[uuid.UUID, str]:
     """A tenant holding one archived payload well past the `engine_payload` default."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Backfill Clinic",
         slug=f"rpb-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

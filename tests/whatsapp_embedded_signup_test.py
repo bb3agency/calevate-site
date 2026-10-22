@@ -18,7 +18,6 @@ import httpx
 import pytest
 from apps.api.actions import whatsapp as wa
 from apps.api.actions.schema import CALLER_AGREED_ARG, CALLER_WORDS_ARG, WhatsAppConfig
-from apps.api.admin import service as admin_service
 from apps.api.compliance import spoken_consent
 from apps.api.compliance.consent import read_messaging_consent
 from apps.api.compliance.service import DispatchDecision
@@ -30,6 +29,7 @@ from apps.api.reliability import engine_actions
 from apps.api.whatsapp import graph, hook_routes, routes, signup, templates, webhooks
 from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -37,7 +37,7 @@ APP_SECRET = "test-meta-app-secret-0123456789"
 
 
 async def _client() -> tuple[UUID, UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="WhatsApp Business",
         slug=f"wa-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

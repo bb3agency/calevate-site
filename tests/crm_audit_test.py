@@ -25,6 +25,7 @@ from apps.api.integrations import service as integrations
 from sqlalchemy import text
 from tests.api_security_test import _client as _auth_client
 from tests.api_security_test import _make_tenant
+from tests.conftest import create_org_with_receptionist
 from tests.lead_ingest_test import SECRET as INGEST_SECRET
 from tests.lead_ingest_test import _tenant_with_ingest
 from tests.outbound_sync_test import SECRET as ENDPOINT_SECRET
@@ -40,9 +41,8 @@ def _client() -> httpx.AsyncClient:
 
 
 async def _org() -> tuple[uuid.UUID, uuid.UUID]:
-    from apps.api.admin import service as admin_service
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Audit Clinic",
         slug=f"aud-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

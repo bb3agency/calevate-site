@@ -27,12 +27,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance.deletion import request_erasure
 from apps.api.db.session import tenant_session
 from apps.workers import dispatcher
 from apps.workers import settings as worker_settings
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 def _phone() -> str:
@@ -41,7 +41,7 @@ def _phone() -> str:
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Erasure Clinic",
         slug=f"overdue-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

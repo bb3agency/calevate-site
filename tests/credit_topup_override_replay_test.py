@@ -36,7 +36,6 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.credit_routes import (
     LotRepriceIn,
     TopUpIn,
@@ -51,6 +50,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 # --- scaffolding (the `lot_and_price_wire_test` shape) --------------------------------
 
@@ -80,7 +80,7 @@ async def _make_admin(role: str = "superadmin") -> str:
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Replay Clinic",
         slug=f"replay-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

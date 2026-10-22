@@ -38,7 +38,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.admin import onboarding, service
 from apps.api.admin.business_type import queue_apply as queue_business_type_apply
 from apps.api.agents import service as agents_service
-from apps.api.agents.languages import OfferedLanguage
 from apps.api.agents.live_apply import queue_live_apply
 from apps.api.authn.service import enqueue_invitation_email, find_subject_for_session
 from apps.api.billing import credit_packs
@@ -50,7 +49,7 @@ from apps.api.billing.cap_routes import MAX_CLIENT_CAP_MIN, MAX_CLIENT_CAP_SPEND
 from apps.api.billing.floor_inputs import floor_inputs
 from apps.api.billing.own_model_prompt import PromptBasis, floor_prompt_basis, tokens_of
 from apps.api.billing.plans import IST, ist_billing_month, ist_month_window, parse_billing_month
-from apps.api.billing.trials import trial_overlaps
+from apps.api.billing.trials import start_new_account_trial, trial_overlaps
 from apps.api.campaigns import engine_numbers
 from apps.api.campaigns import service as campaigns_service
 from apps.api.campaigns.engine_numbers import SyncOutcome
@@ -273,10 +272,6 @@ class CreateOrgIn(BaseModel):
     #: "Something else" (`custom`) is a choice like any other.
     vertical_template: Vertical
     billing_email: EmailStr | None = None
-    #: The new account's first agent speaks this. Imported, not respelled inline — see
-    #: `agents/languages.py`; `OfferedLanguage` carries the same OpenAPI enum and refuses
-    #: an unoffered tag with a sentence naming the three that work.
-    language: OfferedLanguage = "te-IN"
     #: REQUIRED (D-695): an account is created together with its owner's invitation, in one
     #: transaction, so no account can exist that nobody was invited into.
     owner: OwnerIn
@@ -287,8 +282,6 @@ class CreateOrgOut(BaseModel):
 
     id: UUID
     slug: str
-    agent_id: UUID
-    extraction_schema_id: UUID
     status: str
     #: Echoed back rather than assumed by the caller: the wizard reads the trade from the
     #: server on both the creation and the resume path, never from a radio button.
@@ -818,7 +811,14 @@ async def read_tenant_profile(
     response_model=CreateOrgOut,
     status_code=201,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="New client: the account and its owner's invitation, in one transaction",
+    summary="New client: the account, its free trial and its owner's invitation, in one "
+    "transaction",
+    description=(
+        "Creates the organization and its retention policies, starts the free trial every new "
+        "account starts with (the console's new-account trial terms; a trial set on the "
+        "client's Credits page replaces it) and invites the owner. No agent is made: the owner "
+        "makes the first one (D-853)."
+    ),
 )
 async def create_tenant(
     payload: CreateOrgIn,
@@ -886,6 +886,14 @@ async def create_tenant(
             summary={"role": "owner"},
         )
         invited.append(invitation_id)
+        # Every new account starts its free trial at birth, as a signup does (D-853).
+        await start_new_account_trial(
+            scoped,
+            tenant_id=tenant_id,
+            actor=principal,
+            ip=client_request_ip(request),
+            reason="new account",
+        )
 
     created = await service.create_organization(
         name=name,
@@ -893,7 +901,6 @@ async def create_tenant(
         vertical_template=payload.vertical_template,
         # The owner gets the account's notices until somebody changes the address.
         billing_email=str(payload.billing_email) if payload.billing_email else owner_email,
-        language=payload.language,
         created_by=principal.user_id,
         on_created=_born,
     )

@@ -30,12 +30,12 @@ import uuid
 from typing import Any, get_args
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.errors import PROBLEM_CONTENT_TYPE, ErrorKind, ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 def _client() -> AsyncClient:
@@ -43,7 +43,7 @@ def _client() -> AsyncClient:
 
 
 async def _make_org() -> dict[str, Any]:
-    return await admin_service.create_organization(
+    return await create_org_with_receptionist(
         name="Ladder Clinic",
         slug=f"ladder-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

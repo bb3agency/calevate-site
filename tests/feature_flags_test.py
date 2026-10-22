@@ -32,13 +32,13 @@ import uuid
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.flags.registry import FLAGS, assert_flag_registry_wellformed
 from apps.api.flags.service import clear_flag, flag_enabled, resolve_flags, set_flag
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -92,7 +92,7 @@ async def _make_member(tenant_id: uuid.UUID, role: str = "owner") -> str:
 
 
 async def _tenant() -> dict[str, Any]:
-    return await admin_service.create_organization(
+    return await create_org_with_receptionist(
         name="Flag Motors",
         slug=f"flag-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

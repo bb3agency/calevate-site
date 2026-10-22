@@ -35,7 +35,6 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.agents import service as agents_service
 from apps.api.agents.publishing import engine_drift_for
@@ -51,7 +50,7 @@ from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES, FakeEngine
 from apps.workers.engine_reconciliation import sweep_engine_drift
 from calevate_shared.engine import AgentSnapshot, EngineAgentRef, ProvisionedNumber
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.truthful_answer_enforcement_test import TruncatingEngine, _engine, _only
 
 SCRIPT = "Sunrise Clinic receptionist. Greet in Telugu, then take the appointment."
@@ -85,7 +84,7 @@ async def _clinic(engine: FakeEngine, *, credit: str = "500") -> tuple[UUID, UUI
     than off a column of ours.
     """
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Silence Clinic",
         slug=f"sil-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

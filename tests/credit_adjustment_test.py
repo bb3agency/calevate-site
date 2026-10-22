@@ -30,7 +30,6 @@ from decimal import Decimal
 from typing import Any, cast
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import credit_routes
 from apps.api.billing.credit_routes import credit_adjustment_confirmation
 from apps.api.billing.credit_routes import router as credit_router
@@ -45,6 +44,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.conftest import create_org_with_receptionist
 
 
 def _app() -> FastAPI:
@@ -72,7 +72,7 @@ async def _make_admin(role: str = "operator") -> str:
 
 
 async def _tenant(plan_tier: str = "self_serve") -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Adjustment Clinic",
         slug=f"adj-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

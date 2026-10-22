@@ -25,14 +25,13 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from apps.api.admin import service as admin_service
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers import storage
 from apps.workers.retention import sweep_tenant
 from scripts.seed import DEFAULT_RETENTION_POLICIES
 from sqlalchemy import text
-from tests.conftest import FakeS3
+from tests.conftest import FakeS3, create_org_with_receptionist
 
 PAYLOAD_TTL_DAYS = next(
     policy["ttl_days"]
@@ -54,7 +53,7 @@ def _document(phone: str) -> bytes:
 
 
 async def _org() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Payload Retention Clinic",
         slug=f"pyr-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

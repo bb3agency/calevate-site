@@ -33,7 +33,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance.deletion import (
     DELETION_JOB,
     FLOOR_COUNT_KEY,
@@ -50,7 +49,7 @@ from apps.workers.retention import execute_deletion_request
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import FakeS3, accept_agreements
+from tests.conftest import FakeS3, accept_agreements, create_org_with_receptionist
 
 BASE = "/v1/compliance/deletion-requests"
 
@@ -93,7 +92,7 @@ async def _org() -> tuple[uuid.UUID, uuid.UUID, str, str]:
     transaction as `agents.engine_agent_ref`; the retention sweep resolves its worklist
     from it, so a tenant with calls and no route is a shape production cannot produce.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Floor Count Clinic",
         slug=f"efc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

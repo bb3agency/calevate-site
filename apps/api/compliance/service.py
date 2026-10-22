@@ -65,6 +65,7 @@ from calevate_shared.calling_window import IST as _IST
 from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.models import AGENT_READY_STATUS
 from apps.api.agents.reconciliation import (
     TRUTHFUL_ANSWER_MISSING,
     TRUTHFUL_ANSWER_VERDICT_TTL_S,
@@ -578,7 +579,9 @@ async def outbound_pledge_blocker(
     return await pledge_blocker(session, tenant_id=tenant_id)
 
 
-def dial_refusal_for_agent_status(status: str) -> tuple[str, str] | None:
+def dial_refusal_for_agent_status(
+    status: str, *, trial_call: bool = False
+) -> tuple[str, str] | None:
     """`(rule, reason)` when an agent in `status` may not dial, `None` when it may.
 
     ONE LINE OF `check_dispatch`, LIFTED OUT SO A GUARD CAN RUN IT (D-440). It is not a
@@ -593,10 +596,27 @@ def dial_refusal_for_agent_status(status: str) -> tuple[str, str] | None:
     AN ALLOW-LIST OF EXACTLY ONE, and deny-by-default is the point: a state this function
     has never heard of is refused, so the failure mode of a forgotten state is an agent
     that cannot dial rather than one that can.
+
+    A FREE-TRIAL TEST CALL ADMITS ONE MORE, the ready state (D-853): during a trial the
+    owner tries any agent they have got ready on their own phone, without switching it on
+    to take calls. Only the `trial_call` path asks with it, `check_dispatch` also requires
+    that agent to be published, and the invariants check holds this set to exactly the live
+    one plus the state `prepare_agent` moves to.
     """
-    if status != "live":
-        return ("agent_not_live", "This agent is not live yet.")
-    return None
+    if status == "live":
+        return None
+    if trial_call and status == AGENT_READY_STATUS:
+        return None
+    if trial_call and status == "draft":
+        return (AGENT_NOT_READY_RULE, AGENT_NOT_READY_REASON)
+    return ("agent_not_live", "This agent is not live yet.")
+
+
+#: A trial test call from an agent nobody has got ready (D-853).
+AGENT_NOT_READY_RULE: Final = "agent_not_ready"
+AGENT_NOT_READY_REASON: Final = (
+    "Get this agent ready first: press Get it ready on its page, then give it a test call."
+)
 
 
 #: The rule and the wording of the one refusal that comes from a MEASUREMENT of the voice
@@ -818,7 +838,9 @@ async def check_dispatch(
 
     `trial_call` marks a FREE-TRIAL TEST CALL (D-697, `agents/trial_calls.py`). A trial
     account is refused every other outbound call, and only a trial account may place a
-    test call. A test call is not asked for KYC (it unlocks only after payment);
+    test call. It may come from any READY agent, live or published and not taking calls,
+    including one that only answers calls (D-853). A test call is not asked for KYC (it
+    unlocks only after payment);
     it is still asked the halt, the drain, the account, the
     agent and its truthful answers (hard rule 5), the pledge, the agreements, the spend cap,
     calling hours, the India-only destination, the do-not-call list and consent."""
@@ -865,7 +887,7 @@ async def check_dispatch(
                 # top of the call — is the tenant's own decision and is deliberately NOT
                 # a dial blocker. Reading the bundled column here would have made the
                 # question un-answerable the moment the two halves stopped sharing it.
-                "SELECT ai_disclosure_line, status, direction FROM agents "
+                "SELECT ai_disclosure_line, status, direction, engine_agent_ref FROM agents "
                 "WHERE id = :aid AND tenant_id = :tid AND deleted_at IS NULL"
             ),
             {"aid": agent_id, "tid": tenant_id},
@@ -886,7 +908,7 @@ async def check_dispatch(
                 "Pick a different agent."
             ),
         )
-    disclosure, status, direction = agent
+    disclosure, status, direction, engine_ref = agent
     if not disclosure or not str(disclosure).strip():
         # Belt and braces: the column is NOT NULL with a length CHECK, so reaching this
         # means something bypassed the schema. Refuse loudly rather than dial.
@@ -895,11 +917,17 @@ async def check_dispatch(
             rule="disclosure_missing",
             reason="This agent has no AI disclosure line and may not place calls.",
         )
-    refusal = dial_refusal_for_agent_status(str(status))
+    refusal = dial_refusal_for_agent_status(str(status), trial_call=trial_call)
+    if refusal is None and trial_call and not engine_ref:
+        # Ready means published: a test call is placed by the engine's agent, and a `paused`
+        # agent that was never published has none.
+        refusal = (AGENT_NOT_READY_RULE, AGENT_NOT_READY_REASON)
     if refusal is not None:
         rule, reason = refusal
         return DispatchDecision(allowed=False, rule=rule, reason=reason)
-    if direction == "inbound":
+    # A test call may come from an agent that only answers calls (D-853): the owner hears
+    # its greeting as the first words. Every other dial refuses it.
+    if direction == "inbound" and not trial_call:
         return DispatchDecision(
             allowed=False,
             rule="agent_inbound_only",

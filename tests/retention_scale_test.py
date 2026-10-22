@@ -35,13 +35,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.db.session import get_engine, tenant_session
 from apps.workers import retention
 from apps.workers.fleet_walk import WalkBudget
 from apps.workers.retention import REDACTED_MARK, sweep_tenant, sweep_tenants
 from sqlalchemy import event, text
-from tests.conftest import FakeS3, accept_agreements
+from tests.conftest import FakeS3, accept_agreements, create_org_with_receptionist
 
 SUMMARY = "Caller asked to reschedule Tuesday's appointment"
 EXTRACTED: str = '{"name": "Ravi", "callback": "+919876500099", "intent": "book"}'
@@ -54,7 +53,7 @@ async def _org(*, published: bool = True) -> tuple[uuid.UUID, uuid.UUID]:
     """A tenant with the default retention policies. `published` writes the engine
     route — the bridge row `publish_agent` writes for every agent that can take a call,
     and therefore the marker that this tenant can hold call data at all."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Retention Scale",
         slug=f"rsc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

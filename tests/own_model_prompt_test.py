@@ -25,6 +25,7 @@ from apps.api.db.session import tenant_session
 from apps.workers import own_model_key
 from calevate_shared.engine import compose_engine_prompt
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.thinnest_publish_limits_test import _agent_with_script, _thinnest
 
 MODEL = "gemini-2.5-flash-lite"
@@ -273,10 +274,8 @@ async def test_the_basis_walks_every_tenant_not_deleted(monkeypatch: pytest.Monk
     asked."""
     from contextlib import asynccontextmanager
 
-    from apps.api.admin import service as admin_service
-
     async def _org() -> uuid.UUID:
-        created = await admin_service.create_organization(
+        created = await create_org_with_receptionist(
             name="Basis Walk",
             slug=f"bw-{uuid.uuid4().hex[:8]}",
             vertical_template="real_estate",

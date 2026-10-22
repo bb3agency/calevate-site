@@ -15,7 +15,6 @@ from collections.abc import Sequence
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle, script_builder, turn_checks
 from apps.api.agents.script_edits import ScriptEdit, apply_edits
 from apps.api.agents.test_conversations import AgentBrief
@@ -37,7 +36,7 @@ from calevate_shared.spoken_style import (
     writer_guidance,
 )
 from tests.business_copy_test import _inputs, copy_dict
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 TE = "te-IN"
 GEMINI = "gemini-3.1-flash-lite"
@@ -462,7 +461,7 @@ def test_the_owners_kept_edits_are_never_judged() -> None:
 @pytest.mark.rls
 async def test_the_owners_own_telugu_in_an_instruction_saves() -> None:
     """FAILS IF: the language rules reach the owner's save: they bind the AI only."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Raghava Organics",
         slug=f"lang-{uuid.uuid4().hex[:8]}",
         vertical_template="retail",

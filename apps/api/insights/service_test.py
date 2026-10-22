@@ -15,8 +15,8 @@ from typing import Any
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.conftest import create_org_with_receptionist
 
-from apps.api.admin import service as admin_service
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
@@ -27,7 +27,7 @@ from apps.api.insights.schemas import GapTeachIn
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Gaps Clinic",
         slug=f"gaps-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

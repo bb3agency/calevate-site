@@ -393,6 +393,9 @@ async def _existing_tenant(slug: str) -> UUID | None:
 
 
 async def _tenant_agent(tenant_id: UUID) -> UUID:
+    """The demo account's first agent, made on the run that finds none: a new account
+    starts with no agent (D-853), and the demo needs one to publish and to own calls."""
+    from apps.api.agents.lifecycle import create_agent
     from apps.api.db.session import tenant_session
 
     async with tenant_session(tenant_id) as session:
@@ -401,8 +404,18 @@ async def _tenant_agent(tenant_id: UUID) -> UUID:
                 text("SELECT id FROM agents WHERE tenant_id = :t ORDER BY created_at LIMIT 1"),
                 {"t": tenant_id},
             )
-        ).one()
-        return UUID(str(row[0]))
+        ).first()
+        if row is not None:
+            return UUID(str(row[0]))
+        agent_id = await create_agent(
+            session,
+            tenant_id=tenant_id,
+            name=f"{TENANT_NAME} receptionist",
+            direction="inbound",
+            language_primary=TENANT_LANGUAGE,
+        )
+        await session.commit()
+        return agent_id
 
 
 async def _ensure_membership(*, tenant_id: UUID, user_id: UUID, role: str) -> None:
@@ -763,15 +776,12 @@ async def _run() -> str:
             slug=TENANT_SLUG,
             vertical_template=TENANT_VERTICAL,
             billing_email=OWNER_EMAIL,
-            language=TENANT_LANGUAGE,
             created_by=admin_id,
             plan_tier=TENANT_PLAN_TIER,
             owner_user_id=owner_id,
         )
         tenant_id = UUID(str(created["id"]))
-        agent_id = UUID(str(created["agent_id"]))
-    else:
-        agent_id = await _tenant_agent(tenant_id)
+    agent_id = await _tenant_agent(tenant_id)
 
     # Both memberships every run: the owner's is written by the birth transaction only on
     # the run that creates the tenant, and the staff one never is.

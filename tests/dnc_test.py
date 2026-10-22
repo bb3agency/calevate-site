@@ -15,7 +15,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance import dnc
 from apps.api.compliance.service import assert_dispatch_allowed, check_dispatch
 from apps.api.core.errors import ProblemError
@@ -26,7 +25,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
-from tests.conftest import accept_agreements, fund_wallet
+from tests.conftest import accept_agreements, create_org_with_receptionist, fund_wallet
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +44,7 @@ def _number() -> str:
 
 async def _tenant(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, str, str]:
     """(tenant_id, agent_id, org slug, dev bearer token) for a fresh org with a member."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="DNC Motors",
         slug=f"dnc-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

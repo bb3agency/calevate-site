@@ -11,7 +11,6 @@ import uuid
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle, test_conversations
 from apps.api.agents.engine_choice import (
     MODEL_PAID,
@@ -68,7 +67,7 @@ from calevate_shared.spoken_style import (
     style_for,
 )
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 V2 = CallScript(
     schema_version=2,
@@ -427,7 +426,7 @@ def test_paid_models_are_never_offered_and_unread_ones_are_not_either() -> None:
 @pytest.mark.rls
 async def test_one_business_never_sees_anothers_test_runs() -> None:
     async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-        created = await admin_service.create_organization(
+        created = await create_org_with_receptionist(
             name="Raghava Organics",
             slug=f"tests-{uuid.uuid4().hex[:8]}",
             vertical_template="retail",
@@ -609,7 +608,7 @@ def test_a_conversion_shows_what_it_could_not_place() -> None:
 async def test_the_draft_autosaves_without_a_version_and_restores_a_version() -> None:
     from apps.api.agents import script_builder
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Raghava Organics",
         slug=f"draft-{uuid.uuid4().hex[:8]}",
         vertical_template="retail",

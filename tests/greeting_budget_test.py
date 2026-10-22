@@ -16,7 +16,6 @@ from contextlib import contextmanager
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import script_builder
 from apps.api.agents.engine_limits import (
     NOTICE_NEEDS_ROOM,
@@ -33,7 +32,7 @@ from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
 from calevate_shared.call_script import SCRIPT_SCHEMA_VERSION, CallScript, compile_call_script
 from calevate_shared.engine import AgentConfig, DisclosurePosture, compose_opening_line
 from sqlalchemy import text
-from tests.conftest import _owner_of
+from tests.conftest import _owner_of, create_org_with_receptionist
 
 AI = "Idi Raghava Organics AI assistant."
 RECORDING = "Ee call record avutundi."
@@ -123,7 +122,7 @@ def _on_thinnest() -> Iterator[FakeEngine]:
 
 
 async def _agent(opening: str) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Raghava Organics",
         slug=f"gb-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

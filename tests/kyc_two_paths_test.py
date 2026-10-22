@@ -35,7 +35,6 @@ from uuid import UUID
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance import outbound_pledge, tenant_erasure
 from apps.api.compliance.kyc import (
     names_match,
@@ -78,6 +77,7 @@ from tests.conftest import (
     PDF_BYTES,
     FakeS3,
     accept_agreements,
+    create_org_with_receptionist,
     fund_wallet,
     put_business_on_file_for_tests,
     verify_kyc_and_pledge_for_tests,
@@ -103,7 +103,7 @@ def _client() -> AsyncClient:
 
 
 async def _tenant(plan_tier: str = "managed") -> dict[str, Any]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Two Paths Traders",
         slug=f"kyc2-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

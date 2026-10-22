@@ -540,8 +540,44 @@ class TestDialableLifecycleStates:
             agent_statuses=frozenset({"draft", "active", "paused", "archived"}),
             dial_status_refusal=lambda s: None if s == "active" else ("agent_not_live", "no"),
             launch_status_refusal=lambda s: None if s == "active" else object(),
+            trial_dial_status_refusal=lambda s: (
+                None if s in ("active", "paused") else ("agent_not_ready", "no")
+            ),
         )
         assert guard.dialable_lifecycle_states(renamed) == []
+
+    def test_the_trial_arm_admits_exactly_the_live_and_ready_states(self) -> None:
+        """D-853: a test call may come from a ready agent, and from nothing else."""
+        registry = guard.gate_registry()
+        admitted = {
+            s for s in registry.agent_statuses if registry.trial_dial_status_refusal(s) is None
+        }
+        dialable = {s for s in registry.agent_statuses if registry.dial_status_refusal(s) is None}
+        assert admitted == dialable | {registry.ready_status}
+        assert registry.ready_status not in dialable
+
+    def test_catches_the_trial_arm_admitting_a_draft(self) -> None:
+        registry = guard.gate_registry()
+        widened = replace(
+            registry,
+            trial_dial_status_refusal=lambda s: (
+                None if s in ("live", "paused", "draft") else ("agent_not_live", "no")
+            ),
+        )
+        assert any(
+            "a free-trial test call admits" in failure
+            for failure in guard.dialable_lifecycle_states(widened)
+        )
+
+    def test_catches_the_ready_state_drifting_from_the_lifecycle(self) -> None:
+        """A `prepare` that moved to another state leaves the trial arm admitting the old
+        one: the test call would reach agents nobody got ready."""
+        registry = guard.gate_registry()
+        drifted = replace(registry, ready_status="draft")
+        assert any(
+            "a free-trial test call admits" in failure
+            for failure in guard.dialable_lifecycle_states(drifted)
+        )
 
 
 class TestAgentStateWriters:
@@ -585,8 +621,8 @@ class TestAgentStateWriters:
         _edit(
             root,
             "apps/api/admin/service.py",
-            'text("UPDATE agents SET extraction_schema_id = :sid WHERE id = :aid")',
-            'text("INSERT INTO agents (id, tenant_id, name) VALUES (:aid, :tid, :sid)")',
+            '"INSERT INTO retention_policies (id, tenant_id, data_category, ttl_days, "',
+            '"INSERT INTO agents (id, tenant_id, name, created_at, "',
         )
         offenders = guard.unregistered_agent_state_writers([root])
         assert any("_write_tenant_root" in offender for offender in offenders), offenders

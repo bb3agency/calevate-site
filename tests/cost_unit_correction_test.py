@@ -30,7 +30,6 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.cost_unit import (
     COST_UNIT_CORRECTION_META_KIND,
     correction_ref,
@@ -45,7 +44,7 @@ from apps.workers.pipeline import _meter
 from calevate_shared.engine import CostBreakdown, ExecutionSnapshot
 from scripts import correct_cost_unit
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 #: 120 seconds of telephony at ₹0.0125/s = ₹1.50, plus a ₹0.30 platform leg. Under the
 #: divisor bug these are one hundredth of what the vendor charged.
@@ -62,7 +61,7 @@ async def _published_tenant() -> tuple[uuid.UUID, uuid.UUID]:
     the route is how `scripts/correct_cost_unit` finds the tenant at all — a fixture with
     only one of them would be testing a state the platform cannot reach.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Divisor Dental",
         slug=f"cu-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

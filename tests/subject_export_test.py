@@ -12,7 +12,6 @@ import logging
 import uuid
 from collections.abc import Sequence
 
-from apps.api.admin import service as admin_service
 from apps.api.compliance.caller_ref import active_caller_ref
 from apps.api.compliance.export import (
     FOREIGN_NUMBER_MARK,
@@ -28,6 +27,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 # An Aadhaar-shaped string planted in the RAW transcript column, with its redacted twin
 # in `text_redacted`. If either form of the raw string ever reaches the export, the
@@ -38,7 +38,7 @@ REDACTED_AADHAAR = "[aadhaar ••••]"
 
 async def _tenant(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, str, str]:
     """(tenant_id, agent_id, org slug, dev bearer token) for a fresh org with a member."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Export Clinic",
         slug=f"exp-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

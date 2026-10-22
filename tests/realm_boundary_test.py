@@ -36,7 +36,6 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core import auth as auth_module
 from apps.api.core.rbac import (
     IMPERSONATION_PERMITTED_MUTATIONS,
@@ -49,6 +48,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.impersonation_grant_test import view_as_headers
 
 #: Every `{param}` in a route template. Substituted with a uuid so the sweep below can
@@ -76,7 +76,7 @@ async def _make_admin(role: str = "superadmin") -> tuple[uuid.UUID, str]:
 
 
 async def _make_org(status: str = "active") -> dict[str, object]:
-    org = await admin_service.create_organization(
+    org = await create_org_with_receptionist(
         name="Realm Boundary Clinic",
         slug=f"rb-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -237,7 +237,6 @@ async def test_a_blank_impersonate_header_is_a_request_defect_not_a_view_as_sess
         "slug": f"bh-{uuid.uuid4().hex[:8]}",
         "vertical_template": "clinic",
         "owner": {"email": f"owner-{uuid.uuid4().hex[:8]}@example.com"},
-        "language": "te-IN",
     }
 
     async with _client() as http:

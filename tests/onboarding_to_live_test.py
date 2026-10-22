@@ -14,7 +14,7 @@ defects it pins were invisible to a service-level test:
    the OLD applied version while answering with the NEW version number.
 
 2. **Publishing an agent with no script shipped a hardcoded English placeholder.** The
-   wizard mints the receptionist row at step 1, before any prompt exists, and
+   agent row exists before any prompt does, and
    `_to_config` read `agent["prompt"] or "You are a helpful receptionist."`. Publish
    answered 200 `status: live`, wrote the routing row, and put a nine-word English
    sentence on a Telugu clinic's phone line.
@@ -42,7 +42,7 @@ from apps.api.main import app
 from apps.api.tenancy.profile_service import ProfilePatch, save_profile
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, add_receptionist_for_tests, mark_paid_for_tests
 from tests.member_invitations_test import mailed_invitation_token
 
 PUBLISH = "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/publish"
@@ -122,7 +122,6 @@ async def _new_client(token: str) -> tuple[UUID, UUID, str]:
                 "slug": slug,
                 "vertical_template": "clinic",
                 "owner": {"email": f"owner-{uuid.uuid4().hex[:8]}@example.com"},
-                "language": "te-IN",
             },
         )
     assert response.status_code == 201, response.text
@@ -134,8 +133,16 @@ async def _new_client(token: str) -> tuple[UUID, UUID, str]:
     # the owner accepts them from their own console before the agent goes live; there is
     # no operator surface that can do it for them, which is why this is recorded here
     # rather than added to the wizard.
-    await accept_agreements(UUID(str(body["id"])))
-    return UUID(body["id"]), UUID(body["agent_id"]), slug
+    tenant_id = UUID(str(body["id"]))
+    await accept_agreements(tenant_id)
+    # A new account has no agent and is on its free trial (D-853). This file is about an
+    # agent that is published to answer calls, which a trial does not allow, so the account
+    # has paid and its first agent is the draft receptionist an owner would make.
+    await mark_paid_for_tests(tenant_id)
+    agent_id, _schema = await add_receptionist_for_tests(
+        tenant_id, name="Necklace Road Dental", vertical_template="clinic"
+    )
+    return tenant_id, agent_id, slug
 
 
 async def _pointers(agent_id: UUID, tenant_id: UUID) -> tuple[int | None, int | None]:

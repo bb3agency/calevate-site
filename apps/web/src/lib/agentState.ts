@@ -85,6 +85,18 @@ export function canDialOut(agent: Agent): boolean {
 }
 
 /**
+ * Can this agent place a free-trial TEST call (D-853)?
+ *
+ * Any READY agent, whichever way it points: published and either switched on or "Ready, not
+ * taking calls" (`paused` with an engine agent, D-838). A mirror of the server's trial arm
+ * of `compliance/service.dial_refusal_for_agent_status` plus its published check; the
+ * server decides, and this only chooses which agents the picker offers.
+ */
+export function canTestCall(agent: Agent): boolean {
+  return !isDeleted(agent) && agent.published && (agent.status === "live" || agent.status === "paused");
+}
+
+/**
  * Direction in the owner's terms. "Inbound" and "outbound" are OUR nouns; a clinic owner
  * thinks "does it pick up, or does it ring people?".
  */

@@ -51,7 +51,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.agents import service as agents_service
 from apps.api.campaigns import service as campaigns_service
@@ -68,7 +67,12 @@ from apps.api.tenancy.models import MEMBER_ROLES
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from tests.conftest import accept_agreements, arm_agent_for_outbound, fund_wallet
+from tests.conftest import (
+    accept_agreements,
+    arm_agent_for_outbound,
+    create_org_with_receptionist,
+    fund_wallet,
+)
 from tests.impersonation_grant_test import view_as_headers
 
 READINESS = "/v1/legal/readiness"
@@ -98,7 +102,7 @@ def _code(response: Any) -> str:
 
 
 async def _org(prefix: str) -> dict[str, Any]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Agreements Clinic",
         slug=f"lg-{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

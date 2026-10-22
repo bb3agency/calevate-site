@@ -22,7 +22,6 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import payments
 from apps.api.billing.lots import CallDemand, read_open_lots
 from apps.api.billing.service import (
@@ -34,11 +33,12 @@ from apps.api.billing.service import (
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 async def _overdrawn_tenant(*, arrears_inr: str) -> UUID:
     """A self-serve wallet driven below zero by a completed call, as production does it."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Overdrawn Clinic",
         slug=f"ovd-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

@@ -11,7 +11,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import engine_minutes, payment_events, trial_routes
 from apps.api.billing.first_payment import on_payment_credited
 from apps.api.billing.trials import TRIAL_STOPPED, end_trial, read_trial, start_trial
@@ -20,12 +19,13 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from fastapi import Request
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Edge Clinic",
         slug=f"edge-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

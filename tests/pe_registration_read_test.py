@@ -36,12 +36,12 @@ import uuid
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.rbac import MUTATING_PERMISSIONS, iter_api_routes
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -89,7 +89,7 @@ async def _make_member(tenant_id: uuid.UUID, role: str = "owner") -> str:
 async def _tenant() -> dict[str, Any]:
     """A fresh organization. `create_organization` files no PE registration, which is
     exactly the state this endpoint has to describe honestly."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Principal Entity Motors",
         slug=f"pe-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

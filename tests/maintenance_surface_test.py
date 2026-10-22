@@ -59,6 +59,7 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 from sqlalchemy import text
 from tests.admin_security_test import _make_admin
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = pytest.mark.asyncio
 
@@ -398,9 +399,8 @@ async def test_a_campaign_paused_by_a_window_comes_back_and_others_do_not() -> N
     count is untouched — "where it was" is a property of not having moved them, and this
     asserts the bookkeeping that decides WHICH rows move.
     """
-    from apps.api.admin import service as admin_service
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Drain Motors",
         slug=f"drain-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",
@@ -451,9 +451,8 @@ async def test_a_campaign_cancelled_during_the_window_is_not_dragged_back() -> N
     """Between the two edges a client can cancel a campaign the window paused. The status
     must NOT move — but the marker must still be cleared, or the column becomes history and
     the next window's resume sweep looks at a row it has no business touching."""
-    from apps.api.admin import service as admin_service
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Cancelled Motors",
         slug=f"canc-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",
@@ -493,9 +492,8 @@ async def test_a_campaign_cancelled_during_the_window_is_not_dragged_back() -> N
 
 
 async def _window_tenant(name: str) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
-    from apps.api.admin import service as admin_service
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=name,
         slug=f"mw-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",
@@ -573,11 +571,10 @@ async def test_a_complaint_spike_pause_during_the_window_is_not_undone_by_its_en
 
 async def _publishable_tenant() -> tuple[uuid.UUID, uuid.UUID]:
     """A tenant whose agent can actually be published — agreements accepted, script written."""
-    from apps.api.admin import service as admin_service
     from apps.api.agents import prompts
     from tests.conftest import accept_agreements
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Publish Clinic",
         slug=f"pub-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

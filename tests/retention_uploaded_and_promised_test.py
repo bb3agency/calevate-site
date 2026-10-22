@@ -45,11 +45,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers.retention import ANONYMIZED_PHONE, CALLBACK_EXPIRED_REASON, sweep_tenant
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -86,7 +86,7 @@ VALUES (:id, :tenant, :agent, :execution, :phone, :requested, :requested,
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     """A tenant with the shipped retention rows and one agent to hang a campaign on."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Uploaded List Realty",
         slug=f"ulr-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

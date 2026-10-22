@@ -29,6 +29,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.engine.catalogue import CatalogueModel, EngineCatalogue
 from apps.api.engine.fake import FakeEngine
 from apps.workers import storage
+from tests.conftest import create_org_with_receptionist
 from tests.hosted_voice_fakes import (
     MP3,
     OFF_KEY,
@@ -252,11 +253,10 @@ async def test_the_route_lists_only_added_and_enabled_voices(
 
 
 async def _account(*, trial: bool) -> uuid.UUID:
-    from apps.api.admin import service as admin_service
     from apps.api.billing.trials import start_trial
     from apps.api.db.session import tenant_session
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Tea House",
         slug=f"st-{uuid.uuid4().hex[:8]}",
         vertical_template="retail",

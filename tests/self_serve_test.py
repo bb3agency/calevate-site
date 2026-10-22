@@ -7,10 +7,10 @@ topped up by an operator keying a UTR. These tests pin the two new surfaces.
 
 The properties worth protecting, in the order they cost money:
 
-- **Signup produces a tenant that could take a call** — org + retention policies +
-  agent with a non-null disclosure line + extraction schema + owner membership, in one
-  go. A half-built tenant is worse than none, because the pipeline would process calls
-  for it (admin/service.py's own argument, inherited by reusing that function).
+- **Signup produces a whole tenant** — org + retention policies + owner membership +
+  free trial, in one go, and no agent: the owner makes the first one (D-853). A
+  half-built tenant is worse than none (admin/service.py's own argument, inherited by
+  reusing that function).
 - **Reserved and duplicate slugs are refused server-side.** There is no operator in
   this flow to catch a mistake, and the slug is immutable once set.
 - **An unauthenticated tenant factory is a resource-exhaustion surface**, so the quota
@@ -110,7 +110,6 @@ def _signup_body(**overrides: Any) -> dict[str, Any]:
         "business_name": "Sunrise Dental",
         "slug": f"sun-{uuid.uuid4().hex[:8]}",
         "vertical_template": "clinic",
-        "language": "te-IN",
     }
     body.update(overrides)
     return body
@@ -151,10 +150,11 @@ def _enabled(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- signup -------------------------------------------------------------------
 
 
-async def test_signup_creates_a_tenant_that_could_take_a_call() -> None:
+async def test_signup_creates_a_whole_tenant_with_no_agent() -> None:
     """The whole point of reusing `admin_service.create_organization`: a self-serve
     tenant is born as complete as a managed one, plus the owner membership and the
-    plan tier that distinguish the motion (D-34: one product, two motions)."""
+    plan tier that distinguish the motion (D-34: one product, two motions). No agent
+    and no extraction schema: the owner makes the first agent (D-853)."""
     token, user_id = await _signed_up_user()
     body = _signup_body()
 
@@ -175,18 +175,14 @@ async def test_signup_creates_a_tenant_that_could_take_a_call() -> None:
                 {"t": tenant_id},
             )
         ).first()
-        agent = (
+        agents = (
             await session.execute(
-                text(
-                    "SELECT id, disclosure_line, language_primary, extraction_schema_id, status "
-                    "FROM agents WHERE tenant_id = :t"
-                ),
-                {"t": tenant_id},
+                text("SELECT count(*) FROM agents WHERE tenant_id = :t"), {"t": tenant_id}
             )
-        ).first()
-        schema_fields = (
+        ).scalar()
+        schemas = (
             await session.execute(
-                text("SELECT fields FROM extraction_schemas WHERE tenant_id = :t"),
+                text("SELECT count(*) FROM extraction_schemas WHERE tenant_id = :t"),
                 {"t": tenant_id},
             )
         ).scalar()
@@ -205,10 +201,9 @@ async def test_signup_creates_a_tenant_that_could_take_a_call() -> None:
 
     assert org is not None and org[3] == "self_serve"
     assert org[2] == "onboarding"
-    assert agent is not None, "a tenant with no agent cannot take a call"
-    assert agent[1], "hard rule 5: the disclosure line is never null"
-    assert agent[3] is not None, "the agent is wired to its extraction schema"
-    assert schema_fields, "a tenant with no schema produces leads with no columns"
+    assert agents == 0, "a new account starts with no agent (D-853)"
+    assert schemas == 0
+    assert "agent_id" not in created
     assert int(policies or 0) >= 1, "SEC-COMP §1's retention floor applies from call one"
     assert membership == "owner"
 
@@ -268,7 +263,7 @@ async def test_a_slug_is_derived_from_the_business_name_when_none_is_given() -> 
         response = await http.post(
             "/v1/auth/signup",
             headers=_headers(token),
-            json={"business_name": name, "vertical_template": "clinic", "language": "te-IN"},
+            json={"business_name": name, "vertical_template": "clinic"},
         )
     assert response.status_code == 201, response.text
     assert response.json()["slug"] == signup_service.derive_slug(name)

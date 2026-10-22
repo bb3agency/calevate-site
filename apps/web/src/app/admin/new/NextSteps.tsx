@@ -24,6 +24,20 @@ export function NextSteps({ created }: { created: { id: string; slug: string } }
           <li className="flex gap-2">
             <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
             <span>
+              Their free trial has started on the new-account terms, and they make their first
+              agent themselves.{" "}
+              <Link
+                href={`/admin/tenants/${created.id}/credits`}
+                className="rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+              >
+                Set different trial terms
+              </Link>{" "}
+              — they replace the ones it started with
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+            <span>
               The owner fills in their business setup after they join. You can help from{" "}
               <a
                 href={viewAsHref(created.slug, "/setup")}

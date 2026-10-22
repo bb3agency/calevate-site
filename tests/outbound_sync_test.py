@@ -22,7 +22,6 @@ from typing import Any
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.integrations import service
@@ -31,6 +30,7 @@ from apps.workers import outbound_webhooks
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from arq import Retry
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 SECRET = "whsec_test_secret_value"
 
@@ -38,7 +38,7 @@ SECRET = "whsec_test_secret_value"
 async def _tenant_with_endpoint(
     *, events: tuple[str, ...] = ("lead.created",), url: str = "https://crm.example/hook"
 ) -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sync Clinic",
         slug=f"sync-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

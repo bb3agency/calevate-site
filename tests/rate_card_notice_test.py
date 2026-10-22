@@ -26,7 +26,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.credit_packs import PACK_CATALOGUE
 from apps.api.billing.list_rates import record_card
 from apps.api.billing.rates import VOICE_TIERS, voice_tier_label
@@ -47,7 +46,7 @@ from arq import Retry
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.admin_security_test import _make_admin
-from tests.conftest import purge_platform_list_rates
+from tests.conftest import create_org_with_receptionist, purge_platform_list_rates
 
 CARD_AT = datetime(2026, 12, 1, 0, 0, tzinfo=UTC)
 
@@ -74,7 +73,7 @@ class _Recorder:
 async def _tenant(
     plan_tier: str = "self_serve", *, billing_email: str | None = "o@example.test"
 ) -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Rate Card Clinic",
         slug=f"rc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

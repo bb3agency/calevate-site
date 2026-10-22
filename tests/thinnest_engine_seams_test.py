@@ -16,7 +16,6 @@ from typing import Any
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import engine_choice, lifecycle, prompts
 from apps.api.agents.service import publish_agent
 from apps.api.core.errors import ProblemError
@@ -33,7 +32,7 @@ from apps.api.engine.thinnest import (
 from apps.api.tenancy.engine_workspace import studio_enabled
 from calevate_shared.engine import AgentConfig, EngineAgentRef, KBSourceRef
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.hosted_voice_fakes import (
     OFF_KEY,
     CatalogueRows,
@@ -465,7 +464,7 @@ def no_webhook(monkeypatch: pytest.MonkeyPatch) -> None:
 
 async def _agent() -> tuple[uuid.UUID, uuid.UUID]:
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Choice Clinic",
         slug=f"chc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

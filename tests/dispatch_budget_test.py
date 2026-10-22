@@ -37,7 +37,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents.service import UNCONFIRMED_ENGINE_CALL_PREFIX
 from apps.api.campaigns import service as campaigns
 from apps.api.core.errors import ProblemError
@@ -53,6 +52,7 @@ from sqlalchemy import text
 from tests.conftest import (
     accept_agreements,
     bind_number_for_tests,
+    create_org_with_receptionist,
     fund_wallet,
     verify_kyc_and_pledge_for_tests,
 )
@@ -98,7 +98,7 @@ async def _settle_what_this_module_started() -> AsyncIterator[None]:
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     """A tenant whose agent is live, published and routable, with its PE paperwork."""
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Budget Motors",
         slug=f"budg-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

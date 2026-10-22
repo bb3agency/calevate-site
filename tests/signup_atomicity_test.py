@@ -40,6 +40,7 @@ from apps.api.db.session import admin_session, get_sessionmaker, tenant_session
 from apps.api.tenancy import signup as signup_service
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from tests.conftest import create_org_with_receptionist
 
 # --- helpers ------------------------------------------------------------------
 
@@ -125,7 +126,7 @@ class _LockProbingSession:
 
 async def test_a_failed_owner_write_leaves_no_organization_at_all() -> None:
     """The whole point. The membership write fails (its user does not exist), and the
-    org, its agent, its schema and its retention policies must all be gone with it —
+    org, its trial and its retention policies must all be gone with it —
     not soft-deleted, gone. A soft-deleted shell still owns the slug forever."""
     slug = _slug("ghost")
     ghost_user = uuid.uuid4()  # never mirrored into `users`
@@ -136,7 +137,6 @@ async def test_a_failed_owner_write_leaves_no_organization_at_all() -> None:
             name="Ghost Dental",
             slug=slug,
             vertical_template="clinic",
-            language="te-IN",
             billing_email=None,
             plan_tier="self_serve",
         )
@@ -165,7 +165,6 @@ async def test_a_failure_after_the_membership_also_rolls_the_tenant_back() -> No
             slug=slug,
             vertical_template="clinic",
             billing_email=None,
-            language="te-IN",
             created_by=user_id,
             plan_tier="self_serve",
             owner_user_id=user_id,
@@ -186,7 +185,6 @@ async def test_the_slug_survives_the_failure_and_can_be_used_again() -> None:
             name="Retry Clinic",
             slug=slug,
             vertical_template="clinic",
-            language="te-IN",
             billing_email=None,
             plan_tier="self_serve",
         )
@@ -197,7 +195,6 @@ async def test_the_slug_survives_the_failure_and_can_be_used_again() -> None:
         name="Retry Clinic",
         slug=slug,
         vertical_template="clinic",
-        language="te-IN",
         billing_email=None,
         plan_tier="self_serve",
     )
@@ -207,15 +204,14 @@ async def test_the_slug_survives_the_failure_and_can_be_used_again() -> None:
 
 async def test_the_tier_and_the_owner_land_with_the_tenant() -> None:
     """One transaction still has to produce everything the two used to: the tier that
-    tells the two motions apart, the owner membership, and the tenant root that could
-    take a call."""
+    tells the two motions apart, the owner membership, the free trial, and no agent: the
+    owner makes the first one (D-853)."""
     user_id = await _mirrored_user()
     created = await signup_service.create_self_serve_tenant(
         user_id=user_id,
         name="Sunrise Dental",
         slug=_slug("whole"),
         vertical_template="clinic",
-        language="te-IN",
         billing_email=None,
         plan_tier="trial",
     )
@@ -233,9 +229,14 @@ async def test_the_tier_and_the_owner_land_with_the_tenant() -> None:
                 {"t": tenant_id, "u": user_id},
             )
         ).scalar()
-        disclosure = (
+        agents = (
             await session.execute(
-                text("SELECT disclosure_line FROM agents WHERE tenant_id = :t"), {"t": tenant_id}
+                text("SELECT count(*) FROM agents WHERE tenant_id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+        trials = (
+            await session.execute(
+                text("SELECT count(*) FROM tenant_trials WHERE tenant_id = :t"), {"t": tenant_id}
             )
         ).scalar()
         audited = (
@@ -250,7 +251,8 @@ async def test_the_tier_and_the_owner_land_with_the_tenant() -> None:
 
     assert tier == "trial"
     assert role == "owner"
-    assert disclosure, "hard rule 5: the disclosure line is never null"
+    assert agents == 0, "a new account starts with no agent (D-853)"
+    assert trials == 1, "and with its free trial"
     assert int(audited or 0) == 1, "the audit row commits with the tenant, not after it"
 
 
@@ -269,7 +271,6 @@ async def test_the_admin_wizard_creates_a_prepaid_tenant_with_no_membership() ->
         slug=slug,
         vertical_template="clinic",
         billing_email=None,
-        language="te-IN",
         created_by=None,
     )
     async with tenant_session(created["id"]) as session:
@@ -288,7 +289,7 @@ async def test_the_admin_wizard_creates_a_prepaid_tenant_with_no_membership() ->
 
 
 async def _credit_tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Ledger Clinic",
         slug=_slug("ledger"),
         vertical_template="clinic",

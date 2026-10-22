@@ -35,7 +35,6 @@ import uuid
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import payment_routes
 from apps.api.billing.payments import PaymentCapability
 from apps.api.compliance import tenant_erasure
@@ -44,6 +43,7 @@ from apps.api.main import app
 from apps.workers.retention import execute_tenant_erasure
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 ERASURES = "/v1/admin/tenants/{tenant_id}/erasure"
 ERASURE = ERASURES + "/{request_id}"
@@ -92,7 +92,7 @@ async def _make_member(tenant_id: UUID, role: str = "owner") -> str:
 
 
 async def _tenant() -> tuple[UUID, str]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Wrapper Clinic",
         slug=f"wrap-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

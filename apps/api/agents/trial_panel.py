@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.trial_calls import NOT_READY_REASON, trial_calling_ready
 from apps.api.compliance.outbound_pledge import pledge_blocker
-from apps.api.compliance.trial_access import read_trial_access
+from apps.api.compliance.trial_access import TRIAL_REFUSALS, read_trial_access
 
 
 class TrialPanelOut(BaseModel):
@@ -44,6 +44,10 @@ class TrialPanelOut(BaseModel):
     #: Whether a test call can be placed now, and the sentence that says why not.
     can_call: bool = False
     blocked_reason: str | None = None
+    #: Why an agent that only answers calls cannot be switched on to take them during the
+    #: trial, for the line beside its locked "Taking calls" switch (D-853). The same
+    #: sentence `publish_agent` refuses with, so the screen and the refusal cannot differ.
+    answering_locked_reason: str | None = None
 
 
 async def read_trial_panel(session: AsyncSession, *, tenant_id: UUID) -> TrialPanelOut:
@@ -75,6 +79,7 @@ async def read_trial_panel(session: AsyncSession, *, tenant_id: UUID) -> TrialPa
         pledge_accepted=unpledged is None,
         can_call=reason is None,
         blocked_reason=reason,
+        answering_locked_reason=TRIAL_REFUSALS["inbound"][1],
     )
 
 

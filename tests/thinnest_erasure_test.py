@@ -14,7 +14,6 @@ import uuid
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance.processor_erasure import (
     CONTACT_NOT_ASKED,
     VOICE_PLATFORM_CONTENT_DELETION,
@@ -25,10 +24,11 @@ from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.workers import retention
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 async def _tenant_with_a_platform_call() -> tuple[uuid.UUID, uuid.UUID, str, str]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Erasure on the platform",
         slug=f"tea-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

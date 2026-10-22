@@ -13,7 +13,6 @@ from collections.abc import Sequence
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle, test_conversations, trial_results
 from apps.api.agents.script_edits import (
     EditRejectedError,
@@ -47,7 +46,7 @@ from apps.workers import agent_test_conversations as worker
 from apps.workers.script_assist import UnusableAnswerError
 from calevate_shared.call_script import MAX_SCRIPT_STAGES, CallScript, ConversationStage
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 OPT_OUT_TOOL = ACTION_NAMES[OPT_OUT]
 
@@ -507,7 +506,7 @@ class _FakeChat:
 
 
 async def _agent() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Raghava Organics",
         slug=f"tests-{uuid.uuid4().hex[:8]}",
         vertical_template="retail",

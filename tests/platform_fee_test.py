@@ -32,7 +32,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import payments
 from apps.api.billing.payment_objects import PLATFORM_FEE, record_route
 from apps.api.billing.payment_routes import webhook_router
@@ -56,7 +55,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from tests.conftest import fund_wallet
+from tests.conftest import create_org_with_receptionist, fund_wallet
 
 pytestmark = [pytest.mark.rls]
 
@@ -85,7 +84,7 @@ def _gate_reaches_money(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Fee Clinic",
         slug=f"fee-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

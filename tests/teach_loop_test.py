@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
@@ -24,7 +23,7 @@ from apps.api.teach import knows, rules, struggles, teaching, test_cases
 from apps.workers import agent_test_cases as case_worker
 from apps.workers import kb_teach
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 PINNED_MIGRATION = (
     Path(__file__).resolve().parents[1]
@@ -35,7 +34,7 @@ PINNED_MIGRATION = (
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Raghava Organics",
         slug=f"tests-{uuid.uuid4().hex[:8]}",
         vertical_template="retail",

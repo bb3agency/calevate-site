@@ -56,7 +56,7 @@ from apps.api.db.session import untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 #: The path prefixes this census owns. `/v1/ops/tenants/…` is included because it is the
 #: same act — an operator naming one client in a URL — under the platform router.
@@ -608,10 +608,9 @@ async def test_an_agent_id_that_names_nothing_has_no_prompt_history() -> None:
     agent: with both absent the answer would be a 404 either way and the fix would not be
     the thing under test.
     """
-    from apps.api.admin import service as admin_service
 
     token = await _make_admin()
-    org = await admin_service.create_organization(
+    org = await create_org_with_receptionist(
         name="Prompt History Clinic",
         slug=f"ph-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

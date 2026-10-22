@@ -18,7 +18,6 @@ from contextlib import contextmanager
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.agents.engine_limits import (
     OPENING_REQUIRED,
@@ -48,7 +47,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
 )
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.workspace_support import give_own_workspace
 
 OPENING = "Idi AI assistant. Ee call record avutundi."
@@ -198,7 +197,7 @@ def _selected(instance: FakeEngine) -> Iterator[FakeEngine]:
 
 async def _agent_with_script(script: str) -> tuple[uuid.UUID, uuid.UUID]:
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Limits Clinic",
         slug=f"lim-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

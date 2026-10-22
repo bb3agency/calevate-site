@@ -8,7 +8,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.alarm_severity import severity_of
 from apps.api.core.logging import redact_mapping
 from apps.api.core.queue import WORKER_MAX_TRIES
@@ -18,11 +17,11 @@ from apps.workers.pipeline import PIPELINE_STALL_AFTER
 from apps.workers.settings import WorkerSettings
 from apps.workers.storage import NOT_READY_MAX_DEFER_S
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 
 async def _tenant(prefix: str) -> tuple[UUID, UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=f"{prefix.title()} Homes",
         slug=f"{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

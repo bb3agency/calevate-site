@@ -24,7 +24,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import complaint_spike
 from apps.api.campaigns import service as campaigns
 from apps.api.compliance.optout import DETECTED_IN_CALL, OptOutSignal, record_call_optout
@@ -32,7 +31,12 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers import campaign_dispatch
 from sqlalchemy import text
-from tests.conftest import accept_agreements, bind_number_for_tests, fund_wallet
+from tests.conftest import (
+    accept_agreements,
+    bind_number_for_tests,
+    create_org_with_receptionist,
+    fund_wallet,
+)
 from tests.national_dnd_test import record_test_scrub
 
 
@@ -67,7 +71,7 @@ async def _running_campaign(*, contacts: int = 0) -> tuple[uuid.UUID, uuid.UUID,
     faked is the status transition itself, because the detector's pause is a CAS against
     exactly that value.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Spike Motors",
         slug=f"spike-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",
@@ -126,7 +130,7 @@ async def _launched_campaign(*, contacts: int) -> tuple[uuid.UUID, uuid.UUID, uu
     promotional voice template, the client's PE/TM registration, the national-DND scrub,
     and a published outbound agent — then goes through `launch_campaign`, the real gate.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Spike Dispatch",
         slug=f"spiked-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

@@ -11,7 +11,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents.hosted_voices import agent_voice_withdrawn
 from apps.api.agents.reconciliation import DriftCandidate
 from apps.api.db.session import tenant_session
@@ -19,6 +18,7 @@ from apps.workers import engine_delivery, engine_reconciliation, storage
 from calevate_shared.engine import ExecutionSnapshot
 from signed_intake import SIGNED_INTAKES, keyed_event
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 from tests.hosted_voice_fakes import CatalogueRows, HostingEngine, selected
 
 INTAKE = SIGNED_INTAKES["thinnest"]
@@ -69,7 +69,7 @@ def test_the_worker_reads_a_delivered_document() -> None:
 
 
 async def _tenant_agent() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Drift Clinic",
         slug=f"dv-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

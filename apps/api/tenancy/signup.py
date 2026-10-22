@@ -3,8 +3,8 @@
 D-34 is explicit that the two motions share one product: **a self-serve org is the
 same `organizations` row as a managed one**, told apart by `plan_tier`. So this module
 does not build a tenant — `admin/service.py::create_organization` already does that
-atomically (org + retention policies + agent with a non-null disclosure line +
-extraction schema), and a second implementation would be a second thing to keep in
+atomically (org, retention policies and, since D-853, no agent: the owner makes the
+first one), and a second implementation would be a second thing to keep in
 step with SEC-COMP §1. What is different is only the CALLER:
 
 - **Who.** FLOWS §2 step 1: an account exists first, and THEN the org-create step runs.
@@ -25,8 +25,8 @@ step with SEC-COMP §1. What is different is only the CALLER:
   uses — the slug is immutable once set (a DB trigger enforces it), so this is the one
   chance to get it right.
 - **How much of it anyone may do.** An endpoint that creates tenants is a
-  resource-exhaustion surface: each signup writes an org, an agent, a schema and
-  several retention policies, and a script can call it in a loop. `assert_signup_quota`
+  resource-exhaustion surface: each signup writes an org, a trial and several
+  retention policies, and a script can call it in a loop. `assert_signup_quota`
   is the control — literally `core/ratelimit.py::consume`, the one fixed-window counter
   every limit in this platform shares, at a limit that suits tenant creation rather than
   page loads. It differs from the request limiter in ONE respect, passed as
@@ -37,7 +37,7 @@ step with SEC-COMP §1. What is different is only the CALLER:
   unavailable, not unguarded.
 
 **What a fresh self-serve tenant CANNOT do**, so nobody reads this as a dialer being
-handed out (R-11): its agent is a `draft`, it has no number, and its wallet is empty —
+handed out (R-11): it has no agent yet, no number, and its wallet is empty —
 and the compliance gate already refuses a self-serve tenant with an exhausted wallet.
 Calling requires a verified business (`compliance/kyc.py`, refused at dial time as
 `kyc_missing`) and an accepted no-cold-calls pledge (`outbound_pledge_missing`). Neither
@@ -64,7 +64,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service as admin_service
 from apps.api.authn.subjects import load_subject
-from apps.api.billing.trials import start_trial
+from apps.api.billing.trials import start_new_account_trial
 from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
@@ -219,8 +219,8 @@ async def assert_email_verified(user_id: UUID) -> None:
     `current_identity`, refusing every unverified client request. It is not, because that
     would break the one flow that must work for an unverified account — reaching
     `/auth/account` to verify — and because the thing worth protecting is not "reading a
-    console" but "manufacturing a tenant", which writes an org, an agent, a schema and
-    several retention policies per call and is the resource-exhaustion surface
+    console" but "manufacturing a tenant", which writes an org, a trial and several
+    retention policies per call and is the resource-exhaustion surface
     `assert_signup_quota` exists for. Verification is the control that makes the quota
     mean something: it costs an attacker a deliverable mailbox per five tenants an hour
     instead of nothing at all.
@@ -392,7 +392,6 @@ async def create_self_serve_tenant(
     name: str,
     slug: str,
     vertical_template: str,
-    language: str,
     billing_email: str | None,
     plan_tier: SelfServeTier,
     ip: str | None = None,
@@ -412,33 +411,10 @@ async def create_self_serve_tenant(
     """
 
     async def _audit(session: AsyncSession, tenant_id: UUID) -> None:
-        """The free trial and the audit row, the last writes of the birth transaction.
-
-        D-703: a business that signs itself up starts its free trial at once, on the
-        console's self-serve terms (test calls only until the first payment, D-697). In the
-        same transaction, so there is no self-serve account without its trial."""
-        settings = get_settings()
-        trial = await start_trial(
-            session,
-            tenant_id=tenant_id,
-            days=settings.self_serve_trial_days,
-            # `started_by` names an OPERATOR (admin_users); nobody started this one.
-            actor_user_id=None,
-            free_minutes=settings.self_serve_trial_free_minutes,
-        )
-        await write_audit(
-            session,
-            action="trial.started",
-            actor_type="user",
-            tenant_id=tenant_id,
-            object_type="tenant_trials",
-            object_id=str(trial.id),
-            ip=ip,
-            summary={
-                "days": str(settings.self_serve_trial_days),
-                "free_minutes": str(settings.self_serve_trial_free_minutes),
-                "reason": "self-serve signup",
-            },
+        """The free trial and the audit row, the last writes of the birth transaction, so
+        there is no self-serve account without its trial (D-703, D-853)."""
+        await start_new_account_trial(
+            session, tenant_id=tenant_id, actor=None, ip=ip, reason="self-serve signup"
         )
         await write_audit(
             session,
@@ -456,7 +432,6 @@ async def create_self_serve_tenant(
         slug=slug,
         vertical_template=vertical_template,
         billing_email=billing_email,
-        language=language,
         # The signing-up user, not an operator. `organizations.created_by` carries no
         # FK, and "who made this" is more useful than a null on the one motion where
         # the answer is not "someone in ops".

@@ -30,17 +30,17 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.ops.model_pricing import attest_tts_price
 from apps.workers import pipeline
 from apps.workers.pipeline import _tts_cost_rows
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 async def _tenant_with_call(*, agent_chars: str) -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Studio Clinic",
         slug=f"cart-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

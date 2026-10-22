@@ -611,7 +611,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "forwarding_test_second_number": AppliesRule(LIVE),
     "forwarding_test_daily_cap": AppliesRule(LIVE),
     "whatsapp_message_inr": AppliesRule(LIVE),
-    "self_serve_trial_days": AppliesRule(LIVE),  # tenancy/signup, per signup
+    "self_serve_trial_days": AppliesRule(LIVE),  # billing/trials, per new account
     "self_serve_trial_free_minutes": AppliesRule(LIVE),
     # Read when a pack purchase opens its lot (D-840).
     "credit_pack_expiry_months": AppliesRule(LIVE),

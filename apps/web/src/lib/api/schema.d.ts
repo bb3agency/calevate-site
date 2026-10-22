@@ -1523,19 +1523,8 @@ export interface paths {
         get: operations["list_tenants_v1_admin_tenants_get"];
         put?: never;
         /**
-         * New client: the account and its owner's invitation, in one transaction
-         * @description The audit row is the birth transaction's LAST WRITE, not a second transaction.
-         *
-         *     `on_created` is the hook `admin/service.py` already exposes for exactly this and
-         *     self-serve signup already uses (`tenancy/signup.py::_audit`); the wizard was writing
-         *     its row afterwards, on a different session, which is a second way of doing one thing
-         *     and — when that write is the one that fails — a client account whose creation nobody
-         *     recorded. Same transaction now: the tenant and the record of who created it commit
-         *     together or not at all.
-         *
-         *     The `global_db` dependency this route used to carry went with it: it existed only to
-         *     give the second transaction a session, and a dependency nobody reads is a session
-         *     opened per request for nothing.
+         * New client: the account, its free trial and its owner's invitation, in one transaction
+         * @description Creates the organization and its retention policies, starts the free trial every new account starts with (the console's new-account trial terms; a trial set on the client's Credits page replaces it) and invites the owner. No agent is made: the owner makes the first one (D-853).
          */
         post: operations["create_tenant_v1_admin_tenants_post"];
         delete?: never;
@@ -2981,7 +2970,7 @@ export interface paths {
         put?: never;
         /**
          * Put a client on a trial — N days billed to nobody
-         * @description For the length of the trial, or until its free minutes are used, a client that has not paid may build agents and place outbound test calls from the shared trial number, billed to nobody (D-697); inbound, campaigns, numbers, KYC and live calling open on the first payment, which also ends the trial. Every minute is still METERED, and do-not-call, calling hours, the pledge, the agreements and the AI disclosure still apply. There is no spend ceiling beyond the minutes, so the header `X-Confirm-Action: start_trial:<tenant_id>:<days>` is required on every call and the read publishes what the trial is costing us.
+         * @description For the length of the trial, or until its free minutes are used, a client that has not paid may build agents and place outbound test calls from the shared trial number, billed to nobody (D-697); inbound, campaigns, numbers, KYC and live calling open on the first payment, which also ends the trial. Every minute is still METERED, and do-not-call, calling hours, the pledge, the agreements and the AI disclosure still apply. A trial already running, such as the one every new account starts with, is REPLACED: this one's days and minutes count from now (D-853). There is no spend ceiling beyond the minutes, so the header `X-Confirm-Action: start_trial:<tenant_id>:<days>` is required on every call and the read publishes what the trial is costing us.
          */
         post: operations["open_trial_v1_admin_tenants__tenant_id__trial_post"];
         delete?: never;
@@ -5016,7 +5005,7 @@ export interface paths {
         put?: never;
         /**
          * Create a self-serve tenant for the signed-in user (D-34, FLOWS §2)
-         * @description The caller holds a first-party session and no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, makes the caller its owner and starts the self-serve free trial (test calls only until the first payment).
+         * @description The caller holds a first-party session and no organization yet. Creates the organization and its retention policies, makes the caller its owner and starts the free trial (test calls only until the first payment). No agent is made: the owner makes the first one (D-853).
          */
         post: operations["signup_v1_auth_signup_post"];
         delete?: never;
@@ -16162,12 +16151,6 @@ export interface components {
         CreateOrgIn: {
             /** Billing Email */
             billing_email?: string | null;
-            /**
-             * Language
-             * @default te-IN
-             * @enum {string}
-             */
-            language: "te-IN" | "hi-IN" | "en-IN";
             /** Name */
             name: string;
             owner: components["schemas"]["OwnerIn"];
@@ -16181,16 +16164,6 @@ export interface components {
         };
         /** CreateOrgOut */
         CreateOrgOut: {
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
-            /**
-             * Extraction Schema Id
-             * Format: uuid
-             */
-            extraction_schema_id: string;
             /**
              * Id
              * Format: uuid
@@ -25389,12 +25362,6 @@ export interface components {
             /** Business Name */
             business_name: string;
             /**
-             * Language
-             * @default te-IN
-             * @enum {string}
-             */
-            language: "te-IN" | "hi-IN" | "en-IN";
-            /**
              * Plan Tier
              * @default self_serve
              * @enum {string}
@@ -25407,16 +25374,6 @@ export interface components {
         };
         /** SignupOut */
         SignupOut: {
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
-            /**
-             * Extraction Schema Id
-             * Format: uuid
-             */
-            extraction_schema_id: string;
             /** Name */
             name: string;
             /** Next Steps */
@@ -27969,6 +27926,8 @@ export interface components {
          *     applies: the account has paid, or was never given a trial.
          */
         TrialPanelOut: {
+            /** Answering Locked Reason */
+            answering_locked_reason?: string | null;
             /** Blocked Reason */
             blocked_reason?: string | null;
             /**

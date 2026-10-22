@@ -28,7 +28,6 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.agents import service as agents_service
 from apps.api.billing.service import (
@@ -46,7 +45,7 @@ from apps.workers import pipeline
 from apps.workers.inbound_cutover import apply_inbound_credit_state
 from calevate_shared.engine import TRUTHFUL_ANSWER_DIRECTIVE, truthful_answer_directive
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.spend_caps_test import _snapshot
 
 #: What the engine charges us for the minute the pipeline meters below. Nothing like the
@@ -57,7 +56,7 @@ _SUPPLIER_COST = "1.9000"
 async def _tenant(*, tier: str = "prepaid") -> tuple[UUID, UUID]:
     """A prepaid tenant with a scripted agent and a zero wallet."""
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Cutover Clinic",
         slug=f"cut-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

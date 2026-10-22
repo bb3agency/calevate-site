@@ -12,7 +12,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance.service import add_to_dnc
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
@@ -21,7 +20,7 @@ from apps.api.ingest.service import normalize_phone
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements, fund_wallet
+from tests.conftest import accept_agreements, create_org_with_receptionist, fund_wallet
 
 SECRET = "ingest-secret-for-tests"
 
@@ -44,7 +43,7 @@ async def _tenant_with_ingest(
 ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
     """(tenant_id, agent_id, webhook_id) with a live outbound agent and one source."""
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Ingest Estates",
         slug=f"ing-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

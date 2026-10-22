@@ -11,7 +11,6 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from apps.api.admin import service as admin_service
 from apps.api.db.session import tenant_session
 from apps.workers.retention import (
     REDACTED_MARK,
@@ -19,11 +18,11 @@ from apps.workers.retention import (
     execute_deletion_request,
 )
 from sqlalchemy import text
-from tests.conftest import FakeS3, accept_agreements
+from tests.conftest import FakeS3, accept_agreements, create_org_with_receptionist
 
 
 async def _tenant_with_old_call(days_ago: int, phone: str) -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Retention Clinic",
         slug=f"ret-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

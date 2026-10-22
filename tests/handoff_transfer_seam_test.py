@@ -11,7 +11,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import handoff
 from apps.api.agents.handoff import _UNAVAILABLE_REASONS, spec_for
 from apps.api.agents.transfer_providers import PLATFORM_CANNOT_TRANSFER, transfer_blocked_reason
@@ -19,7 +18,12 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES, DICTATED_SPEECH_CAPABILITIES, FakeEngine
 from sqlalchemy import text
-from tests.conftest import INSERT_HANDOFF_MEMBER_SQL, SET_BUSINESS_HOURS_SQL, accept_agreements
+from tests.conftest import (
+    INSERT_HANDOFF_MEMBER_SQL,
+    SET_BUSINESS_HOURS_SQL,
+    accept_agreements,
+    create_org_with_receptionist,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -52,7 +56,7 @@ async def test_the_client_is_given_a_sentence_for_the_platform_reason() -> None:
 
 
 async def _org_with_roster() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Handover gate",
         slug=f"handover-gate-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

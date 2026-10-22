@@ -41,7 +41,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import service as billing
 from apps.api.billing.caps import apply_client_caps, lock_tenant_spend_state
 from apps.api.billing.charges import SETUP_FEE_KIND
@@ -62,6 +61,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers.pipeline import _SPEND_STATE_UPSERT
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 # Deliberately not round. `unit_cost_paid` is NUMERIC(12,4) and a per-second telephony
 # price with four significant decimals is what the pipeline actually writes; a fixture at
@@ -72,7 +72,7 @@ _VALUE_RATE = Decimal("3.7500")
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Walk Clinic",
         slug=f"walk-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

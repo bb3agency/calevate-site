@@ -11,7 +11,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import engine_numbers
 from apps.api.core.context import Principal
 from apps.api.core.settings import Settings, get_settings
@@ -20,6 +19,7 @@ from apps.api.engine.forwarding_probe import ForwardingLegReport
 from apps.api.forwarding import service, testing
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+from tests.conftest import create_org_with_receptionist
 
 TRIAL_NUMBER = "+918000000501"
 SECOND_NUMBER = "+918000000502"
@@ -27,7 +27,7 @@ CALEVATE_NUMBER_PREFIX = "+9180000"
 
 
 async def make_client(prefix: str = "fwd") -> tuple[UUID, UUID, str]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Forwarding Business",
         slug=f"{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

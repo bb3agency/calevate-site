@@ -30,7 +30,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle, prompts
 from apps.api.agents.routes import router as agents_router
 from apps.api.agents.service import publish_agent
@@ -45,7 +44,7 @@ from apps.api.engine.fake import FakeEngine
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 # `asyncio_mode = "auto"` already runs the coroutines here; the marker this file needs
 # is the tenancy one, so `-m rls` picks up the cross-tenant case below with the rest
@@ -69,7 +68,7 @@ def _client(app: FastAPI) -> AsyncClient:
 
 async def _tenant(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, str]:
     """(tenant_id, seeded receptionist id, client dev bearer) for a fresh org."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Lifecycle Clinic",
         slug=f"life-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

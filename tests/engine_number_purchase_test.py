@@ -14,7 +14,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.service import get_balance, record_entry
 from apps.api.campaigns import engine_business_details as details_module
 from apps.api.campaigns import engine_numbers
@@ -31,7 +30,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.thinnest import _charged_inr
 from apps.workers import engine_workspaces as jobs
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.thinnest_fake_account import FakeAccount
 from tests.workspace_support import give_own_workspace
 
@@ -57,7 +56,7 @@ async def _attested() -> Decimal:
 async def _client(
     account: FakeAccount, *, approved: bool = True, verified: bool = True
 ) -> tuple[UUID, str]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Own Numbers Clinic",
         slug=f"own-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

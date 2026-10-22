@@ -22,7 +22,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.ai_quota import OVERAGE_META_KIND
 from apps.api.billing.history import spend_series, statement_page, today_ist
 from apps.api.billing.service import get_balance
@@ -33,6 +32,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -46,7 +46,7 @@ def _client() -> AsyncClient:
 
 
 async def _org() -> dict[str, Any]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="History Clinic",
         slug=f"his-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

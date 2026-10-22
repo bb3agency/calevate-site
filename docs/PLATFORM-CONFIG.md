@@ -214,8 +214,11 @@ tests one client may run per IST day. Under Notifications, WhatsApp: `whatsapp_m
 (optional, 0..10 rupees) is what one WhatsApp from Calevate's own account costs us, attested
 from Meta's rate card, and prices the absorbed `whatsapp_msg` row of each save-our-number
 message (unset, the row is written unpriced; gate F-8).
-D-703 adds, all live: `self_serve_trial_days` (default 14, D-840) and `self_serve_trial_free_minutes`
-(default 300, D-840), the trial a business gets the moment it signs itself up; under Integrations,
+D-703 adds, all live: `self_serve_trial_days` (default 7, D-853) and `self_serve_trial_free_minutes`
+(default 15, D-853), the trial EVERY new account starts with, signed up or invited by an operator
+(D-853; console label "Free trial days / minutes for a new account"; the `self_serve_` names are
+kept because each is a stored row's key). A trial an operator sets for a client replaces it; under
+Integrations,
 Google, `google_signin_redirect_uri` (`https://app.calevate.tech/auth/google/callback`,
 OPERATIONS gate G-1), `google_cloud_project_number` and the secret `google_picker_api_key`
 (gate G-2). `google_sheets_service_account_json` is deleted: Sheets now writes with each

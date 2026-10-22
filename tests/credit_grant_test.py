@@ -36,15 +36,14 @@ from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 pytestmark = pytest.mark.asyncio
 
 
 async def _tenant(plan_tier: str = "prepaid") -> uuid.UUID:
-    from apps.api.admin import service as admin_service
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Grant Clinic",
         slug=f"grant-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

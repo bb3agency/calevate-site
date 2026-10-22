@@ -56,6 +56,7 @@ from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from arq import Retry
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
+from tests.conftest import create_org_with_receptionist
 
 SECRET = "whsec_egress_guard_secret"
 PUBLIC = "93.184.215.14"
@@ -759,9 +760,8 @@ async def test_a_public_host_mixed_with_loopback_is_refused_even_locally(
 
 
 async def _endpoint(url: str) -> tuple[uuid.UUID, uuid.UUID]:
-    from apps.api.admin import service as admin_service
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Egress Clinic",
         slug=f"egress-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

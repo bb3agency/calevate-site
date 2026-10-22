@@ -40,7 +40,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance.deletion import (
     ERASURE_EXCEPTIONS,
     ERASURE_LIMITATIONS,
@@ -56,6 +55,7 @@ from apps.workers import retention
 from apps.workers.retention import apply_retention, execute_deletion_request, sweep_tenant
 from scripts.seed import DEFAULT_RETENTION_POLICIES
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 SEC_COMP = Path(__file__).resolve().parents[1] / "docs" / "SECURITY-COMPLIANCE.md"
 
@@ -81,7 +81,7 @@ def _phone() -> str:
 
 async def _org() -> tuple[uuid.UUID, uuid.UUID]:
     """A tenant with the shipped retention defaults and an agent the engine knows."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="KB Retention Clinic",
         slug=f"kbr-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

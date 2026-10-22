@@ -50,7 +50,7 @@ Trigger: Sri opens Admin → New Client: one screen, one "Create and invite" (D-
    re-syncs every agent (facts and, on ThinnestAI, the facts document) with no publishing
    by anyone. An agent cannot go LIVE until the profile has hours, an address, a service
    and someone to take calls (`business_profile_incomplete`, with links to each step).
-4. **Agent draft**: system prompt generated from the business profile (template + LLM assist), reviewed/
+4. **Agent draft** (made by the owner, or with them; no agent exists at creation, D-853): system prompt generated from the business profile (template + LLM assist), reviewed/
    edited by admin; both notice sentences auto-inserted and not client-editable, each
    switched ON at birth and switchable by the client afterwards (D-163 — the truthful
    answer when a caller ASKS is not switchable by anyone); extraction schema
@@ -151,8 +151,8 @@ fingerprint so a client credential cannot be looked up as an admin one. There is
 
 **Three ways into the client realm (D-34 — both motions supported):**
 1. **Self-serve signup** — `POST /v1/auth/signup` creates the organization (name + slug
-   validated against `reserved_slugs`), its receptionist agent, its extraction schema and
-   its retention policies, and makes the caller the owner, with
+   validated against `reserved_slugs`) and its retention policies, starts its free trial
+   and makes the caller the owner (no agent: the owner makes the first one, D-853), with
    `plan_tier='self_serve'|'trial'`. **Read the caveat, because it is the one thing in this
    list that does not work end to end**: that route requires a caller who already holds a
    verified first-party session and no membership, and **the public account-creation door

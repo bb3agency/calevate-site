@@ -35,7 +35,6 @@ from uuid import UUID
 
 import pytest
 from apps.api.admin import routes as admin_routes
-from apps.api.admin import service as admin_service
 from apps.api.compliance.audit import write_audit
 from apps.api.core.context import Principal
 from apps.api.core.loadshed import get_platform_status
@@ -45,6 +44,7 @@ from apps.api.main import app
 from apps.api.tenancy.models import ORG_STATUSES, PLAN_TIERS
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 
 async def _operator() -> tuple[UUID, dict[str, str]]:
@@ -62,7 +62,7 @@ async def _operator() -> tuple[UUID, dict[str, str]]:
 
 
 async def _tenant(name: str, *, slug: str, status: str | None = None) -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=name,
         slug=slug,
         vertical_template="clinic",

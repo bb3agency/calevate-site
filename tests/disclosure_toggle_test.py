@@ -37,7 +37,6 @@ from types import ModuleType
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts, publishing
 from apps.api.agents.routes import router as agents_router
 from apps.api.agents.service import _load_agent, _to_config, publish_agent, publish_variant
@@ -74,7 +73,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import create_engine as create_sync_engine
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 #: The fake engine with no recorder: every remaining adapter records audio, so the
 #: "not recorded" answer (hard rule 5) is driven through this profile.
@@ -103,7 +102,7 @@ async def _tenant(
     D-669, and most tests here prove that switching one OFF moves the opening, the engine
     and the ledger. `notices_on=False` is the agent exactly as `create_agent` makes it.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sunrise Clinic",
         slug=f"disc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

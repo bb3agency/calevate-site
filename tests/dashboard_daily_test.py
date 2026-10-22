@@ -27,7 +27,6 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime, timedelta
 
-from apps.api.admin import service as admin_service
 from apps.api.crm.models import CALL_STATUSES
 from apps.api.crm.schemas import DashboardDayOut
 from apps.api.crm.service import DAILY_CALL_CLASSES, DASHBOARD_DAYS, dashboard
@@ -35,6 +34,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.conftest import create_org_with_receptionist
 
 _IST_OFFSET = timedelta(hours=5, minutes=30)
 
@@ -49,7 +49,7 @@ def _ist(day: date, hour: int, minute: int = 0) -> datetime:
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Seven Day Motors",
         slug=f"daily7-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

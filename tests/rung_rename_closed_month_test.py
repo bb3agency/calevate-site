@@ -47,12 +47,12 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.invoice import build_invoice
 from apps.api.billing.service import margin_for_tenant, tier_usage, usage_summary
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 MONTH = "2026-07"
 #: Inside July's IST window, and comfortably away from either edge so the month this
@@ -142,7 +142,7 @@ async def _settled_month(*, second_rate_column: str) -> UUID:
     exists for, even in a test.
     """
     assert second_rate_column in ("overage_rate_second", "overage_rate_value")
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Settled Month Clinic",
         slug=f"settled-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

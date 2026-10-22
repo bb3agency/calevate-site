@@ -19,7 +19,6 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.service import get_balance, record_entry, usage_summary
 from apps.api.billing.trials import (
     DEFAULT_ERASURE_GRACE_DAYS,
@@ -37,13 +36,18 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from tests.conftest import accept_agreements, arm_agent_for_outbound, mark_paid_for_tests
+from tests.conftest import (
+    accept_agreements,
+    arm_agent_for_outbound,
+    create_org_with_receptionist,
+    mark_paid_for_tests,
+)
 
 pytestmark = pytest.mark.asyncio
 
 
 async def _org(plan_tier: str = "prepaid") -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Trial Clinic",
         slug=f"trial-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

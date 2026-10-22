@@ -26,7 +26,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.agents import service as agents_service
 from apps.api.campaigns import service as campaigns_service
@@ -36,7 +35,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import EXTERNAL_DEPLOYMENT_CAPABILITIES, FakeEngine
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 
 def _header(series: str = "160") -> str:
@@ -71,7 +70,7 @@ def _alerts(caplog: pytest.LogCaptureFixture) -> list[str]:
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Header Clinic",
         slug=f"header-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

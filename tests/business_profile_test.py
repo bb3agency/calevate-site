@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle
 from apps.api.agents import service as agents_service
 from apps.api.core.errors import ProblemError
@@ -26,7 +25,7 @@ from apps.api.tenancy import business_profile as bp
 from apps.api.tenancy.profile_service import ProfilePatch, save_profile
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 PROFILE: dict[str, Any] = {
     "hours": [
@@ -52,7 +51,7 @@ def _client() -> AsyncClient:
 
 async def _tenant(*, profile: bool = False) -> tuple[uuid.UUID, uuid.UUID]:
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sunrise Dental",
         slug=f"profile-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

@@ -14,7 +14,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import trial_routes
 from apps.api.billing.trial_routes import router as trial_router
 from apps.api.billing.trial_routes import start_trial_confirmation
@@ -31,6 +30,7 @@ from apps.workers.trial_notices import (
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -52,7 +52,7 @@ def mailbox(monkeypatch: pytest.MonkeyPatch) -> Recorder:
 
 
 async def _tenant(plan_tier: str = "self_serve", email: str | None = "owner@example.test") -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Raghava Organics",
         slug=f"trialmail-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

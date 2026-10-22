@@ -16,7 +16,6 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import starters
 from apps.api.billing import rates
 from apps.api.billing.ai_quota import read_ai_quota
@@ -41,6 +40,7 @@ from calevate_shared.call_script import SOUNDS_LIKE_MAX, ConversationStage
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
+from tests.conftest import create_org_with_receptionist
 
 MODEL = "gemini-3.1-flash-lite"
 LEG = TenantModelLeg(model=MODEL, provider="google", serves_dashboard=True)
@@ -851,7 +851,7 @@ def test_the_job_and_the_daily_check_are_registered() -> None:
 
 
 async def test_a_new_account_queues_its_first_generation() -> None:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Green Oils",
         slug=f"green-{uuid.uuid4().hex[:8]}",
         vertical_template="retail",

@@ -29,7 +29,6 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.service import record_entry
 from apps.api.campaigns import number_catalog, number_supply, provisioning
 from apps.api.campaigns.number_holder import read_holder, record_holder
@@ -40,7 +39,7 @@ from apps.api.engine import get_engine
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -74,7 +73,7 @@ def _client() -> AsyncClient:
 
 
 async def _tenant() -> dict[str, Any]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Number Clinic",
         slug=f"num-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

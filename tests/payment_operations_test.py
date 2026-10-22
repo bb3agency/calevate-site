@@ -17,7 +17,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import (
     disputes,
     payment_admin_routes,
@@ -37,6 +36,7 @@ from apps.api.db.session import tenant_session
 from fastapi import Request, UploadFile
 from sqlalchemy import text
 from starlette.datastructures import Headers
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -70,7 +70,7 @@ def _id(prefix: str) -> str:
 
 
 async def _tenant(name: str = "Ops Clinic") -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=name,
         slug=f"ops-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

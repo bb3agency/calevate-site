@@ -41,7 +41,6 @@ from typing import Any
 import pytest
 import scripts.eval as ev
 import scripts.qa_report as qa
-from apps.api.admin import service as admin_service
 from apps.api.agents.llm_tiers import client_model_label
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
@@ -50,6 +49,7 @@ from calevate_shared.extraction import ExtractionSchemaSpec
 from calevate_shared.qa_report import QaReport
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -62,7 +62,7 @@ def _client() -> AsyncClient:
 
 
 async def _tenant() -> tuple[uuid.UUID, str]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Sunrise Clinic",
         slug=f"quality-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

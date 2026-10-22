@@ -40,7 +40,6 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents.voices import voice_tier_of_provider
 from apps.api.billing import spend_routes
 from apps.api.billing.plans import ist_month_window
@@ -72,6 +71,7 @@ from apps.api.ops.model_pricing import (
 )
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 MONTH = "2026-01"
 NOW = datetime(2026, 2, 3, 9, 0, tzinfo=UTC)
@@ -611,7 +611,7 @@ async def _tenant_with_cartesia_call(
     its call in a month of its own and assert exact figures rather than relations against
     whatever else a shared development database holds.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Voice Clinic",
         slug=f"voice-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

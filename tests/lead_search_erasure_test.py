@@ -35,7 +35,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance import tenant_erasure
 from apps.api.core.errors import ProblemError
 from apps.api.crm import routes as crm_routes
@@ -51,7 +50,7 @@ from apps.workers.retention import (
     execute_tenant_erasure,
 )
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 #: The phrase under test. Rare enough that a match cannot be a coincidence, and it is a
 #: CAPTURED ANSWER rather than a name or a number — the only class of lead data this scope
@@ -113,7 +112,7 @@ async def _tenant_with_projected_lead(
     today and backdated afterwards would carry today's clock and the retention arm would
     correctly refuse to expire it.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Vector Realty",
         slug=f"vec-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

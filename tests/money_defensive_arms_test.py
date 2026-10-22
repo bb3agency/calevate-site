@@ -29,6 +29,7 @@ import pytest
 from apps.api.billing import payments, wallet
 from apps.api.core.stepup import StepUp
 from apps.api.db.session import tenant_session
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -190,11 +191,10 @@ async def test_a_second_clawback_for_the_same_refund_moves_nothing() -> None:
     Driven against real rows: a paid top-up, its bonus grant, a refund, then the same
     refund again.
     """
-    from apps.api.admin import service as admin_service
     from apps.api.billing.payments import RefundEvent, _claw_back_pack_bonus
     from apps.api.billing.service import record_entry
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Clawback Clinic",
         slug=f"claw-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -271,13 +271,12 @@ async def test_a_failed_replay_does_not_release_the_original_refunds_claim(
     shrink what a client may be refunded for ever — is covered by the refund suite. This
     pins the one that only runs on a replay whose provider call fails.
     """
-    from apps.api.admin import service as admin_service
     from apps.api.billing import payment_routes
     from apps.api.billing.payments import RefundClaim
     from apps.api.billing.service import record_entry
     from apps.api.core.context import Principal
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Replay Clinic",
         slug=f"rep-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -355,14 +354,13 @@ async def test_a_refund_the_provider_accepted_keeps_its_claim_when_its_answer_is
     claim there drops a real refund out of the ceiling `claim_refund` enforces, so the next
     refund of a different amount against the same payment passes a total it should not.
     """
-    from apps.api.admin import service as admin_service
     from apps.api.billing import payment_routes
     from apps.api.billing.payments import RefundClaim
     from apps.api.billing.service import record_entry
     from apps.api.core.context import Principal
     from apps.api.core.errors import ProblemError
 
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Accepted Refund Clinic",
         slug=f"acc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
@@ -472,7 +470,7 @@ async def test_an_order_with_no_provider_id_is_returned_without_being_remembered
     monkeypatch.setattr(payment_routes, "_create_order_once", _no_id)
     monkeypatch.setattr(payment_routes, "_remember_order", _record)
 
-    created = await __import__("apps.api.admin.service", fromlist=["service"]).create_organization(
+    created = await create_org_with_receptionist(
         name="Orderless Clinic",
         slug=f"ord-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

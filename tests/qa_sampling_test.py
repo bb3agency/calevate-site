@@ -40,7 +40,6 @@ from uuid import UUID
 
 import apps.workers.qa_sampling as qa_worker
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import MUTATING_PERMISSIONS, iter_api_routes, route_enforcement
 from apps.api.db.base import uuid7
@@ -61,6 +60,7 @@ from apps.workers.qa_sampling import closed_weeks, draw_for_tenants
 from apps.workers.settings import WorkerSettings
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -88,7 +88,7 @@ async def _make_admin(role: str = "operator") -> str:
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=f"Sample Clinic {uuid.uuid4().hex[:6]}",
         slug=f"sample-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

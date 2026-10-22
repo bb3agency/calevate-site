@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import number_rental
 from apps.api.billing.invoice import build_invoice
 from apps.api.billing.number_rental import (
@@ -46,7 +45,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.workers.number_rental import renew_number_rentals
 from sqlalchemy import text
-from tests.conftest import mark_paid_for_tests
+from tests.conftest import create_org_with_receptionist, mark_paid_for_tests
 from tests.number_provisioning_flow_test import (  # noqa: F401 - `authorized` is a fixture
     _attest_price,
     _pattern,
@@ -158,7 +157,7 @@ def test_the_renewal_alarm_is_classified() -> None:
 
 
 async def _wallet_tenant(*, credit: str = "5000.00", tier: str | None = None) -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Rental Clinic",
         slug=f"rent-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

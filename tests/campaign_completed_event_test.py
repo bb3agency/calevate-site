@@ -29,7 +29,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import service
 from apps.api.campaigns.scheduling import schedule_recurrence
 from apps.api.db.base import uuid7
@@ -38,7 +37,12 @@ from apps.api.engine import reset_engine_cache
 from apps.api.integrations import service as integrations
 from apps.workers import campaign_dispatch
 from sqlalchemy import text
-from tests.conftest import accept_agreements, bind_number_for_tests, fund_wallet
+from tests.conftest import (
+    accept_agreements,
+    bind_number_for_tests,
+    create_org_with_receptionist,
+    fund_wallet,
+)
 from tests.national_dnd_test import record_test_scrub
 
 # 11:00 IST — inside the platform calling window, so nothing here is ever refused by the
@@ -75,7 +79,7 @@ async def _leave_the_platform_quiet() -> AsyncIterator[None]:
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Completion Motors",
         slug=f"done-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

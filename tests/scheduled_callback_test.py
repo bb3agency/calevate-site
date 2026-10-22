@@ -31,7 +31,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.callbacks import service as callbacks
 from apps.api.compliance import deletion
 from apps.api.compliance.service import PERSON_LEVEL_REFUSALS
@@ -39,6 +38,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers.retention import execute_deletion_request
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -46,7 +46,7 @@ CALLER = "+919812345671"
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Callback Estates",
         slug=f"cb-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

@@ -38,13 +38,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.compliance.models import RETENTION_WORKLIST_REASONS
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers.retention import _due_tenants, sweep_tenant, sweep_tenants
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 _REASON = "kb_source"
 
@@ -56,7 +55,7 @@ async def _unpublished_tenant() -> tuple[uuid.UUID, uuid.UUID]:
     it deliberately does not do is publish, so no `engine_agent_routes` row exists. That
     is the exact state the hole lived in — a live client mid-onboarding, not a churned one.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Unpublished Uploads",
         slug=f"rw-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

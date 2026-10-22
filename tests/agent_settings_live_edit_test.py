@@ -25,7 +25,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts, publishing
 from apps.api.agents.models import CALL_CAP_DEFAULT_S
 from apps.api.agents.publishing_routes import router as publishing_router
@@ -44,7 +43,7 @@ from apps.api.engine.fake import FakeEngine
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.voice_fixture import TEST_VOICE_ID
 
 VOICE_ID = TEST_VOICE_ID
@@ -100,7 +99,7 @@ async def _live_agent() -> tuple[UUID, UUID, str, str, FakeEngine]:
     measuring nothing.
     """
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Live Edit Clinic",
         slug=f"led-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

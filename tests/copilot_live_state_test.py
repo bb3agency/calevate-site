@@ -13,7 +13,6 @@ import uuid
 from typing import cast
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.copilot import context
 from apps.api.copilot.prompt import CLOSING_RULES, SCREEN_CLOSE, build_messages
 from apps.api.copilot.schemas import CopilotAskIn
@@ -24,10 +23,11 @@ from apps.api.legal.readiness import readiness_rows
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.conftest import create_org_with_receptionist
 
 
 async def _tenant(name: str) -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=name,
         slug=f"live-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

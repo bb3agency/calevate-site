@@ -210,7 +210,7 @@ function AgentLine({
  * The lead is the first of these that holds, in order of what stops calls soonest:
  *
  * 1. Calls have stopped for want of credit: Add credit.
- * 2. No agent: Create an agent.
+ * 2. No agent: Create your first agent.
  * 3. The trial needs acting on (last day, a tenth of its minutes left, or a test-calls
  *    trial that ended unpaid): Add credit.
  * 4. Agents, none switched on: Open agent / See agents.
@@ -248,7 +248,7 @@ export function recapActions({
     access.addCredit && wallet?.prepaid ? { key: "credit", label: "Add credit", href: "/billing?tab=credits" } : null;
   const noAgent = agents !== undefined && agents.length === 0;
   const create: Candidate | null = access.createAgent
-    ? { key: "create-agent", label: noAgent ? "Create an agent" : "Add an agent", href: "/agents/new" }
+    ? { key: "create-agent", label: noAgent ? "Create your first agent" : "Add an agent", href: "/agents/new" }
     : null;
   const allOff = agents !== undefined && agents.length > 0 && !agents.some(isAnsweringNow);
   const openAgents: Candidate | null =

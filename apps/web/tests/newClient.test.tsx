@@ -41,8 +41,6 @@ const CREATED: CreateOrgOut = {
   id: "0192f0aa-7777-7000-8000-000000000001",
   slug: "sunrise-clinic-2",
   status: "active",
-  agent_id: "0192f0aa-7777-7000-8000-0000000000a1",
-  extraction_schema_id: "0192f0aa-7777-7000-8000-0000000000b1",
   vertical_template: "clinic",
   invitation_id: "0192f0aa-7777-7000-8000-0000000000e1",
 };

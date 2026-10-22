@@ -20,9 +20,8 @@ import uuid
 from typing import Any, get_args
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.admin.routes import CreateOrgIn, Vertical
-from apps.api.agents import lead_fields
+from apps.api.agents import lead_fields, starters
 from apps.api.agents.extraction_routes import validate_fields, write_schema
 from apps.api.agents.lead_fields_routes import router as lead_fields_router
 from apps.api.core.errors import ProblemError, install_error_handlers
@@ -50,7 +49,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from scripts.seed import BUSINESS_TYPE_LABELS, VERTICAL_TEMPLATES
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 CLINICAL = re.compile(
     r"\b(?:clinic|hospital|patients?|doctors?|dentists?|dental|appointments?|symptoms?)\b", re.I
@@ -112,7 +111,7 @@ def test_every_standard_set_is_its_own_and_collides_with_nothing(vertical: str) 
 
 
 def test_a_custom_business_starts_with_the_core_only() -> None:
-    assert admin_service.starting_fields("custom") == []
+    assert starters.captured_fields("custom") == []
     assert lead_fields.standard_fields("custom") == []
     assert lead_fields.business_type_label(None) == "Something else"
     assert lead_fields.business_type_label("retail") == "Shop, food or produce"
@@ -169,7 +168,7 @@ def _app() -> FastAPI:
 
 
 async def _tenant(vertical: str, name: str = "Raghava Organics") -> tuple[uuid.UUID, str]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name=name,
         slug=f"leadf-{uuid.uuid4().hex[:8]}",
         vertical_template=vertical,

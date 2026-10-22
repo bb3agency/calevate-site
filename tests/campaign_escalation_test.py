@@ -41,7 +41,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import service as campaigns
 from apps.api.compliance.consent import (
     MESSAGING_CONSENT_VALIDITY_DAYS,
@@ -63,7 +62,7 @@ from apps.workers.whatsapp import (
 )
 from arq import Retry
 from sqlalchemy import text
-from tests.conftest import accept_agreements, fund_wallet
+from tests.conftest import accept_agreements, create_org_with_receptionist, fund_wallet
 from tests.national_dnd_test import record_test_scrub
 from tests.platform_support import requires_posix_signals
 
@@ -121,7 +120,7 @@ class Fixture:
 
 
 async def _tenant(prefix: str) -> tuple[UUID, UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Escalation Motors",
         slug=f"esc-{prefix}-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

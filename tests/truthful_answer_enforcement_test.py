@@ -30,7 +30,6 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.agents.reconciliation import (
     DRIFT_STATES,
@@ -61,7 +60,7 @@ from calevate_shared.engine import (
     EngineAgentRef,
 )
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 SCRIPT = "Sunrise Clinic receptionist. Greet in Telugu, then take the appointment."
 #: The SCRIPT edited on the vendor's own console — an ordinary drift, and the case that
@@ -118,7 +117,7 @@ def _engine(instance: FakeEngine) -> Iterator[FakeEngine]:
 async def _published_agent(engine: FakeEngine) -> tuple[uuid.UUID, uuid.UUID, str]:
     """A tenant with one agent genuinely live on `engine`, and its vendor ref."""
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Truthful Clinic",
         slug=f"ta-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

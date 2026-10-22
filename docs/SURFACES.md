@@ -668,9 +668,9 @@ Self-serve + payments (D-34/D-39) — **read the caveat, this is not a working c
   (`core/loadshed.py` says a session route "should be exempted BY NAME, with the reason, on
   the day it exists"; that day has passed). Naming a route rather than restoring the prefix
   is the fix, and it is a decision about who may sign in during a shed — recorded here
-  rather than made here. Creates the organization, its
-  receptionist agent, its extraction schema and its retention policies, and makes the
-  caller the owner; `plan_tier` is `self_serve` or `trial` — `managed` is the invoiced
+  rather than made here. Creates the organization and its retention policies, starts its
+  free trial (D-853) and makes the caller the owner, with no agent (the owner makes the
+  first one); `plan_tier` is `self_serve` or `trial` — `managed` is the invoiced
   motion and is not self-assignable. The wallet starts empty, so the compliance gate
   refuses outbound until it is topped up, and the response says so in `next_steps`.
 - **Top-up intent**: `POST /v1/billing/topups/intent` (`org:manage`, `realm="client"` —

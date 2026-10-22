@@ -32,19 +32,18 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
-from apps.api.admin import service as admin_service
 from apps.api.billing.service import current_billing_month, usage_summary
 from apps.api.compliance.service import check_dispatch, spend_capped
 from apps.api.crm.service import dashboard
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 
 
 async def _capped_tenant(month: str) -> tuple[uuid.UUID, uuid.UUID]:
     """A tenant carrying a `capped` spend_state row stamped with `month`."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Cap Motors",
         slug=f"cap-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

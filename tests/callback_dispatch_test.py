@@ -28,7 +28,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle as agent_lifecycle
 from apps.api.agents import prompts
 from apps.api.agents.publishing import set_caller_memory
@@ -43,7 +42,13 @@ from apps.api.engine.vendor_http import EngineRejectedError
 from apps.workers.callbacks import UNCONFIRMED_REASON, dispatch_due_callbacks
 from calevate_shared.engine import CallContext
 from sqlalchemy import text
-from tests.conftest import _owner_of, accept_agreements, arm_agent_for_outbound, fund_wallet
+from tests.conftest import (
+    _owner_of,
+    accept_agreements,
+    arm_agent_for_outbound,
+    create_org_with_receptionist,
+    fund_wallet,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -72,7 +77,7 @@ async def _dialable_tenant() -> tuple[uuid.UUID, uuid.UUID]:
     production writes them with is the difference between a fixture that models a lawful
     tenant and one that softens the gate.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Dial Estates",
         slug=f"dial-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

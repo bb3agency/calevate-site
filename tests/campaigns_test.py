@@ -21,7 +21,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import service as agents_service
 from apps.api.campaigns import service
 from apps.api.compliance.preference_scrub import PREFERENCE_SCRUBBED_CLASSIFICATIONS
@@ -43,6 +42,7 @@ from sqlalchemy import text
 from tests.conftest import (
     accept_agreements,
     bind_number_for_tests,
+    create_org_with_receptionist,
     fund_wallet,
     verify_kyc_and_pledge_for_tests,
 )
@@ -89,7 +89,7 @@ _RUN_STARTED_AT = datetime.now(UTC)
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     """A tenant whose agent is live and published — the campaign-ready baseline."""
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Camp Motors",
         slug=f"camp-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

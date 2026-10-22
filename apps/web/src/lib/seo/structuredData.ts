@@ -51,7 +51,7 @@ import { SITE_NAME } from "./metadata";
  *  - **`SearchAction` on `WebSite`** — the sitelinks search box. This site has no search
  *    endpoint; declaring one would hand Google a URL template that 404s.
  *  - **`areaServed`, `availableLanguage`** — the PRODUCT speaks Telugu, Hindi and English
- *    (`lib/api/signup.SIGNUP_LANGUAGES`) and is sold in Andhra Pradesh and Telangana. What
+ *    (`lib/agentState.LANGUAGE_CHOICES`) and is sold in Andhra Pradesh and Telangana. What
  *    LANGUAGES AND TERRITORIES OUR SUPPORT CHANNEL COVERS is a different fact and is one
  *    nobody has recorded, so the contact point does not claim one.
  *

@@ -31,7 +31,6 @@ from typing import Any
 import jwt
 import pytest
 import pytest_asyncio
-from apps.api.admin import service as admin_service
 from apps.api.authn.cookies import cookie_name
 from apps.api.authn.sessions import issue_session
 from apps.api.authn.stepup import REAUTH_MAX_AGE
@@ -49,6 +48,7 @@ from apps.api.db.session import credential_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 GRANT_PATH = "/v1/admin/impersonation-grants"
 RENEW_PATH = f"{GRANT_PATH}/renew"
@@ -110,7 +110,7 @@ async def _cookie_for(admin_id: uuid.UUID, *, factor_age: timedelta | None) -> s
 
 
 async def _make_org() -> dict[str, Any]:
-    return await admin_service.create_organization(
+    return await create_org_with_receptionist(
         name="Door Clinic",
         slug=f"dr-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

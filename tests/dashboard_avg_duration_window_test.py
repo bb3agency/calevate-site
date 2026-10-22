@@ -33,12 +33,12 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.crm.service import dashboard
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.conftest import create_org_with_receptionist
 
 # Deliberately far apart. An average that accidentally includes the old call lands
 # somewhere near 1,830s; one that correctly excludes it is exactly 60.
@@ -47,7 +47,7 @@ OUTSIDE_DURATION_S = 3600
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Window Motors",
         slug=f"avgwin-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

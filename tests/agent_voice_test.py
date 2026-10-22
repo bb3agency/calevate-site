@@ -17,7 +17,6 @@ import uuid
 from typing import get_args
 from uuid import UUID
 
-from apps.api.admin import service as admin_service
 from apps.api.agents import prompts, publishing
 from apps.api.agents.publishing_routes import router as publishing_router
 from apps.api.agents.routes import router as agents_router
@@ -42,7 +41,7 @@ from apps.api.engine.fake import FakeEngine
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.voice_fixture import STUDIO_TTS_MODEL, TEST_SPEAKER, TEST_VOICE_ID
 
 VOICE_ID = TEST_VOICE_ID
@@ -134,7 +133,7 @@ async def _admin_token(role: str = "superadmin") -> str:
 
 async def _tenant(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, str, str]:
     """(tenant_id, agent_id, org slug, client dev bearer) for a fresh org with a member."""
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Voice Clinic",
         slug=f"vox-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

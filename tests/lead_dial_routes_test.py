@@ -30,7 +30,6 @@ from unittest import mock
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import service as agent_service
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.compliance.service import add_to_dnc
@@ -41,7 +40,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
 from apps.api.engine.fake import FakeEngine
 from sqlalchemy import text
-from tests.conftest import accept_agreements, fund_wallet
+from tests.conftest import accept_agreements, create_org_with_receptionist, fund_wallet
 
 
 @pytest.fixture(autouse=True)
@@ -88,7 +87,7 @@ async def _dialable_tenant() -> tuple[uuid.UUID, uuid.UUID, str, dict[str, str]]
             {"id": user_id, "email": f"{user_id}@example.com"},
         )
     slug = f"dial-{uuid.uuid4().hex[:8]}"
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Dial Clinic",
         slug=slug,
         vertical_template="clinic",

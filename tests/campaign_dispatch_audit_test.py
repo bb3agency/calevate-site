@@ -55,7 +55,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.agents.service import UNCONFIRMED_ENGINE_CALL_PREFIX
 from apps.api.campaigns import complaint_spike
@@ -77,6 +76,7 @@ from sqlalchemy.exc import IntegrityError
 from tests.conftest import (
     accept_agreements,
     bind_number_for_tests,
+    create_org_with_receptionist,
     fund_wallet,
     verify_kyc_and_pledge_for_tests,
 )
@@ -146,7 +146,7 @@ async def _settle_what_this_module_started() -> AsyncIterator[None]:
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     """A tenant whose agent is live, published and routable — the dialable baseline."""
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Standing Motors",
         slug=f"stand-{uuid.uuid4().hex[:8]}",
         vertical_template="real_estate",

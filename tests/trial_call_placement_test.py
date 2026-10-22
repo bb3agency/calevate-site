@@ -134,6 +134,21 @@ async def test_a_test_call_is_placed_from_the_shared_number_and_a_retry_replays_
     assert len(line.lent_to) == 1, "and dials nothing a second time"
 
 
+async def test_a_ready_answer_only_agent_places_a_test_call_from_the_shared_number(
+    line: Line,
+) -> None:
+    """D-853: an agent that only answers calls, got ready and not taking calls, rings the
+    owner through the same lend and dial as any test call; its greeting opens the call."""
+    from apps.api.agents import lifecycle
+
+    tenant_id, agent_id, principal = await _account(line, direction="inbound")
+    async with tenant_session(tenant_id) as session:
+        await lifecycle.prepare_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+    placed = await _place(principal, agent_id, str(uuid.uuid4()))
+    assert placed.status == "queued", placed
+    assert len(line.lent_to) == 1
+
+
 async def test_a_refused_gate_is_an_answer_stored_against_the_key(line: Line) -> None:
     tenant_id, agent_id, principal = await _account(line, pledged=False)
     key = str(uuid.uuid4())

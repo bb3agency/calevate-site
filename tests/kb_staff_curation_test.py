@@ -44,7 +44,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.copilot import actions as copilot_actions
 from apps.api.copilot import write_tools
 from apps.api.core.context import Principal
@@ -55,7 +54,7 @@ from apps.api.kb.service import PUBLISH_KB_SOURCE_JOB
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, create_org_with_receptionist
 from tests.impersonation_grant_test import view_as_headers
 
 SUBMIT = "/v1/kb/sources"
@@ -76,7 +75,7 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID, str]:
     `kb_workflow_test._tenant_with_published_agent` established — a fixture without them
     reports `agreements_not_accepted` in place of the answer under test.
     """
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Curation Clinic",
         slug=f"cur-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

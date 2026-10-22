@@ -21,7 +21,6 @@ from uuid import UUID
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import auto_recharge, payments, reconciliation
 from apps.api.billing.dispute_hold import dispute_hold_active
 from apps.api.billing.disputes import DisputeFacts, apply_dispute_event
@@ -40,6 +39,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
@@ -83,7 +83,7 @@ def _id(prefix: str) -> str:
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="E2E Clinic",
         slug=f"e2e-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

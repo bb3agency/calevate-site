@@ -6,7 +6,8 @@
  *
  * Built only from what already exists, never a new request:
  *
- * - an account on a test-calls-only trial (D-697) can have THIS agent ring the owner's own
+ * - an account on a test-calls-only trial (D-697) can have THIS agent, once it is ready
+ *   and whichever way it points (D-853), ring the owner's own
  *   phone, through the same `POST /v1/trial/calls` the dashboard's trial panel uses, with
  *   the same gate, daily cap and blocked reasons, which are the server's words;
  * - any other account hears an answering agent by ringing its own number, so the block
@@ -23,7 +24,7 @@ import { PhoneOutgoing } from "lucide-react";
 
 import { Section } from "@/components/console/section";
 import { FIELD_INLINE, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
-import { canDialOut, isAnsweringNow } from "@/lib/agentState";
+import { canTestCall, isAnsweringNow } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { usePlaceTrialCall, useTrialPanel } from "@/lib/api/trialCalls";
@@ -44,7 +45,7 @@ export function TryIt({
   number: string;
   onNumber: (next: string) => void;
 }) {
-  if (onTrial && canDialOut(agent)) {
+  if (onTrial && canTestCall(agent)) {
     return <TrialTestCall agent={agent} number={number} onNumber={onNumber} />;
   }
   if (!onTrial && isAnsweringNow(agent) && agent.direction !== "outbound" && agent.inbound_number_count > 0) {
@@ -58,10 +59,10 @@ function NoCallYet({ agent, slug, onTrial }: { agent: Agent; slug: string; onTri
   const { href } = useClientRealm();
   let line: string;
   let move: { href: string; label: string } | null = null;
-  if (!isAnsweringNow(agent)) {
+  if (onTrial) {
+    line = "Press Get it ready at the top of this page, then come back to give it a test call.";
+  } else if (!isAnsweringNow(agent)) {
     line = "Switch it on with Taking calls at the top of this page, then come back to ring it.";
-  } else if (onTrial) {
-    line = "On the free trial, a practice call comes from an agent that makes calls. Try this one in the chat.";
   } else if (agent.direction === "outbound") {
     line = "The calls it makes go out through your campaigns. Try it in the chat.";
   } else {

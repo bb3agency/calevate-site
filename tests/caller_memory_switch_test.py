@@ -29,7 +29,6 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle as agent_lifecycle
 from apps.api.agents.publishing import CALLER_MEMORY_ATTESTATION, set_caller_memory
 from apps.api.compliance import caller_memory
@@ -47,7 +46,7 @@ from calevate_shared.engine import (
     render_caller_memory,
 )
 from sqlalchemy import text
-from tests.conftest import _owner_of
+from tests.conftest import _owner_of, create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -55,7 +54,7 @@ CALLER = "+919812345673"
 
 
 async def _tenant(vertical: str = "real_estate") -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Switch Estates",
         slug=f"sw-{uuid.uuid4().hex[:8]}",
         vertical_template=vertical,

@@ -25,7 +25,6 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing.lots import AiAssistDemand, CallDemand, LotDemand
 from apps.api.billing.rates import (
     MONEY_Q,
@@ -37,6 +36,7 @@ from apps.api.billing.service import LotRates, get_balance, record_usage_from_lo
 from apps.api.db.session import tenant_session
 from apps.api.ops.config_routes import _pct
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 _FALLBACK = LotRates(Decimal("5.00"), Decimal("8.00"))
 
@@ -83,7 +83,7 @@ def test_a_prepaid_charge_with_real_minutes_and_a_real_rate_still_multiplies() -
 
 
 async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Zero Clinic",
         slug=f"zero-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

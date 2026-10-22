@@ -22,7 +22,6 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import handoff
 from apps.api.agents import service as agents_service
 from apps.api.agents.handoff import MAX_BRIEF_CHARS, redacted_brief
@@ -34,6 +33,7 @@ from tests.conftest import (
     INSERT_HANDOFF_MEMBER_SQL,
     SET_BUSINESS_HOURS_SQL,
     accept_agreements,
+    create_org_with_receptionist,
 )
 
 # The sync half of this module is pure-function work over a clock, so the async mark is
@@ -168,7 +168,7 @@ def test_an_unknown_language_falls_back_rather_than_going_silent() -> None:
 
 async def _agent_with_roster(*, enabled: bool, hours: dict[str, object] | None) -> tuple:
     reset_engine_cache()
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Handoff publish",
         slug=f"handoff-pub-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

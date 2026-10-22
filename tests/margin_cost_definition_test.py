@@ -33,11 +33,11 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
-from apps.api.admin import service as admin_service
 from apps.api.billing import service as billing
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 #: One month, one tenant, one call per rung. The costs are chosen so no two buckets
 #: share a total — a reader that dropped a bucket, or double-counted one, cannot land on
@@ -59,7 +59,7 @@ _TOTAL_COST_INR = Decimal("19.08")
 
 
 async def _tenant_with_a_mixed_month() -> uuid.UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Margin Clinic",
         slug=f"margin-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

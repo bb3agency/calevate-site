@@ -35,7 +35,6 @@ from typing import Any
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -43,7 +42,7 @@ from apps.api.integrations import service
 from apps.workers import outbound_webhooks, retention, storage
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from sqlalchemy import text
-from tests.conftest import FakeS3
+from tests.conftest import FakeS3, create_org_with_receptionist
 
 SECRET = "whsec_delivery_body_secret"
 # The agent each fixture tenant was created with — `leads.agent_id` and `calls.agent_id`
@@ -70,7 +69,7 @@ def alerts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
 async def _tenant_with_endpoint(
     *, events: tuple[str, ...] = ("lead.created", "call.completed", "campaign.completed")
 ) -> tuple[uuid.UUID, uuid.UUID]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Body Clinic",
         slug=f"body-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

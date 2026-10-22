@@ -19,7 +19,6 @@ from typing import Any
 
 import httpx
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.campaigns import engine_numbers, number_catalog
 from apps.api.campaigns.number_pricing import record_attested_price_inr
 from apps.api.core.settings import get_settings
@@ -31,6 +30,7 @@ from apps.workers import number_rental
 from calevate_shared.engine import ProvisionedNumber
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 PRICE = Decimal("499.00")
 
@@ -156,7 +156,7 @@ async def _attested(admin_id: uuid.UUID) -> None:
 
 
 async def _client_with_agent(direction: str = "inbound") -> tuple[uuid.UUID, uuid.UUID, str]:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Console Numbers",
         slug=f"cn-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",

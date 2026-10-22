@@ -18,7 +18,6 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.billing import payments
 from apps.api.billing.credit_packs import (
     PACK_BONUS_CLAWBACK_LABEL,
@@ -32,6 +31,7 @@ from apps.api.billing.service import get_balance, record_entry
 from apps.api.billing.wallet_routes import _entry_label
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import create_org_with_receptionist
 
 #: ₹3,000 with a bonus of exactly ₹100 — a ratio of 1/30, which does NOT terminate, so a
 #: partial refund's share of the bonus has to round and the sum of the parts is a real test.
@@ -61,7 +61,7 @@ def legacy_bonus(monkeypatch: pytest.MonkeyPatch) -> CreditPack:
 
 
 async def _tenant() -> UUID:
-    created = await admin_service.create_organization(
+    created = await create_org_with_receptionist(
         name="Bonus Clawback Clinic",
         slug=f"pbc-{uuid.uuid4().hex[:8]}",
         vertical_template="clinic",
