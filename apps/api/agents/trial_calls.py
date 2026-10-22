@@ -20,6 +20,8 @@ The line is released by the call ending (its `calls` row leaving `queued`/`ringi
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 from dataclasses import dataclass
 from typing import Final, Literal
 from uuid import UUID
@@ -33,7 +35,7 @@ from apps.api.core.alerting import record_compliance_block
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
+from apps.api.core.settings import get_settings, resolve_hmac_key
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.vendor_http import EngineRejectedError
@@ -83,6 +85,51 @@ def _bad_number() -> ProblemError:
         title="Enter an Indian mobile or phone number",
         detail="Test calls go to Indian numbers only, written as 98765 43210 or +91 98765 43210.",
         remediation="Check the number and try again.",
+    )
+
+
+#: The audit action for "this number is mine" (D-855).
+NUMBER_ATTESTED_ACTION: Final = "trial.number_attested"
+
+
+def own_number_ref(tenant_id: UUID, phone_e164: str) -> str:
+    """A keyed hash of the number an owner said is theirs: the audit row can show the same
+    number was attested again without holding it (hard rule 6; an unkeyed hash of an Indian
+    number reverses by enumeration). Keyed like `forwarding/save_number.caller_ref`, with the
+    idempotency-scope secret, which never rotates, so one number always gives one ref."""
+    settings = get_settings()
+    material = resolve_hmac_key(
+        settings.idempotency_scope_secret,
+        env_var="IDEMPOTENCY_SCOPE_SECRET",
+        purpose="own-number attestations",
+        code="idempotency_not_configured",
+        title="Idempotent requests are not configured",
+        local_fallback=f"calevate-local-dev-idempotency-scope-key:{settings.app_env}",
+        app_env=settings.app_env,
+    )
+    message = f"own-number:{tenant_id}:{phone_e164}".encode()
+    return hmac.new(material, message, hashlib.sha256).hexdigest()
+
+
+async def attest_own_number(
+    session: AsyncSession, *, principal: Principal, number: str, ip: str | None
+) -> None:
+    """Record that the person placing a test call said the number is their own (founder,
+    23 Oct 2026: a tick, not a code sent to the phone). In the hash-chained audit log, by
+    keyed reference only."""
+    assert principal.tenant_id is not None
+    phone = normalize_phone(number)
+    if phone is None:
+        raise _bad_number()
+    await write_audit(
+        session,
+        action=NUMBER_ATTESTED_ACTION,
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="organization",
+        object_id=str(principal.tenant_id),
+        ip=ip,
+        summary={"number_ref": own_number_ref(principal.tenant_id, phone)},
     )
 
 

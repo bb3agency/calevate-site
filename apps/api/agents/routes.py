@@ -88,7 +88,6 @@ from apps.api.agents.service import publish_agent
 from apps.api.agents.starters import StarterJob
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.disclosure import truthful_answer_promise
-from apps.api.compliance.trial_access import trial_blocker
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db
@@ -171,9 +170,6 @@ class StarterPreviewOut(BaseModel):
     step_titles: list[str]
     #: The labels of the details the agent captures into each lead.
     captured_details: list[str]
-    #: Why this job cannot take calls on this account yet (a free trial's answer-only
-    #: agent), in the owner's words; null when it can.
-    locked_reason: str | None
 
 
 class StartersOut(BaseModel):
@@ -193,8 +189,9 @@ class StartersOut(BaseModel):
     description=(
         "What `POST /v1/agents` with `starter` would create, for YOUR account's business "
         "type: the suggested name, the opening line, the script's step titles and the "
-        "details the agent captures. `job` narrows it to one job; omitted, both jobs are "
-        'returned ("Answer my calls" first). Nothing is created by this read.'
+        "details the agent captures. `job` narrows it to one job; omitted, every job is "
+        'returned ("Answer my calls" first). Every job is open on a free trial: a test call '
+        "rings the owner from any ready agent (D-853, D-855). Nothing is created by this read."
     ),
 )
 async def list_starters(
@@ -224,9 +221,6 @@ async def list_starters(
     )
     labels = [field.label for field in with_core(business)]
     jobs = starters.STARTER_JOBS if job is None else (job,)
-    # A trial account's answer-only agent can be made and tried in the chat, but never takes
-    # a call until the account pays (D-697), so the job is offered locked with that reason.
-    inbound_locked = await trial_blocker(session, tenant_id=principal.tenant_id, locked="inbound")
     return StartersOut(
         vertical=vertical,
         starters=[
@@ -237,11 +231,6 @@ async def list_starters(
                 opening_line=each.opening_for(str(org[0]), language or starters.PREVIEW_LANGUAGE),
                 step_titles=[step.title for step in each.steps],
                 captured_details=labels,
-                locked_reason=(
-                    inbound_locked[1]
-                    if inbound_locked is not None and starters.JOB_DIRECTION[each.job] == "inbound"
-                    else None
-                ),
             )
             for each in (starters.starter_for(vertical, j) for j in jobs)
         ],
@@ -445,8 +434,9 @@ class AgentCreateIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=120)
-    #: "Answer my calls" (`answer_calls`, inbound) or "Call my leads" (`call_leads`,
-    #: outbound). The job sets `direction`; an explicit direction that contradicts it is
+    #: "Answer my calls" (`answer_calls`, inbound), "Call new leads instantly"
+    #: (`call_new_leads`, outbound) or "Call my list" (`call_leads`, outbound). The job
+    #: sets `direction`; an explicit direction that contradicts it is
     #: refused with `starter_direction_mismatch`. Omitted: an empty draft, as before.
     starter: StarterJob | None = None
     #: Omitted: the starter's job decides it, or `inbound` with no starter, because D-38
@@ -624,7 +614,8 @@ async def _agent_row(session: AsyncSession, agent_id: UUID) -> AgentOut:
     description=(
         "The agent is created in `draft`: it takes no calls and places none until it is "
         "activated, and it cannot be activated until it has a script.\n\n"
-        "Send `starter` (`answer_calls` or `call_leads`) to start from a ready-made agent "
+        "Send `starter` (`answer_calls`, `call_new_leads` or `call_leads`) to start from a "
+        "ready-made agent "
         "for your business type: its script, opening line and the details it captures are "
         "filled in for you to review (`GET /v1/agents/starters` previews them). The job "
         "sets the calling direction; a `direction` that contradicts it is refused with "

@@ -65,6 +65,8 @@ DRAFT_MAX_TOKENS: Final = 1500
 MAX_DRAFTED_FIELDS: Final = 6
 #: The business description handed to the model, in characters.
 MAX_CONTEXT_CHARS: Final = 6000
+#: The owner's brief inside it, so a long brief leaves room for the profile's own lines.
+MAX_BRIEF_CONTEXT_CHARS: Final = 1500
 
 _CORE_LABELS = ", ".join(f.label.lower() for f in CORE_LEAD_FIELDS)
 
@@ -227,11 +229,16 @@ async def business_context(tenant_id: UUID, *, include_type: bool = True) -> tup
                 )
             )
         ).all()
+        # The owner's own description from "Meet your agent" (D-855): the richest thing we
+        # know about the business, in their words.
+        brief = (await session.execute(text("SELECT brief FROM first_runs LIMIT 1"))).scalar()
     name = str(org[0]) if org else ""
     vertical = None if org is None or org[1] is None else str(org[1])
     lines = [f"Business name: {name}"]
     if include_type:
         lines.append(f"Business type: {business_type_label(vertical)}")
+    if brief:
+        lines.append(f"In the owner's words: {str(brief)[:MAX_BRIEF_CONTEXT_CHARS]}")
     for item in profile.services[:40]:
         note = f" ({item.notes})" if item.notes else ""
         lines.append(f"Sells or offers: {item.name}{note}")

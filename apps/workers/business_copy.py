@@ -43,7 +43,7 @@ from sqlalchemy import text
 
 from apps.api.agents.assist_leg import google_assist_leg
 from apps.api.agents.lead_fields import agents_with_fields
-from apps.api.agents.starters import CATALOGUE, STARTER_JOBS, STARTER_LANGUAGE, vertical_of
+from apps.api.agents.starters import CATALOGUE, LINE_SETS, STARTER_LANGUAGE, vertical_of
 from apps.api.billing.ai_quota import (
     new_assist_ref,
     platform_brake_tripped,
@@ -387,7 +387,7 @@ async def gather_inputs(tenant_id: UUID) -> Inputs:
         job: tuple(
             (step.title, step.instruction) for step in CATALOGUE[(starter_vertical, job)].steps
         )
-        for job in STARTER_JOBS
+        for job in LINE_SETS
     }
     return Inputs(
         description=description,
@@ -495,10 +495,11 @@ async def _may_spend(tenant_id: UUID, *, absorbed: bool) -> StopReason | None:
 
 
 async def _absorbed(tenant_id: UUID, trigger: Trigger) -> bool:
-    """Ours to pay for: an operator's refresh, and a trial account's first generation."""
+    """Ours to pay for: an operator's refresh, and a trial account's first generation and the
+    one after its owner's first brief (D-855)."""
     if trigger == "operator":
         return True
-    if trigger != "signup":
+    if trigger not in ("signup", "first_run"):
         return False
     async with tenant_session(tenant_id) as session:
         return await trial_billing_active(session, tenant_id=tenant_id)

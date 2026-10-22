@@ -146,8 +146,8 @@ async def signup(payload: SignupIn, request: Request, user_id: Identity) -> Sign
         status=created["status"],
         role=created["role"],
         next_steps=[
-            "Your free trial has started: tell us about your business, make your first "
-            "agent, then give it a test call to your own phone from the dashboard.",
+            "Your free trial has started: meet your first agent. Tell it its job in your own "
+            "words, and it rings your phone so you hear it.",
             "When you are ready to go live, add credit. Then verify your business and "
             "choose your phone number.",
         ],

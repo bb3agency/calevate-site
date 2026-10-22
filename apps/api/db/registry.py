@@ -18,6 +18,7 @@ from apps.api.copilot import models as copilot_models
 from apps.api.copilot import routine_models as copilot_routine_models
 from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
+from apps.api.first_run import models as first_run_models
 from apps.api.flags import models as flags_models
 from apps.api.forwarding import models as forwarding_models
 from apps.api.healer import models as healer_models
@@ -50,6 +51,7 @@ __all__ = [
     "copilot_models",
     "copilot_routine_models",
     "crm_models",
+    "first_run_models",
     "flags_models",
     "forwarding_models",
     "healer_models",
@@ -374,6 +376,11 @@ TENANT_TABLES = [
     "business_contacts",
     # Each client's AI-written examples and suggestions (D-827, migration e4b7c2d9a183).
     "business_copies",
+    # A new owner's first run and its spoken brief (D-855, migration f8d2a6c4b1e7): the job,
+    # the brief in the owner's words and the words heard from each recording. Not
+    # append-only: each is a small state machine the worker moves.
+    "first_runs",
+    "first_run_recordings",
     "handoff_attempts",
     "kb_retrieval_logs",
     # The stored monthly QA report (SURFACES §2) and the weekly 5% spot-check queue

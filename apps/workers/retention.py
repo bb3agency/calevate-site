@@ -3654,6 +3654,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # The AI-written examples (D-827): written from the business's details and its
         # callers' redacted questions, so they go with the account.
         await session.execute(text("DELETE FROM business_copies"))
+        # The first run (D-855): the owner's brief and the words heard from its recordings
+        # (the audio was deleted when heard; any left sits under the account's upload prefix
+        # swept below).
+        await session.execute(text("DELETE FROM first_run_recordings"))
+        await session.execute(text("DELETE FROM first_runs"))
         # THE UPLOADED FILES, WHICH TWO COMMENTS ASSERTED THIS ARM ALREADY SWEPT AND WHICH
         # IT DID NOT (18 Sep 2026). `kb/uploads.py` said an orphaned object sat in the
         # tenant's own prefix "so an offboarding still sweeps it up" and `storage.py` said

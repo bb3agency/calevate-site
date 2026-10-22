@@ -150,7 +150,7 @@ def test_starter_wording_rules(key: tuple[str, str]) -> None:
                 if len(fragment.strip()) > 10:
                     assert fragment.strip() not in authored
     assert "call-back" not in authored and "call back from" not in authored
-    if job == "call_leads":
+    if job in ("call_leads", "call_new_leads"):
         assert "Do not push" in authored
         assert starter.outbound_purpose
 
@@ -344,7 +344,7 @@ async def test_the_preview_is_the_callers_own_business_type() -> None:
     code, body = await _starters(token)
     assert code == 200, body
     assert body["vertical"] == "real_estate"
-    assert [s["job"] for s in body["starters"]] == ["answer_calls", "call_leads"]
+    assert [s["job"] for s in body["starters"]] == ["answer_calls", "call_new_leads", "call_leads"]
     receptionist = body["starters"][0]
     assert receptionist["direction"] == "inbound"
     assert "Skyline Homes" in receptionist["opening_line"]

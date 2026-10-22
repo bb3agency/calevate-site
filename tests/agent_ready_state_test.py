@@ -144,23 +144,6 @@ async def test_a_trial_answer_only_agent_can_be_readied_but_not_switched_on() ->
     assert (await _agent(tenant_id, agent_id)).status == "paused"
 
 
-async def test_a_trial_sees_answer_my_calls_locked_with_the_reason() -> None:
-    tenant_id, _, token = await _tenant()
-    async with AsyncClient(transport=ASGITransport(app=_app()), base_url="http://api") as http:
-        before = (
-            await http.get("/v1/agents/starters", headers={"Authorization": f"Bearer {token}"})
-        ).json()
-        async with tenant_session(tenant_id) as session:
-            await start_trial(session, tenant_id=tenant_id, days=14, actor_user_id=None)
-        after = (
-            await http.get("/v1/agents/starters", headers={"Authorization": f"Bearer {token}"})
-        ).json()
-    assert [s["locked_reason"] for s in before["starters"]] == [None, None]
-    locked = {s["job"]: s["locked_reason"] for s in after["starters"]}
-    assert locked["call_leads"] is None
-    assert locked["answer_calls"] and "test call" in locked["answer_calls"]
-
-
 async def test_the_starter_preview_greets_in_the_language_asked_for() -> None:
     _, _, token = await _tenant()
     async with AsyncClient(transport=ASGITransport(app=_app()), base_url="http://api") as http:

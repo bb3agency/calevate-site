@@ -336,6 +336,10 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/agents/*/try-chat", "costly", _m("POST")),
     Rule("/v1/agents/*/test-cases/run", "costly", _m("POST")),
     Rule("/v1/kb/teach/upload", "costly", _m("POST")),
+    # "Meet your agent" (D-855): each queues speech-to-text or a model call.
+    Rule("/v1/first-run/recordings", "costly", _m("POST")),
+    Rule("/v1/first-run/brief", "costly", _m("PUT")),
+    Rule("/v1/first-run/build", "costly", _m("POST")),
     Rule("/v1/copilot/routines/*/run", "costly", _m("POST")),
     Rule("/v1/campaigns/*/launch", "costly", _m("POST")),
     Rule("/v1/numbers/purchase", "costly", _m("POST")),

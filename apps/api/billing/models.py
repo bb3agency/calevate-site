@@ -201,6 +201,10 @@ ASSIST_FEATURE_BUSINESS_COPY_ABSORBED = "business_copy_absorbed"
 ASSIST_FEATURE_BUSINESS_OUTCOMES = "business_outcomes_draft"
 #: ...and ours on a trial account.
 ASSIST_FEATURE_BUSINESS_OUTCOMES_ABSORBED = "business_outcomes_draft_absorbed"
+#: "Meet your agent" (D-855): choosing the follow-up questions and writing the first agent's
+#: script from the owner's brief. Part of setting the account up, bounded per account
+#: (`first_run/models.MAX_QUESTION_RUNS`, `MAX_BUILD_RUNS`), so absorbed like the lead fields.
+ASSIST_FEATURE_FIRST_RUN = "first_run_setup"
 #: Features whose cost is OURS: excluded from the allowance like `FREE_ASSIST_FEATURES`, and
 #: unlike them not counted by the fair-use cap, which limits what a person asks for.
 ABSORBED_ASSIST_FEATURES = (
@@ -212,6 +216,7 @@ ABSORBED_ASSIST_FEATURES = (
     ASSIST_FEATURE_BUSINESS_TYPE,
     ASSIST_FEATURE_BUSINESS_COPY_ABSORBED,
     ASSIST_FEATURE_BUSINESS_OUTCOMES_ABSORBED,
+    ASSIST_FEATURE_FIRST_RUN,
 )
 
 # WHO PAYS FOR A ROW OF THIS UNIT — the one question every reader of `usage_events` has

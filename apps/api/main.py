@@ -207,6 +207,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.copilot.routes import router as copilot_router
     from apps.api.copilot.routine_routes import router as copilot_routines_router
     from apps.api.crm.routes import router as crm_router
+    from apps.api.first_run.routes import router as first_run_router
     from apps.api.flags.routes import router as feature_flags_router
     from apps.api.forwarding.routes import admin_router as admin_forwarding_router
     from apps.api.forwarding.routes import router as forwarding_router
@@ -335,6 +336,8 @@ def _mount_routers(application: FastAPI) -> None:
     # The client's one business profile, which every agent reads (D-695).
     application.include_router(business_profile_router)
     application.include_router(business_profile_admin_router)
+    # A new owner's first agent, "Meet your agent" (D-855).
+    application.include_router(first_run_router)
     # The account's AI-written examples (D-827): the screens' read, and the operator's view.
     application.include_router(business_copy_router)
     application.include_router(business_copy_admin_router)

@@ -530,7 +530,7 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     ),
     "GET /v1/agents/starters": BoundedByConstruction(
         by=(
-            "`agents/starters.STARTER_JOBS` (two jobs), each with the constant steps of its "
+            "`agents/starters.STARTER_JOBS` (three jobs), each with the constant steps of its "
             "catalogue row and the one vertical template's fields from `scripts/seed.py`."
         )
     ),

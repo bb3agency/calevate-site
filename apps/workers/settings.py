@@ -174,6 +174,11 @@ from apps.workers.extraction_reread import (
     reread_call_extraction,
     sweep_failed_extractions,
 )
+from apps.workers.first_run import (
+    build_first_agent,
+    hear_first_run_recording,
+    write_first_run_questions,
+)
 from apps.workers.fleet_walk import WalkShape, bounded, every_tick, fleet_wide
 from apps.workers.forwarding import (
     FORWARDING_SWEEP_MINUTE,
@@ -347,6 +352,11 @@ FUNCTIONS: list[Any] = [
         # (founder decision 11), both from the outbox (`apps/api/teach/`).
         run_kb_teaching,
         run_agent_test_cases,
+        # "Meet your agent" (D-855), from the outbox (`first_run/service.py`): a spoken piece
+        # of the brief heard, its follow-up questions chosen, and the first agent built.
+        hear_first_run_recording,
+        write_first_run_questions,
+        build_first_agent,
         # An account's AI-written examples and suggestions (D-827), from the outbox
         # (`tenancy/business_copy.queue_generation` and `sweep_business_copies`).
         generate_business_copy,
