@@ -5,7 +5,9 @@ import { ArrowRight, CircleCheck } from "lucide-react";
 
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
+import { useAgents } from "@/lib/api/agents";
 import { STEPS, stepStates, type BusinessProfile, type StepId } from "@/lib/api/businessProfile";
+import { useClientSession } from "@/lib/api/session";
 
 /**
  * The last screen of the wizard: what is answered, what was skipped, and whether anything
@@ -21,6 +23,7 @@ export function SetupDone({
   onOpen: (step: StepId) => void;
 }) {
   const states = stepStates(profile);
+  const agents = useAgents(useClientSession());
   const items: ChecklistItem[] = STEPS.map((step) => ({
     id: step.id,
     label: step.short,
@@ -56,7 +59,14 @@ export function SetupDone({
       </div>
       <Checklist label="Business setup" items={items} />
       <div className="flex flex-wrap gap-2">
-        <Link href={href("")} className={PRIMARY_BUTTON}>
+        {/* An account with no agent yet goes on to build its first (D-854): the facts just
+            answered are what its ready-made script is written from. */}
+        {agents.data?.length === 0 ? (
+          <Link href={href("/agents/first")} className={PRIMARY_BUTTON}>
+            Build your first agent
+          </Link>
+        ) : null}
+        <Link href={href("")} className={agents.data?.length === 0 ? SECONDARY_BUTTON : PRIMARY_BUTTON}>
           Go to dashboard
         </Link>
         <Link href={href("/settings/business")} className={SECONDARY_BUTTON}>

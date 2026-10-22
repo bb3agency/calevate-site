@@ -74,6 +74,10 @@ const INVALIDATES: Record<string, readonly string[][]> = {
   lead_set_status: [["leads"], ["lead"], ["lead-timeline"], ["lead-facets"], ["dashboard"]],
   agent_create: [["agents"], ["agent"], ["dashboard"]],
   agent_rename: [["agents"], ["agent"]],
+  // D-854: the first-agent card reads these from the agents list and the knowledge read.
+  agent_edit: [["agents"], ["agent"]],
+  agent_capture_fields_set: [["agents"], ["agent"]],
+  knowledge_facts_pin: [["kb-knows"], ["kb"]],
   dnc_add: [["dnc"], ["leads"], ["lead"], ["campaign"], ["campaigns"]],
   campaign_pause: [["campaign"], ["campaigns"], ["dashboard"]],
 };

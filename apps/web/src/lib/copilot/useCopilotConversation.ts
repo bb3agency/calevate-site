@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiProblem, type Session } from "@/lib/api/client";
+import { refreshAfterConfirm } from "@/lib/api/copilot";
 
 import { continuesFrom } from "@/components/live/arrivals";
 
@@ -728,6 +729,9 @@ export function useCopilotConversation(
             // it has already done, and an action names its object by id, so there is no
             // placeholder to restore.
             setActions((previous) => [...previous, performed]);
+            // It has already changed something, so the screens that show it read again,
+            // through the same map a confirmed change uses (D-854: the first-agent card).
+            if (performed.applied) refreshAfterConfirm(queries, session.orgSlug, performed.tool);
           },
           onJob: (started) => {
             setJobs((previous) =>
@@ -801,7 +805,7 @@ export function useCopilotConversation(
           }
         });
     },
-    [appendTurn, holder, session, setProposal, sync, turns],
+    [appendTurn, holder, queries, session, setProposal, sync, turns],
   );
 
   /**

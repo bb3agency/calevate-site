@@ -93,6 +93,7 @@ from xml.sax.saxutils import escape, quoteattr
 from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.schemas import CopilotAskIn, CopilotField
+from apps.api.copilot.screen_guides import screen_guide
 from apps.api.copilot.screens import render_directory
 from apps.api.core.errors import ProblemError
 
@@ -819,6 +820,7 @@ def build_messages(
                 for part in (
                     render_screen(payload),
                     live,
+                    screen_guide(payload.screen.route),
                     attachments,
                     CLOSING_RULES,
                     f"The person asks: {strip_invisible(payload.question)}",

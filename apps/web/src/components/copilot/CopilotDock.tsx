@@ -165,9 +165,10 @@ export function CopilotDock({
     setIsOpen(true);
   });
 
-  // ON THE ASSISTANT'S OWN PAGE the conversation is laid into the page, so a second copy of
-  // it in a side panel would be two transcripts of one thread on one screen.
-  const onWorkspace = /^\/(c\/[^/]+|admin)\/assistant\/?$/.test(pathname ?? "");
+  // ON THE ASSISTANT'S OWN PAGE, and on the first-agent screen (D-854), the conversation is
+  // laid into the page, so a second copy of it in a side panel would be two transcripts of
+  // one thread on one screen.
+  const onWorkspace = /^\/((c\/[^/]+|admin)\/assistant|c\/[^/]+\/agents\/first)\/?$/.test(pathname ?? "");
 
   useEffect(() => {
     if (isOpen || !shouldRestoreFocus.current) return;

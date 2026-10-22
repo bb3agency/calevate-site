@@ -56,6 +56,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import lifecycle
 from apps.api.agents.languages import LANGUAGE_LABELS, PRODUCT_LANGUAGES, OfferedLanguage
 from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection
+from apps.api.agents.starters import JOB_DIRECTION, STARTER_JOBS, StarterJob
 from apps.api.campaigns import service as campaigns_service
 from apps.api.copilot.actions import (
     DOES_IT,
@@ -115,6 +116,29 @@ class _AgentCreateArgs(BaseModel):
     name: str
     direction: AgentDirection
     language_primary: OfferedLanguage
+    #: The ready-made job (D-705): the agent is born with that job's script, opening line
+    #: and captured details for this business. Absent on older calls, which build a blank.
+    job: StarterJob | None = None
+
+
+def _job_refusal(parsed: _AgentCreateArgs) -> str | None:
+    """Why this job and direction cannot go together, or None.
+
+    A job sets its own direction, except that an agent which answers AND calls starts from
+    the answering job and is then widened to `both`: the owner asked for both outright,
+    which is the deliberate choice `starters.JOB_DIRECTION` keeps out of a first click.
+    """
+    if parsed.job is None:
+        return None
+    if parsed.direction == "both":
+        if parsed.job == "answer_calls":
+            return None
+        return "an agent that answers and calls starts from the `answer_calls` job"
+    if JOB_DIRECTION[parsed.job] != parsed.direction:
+        return (
+            f"the `{parsed.job}` job makes an agent whose direction is {JOB_DIRECTION[parsed.job]}"
+        )
+    return None
 
 
 async def _plan_agent_create(
@@ -141,6 +165,9 @@ async def _plan_agent_create(
         raise WriteRefusedError(
             f"the agent's `name` is longer than {_MAX_AGENT_NAME} characters, so shorten it"
         )
+    mismatch = _job_refusal(parsed)
+    if mismatch is not None:
+        raise WriteRefusedError(mismatch)
     taken = (
         await session.execute(
             # RLS scopes this to the caller's own account, so a neighbour's agent of the
@@ -166,8 +193,10 @@ async def _plan_agent_create(
         summary=(
             f"Create a draft voice agent called “{name}” that "
             f"{_DIRECTION_LABELS[parsed.direction]}, speaking "
-            f"{LANGUAGE_LABELS[parsed.language_primary]}. It starts as a DRAFT: it answers "
-            "nothing and calls nobody until it has a script and somebody publishes it."
+            f"{LANGUAGE_LABELS[parsed.language_primary]}"
+            + (", with a ready-made script for your business. " if parsed.job else ". ")
+            + "It starts as a DRAFT: it answers nothing and calls nobody until it has a "
+            "script and somebody publishes it."
         ),
         current=None,
         proposed=f"{name} — draft, {LANGUAGE_LABELS[parsed.language_primary]}",
@@ -179,6 +208,7 @@ async def _plan_agent_create(
             "name": name,
             "direction": parsed.direction,
             "language_primary": parsed.language_primary,
+            "job": parsed.job,
         },
     )
 
@@ -201,9 +231,17 @@ async def _execute_agent_create(
         session,
         tenant_id=actor.tenant_id,
         name=parsed.name,
-        direction=parsed.direction,
+        direction=parsed.direction if parsed.job is None else JOB_DIRECTION[parsed.job],
         language_primary=parsed.language_primary,
+        starter=parsed.job,
+        created_by=actor.user_id,
     )
+    if parsed.job is not None and parsed.direction == "both":
+        # Widened after the starter is written, through the edit the Direction control makes,
+        # so the starter's own direction check stays the one `POST /v1/agents` meets.
+        await lifecycle.update_agent(
+            session, tenant_id=actor.tenant_id, agent_id=agent_id, direction="both"
+        )
     return Executed(
         applied=True,
         detail=(
@@ -221,6 +259,7 @@ async def _execute_agent_create(
             "direction": parsed.direction,
             "language_primary": parsed.language_primary,
             "status": "draft",
+            "job": parsed.job,
         },
         object_id=str(agent_id),
     )
@@ -317,7 +356,8 @@ AGENT_CREATE: Final = ActionTool(
         "it by filling in form fields. A draft answers no calls and places none until it "
         "has a script and somebody publishes it. If you do not know what to call it, what "
         "direction it should have, or which language it should speak, ASK for the missing "
-        "ones in one short question before calling this." + DOES_IT,
+        "ones in one short question before calling this. Pass `job` to give it this "
+        "business's ready-made script." + DOES_IT,
         {
             "name": {
                 "type": "string",
@@ -345,6 +385,13 @@ AGENT_CREATE: Final = ActionTool(
                     "The language it mainly speaks to callers in: "
                     + ", ".join(f"{tag} {label}" for tag, label in LANGUAGE_LABELS.items())
                     + "."
+                ),
+            },
+            "job": {
+                "anyOf": [{"type": "string", "enum": list(STARTER_JOBS)}, {"type": "null"}],
+                "description": (
+                    "`answer_calls` or `call_leads` for a ready-made script (`answer_calls` "
+                    "with direction `both`), or null for a blank agent."
                 ),
             },
         },

@@ -49,6 +49,8 @@ from typing import Annotated, Any, Final, Literal, get_args
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
+from calevate_shared.call_script import opening_line_of
+from calevate_shared.spoken_guard import textbook_problem
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1573,10 +1575,13 @@ class _AgentEditArgs(BaseModel):
     voice_id: Annotated[str, Field(max_length=200)] | None
     ai_disclosure_enabled: bool | None
     recording_notice_enabled: bool | None
+    #: The script's opening line (D-854). `OpeningLineIn`'s bound; absent on older records.
+    opening_line: Annotated[str, Field(max_length=1000)] | None = None
 
 
 _AGENT_EDIT_COLUMNS: Final = (
-    "status, language_primary, engine_voice_id, ai_disclosure_enabled, recording_notice_enabled"
+    "a.status, a.language_primary, a.engine_voice_id, a.ai_disclosure_enabled, "
+    "a.recording_notice_enabled, pv.body"
 )
 
 
@@ -1584,8 +1589,12 @@ async def _agent_settings(session: AsyncSession, agent_id: UUID) -> dict[str, An
     await assert_visible(session, "agent", agent_id)
     row = (
         await session.execute(
+            # The opening line is read from the version callers hear, as the roster reads it.
             text(
-                f"SELECT {_AGENT_EDIT_COLUMNS} FROM agents WHERE id = :aid AND deleted_at IS NULL"
+                f"SELECT {_AGENT_EDIT_COLUMNS} FROM agents a "
+                "LEFT JOIN prompt_versions pv "
+                "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
+                "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
             {"aid": agent_id},
         )
@@ -1598,6 +1607,7 @@ async def _agent_settings(session: AsyncSession, agent_id: UUID) -> dict[str, An
         "voice_id": None if row[2] is None else str(row[2]),
         "ai_disclosure_enabled": bool(row[3]),
         "recording_notice_enabled": bool(row[4]),
+        "opening_line": opening_line_of(row[5]),
     }
 
 
@@ -1624,7 +1634,18 @@ def _describe_edit(parsed: _AgentEditArgs, current: dict[str, Any]) -> tuple[lis
     if parsed.recording_notice_enabled is not None:
         was.append(f"recording notice {_on_off(current['recording_notice_enabled'])}")
         becomes.append(f"recording notice {_on_off(parsed.recording_notice_enabled)}")
+    if parsed.opening_line is not None:
+        was.append(f"opens with “{current['opening_line'] or 'nothing written yet'}”")
+        becomes.append(f"opens with “{strip_invisible(parsed.opening_line.strip())}”")
     return was, becomes
+
+
+def _opening_line_problem(line: str, current: dict[str, Any], language: str) -> str | None:
+    """Why Pip may not write this opening line, or None: blank, or a textbook word callers do
+    not say (D-832's spoken-style list). A word the line already had is the owner's."""
+    if not line:
+        return "the `opening_line` was blank, so ask the person what the agent should say first"
+    return textbook_problem("opening_line", line, language, allowed=current["opening_line"])
 
 
 _TRUTHFUL_ANYWAY: Final = (
@@ -1654,6 +1675,14 @@ async def _plan_agent_edit_common(
     notices = (
         parsed.ai_disclosure_enabled is not None or parsed.recording_notice_enabled is not None
     )
+    opening_line = None
+    if parsed.opening_line is not None:
+        opening_line = strip_invisible(parsed.opening_line.strip())
+        problem = _opening_line_problem(
+            opening_line, current, parsed.language_primary or current["language_primary"]
+        )
+        if problem is not None:
+            raise WriteRefusedError(problem)
     plan = Plan(
         object_id=str(parsed.agent_id),
         title="Change this agent" if not live else "Change this live agent",
@@ -1684,6 +1713,7 @@ async def _plan_agent_edit_common(
             else strip_invisible(parsed.voice_id.strip()),
             "ai_disclosure_enabled": parsed.ai_disclosure_enabled,
             "recording_notice_enabled": parsed.recording_notice_enabled,
+            "opening_line": opening_line,
         },
     )
     return parsed, plan
@@ -1698,12 +1728,15 @@ async def _apply_agent_settings(
     voice_id: str | None,
     ai_disclosure_enabled: bool | None,
     recording_notice_enabled: bool | None,
+    opening_line: str | None = None,
 ) -> None:
     """The console buttons, in the order their transactions allow (module docstring):
     `set_disclosure_posture` owns its session and goes first, then `lifecycle.update_agent`
-    in this one, which checks the voice against the voice platform's catalogue. Each
-    re-publishes a live agent itself."""
+    in this one, which checks the voice against the voice platform's catalogue, then the
+    opening line through `PUT .../script/opening-line`'s own function, which refuses a line
+    over the greeting budget (D-846). Each re-publishes a live agent itself."""
     from apps.api.agents.publishing import set_disclosure_posture
+    from apps.api.agents.script_builder import replace_opening_line
 
     if ai_disclosure_enabled is not None or recording_notice_enabled is not None:
         await set_disclosure_posture(
@@ -1721,6 +1754,14 @@ async def _apply_agent_settings(
             engine_voice_id=voice_id,
             set_engine_voice_id=voice_id is not None,
         )
+    if opening_line is not None:
+        await replace_opening_line(
+            session,
+            tenant_id=actor.tenant_id,
+            agent_id=agent_id,
+            opening_line=opening_line,
+            created_by=actor.user_id,
+        )
 
 
 async def _execute_agent_edit(
@@ -1736,6 +1777,7 @@ async def _execute_agent_edit(
         voice_id=parsed.voice_id,
         ai_disclosure_enabled=parsed.ai_disclosure_enabled,
         recording_notice_enabled=parsed.recording_notice_enabled,
+        opening_line=parsed.opening_line,
     )
     after = await _agent_settings(session, parsed.agent_id)
     changed = sorted(key for key in before if key != "status" and before[key] != after[key])
@@ -1784,14 +1826,22 @@ async def _invert_agent_edit(session: AsyncSession, actor: ToolActor, record: Un
             "that agent has gone live since, so changing it back would reach callers — change "
             "it on the Agents screen instead"
         )
-    if any(now[key] != record.result_state.get(key) for key in now if key != "status"):
+    # Only the keys the record captured: one written before the opening line was captured
+    # (D-854) has none, and its absence is not a change.
+    kept = [key for key in now if key != "status" and key in record.result_state]
+    if any(now[key] != record.result_state[key] for key in kept):
         raise UndoRefusedError("that agent has been changed again since, so it was left alone")
     prior = record.prior_state
-    changed = {key for key in now if key != "status" and prior.get(key) != now[key]}
+    changed = {key for key in kept if key in prior and prior[key] != now[key]}
     if "voice_id" in changed and prior.get("voice_id") is None:
         raise UndoRefusedError(
             "the agent had no voice chosen before, so there is no voice to put back — pick one "
             "on the Agents screen"
+        )
+    if "opening_line" in changed and not prior["opening_line"]:
+        raise UndoRefusedError(
+            "the agent had no opening line before, so there is none to put back — change it "
+            "on the Script screen"
         )
     await _apply_agent_settings(
         session,
@@ -1805,6 +1855,7 @@ async def _invert_agent_edit(session: AsyncSession, actor: ToolActor, record: Un
         recording_notice_enabled=(
             prior["recording_notice_enabled"] if "recording_notice_enabled" in changed else None
         ),
+        opening_line=prior["opening_line"] if "opening_line" in changed else None,
     )
     return "The agent's settings are back as they were."
 
@@ -1827,6 +1878,10 @@ _AGENT_EDIT_PROPERTIES: Final[dict[str, Any]] = {
         "anyOf": [{"type": "boolean"}, {"type": "null"}],
         "description": "Say the call is recorded at the start, or null to leave it.",
     },
+    "opening_line": {
+        "anyOf": [{"type": "string"}, {"type": "null"}],
+        "description": "The script's first line, in its language, or null to leave it.",
+    },
 }
 
 AGENT_EDIT: Final = ActionTool(
@@ -1839,10 +1894,9 @@ AGENT_EDIT: Final = ActionTool(
     where="under Agents in your dashboard",
     schema=action_schema(
         "agent_edit",
-        "Change a DRAFT or PAUSED agent's language, voice, or opening notices (saying it is "
-        "an AI, saying the call is recorded). The notices never change the agent's opening "
-        "line, which is part of its script; a notice switched on is said before it. For a "
-        "LIVE agent use `agent_edit_live`." + DOES_IT,
+        "Change a DRAFT or PAUSED agent's language, voice, opening line, or opening notices "
+        "(saying it is an AI, saying the call is recorded). A notice switched on is said "
+        "before the opening line. For a LIVE agent use `agent_edit_live`." + DOES_IT,
         _AGENT_EDIT_PROPERTIES,
     ),
     plan=_plan_agent_edit,
@@ -1859,7 +1913,8 @@ AGENT_EDIT_LIVE: Final = ActionTool(
     where="under Agents in your dashboard",
     schema=action_schema(
         "agent_edit_live",
-        "Propose changing a LIVE agent's language, voice, or opening notices. Callers hear "
+        "Propose changing a LIVE agent's language, voice, opening line, or opening notices. "
+        "Callers hear "
         "the change from their next call. For a draft or paused agent use `agent_edit`."
         + PROPOSES_ONLY,
         _AGENT_EDIT_PROPERTIES,

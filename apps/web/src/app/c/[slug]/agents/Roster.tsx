@@ -59,7 +59,7 @@ export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
       <EmptyState illustration={<EmptySketch kind="actions" />}
         message="No agents yet. Build one and it shows up here before it takes a call."
         action={
-          <Link href={href(`/c/${slug}/agents/new`)} className={PRIMARY_BUTTON}>
+          <Link href={href(`/c/${slug}/agents/first`)} className={PRIMARY_BUTTON}>
             <Plus aria-hidden className="h-4 w-4" />
             Build your first agent
           </Link>

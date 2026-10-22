@@ -248,7 +248,9 @@ export function recapActions({
     access.addCredit && wallet?.prepaid ? { key: "credit", label: "Add credit", href: "/billing?tab=credits" } : null;
   const noAgent = agents !== undefined && agents.length === 0;
   const create: Candidate | null = access.createAgent
-    ? { key: "create-agent", label: noAgent ? "Create an agent" : "Add an agent", href: "/agents/new" }
+    ? noAgent
+      ? { key: "create-agent", label: "Build your first agent", href: "/agents/first" }
+      : { key: "create-agent", label: "Add an agent", href: "/agents/new" }
     : null;
   const allOff = agents !== undefined && agents.length > 0 && !agents.some(isAnsweringNow);
   const openAgents: Candidate | null =

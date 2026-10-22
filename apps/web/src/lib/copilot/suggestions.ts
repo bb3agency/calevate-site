@@ -17,6 +17,7 @@ type Screen =
   | "lead"
   | "agents"
   | "agent"
+  | "first_agent"
   | "campaigns"
   | "integrations"
   | "billing"
@@ -32,6 +33,7 @@ const QUESTIONS: Record<Screen, readonly string[]> = {
   lead: ["What does this person want?", "When did we last speak to them?", "What should I do next?"],
   agents: ["Which agents are answering right now?", "What does each agent do?", "How do I test an agent?"],
   agent: ["Is this agent working right now?", "What does it say when it answers?", "How do I let it take bookings?"],
+  first_agent: ["Answer my calls", "Call my leads", "Both"],
   campaigns: ["Which campaign is running?", "Why can't my campaign launch?", "How many people did we reach?"],
   integrations: ["What is connected?", "Why did a delivery fail?", "How do I send leads to my CRM?"],
   billing: ["How long will my credit last?", "What did I spend this month?", "Where did my credit go?"],
@@ -52,6 +54,8 @@ const OPENINGS: Record<Screen, string> = {
   lead: "Ask me what this person wants and what to do next.",
   agents: "I can tell you what each agent does and whether it is answering.",
   agent: "Ask me how this agent is doing, or how to change what it says.",
+  // D-854: the first question of the build, asked before any model is, so the first tap is free.
+  first_agent: "Let's build your first agent together. First, what should it do: answer your calls, call your leads, or both?",
   campaigns: "I can tell you how a campaign is going, or why one cannot start.",
   integrations: "Ask me what is connected and whether your leads are getting through.",
   billing: "I can tell you how long your credit will last and where it went.",
@@ -75,6 +79,7 @@ function screenOf(route: string): Screen {
     case "leads":
       return deeper ? "lead" : "leads";
     case "agents":
+      if (parts[3] === "first") return "first_agent";
       return deeper ? "agent" : "agents";
     case "campaigns":
       return "campaigns";

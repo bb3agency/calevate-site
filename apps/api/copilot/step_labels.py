@@ -100,6 +100,7 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "business_copy_refresh": _l("Preparing to refresh your examples", "Asked for fresh examples"),
     "call_summarise_again": _l("Preparing a second summary", "Prepared a second summary"),
     "call_test_prepare": _l("Filling in the test form", "Filled in the test form"),
+    "knowledge_facts_pin": _l("Preparing the answers to pin", "Prepared the answers to pin"),
     "open_screen": _l("Opening the screen", "Opened the screen"),
     "run_in_background": _l("Starting a background task", "Started a background task"),
     # Operator reads and actions (admin realm).
