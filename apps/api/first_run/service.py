@@ -26,7 +26,7 @@ import hashlib
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Literal
 from uuid import UUID
 
@@ -63,7 +63,7 @@ MAIN_BRANCH_LABEL: Final = "Main branch"
 _COLUMNS: Final = (
     "id, job, language_primary, languages_extra, brief, agent_id, questions_status, "
     "questions, questions_disclosure, question_runs, build_status, build_steps, "
-    "build_disclosure, build_runs, finished_at, dismissed_at"
+    "build_disclosure, build_runs, build_requested_at, finished_at, dismissed_at"
 )
 
 
@@ -94,6 +94,20 @@ def brief_hash(brief: str) -> str:
     return hashlib.sha256(" ".join(brief.split()).casefold().encode()).hexdigest()
 
 
+#: A build still `building` after this long is reported as failed, so the owner can try again.
+#: The worker finishes or records its failure well inside it (at most three model budgets,
+#: `workers/script_assist`); past it the job was lost, and a screen ticking forever is the
+#: worse answer. `script_proposals.DRAFTING_STALE_AFTER`'s reasoning, same figure.
+BUILD_STALE_AFTER: Final = timedelta(minutes=10)
+
+
+def _build_status(row: Any, *, now: datetime | None = None) -> str:
+    status = str(row.build_status)
+    started = row.build_requested_at
+    stale = started is not None and (now or datetime.now(UTC)) - started > BUILD_STALE_AFTER
+    return "failed" if status == "building" and stale else status
+
+
 def _state(row: Any, *, recordings_used: int, due: bool) -> RunState:
     return RunState(
         id=row.id,
@@ -106,7 +120,7 @@ def _state(row: Any, *, recordings_used: int, due: bool) -> RunState:
         questions=[q["key"] for q in row.questions or [] if isinstance(q, dict) and "key" in q],
         questions_disclosure=row.questions_disclosure,
         question_runs=int(row.question_runs),
-        build_status=str(row.build_status),
+        build_status=_build_status(row),
         build_steps=dict(row.build_steps or {}),
         build_disclosure=row.build_disclosure,
         build_runs=int(row.build_runs),
@@ -469,7 +483,7 @@ async def request_build(
     row = await _ensure(session, tenant_id=tenant_id)
     if row.job is None or row.language_primary is None:
         raise _not_ready_to_build("Go back to the first step and pick what it should do.")
-    if row.build_status == "building":
+    if _build_status(row) == "building":
         return await read_state(session, tenant_id=tenant_id)
     if int(row.build_runs) >= MAX_BUILD_RUNS:
         raise ProblemError.business_rule(

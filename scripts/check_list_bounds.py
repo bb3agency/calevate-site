@@ -528,6 +528,29 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/agents/lanes": BoundedByConstruction(
         by="the publishing lanes, a constant tuple in `agents/publishing.py`."
     ),
+    # "Meet your agent" (D-855): every route answers the one first run, whose lists are its
+    # questions (`first_run/models.MAX_QUESTIONS`), the four build steps
+    # (`first_run/models.BUILD_STEPS`), a trade's fixed choices (`first_run/questions.
+    # TRADE_CHOICES`, six each) and the languages it speaks (`JobIn.languages_extra`, three).
+    **{
+        route: BoundedByConstruction(
+            by=(
+                "the ONE first run of the caller's account: at most `MAX_QUESTIONS` questions, "
+                "the four `BUILD_STEPS`, a trade's fixed `TRADE_CHOICES` and at most three "
+                "extra languages."
+            )
+        )
+        for route in (
+            "GET /v1/first-run",
+            "PUT /v1/first-run/job",
+            "PUT /v1/first-run/brief",
+            "PUT /v1/first-run/name",
+            "POST /v1/first-run/answers",
+            "POST /v1/first-run/build",
+            "POST /v1/first-run/finish",
+            "POST /v1/first-run/dismiss",
+        )
+    },
     "GET /v1/agents/starters": BoundedByConstruction(
         by=(
             "`agents/starters.STARTER_JOBS` (three jobs), each with the constant steps of its "

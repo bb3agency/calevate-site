@@ -445,6 +445,15 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
                 "VALUES (:i, :t, :a, 'done', '[]'::jsonb)",
                 {"a": agent_id},
             ),
+            # D-855: a heard piece of a neighbour's spoken brief, the owner's own words.
+            (
+                "recording_id",
+                "WITH r AS (INSERT INTO first_runs (id, tenant_id) VALUES (gen_random_uuid(), "
+                ":t) RETURNING id) INSERT INTO first_run_recordings (id, tenant_id, "
+                "first_run_id, status, language, words) SELECT :i, :t, r.id, 'heard', 'te-IN', "
+                "'We sell flats.' FROM r",
+                {},
+            ),
             # D-746: a published number. Testing a neighbour's would ring their phone.
             (
                 "line_id",
@@ -781,6 +790,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
         {},
     ),
     ("POST", "/v1/kb/teach/{teaching_id}/discard", {}, {}),
+    # D-855: one spoken piece of the brief.
+    ("GET", "/v1/first-run/recordings/{recording_id}", {}, {}),
     ("GET", "/v1/agents/{agent_id}/script/proposed-rules", {}, {}),
     (
         "POST",

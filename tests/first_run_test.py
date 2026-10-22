@@ -700,3 +700,16 @@ async def test_a_trial_whose_studio_minutes_are_used_gets_clear(
 
     monkeypatch.setattr(voice_pick, "studio_open_to", closed)
     assert await voice_pick.studio_hindrance(tenant_id) == "studio_unavailable"
+
+
+async def test_a_build_lost_for_ten_minutes_reads_as_failed_and_can_be_tried_again() -> None:
+    tenant_id = await _tenant()
+    await _ready_to_build(tenant_id, "Flats")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE first_runs SET build_requested_at = now() - interval '11 minutes'")
+        )
+    async with tenant_session(tenant_id) as session:
+        assert (await first_run.read_state(session, tenant_id=tenant_id)).build_status == "failed"
+        again = await first_run.request_build(session, tenant_id=tenant_id, user_id=None)
+    assert again.build_status == "building" and again.build_runs == 2
