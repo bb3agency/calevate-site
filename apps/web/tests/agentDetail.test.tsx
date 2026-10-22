@@ -1921,6 +1921,33 @@ describe("changing what an agent is", () => {
     expect(within(panel).queryByRole("button", { name: /ready-made opening line/ })).toBeNull();
   });
 
+  it("does not offer a held-back language by default (D-855)", async () => {
+    await renderClientPage(page, routes());
+    await screen.findByText("Reception");
+    const hidden = within(card("What it is"));
+    expect(hidden.queryByRole("checkbox", { name: "Tamil" })).toBeNull();
+    expect(hidden.queryByRole("option", { name: "Tamil" })).toBeNull();
+  });
+
+  it("offers a held-back language the server has switched on for this account (D-855)", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/languages": {
+          languages: [
+            { tag: "te-IN", name: "Telugu" },
+            { tag: "hi-IN", name: "Hindi" },
+            { tag: "en-IN", name: "English (India)" },
+            { tag: "ta-IN", name: "Tamil" },
+          ],
+        },
+      }),
+    );
+    await screen.findByText("Reception");
+    const shown = within(card("What it is"));
+    expect(await shown.findByRole("checkbox", { name: "Tamil" })).toBeTruthy();
+  });
+
   it("offers a ready-made opening line in the new main language once it is saved (D-838)", async () => {
     const { calls } = await renderClientPage(
       page,

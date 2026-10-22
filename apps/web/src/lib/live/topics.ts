@@ -289,6 +289,8 @@ export const STATIC_FAMILIES: Record<string, string> = {
   public: "the public status page, read by people with no session to stream to",
   "voice-preview": "a rendered audio sample; it is fetched once when asked for",
   "integration-options": "the fixed list of services an account can connect",
+  "agent-languages":
+    "the languages an account may give an agent; they change with an operator's console switch",
   "admin/qa-sample":
     "one sampled call under review; every read writes an audit row, so it is read once when opened",
 };

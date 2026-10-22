@@ -24,7 +24,9 @@ from typing import Any, Final
 
 from calevate_shared.config import Settings
 from calevate_shared.engine import LLM_MODEL_NAMES
+from calevate_shared.languages import staged_language_tags
 
+from apps.api.agents.languages import LANGUAGE_LABELS, readiness_note
 from apps.api.core.platform_config import ConfigField
 from apps.api.engine.thinnest_customers import PLAN_CUSTOMER_CAPS
 from apps.api.healer.playbooks import PLAYBOOKS
@@ -238,6 +240,12 @@ def choices_for(field: ConfigField) -> list[Choice]:
     labelled: dict[str, OptionLabel] = {option.value: option for option in hint.options}
     if field.key == "healer_paused_playbooks":
         return [Choice(p.key, p.title, None) for p in PLAYBOOKS if p.pausable]
+    if field.key == "staged_agent_languages_enabled":
+        # Each staged language with what it still needs, so the readiness is on the screen
+        # that would switch it on (D-855).
+        return [
+            Choice(tag, LANGUAGE_LABELS[tag], readiness_note(tag)) for tag in staged_language_tags()
+        ]
     values = list(field.options) if field.options else [option.value for option in hint.options]
     out: list[Choice] = []
     for value in values:

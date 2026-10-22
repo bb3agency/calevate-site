@@ -114,10 +114,12 @@ SECTIONS: Final[tuple[Section, ...]] = (
     Section(
         "speech",
         "Speech",
-        "How callers are transcribed, and how many agents may use the Studio voice.",
+        "How callers are transcribed, how many agents may use the Studio voice, and which "
+        "languages clients may give an agent.",
         (
             Subsection("stt", "Speech-to-text (STT)"),
             Subsection("tts", "Text-to-speech (TTS)"),
+            Subsection("languages", "Agent languages"),
         ),
     ),
     Section(
@@ -412,6 +414,20 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Minutes of Studio-voice test calls one trial account may make; they cost us more. "
         "Once used, Studio test calls are refused and Clear ones go on. 0 allows none.",
         _THINNEST,
+    ),
+    "staged_agent_languages_enabled": _m(
+        "speech",
+        "languages",
+        "Extra agent languages offered to clients",
+        "Tamil, Kannada, Malayalam and Marathi, hidden until each is reviewed, test-called "
+        "and confirmed by ThinnestAI. Each option says what it still needs.",
+    ),
+    "staged_language_test_tenant_ids": _m(
+        "speech",
+        "languages",
+        "Test accounts for the extra languages",
+        "Our own test accounts, offered an extra language once its sentences are reviewed, "
+        "for its test call. Never a paying client.",
     ),
     "forwarding_test_second_number": _m(
         "calling-limits",
@@ -1121,6 +1137,10 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     ),
     # Options filled from `healer/playbooks.PLAYBOOKS` by `config_controls`.
     "healer_paused_playbooks": ControlHint(kind="multi_select", multiple=True),
+    "staged_agent_languages_enabled": ControlHint(kind="multi_select", multiple=True),
+    "staged_language_test_tenant_ids": ControlHint(
+        kind="entity_picker", source="tenants", multiple=True
+    ),
     # ---- labelled closed choices ----------------------------------------------------
     "engine": ControlHint(
         options=(
@@ -1283,6 +1303,8 @@ HIGH_RISK: Final[dict[str, str]] = {
     "(off), and Studio minutes move to the own-voice-and-model rate.",
     "thinnest_own_model_default": "Changes the model every agent with none of its own answers "
     "calls with on our own model, from its next call.",
+    "staged_agent_languages_enabled": "Every client can then give an agent the languages you "
+    "choose, and callers hear its notices in them.",
     "thinnest_developer_workspace_id": "Decides which workspace is ours, not a client's.",
     "self_serve_inr_per_min": "Every client is charged this price.",
     "platform_fee_enabled": "Decides whether every client is asked for a monthly fee.",

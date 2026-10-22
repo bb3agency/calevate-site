@@ -525,6 +525,9 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "publish into a thousand-row scan."
         )
     ),
+    "GET /v1/agents/languages": BoundedByConstruction(
+        by="`agents/languages.BUILT_LANGUAGES`, a constant of seven tags (D-855)."
+    ),
     "GET /v1/agents/lanes": BoundedByConstruction(
         by="the publishing lanes, a constant tuple in `agents/publishing.py`."
     ),

@@ -145,7 +145,7 @@ async def test_the_database_refuses_a_language_the_product_does_not_sell() -> No
     with pytest.raises(Exception, match="ck_agents_languages_extra_offered"):
         async with tenant_session(tenant_id) as session:
             await session.execute(
-                text("UPDATE agents SET languages_extra = ARRAY['ta-IN'] WHERE id = :aid"),
+                text("UPDATE agents SET languages_extra = ARRAY['bn-IN'] WHERE id = :aid"),
                 {"aid": agent_id},
             )
 

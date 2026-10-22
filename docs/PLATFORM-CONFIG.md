@@ -204,6 +204,17 @@ one trial account may place per IST day; `trial_call_max_seconds` (default 180, 
 the per-call `maxCallSeconds` each test call carries (THINNEST-INTEGRATION §3c).
 D-727 adds `trial_studio_minutes` (default 15, 0..1000, live): the Studio minutes one trial
 account may use on test calls before a Studio test call is refused; Clear test calls go on.
+D-855 adds two settings under Speech, Agent languages, both live. `staged_agent_languages_enabled`
+(comma-separated tags from `ta-IN`, `kn-IN`, `ml-IN`, `mr-IN`; default empty; high risk) names
+the held-back languages every client may give an agent. A write naming a language whose
+readiness record (`agents/languages.STAGED_LANGUAGE_READINESS`) is incomplete is refused with
+`staged_language_not_ready`, each option shows what that language still needs, and the record is
+checked again on every read, so a row written in psql offers nothing unready. Turning one off
+hides it from pickers and client inputs at once, refuses publishing an agent whose main language
+it is, and drops it from other agents' extra languages at their next publish.
+`staged_language_test_tenant_ids` (comma-separated tenant ids, default empty) names our own test
+accounts, which are offered each staged language whose sentences are reviewed, for the test call
+OPERATIONS §2 L-1 to L-4 require. Never a paying client's account.
 D-746 adds three console-managed settings, all applying live. Under Calling limits, Free-trial
 test calls: `forwarding_test_second_number` (optional, +91 form) is the second developer-
 workspace number a forwarding test rings a client's published number from, so two calls reach

@@ -44,7 +44,7 @@ until someone regenerates them (`pnpm gen:api`) — deliberately not done here.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, get_args
+from typing import Annotated, cast, get_args
 from uuid import UUID
 
 from calevate_shared.engine import LlmTier
@@ -65,8 +65,11 @@ from apps.api.agents import lifecycle, roster, starters
 # handler on purpose (`core/errors._LIBRARY_PHRASINGS`), so a bare Literal here refuses
 # `xx-IN` with a field name and no reason.
 from apps.api.agents.languages import (
+    LANGUAGE_LABELS,
     MAX_REPLY_LANGUAGES,
+    Language,
     OfferedLanguage,
+    client_language_tags,
     reply_languages_refusal,
 )
 from apps.api.agents.lead_fields import starting_business_fields
@@ -355,6 +358,38 @@ async def agent_stats(
         )
         for row in totals
     ]
+
+
+class AgentLanguageOut(BaseModel):
+    tag: Language
+    name: str
+
+
+class AgentLanguagesOut(BaseModel):
+    #: In the order a picker shows them: Telugu, Hindi, English, then any switched on.
+    languages: list[AgentLanguageOut]
+
+
+@router.get(
+    "/v1/agents/languages",
+    response_model=AgentLanguagesOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="The languages this account's agents may speak",
+    description=(
+        "What every language picker offers and what `language_primary` and "
+        "`reply_languages` accept for this account right now."
+    ),
+)
+async def agent_languages(
+    principal: Principal = Depends(requires("agents:read")),
+) -> AgentLanguagesOut:
+    """Server-decided, so a language held back by the console (D-855) is never drawn."""
+    return AgentLanguagesOut(
+        languages=[
+            AgentLanguageOut(tag=cast("Language", tag), name=LANGUAGE_LABELS[tag])
+            for tag in client_language_tags(principal.tenant_id)
+        ]
+    )
 
 
 @router.get(

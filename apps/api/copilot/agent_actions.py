@@ -49,12 +49,13 @@ from collections.abc import Mapping
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.languages import offered_language_tags
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import lifecycle
-from apps.api.agents.languages import LANGUAGE_LABELS, PRODUCT_LANGUAGES, OfferedLanguage
+from apps.api.agents.languages import LANGUAGE_LABELS, OfferedLanguage
 from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection
 from apps.api.agents.starters import JOB_DIRECTION, STARTER_JOBS, StarterJob
 from apps.api.campaigns import service as campaigns_service
@@ -377,13 +378,13 @@ AGENT_CREATE: Final = ActionTool(
             },
             "language_primary": {
                 "type": "string",
-                "enum": list(PRODUCT_LANGUAGES),
+                "enum": list(offered_language_tags()),
                 # COMPOSED, not typed: this sentence is the model's only statement of what
                 # the tags mean, and a hand-written one is the copy that keeps a retired
                 # language on offer to the assistant after every screen has dropped it.
                 "description": (
                     "The language it mainly speaks to callers in: "
-                    + ", ".join(f"{tag} {label}" for tag, label in LANGUAGE_LABELS.items())
+                    + ", ".join(f"{tag} {LANGUAGE_LABELS[tag]}" for tag in offered_language_tags())
                     + "."
                 ),
             },

@@ -137,7 +137,7 @@ from apps.api.agents.engine_choice import (
 from apps.api.agents.engine_facts import sync_business_facts
 from apps.api.agents.engine_limits import refuse_over_engine_limits, refuse_unpriced_engine
 from apps.api.agents.hosted_voices import parse_hosted_voice_id
-from apps.api.agents.languages import published_extra_languages
+from apps.api.agents.languages import published_extra_languages, refuse_unoffered_language
 from apps.api.agents.models import (
     AGENT_DIRECTIONS,
     CALL_CAP_DEFAULT_S,
@@ -857,7 +857,7 @@ def _to_config(
         # The prompt names them and the worker's transcriber stops pinning the primary, so
         # a caller in one of them is heard and answered in it (D-666).
         languages_extra=published_extra_languages(
-            str(agent["language_primary"]), agent["languages_extra"]
+            str(agent["language_primary"]), agent["languages_extra"], tenant_id=tenant_id
         ),
         system_prompt=body,
         script_steps=steps,
@@ -2656,6 +2656,8 @@ async def publish_agent(
             "agent_publish_handoff_unavailable",
             extra={"agent_id": str(agent_id), "reason": duty.reason},
         )
+    # A staged language (D-855) reaches a caller only once clients may choose it.
+    refuse_unoffered_language(str(agent["language_primary"]), tenant_id=tenant_id)
     config = _to_config(tenant_id, agent, engine=engine, handoff=handoff)
     # The ACTIONS feature: attach this agent's during-call tools to the config the adapter
     # renders, so publish is where a tool change reaches live calls (the "Apply to live
@@ -3118,6 +3120,7 @@ async def publish_variant(
     # in a field nobody listed is a confound the experiment cannot survive — and here the
     # confound would be that half the callers who ask for a person get one.
     handoff, _duty = await handoff_module.spec_for(session, dict(agent))
+    refuse_unoffered_language(str(agent["language_primary"]), tenant_id=tenant_id)
     config = _variant_config(
         tenant_id,
         agent,

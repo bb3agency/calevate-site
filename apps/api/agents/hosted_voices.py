@@ -47,7 +47,7 @@ from sqlalchemy import ColumnElement, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.languages import PRODUCT_LANGUAGES
+from apps.api.agents.languages import BUILT_LANGUAGES
 from apps.api.agents.llm_models import LlmReasonAudience
 from apps.api.agents.models import PlatformVoiceCatalogEntry
 from apps.api.agents.voices import (
@@ -319,9 +319,9 @@ def language_note(row: PlatformVoiceCatalogEntry) -> str:
 
 def _product_languages(source: HostedVoiceSource, tag: str | None) -> list[str]:
     if source == "engine":
-        return list(PRODUCT_LANGUAGES)
+        return list(BUILT_LANGUAGES)
     base = (tag or "").split("-")[0].lower()
-    return [language for language in PRODUCT_LANGUAGES if language.split("-")[0] == base]
+    return [language for language in BUILT_LANGUAGES if language.split("-")[0] == base]
 
 
 # --- the sync ------------------------------------------------------------------------

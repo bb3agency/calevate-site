@@ -236,6 +236,10 @@ _FILLER: Final = frozenset(
 _SCRIPT_OF: Final[dict[str, tuple[str, re.Pattern[str]]]] = {
     "te": ("Telugu", re.compile("[ఀ-౿]")),
     "hi": ("Hindi", re.compile("[ऀ-ॿ]")),
+    "ta": ("Tamil", re.compile("[஀-௿]")),
+    "kn": ("Kannada", re.compile("[ಀ-೿]")),
+    "ml": ("Malayalam", re.compile("[ഀ-ൿ]")),
+    "mr": ("Marathi", re.compile("[ऀ-ॿ]")),
 }
 _LATIN_WORD: Final = re.compile(r"[A-Za-z]{2,}")
 #: The agent talking ABOUT the person it is talking TO: an action's answer read out as it

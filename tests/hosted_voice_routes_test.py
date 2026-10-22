@@ -22,6 +22,7 @@ from apps.api.agents.hosted_voices import (
     rung_of_source,
     rungs_awaiting_setup,
 )
+from apps.api.agents.languages import BUILT_LANGUAGES
 from apps.api.agents.models import PlatformVoiceCatalogEntry
 from apps.api.agents.voice_sync import sync_voice_catalogue
 from apps.api.billing.payment_routes import voice_tier_not_offered
@@ -171,7 +172,7 @@ async def test_a_thinnest_refresh_reads_the_hosted_lists_and_never_list_voices(
         entry.curation_state,
         entry.vendor_band,
     ) == ("thinnest", "engine", "synced", "disabled", "premium")
-    assert entry.languages == ["te-IN", "hi-IN", "en-IN"]
+    assert entry.languages == list(BUILT_LANGUAGES)
 
 
 async def test_our_voice_key_on_adds_its_voices_and_prunes_what_left(

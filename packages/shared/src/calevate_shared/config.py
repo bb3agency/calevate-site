@@ -592,6 +592,19 @@ class Settings(BaseSettings):
     #: synthesis; once reached, a Studio test call is refused and Clear ones go on. 0 refuses
     #: every Studio test call.
     trial_studio_minutes: int = Field(default=15, ge=0, le=1000)
+    #: The staged agent languages clients may choose (D-855), comma-separated BCP-47 tags
+    #: from `calevate_shared.languages.STAGED_LANGUAGE_IDS`. Empty, the default, offers
+    #: Telugu, Hindi and English only. A write naming a language whose readiness record is
+    #: incomplete is refused (`agents/languages.assert_staged_languages_may_switch_on`), and
+    #: a row written around that check still offers nothing unready.
+    staged_agent_languages_enabled: str = Field(
+        default="", max_length=200, pattern=r"^[A-Za-z, -]*$"
+    )
+    #: The operator's own test accounts (comma-separated tenant ids) where a staged language
+    #: whose sentences are reviewed is offered before it is switched on for everyone, so its
+    #: one test call can be made (OPERATIONS §2 L-series). Empty means none. Never a paying
+    #: client's account: an agent made there speaks a language not yet signed off.
+    staged_language_test_tenant_ids: str | None = Field(default=None, max_length=2000)
     #: The second platform number the forwarding test rings from (D-746), so two calls can
     #: reach a client's published number at once. Held in the developer workspace like the
     #: shared trial number; unset, a test places one call and reports concurrency untested.
