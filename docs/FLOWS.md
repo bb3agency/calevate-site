@@ -50,6 +50,16 @@ Trigger: Sri opens Admin → New Client: one screen, one "Create and invite" (D-
    re-syncs every agent (facts and, on ThinnestAI, the facts document) with no publishing
    by anyone. An agent cannot go LIVE until the profile has hours, an address, a service
    and someone to take calls (`business_profile_incomplete`, with links to each step).
+3a. **The first agent, by the CLIENT (D-854)**: an account with no agent is led from the
+   wizard's last screen, the dashboard and the Agents screen to `/c/{slug}/agents/first`.
+   Two doors: a chat with Pip that asks one thing at a time (job, name and language, voice,
+   greeting under 120 characters ending with a question, the three things callers ask most,
+   what it notes down) and builds the agent with its own tools, or the ready-made job form.
+   A card beside the chat fills in as each piece lands; progress is read from the agent, the
+   pinned facts and its calls, so it resumes wherever the owner left it. The end is the
+   agent ringing the owner's phone through the trial test line (`/prepare`, then
+   `POST /v1/trial/calls`); a paid account tries it in the chat. Pip stays off until the
+   owner turns it on (D-788); anyone who cannot is given the form.
 4. **Agent draft** (made by the owner, or with them; no agent exists at creation, D-853): system prompt generated from the business profile (template + LLM assist), reviewed/
    edited by admin; both notice sentences auto-inserted and not client-editable, each
    switched ON at birth and switchable by the client afterwards (D-163 — the truthful

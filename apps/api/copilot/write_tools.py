@@ -124,6 +124,7 @@ from apps.api.copilot.actions import (
 from apps.api.copilot.agent_actions import AGENT_ACTIONS
 from apps.api.copilot.assist_actions import ASSIST_ACTIONS
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
+from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.schemas import (
     CopilotActionEvent,
@@ -954,6 +955,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *SCRIPT_ACTIONS,
     # D-821: the teach box, the lead-details draft and a call's second reading.
     *ASSIST_ACTIONS,
+    # D-854: the questions callers ask most, pinned from the first-agent chat.
+    *FACT_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}

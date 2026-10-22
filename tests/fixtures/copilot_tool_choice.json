@@ -185,6 +185,10 @@
      "question": "summarise this lead for me", "expect": ["lead_detail"], "none_ok": true, "forbid": ["dnc_add", "leads_bulk_update", "set_fields"]},
     {"id": "c-bulk", "realm": "client", "kind": "background", "route": "/c/sunrise/leads", "title": "Leads",
      "question": "mark every lead from yesterday's campaign as contacted", "expect": ["run_in_background", "leads_search", "campaigns_list"], "forbid": ["set_fields"]},
+    {"id": "c-first-agent-create", "realm": "client", "kind": "action", "route": "/c/sunrise/agents/first", "title": "Build your first agent",
+     "question": "it should answer my calls. call it Front desk, callers speak Telugu", "expect": ["agent_create"], "forbid": ["set_fields"]},
+    {"id": "c-first-agent-pin", "realm": "client", "kind": "action", "route": "/c/sunrise/agents/first", "title": "Build your first agent",
+     "question": "people ask if we open on Sunday (no, Monday to Saturday 9 to 6), if there is parking (yes, behind the shop) and if we take UPI (yes)", "expect": ["knowledge_facts_pin"], "forbid": ["propose_knowledge", "set_fields"]},
 
     {"id": "a-attention", "realm": "admin", "kind": "read", "route": "/admin/health", "title": "Client health",
      "question": "which clients need attention?", "expect": ["platform_health"]},

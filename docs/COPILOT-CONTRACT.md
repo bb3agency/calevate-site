@@ -523,3 +523,21 @@ reviewed. No model is called, so nothing is metered and no allowance is checked.
   model's first-turn choice as before, and puts each call through these database-free
   checks: a wrong call the server refuses is listed `refused_by_server` and counted on the
   "refused by the server, reaching nobody" line.
+
+## 15. A screen that leads the conversation (D-854)
+
+* **Per-screen guides ride the last user message.** `copilot/screen_guides.screen_guide(route)`
+  returns Calevate's own instructions for a screen built around a chat with Pip, and
+  `prompt.build_messages` places it after the live block and before the closing rules. It is
+  trusted text, so it is never sent as SCREEN STATE, and it is per-screen, so it never enters
+  the cached prefix. Today only `/c/{slug}/agents/first` has one.
+* **The first-agent tools.** `agent_create` takes `job` (`answer_calls`, `call_leads`, or
+  null; `answer_calls` with direction `both` is widened after the starter is written).
+  `agent_edit` and `agent_edit_live` take `opening_line`, applied through
+  `script_builder.replace_opening_line` (D-846's budget) and checked against the language's
+  spoken-style list; the Undo puts the previous line back. `knowledge_facts_pin`
+  (`fact_actions.py`, confirm, `kb:write`) pins up to three question and answer pairs on one
+  card through `teach/pinned.add_pinned`.
+* **Screens learn of an immediate action as it lands.** `useCopilotConversation` refreshes
+  the queries in `lib/api/copilot.INVALIDATES` when an `action` frame arrives, as a confirm
+  already did, so a card built from those reads ticks without a reload.

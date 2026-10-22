@@ -244,6 +244,8 @@ export function useDashboard(session: Session): UseQueryResult<Dashboard> {
 export function useCalls(
   session: Session,
   filters: { status?: string; agent_id?: string; limit?: number } = {},
+  /** False until the filter names something real (the first-agent card, before its agent). */
+  enabled = true,
 ): UseQueryResult<CallSummary[]> {
   return useQuery({
     queryKey: queryKeys.calls(session.orgSlug, filters),
@@ -253,6 +255,7 @@ export function useCalls(
         `/v1/calls${query({ ...filters, limit: filters.limit ?? 50 })}`,
       ),
     refetchInterval: livePoll(LIVE_INTERVAL_MS),
+    enabled,
   });
 }
 

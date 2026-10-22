@@ -22,7 +22,7 @@ const HREFS = {
   creditsHref: CREDITS,
   verifyHref: "/c/acme/verify-business",
   agentsHref: "/c/acme/agents",
-  newAgentHref: "/c/acme/agents/new",
+  newAgentHref: "/c/acme/agents/first",
 };
 const ENDS = new Date("2026-10-10T17:28:00Z");
 
@@ -174,8 +174,8 @@ describe("the test-call panel's agents (D-853)", () => {
 
   it("links an account with no agents to its first one", async () => {
     await renderClientPage(<TrialCallCard trial={panel()} {...HREFS} />, { "/v1/agents": [] });
-    const link = await screen.findByRole("link", { name: "Create your first agent" });
-    expect(link.getAttribute("href")).toBe("/c/acme/agents/new");
+    const link = await screen.findByRole("link", { name: "Build your first agent" });
+    expect(link.getAttribute("href")).toBe("/c/acme/agents/first");
   });
 
   it("sends an account whose agents are all drafts to get one ready", async () => {

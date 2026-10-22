@@ -77,7 +77,18 @@ export function CopilotPanel({
   labelledBy,
   placement = "floating",
   request = null,
+  quickReplies = NO_REPLIES,
+  intro,
 }: {
+  /** The empty panel's first line, when the screen knows better than its route where the
+   *  person is (D-854: a first agent half built says what is next, not where to start). */
+  intro?: string;
+  /**
+   * Answers the screen offers as one-tap chips above the ask box, for a screen that leads a
+   * conversation (D-854, the first-agent chat). Each sends its own words; none is sent by
+   * itself. They replace the empty panel's suggested questions.
+   */
+  quickReplies?: readonly string[];
   /**
    * WHERE THE PANEL SITS. `side` is the panel on every screen since D-694: a full-height
    * sheet on the right that leaves the page usable beside it. `page` is the same panel laid
@@ -393,9 +404,9 @@ export function CopilotPanel({
                   ? surface.fields.length > 0
                     ? "Ask me about this screen, or tell me what to fill in here."
                     : "Ask me about the platform or the account you have open."
-                  : openingLine(surface.route, surface.fields.length > 0)}
+                  : (intro ?? openingLine(surface.route, surface.fields.length > 0))}
             </p>
-            {realm === "client" && (
+            {realm === "client" && quickReplies.length === 0 && (
               <ul aria-label="Questions you could ask" className="flex flex-wrap gap-2">
                 {suggestedQuestions(surface.route).map((question) => (
                   <li key={question}>
@@ -702,6 +713,24 @@ export function CopilotPanel({
           tray.add(Array.from(event.dataTransfer.files));
         }}
       >
+        {/* ONE-TAP ANSWERS the screen offers for the step it is on (D-854): each sends its
+            words as the person's own message, exactly as typing them would. */}
+        {quickReplies.length > 0 && (
+          <ul aria-label="Quick answers" className="mb-2 flex flex-wrap gap-2">
+            {quickReplies.map((reply) => (
+              <li key={reply}>
+                <button
+                  type="button"
+                  disabled={conversation.asking}
+                  onClick={() => conversation.ask(reply)}
+                  className="press rounded-full border border-line px-3 py-1.5 text-left text-meta text-ink hover:bg-ink/[0.04] disabled:cursor-not-allowed disabled:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+                >
+                  {reply}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <label htmlFor={inputId} className="sr-only">
           Your question about this screen
         </label>
@@ -837,6 +866,8 @@ export function CopilotPanel({
     </motion.div>
   );
 }
+
+const NO_REPLIES: readonly string[] = [];
 
 /** Where the panel comes from: its own edge for the sheet, a short rise for the popovers. */
 function enterFrom(placement: PanelPlacement, reduced: boolean) {

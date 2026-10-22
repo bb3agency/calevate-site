@@ -399,6 +399,58 @@
 }
 
 /*
+ * A PIECE OF THE FIRST AGENT LANDING (D-854, `agents/first`): the tick pops from 0.6 to its
+ * size and a ring spreads once behind it, 320 ms ease-out. It plays only when a piece turns
+ * done while the screen is open, never on a piece that was already done. Reduced motion:
+ * the tick simply appears.
+ */
+@keyframes piece-pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes piece-ring {
+  from {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  to {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+/* The first-agent finale's phone while it rings: one soft ring spreading every 1.6 s,
+   linear because it is constant motion. Reduced motion: the phone is still. */
+@utility ring-pulse {
+  @media (prefers-reduced-motion: no-preference) {
+    background: var(--color-brand);
+    animation: piece-ring 1600ms linear infinite;
+  }
+}
+
+@utility piece-done {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: piece-pop 320ms var(--ease-out-strong) both;
+    &::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 9999px;
+      background: var(--color-brand);
+      animation: piece-ring 520ms var(--ease-out-strong) both;
+      pointer-events: none;
+    }
+  }
+}
+
+/*
  * THE ASSISTANT'S ANSWER ARRIVING (`components/copilot/answerText.tsx`). Each new block
  * fades in once: opacity with a 2px blur and lift, 200 ms. Only under no-preference, so
  * reduced motion shows the text at once; `both` keeps a delayed block hidden until its turn.

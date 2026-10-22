@@ -46,7 +46,7 @@ export function TrialCallPanel({ slug, trial }: { slug: string; trial: TrialPane
       creditsHref={href(`/c/${slug}/billing?tab=credits`)}
       verifyHref={href(`/c/${slug}/verify-business`)}
       agentsHref={href(`/c/${slug}/agents`)}
-      newAgentHref={href(`/c/${slug}/agents/new`)}
+      newAgentHref={href(`/c/${slug}/agents/first`)}
     />
   );
 }
@@ -153,7 +153,7 @@ export function TrialCallCard({
               <span className="mt-1 block text-sm text-ink-muted">
                 You have no agents yet.{" "}
                 <Link href={newAgentHref} className={TEXT_ACTION}>
-                  Create your first agent
+                  Build your first agent
                 </Link>
               </span>
             ) : dialers !== undefined && dialers.length === 0 ? (

@@ -62,6 +62,7 @@ import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
 import TenantCampaignSetupPage from "@/app/admin/tenants/[tenantId]/campaign-setup/page";
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import NewAgentPage from "@/app/c/[slug]/agents/new/page";
+import FirstAgentPage from "@/app/c/[slug]/agents/first/page";
 import AgentsPage from "@/app/c/[slug]/agents/page";
 import AiAssistPage from "@/app/c/[slug]/ai-assist/page";
 import AttentionPage from "@/app/c/[slug]/attention/page";
@@ -2701,6 +2702,23 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
+    // D-854: an agent mid-build, so the sweep covers the card's filled rows, the greeting
+    // counter and the finale's number field, not only the two doors.
+    file: "c/[slug]/agents/first/page.tsx",
+    realm: "client",
+    element: () => <FirstAgentPage params={slug} />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/agents": [{ ...AGENT, status: "draft", published: false, script_opening_line: "Namaskaram! How can I help you today?" }],
+      "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
+      "/v1/copilot/consent": { status: "accepted", can_accept: true, can_withdraw: true, text: "", text_sha256: "a", version: 1, accepted_at: null, withdrawn_at: null },
+      "/v1/copilot/conversation?limit=50": { turns: [], has_more: false },
+      "/v1/trial": { on_trial: true, status: "active", days_remaining: 7, ends_at: "2026-10-29T00:00:00Z", free_minutes: 15, minutes_used: "0", minutes_left: "15", calls_today: 0, daily_cap: 5, can_call: true, blocked_reason: null, max_call_seconds: 180, pledge_accepted: false },
+      "/v1/agents/engine-catalogue": { available: true, voices: [], models: [] },
+      [`/v1/calls?agent_id=${AGENT.id}&limit=1`]: [],
+    },
+  },
+  {
     file: "c/[slug]/attention/page.tsx",
     realm: "client",
     element: () => <AttentionPage params={slug} />,
@@ -3259,7 +3277,7 @@ const CLIENT_SCREENS: Screen[] = [
     file: "c/[slug]/settings/business/page.tsx",
     realm: "client",
     element: () => <BusinessProfilePage />,
-    routes: { "/v1/me": ME, "/v1/business-profile": businessProfileFixture() },
+    routes: { "/v1/me": ME, "/v1/business-profile": businessProfileFixture(), "/v1/agents": [] },
   },
   {
     file: "c/[slug]/settings/lead-details/page.tsx",
@@ -3290,7 +3308,7 @@ const CLIENT_SCREENS: Screen[] = [
     file: "c/[slug]/setup/page.tsx",
     realm: "client",
     element: () => <SetupPage />,
-    routes: { "/v1/me": ME, "/v1/business-profile": businessProfileFixture() },
+    routes: { "/v1/me": ME, "/v1/business-profile": businessProfileFixture(), "/v1/agents": [] },
   },
   {
     // NOT opted in, and the channel NOT deliverable — the state with the most markup on
@@ -3485,7 +3503,7 @@ const CLIENT_SCREENS: Screen[] = [
     file: "c/page.tsx",
     realm: "client",
     element: () => <ClientConsoleJunction />,
-    routes: { "/v1/me": ME, "/v1/business-profile": businessProfileFixture() },
+    routes: { "/v1/me": ME, "/v1/business-profile": businessProfileFixture(), "/v1/agents": [] },
   },
   {
     file: "signup/page.tsx",

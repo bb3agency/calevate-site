@@ -22,6 +22,7 @@ import { weekOnWeek } from "@/lib/weekOnWeek";
 import { AgentsAtAGlance } from "./AgentsAtAGlance";
 import { CallingCreditTile } from "./CallingCreditTile";
 import { DailyCalls } from "./DailyCalls";
+import { FirstAgentInvite } from "./FirstAgentInvite";
 import { KnowledgeGaps } from "./KnowledgeGaps";
 import { LatestCalls } from "./LatestCalls";
 import { LineNotice } from "./LineNotice";
@@ -250,6 +251,9 @@ export function DashboardScreen({ slug }: { slug: string }) {
           when there is nothing to say. */}
       <div className="space-y-4 empty:hidden">
         <LineNotice session={session} href={href(`/c/${slug}/settings/line-protection`)} />
+        {agents.data?.length === 0 && agentAccess.allowed ? (
+          <FirstAgentInvite href={(path) => href(`/c/${slug}${path}`)} />
+        ) : null}
         <SetupChecklist />
         <ExistingNumberPrompt session={session} href={href} />
         <TrialCallPanel slug={slug} trial={data.trial} />

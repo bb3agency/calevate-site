@@ -17,7 +17,13 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { LANGUAGE_CHOICES, LANGUAGE_NAMES } from "@/lib/agentState";
-import { useCreateAgent, useStarters, type AgentLanguage, type StarterJob } from "@/lib/api/agents";
+import {
+  useCreateAgent,
+  useStarters,
+  type Agent,
+  type AgentLanguage,
+  type StarterJob,
+} from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -52,7 +58,17 @@ const JOBS: { job: StarterJob; title: string; line: string; icon: typeof PhoneIn
 /** The language a new agent starts in unless the owner picks another (Telugu-first, BRD §1). */
 const DEFAULT_LANGUAGE: AgentLanguage = "te-IN";
 
-export function StartFromJob({ slug, onBlank }: { slug: string; onBlank: () => void }) {
+export function StartFromJob({
+  slug,
+  onBlank,
+  onCreated,
+}: {
+  slug: string;
+  onBlank: () => void;
+  /** Where to go once it exists. Absent: its Script section. The first-agent screen keeps
+   *  the owner on its card instead (D-854). */
+  onCreated?: (agent: Agent) => void;
+}) {
   const session = useClientSession();
   const [job, setJob] = useState<StarterJob | null>(null);
   const chosen = JOBS.find((j) => j.job === job);
@@ -103,17 +119,19 @@ export function StartFromJob({ slug, onBlank }: { slug: string; onBlank: () => v
     );
   }
 
-  return <StarterPreviewStep slug={slug} job={chosen} onBack={() => setJob(null)} />;
+  return <StarterPreviewStep slug={slug} job={chosen} onBack={() => setJob(null)} onCreated={onCreated} />;
 }
 
 function StarterPreviewStep({
   slug,
   job,
   onBack,
+  onCreated,
 }: {
   slug: string;
   job: (typeof JOBS)[number];
   onBack: () => void;
+  onCreated?: (agent: Agent) => void;
 }) {
   const session = useClientSession();
   const { href } = useClientRealm();
@@ -185,7 +203,9 @@ function StarterPreviewStep({
       },
       {
         onSuccess: (agent) =>
-          router.push(href(`/c/${slug}/agents/${agent.id}?section=script&from=starter`)),
+          onCreated
+            ? onCreated(agent)
+            : router.push(href(`/c/${slug}/agents/${agent.id}?section=script&from=starter`)),
       },
     );
   };

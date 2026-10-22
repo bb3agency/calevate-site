@@ -30,8 +30,10 @@ from apps.api.copilot.schemas import (
 #: grows one past its budget fails here and has to argue for the room. The client budget
 #: includes `agent_capture_fields_set_live` (D-839, ~310 tokens): a
 #: live agent's capture fields are confirmed first, which needs a confirm-tier twin as
-#: `agent_edit_live` is, because a tool's tier is fixed per tool.
-PREFIX_BUDGET_TOKENS = {"client": 18_500, "admin_account": 9_500, "admin_console": 6_500}
+#: `agent_edit_live` is, because a tool's tier is fixed per tool. It also includes the
+#: first-agent chat's three abilities (D-854, ~320 tokens): `agent_create`'s `job`, the
+#: opening line on `agent_edit`, and `knowledge_facts_pin`.
+PREFIX_BUDGET_TOKENS = {"client": 18_700, "admin_account": 9_500, "admin_console": 6_500}
 
 
 def _compact(value: Any) -> str:
