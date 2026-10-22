@@ -435,19 +435,8 @@ def _call_leads(vertical: str, trade: Trade) -> Starter:
 
 
 def _call_new_leads(vertical: str, trade: Trade) -> Starter:
-    """Rings a person minutes after they enquired. Step for step the list's shape, so the
-    business copy's example lines fit both (`LINES_OF_JOB`); what differs is that the agent
-    knows the enquiry is fresh and says so."""
-    listed = _call_leads(vertical, trade)
-    steps = list(listed.steps)
-    steps[2] = StarterStep(
-        title="Find out what they need",
-        instruction=(
-            "Thank them for the enquiry they just made, then ask what they are looking for, "
-            f"one thing per turn: {trade.capture}."
-        ),
-        exit_when="You know what they want, or that they are not interested.",
-    )
+    """Rings a person minutes after they enquired. The plan keeps the list's step shape, so
+    the business copy's example lines fit both (`LINES_OF_JOB`)."""
     return Starter(
         job="call_new_leads",
         vertical=vertical,
@@ -468,23 +457,8 @@ def _call_new_leads(vertical: str, trade: Trade) -> Starter:
         outbound_purpose=(
             "They just made an enquiry with {business}, and you are calling to help with it."
         ),
-        steps=tuple(steps),
-        objections=(
-            (
-                "Where did you get my number?",
-                "Say they left their number in an enquiry to the business a few minutes ago, "
-                "and the team can tell them exactly where.",
-            ),
-            (
-                "I'm not interested.",
-                "Thank them politely and end the call. Do not try again.",
-            ),
-            (
-                "I was only checking the price.",
-                f"Give the price if your knowledge has it, then ask if they would like "
-                f"{trade.booking}.",
-            ),
-        ),
+        steps=_planned_steps(vertical, "call_new_leads", trade),
+        objections=playbook_for(vertical, "call_new_leads", trade).objections,
         ending=_CALL_LEADS_ENDING,
     )
 

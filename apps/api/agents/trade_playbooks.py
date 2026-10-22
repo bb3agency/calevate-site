@@ -246,14 +246,45 @@ def _call_leads(basics: TradeBasics, words: TradeWords) -> tuple[PlayStep, ...]:
     )
 
 
+def _call_new_leads(basics: TradeBasics, words: TradeWords) -> tuple[PlayStep, ...]:
+    """The list's shape step for step, so a business's example lines fit both jobs; only the
+    needs step knows the enquiry is minutes old."""
+    steps = list(_call_leads(basics, words))
+    steps[2] = PlayStep(
+        title="Find out what they need",
+        instruction=(
+            "Thank them for the enquiry they just made, then ask, one at a time and only what "
+            f"they have not said: {basics.capture}. {basics.caution}"
+        ),
+        exit_when="You know what they want, or that they are not interested.",
+        say=words.qualify_ask,
+    )
+    return tuple(steps)
+
+
+_NEW_LEADS_OBJECTIONS: Final = (
+    (
+        "Where did you get my number?",
+        "Say they left it in an enquiry to the business a few minutes ago, and the team can "
+        "tell them exactly where.",
+    ),
+    (
+        "I was only checking the price.",
+        "Give the price if your facts have it, then ask once if they would like the next step.",
+    ),
+)
+
+
 #: Each job's step shape. A new job is a new key (or an alias of a shape).
 JOB_SHAPES: Final[Mapping[str, Callable[[TradeBasics, TradeWords], tuple[PlayStep, ...]]]] = {
     "answer_calls": _answer_calls,
+    "call_new_leads": _call_new_leads,
     "call_leads": _call_leads,
 }
 
 _JOB_OBJECTIONS: Final[Mapping[str, tuple[tuple[str, str], ...]]] = {
     "answer_calls": _ANSWER_OBJECTIONS,
+    "call_new_leads": _NEW_LEADS_OBJECTIONS,
     "call_leads": _LEADS_OBJECTIONS,
 }
 
