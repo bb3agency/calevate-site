@@ -54,6 +54,8 @@ function profile(over: Partial<BusinessProfile> = {}): BusinessProfile {
       started: true,
       dismissed: false,
       complete: false,
+      on_dashboard: true,
+      nudges: [],
     },
     blockers: [],
     required_steps: ["hours", "branches", "services", "contacts"],
@@ -189,28 +191,47 @@ describe("the business profile screen", () => {
   });
 });
 
-describe("the setup checklist's two places (founder, REDESIGN-2)", () => {
-  it("leaves the dashboard once hidden but stays under Settings, and can go back", async () => {
-    const hidden = profile({ setup: { ...profile().setup, dismissed: true } });
-    const { calls } = await renderClientPage(<SetupChecklist placement="settings" />, {
+describe("the setup checklist's two places (founder, 22 Oct 2026)", () => {
+  it("is always under Settings, even when the dashboard does not show it", async () => {
+    const off = profile({ setup: { ...profile().setup, dismissed: true, on_dashboard: false } });
+    await renderClientPage(<SetupChecklist placement="settings" />, {
       "/v1/me": OWNER,
-      "/v1/business-profile": hidden,
-      "POST /v1/business-profile/setup": profile(),
+      "/v1/business-profile": off,
     });
     expect(await screen.findByText("Your setup")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Show it on the dashboard again" }));
-    await waitFor(() => {
-      const post = calls.find((c) => c.method === "POST" && c.path.endsWith("/setup"));
-      expect(JSON.parse(post?.body ?? "{}")).toEqual({ action: "reopen" });
-    });
+    expect(screen.queryByRole("button", { name: "Hide this list" })).toBeNull();
   });
 
-  it("is not on the dashboard once hidden", async () => {
-    const hidden = profile({ setup: { ...profile().setup, dismissed: true } });
+  it("is not on the dashboard when the server says it is not due", async () => {
+    // After the first day, with no call showing a missing step.
+    const off = profile({ setup: { ...profile().setup, on_dashboard: false } });
     const { container } = await renderClientPage(<SetupChecklist />, {
       "/v1/me": OWNER,
-      "/v1/business-profile": hidden,
+      "/v1/business-profile": off,
     });
     await waitFor(() => expect(container.textContent).toBe(""));
+  });
+
+  it("comes back saying why, on the step the calls show is missing", async () => {
+    const back = profile({
+      setup: {
+        ...profile().setup,
+        on_dashboard: true,
+        nudges: [
+          {
+            step: "contacts",
+            message: "3 calls in the last 14 days needed a person, and nobody is set up to take calls.",
+          },
+        ],
+      },
+    });
+    await renderClientPage(<SetupChecklist />, {
+      "/v1/me": OWNER,
+      "/v1/business-profile": back,
+    });
+    expect(await screen.findByText("Your calls show something is missing")).toBeTruthy();
+    expect(
+      screen.getByText("3 calls in the last 14 days needed a person, and nobody is set up to take calls."),
+    ).toBeTruthy();
   });
 });

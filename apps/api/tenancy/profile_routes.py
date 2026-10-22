@@ -40,6 +40,7 @@ from apps.api.db.session import tenant_session
 from apps.api.tenancy import business_profile as bp
 from apps.api.tenancy.models import PROFILE_STEPS
 from apps.api.tenancy.profile_service import ProfilePatch, SetupAction, record_setup, save_profile
+from apps.api.tenancy.setup_nudges import on_dashboard, setup_nudges
 
 router = APIRouter(prefix="/v1/business-profile", tags=["business-profile"])
 admin_router = APIRouter(prefix="/v1/admin/tenants/{tenant_id}/business-profile", tags=["admin"])
@@ -59,12 +60,23 @@ class ProfileSetupStepOut(_Out):
     state: Literal["done", "skipped", "todo"]
 
 
+class ProfileSetupNudgeOut(_Out):
+    """Why the checklist is back on the dashboard after the first day, for one step."""
+
+    step: bp.StepId
+    message: str
+
+
 class ProfileSetupOut(_Out):
     steps: list[ProfileSetupStepOut]
     started: bool
     dismissed: bool
     #: Every step answered or skipped.
     complete: bool
+    #: Whether the dashboard shows the checklist: on the account's first day, or later
+    #: when `nudges` names a step recent calls show is missing (`tenancy/setup_nudges`).
+    on_dashboard: bool
+    nudges: list[ProfileSetupNudgeOut]
 
 
 class ProfileBlockerOut(_Out):
@@ -135,7 +147,7 @@ async def render(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Any]:
     profile = await bp.load_profile(session, tenant_id=tenant_id)
     org = (
         await session.execute(
-            text("SELECT name, vertical_template FROM organizations WHERE id = :tid"),
+            text("SELECT name, vertical_template, created_at FROM organizations WHERE id = :tid"),
             {"tid": tenant_id},
         )
     ).first()
@@ -143,6 +155,15 @@ async def render(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Any]:
         raise ProblemError.not_found("Organization")
     kyc = await read_kyc(session, tenant_id=tenant_id)
     needs_contact = await bp.account_needs_contact(session)
+    blockers = bp.go_live_blockers(profile, needs_contact=needs_contact)
+    complete = bp.setup_complete(profile)
+    states = {step: bp.step_state(profile, step) for step in PROFILE_STEPS}
+    nudges = await setup_nudges(
+        session,
+        tenant_id=tenant_id,
+        open_steps={step for step, state in states.items() if state != "done"},
+        dismissed_at=profile.setup_dismissed_at,
+    )
     return {
         "business_name": str(org[0]),
         "vertical_template": org[1],
@@ -160,16 +181,26 @@ async def render(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Any]:
         "languages": profile.languages,
         "setup": ProfileSetupOut(
             steps=[
-                ProfileSetupStepOut(id=step, state=bp.step_state(profile, step))  # type: ignore[arg-type]
-                for step in PROFILE_STEPS
+                ProfileSetupStepOut(id=step, state=state)  # type: ignore[arg-type]
+                for step, state in states.items()
             ],
             started=profile.setup_started_at is not None,
             dismissed=profile.setup_dismissed_at is not None,
-            complete=bp.setup_complete(profile),
+            complete=complete,
+            on_dashboard=on_dashboard(
+                finished=complete and not blockers,
+                created_at=org[2],
+                dismissed=profile.setup_dismissed_at is not None,
+                nudges=nudges,
+            ),
+            nudges=[
+                ProfileSetupNudgeOut(step=n.step, message=n.message)  # type: ignore[arg-type]
+                for n in nudges
+            ],
         ),
         "blockers": [
             ProfileBlockerOut(code=code, step=bp.BLOCKER_STEPS[code], message=bp.BLOCKER_COPY[code])
-            for code in bp.go_live_blockers(profile, needs_contact=needs_contact)
+            for code in blockers
         ],
         "required_steps": bp.required_steps(needs_contact=needs_contact),
         "updated_at": profile.updated_at,

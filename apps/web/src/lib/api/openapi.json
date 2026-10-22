@@ -31815,8 +31815,7 @@
             "enum": [
               "start",
               "skip",
-              "dismiss",
-              "reopen"
+              "dismiss"
             ],
             "title": "Action",
             "type": "string"
@@ -31849,6 +31848,36 @@
         "title": "ProfileSetupIn",
         "type": "object"
       },
+      "ProfileSetupNudgeOut": {
+        "additionalProperties": false,
+        "description": "Why the checklist is back on the dashboard after the first day, for one step.",
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "step": {
+            "enum": [
+              "hours",
+              "branches",
+              "services",
+              "faqs",
+              "staff",
+              "booking",
+              "contacts",
+              "languages"
+            ],
+            "title": "Step",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "message"
+        ],
+        "title": "ProfileSetupNudgeOut",
+        "type": "object"
+      },
       "ProfileSetupOut": {
         "additionalProperties": false,
         "properties": {
@@ -31858,6 +31887,17 @@
           },
           "dismissed": {
             "title": "Dismissed",
+            "type": "boolean"
+          },
+          "nudges": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileSetupNudgeOut"
+            },
+            "title": "Nudges",
+            "type": "array"
+          },
+          "on_dashboard": {
+            "title": "On Dashboard",
             "type": "boolean"
           },
           "started": {
@@ -31876,7 +31916,9 @@
           "steps",
           "started",
           "dismissed",
-          "complete"
+          "complete",
+          "on_dashboard",
+          "nudges"
         ],
         "title": "ProfileSetupOut",
         "type": "object"

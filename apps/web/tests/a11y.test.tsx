@@ -2137,6 +2137,8 @@ const CLIENT_SCREENS: Screen[] = [
           started: true,
           dismissed: false,
           complete: false,
+          on_dashboard: true,
+          nudges: [],
         },
         blockers: [{ code: "branch_missing", step: "branches", message: "Add your address." }],
       }),

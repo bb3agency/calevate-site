@@ -313,7 +313,7 @@ async def save_profile(
     return steps, updated
 
 
-SetupAction = Literal["start", "skip", "dismiss", "reopen"]
+SetupAction = Literal["start", "skip", "dismiss"]
 
 
 _SETUP_SQL: Final[dict[str, str]] = {
@@ -321,13 +321,10 @@ _SETUP_SQL: Final[dict[str, str]] = {
         "UPDATE business_profiles SET setup_started_at = coalesce(setup_started_at, now()), "
         "updated_at = now() WHERE tenant_id = :tid"
     ),
+    # The latest hide: only evidence newer than it brings the list back (`setup_nudges`).
     "dismiss": (
-        "UPDATE business_profiles SET setup_dismissed_at = coalesce(setup_dismissed_at, now()), "
+        "UPDATE business_profiles SET setup_dismissed_at = now(), "
         "updated_at = now() WHERE tenant_id = :tid"
-    ),
-    "reopen": (
-        "UPDATE business_profiles SET setup_dismissed_at = NULL, updated_at = now() "
-        "WHERE tenant_id = :tid"
     ),
     # A step already answered stays answered: skipping it later changes nothing.
     "skip": (

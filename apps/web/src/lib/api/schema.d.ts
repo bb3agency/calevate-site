@@ -23117,9 +23117,22 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "start" | "skip" | "dismiss" | "reopen";
+            action: "start" | "skip" | "dismiss";
             /** Step */
             step?: ("hours" | "branches" | "services" | "faqs" | "staff" | "booking" | "contacts" | "languages") | null;
+        };
+        /**
+         * ProfileSetupNudgeOut
+         * @description Why the checklist is back on the dashboard after the first day, for one step.
+         */
+        ProfileSetupNudgeOut: {
+            /** Message */
+            message: string;
+            /**
+             * Step
+             * @enum {string}
+             */
+            step: "hours" | "branches" | "services" | "faqs" | "staff" | "booking" | "contacts" | "languages";
         };
         /** ProfileSetupOut */
         ProfileSetupOut: {
@@ -23127,6 +23140,10 @@ export interface components {
             complete: boolean;
             /** Dismissed */
             dismissed: boolean;
+            /** Nudges */
+            nudges: components["schemas"]["ProfileSetupNudgeOut"][];
+            /** On Dashboard */
+            on_dashboard: boolean;
             /** Started */
             started: boolean;
             /** Steps */

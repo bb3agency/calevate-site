@@ -482,3 +482,76 @@ def test_a_half_answered_sheet_day_is_left_unanswered_and_noted() -> None:
     )
     assert hours == {"sun": None}
     assert notes[0]["field"] == "hours.mon"
+
+
+# ------------------------------------------------------------------ the dashboard list
+
+
+async def _age(tenant_id: uuid.UUID, days: int) -> None:
+    # The tenant's own session: `organizations` is RLS'd, so an untenanted UPDATE matches
+    # nothing.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE organizations SET created_at = now() - make_interval(days => :d) "
+                "WHERE id = :t"
+            ),
+            {"d": days, "t": tenant_id},
+        )
+
+
+async def _hours_question_and_a_call_that_needed_a_person(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID
+) -> None:
+    call_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
+                "outcome_tag, started_at, ended_at, created_at, updated_at) VALUES (:id, :t, :a, "
+                ":e, 'inbound', 'completed', 'needs_you', now(), now(), now(), now())"
+            ),
+            {"id": call_id, "t": tenant_id, "a": agent_id, "e": f"nudge-{call_id.hex}"},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO knowledge_gaps (id, tenant_id, agent_id, topic_key, topic_label, "
+                "status, occurrence_count, call_count, example_question_redacted, "
+                "example_answer_redacted, top_signal, first_seen_at, last_seen_at, created_at, "
+                "updated_at) VALUES (:id, :t, :a, 'timings', 'Opening hours', 'open', 1, 1, "
+                "'When do you open?', 'not sure', 'dont_know', now(), now(), now(), now())"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "a": agent_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO knowledge_gap_occurrences (id, tenant_id, agent_id, call_id, "
+                "topic_key, topic_label, question_redacted, answer_redacted, signal, hit_count, "
+                "created_at, updated_at) VALUES (:id, :t, :a, :c, 'timings', 'Opening hours', "
+                "'When do you open?', 'not sure', 'dont_know', 1, now(), now())"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "a": agent_id, "c": call_id},
+        )
+
+
+async def test_the_dashboard_list_shows_on_the_first_day_and_after_only_with_a_reason() -> None:
+    """FAILS IF: the setup list stays on the dashboard every day, or comes back after the
+    first day without a call that shows a missing step (founder, 22 Oct 2026)."""
+    tenant_id, agent_id = await _tenant()
+    headers = await _owner(tenant_id)
+    async with _client() as http:
+        first_day = (await http.get("/v1/business-profile", headers=headers)).json()["setup"]
+        await _age(tenant_id, 2)
+        quiet = (await http.get("/v1/business-profile", headers=headers)).json()["setup"]
+        await _hours_question_and_a_call_that_needed_a_person(tenant_id, agent_id)
+        missed = (await http.get("/v1/business-profile", headers=headers)).json()["setup"]
+        await http.post("/v1/business-profile/setup", json={"action": "dismiss"}, headers=headers)
+        hidden = (await http.get("/v1/business-profile", headers=headers)).json()["setup"]
+    assert first_day["on_dashboard"] is True and first_day["nudges"] == []
+    assert quiet["on_dashboard"] is False
+    assert missed["on_dashboard"] is True
+    reasons = {n["step"]: n["message"] for n in missed["nudges"]}
+    assert set(reasons) == {"hours", "contacts"}
+    assert reasons["hours"].startswith("1 caller asked about your opening hours")
+    assert reasons["contacts"].startswith("1 call in the last 14 days needed a person")
+    assert hidden["on_dashboard"] is False, "evidence older than the hide must not bring it back"
