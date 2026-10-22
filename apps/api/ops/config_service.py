@@ -599,6 +599,12 @@ async def set_value(
         from apps.api.billing.credit_expiry import assert_expiry_may_switch_on
 
         assert_expiry_may_switch_on(stored)
+    # A staged agent language may be offered only once its sentences are reviewed, its test
+    # call checked and ThinnestAI has confirmed it (D-855).
+    if key == "staged_agent_languages_enabled":
+        from apps.api.agents.languages import assert_staged_languages_may_switch_on
+
+        assert_staged_languages_may_switch_on(stored)
     # THE SHARED TRIAL NUMBER must be one the developer workspace holds and no client has
     # recorded (D-697), read live from the voice platform; the console offers only those.
     if key == "trial_caller_number":

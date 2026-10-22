@@ -614,6 +614,10 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "trial_daily_call_cap": AppliesRule(LIVE),
     "trial_call_max_seconds": AppliesRule(LIVE),
     "trial_studio_minutes": AppliesRule(LIVE),
+    # Which staged agent languages clients may choose (D-855), read on every request that
+    # takes a language and at every publish; nothing already published is republished.
+    "staged_agent_languages_enabled": AppliesRule(LIVE),
+    "staged_language_test_tenant_ids": AppliesRule(LIVE),
     # The forwarding test (D-746), read on every test and every "save our number" send.
     "forwarding_test_second_number": AppliesRule(LIVE),
     "forwarding_test_daily_cap": AppliesRule(LIVE),

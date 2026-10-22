@@ -45,6 +45,7 @@ from apps.api.compliance.disclosure import (
 )
 from apps.api.db.session import tenant_session
 from calevate_shared.engine import DisclosurePosture, compose_opening_line
+from calevate_shared.languages import staged_language_tags
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from tests.conftest import create_org_with_receptionist
@@ -343,11 +344,15 @@ def test_the_migrations_copy_of_the_sentences_is_byte_identical() -> None:
 
     D-745 moved the Telugu and Hindi sentences into their own script, and its migration
     rewrites exactly the old outputs; so the old copy, carried through that rewrite, is
-    today's table."""
+    today's table. The staged languages (D-855) came later, with no agent holding one, so
+    the copy is compared over the languages it knew."""
     rewritten = {
         lang: SCRIPT_REWRITE.get(line, line) for lang, line in _migration_notices().items()
     }
-    assert rewritten == CALLER_MEMORY_NOTICE_TEMPLATES
+    staged = set(staged_language_tags())
+    assert rewritten == {
+        tag: line for tag, line in CALLER_MEMORY_NOTICE_TEMPLATES.items() if tag not in staged
+    }
 
 
 def _backfill_case(languages: list[str]) -> str:

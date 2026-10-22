@@ -367,9 +367,10 @@ async def create_agent(
             "lang": language_primary,
             "extra": published_extra_languages(
                 language_primary,
-                default_extra_languages(language_primary, business_languages)
+                default_extra_languages(language_primary, business_languages, tenant_id=tenant_id)
                 if languages_extra is None
                 else languages_extra,
+                tenant_id=tenant_id,
             ),
             # Both toggles FALSE (D-669: a call opens with the greeting only) and the
             # bundle written, spelled at the INSERT rather than left to a
@@ -611,7 +612,7 @@ async def update_agent(
             "language_primary": language_primary,
             "set_languages_extra": languages_extra is not None,
             "languages_extra": (
-                published_extra_languages(language_primary, languages_extra)
+                published_extra_languages(language_primary, languages_extra, tenant_id=tenant_id)
                 if language_primary is not None and languages_extra is not None
                 else list(languages_extra or ())
             ),

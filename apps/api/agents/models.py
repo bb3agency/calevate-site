@@ -33,7 +33,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from apps.api.agents.languages import MAX_REPLY_LANGUAGES, PRODUCT_LANGUAGES
+from apps.api.agents.languages import BUILT_LANGUAGES, MAX_REPLY_LANGUAGES
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
 #: WHICH WAY AN AGENT'S CALLS GO, as a type rather than as three strings.
@@ -309,19 +309,21 @@ class Agent(PKMixin, TimestampMixin, Base):
         # live call. A column that cannot refuse a value is a column every reader has to
         # guard, and three of the readers here speak sentences to callers.
         #
-        # DERIVED from the offered set (D-104), like `direction` above and for its reason:
-        # a fourth product language changes the Literal and this CHECK in one edit, or it
-        # changes neither. It admits the OFFERED three and not the eleven the speech stack
-        # can converse in — `calevate_shared.languages` holds that distinction and
-        # `tests/product_languages_test.py` holds this constraint to the narrower side.
+        # DERIVED from the built set (D-104), like `direction` above and for its reason:
+        # a new language changes the Literal and this CHECK in one edit, or it changes
+        # neither. It admits the BUILT languages (the three offered plus the staged ones,
+        # D-855; migration d6f1a8c3e925) and not the eleven the speech stack can converse
+        # in. Which of them a client may choose is decided at run time
+        # (`languages.client_language_tags`), so switching a staged language on needs no
+        # migration.
         CheckConstraint(
-            f"language_primary IN {PRODUCT_LANGUAGES!r}", name="language_primary_offered"
+            f"language_primary IN {BUILT_LANGUAGES!r}", name="language_primary_offered"
         ),
-        # The reply languages after the main one (migration e3b9d4a7c218): offered ones
+        # The reply languages after the main one (migrations e3b9d4a7c218, d6f1a8c3e925): built ones
         # only, at most three, never the main language again.
         CheckConstraint(
             "languages_extra <@ ARRAY["
-            + ", ".join(f"'{tag}'" for tag in PRODUCT_LANGUAGES)
+            + ", ".join(f"'{tag}'" for tag in BUILT_LANGUAGES)
             + f"]::text[] AND cardinality(languages_extra) <= {MAX_REPLY_LANGUAGES - 1} "
             "AND NOT (language_primary = ANY (languages_extra))",
             name="languages_extra_offered",

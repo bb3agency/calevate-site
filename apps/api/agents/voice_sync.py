@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.hosted_voices import HostedSyncResult, sync_hosted_voices
-from apps.api.agents.languages import PRODUCT_LANGUAGES
+from apps.api.agents.languages import BUILT_LANGUAGES
 from apps.api.agents.models import PlatformVoiceCatalogEntry
 from apps.api.agents.voices import (
     TtsModel,
@@ -156,13 +156,13 @@ def voice_from_row(row: PlatformVoiceCatalogEntry) -> Voice | None:
 
     TWO REASONS A ROW IS DROPPED. A model `TTS_MODEL_LIFECYCLE` cannot place has no
     provider, therefore no voice tier, therefore no price for a minute of it (hard rule 7).
-    A row under none of the three product languages is a voice no picker has a row for.
+    A row under none of the built languages is a voice no picker has a row for.
     """
     model = _offered_model(row.tts_model)
     provider = provider_of_tts_model(row.tts_model) if model is not None else None
     if model is None or provider is None:
         return None
-    languages = tuple(language for language in PRODUCT_LANGUAGES if language in set(row.languages))
+    languages = tuple(language for language in BUILT_LANGUAGES if language in set(row.languages))
     if not languages:
         return None
     return Voice(

@@ -182,6 +182,13 @@ HANDOFF_SPOKEN_TEMPLATES: Final[dict[str, str]] = {
     "te-IN": "Sare, nenu ippudu maa team lo okarini kaluputunnanu. Konchem wait cheyandi.",
     "hi-IN": "Theek hai, main aapko hamari team se jod raha hoon. Kripya thoda intezaar karein.",
     "en-IN": "Alright, I am putting you through to someone from our team now. Please hold.",
+    # Staged (D-855), drafted 23 Oct 2026 in each language's own script (D-745) with the
+    # English words people use: NEEDS NATIVE-SPEAKER REVIEW. No caller hears these until
+    # `agents/languages.STAGED_LANGUAGE_READINESS` records the review.
+    "ta-IN": "சரி, இப்போது உங்களை எங்கள் team-ல ஒருத்தர்கிட்ட connect பண்றேன். கொஞ்சம் wait பண்ணுங்க.",
+    "kn-IN": "ಸರಿ, ಈಗ ನಿಮ್ಮನ್ನು ನಮ್ಮ team ನಲ್ಲಿ ಒಬ್ಬರಿಗೆ connect ಮಾಡ್ತಿದ್ದೀನಿ. ಸ್ವಲ್ಪ wait ಮಾಡಿ.",
+    "ml-IN": "ശരി, ഇപ്പോൾ നിങ്ങളെ ഞങ്ങളുടെ team-ലെ ഒരാളുമായി connect ചെയ്യുന്നു. കുറച്ച് wait ചെയ്യണേ.",
+    "mr-IN": "ठीक आहे, आता मी तुम्हाला आमच्या team मधल्या एकाशी connect करत आहे. थोडा वेळ wait करा.",
 }
 
 #: Why nobody is on duty. Each value is a sentence a CLIENT is shown and an operator

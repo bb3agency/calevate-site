@@ -1596,6 +1596,10 @@
         ]
       },
       "word_swaps": [],
+      "openings": {
+        "inbound": "வணக்கம்ங்க, {business}-க்கு call பண்ணதுக்கு thanks. சொல்லுங்க, என்ன வேணும்?",
+        "outbound": "வணக்கம்ங்க, {business}-ல இருந்து call பண்றேன். இப்போ ரெண்டு நிமிஷம் பேசலாமா?"
+      },
       "language_pack": {
         "review": "needs_founder_review",
         "drafted_on": "2026-10-19",
@@ -1626,6 +1630,10 @@
         ]
       },
       "word_swaps": [],
+      "openings": {
+        "inbound": "ನಮಸ್ಕಾರ, {business} ಗೆ call ಮಾಡಿದ್ದಕ್ಕೆ thanks. ಹೇಳಿ, ಏನು ಬೇಕು?",
+        "outbound": "ನಮಸ್ಕಾರ, {business} ಇಂದ call ಮಾಡ್ತಿದ್ದೀನಿ. ಈಗ ಎರಡು ನಿಮಿಷ ಮಾತಾಡಬಹುದಾ?"
+      },
       "language_pack": {
         "review": "needs_founder_review",
         "drafted_on": "2026-10-19",
@@ -1656,6 +1664,10 @@
         ]
       },
       "word_swaps": [],
+      "openings": {
+        "inbound": "നമസ്കാരം, {business}-ലേക്ക് call ചെയ്തതിന് thanks. പറയൂ, എന്താണ് വേണ്ടത്?",
+        "outbound": "നമസ്കാരം, {business}-ൽ നിന്നാണ് call ചെയ്യുന്നത്. ഇപ്പോൾ രണ്ട് മിനിറ്റ് സംസാരിക്കാമോ?"
+      },
       "language_pack": {
         "review": "needs_founder_review",
         "drafted_on": "2026-10-19",
@@ -1686,6 +1698,10 @@
         ]
       },
       "word_swaps": [],
+      "openings": {
+        "inbound": "नमस्कार, {business} ला call केल्याबद्दल thank you. सांगा, काय हवं आहे?",
+        "outbound": "नमस्कार, {business} कडून call करत आहे. आता दोन मिनिटं बोलता येईल का?"
+      },
       "language_pack": {
         "review": "needs_founder_review",
         "drafted_on": "2026-10-19",

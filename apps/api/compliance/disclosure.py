@@ -162,6 +162,12 @@ AI_DISCLOSURE_TEMPLATES: dict[str, str] = {
     "te-IN": "ఇది {business} AI assistant.",
     "hi-IN": "मैं {business} का AI assistant हूँ।",
     "en-IN": "This is the AI assistant for {business}.",
+    # Staged (D-855), drafted 23 Oct 2026: NEEDS NATIVE-SPEAKER REVIEW. No caller hears
+    # these until `agents/languages.STAGED_LANGUAGE_READINESS` records the review.
+    "ta-IN": "இது {business} AI assistant.",
+    "kn-IN": "ಇದು {business} AI assistant.",
+    "ml-IN": "ഇത് {business} AI assistant ആണ്.",
+    "mr-IN": "हा {business} AI assistant आहे.",
 }
 
 #: Sentence two: **"this call is recorded"** — the DPDP notice-and-consent side, and a
@@ -172,6 +178,12 @@ RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
     "te-IN": "ఈ call record అవుతుంది.",
     "hi-IN": "यह call record हो रही है।",
     "en-IN": "This call is being recorded.",
+    # Staged (D-855), drafted 23 Oct 2026: NEEDS NATIVE-SPEAKER REVIEW. No caller hears
+    # these until `agents/languages.STAGED_LANGUAGE_READINESS` records the review.
+    "ta-IN": "இந்த call record ஆகிறது.",
+    "kn-IN": "ಈ call record ಆಗುತ್ತಿದೆ.",
+    "ml-IN": "ഈ call record ചെയ്യുന്നുണ്ട്.",
+    "mr-IN": "हा call record होत आहे.",
 }
 
 
@@ -202,6 +214,12 @@ CALLER_MEMORY_NOTICE_TEMPLATES: dict[str, str] = {
     "te-IN": "మీరు అడిగిన దాని గురించి ఒక చిన్న note గుర్తు పెట్టుకుంటాను.",
     "hi-IN": "आपने जो पूछा, उसका एक छोटा note हम याद रखते हैं।",
     "en-IN": "I keep a short note of what you ask about, so I remember it if you call again.",
+    # Staged (D-855), drafted 23 Oct 2026: NEEDS NATIVE-SPEAKER REVIEW. No caller hears
+    # these until `agents/languages.STAGED_LANGUAGE_READINESS` records the review.
+    "ta-IN": "நீங்கள் கேட்டதைப் பற்றி ஒரு சின்ன note வைத்துக்கொள்கிறேன்.",
+    "kn-IN": "ನೀವು ಕೇಳಿದ್ದರ ಬಗ್ಗೆ ಒಂದು ಚಿಕ್ಕ note ನೆನಪಿಟ್ಟುಕೊಳ್ಳುತ್ತೇನೆ.",
+    "ml-IN": "നിങ്ങൾ ചോദിച്ചതിനെക്കുറിച്ച് ഒരു ചെറിയ note ഞാൻ ഓർത്തുവെക്കും.",
+    "mr-IN": "तुम्ही जे विचारले, त्याची एक छोटी note आम्ही लक्षात ठेवतो.",
 }
 
 

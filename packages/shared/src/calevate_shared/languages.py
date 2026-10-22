@@ -123,6 +123,7 @@ __all__ = [
     "KNOWN_WIRE_CODE_ANOMALIES",
     "LANGUAGES",
     "OFFERED_LANGUAGE_IDS",
+    "STAGED_LANGUAGE_IDS",
     "UNVERIFIED_VENDOR_LEGS",
     "VERIFIED_VENDOR_LEGS",
     "Language",
@@ -132,12 +133,16 @@ __all__ = [
     "SpeechVendor",
     "Support",
     "TextDirection",
+    "built_language_tags",
+    "built_languages",
     "comprehension_only_languages",
     "conversational_languages",
     "find_language",
     "get_language",
     "offered_language_tags",
     "offered_languages",
+    "staged_language_tags",
+    "staged_languages",
 ]
 
 #: Our own stable identifier for a language. It is NOT a BCP-47 code and NOT a vendor
@@ -586,6 +591,15 @@ def conversational_languages() -> tuple[Language, ...]:
 #: catalogue, synced and curated) and which no test in this tree can see.
 OFFERED_LANGUAGE_IDS: Final[tuple[LanguageId, ...]] = ("telugu", "hindi", "english_india")
 
+#: BUILT BUT NOT YET OFFERED (D-855, founder 23 Oct 2026). Each has its spoken sentences, a
+#: place in the `agents` CHECK constraints and in the wire enum, and stays off every client
+#: screen and out of every client API until the console switch
+#: `staged_agent_languages_enabled` turns it on. The switch refuses a language whose
+#: sentences, test call and engine confirmation are not on record
+#: (`apps/api/agents/languages.STAGED_LANGUAGE_READINESS`). Offering one for good is moving
+#: it from here to `OFFERED_LANGUAGE_IDS`.
+STAGED_LANGUAGE_IDS: Final[tuple[LanguageId, ...]] = ("tamil", "kannada", "malayalam", "marathi")
+
 
 def offered_languages() -> tuple[Language, ...]:
     """The languages this product SELLS today, in the order a picker renders them.
@@ -604,6 +618,25 @@ def offered_language_tags() -> tuple[str, ...]:
     and the Odia trap in the module docstring is why the two cannot be the same function.
     """
     return tuple(row.bcp47 for row in offered_languages())
+
+
+def staged_languages() -> tuple[Language, ...]:
+    """The languages built and held back from clients (`STAGED_LANGUAGE_IDS`)."""
+    return tuple(LANGUAGES[language_id] for language_id in STAGED_LANGUAGE_IDS)
+
+
+def staged_language_tags() -> tuple[str, ...]:
+    return tuple(row.bcp47 for row in staged_languages())
+
+
+def built_languages() -> tuple[Language, ...]:
+    """Every language an agent can be stored in: the offered ones, then the staged ones.
+    What the database and the wire enum admit, never what a client is shown."""
+    return offered_languages() + staged_languages()
+
+
+def built_language_tags() -> tuple[str, ...]:
+    return tuple(row.bcp47 for row in built_languages())
 
 
 def comprehension_only_languages() -> tuple[Language, ...]:

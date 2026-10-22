@@ -50,13 +50,14 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from calevate_shared.call_script import opening_line_of
+from calevate_shared.languages import offered_language_tags
 from calevate_shared.spoken_guard import textbook_problem
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import lifecycle
-from apps.api.agents.languages import LANGUAGE_LABELS, PRODUCT_LANGUAGES, OfferedLanguage
+from apps.api.agents.languages import LANGUAGE_LABELS, OfferedLanguage
 from apps.api.campaigns import controls as campaign_controls
 from apps.api.campaigns import service as campaigns_service
 from apps.api.copilot.actions import (
@@ -1863,7 +1864,7 @@ async def _invert_agent_edit(session: AsyncSession, actor: ToolActor, record: Un
 _AGENT_EDIT_PROPERTIES: Final[dict[str, Any]] = {
     "agent_id": {"type": "string", "description": "The agent's id, never invented."},
     "language_primary": {
-        "anyOf": [{"type": "string", "enum": list(PRODUCT_LANGUAGES)}, {"type": "null"}],
+        "anyOf": [{"type": "string", "enum": list(offered_language_tags())}, {"type": "null"}],
         "description": "The language it should mainly speak, or null to leave it.",
     },
     "voice_id": {
@@ -2629,7 +2630,10 @@ BUSINESS_PROFILE_SET: Final = ActionTool(
             },
             "languages": {
                 "anyOf": [
-                    {"type": "array", "items": {"type": "string", "enum": list(PRODUCT_LANGUAGES)}},
+                    {
+                        "type": "array",
+                        "items": {"type": "string", "enum": list(offered_language_tags())},
+                    },
                     {"type": "null"},
                 ],
                 "description": "The languages agents created from now on start replying "

@@ -3153,6 +3153,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/languages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The languages this account's agents may speak
+         * @description What every language picker offers and what `language_primary` and `reply_languages` accept for this account right now.
+         */
+        get: operations["agent_languages_v1_agents_languages_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/starters": {
         parameters: {
             query?: never;
@@ -11656,7 +11676,7 @@ export interface components {
             /** Hours */
             hours: components["schemas"]["DayHours"][];
             /** Languages */
-            languages: ("te-IN" | "hi-IN" | "en-IN")[];
+            languages: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN")[];
             /** Legal Name */
             legal_name: string | null;
             /** Merge Notes */
@@ -12219,13 +12239,13 @@ export interface components {
              * @default te-IN
              * @enum {string}
              */
-            language_primary: "te-IN" | "hi-IN" | "en-IN";
+            language_primary: "te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN";
             /** Max Call Duration S */
             max_call_duration_s?: number | null;
             /** Name */
             name: string;
             /** Reply Languages */
-            reply_languages?: ("te-IN" | "hi-IN" | "en-IN")[] | null;
+            reply_languages?: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN")[] | null;
             /** Starter */
             starter?: ("answer_calls" | "call_new_leads" | "call_leads") | null;
         };
@@ -12237,6 +12257,21 @@ export interface components {
             agent_name: string | null;
             /** Calls Inr */
             calls_inr: string;
+        };
+        /** AgentLanguageOut */
+        AgentLanguageOut: {
+            /** Name */
+            name: string;
+            /**
+             * Tag
+             * @enum {string}
+             */
+            tag: "te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN";
+        };
+        /** AgentLanguagesOut */
+        AgentLanguagesOut: {
+            /** Languages */
+            languages: components["schemas"]["AgentLanguageOut"][];
         };
         /**
          * AgentLifecycleOut
@@ -12334,7 +12369,7 @@ export interface components {
              * Language Primary
              * @enum {string}
              */
-            language_primary: "te-IN" | "hi-IN" | "en-IN";
+            language_primary: "te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN";
             /** Llm Surcharged */
             llm_surcharged: boolean;
             /** Llm Tier */
@@ -12362,7 +12397,7 @@ export interface components {
             /** Recording Notice Line */
             recording_notice_line: string;
             /** Reply Languages */
-            reply_languages: ("te-IN" | "hi-IN" | "en-IN")[];
+            reply_languages: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN")[];
             /**
              * Script Opening Line
              * @default
@@ -12516,13 +12551,13 @@ export interface components {
             /** Engine Voice Id */
             engine_voice_id?: string | null;
             /** Language Primary */
-            language_primary?: ("te-IN" | "hi-IN" | "en-IN") | null;
+            language_primary?: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN") | null;
             /** Llm Tier */
             llm_tier?: ("standard" | "plus" | "pro") | null;
             /** Name */
             name?: string | null;
             /** Reply Languages */
-            reply_languages?: ("te-IN" | "hi-IN" | "en-IN")[] | null;
+            reply_languages?: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN")[] | null;
         };
         /**
          * AgentVoiceOut
@@ -12985,7 +13020,7 @@ export interface components {
              * Language
              * @enum {string}
              */
-            language: "te-IN" | "hi-IN" | "en-IN";
+            language: "te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN";
         };
         /** Body_record_hosted_clone_consent_v1_ops_voices_hosted_clone_consent_post */
         Body_record_hosted_clone_consent_v1_ops_voices_hosted_clone_consent_post: {
@@ -13268,7 +13303,7 @@ export interface components {
             /** Hours */
             hours: components["schemas"]["DayHours"][];
             /** Languages */
-            languages: ("te-IN" | "hi-IN" | "en-IN")[];
+            languages: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN")[];
             /** Legal Name */
             legal_name: string | null;
             /** Required Steps */
@@ -19933,9 +19968,9 @@ export interface components {
              * Language Primary
              * @enum {string}
              */
-            language_primary: "te-IN" | "hi-IN" | "en-IN";
+            language_primary: "te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN";
             /** Languages Extra */
-            languages_extra?: ("te-IN" | "hi-IN" | "en-IN")[];
+            languages_extra?: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN")[];
         };
         /**
          * KbDriftOut
@@ -23408,7 +23443,7 @@ export interface components {
             /** Hours */
             hours?: components["schemas"]["DayHours"][] | null;
             /** Languages */
-            languages?: ("te-IN" | "hi-IN" | "en-IN")[] | null;
+            languages?: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN")[] | null;
             /** Services */
             services?: components["schemas"]["ServiceItem"][] | null;
             /** Staff */
@@ -29061,7 +29096,7 @@ export interface components {
             /** Label */
             label: string;
             /** Languages */
-            languages: ("te-IN" | "hi-IN" | "en-IN")[];
+            languages: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN")[];
             /** Note */
             note: string;
             /**
@@ -35508,11 +35543,40 @@ export interface operations {
             };
         };
     };
+    agent_languages_v1_agents_languages_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentLanguagesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_starters_v1_agents_starters_get: {
         parameters: {
             query?: {
                 job?: ("answer_calls" | "call_new_leads" | "call_leads") | null;
-                language?: ("te-IN" | "hi-IN" | "en-IN") | null;
+                language?: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN") | null;
             };
             header?: never;
             path?: never;

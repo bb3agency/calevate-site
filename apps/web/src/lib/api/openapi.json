@@ -909,7 +909,11 @@
               "enum": [
                 "te-IN",
                 "hi-IN",
-                "en-IN"
+                "en-IN",
+                "ta-IN",
+                "kn-IN",
+                "ml-IN",
+                "mr-IN"
               ],
               "type": "string"
             },
@@ -2775,7 +2779,11 @@
             "enum": [
               "te-IN",
               "hi-IN",
-              "en-IN"
+              "en-IN",
+              "ta-IN",
+              "kn-IN",
+              "ml-IN",
+              "mr-IN"
             ],
             "title": "Language Primary",
             "type": "string"
@@ -2806,7 +2814,11 @@
                   "enum": [
                     "te-IN",
                     "hi-IN",
-                    "en-IN"
+                    "en-IN",
+                    "ta-IN",
+                    "kn-IN",
+                    "ml-IN",
+                    "mr-IN"
                   ],
                   "type": "string"
                 },
@@ -2881,6 +2893,49 @@
           "calls_inr"
         ],
         "title": "AgentDailySpendOut",
+        "type": "object"
+      },
+      "AgentLanguageOut": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tag": {
+            "enum": [
+              "te-IN",
+              "hi-IN",
+              "en-IN",
+              "ta-IN",
+              "kn-IN",
+              "ml-IN",
+              "mr-IN"
+            ],
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "name"
+        ],
+        "title": "AgentLanguageOut",
+        "type": "object"
+      },
+      "AgentLanguagesOut": {
+        "properties": {
+          "languages": {
+            "items": {
+              "$ref": "#/components/schemas/AgentLanguageOut"
+            },
+            "title": "Languages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "languages"
+        ],
+        "title": "AgentLanguagesOut",
         "type": "object"
       },
       "AgentLifecycleOut": {
@@ -3069,7 +3124,11 @@
             "enum": [
               "te-IN",
               "hi-IN",
-              "en-IN"
+              "en-IN",
+              "ta-IN",
+              "kn-IN",
+              "ml-IN",
+              "mr-IN"
             ],
             "title": "Language Primary",
             "type": "string"
@@ -3141,7 +3200,11 @@
               "enum": [
                 "te-IN",
                 "hi-IN",
-                "en-IN"
+                "en-IN",
+                "ta-IN",
+                "kn-IN",
+                "ml-IN",
+                "mr-IN"
               ],
               "type": "string"
             },
@@ -3540,7 +3603,11 @@
                 "enum": [
                   "te-IN",
                   "hi-IN",
-                  "en-IN"
+                  "en-IN",
+                  "ta-IN",
+                  "kn-IN",
+                  "ml-IN",
+                  "mr-IN"
                 ],
                 "type": "string"
               },
@@ -3586,7 +3653,11 @@
                   "enum": [
                     "te-IN",
                     "hi-IN",
-                    "en-IN"
+                    "en-IN",
+                    "ta-IN",
+                    "kn-IN",
+                    "ml-IN",
+                    "mr-IN"
                   ],
                   "type": "string"
                 },
@@ -4853,7 +4924,11 @@
             "enum": [
               "te-IN",
               "hi-IN",
-              "en-IN"
+              "en-IN",
+              "ta-IN",
+              "kn-IN",
+              "ml-IN",
+              "mr-IN"
             ],
             "title": "Language",
             "type": "string"
@@ -5760,7 +5835,11 @@
               "enum": [
                 "te-IN",
                 "hi-IN",
-                "en-IN"
+                "en-IN",
+                "ta-IN",
+                "kn-IN",
+                "ml-IN",
+                "mr-IN"
               ],
               "type": "string"
             },
@@ -23074,7 +23153,11 @@
             "enum": [
               "te-IN",
               "hi-IN",
-              "en-IN"
+              "en-IN",
+              "ta-IN",
+              "kn-IN",
+              "ml-IN",
+              "mr-IN"
             ],
             "title": "Language Primary",
             "type": "string"
@@ -23084,7 +23167,11 @@
               "enum": [
                 "te-IN",
                 "hi-IN",
-                "en-IN"
+                "en-IN",
+                "ta-IN",
+                "kn-IN",
+                "ml-IN",
+                "mr-IN"
               ],
               "type": "string"
             },
@@ -32393,7 +32480,11 @@
                   "enum": [
                     "te-IN",
                     "hi-IN",
-                    "en-IN"
+                    "en-IN",
+                    "ta-IN",
+                    "kn-IN",
+                    "ml-IN",
+                    "mr-IN"
                   ],
                   "type": "string"
                 },
@@ -46691,7 +46782,11 @@
               "enum": [
                 "te-IN",
                 "hi-IN",
-                "en-IN"
+                "en-IN",
+                "ta-IN",
+                "kn-IN",
+                "ml-IN",
+                "mr-IN"
               ],
               "type": "string"
             },
@@ -58112,6 +58207,35 @@
         "x-calevate-permission": "agents:read"
       }
     },
+    "/v1/agents/languages": {
+      "get": {
+        "description": "What every language picker offers and what `language_primary` and `reply_languages` accept for this account right now.",
+        "operationId": "agent_languages_v1_agents_languages_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentLanguagesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The languages this account's agents may speak",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
     "/v1/agents/starters": {
       "get": {
         "description": "What `POST /v1/agents` with `starter` would create, for YOUR account's business type: the suggested name, the opening line, the script's step titles and the details the agent captures. `job` narrows it to one job; omitted, every job is returned (\"Answer my calls\" first). Every job is open on a free trial: a test call rings the owner from any ready agent (D-853, D-855). Nothing is created by this read.",
@@ -58148,7 +58272,11 @@
                   "enum": [
                     "te-IN",
                     "hi-IN",
-                    "en-IN"
+                    "en-IN",
+                    "ta-IN",
+                    "kn-IN",
+                    "ml-IN",
+                    "mr-IN"
                   ],
                   "type": "string"
                 },

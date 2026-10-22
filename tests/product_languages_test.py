@@ -35,9 +35,14 @@ WHAT THIS FILE ASSERTS, and why each one is a property rather than a copy
    refused again by the CHECK constraint.
 
 4. **Both ends of the column are closed.** A validated type at the boundary (RFC-9457
-   problem naming the three that work) and `ck_agents_language_primary_offered` in the
-   database (migration c7a41e8b52d9), because the routes are not the only writer — the
-   admin service, the intake path and every future backfill write this column in SQL.
+   problem naming the languages that work) and `ck_agents_language_primary_offered` in the
+   database (migrations c7a41e8b52d9, d6f1a8c3e925), because the routes are not the only
+   writer — the admin service, the intake path and every future backfill write this column
+   in SQL.
+
+Since D-855 the wire enum, the CHECK and the sentence tables cover the BUILT languages (the
+three offered plus the staged ones); which of them a client may choose is run-time state,
+tested in `tests/staged_languages_test.py`.
 
 Run: uv run pytest -q tests/product_languages_test.py
 """
@@ -53,8 +58,8 @@ from typing import get_args
 import pytest
 from apps.api.agents import handoff, voice_sync
 from apps.api.agents.languages import (
+    BUILT_LANGUAGES,
     LANGUAGE_LABELS,
-    PRODUCT_LANGUAGES,
     Language,
     language_refusal,
 )
@@ -67,11 +72,12 @@ from apps.api.db.session import tenant_session, untenanted_session
 from calevate_shared.languages import (
     LANGUAGES,
     OFFERED_LANGUAGE_IDS,
+    built_language_tags,
+    built_languages,
     comprehension_only_languages,
     conversational_languages,
     find_language,
     offered_language_tags,
-    offered_languages,
 )
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -87,36 +93,40 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: the one no click-through would ever produce.
 COMPREHENSION_ONLY_TAG = "as-IN"
 
-#: A language that is conversational and simply not sold — a different refusal.
+#: A language that is built and held back from clients (D-855): refused at the wire like
+#: any language we do not sell, admitted by the database.
 UNSOLD_TAG = "ta-IN"
+
+#: A conversational language that is not even built: the database refuses it too.
+UNBUILT_TAG = "bn-IN"
 
 
 # ---------------------------------------------------------------- 1. one source of truth
 
 
-def test_the_wire_literal_is_exactly_the_offered_set() -> None:
+def test_the_wire_literal_is_exactly_the_built_set() -> None:
     """The one hand-typed copy, pinned to the declaration in both directions.
 
-    An inequality here means somebody widened the Literal without widening the offer (so
-    the API accepts a language with no spoken sentences, no voice and no CHECK) or the
-    reverse (so the declaration promises what no route will take).
+    An inequality here means somebody widened the Literal without widening the declaration
+    (so the API types a language with no spoken sentences and no CHECK) or the reverse.
     """
-    assert get_args(Language) == offered_language_tags()
-    assert offered_language_tags() == PRODUCT_LANGUAGES
+    assert get_args(Language) == built_language_tags()
+    assert built_language_tags() == BUILT_LANGUAGES
+    assert built_language_tags()[: len(offered_language_tags())] == offered_language_tags()
 
 
 def test_the_voice_catalogue_filter_is_the_same_object_not_a_copy() -> None:
     """`voice_sync` filters the engine's voices by product language. Identity, not
     equality: two equal tuples can be two literals that happen to agree today."""
-    assert voice_sync.PRODUCT_LANGUAGES is PRODUCT_LANGUAGES
+    assert voice_sync.BUILT_LANGUAGES is BUILT_LANGUAGES
 
 
 def test_the_labels_are_the_declarations_own_names() -> None:
     """One name per language across the product. The copilot's card used to say "Indian
     English" while every screen said "English (India)" — same language, same operator,
     two words, and nothing that could notice."""
-    assert tuple(LANGUAGE_LABELS) == offered_language_tags()
-    assert {row.bcp47: row.english_name for row in offered_languages()} == LANGUAGE_LABELS
+    assert tuple(LANGUAGE_LABELS) == built_language_tags()
+    assert {row.bcp47: row.english_name for row in built_languages()} == LANGUAGE_LABELS
 
 
 def test_the_copilot_offers_the_assistant_exactly_what_the_api_accepts() -> None:
@@ -125,8 +135,8 @@ def test_the_copilot_offers_the_assistant_exactly_what_the_api_accepts() -> None
     parameters = AGENT_CREATE.schema["function"]["parameters"]
     schema = parameters["properties"]["language_primary"]
     assert tuple(schema["enum"]) == offered_language_tags()
-    for tag, label in LANGUAGE_LABELS.items():
-        assert f"{tag} {label}" in schema["description"], (
+    for tag in offered_language_tags():
+        assert f"{tag} {LANGUAGE_LABELS[tag]}" in schema["description"], (
             "the tool's description must name each tag it offers, composed from the "
             "labels rather than typed beside them"
         )
@@ -140,7 +150,7 @@ def test_no_offered_language_has_a_vendor_spelling_of_its_own() -> None:
     subtag of our tag" starts describing a language the vendor names differently. This
     fails then, which is before a call, rather than in an adapter at listing time.
     """
-    for row in offered_languages():
+    for row in built_languages():
         for (vendor, leg), code in row.codes.items():
             assert code == row.bcp47, (
                 f"{row.id} is offered and {vendor}/{leg} spells it {code}, not {row.bcp47}: "
@@ -159,7 +169,7 @@ def test_every_offered_language_has_the_sentences_an_agent_speaks() -> None:
         "handoff_spoken": handoff.HANDOFF_SPOKEN_TEMPLATES,
     }
     for name, table in tables.items():
-        for tag in offered_language_tags():
+        for tag in built_language_tags():
             assert table.get(tag, "").strip(), f"{name} has nothing to say in {tag}"
 
 
@@ -181,7 +191,7 @@ def test_the_check_constraint_admits_exactly_the_offered_set() -> None:
             constraint.sqltext
         ):
             literals |= set(re.findall(r"'([^']+)'", str(constraint.sqltext)))
-    assert literals == set(offered_language_tags())
+    assert literals == set(built_language_tags())
 
 
 # ------------------------------------------------- 2. nothing re-introduces its own list
@@ -224,8 +234,8 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
     ),
     "apps/web/src/lib/agentState.ts": (
         "the console's one table of language NAMES, `Record<AgentLanguage, string>` over "
-        "the generated union — exhaustive by the type checker, so the keys are the same "
-        "three and cannot silently become four"
+        "the generated union — exhaustive by the type checker, so the keys are the built "
+        "set and cannot silently grow; plus the staged set its static picker leaves out"
     ),
 }
 
@@ -276,7 +286,7 @@ def _tags_in_python(path: Path) -> set[str]:
         for node in ast.walk(tree)
         if isinstance(node, ast.Constant)
         and isinstance(node.value, str)
-        and node.value in offered_language_tags()
+        and node.value in built_language_tags()
         and node not in docstrings
     }
 
@@ -295,7 +305,7 @@ def _tags_in_typescript(path: Path) -> set[str]:
     for line in path.read_text(encoding="utf-8").splitlines():
         if _TS_COMMENT.match(line):
             continue
-        found |= {tag for tag in offered_language_tags() if f'"{tag}"' in line}
+        found |= {tag for tag in built_language_tags() if f'"{tag}"' in line}
     return found
 
 
@@ -331,9 +341,9 @@ def test_no_module_spells_the_offered_set_for_itself() -> None:
 def test_every_offered_language_can_be_both_heard_and_spoken() -> None:
     """The containment the whole declaration exists to keep. Derived from `support()`
     rather than read off `conversational`, so a flattened property cannot pass it."""
-    for row in offered_languages():
-        assert row.understood, f"{row.id} is offered and no verified STT leg transcribes it"
-        assert row.answerable, f"{row.id} is offered and no verified TTS leg speaks it"
+    for row in built_languages():
+        assert row.understood, f"{row.id} is built and no verified STT leg transcribes it"
+        assert row.answerable, f"{row.id} is built and no verified TTS leg speaks it"
     assert set(OFFERED_LANGUAGE_IDS) <= {row.id for row in conversational_languages()}
 
 
@@ -356,8 +366,11 @@ def test_the_refusal_names_the_dead_air_rather_than_the_rule() -> None:
     unknown = language_refusal("xx-IN")
     assert "not a language code we recognise" in unknown
     for message in (dead_air, unsold, unknown):
-        for tag, label in LANGUAGE_LABELS.items():
-            assert f"{tag} ({label})" in message, "every refusal names what WOULD work"
+        for tag in offered_language_tags():
+            assert f"{tag} ({LANGUAGE_LABELS[tag]})" in message, (
+                "every refusal names what WOULD work"
+            )
+        assert "ta-IN (Tamil)" not in message, "a held-back language is never named"
 
 
 # --------------------------------------------------------- 4. both ends of the column
@@ -466,7 +479,7 @@ async def test_a_created_agent_reports_its_language_as_the_union() -> None:
     assert created.json()["language_primary"] == "hi-IN"
 
 
-@pytest.mark.parametrize("tag", ["xx-IN", COMPREHENSION_ONLY_TAG, UNSOLD_TAG, ""])
+@pytest.mark.parametrize("tag", ["xx-IN", COMPREHENSION_ONLY_TAG, UNBUILT_TAG, ""])
 async def test_the_database_refuses_what_no_route_would_send(tag: str) -> None:
     """THE OTHER END, and the reason the CHECK is worth a migration: the routes are not
     the only writer. `admin/service.create_organization`, the intake path and every

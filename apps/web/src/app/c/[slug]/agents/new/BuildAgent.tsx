@@ -5,7 +5,8 @@ import { useState, type ReactNode } from "react";
 
 import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { StepFlow } from "@/components/console/stepFlow";
-import { DIRECTION_COPY, LANGUAGE_CHOICES, LANGUAGE_NAMES } from "@/lib/agentState";
+import { DIRECTION_COPY, LANGUAGE_NAMES } from "@/lib/agentState";
+import { useAgentLanguageChoices } from "@/lib/api/agentLanguages";
 import {
   useCreateAgent,
   type Agent,
@@ -63,6 +64,7 @@ export function BuildAgent({ slug }: { slug: string }) {
  */
 export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => void }) {
   const session = useClientSession();
+  const languageChoices = useAgentLanguageChoices(session);
   const { href } = useClientRealm();
   const router = useRouter();
   const lanes = useLanes(session);
@@ -159,7 +161,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
               label: "What language does it speak?",
               type: "select",
               value: language,
-              options: LANGUAGE_CHOICES.map(({ value, label }) => ({ value, label })),
+              options: languageChoices.map(({ value, label }) => ({ value, label })),
             },
             {
               id: "new-agent-cap",
@@ -270,7 +272,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
                     }}
                     className={FIELD}
                   >
-                    {LANGUAGE_CHOICES.map((choice) => (
+                    {languageChoices.map((choice) => (
                       <option key={choice.value} value={choice.value}>
                         {choice.label}
                       </option>

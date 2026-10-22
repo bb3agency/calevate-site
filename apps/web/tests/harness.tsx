@@ -3,6 +3,7 @@ import { act, render, type RenderResult } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { expect, vi } from "vitest";
 
+import { LANGUAGE_CHOICES } from "@/lib/agentState";
 import { clearImpersonationGrants } from "@/lib/api/admin";
 import { dismissStepUpPrompt } from "@/lib/authn/stepUpPrompt";
 import { API_BASE } from "@/lib/api/client";
@@ -297,6 +298,10 @@ export function stubApi(routes: Routes): ApiCall[] {
         // per-trade table every existing assertion was written against. A test about the
         // generated examples names the route itself.
         if (scoped === "GET /v1/business-copy") return jsonResponse(NO_BUSINESS_COPY);
+        // THE LANGUAGES AN ACCOUNT MAY GIVE AN AGENT (D-855), answered with the three every
+        // account is offered: every language picker reads them. A test about a staged
+        // language being switched on names the route itself.
+        if (scoped === "GET /v1/agents/languages") return jsonResponse(DEFAULT_AGENT_LANGUAGES);
         if (/^GET \/v1\/admin\/tenants\/[^/]+\/business-copy$/.test(scoped)) {
           return jsonResponse(NO_ADMIN_BUSINESS_COPY);
         }
@@ -345,6 +350,11 @@ export function stubApi(routes: Routes): ApiCall[] {
   );
   return calls;
 }
+
+/** `GET /v1/agents/languages` with nothing staged switched on. See `stubApi`. */
+export const DEFAULT_AGENT_LANGUAGES = {
+  languages: LANGUAGE_CHOICES.map(({ value, label }) => ({ tag: value, name: label })),
+};
 
 /** A live, fully authenticated session per realm. See the fallback in `stubApi`. */
 const DEFAULT_SESSIONS: Record<string, unknown> = {

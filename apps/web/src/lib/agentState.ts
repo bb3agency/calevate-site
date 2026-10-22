@@ -116,7 +116,7 @@ export const DIRECTION_COPY: Record<string, { label: string; hint: string }> = {
 };
 
 /**
- * The three languages that ship, in the words a client reads.
+ * Every language an agent can be stored in, in the words a client reads.
  *
  * `Record<AgentLanguage, string>` over the GENERATED union, not `Record<string, string>`:
  * a fourth language on the server is then a type error here rather than an unnamed option
@@ -138,11 +138,27 @@ export const LANGUAGE_NAMES: Record<AgentLanguage, string> = {
   "te-IN": "Telugu",
   "hi-IN": "Hindi",
   "en-IN": "English (India)",
+  // Built and held back from clients until the console switches each on (D-855).
+  "ta-IN": "Tamil",
+  "kn-IN": "Kannada",
+  "ml-IN": "Malayalam",
+  "mr-IN": "Marathi",
 };
 
+/** The staged languages (D-855): never in a static picker; `useAgentLanguageChoices` adds
+ * the ones the server says this account may choose. */
+const STAGED_LANGUAGES: ReadonlySet<AgentLanguage> = new Set<AgentLanguage>([
+  "ta-IN",
+  "kn-IN",
+  "ml-IN",
+  "mr-IN",
+]);
+
 /**
- * The same three as a list, in the same order (Telugu first — BRD §1 and the column's
- * server default), for every picker that renders options rather than looking one up.
+ * The three every account is offered, in the same order (Telugu first — BRD §1 and the
+ * column's server default), for every picker that renders options rather than looking one
+ * up. A picker that should also show a switched-on staged language reads
+ * `lib/api/agentLanguages.useAgentLanguageChoices`.
  *
  * Derived from the table above so an option list cannot go stale against the names beside
  * it. `Object.keys` is typed back to the union because that is what it holds: TypeScript
@@ -151,7 +167,9 @@ export const LANGUAGE_NAMES: Record<AgentLanguage, string> = {
  */
 export const LANGUAGE_CHOICES: { value: AgentLanguage; label: string }[] = (
   Object.keys(LANGUAGE_NAMES) as AgentLanguage[]
-).map((value) => ({ value, label: LANGUAGE_NAMES[value] }));
+)
+  .filter((value) => !STAGED_LANGUAGES.has(value))
+  .map((value) => ({ value, label: LANGUAGE_NAMES[value] }));
 
 export const STATUS_COPY: Record<string, { label: string; hint: string }> = {
   draft: {

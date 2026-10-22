@@ -43,7 +43,8 @@ import {
 } from "@/components/ui";
 import { SaveBar } from "@/components/console/saveBar";
 import { useFormValidation } from "@/components/formValidation";
-import { LANGUAGE_CHOICES, LANGUAGE_NAMES, isDeleted } from "@/lib/agentState";
+import { LANGUAGE_NAMES, isDeleted } from "@/lib/agentState";
+import { useAgentLanguageChoices } from "@/lib/api/agentLanguages";
 import {
   useUpdateAgent,
   type Agent,
@@ -54,7 +55,7 @@ import {
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useRewriteOpeningInLanguage } from "@/lib/api/script";
 import { useClientSession } from "@/lib/api/session";
-import { hasKey } from "@/lib/lookup";
+import { hasKey, lookup } from "@/lib/lookup";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { DIRECTIONS, DirectionPicker } from "./DirectionChoice";
@@ -63,6 +64,7 @@ import { asText } from "@/lib/copilot/types";
 
 export function AgentIdentity({ agent }: { agent: Agent }) {
   const session = useClientSession();
+  const languageChoices = useAgentLanguageChoices(session);
   const save = useUpdateAgent(session, agent.id);
   const rewrite = useRewriteOpeningInLanguage(session, agent.id);
   /* After a main-language change is saved: the language whose ready-made opening line is
@@ -114,7 +116,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
               label: "Language",
               type: "select",
               value: language ?? agent.language_primary,
-              options: LANGUAGE_CHOICES.map((c) => ({ value: c.value, label: c.label })),
+              options: languageChoices.map((c) => ({ value: c.value, label: c.label })),
             },
           ],
           facts: [{ key: "agent_id", label: "Agent id", value: agent.id }],
@@ -227,10 +229,10 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
               language added or retired by the API is not silently changed by opening this
               screen. Choosing it back is a no-op: `language` stays null and the patch never
               names the field. */}
-          {language === null && (
-            <option value={agent.language_primary}>{agent.language_primary}</option>
+          {!languageChoices.some((choice) => choice.value === mainLanguage) && (
+            <option value={mainLanguage}>{lookup(LANGUAGE_NAMES, mainLanguage) ?? mainLanguage}</option>
           )}
-          {LANGUAGE_CHOICES.map((choice) => (
+          {languageChoices.map((choice) => (
             <option key={choice.value} value={choice.value}>
               {choice.label}
             </option>
@@ -248,7 +250,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
       <fieldset>
         <legend className={FIELD_LABEL}>It also replies in</legend>
         <div className="mt-2 space-y-2">
-          {LANGUAGE_CHOICES.filter((choice) => choice.value !== mainLanguage).map((choice) => (
+          {languageChoices.filter((choice) => choice.value !== mainLanguage).map((choice) => (
             <label key={choice.value} className="flex items-center gap-2 text-sm text-ink touch:min-h-11">
               <input
                 type="checkbox"
