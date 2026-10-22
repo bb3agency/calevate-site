@@ -1408,3 +1408,23 @@ async def test_a_rotation_replaces_the_developer_workspaces_google_key(
     monkeypatch.setattr(own_model_key, "_runs_own_model", lambda: bare)
     assert await own_model_key.push_own_model_key({}, {}) == "developer=not_held workspaces=0"
     assert bare.calls == []
+
+
+async def test_an_engine_that_hosts_no_voices_publishes_without_our_model() -> None:
+    """Our model rides the hosted-voice platform's own-key scope (D-764); an adapter without
+    that surface drops the choice instead of reaching for a workspace it does not have."""
+    from apps.api.agents.service import _own_model_in_workspace
+
+    class _NoHosting:
+        name = "plain"
+
+    config = _cfg(engine_own_model="gemini-2.5-flash-lite")
+    kept, rate_key = await _own_model_in_workspace(
+        None,  # type: ignore[arg-type]
+        _NoHosting(),  # type: ignore[arg-type]
+        tenant_id=TENANT,
+        rate_key="platform",
+        config=config,
+    )
+    assert kept.engine_own_model is None
+    assert rate_key == "platform"

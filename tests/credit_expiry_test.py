@@ -136,3 +136,17 @@ async def test_the_daily_job_expires_only_what_is_due(expiry_on: None) -> None:
     async with tenant_session(tenant_id) as session:
         lot = await credit_lots.read_lot(session, lot_id=lot_id)
     assert lot is not None and lot.closed_at is None, "a lot not yet due was expired"
+
+
+async def test_a_lot_not_yet_due_is_left_alone_when_asked_directly(expiry_on: None) -> None:
+    """`expire_lot` re-reads the lot under the credit lock: a caller holding a stale due list
+    must not lapse credit that is not due."""
+    tenant_id, _agent = await _tenant(monthly_fee=None)
+    lot_id = await _buy(tenant_id, "500")
+    async with tenant_session(tenant_id) as session:
+        lot = await credit_lots.read_lot(session, lot_id=lot_id)
+        assert lot is not None and lot.expires_at is not None
+        early = lot.expires_at - timedelta(seconds=1)
+        assert await expire_lot(session, tenant_id=tenant_id, lot_id=lot_id, now=early) is None
+        balance = await get_balance(session, tenant_id=tenant_id)
+    assert balance.amount_inr == Decimal("500")
