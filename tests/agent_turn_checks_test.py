@@ -22,6 +22,7 @@ from apps.api.agents.turn_checks import (
     JOB_KINDS,
     SOUND_KINDS,
     Kind,
+    claims_done,
     formal_swaps,
     sentences,
     turn_problems,
@@ -194,9 +195,11 @@ def test_the_standard_set_carries_the_shape_callers() -> None:
 
 def test_the_prompt_says_the_turn_and_voice_rules() -> None:
     block = VOICE_STYLE_GUIDANCE.lower()
-    # The turn length, one question a turn and no brackets are ThinnestAI's own speaking
-    # rules, read on every call after ours (D-814, D-824).
-    assert "lead with the answer, then wait" in block
+    # Turn length, one question a turn and no brackets are ours again since D-856, so the
+    # practice chat reads the rules a call follows.
+    assert "one or two short sentences, then wait" in block
+    assert "lead with the answer" in block and "react in a few words" in block
+    assert "one question a turn" in block and "brackets" in block
     assert "never the caller's" in block
     assert "actions or notes" in block and "say the time" in block
     assert "never re-ask" in block
@@ -243,3 +246,28 @@ def test_a_price_said_the_way_its_languages_number_rule_allows_is_never_flagged(
         if native is not None:
             flagged = "spoken_number" in _kinds(native, language=tag)
             assert flagged is not style.native_price_words, tag
+
+
+# --- the founder's calls of 20-22 Oct 2026 and a competitor's (D-856) ---------------------
+
+
+def test_asking_leave_to_tell_is_noted_and_telling_is_not() -> None:
+    asked = "సరే అండి, గుంటూరుకు డెలివరీ చేస్తాం. మీరు ఎండు మిర్చి ధర గురించి తెలుసుకోవాలనుకుంటున్నారా?"
+    assert "asks_to_tell" in _kinds(asked, language="te-IN")
+    assert "asks_to_tell" in _kinds("Would you like to know the price?", language="en-IN")
+    told = "One kg is four fifty rupees. Shall I take the order?"
+    assert "asks_to_tell" not in _kinds(told, language="en-IN")
+    assert "asks_to_tell" in SOUND_KINDS
+
+
+def test_a_question_said_again_with_its_options_is_one_question() -> None:
+    restated = "ఏ area లో చూస్తున్నారు అండి? అంటే ఏదైనా particular area ఉందా?"
+    assert "several_questions" not in _kinds(restated, language="te-IN")
+    two = "ఏ item కావాలి? Delivery కావాలా?"
+    assert "several_questions" in _kinds(two, language="te-IN")
+
+
+def test_fixing_a_slot_is_a_done_claim() -> None:
+    assert claims_done("సాటర్డే మధ్యాహ్నం సైట్ విజిట్ ఫిక్స్ చేశాను.")
+    assert claims_done("Slot fix कर दिया है।")
+    assert not claims_done("Site visit fix చేయమంటారా?")

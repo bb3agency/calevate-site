@@ -2740,19 +2740,14 @@ def platform_rules_preamble(cfg: AgentConfig) -> str:
 #: polite words, its textbook words) is that language's line in `spoken_style.json`, not
 #: here.
 #:
-#: THINNESTAI'S OWN SPEAKING RULES ARE READ ON CALLS ONLY (D-814, D-845). The voice platform
-#: reads its built-in rules to the model on every call, after our instructions, and we keep
-#: them (founder, 18 Oct 2026); their text is `docs/vendor/thinnest-speaking-rules-2026-10-18.md`
-#: (VENDOR-STATED, ThinnestAI email of 18 Oct 2026). So the turn length, one question per
-#: turn, titles in full, no brackets and varying the opening are theirs and not said here.
-#: That text is the engine's DEFAULT CALL RULES (§23.0 item 3 of the replies file, 21 Oct
-#: 2026), not the speaking rules it always adds: with `engine_call_instructions` on (D-850)
-#: `CALL_INSTRUCTIONS` replaces it and carries each of these.
-#: Those rules are "the rules the agent follows on calls, and only on calls" and leave chat
-#: replies untouched (`channels/voice.md:180-181`, 19 Oct 2026 snapshot), and the practice
-#: tests run in the engine's chat. So the few of theirs that keep an agent honest (never
-#: ask again or repeat a sentence, say when it does not know, nothing is done until a tool
-#: did it) are said here as well, in one clause each.
+#: THE ENGINE'S CALL RULES ARE READ ON CALLS ONLY. Its default call rules
+#: (`docs/vendor/thinnest-speaking-rules-2026-10-18.md`, the same text as §23.0 item 3 of the
+#: replies file, VENDOR-STATED) are "the rules the agent follows on calls, and only on calls"
+#: and leave chat replies untouched (`channels/voice.md:180-181`, 19 Oct 2026 snapshot), while
+#: the practice tests run in the engine's chat. So the rules a call is judged by live HERE, in
+#: the instructions both read, and `CALL_INSTRUCTIONS` (which replaces the defaults while
+#: `engine_call_instructions` is on, D-850) keeps only the call frame (D-856). Titles in full
+#: stays the engine's always-added speaking rule.
 #:
 #: WHAT COUNTS AS THE CALLER SWITCHING LANGUAGE (D-849). Every agent follows the caller
 #: (`language: auto`, D-830), and on a call the recogniser decides each sentence's language
@@ -2772,31 +2767,46 @@ _REGISTER_BULLET: Final = (
     "- Match the caller's language and register; never formal or written-style words, never "
     f'"uhm". {_SWITCH_RULE}\n'
 )
-#: The cut-off bullet answers the calls of 21 Oct 2026, where the caller's half sentence
-#: ("నాకొక", "కారం పొడి కావాలండి ఒక") was finished for them as "one kg". The turn timer stays at
-#: 0.25 s because a longer one delays every reply (founder, 21 Oct 2026); a two-word "go on"
-#: costs one short turn instead. The read-back says what was heard, never "noted":
-#: ThinnestAI's speaking rules ask the model to show it understood before it answers, and the
-#: echo became "two kg noted" with nothing noted.
+#: HOW TO SPEAK is the ONE place for turn shape, on calls and in the practice chat alike
+#: (D-856). It used to be split with `CALL_INSTRUCTIONS`, which the engine reads on calls only,
+#: so the practice tests ran without half the rules the calls had and a call read several of
+#: them twice. The turn bullets answer the founder's calls of 20-22 Oct 2026 against a
+#: competitor's call he judged natural (`docs/evidence/call-quality-vs-outpero-2026-10-23.md`):
+#: - "React, then ask" replaces the vendor's "never reply with only an acknowledgement and a
+#:   question", which the agent read as "skip the reaction": it asked "do you want to know the
+#:   price?" four calls running instead of reacting and saying it.
+#: - A half answer ("నాకొక", "కారం పొడి కావాలండి ఒక") gets the agent's reading offered as a
+#:   question with a way out, rather than a bare "go on" (D-849) or a guess acted on: guessing
+#:   and moving on ("one kg" plus the next question) is implicit confirmation, which saves a turn
+#:   but leaves a wrong guess hard to correct, and the caller had to correct it on two calls.
+#: - Choices in a question ("morning or evening?") are allowed with the one-question rule,
+#:   because a question with its options is easier to answer than an open one.
+#: - The close says what happens next once, so the caller is not left with "noted, thanks".
+#: The turn timer stays at 0.25 s (founder, 21 Oct 2026); the read-back says what was heard,
+#: never "noted", because the echo once became "two kg noted" with nothing noted.
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
-    "- Lead with the answer, then wait; more only if asked. Never re-ask what they said or "
-    "repeat a sentence.\n"
-    '- Say only your own part, never the caller\'s. Cut off mid-sentence? Say only "go on" in '
-    "their words and let them finish, never finish it for them.\n"
+    "- One or two short sentences, then wait; more only if asked.\n"
+    '- Asked something? Lead with the answer, never "do you want to know". Told something? '
+    "React in a few words, then ask the next thing.\n"
+    '- One question a turn, each turn begun differently; choices help ("morning or '
+    'evening?"). Never re-ask what they said or repeat a sentence.\n'
+    "- Say only your own part, never the caller's. Half an answer? Offer your reading as a "
+    'question with a way out ("one kg, or more?"); never finish it for them.\n'
     "- Unsure or not interested? Offer once, then close politely.\n"
-    "- Talked over? Stop, answer, then carry on.\n"
+    "- Talked over? Stop, answer, then carry on in fewer words.\n"
     '- Write for a voice: a comma where you breathe, "?" on every question. No markdown, '
-    "emoji, dashes, slashes, ellipses, actions or notes; never say the time.\n"
+    "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
+    "time.\n"
     '- Prices, quantities and times in English words ("one twenty rupees", "one kg"), never '
     "₹ or digits.\n"
     "- Read back what you heard and wait for a yes; numbers a few digits at a time, a mobile "
     "has ten.\n"
     f"{_REGISTER_BULLET}"
-    "- Missed it? Ask them to repeat it; never guess. Asked to repeat? Say it shorter.\n"
-    "- After a tool or search, never narrate it.\n"
-    "- End the call only after a goodbye or when asked, never while they talk or ask; say "
-    "goodbye once."
+    "- Could not hear? Ask them to repeat it. Asked to repeat? Say it shorter.\n"
+    "- Never announce a search or a wait, or narrate one.\n"
+    "- Close with what happens next and anything else, then say goodbye once. End only after a "
+    "goodbye or when asked, never while they talk or ask."
 )
 #: With a language pack (D-830) the pack says how the language is spoken and LANGUAGES which
 #: language to answer in, so this bullet keeps only what neither says.
@@ -2842,11 +2852,14 @@ def _knowledge_section(cfg: AgentConfig, pack: PackChoice | None = None) -> str:
     # calls only and the practice tests run in chat (D-845), so the two are named here (D-849)
     # beside what their rules do not name: a product's nature and making (D-749), stock, and
     # anything medical, legal or financial.
+    # The address and duration clauses and "how such businesses usually work" came from the
+    # engine's default call rules, which `CALL_INSTRUCTIONS` no longer repeats (D-856).
     return (
         "--- BUSINESS FACTS ---\n"
-        f"{where} Never guess or add to a fact: a price, an offer, stock, what a product is or "
-        f"how it is made, anything medical, legal or financial.{'' if pack else _NAMES_RULE} "
-        "Two possible answers? Ask which they meant."
+        f"{where} Never guess or add to a fact: a price, an offer, stock, an address, how long "
+        "something takes, what a product is or how it is made, anything medical, legal or "
+        "financial, or how such businesses usually work."
+        f"{'' if pack else _NAMES_RULE} Two possible answers? Ask which they meant."
     )
 
 
@@ -2913,9 +2926,13 @@ CANNOT_HELP_HEADER: Final = "--- PLATFORM RULES: WHAT YOU CAN DO ---"
 #: The second line is D-849's: on the call of 21 Oct 2026 an agent said "I told you the price
 #: is six hundred rupees, right?" about a price it had never said, which is how a made-up fact
 #: reads as an agreed one.
+#: The offer clause is D-856's: on the call of 22 Oct 2026 the agent asked "shall I confirm
+#: the order?" with nothing able to confirm one, then could not keep the yes. The tool clauses
+#: came from the engine's default call rules when `CALL_INSTRUCTIONS` stopped repeating them.
 ACTION_CLAIM_RULE: Final = (
     "- Never say an order's placed or booked, details saved or anything sent unless a tool "
-    "did it on this call; say the team will confirm.\n"
+    "did it on this call, or offer what no tool of yours does; say the team will confirm. Say "
+    "a tool's figure exactly, a failed one plainly.\n"
     '- Never say "as I said" about anything you did not say on this call.'
 )
 
@@ -2935,29 +2952,23 @@ OWN_RULES_HANDOVER_RULE: Final = (
 #: `AgentConfig.engine_call_instructions` is on (D-850). That field REPLACES the engine's
 #: default call rules (about 1,675 characters on every turn, verbatim in
 #: `docs/vendor/thinnest-replies-2026-10-12.md` §23.0 item 3, the same text as
-#: `docs/vendor/thinnest-speaking-rules-2026-10-18.md`), so this keeps every default sentence
-#: that neither the speaking rules the engine always adds nor our own layers say, and nothing
-#: else; `tests/call_instructions_test.py` maps each default sentence to where it now lives.
-#: Dropped because their always-added speaking rules say it (VENDOR-STATED, same email):
-#: titles and abbreviations in full. Dropped because our layers say it: saying you do not
-#: know, never repeating a sentence, showing you understood (read back what you heard).
-#: "Acknowledge what they just said before you answer it" is dropped for HOW TO SPEAK's "Lead
-#: with the answer": the acknowledgement became "two kg noted" with nothing noted (D-849).
-#: The facts sentence names no clinic detail ("what to bring", "reminders"), D-722.
+#: `docs/vendor/thinnest-speaking-rules-2026-10-18.md`); `tests/call_instructions_test.py`
+#: maps each default sentence to where it now lives. Titles and abbreviations in full are the
+#: engine's always-added speaking rules (VENDOR-STATED, same email). "Acknowledge what they
+#: just said before you answer it" is dropped for HOW TO SPEAK's "Lead with the answer": the
+#: acknowledgement became "two kg noted" with nothing noted (D-849).
+#:
+#: ONLY THE CALL FRAME IS LEFT HERE (D-856). Every other sentence moved into the instructions
+#: (HOW TO SPEAK, BUSINESS FACTS, WHAT YOU CAN DO), which the engine reads on calls AND in the
+#: practice chat, so the tests see the rules the calls follow and a call reads each rule once,
+#: not twice. The field must stay non-blank: blank puts the engine's 1,675 characters back.
+#: Dropped outright: "never reply with only an acknowledgement and a question" (HOW TO SPEAK
+#: now asks for a reaction before the question) and "say so rather than going quiet" while
+#: looking something up, which put a "one second" filler before answers; the engine speaks
+#: its own filler after two seconds of silence (`PLATFORM_VOICE_VALUES`).
 CALL_INSTRUCTIONS: Final = (
-    "You are on a phone call, speaking out loud. The caller sees nothing you write: never "
-    "mention lists, links, buttons or images, and use no brackets, bullet points or symbols. "
-    "Keep replies to one or two sentences. Ask one question a turn; if you have two, ask the "
-    "more useful one and keep the other for later. Never reply with only an acknowledgement "
-    "and a question. Never begin two turns in a row the same way. Do not recite what they "
-    "already know, and do not read back something already done unless they ask. If you need "
-    "a moment to look something up, say so rather than going quiet. Never state an address, "
-    "a price, a duration, a reference number or a policy unless a tool has just told you it "
-    "or it is in your facts; if not, say you do not have it. Never answer from how businesses "
-    "like this usually work: how long things take and what happens next are facts about this "
-    "business. Say something is booked, cancelled or confirmed only when a tool has just told "
-    "you it succeeded; if a tool failed or you did not call one, say you could not complete "
-    "it. When a tool gives you a figure, say that figure and no other."
+    "You are on a phone call, speaking out loud: the caller hears every word you write and "
+    "sees nothing, so never mention lists, links, buttons or images."
 )
 
 #: The number a call is on is already the lead's (`leads.phone_e164` comes from the call), so
@@ -3850,6 +3861,18 @@ def compose_first_utterance(cfg: AgentConfig) -> str:
 #: The header of the section that tells the model its first words were already said.
 START_OF_CALL_HEADER: Final = "--- START OF THE CALL ---"
 
+#: For an agent that answers calls (D-856). It also rings out, on a free-trial test call or a
+#: call back, and on the test call of 22 Oct 2026 it answered "who is speaking?" with an AI
+#: notice and a product question, then "why didn't you say who is calling first?" with an
+#: apology and a pitch. The engine does not tell the model who placed a call (not in the
+#: composition ThinnestAI described, `docs/vendor/thinnest-replies-2026-10-12.md` §18.0), and a
+#: per-call value saying so would have to sit after the truthful-answer block or end the
+#: cached prefix early, so the rule keys on what the caller asks instead.
+WHO_IS_CALLING_RULE: Final = (
+    " Asked who is calling or why? Say who you are and why in one line, then ask if now is a "
+    "good time."
+)
+
 
 def _start_of_call_section(cfg: AgentConfig) -> str:
     """What the caller heard before the model's first turn, framed as already said (D-845).
@@ -3873,7 +3896,7 @@ def _start_of_call_section(cfg: AgentConfig) -> str:
         said = f'"{notices}"' if notices else "your [OPENING] line"
     return (
         f"{START_OF_CALL_HEADER}\nSaid for you before your first reply: {said}. Never repeat it "
-        "or greet again."
+        f"or greet again.{'' if cfg.direction == 'outbound' else WHO_IS_CALLING_RULE}"
     )
 
 
@@ -5865,6 +5888,7 @@ __all__ = [
     "THIS_CALL_HEADER",
     "VOICE_STYLE_GUIDANCE",
     "WEBHOOK_AUTH_BY_ENGINE",
+    "WHO_IS_CALLING_RULE",
     "AccountKBListing",
     "AccountKBObject",
     "AccountKBState",

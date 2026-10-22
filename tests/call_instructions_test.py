@@ -81,61 +81,47 @@ OURS = "our composed prompt"
 LEAN = "CALL_INSTRUCTIONS"
 
 #: Where each default sentence lives once ours replace them: (place, the words that say it).
+#: Since D-856 every rule but the call frame is in our composed prompt, which the practice
+#: chat reads too; two are turned round on purpose and say so.
 COVERAGE: dict[str, tuple[tuple[str, str], ...]] = {
-    DEFAULT_CALL_RULES[0]: ((LEAN, "You are on a phone call, speaking out loud."),),
-    DEFAULT_CALL_RULES[1]: ((LEAN, "Keep replies to one or two sentences."),),
-    DEFAULT_CALL_RULES[2]: (
-        (LEAN, "The caller sees nothing you write: never mention lists, links, buttons or images"),
-    ),
+    DEFAULT_CALL_RULES[0]: ((LEAN, "You are on a phone call, speaking out loud"),),
+    DEFAULT_CALL_RULES[1]: ((OURS, "One or two short sentences, then wait"),),
+    DEFAULT_CALL_RULES[2]: ((LEAN, "never mention lists, links, buttons or images"),),
     DEFAULT_CALL_RULES[3]: ((SPEAKING, "titles and abbreviations in full"),),
-    DEFAULT_CALL_RULES[4]: ((LEAN, "use no brackets, bullet points or symbols"),),
-    DEFAULT_CALL_RULES[5]: (
-        (LEAN, "If you need a moment to look something up, say so rather than going quiet."),
-    ),
+    DEFAULT_CALL_RULES[4]: ((OURS, "No markdown, emoji, brackets"),),
+    # Turned round: "say so rather than going quiet" put a "one second" filler before answers;
+    # the engine speaks its own filler after two seconds of silence.
+    DEFAULT_CALL_RULES[5]: ((OURS, "Never announce a search or a wait"),),
     DEFAULT_CALL_RULES[6]: (
         (OURS, "No answer after searching, or still unclear after two tries: say so"),
     ),
     DEFAULT_CALL_RULES[7]: (
-        (
-            LEAN,
-            "Never state an address, a price, a duration, a reference number or a policy unless "
-            "a tool has just told you it or it is in your facts",
-        ),
+        (OURS, "Never guess or add to a fact: a price, an offer, stock, an address"),
     ),
-    DEFAULT_CALL_RULES[8]: ((LEAN, "if not, say you do not have it."),),
-    DEFAULT_CALL_RULES[9]: ((LEAN, "Never answer from how businesses like this usually work"),),
-    DEFAULT_CALL_RULES[10]: (
-        (LEAN, "how long things take and what happens next are facts about this business"),
+    DEFAULT_CALL_RULES[8]: (
+        (OURS, "No answer after searching, or still unclear after two tries: say so"),
     ),
-    DEFAULT_CALL_RULES[11]: (
-        (
-            LEAN,
-            "Say something is booked, cancelled or confirmed only when a tool has just told you "
-            "it succeeded",
-        ),
-    ),
-    DEFAULT_CALL_RULES[12]: (
-        (LEAN, "if a tool failed or you did not call one, say you could not complete it."),
-    ),
-    DEFAULT_CALL_RULES[13]: (
-        (LEAN, "When a tool gives you a figure, say that figure and no other."),
-    ),
-    DEFAULT_CALL_RULES[14]: ((LEAN, "Never begin two turns in a row the same way."),),
+    DEFAULT_CALL_RULES[9]: ((OURS, "or how such businesses usually work"),),
+    DEFAULT_CALL_RULES[10]: ((OURS, "how long something takes"),),
+    DEFAULT_CALL_RULES[11]: ((OURS, "Never say an order's placed or booked"),),
+    DEFAULT_CALL_RULES[12]: ((OURS, "a failed one plainly"),),
+    DEFAULT_CALL_RULES[13]: ((OURS, "Say a tool's figure exactly"),),
+    DEFAULT_CALL_RULES[14]: ((OURS, "each turn begun differently"),),
     DEFAULT_CALL_RULES[15]: (
-        (LEAN, "Never begin two turns in a row the same way."),
+        (OURS, "each turn begun differently"),
         (OURS, "Never re-ask what they said or repeat a sentence."),
     ),
     # Replaced, not carried: an acknowledgement before the answer became "two kg noted" with
     # nothing noted on the calls of 21 Oct 2026 (D-849).
-    DEFAULT_CALL_RULES[16]: ((OURS, "Lead with the answer, then wait"),),
-    DEFAULT_CALL_RULES[17]: ((LEAN, "Ask one question a turn"),),
-    DEFAULT_CALL_RULES[18]: (
-        (LEAN, "if you have two, ask the more useful one and keep the other for later."),
-    ),
-    DEFAULT_CALL_RULES[19]: ((LEAN, "Never reply with only an acknowledgement and a question."),),
+    DEFAULT_CALL_RULES[16]: ((OURS, "Lead with the answer"),),
+    DEFAULT_CALL_RULES[17]: ((OURS, "One question a turn"),),
+    DEFAULT_CALL_RULES[18]: ((OURS, "One question a turn"),),
+    # Turned round: the agent read it as "skip the reaction" and asked "do you want to know the
+    # price?" instead of reacting and saying it (calls of 20-22 Oct 2026).
+    DEFAULT_CALL_RULES[19]: ((OURS, "React in a few words, then ask the next thing."),),
     DEFAULT_CALL_RULES[20]: ((OURS, "Read back what you heard and wait for a yes"),),
-    DEFAULT_CALL_RULES[21]: ((LEAN, "Do not recite what they already know"),),
-    DEFAULT_CALL_RULES[22]: ((LEAN, "do not read back something already done unless they ask."),),
+    DEFAULT_CALL_RULES[21]: ((OURS, "Never re-ask what they said or repeat a sentence."),),
+    DEFAULT_CALL_RULES[22]: ((OURS, "Never re-ask what they said or repeat a sentence."),),
 }
 
 
@@ -188,6 +174,28 @@ def test_every_default_call_rule_is_still_said_when_ours_replace_them() -> None:
 def test_our_call_rules_are_shorter_and_fit_the_field() -> None:
     assert len(CALL_INSTRUCTIONS) < thinnest.ENGINE_DEFAULT_CALL_RULES_CHARS
     assert len(CALL_INSTRUCTIONS) <= CALL_INSTRUCTIONS_MAX_CHARS
+
+
+def test_only_the_call_frame_is_left_for_calls_alone() -> None:
+    """D-856: the practice chat never reads `CALL_INSTRUCTIONS`, so a rule kept there is a
+    rule the tests never see; only the call frame stays, and it is never blank (blank puts
+    the engine's own rules back)."""
+    assert CALL_INSTRUCTIONS.strip()
+    lean = [words for places in COVERAGE.values() for place, words in places if place == LEAN]
+    assert lean == [
+        "You are on a phone call, speaking out loud",
+        "never mention lists, links, buttons or images",
+    ]
+
+
+def test_an_agent_that_answers_calls_says_who_it_is_when_asked() -> None:
+    """An agent that answers calls also rings out (a trial test call, a call back); asked who
+    is calling, it says who and why and asks if now is a good time (call of 22 Oct 2026)."""
+    for direction in ("inbound", "both"):
+        assert shared_engine.WHO_IS_CALLING_RULE in compose_engine_prompt(_cfg(direction=direction))
+    assert shared_engine.WHO_IS_CALLING_RULE not in compose_engine_prompt(
+        _cfg(direction="outbound")
+    )
 
 
 def test_the_switch_sends_ours_or_puts_the_defaults_back() -> None:

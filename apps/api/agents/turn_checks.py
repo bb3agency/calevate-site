@@ -59,6 +59,8 @@ Kind = Literal[
     "repeated_turn",
     # The calls of 21 Oct 2026 (D-849): "I told you the price" about a price never said.
     "false_recall",
+    # The calls of 20-22 Oct 2026 (D-856): "do you want to know the price?" instead of it.
+    "asks_to_tell",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -83,6 +85,7 @@ SOUND_KINDS: Final = frozenset(
         "third_person",
         "foreign_script",
         "repeated_turn",
+        "asks_to_tell",
     }
 )
 #: What breaks the caller's task whatever the words: the caller's part said for them, a
@@ -363,6 +366,20 @@ def _number_word(word: str) -> str | None:
 _DANGLING: Final = frozenset({"నాకు", "మాకు", "मुझे", "हमें"})
 #: The longest reply that is still only a "go on" ("చెప్పండి అండి", "हाँ जी, बोलिए").
 NUDGE_MAX_WORDS: Final = 4
+#: The longest single question that offers a reading of a broken-off answer ("అంటే ఒక కోటి
+#: వరకు అనుకుంటున్నారా అండి, లేక ఇంకా ఎక్కువా?"), D-856.
+OFFER_MAX_WORDS: Final = 12
+
+
+def _offers_reading(caller_said: str, parts: list[str]) -> bool:
+    """The caller stopped on a number and the reply is one short question that offers a
+    reading of it ("ఒక కేజీ కావాలా అండి, ఇంకా ఎక్కువా?"), not its earlier question again."""
+    said = _words(caller_said)
+    number = _number_word(said[-1]) if said else None
+    if number is None or len(parts) != 1 or not _is_question(parts[0]):
+        return False
+    words = _words(parts[0])
+    return len(words) <= OFFER_MAX_WORDS and number in words
 
 
 def broke_off(caller_said: str) -> bool:
@@ -374,15 +391,19 @@ def broke_off(caller_said: str) -> bool:
 def _finished_cut_line(caller_said: str, reply: str) -> str | None:
     """The caller's line stopped on a number ("నాకొక", cut by the turn timer on the call of 21
     Oct 2026) and the reply supplied the unit as if they had said it ("ఒక కేజీ"): the agent
-    finished the caller's sentence. The words it supplied, or None."""
+    finished the caller's sentence. The words it supplied, or None. Offering the reading as a
+    question ("ఒక కేజీ కావాలా, ఇంకా ఎక్కువా?") is the right move, not a finished line (D-856)."""
     said = _words(caller_said)
     number = _number_word(said[-1]) if said else None
     if number is None:
         return None
-    words = _words(reply)
-    for i, word in enumerate(words[:-1]):
-        if word == number.lower() and _UNIT.match(words[i + 1]):
-            return f"{words[i]} {words[i + 1]}"
+    for sentence in sentences(reply):
+        if _is_question(sentence):
+            continue
+        words = _words(sentence)
+        for i, word in enumerate(words[:-1]):
+            if word == number.lower() and _UNIT.match(words[i + 1]):
+                return f"{words[i]} {words[i + 1]}"
     return None
 
 
@@ -455,9 +476,30 @@ def _formal_problem(reply: str, language: str) -> TurnProblem | None:
     )
 
 
+#: Words that open a question restating the one before it with options or plainer words
+#: ("ఏ area లో చూస్తున్నారు? అంటే ఏదైనా particular area ఉందా?"): one question, said two ways.
+_RESTATES: Final = frozenset({"అంటే", "లేక", "లేదా", "or", "i.e", "मतलब", "यानी", "या"})
+
+
+#: A question asking leave to say something ("would you like to know the price?"), which costs
+#: the caller a turn: on four calls of 20-22 Oct 2026 the agent asked it instead of the price.
+_ASKS_TO_TELL: Final = re.compile(
+    r"\b(?:would you like|do you want|want me) to (?:know|hear)\b|\bshall i tell you\b"
+    r"|తెలుసుకోవాల(?:నుకుంటున్నారా|ని ఉందా)|వినాలనుకుంటున్నారా|చెప్పమంటారా"
+    r"|जानना चाह(?:ेंगे|ते हैं)|बताऊँ क्या",
+    re.IGNORECASE,
+)
+
+
+def _restates(question: str) -> bool:
+    words = _words(question)
+    return bool(words) and words[0] in _RESTATES
+
+
 def _question_problems(parts: list[str]) -> list[TurnProblem]:
     found: list[TurnProblem] = []
     questions = [s for s in parts if _is_question(s)]
+    asked = [q for i, q in enumerate(questions) if i == 0 or not _restates(q)]
     if any(_same_question(a, b) for i, a in enumerate(questions) for b in questions[i + 1 :]):
         found.append(
             TurnProblem(
@@ -466,11 +508,11 @@ def _question_problems(parts: list[str]) -> list[TurnProblem]:
                 "and wait.",
             )
         )
-    elif len(questions) > 1:
+    elif len(asked) > 1:
         found.append(
             TurnProblem(
                 "several_questions",
-                f"It asked {len(questions)} questions in one reply. It should ask one and wait "
+                f"It asked {len(asked)} questions in one reply. It should ask one and wait "
                 "for the answer.",
             )
         )
@@ -603,6 +645,14 @@ def turn_problems(reply: str, *, caller_said: str = "", language: str = "") -> l
                 )
             )
     found += _question_problems(parts)
+    meta = next((s for s in parts if _is_question(s) and _ASKS_TO_TELL.search(s)), None)
+    if meta:
+        found.append(
+            TurnProblem(
+                "asks_to_tell",
+                f"It asked whether to tell them ({_quoted(meta)}) instead of telling them.",
+            )
+        )
     repeated = _repeated_sentence(parts)
     if repeated:
         found.append(
@@ -612,12 +662,17 @@ def turn_problems(reply: str, *, caller_said: str = "", language: str = "") -> l
             )
         )
     counted = [s for s in parts if len(_words(s)) >= MIN_COUNTED_WORDS]
-    if broke_off(caller_said) and len(_words(reply)) > NUDGE_MAX_WORDS:
+    if (
+        broke_off(caller_said)
+        and len(_words(reply)) > NUDGE_MAX_WORDS
+        and not _offers_reading(caller_said, parts)
+    ):
         found.append(
             TurnProblem(
                 "too_long",
-                f'The caller stopped mid-sentence ({_quoted(caller_said)}). A short "go on" '
-                "lets them finish; a full reply guesses what they meant.",
+                f"The caller stopped mid-sentence ({_quoted(caller_said)}). One short question "
+                'offering what they may mean ("one kg, or more?") lets them finish; a full reply '
+                "guesses.",
             )
         )
     elif len(counted) > MAX_SENTENCES and not _ASKS_DETAIL.search(caller_said):
@@ -753,11 +808,13 @@ _CLAIMS_DONE: Final = re.compile(
     r"|\b(?:booked|placed|saved)(?: down)? (?:your|the) (?:order|details|booking)\b"
     # The bare Telugu form must not be followed by a letter, so "చేసుకున్నారా?" (did you?)
     # is no claim.
+    # "Fixed" a visit or a slot is a booking claim too (a competitor's "సైట్ విజిట్ ఫిక్స్
+    # చేశాను", D-856).
     r"|(?:నమోదు|సేవ్|save|బుక్|book|రికార్డ్|record|confirm|కన్ఫర్మ్|place|ప్లేస్|add|"
-    r"యాడ్|ఆర్డర్ పెట్టే|order పెట్టే)\s*(?:చేసా|చేశా|చేసేసా|చేసేశా|అయిపోయింది|అయింది|ఐంది|"
-    r"చేసుకున్నాను|చేసుకున్నాం|చేసుకున్నా(?![ఀ-౿]))"
+    r"యాడ్|fix|ఫిక్స్|ఆర్డర్ పెట్టే|order పెట్టే)\s*(?:చేసా|చేశా|చేసేసా|చేసేశా|అయిపోయింది|"
+    r"అయింది|ఐంది|చేసుకున్నాను|చేసుకున్నాం|చేసుకున్నా(?![ఀ-౿]))"
     r"|పంపాను|పంపాం|పంపించాను|పంపించాం|పంపేశాను|పంపేసాను|పంపేశాం|పంపేసాం"
-    r"|(?:सेव|बुक|दर्ज|रिकॉर्ड|कन्फर्म|प्लेस|ऐड|save|book|confirm|add)\s*"
+    r"|(?:सेव|बुक|दर्ज|रिकॉर्ड|कन्फर्म|प्लेस|ऐड|फिक्स|save|book|confirm|add|fix)\s*"
     r"(?:कर\s*(?:दिया|दी|दिए|लिया|ली|लिए)|हो\s*(?:गया|गई|गए))|भेज\s*(?:दिया|दी|दिए)",
     re.IGNORECASE,
 )

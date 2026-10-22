@@ -175,7 +175,7 @@ def test_a_clarification_stops_after_two_tries_at_what_the_account_allows() -> N
     Not asking it the same way twice is ThinnestAI's own speaking rule (D-824)."""
     body = compile_call_script(V2)
     paying = compose_engine_prompt(_cfg(body))
-    assert "Ask them to repeat it; never guess." in paying
+    assert "Could not hear? Ask them to repeat it." in paying
     assert "or still unclear after two tries: say so, then offer a call back" in paying
     trial = compose_engine_prompt(_cfg(body, callbacks_offered=False))
     assert (
@@ -260,8 +260,10 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # size, held so the platform text cannot regrow unnoticed; the guide's whole-prompt target
     # (`docs/PROMPT-GUIDE.md` §2) is 8,000. D-845 added the START OF THE CALL section (5,832
     # before), which tells the model its opening line was already said; D-849 the
-    # greeting-language, cut-off, recall and price rules (5,948 before).
-    assert len(prompt) <= 6_239
+    # greeting-language, cut-off, recall and price rules (5,948 before). D-856 moved the call
+    # rules in from `CALL_INSTRUCTIONS` (6,239 before), so what a call reads of ours fell from
+    # 6,239 + 1,112 to 6,802 + 149 (`tests/agent_prompt_budget_test.PER_CALL_MAX`).
+    assert len(prompt) <= 6_802
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

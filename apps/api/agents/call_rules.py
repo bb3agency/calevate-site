@@ -70,12 +70,13 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
             "Saying it noted, or is taking down, what the caller asked for is right; it never "
             "says an order is "
             "placed, booked or confirmed, or details saved, unless "
-            "one of its actions did it; taking the details and saying the team will confirm "
-            "is right."
+            "one of its actions did it, and never offers to do what none of its actions can "
+            "(confirm an order, send a message); taking the details and saying the team will "
+            "confirm is right."
         ),
         writer=(
-            "No line or step says an order or booking is placed, booked or confirmed: it takes "
-            "the details for the team to confirm."
+            "No line or step says an order or booking is placed, booked or confirmed, or "
+            "offers to confirm or send one: it takes the details for the team to confirm."
         ),
         expect=(
             "Asked to order or book with no action for it, a good agent takes the details and "
@@ -106,11 +107,15 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
     ),
     CallRule(
         key="own_part",
+        # D-856: a half answer gets the agent's reading offered as a question, the way the
+        # competitor call the founder judged natural handled "ఒక" (one...), not a bare "go on".
         judge=(
-            "It says only its own part, never the caller's, and never finishes a sentence the "
-            "caller broke off."
+            "It says only its own part, never the caller's. When the caller breaks off "
+            'mid-answer, offering its reading as a question with a way out ("one kg, or '
+            'more?") and waiting is right; finishing their sentence or acting on a guess is '
+            "not."
         ),
-        writer="No line answers for the caller or guesses what they were about to say.",
+        writer="No line answers for the caller or treats a guess as what they said.",
         expect="",
         prompt_marker="never finish it for them",
     ),
