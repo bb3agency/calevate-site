@@ -246,6 +246,90 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
             "for the quantity or the place the caller already gave."
         ),
     ),
+    # The founder's calls of 20-22 Oct 2026 (D-856,
+    # `docs/evidence/call-quality-vs-outpero-2026-10-23.md`).
+    SpecimenClass(
+        key="specimen_half_answer",
+        title="Breaks off half way through an answer",
+        turns={
+            "retail": _turns(
+                {
+                    "te-IN": "powder కావాలండి ఒక",
+                    "hi-IN": "powder चाहिए एक",
+                    "en-IN": "I want the powder, one",
+                },
+            ),
+            "real_estate": _turns(
+                {
+                    "te-IN": "budget ఒక",
+                    "hi-IN": "budget एक",
+                    "en-IN": "the budget is around one",
+                },
+            ),
+            _DEFAULT: _turns(
+                {"te-IN": "నాకొక", "hi-IN": "मुझे एक", "en-IN": "I need one"},
+            ),
+        },
+        expect=(
+            'Offers its reading as one short question with a way out ("one kg, or more?") and '
+            "waits. Never takes a guessed amount as said, never asks a second question in the "
+            "same turn, and never just repeats its earlier question."
+        ),
+    ),
+    SpecimenClass(
+        key="specimen_who_is_calling",
+        title="Asks who is calling and why",
+        turns={
+            _DEFAULT: _turns(
+                {"te-IN": "Hello.", "hi-IN": "Hello.", "en-IN": "Hello."},
+                {
+                    "te-IN": "ఎవరు మాట్లాడేది? ఎందుకు call చేశారు?",
+                    "hi-IN": "कौन बोल रहा है? क्यों call किया?",
+                    "en-IN": "Who is this? Why are you calling?",
+                },
+            ),
+        },
+        expect=(
+            "Stays in the language it greeted in on the bare hello. Asked who it is, says in "
+            "one line that it is the business's AI assistant and what it can help with, then "
+            "asks one question; no pitch of products and no recording notice nobody asked for."
+        ),
+    ),
+    SpecimenClass(
+        key="specimen_just_whatsapp",
+        title="Asks for the details on WhatsApp",
+        turns={
+            _DEFAULT: _turns(
+                {
+                    "te-IN": "సరే, అన్నీ WhatsApp లో పెట్టండి.",
+                    "hi-IN": "ठीक है, सब WhatsApp पर भेज दीजिए।",
+                    "en-IN": "Fine, just put it all on WhatsApp.",
+                },
+            ),
+        },
+        expect=(
+            "Says the team will send it to this number, or what its connected action did; "
+            "never says it was sent, never asks for the number, and never points them to a "
+            "website instead."
+        ),
+    ),
+    SpecimenClass(
+        key="specimen_already_bought",
+        title="Already bought or booked elsewhere",
+        turns={
+            _DEFAULT: _turns(
+                {
+                    "te-IN": "నేను already వేరే చోట తీసుకున్నాను.",
+                    "hi-IN": "मैंने already कहीं और से ले लिया।",
+                    "en-IN": "I already got it somewhere else.",
+                },
+            ),
+        },
+        expect=(
+            "Says that is fine, thanks them and closes politely with no second pitch and no "
+            "do-not-call talk they did not ask for."
+        ),
+    ),
 )
 
 

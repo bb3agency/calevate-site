@@ -197,8 +197,15 @@ def test_a_short_go_on_is_the_answer_to_a_cut_line() -> None:
     assert any(p.kind == "too_long" and "stopped mid-sentence" in p.reason for p in problems)
     # A bare number answering "how many?" is a whole answer.
     assert _kinds_of_reply(_X("రెండు", "రెండు కేజీలు, సరే అండి. ఇంటికి delivery కావాలా?")) == set()
+    # Offering a reading of the cut number as one short question is the right move (D-856).
+    offer = "ఒక కేజీ కావాలా అండి, ఇంకా ఎక్కువా?"
+    for said in ("నాకొక", "కారం పొడి కావాలండి ఒక"):
+        assert _kinds_of_reply(_X(said, offer)) == set(), said
+    # Taking the guess and moving on is still finishing their sentence.
+    guessed = "సరే అండి, ఒక కేజీ కారం పొడి. ఇంటికి delivery కావాలా?"
+    assert "caller_line" in _kinds_of_reply(_X("కారం పొడి కావాలండి ఒక", guessed))
     cfg, _ = _cfg()
-    assert 'Cut off mid-sentence? Say only "go on" in their words' in compose_engine_prompt(cfg)
+    assert "Half an answer? Offer your reading as a question" in compose_engine_prompt(cfg)
 
 
 def test_the_double_goodbye_is_noted() -> None:

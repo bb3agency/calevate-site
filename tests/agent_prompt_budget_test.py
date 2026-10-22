@@ -29,7 +29,7 @@ from calevate_shared.call_script import (
     splice_quick_facts,
     without_outline,
 )
-from calevate_shared.engine import AgentConfig, compose_engine_prompt
+from calevate_shared.engine import CALL_INSTRUCTIONS, AgentConfig, compose_engine_prompt
 
 #: Characters a starter leaves for what the owner adds: pinned facts at their ceiling plus
 #: 7,000 of the owner's own script. Lowering it is a founder decision.
@@ -143,14 +143,16 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
         assert size.total <= INSTRUCTIONS_MAX_CHARS - LONG_MARGIN, (job, size.total)
 
 
-#: The platform layers of the agents below after D-824 cut what ThinnestAI's own speaking
-#: rules already say. The founder's rule of 14 Oct 2026 stands: a prompt change may not grow
-#: them past the last cut (quality within budget). D-849 grew them by 291 characters (an
-#: ESTIMATE of 73 tokens a reply at 4 characters a token) for four rules the calls of 21 Oct
-#: 2026 broke, with no redundant line
-#: left to cut: the greeting-language, cut-off, recall and price rules.
-PLATFORM_LAYERS_MAX = 6_137
-PLATFORM_LAYERS_ONE_LANGUAGE_MAX = 5_160
+#: What a call reads of OURS on every turn for the agents below: the platform layers of the
+#: instructions plus `CALL_INSTRUCTIONS`, which the engine reads on calls in place of its
+#: default call rules. The founder's rule of 14 Oct 2026 stands: a prompt change may not grow
+#: this past the last cut (quality within budget). Measured as one sum since D-856 moved every
+#: call rule but the call frame from `CALL_INSTRUCTIONS` into the instructions, so a call
+#: reads each rule once; before it, D-849 left 6,137 + 1,112 = 7,249 (three languages) and
+#: 5,160 + 1,112 = 6,272 (one). D-856 cut both by 476 while adding the reaction, half-answer,
+#: offer and who-is-calling rules.
+PER_CALL_MAX = 6_751
+PER_CALL_ONE_LANGUAGE_MAX = 5_774
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:
@@ -170,9 +172,9 @@ def _platform_only(languages_extra: list[str]) -> AgentConfig:
     )
 
 
-def test_the_platform_layers_alone_stay_small() -> None:
-    three = len(compose_engine_prompt(_platform_only(["hi-IN", "en-IN"])))
-    one = len(compose_engine_prompt(_platform_only([])))
-    print(f"platform layers: three languages {three} chars, one language {one} chars")
-    assert three <= PLATFORM_LAYERS_MAX
-    assert one <= PLATFORM_LAYERS_ONE_LANGUAGE_MAX
+def test_what_a_call_reads_of_ours_stays_small() -> None:
+    three = len(compose_engine_prompt(_platform_only(["hi-IN", "en-IN"]))) + len(CALL_INSTRUCTIONS)
+    one = len(compose_engine_prompt(_platform_only([]))) + len(CALL_INSTRUCTIONS)
+    print(f"per call turn: three languages {three} chars, one language {one} chars")
+    assert three <= PER_CALL_MAX
+    assert one <= PER_CALL_ONE_LANGUAGE_MAX

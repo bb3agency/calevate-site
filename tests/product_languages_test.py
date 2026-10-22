@@ -211,6 +211,10 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
         "the `Literal` Pydantic turns into the OpenAPI enum, which cannot be computed — "
         "pinned to `offered_language_tags()` by the first test in this file"
     ),
+    "apps/api/agents/trade_playbooks.py": (
+        "each step's spoken example line, keyed by language (D-856). Content per language, "
+        "not a list of languages; a language without lines simply gets none"
+    ),
     "apps/api/compliance/disclosure.py": (
         "three tables of SENTENCES an agent speaks, keyed by language. Content per "
         "language, not a list of languages; a missing key is caught above"

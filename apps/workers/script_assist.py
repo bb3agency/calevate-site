@@ -69,6 +69,7 @@ from calevate_shared.spoken_guard import english_problem, generation_guidance, t
 from pydantic import ValidationError
 
 from apps.api.agents.call_rules import OPENING_LINE_RULE, said_line_problem, writer_rules
+from apps.api.agents.trade_playbooks import playbook_guidance
 from apps.api.core import provider_health
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -1120,6 +1121,10 @@ async def draft_script(
         # A conversion keeps the owner's own sentences, in whatever language they wrote them,
         # so only a textbook word the owner did not write is the model's to fix.
         converting = instruction == CONVERT_INSTRUCTION
+        if not converting:
+            # D-856: a new script starts from the trade's step plan, the starters' skeleton.
+            plan = playbook_guidance(full.business_type, full.direction, full.language)
+            description = f"{description}\n{plan}"
         parse = partial(
             drafted_script,
             language=full.language,

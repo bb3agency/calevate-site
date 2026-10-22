@@ -65,6 +65,7 @@ from apps.api.agents.script_builder import (
     save_agent_script,
     save_draft,
 )
+from apps.api.agents.trade_playbooks import is_playbook_line, playbook_for
 from apps.api.agents.write_guard import archived_refusal
 from apps.api.core.errors import ProblemError
 from apps.api.tenancy.business_copy import read_state as read_business_copy
@@ -269,6 +270,8 @@ class StarterStep:
     title: str
     instruction: str
     exit_when: str = ""
+    #: How the step sounds, per language (D-856, `trade_playbooks`).
+    say: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,7 +319,7 @@ class Starter:
             style=SpeakingStyle(
                 tone="Warm, calm and brief, like a helpful person at the front desk."
             ),
-            stages=self.sections(),
+            stages=self.sections(language),
             objections=[Objection(objection=o, response=r) for o, r in self.objections],
             ending=self.ending,
             example_exchange=[ExampleLine(speaker=t.speaker, text=t.text) for t in example],
@@ -324,16 +327,21 @@ class Starter:
             example_needs_review=bool(example) and not native_reviewed(language),
         )
 
-    def sections(self) -> list[ConversationStage]:
+    def sections(self, language: str = STARTER_LANGUAGE) -> list[ConversationStage]:
         """The steps as script sections, ids `s1`..`sN` in call order. A step's "done
-        when" becomes the branch that moves on: to the next section, or the end."""
+        when" becomes the branch that moves on: to the next section, or the end. Each step
+        sounds like its plan's line in `language`, where the plan has one."""
         out: list[ConversationStage] = []
         for i, step in enumerate(self.steps, 1):
             target = f"s{i + 1}" if i < len(self.steps) else END_OF_CALL
             branches = [StageBranch(when=step.exit_when, target=target)] if step.exit_when else []
             out.append(
                 ConversationStage(
-                    id=f"s{i}", name=step.title, instruction=step.instruction, branches=branches
+                    id=f"s{i}",
+                    name=step.title,
+                    instruction=step.instruction,
+                    sounds_like=(step.say or {}).get(language, ""),
+                    branches=branches,
                 )
             )
         return out
@@ -355,11 +363,6 @@ class Starter:
         return "\n".join(p for p in parts if p)
 
 
-_CONFIRM_BACK: Final = (
-    "Read back their name, the number to reach them on and the next step you agreed, and "
-    "correct anything they change."
-)
-
 _ENDING: Final = (
     "Once the next step is agreed or they have what they need, thank them by name if you "
     "have it, say goodbye and end the call."
@@ -372,6 +375,14 @@ _ENDING: Final = (
 _CALL_LEADS_ENDING: Final = (
     f"{_ENDING}\nThe person you are calling, if you have their name: {{{{lead_name}}}}"
 )
+
+
+def _planned_steps(vertical: str, job: StarterJob, trade: Trade) -> tuple[StarterStep, ...]:
+    """The starter's steps from the trade's plan (D-856, `trade_playbooks`)."""
+    return tuple(
+        StarterStep(step.title, step.instruction, step.exit_when, step.say)
+        for step in playbook_for(vertical, job, trade).steps
+    )
 
 
 def _answer_calls(vertical: str, trade: Trade) -> Starter:
@@ -390,55 +401,8 @@ def _answer_calls(vertical: str, trade: Trade) -> Starter:
             f"where it fits, arrange {trade.booking} or take their details for the team."
         ),
         outbound_purpose="",
-        steps=(
-            StarterStep(
-                title="Find out what they need",
-                instruction="Let them explain why they are calling before you offer anything.",
-                exit_when="You know what they want.",
-            ),
-            StarterStep(
-                title="Answer from the business's facts",
-                instruction=(
-                    f"If they ask about {trade.topics}, search your knowledge and answer in "
-                    "one or two sentences."
-                ),
-                exit_when="Their question is answered, or you have said you do not have it.",
-            ),
-            StarterStep(
-                title="Take their details",
-                instruction=(
-                    "Ask for their name, then one thing per turn as the call allows: "
-                    f"{trade.capture}."
-                ),
-                exit_when="You have their name and what they need.",
-            ),
-            StarterStep(
-                title=f"Offer {trade.booking}",
-                instruction=(
-                    f"If they would like {trade.booking}, agree a day and time that suits "
-                    "them. If you cannot confirm it during the call, tell them the team will "
-                    "confirm it."
-                ),
-                exit_when="A day and time is agreed, or they do not want one.",
-            ),
-            StarterStep(title="Stay within what you know", instruction=trade.caution),
-            StarterStep(
-                title="Confirm and close",
-                instruction=_CONFIRM_BACK,
-                exit_when="They have confirmed the details.",
-            ),
-        ),
-        objections=(
-            (
-                "I just want the price, I don't want to give my details.",
-                "Give the price if your knowledge has it. Asking for their name is optional; "
-                "do not insist.",
-            ),
-            (
-                "I'll think about it.",
-                "That is fine. Thank them and tell them they can call any time.",
-            ),
-        ),
+        steps=_planned_steps(vertical, "answer_calls", trade),
+        objections=playbook_for(vertical, "answer_calls", trade).objections,
         ending=_ENDING,
     )
 
@@ -464,61 +428,8 @@ def _call_leads(vertical: str, trade: Trade) -> Starter:
         outbound_purpose=(
             "You are following up on their interest in {business} to see if you can help."
         ),
-        steps=(
-            StarterStep(
-                title="Check it is a good time",
-                instruction=(
-                    "If it is not a good time, ask when would suit them better, thank them "
-                    "and end the call."
-                ),
-                exit_when="They say they can talk now.",
-            ),
-            StarterStep(
-                title="Check you have the right person",
-                instruction=(
-                    "Make sure you are speaking with the person you meant to call. Their "
-                    "name, if you have it, is under ENDING below. If it is the wrong "
-                    "person, apologise and end the call."
-                ),
-                exit_when="You know you have the right person.",
-            ),
-            StarterStep(
-                title="Find out what they need",
-                instruction=f"Ask what they are looking for, one thing per turn: {trade.capture}.",
-                exit_when="You know what they want, or that they are not interested.",
-            ),
-            StarterStep(
-                title=f"Offer {trade.booking}",
-                instruction=(
-                    f"If they are interested, offer {trade.booking} and agree a day and time "
-                    "that suits them. If they are not interested, thank them and end the "
-                    "call. Do not push or repeat the offer."
-                ),
-                exit_when="A day and time is agreed, or they said no.",
-            ),
-            StarterStep(title="Stay within what you know", instruction=trade.caution),
-            StarterStep(
-                title="Confirm and close",
-                instruction=_CONFIRM_BACK,
-                exit_when="They have confirmed the details.",
-            ),
-        ),
-        objections=(
-            (
-                "Where did you get my number?",
-                "Say they showed interest in the business earlier, and the team can tell them "
-                "exactly where their details came from.",
-            ),
-            (
-                "I'm not interested.",
-                "Thank them politely and end the call. Do not try again.",
-            ),
-            (
-                "Send me the details on WhatsApp.",
-                "Say you will pass that on to the team, and ask if there is anything they want "
-                "to know now.",
-            ),
-        ),
+        steps=_planned_steps(vertical, "call_leads", trade),
+        objections=playbook_for(vertical, "call_leads", trade).objections,
         ending=_CALL_LEADS_ENDING,
     )
 
@@ -664,17 +575,20 @@ async def apply_starter(
 def with_example_lines(script: CallScript, lines: Sequence[str]) -> CallScript:
     """The starter with the business's AI-written example line on each step (D-827).
 
-    Only a NEW agent's script gets them, and only into an empty "example line": nothing a
-    person wrote is there to replace. A line that would push its step past the engine's
-    step limit is left out, and lines written for a different number of steps are not
-    used at all. A starter that carries them no longer matches the bare catalogue, so
-    `replace_unedited_starter` treats it as edited and leaves it alone, which is the safe
-    side of that comparison."""
+    Only a NEW agent's script gets them, and only into an "example line" that is empty or
+    still the trade plan's own: nothing a person wrote is there to replace. A line that
+    would push its step past the engine's step limit is left out, and lines written for a
+    different number of steps are not used at all. A starter that carries them no longer
+    matches the bare catalogue, so `replace_unedited_starter` treats it as edited and leaves
+    it alone, which is the safe side of that comparison."""
     if len(lines) != len(script.stages):
         return script
     stages: list[ConversationStage] = []
     for stage, line in zip(script.stages, lines, strict=True):
-        if stage.sounds_like.strip() or not line.strip():
+        # A plan's own line (D-856) gives way to the business's: both are ours, not a person's.
+        if (stage.sounds_like.strip() and not is_playbook_line(stage.sounds_like)) or not (
+            line.strip()
+        ):
             stages.append(stage)
             continue
         try:

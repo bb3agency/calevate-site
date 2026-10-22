@@ -319,6 +319,20 @@ def test_the_clinic_lines_reach_only_a_clinic() -> None:
     assert all("doctor" not in " ".join(turns) for turns in shop.values())
 
 
+def test_the_failure_classes_of_the_october_calls_are_standing_callers() -> None:
+    """D-856: the half answer, "who is calling?", "just WhatsApp me" and "already bought"
+    from the founder's calls of 20-22 Oct 2026 are callers in every run's rotation."""
+    keys = {c.key for c in CLASSES}
+    assert {
+        "specimen_half_answer",
+        "specimen_who_is_calling",
+        "specimen_just_whatsapp",
+        "specimen_already_bought",
+    } <= keys
+    half = {s.key: s.turns for s in all_specimen_scenarios("te-IN", "retail")}
+    assert half["specimen_half_answer"][-1].endswith("ఒక")
+
+
 def test_runs_rotate_through_every_class() -> None:
     seen: set[str] = set()
     for n in range(60):

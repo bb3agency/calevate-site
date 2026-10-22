@@ -68,22 +68,16 @@ rules, the date line and per-turn blocks such as a transfer instruction. Three t
   writes into its own script stays where the client wrote it, so a script that uses one ends
   the cached prefix there; the script is matched verbatim on read-back, so the platform does
   not move the client's words.
-- **ThinnestAI's speaking rules are kept, never replaced** (`voice.callInstructions` is not
-  set; founder, 18 Oct 2026). Their text is `docs/vendor/thinnest-speaking-rules-2026-10-18.md`.
-  HOW TO SPEAK does not repeat them: the turn length (one or two sentences), one question a
-  turn, titles in full, no brackets or bullets, and opening each turn differently are theirs.
-  Ours keeps what theirs lacks: lead with the answer and wait, never re-ask, only the agent's
-  own part, no markdown, emoji, dashes, slashes or ellipses, never the time, prices and
-  quantities in words, numbers and codes one digit at a time and read back, the caller's
-  language and register, the Telugu register lines and the two hard-rule blocks.
-- **Nothing in any of our layers repeats them (D-824, 19 Oct 2026).** Cut against that text:
-  "one point at a time" (their one or two sentences), "never the same way twice" (their
-  "never repeat a sentence you have already said"), "say so" when nothing answers (their
-  "if you do not know, say so"), "booked" from the done-claim rule (their booked, cancelled
-  or confirmed only after a tool succeeded), and price and time from BUSINESS FACTS (their
-  never state an address, price, duration or policy you were not given). Their core,
-  disclosure, hand-over, lead and reply-language rules are not published, so nothing of ours
-  is cut against them until ThinnestAI sends the text (question 5 of the pending email).
+- **The call rules live in our instructions, once (D-856, 23 Oct 2026).** The engine's default
+  call rules (`docs/vendor/thinnest-speaking-rules-2026-10-18.md`) are read on calls only, never
+  in the practice chat, and `voice.callInstructions` replaces them (D-850). So HOW TO SPEAK,
+  BUSINESS FACTS and WHAT YOU CAN DO say every rule a call is judged by, and
+  `engine.CALL_INSTRUCTIONS` keeps only the call frame (149 characters; never blank, which
+  would restore the engine's 1,675). `tests/call_instructions_test.py` maps each default
+  sentence to its place. Two are turned round on purpose: "never reply with only an
+  acknowledgement and a question" became "react in a few words, then ask the next thing", and
+  "say so rather than going quiet" became "never announce a search or a wait" (the engine's own
+  filler covers a wait). Titles in full stay the engine's always-added speaking rule.
 - **Silence is the engine's and the model never sees it.** `nudgeAfterSeconds` and
   `endAfterSilenceSeconds` run outside the model; the nudge is spoken directly and recorded
   as an agent turn, and the model sees no empty turn or event. So the prompt carries no
@@ -105,8 +99,8 @@ operator step is needed.
 between the model and the voice, so HOW TO SPEAK says: one point and then wait, only the
 agent's own part, never the time, no pressing a reluctant caller, punctuation written for a
 voice ("?" on every question, no dashes, slashes or ellipses) and prices and quantities in
-words. The turn length, one question a turn and no brackets were ours too until D-814; they
-are now ThinnestAI's own speaking rules, which every call keeps. A step that
+words. The turn length, one question a turn and no brackets were the engine's call rules
+from D-814 to D-856 and are ours again, so the practice chat reads them. A step that
 collects several details carries "Ask for one of these details per turn." The test loop
 fails a reply that breaks any of these before the AI judge reads it
 (`apps/api/agents/turn_checks.py`), textbook words from `spoken_style.json` included. A deploy
@@ -170,6 +164,30 @@ layers stay within their 14 Oct size (the three-language cap below):
   language instead of six, so the three-language platform layers stay within their 14 Oct
   size.
 
+**What the October calls showed (D-856, 23 Oct 2026).** Five Raghava test calls against one
+competitor call the founder judged natural (`docs/evidence/call-quality-vs-outpero-2026-10-23.md`).
+The competitor's turns were not shorter; they reacted, asked one thing with choices, offered a
+reading of a half answer, and closed on what happens next. HOW TO SPEAK now says:
+- Asked something? Lead with the answer, never "do you want to know". Told something? React in
+  a few words, then ask the next thing. One question a turn; choices help.
+- Half an answer? Offer the reading as a question with a way out ("one kg, or more?"); never
+  finish it for them. This replaces D-849's bare "go on", which the model did not follow on a
+  number; a guess acted on is implicit confirmation, which is hard to correct.
+- Talked over? Stop, answer, then carry on in fewer words. Never announce a search or a wait.
+- Close with what happens next and anything else, then say goodbye once.
+WHAT YOU CAN DO forbids offering what no tool does ("shall I confirm the order?"); START OF THE
+CALL tells an agent that answers calls, when asked who or why, to say so in one line and ask if
+now is a good time (it also rings out on trial test calls and call backs). The test loop notes
+`asks_to_tell` and counts a question restated with its options as one; four standing callers
+(half answer, who is calling, just WhatsApp me, already bought) join the rotation.
+
+**Per-trade step plans (D-856).** `apps/api/agents/trade_playbooks.py` holds, per trade and job,
+five steps with a done-when branch, what to ask (one thing a turn), the trade's objections and a
+spoken example line per step in Telugu, Hindi and English. Starters are built from it and the AI
+script writer reads it with every new draft; a business's own example lines (D-827) replace the
+plan's, a person's never are. Step instructions say only the trade's part: the turn rules are
+HOW TO SPEAK's, said once.
+
 **`[STYLE]` IS PLATFORM-OWNED AND AUTO-INJECTED — DO NOT HAND-AUTHOR IT (D-479).** The
 speech-register guidance below is emitted on EVERY agent by `compose_engine_prompt`
 (`VOICE_STYLE_GUIDANCE` in `packages/shared/src/calevate_shared/engine.py`), which is the
@@ -207,13 +225,14 @@ working target is far below it, because every character is read on every turn: E
 says prompts over 2,000 tokens add latency and cost, and Deepgram calls its cap a ceiling,
 not a target (`docs/evidence/prompting-practices-2026-10.md` S3, S5). Retell puts a typical
 inbound support call's system prompt at 1,500 to 4,000 tokens
-(retellai.com/blog/best-llm-for-voice-ai-agents, 23 Sep 2026). So the platform layers are
-held to their size after D-824 (19 Oct 2026), which cut what ThinnestAI's speaking rules
-already say: 5,879 characters for a three-language agent and 4,871 for one
-(`PLATFORM_LAYERS_MAX`, `PLATFORM_LAYERS_ONE_LANGUAGE_MAX` in
-`tests/agent_prompt_budget_test.py`; 6,056 and 4,986 before). A starter must leave room for
-the owner's script and pinned facts, and the reference v2 prompt is held at 5,832 characters
-(`tests/agent_intelligence_test.py`; the whole-prompt target is 8,000). The layers, in
+(retellai.com/blog/best-llm-for-voice-ai-agents, 23 Sep 2026). So what a call reads of ours on
+every turn, the platform layers plus `CALL_INSTRUCTIONS`, is held to its D-856 size: 6,751
+characters for a three-language agent and 5,774 for one (`PER_CALL_MAX`,
+`PER_CALL_ONE_LANGUAGE_MAX` in `tests/agent_prompt_budget_test.py`; 7,227 and 6,250 before).
+A starter must leave room for the owner's script and pinned facts, and the reference v2 prompt
+is held at 6,802 characters (`tests/agent_intelligence_test.py`; the whole-prompt target is
+8,000). Prompt length is a cost and focus lever more than a latency one: ThinnestAI measures the
+model's first byte at about 0.9 s at 6k tokens and 1.2 s at 1k (VENDOR-STATED, 21 Oct 2026). The layers, in
 order: opening rules (role and fence framing), HOW TO SPEAK, LANGUAGES (extra languages
 only), SPOKEN REGISTER, BUSINESS FACTS, the notices, caller memory (off on ThinnestAI), the
 client script, WHAT YOU CAN DO, CONFIDENTIALITY, the truthful answers, THIS CALL (per-call
