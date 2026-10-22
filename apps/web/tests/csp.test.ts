@@ -77,13 +77,19 @@ describe("the content-security policy", () => {
     // falls back to `default-src 'self'` when it is not declared, and the src is a
     // presigned URL on the OBJECT STORE's origin — so without this every call recording
     // is refused, silently, for every client.
-    expect(csp).toContain("media-src 'self' https://store.calevate.tech");
+    expect(csp).toContain("media-src 'self' blob: https://store.calevate.tech");
+  });
+
+  it("admits blob: for media, because a voice sample plays from an object URL", () => {
+    // "Hear it" stuck at 0:00 (founder, 22 Oct 2026): the sample arrived and the player
+    // was refused its blob URL.
+    expect(csp).toMatch(/media-src [^;]*blob:/);
   });
 
   it("fails closed to 'self' for media on a malformed object store origin", () => {
     expect(
       buildContentSecurityPolicy("N", { apiOrigin: "", mediaOrigin: mediaOrigin("not a url") }),
-    ).toContain("media-src 'self';");
+    ).toContain("media-src 'self' blob:;");
   });
 
   it("points violations at the collector, by both mechanisms", () => {

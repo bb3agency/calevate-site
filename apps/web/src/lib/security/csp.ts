@@ -249,7 +249,11 @@ export function buildContentSecurityPolicy(
   const apiOrigin = opts.apiOrigin ?? apiConnectOrigin();
   const media = opts.mediaOrigin ?? mediaOrigin();
   const connect = ["'self'", apiOrigin, ...RAZORPAY_CONNECT_ORIGINS, FACEBOOK_GRAPH_ORIGIN, ...FACEBOOK_ORIGINS].filter(Boolean).join(" ");
-  const mediaSources = ["'self'", media].filter(Boolean).join(" ");
+  // `blob:` is the voice samples: "Hear it" and the voice picker fetch the audio through the
+  // API (it needs our session) and play it from an object URL. Without it the player is
+  // refused silently and sits at 0:00. A blob URL can only hold bytes this page already
+  // fetched, so it admits no new origin.
+  const mediaSources = ["'self'", "blob:", media].filter(Boolean).join(" ");
   // The second of the two refusals: asking for it in production does not get it.
   const evalSource = opts.devEval && process.env.NODE_ENV !== "production" ? " 'unsafe-eval'" : "";
   const directives = [
