@@ -392,20 +392,31 @@ already attached, and narrowing it is an API-contract change rather than an inde
 
 ---
 
-## STILL OPEN, and whose it is
+## Left open by this pass, and how each closed
 
-**Ours, named:**
+All three were ours, and all three are now closed:
 
-* The dashboard's `avg_duration` tile has **no time window** —
-  `avg(duration_s) FILTER (WHERE status = 'completed') FROM calls` over the account's whole
-  history, on a polled endpoint, and `calls` rows are never deleted. No index can fix an
-  aggregate over every row; the fix is a window, and a window changes a number the client
-  reads. **What closes it:** a decision about what the tile means. Everything beside it in
-  that query is already 7-day windowed.
-* The admin client directory's N+1 (§6 above) — deferral already recorded, number now
-  attached.
-* The facet rail exceeds its own 200 ms budget at eight enum facets on a six-figure lead
-  table (§4). No shipped template gets near eight. **What closes it:** a single round trip,
-  which the function's docstring already argues against for one and two facets.
+* **The dashboard's `avg_duration` tile had no time window.** CLOSED 18 Aug 2026 (D-215,
+  commit `246d5617`): the field is `avg_duration_s_7d` and the whole statement takes the
+  seven-day bound, so `ix_calls_tenant_started` serves it (27.2 ms / 1,017 buffers →
+  0.84 ms / 61 on a 45,000-call tenant). The number a client reads changed meaning, and the
+  rename says so. `tests/dashboard_avg_duration_window_test.py` pins the window and the SQL.
+* **The facet rail exceeded its 200 ms budget at eight facets.** CLOSED 18 Aug 2026 (D-216,
+  same commit): the single-round-trip rewrites were measured and were still over budget
+  (209-223 ms), so `MAX_FACET_FIELDS` is now `FACET_RAIL_BUDGET_MS // FACET_QUERY_COST_MS`
+  (four) and the rest are reported as omitted; a `MATERIALIZED` fence removed a 13 MB sort
+  spill per facet (70.5-74.9 → 47.4-50.6 ms). Results unchanged. Pinned in
+  `tests/lead_columns_test.py`.
+* **The admin client directory's N+1.** The console routes have paged it since 20 Sep 2026
+  (`GET /v1/admin/tenants`, 25 a page, at most `MAX_DIRECTORY_PAGE` 100), so they pay for
+  the accounts shown. The assistant's
+  `platform_tenants` tool did not: it called `tenant_overview` unpaged and sliced
+  afterwards — 62 tenant sessions for a 2-row answer on the test database, every account
+  on a real one. CLOSED 22 Oct 2026: the cap is passed in as the page and the total is the
+  directory's one count statement (2 sessions; `tests/admin_roster_tool_paging_test.py`).
+  What remains is N+1 within a page, by design: one statement across tenants needs either
+  RLS widened for `app.admin` (hard rule 1) or the holds, spend-cap and credit predicates
+  re-spelled in SQL beside their one implementation (`admin/service.py::tenant_overview`
+  argues both).
 
 **Not ours:** nothing in this pass was blocked externally.

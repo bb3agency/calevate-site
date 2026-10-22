@@ -81,13 +81,15 @@ async def _platform_tenants(
     """The client directory, newest first — `GET /v1/admin/tenants`' own data.
 
     `tenant_overview` is called rather than re-queried, so the assistant and the console's
-    roster cannot answer "which clients exist" differently. It is N+1 by construction and
-    says so at length; the cap below is what keeps the assistant from paying for the whole
-    walk on a question about the top of the list.
+    roster cannot answer "which clients exist" differently. It opens one tenant session per
+    account it returns, so the cap is passed INTO it as the page: slicing its answer
+    afterwards still paid for every account on the platform. The total is the directory's
+    own count, one statement.
     """
     del context
-    rows = await admin_service.tenant_overview(session)
     limit = _cap(args.get("limit"), default=MAX_ROWS)
+    rows = await admin_service.tenant_overview(session, limit=limit)
+    total = await admin_service.tenant_directory_total(session)
     lines = [
         _clean(
             f"{row['name']} ({row['slug']}) — {row['status']}, {row['vertical_template']}; "
@@ -108,9 +110,9 @@ async def _platform_tenants(
             + (", SPEND-CAPPED" if row["capped"] else "")
             + (f"; held by: {', '.join(row['holds'])}" if row["holds"] else "")
         )
-        for row in rows[:limit]
+        for row in rows
     ]
-    return _listing(lines, total=len(rows), shown_of="accounts", nothing=_NO_ACCOUNTS)
+    return _listing(lines, total=total, shown_of="accounts", nothing=_NO_ACCOUNTS)
 
 
 async def _platform_health(
