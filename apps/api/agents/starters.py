@@ -335,11 +335,14 @@ class Starter:
     objections: tuple[tuple[str, str], ...]
     ending: str
 
-    def opening_for(self, business: str, language: str = PREVIEW_LANGUAGE) -> str:
+    def opening_for(
+        self, business: str, language: str = PREVIEW_LANGUAGE, *, introduced: bool = False
+    ) -> str:
         """The greeting in the agent's language where `spoken_style.json` has one (a Telugu
-        agent greets in Telugu), else the English template."""
+        agent greets in Telugu), else the English template. `introduced`: the line said after
+        the agent's AI notice has introduced it, with no greeting and no names (D-865)."""
         direction = JOB_DIRECTION[self.job]
-        template = opening_in(language, direction) or self.opening_line
+        template = opening_in(language, direction, introduced=introduced) or self.opening_line
         return template.replace("{business}", business)
 
     def call_script(self, *, business: str, language: str = STARTER_LANGUAGE) -> CallScript:
@@ -575,6 +578,23 @@ def _block(script: CallScript, direction: str) -> list[ConversationStage]:
         data["otherwise"] = END_OF_CALL if last else ids.get(stage.otherwise, stage.otherwise)
         out.append(ConversationStage.model_validate(data))
     return out
+
+
+def starter_opening(
+    vertical_template: str | None,
+    job: JobChoice,
+    *,
+    business: str,
+    language: str = STARTER_LANGUAGE,
+    introduced: bool = False,
+) -> str:
+    """The ready-made script's greeting, from the job `starter_script` takes it from, or with
+    `introduced` the form said after the agent's introduction (D-865)."""
+    jobs = starter_jobs(job)
+    calling_only = "answer_calls" not in jobs and len(jobs) > 1
+    source = jobs[-1] if calling_only else jobs[0]
+    starter = CATALOGUE[(vertical_of(vertical_template), source)]
+    return starter.opening_for(business, language, introduced=introduced)
 
 
 def starter_script(
@@ -881,6 +901,7 @@ __all__ = [
     "rewrite_opening_in_language",
     "starter_for",
     "starter_jobs",
+    "starter_opening",
     "starter_script",
     "starter_vertical_of",
     "vertical_of",

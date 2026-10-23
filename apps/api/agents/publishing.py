@@ -1310,7 +1310,7 @@ _APPLIED_BODY_SQL: Final = (
 _NOTICE_ADDED: Final[dict[str, str]] = {
     "ai_disclosure_enabled": (
         "Saying that it is an AI assistant adds a sentence your agent says at the start of "
-        "every call, right after its opening line."
+        "every call, with its opening line."
     ),
     "recording_notice_enabled": (
         "Saying that the call is recorded adds a sentence your agent says at the start of "
@@ -1329,6 +1329,7 @@ def _refuse_notices_without_room(
     direction: str,
     posture: DisclosurePosture,
     body: str | None,
+    language: str,
     turned_on: tuple[str, ...],
 ) -> None:
     """Refuse switching on a notice the first words have no room for, before anything is
@@ -1341,16 +1342,15 @@ def _refuse_notices_without_room(
         _NOTICE_ADDED[turned_on[0]]
         if len(turned_on) == 1
         else "These notices add sentences your agent says at the start of every call, "
-        "right after its opening line."
+        "with its opening line."
     )
     refuse_notice_without_room(
         engine,
         agent_id=str(agent_id),
         direction=direction,
-        notices=compose_opening_line(
-            posture, call_is_recorded=engine_capabilities(engine).records_audio
-        ),
+        posture=posture,
         opening=opening_line_of(body),
+        language=language,
         cause=cause,
     )
 
@@ -1407,7 +1407,7 @@ async def set_disclosure_posture(
                     # dropped the memory sentence would republish an agent that still
                     # remembers callers and has stopped saying so.
                     "caller_memory_notice_line, caller_memory_enabled, "
-                    f"a.direction, {_APPLIED_BODY_SQL} "
+                    f"a.direction, {_APPLIED_BODY_SQL}, a.language_primary "
                     "FROM agents a WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
                 ),
                 {"aid": agent_id},
@@ -1441,6 +1441,7 @@ async def set_disclosure_posture(
             direction=str(row[8]),
             posture=posture,
             body=row[9],
+            language=str(row[10]),
             turned_on=tuple(field for field in changed if wanted[field]),
         )
         is_live = str(row[4]) == "live" and bool(row[5])
@@ -1555,7 +1556,7 @@ async def set_caller_memory(
                     # has attested yet, or the person who did has left and the FK went to
                     # NULL. An inner join would drop the whole agent row for either, which
                     # is a 404 on a switch because somebody was offboarded.
-                    f"u.name, a.direction, {_APPLIED_BODY_SQL} "
+                    f"u.name, a.direction, {_APPLIED_BODY_SQL}, a.language_primary "
                     "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
                     "LEFT JOIN users u ON u.id = o.caller_memory_attested_by "
                     "WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
@@ -1596,6 +1597,7 @@ async def set_caller_memory(
             direction=str(row[11]),
             posture=posture,
             body=row[12],
+            language=str(row[13]),
             turned_on=("caller_memory_enabled",) if enabled and not current else (),
         )
         if enabled and attested_at is None and attested_by is None:

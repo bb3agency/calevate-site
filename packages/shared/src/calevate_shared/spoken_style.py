@@ -60,8 +60,18 @@ DEFAULT_EXAMPLES: Final = "_default"
 REGISTER_KEY: Final = "line"
 #: What an opening is keyed by: the call direction, and `test_call`, the line an agent that
 #: only answers calls opens with when it rings its owner on a free-trial test call (founder,
-#: 23 Oct 2026), with `{name}` and `{business}` to fill.
-OPENING_KEYS: Final = ("inbound", "outbound", "test_call")
+#: 23 Oct 2026), with `{name}` and `{business}` to fill. Each `_introduced` form is the same
+#: line said right after the agent's AI notice has introduced it (D-865): no greeting, and
+#: no name of the agent or the business, which the introduction has just said.
+OPENING_KEYS: Final = (
+    "inbound",
+    "outbound",
+    "test_call",
+    "inbound_introduced",
+    "outbound_introduced",
+    "test_call_introduced",
+)
+INTRODUCED_SUFFIX: Final = "_introduced"
 
 #: Bounds on what an edit may hold, so a typo cannot blow the prompt budget.
 MAX_TEXT: Final = 600
@@ -708,22 +718,28 @@ def thinking_lines(tags: Sequence[str]) -> tuple[str, ...]:
     return tuple(lines)
 
 
-def trial_call_opening(tag: str | None, *, name: str, business: str) -> str | None:
+def trial_call_opening(
+    tag: str | None, *, name: str, business: str, introduced: bool = False
+) -> str | None:
     """The line an answer-only agent opens a free-trial test call with: who it is, from which
-    business, why it rings (a test of the owner's new receptionist) and whether now suits. None
-    where the language has no such line."""
-    template = opening_in(tag, "test_call")
+    business, why it rings (a test of the owner's new receptionist) and whether now suits;
+    `introduced`, only why it rings and whether now suits (D-865). None where the language
+    has no such line."""
+    template = opening_in(tag, "test_call", introduced=introduced)
     if template is None:
         return None
     return " ".join(template.replace("{name}", name).replace("{business}", business).split())
 
 
-def opening_in(tag: str | None, direction: str) -> str | None:
+def opening_in(tag: str | None, direction: str, *, introduced: bool = False) -> str | None:
     """A starter's opening line in the agent's language (`{business}` unfilled), or None
-    where the table has none for it."""
+    where the table has none for it. `introduced` asks for the form said after the agent's
+    introduction, and falls back to the plain one where the table has none."""
     style = style_for(tag)
     if style is None or not style.openings:
         return None
+    if introduced and (line := style.openings.get(direction + INTRODUCED_SUFFIX)):
+        return line
     return style.openings.get(direction)
 
 

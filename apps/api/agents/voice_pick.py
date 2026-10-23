@@ -41,6 +41,9 @@ from datetime import UTC, datetime
 from typing import Final, Literal
 from uuid import UUID
 
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from apps.api.agents.hosted_voices import (
     STUDIO_VOICE_PROVIDER,
     HostedVoiceRow,
@@ -93,6 +96,20 @@ def gender_of(stated: str | None) -> Gender | None:
     if word.startswith("m"):
         return "male"
     return None
+
+
+async def voice_gender(session: AsyncSession, voice_id: str | None) -> Gender | None:
+    """The gender the voice catalogue states for `voice_id`, or None (no voice, a voice the
+    catalogue does not hold, or one whose provider states none). The catalogue has no tenant,
+    so any session reads it."""
+    if not voice_id:
+        return None
+    stated = (
+        await session.execute(
+            text("SELECT gender FROM platform_voice_catalog WHERE voice_id = :v"), {"v": voice_id}
+        )
+    ).scalar()
+    return gender_of(None if stated is None else str(stated))
 
 
 def _female(rows: list[HostedVoiceRow]) -> list[HostedVoiceRow]:
@@ -208,4 +225,5 @@ __all__ = [
     "pick_voice",
     "rank_voices",
     "studio_hindrance",
+    "voice_gender",
 ]

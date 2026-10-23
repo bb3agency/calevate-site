@@ -167,7 +167,7 @@ def platform_prompt_revision() -> str:
     """A short digest of the text every live agent carries that only a deploy can change: the
     platform layers `compose_engine_prompt` wraps around a script, how a script's sections
     compile to engine steps, our call rules (`CALL_INSTRUCTIONS`, D-850), the order of the
-    greeting field (`join_first_words`) and the
+    greeting field and its salutations (`join_first_words`) and the
     call-behaviour values every agent is published with (`hosted_platform.PLATFORM_AGENT_VALUES`).
 
     Composed over reference agents rather than read from the constants, so a change in any
@@ -183,6 +183,7 @@ def platform_prompt_revision() -> str:
     )
     from calevate_shared.engine import (
         CALL_INSTRUCTIONS,
+        INTRODUCTION_SALUTATIONS,
         AgentConfig,
         compose_engine_prompt,
         join_first_words,
@@ -233,9 +234,14 @@ def platform_prompt_revision() -> str:
         parts.append(compose_engine_prompt(cfg))
     # Our call rules (D-850), sent beside the prompt while their switch is on.
     parts.append(CALL_INSTRUCTIONS)
-    # How the greeting field orders the opening line and the notices (D-861), which the
+    # How the greeting field orders the opening line and the notices (D-861), and the
+    # introduction with its salutation in each language that has one (D-865), which the
     # reference agents above cannot show: their script has no opening line.
-    parts.append(join_first_words("N", "O"))
+    parts.append(join_first_words("N", "O", ai_notice="", language=primary))
+    parts += [
+        join_first_words("A N", "hello, O", ai_notice="A", language=language)
+        for language in sorted(INTRODUCTION_SALUTATIONS)
+    ]
     # The fixed call-behaviour values too (filler timing, interruptions, re-ask), so a deploy
     # that changes one republishes every live agent rather than each reading as drift.
     from apps.api.engine.hosted_platform import PLATFORM_AGENT_VALUES

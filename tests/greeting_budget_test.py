@@ -30,7 +30,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
 from calevate_shared.call_script import SCRIPT_SCHEMA_VERSION, CallScript, compile_call_script
-from calevate_shared.engine import AgentConfig, DisclosurePosture, compose_opening_line
+from calevate_shared.engine import AgentConfig, DisclosurePosture, notice_fields
 from sqlalchemy import text
 from tests.conftest import _owner_of, create_org_with_receptionist
 
@@ -61,7 +61,7 @@ def _cfg(posture: DisclosurePosture, opening: str, direction: str = "inbound") -
         name="Receptionist",
         direction=direction,  # type: ignore[arg-type]
         system_prompt=compile_call_script(CallScript(opening_line=opening), collect=[]),
-        opening_line=compose_opening_line(posture, call_is_recorded=True),
+        **notice_fields(posture, call_is_recorded=True),
     )
 
 
@@ -72,7 +72,9 @@ def _cfg(posture: DisclosurePosture, opening: str, direction: str = "inbound") -
 def test_the_room_is_exactly_what_the_publish_lets_through(direction: str) -> None:
     engine = _thinnest()
     posture = _posture(ai=True, recording=True)
-    budget = greeting_budget(engine, posture=posture, opening="", direction=direction)
+    budget = greeting_budget(
+        engine, posture=posture, opening="", direction=direction, language="te-IN"
+    )
     assert budget is not None and budget.limit == 200
     refuse_over_engine_limits(engine, _cfg(posture, "a" * budget.opening_room, direction))
     with pytest.raises(ProblemError) as refused:
@@ -82,7 +84,9 @@ def test_the_room_is_exactly_what_the_publish_lets_through(direction: str) -> No
 
 def test_each_switch_room_is_what_the_publish_would_let_through_with_it_on() -> None:
     engine = _thinnest()
-    budget = greeting_budget(engine, posture=_posture(), opening="Namaskaram", direction="inbound")
+    budget = greeting_budget(
+        engine, posture=_posture(), opening="Namaskaram", direction="inbound", language="te-IN"
+    )
     assert budget is not None
     assert budget.opening_chars == len("Namaskaram")
     assert budget.opening_room == 200
@@ -99,7 +103,9 @@ def test_each_switch_room_is_what_the_publish_would_let_through_with_it_on() -> 
 
 
 def test_an_engine_with_no_ceiling_has_no_budget() -> None:
-    budget = greeting_budget(FakeEngine(), posture=_posture(), opening="x", direction="inbound")
+    budget = greeting_budget(
+        FakeEngine(), posture=_posture(), opening="x", direction="inbound", language="te-IN"
+    )
     assert budget is None
 
 

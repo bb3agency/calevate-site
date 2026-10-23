@@ -369,8 +369,13 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     """
     prompt = snapshot.carries_prompt_marker(cfg.system_prompt)
     disclosure = _greeting_verdict(engine, cfg, snapshot)
+    # The whole first turn, which START OF THE CALL quotes verbatim: an introducing agent's
+    # notices are said on either side of its opening line (D-865), so `cfg.opening_line`
+    # alone is no longer one stretch of the quote.
     prompt_disclosure = (
-        snapshot.carries_prompt_marker(cfg.opening_line) if cfg.opening_line.strip() else None
+        snapshot.carries_prompt_marker(compose_first_utterance(cfg))
+        if cfg.opening_line.strip()
+        else None
     )
     # EVERY prompt the engine will run, not only the one we published. On Bolna a
     # console-added language carries its own `system_prompt` that the platform switches to

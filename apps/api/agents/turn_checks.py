@@ -31,7 +31,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final, Literal, Protocol
 
-from calevate_shared.spoken_guard import textbook_note, textbook_words
+from calevate_shared.spoken_guard import opens_with_greeting, textbook_note, textbook_words
 from calevate_shared.spoken_style import style_for
 
 Kind = Literal[
@@ -908,13 +908,6 @@ _ASKS_REPEAT: Final = re.compile(
 )
 
 
-#: A reply that opens with a greeting. The opening the engine speaks already greeted, so in
-#: the first reply after it this is a second hello (D-864).
-_OPENS_WITH_GREETING: Final = re.compile(
-    r"^\W*(?:hello|hi|hey|namaste|namaskar(?:am)?|good (?:morning|afternoon|evening)|"
-    r"నమస్కారం|నమస్కారాలు|నమస్తే|హలో|హాయ్|नमस्ते|नमस्कार|हैलो|हेलो)(?=[\s,.!?।]|$)",
-    re.IGNORECASE,
-)
 #: Asking whether now suits, which an opening of ours asks itself ("ఇప్పుడు రెండు నిమిషాలు
 #: మాట్లాడొచ్చా?").
 _ASKS_IF_NOW_SUITS: Final = re.compile(
@@ -929,8 +922,11 @@ _ASKS_IF_NOW_SUITS: Final = re.compile(
 
 def opened_again(reply: str) -> str | None:
     """Why the first reply after the opening starts the call over, or None: a second greeting,
-    or asking again whether now is a good time (D-864)."""
-    if _OPENS_WITH_GREETING.search(reply):
+    or asking again whether now is a good time (D-864). The opening already greeted, so a
+    reply that opens with a greeting is a second hello. A reply that says who the agent is
+    ("నేను ... మాట్లాడుతున్నాను", the AI notice's introduction, D-865) is not a greeting: it is
+    the answer to "who is this?"."""
+    if opens_with_greeting(reply):
         return "It greeted the caller again, though its opening had already greeted them."
     if _ASKS_IF_NOW_SUITS.search(reply):
         return (

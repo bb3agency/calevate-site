@@ -71,7 +71,8 @@ async def _agent(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> Any:
                 text(
                     "SELECT status, engine_agent_ref, language_primary, ai_disclosure_line, "
                     "recording_notice_line, caller_memory_notice_line, disclosure_line, "
-                    "ai_disclosure_enabled, recording_notice_enabled FROM agents WHERE id = :a"
+                    "ai_disclosure_enabled, recording_notice_enabled, name FROM agents "
+                    "WHERE id = :a"
                 ),
                 {"a": agent_id},
             )
@@ -194,7 +195,7 @@ async def test_changing_the_main_language_rewrites_the_notices_and_keeps_the_tog
             session, tenant_id=tenant_id, agent_id=agent_id, language_primary="hi-IN"
         )
     after = await _agent(tenant_id, agent_id)
-    ai_line = ai_disclosure_for(language="hi-IN", business="Lifecycle Clinic")
+    ai_line = ai_disclosure_for(language="hi-IN", business="Lifecycle Clinic", name=after.name)
     assert after.ai_disclosure_line == ai_line
     assert after.recording_notice_line == recording_notice_for(language="hi-IN")
     assert after.caller_memory_notice_line == caller_memory_notice_for(language="hi-IN")

@@ -32,6 +32,7 @@ from typing import Any, Final, Literal, get_args
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript, upgrade_to_v2
+from calevate_shared.engine import introduces_itself
 from calevate_shared.spoken_style import style_for
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -280,7 +281,8 @@ async def brief_for(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> S
     row = (
         await session.execute(
             text(
-                "SELECT a.direction, a.language_primary, o.vertical_template, o.name, a.name "
+                "SELECT a.direction, a.language_primary, o.vertical_template, o.name, a.name, "
+                "CASE WHEN a.ai_disclosure_enabled THEN a.ai_disclosure_line ELSE '' END "
                 "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL AND o.id = :tid"
             ),
@@ -306,6 +308,7 @@ async def brief_for(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> S
         register=(f"{style.register_name}. {style.register}" if style is not None else ""),
         collect=tuple(f.label for f in await script_builder.collect_fields(session, agent_id)),
         knowledge_titles=tuple(str(r[0])[:120] for r in titles),
+        introduced=introduces_itself(ai_notice=str(row[5]), language=language),
     )
 
 

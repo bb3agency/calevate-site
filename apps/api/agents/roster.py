@@ -38,7 +38,12 @@ from typing import Any, cast
 from uuid import UUID
 
 from calevate_shared.call_script import opening_line_of
-from calevate_shared.engine import DisclosurePosture, compose_opening_line, join_first_words
+from calevate_shared.engine import (
+    DisclosurePosture,
+    compose_opening_line,
+    join_first_words,
+    spoken_ai_notice,
+)
 from calevate_shared.lead_fields import business_only
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -133,7 +138,9 @@ def agent_out(r: Any) -> AgentOut:
     )
     notices = compose_opening_line(posture, call_is_recorded=recorded)
     opening = opening_line_of(r[21])
-    budget = greeting_budget(get_engine(), posture=posture, opening=opening, direction=str(r[2]))
+    budget = greeting_budget(
+        get_engine(), posture=posture, opening=opening, direction=str(r[2]), language=str(r[4])
+    )
     return AgentOut(
         id=r[0],
         name=r[1],
@@ -168,7 +175,9 @@ def agent_out(r: Any) -> AgentOut:
         engine_model_id=engine_model_token(r[20]) if r[20] is not None else None,
         opening_line=notices,
         script_opening_line=opening,
-        first_words=join_first_words(notices, opening),
+        first_words=join_first_words(
+            notices, opening, ai_notice=spoken_ai_notice(posture), language=str(r[4])
+        ),
         greeting_budget=None if budget is None else GreetingBudgetOut(**asdict(budget)),
         truthful_answer_rule=truthful_answer_promise(call_is_recorded=recorded),
     )

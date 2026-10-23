@@ -124,6 +124,52 @@ def latin_word_problem(
     )
 
 
+#: A line that opens with a greeting, with the honorific that may follow it ("నమస్కారం అండి,",
+#: "नमस्ते जी,") and the punctuation after it. One pattern for the practice check that a reply
+#: greeted a second time (`agents/turn_checks.opened_again`, D-864), the writers' check that an
+#: opening said after the agent's introduction does not greet (D-865), and the composer that
+#: drops a greeting the introduction already said (`engine.join_first_words`).
+_GREETING_HEAD: Final = re.compile(
+    r"^\W*(?:hello|hi|hey|namaste|namaskar(?:am)?|good (?:morning|afternoon|evening)|"
+    r"నమస్కారం|నమస్కారాలు|నమస్తే|హలో|హాయ్|नमस्ते|नमस्कार|हैलो|हेलो)(?=[\s,.!?।]|$)"
+    r"(?:\s+(?:అండి|గారు|जी|ji|andi|garu|sir|madam)(?=[\s,.!?।]|$))?[\s,.!?।]*",
+    re.IGNORECASE,
+)
+
+
+def opens_with_greeting(text: str) -> bool:
+    return bool(_GREETING_HEAD.search(text))
+
+
+def without_greeting(text: str) -> str:
+    """`text` with a greeting at its start removed, honorific and punctuation too."""
+    return _GREETING_HEAD.sub("", text.strip(), count=1).strip()
+
+
+def names_used(text: str, names: Sequence[str]) -> list[str]:
+    """Which of `names` (a business's, an agent's) `text` says, ignoring case."""
+    folded = text.casefold()
+    return [name.strip() for name in names if name.strip() and name.strip().casefold() in folded]
+
+
+def introduced_opening_problem(where: str, text: str, *, names: Sequence[str] = ()) -> str | None:
+    """What an opening line said right after the agent's own introduction must not do (D-865):
+    greet, or say who is calling or from which business. None when it does neither."""
+    if opens_with_greeting(text):
+        return (
+            f"{where}: starts with a greeting; the agent's introduction just before it already "
+            "greeted, so start with why you are calling or with the question"
+        )
+    said = names_used(text, names)
+    if said:
+        quoted = ", ".join(f"“{name}”" for name in said)
+        return (
+            f"{where}: says {quoted}; the agent's introduction just before it already said who "
+            "is calling and from which business, so leave the names out"
+        )
+    return None
+
+
 def english_problem(where: str, text: str) -> str | None:
     """A problem for an instruction field written in an Indic script; None when it is not."""
     if not has_indic_letters(text):
@@ -163,9 +209,13 @@ __all__ = [
     "english_problem",
     "generation_guidance",
     "has_indic_letters",
+    "introduced_opening_problem",
     "latin_word_problem",
     "latin_words",
+    "names_used",
+    "opens_with_greeting",
     "textbook_note",
     "textbook_problem",
     "textbook_words",
+    "without_greeting",
 ]

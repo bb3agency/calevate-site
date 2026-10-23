@@ -112,7 +112,10 @@ from calevate_shared.engine import (
     VoiceEngine,
     compose_engine_prompt,
     compose_opening_line,
+    introduces_itself,
     join_first_words,
+    notice_fields,
+    spoken_ai_notice,
     truthful_answer_directive,
 )
 from calevate_shared.engine_scope import scope_of
@@ -903,9 +906,7 @@ def _to_config(
         # and the answer to a caller who ASKS is `truthful_answer_directive`, which no
         # column on this row can reach. The recording sentence is spoken only where the
         # engine records audio — the same fact the floor's clause 2 is composed from below.
-        opening_line=compose_opening_line(
-            posture_of(agent), call_is_recorded=engine.capabilities.records_audio
-        ),
+        **notice_fields(posture_of(agent), call_is_recorded=engine.capabilities.records_audio),
         # FROM THE ENGINE THAT WILL RUN THIS AGENT, not from any column — no column decides
         # whether audio is captured. It composes clause 2 of the truthful-answer floor, so
         # an agent on a leg that records nothing stops telling callers otherwise
@@ -3219,7 +3220,7 @@ def _variant_config(
             # sentence added to the posture (D-507) would have reached the agent and not
             # its experiment arms, so an arm would greet callers without saying the agent
             # remembers them while the agent said it.
-            "opening_line": compose_opening_line(
+            **notice_fields(
                 posture_of(agent).model_copy(update={"ai_disclosure_line": disclosure}),
                 call_is_recorded=engine.capabilities.records_audio,
             ),
@@ -3766,19 +3767,24 @@ def trial_call_first_words(agent: AgentRow, *, call_is_recorded: bool) -> str | 
     """What an agent that only answers calls says first when it rings its owner on a test
     call (founder, 23 Oct 2026): who it is, from which business, why it rings and whether now
     suits, then the notices its switches turn on, in the order its greeting carries them
-    (D-861). None for an agent that calls out (its greeting already does) or a language with
-    no such line (its greeting is spoken)."""
+    (D-861). When its AI notice introduces it (D-865), the line after the introduction says
+    only why it rings and whether now suits. None for an agent that calls out (its greeting
+    already does) or a language with no such line (its greeting is spoken)."""
     if agent["direction"] != "inbound":
         return None
+    posture = posture_of(agent)
+    language = str(agent["language_primary"])
+    ai_notice = spoken_ai_notice(posture)
     line = trial_call_opening(
-        str(agent["language_primary"]),
+        language,
         name=str(agent["name"]),
         business=str(agent.get("business_name") or ""),
+        introduced=introduces_itself(ai_notice=ai_notice, language=language),
     )
     if line is None:
         return None
-    notices = compose_opening_line(posture_of(agent), call_is_recorded=call_is_recorded)
-    return join_first_words(notices, line)
+    notices = compose_opening_line(posture, call_is_recorded=call_is_recorded)
+    return join_first_words(notices, line, ai_notice=ai_notice, language=language)
 
 
 async def dispatch_call(

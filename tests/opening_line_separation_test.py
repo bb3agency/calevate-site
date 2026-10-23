@@ -35,6 +35,7 @@ from calevate_shared.engine import (
     compose_first_utterance,
     join_first_words,
 )
+from calevate_shared.spoken_guard import opens_with_greeting
 from tests.thinnest_engine_test import _agent_write, _body, _cfg, _engine, _recorder
 
 NOTICES = "Idi Sunrise Clinic AI assistant. Ee call record avutundi."
@@ -94,7 +95,8 @@ def test_the_opening_section_ends_at_the_next_section_wherever_it_sits() -> None
 def test_first_words_are_the_opening_line_then_the_notices(
     notices: str, opening: str, expected: str
 ) -> None:
-    assert join_first_words(notices, opening) == expected
+    """Where the agent does not introduce itself (D-865 is `opening_introduction_test`)."""
+    assert join_first_words(notices, opening, ai_notice="", language="te-IN") == expected
     assert compose_first_utterance(_config(notices=notices, opening=opening)) == expected
 
 
@@ -106,8 +108,7 @@ def test_switching_both_notices_off_never_touches_the_truthful_answer() -> None:
 def test_the_notice_templates_carry_no_greeting_word() -> None:
     """A greeting word in a notice made it read as the greeting and doubled the hello."""
     for template in AI_DISCLOSURE_TEMPLATES.values():
-        lowered = template.lower()
-        assert not lowered.startswith(("namaskaram", "namaste", "hello")), template
+        assert not opens_with_greeting(template), template
         assert any(ai in template for ai in ("AI assistant", "ఏఐ అసిస్టెంట్", "एआई असिस्टेंट")), template
 
 
