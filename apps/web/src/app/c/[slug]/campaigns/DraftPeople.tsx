@@ -4,7 +4,8 @@ import { useState } from "react";
 import { ListPlus } from "lucide-react";
 
 import { Section, TEXT_ACTION } from "@/components/console/section";
-import { ProblemNotice, SECONDARY_BUTTON, formatCount } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ProblemNotice, formatCount } from "@/components/ui";
 import { useAddContacts, useAddLeads, useLeadPool, type LeadFilter } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
 
@@ -78,6 +79,10 @@ function AddPeoplePanel({
   const form = useCampaignForm();
   const addContacts = useAddContacts(session, campaignId);
   const addLeads = useAddLeads(session, campaignId);
+  // Inline: each refusal sits above the list it refused. The count sentence below says
+  // what was added, so success needs no toast.
+  const contactsFeedback = useActionFeedback(addContacts, { errorDisplay: "inline" });
+  const leadsFeedback = useActionFeedback(addLeads, { errorDisplay: "inline" });
   const [filter, setFilter] = useState<LeadFilter>({ statuses: [], sources: [] });
   const pool = useLeadPool(session, filter, true);
   const { checked } = form;
@@ -87,34 +92,36 @@ function AddPeoplePanel({
       <div className="space-y-3">
         {addContacts.error && <ProblemNotice error={addContacts.error} />}
         <ContactEditor entries={form.contacts} onChange={form.setContacts} label="People to add" />
-        <button
-          type="button"
+        <ActionButton
+          variant="secondary"
           title={refusal}
-          disabled={!canWrite || addContacts.isPending || checked.ready.length === 0 || checked.refusal !== null}
+          disabled={!canWrite || checked.ready.length === 0 || checked.refusal !== null}
+          status={contactsFeedback.status}
+          pendingLabel="Adding"
+          successLabel="Added"
           onClick={() => addContacts.mutate(checked.ready, { onSuccess: () => form.setContacts([]) })}
-          className={SECONDARY_BUTTON}
         >
           <ListPlus aria-hidden className="h-4 w-4" />
-          {addContacts.isPending ? "Adding…" : "Add these people"}
-        </button>
+          Add these people
+        </ActionButton>
       </div>
       <div className="space-y-3 border-t border-line pt-6">
         <h3 className="text-body font-semibold text-ink">From your leads</h3>
         {addLeads.error && <ProblemNotice error={addLeads.error} />}
         <LeadPicker value={filter} onChange={setFilter} />
-        <button
-          type="button"
+        <ActionButton
+          variant="secondary"
           title={refusal}
-          disabled={!canWrite || addLeads.isPending || !leadPoolFits(pool.data?.matching, pool.data?.limit)}
-          onClick={() => addLeads.mutate({ filter })}
-          className={SECONDARY_BUTTON}
+          disabled={!canWrite || !leadPoolFits(pool.data?.matching, pool.data?.limit)}
+          status={leadsFeedback.status}
+          pendingLabel="Adding"
+          successLabel="Added"
+          onClick={() => leadsFeedback.run({ filter })}
         >
-          {addLeads.isPending
-            ? "Adding…"
-            : pool.data
-              ? `Add ${formatCount(pool.data.matching)} ${pool.data.matching === 1 ? "lead" : "leads"}`
-              : "Add leads"}
-        </button>
+          {pool.data
+            ? `Add ${formatCount(pool.data.matching)} ${pool.data.matching === 1 ? "lead" : "leads"}`
+            : "Add leads"}
+        </ActionButton>
       </div>
       {result && (
         <p role="status" className="text-meta text-ink-muted">

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Section } from "@/components/console/section";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
@@ -28,6 +29,7 @@ import { CampaignResults } from "./CampaignResults";
 import { CampaignRun } from "./CampaignRun";
 import { CampaignSettings } from "./CampaignSettings";
 import { CampaignStateNotice } from "./CampaignStateNotice";
+import { CampaignTimeline } from "./CampaignTimeline";
 import { ContactResults } from "./ContactResults";
 import { LaunchGate } from "./LaunchGate";
 import { ScheduleCards } from "./ScheduleCards";
@@ -61,6 +63,21 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
   const schedule = useScheduleCampaign(session, campaignId);
   const unschedule = useUnscheduleCampaign(session, campaignId);
   const repeat = useSetRecurrence(session, campaignId);
+  const launchFeedback = useActionFeedback(launch, { errorTitle: "Could not launch this campaign" });
+  const setStatusFeedback = useActionFeedback(setStatus, {
+    errorTitle: "Could not change this campaign",
+    successToast: (_out, action) => (action === "pause" ? "Campaign paused" : "Campaign resumed"),
+    successDescription: (_out, action) =>
+      action === "pause" ? "Calls not yet made wait until you resume." : undefined,
+  });
+  // The armed schedule shows in its own card further up the page, so its arrival is said.
+  const scheduleFeedback = useActionFeedback(schedule, { errorDisplay: "inline", successToast: "Start scheduled" });
+  const unscheduleFeedback = useActionFeedback(unschedule, {
+    errorTitle: "Could not cancel the schedule",
+    successToast: "Schedule cancelled",
+    successDescription: "It will not start on its own any more.",
+  });
+  const repeatFeedback = useActionFeedback(repeat, { errorDisplay: "inline", successToast: "Repeat set" });
   const scheduleForm = useScheduleForm();
   const write = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
   const refusal = write.allowed ? undefined : (write.reason ?? undefined);
@@ -150,6 +167,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               campaignId={campaignId}
               progress={data}
               setStatus={setStatus}
+              setStatusFeedback={setStatusFeedback}
               canWrite={write.allowed}
               refusal={refusal}
               onGone={() => router.push(back.href)}
@@ -158,11 +176,6 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
           }
         />
         <RestrictionNote reason={write.reason} />
-        {setStatus.error && <ProblemNotice error={setStatus.error} />}
-        {launch.error && <ProblemNotice error={launch.error} />}
-        {schedule.error && <ProblemNotice error={schedule.error} />}
-        {unschedule.error && <ProblemNotice error={unschedule.error} />}
-        {repeat.error && <ProblemNotice error={repeat.error} />}
 
         <CampaignStateNotice
           slug={slug}
@@ -186,7 +199,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
       <ScheduleCards
         status={status}
         progress={progress}
-        unschedule={unschedule}
+        unschedule={unscheduleFeedback}
         armedScheduleWouldRefuse={armedScheduleWouldRefuse}
         canWrite={write.allowed}
         refusal={refusal}
@@ -200,7 +213,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             status={status}
             check={check}
             progress={progress}
-            launch={launch}
+            launch={launchFeedback}
             canWrite={write.allowed}
             writeReason={write.reason}
             refusal={refusal}
@@ -213,8 +226,8 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               <ArmingForms
                 status={status}
                 check={check}
-                schedule={schedule}
-                repeat={repeat}
+                schedule={scheduleFeedback}
+                repeat={repeatFeedback}
                 scheduleForm={scheduleForm}
                 canWrite={write.allowed}
                 refusal={refusal}
@@ -235,6 +248,12 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
           }
         >
           <CampaignResults slug={slug} campaignId={campaignId} results={results} />
+        </Section>
+      )}
+
+      {launched && (
+        <Section title="Day by day">
+          <CampaignTimeline campaignId={campaignId} launchedAt={data.launched_at} />
         </Section>
       )}
 

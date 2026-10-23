@@ -2,9 +2,13 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Pause, Play } from "lucide-react";
 
+import { ChipGroup } from "@/components/arc/chip-group";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FilterToolbar } from "@/components/arc/filter-toolbar";
+import { SearchField } from "@/components/arc/search-field";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
@@ -12,12 +16,9 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { StatusPill } from "@/components/console/statusPill";
 import { Pagination } from "@/components/interior/pagination";
 import {
-  FIELD,
-  FilterChip,
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
   formatIST,
@@ -53,9 +54,8 @@ function RowProgress({ campaign }: { campaign: CampaignSummary }) {
 
 const PAGE_SIZE = 25;
 
-/** The status tabs, in the order a campaign moves through them. */
-const FILTERS: { value: CampaignStatus | undefined; label: string }[] = [
-  { value: undefined, label: "All" },
+/** The status filters, in the order a campaign moves through them ("All" is the chip group's own). */
+const STATUS_FILTERS: { value: CampaignStatus; label: string }[] = [
   { value: "draft", label: "Drafts" },
   { value: "scheduled", label: "Scheduled" },
   { value: "running", label: "Running" },
@@ -65,7 +65,7 @@ const FILTERS: { value: CampaignStatus | undefined; label: string }[] = [
 ];
 
 function initialStatus(value: string | null): CampaignStatus | undefined {
-  return FILTERS.find((f) => f.value === value)?.value;
+  return STATUS_FILTERS.find((f) => f.value === value)?.value;
 }
 
 /**
@@ -86,17 +86,50 @@ export function CampaignsListScreen({ slug }: { slug: string }) {
   const [status, setStatus] = useState<CampaignStatus | undefined>(() =>
     initialStatus(params.get("status")),
   );
+  // What is typed, and the settled query the server is asked for (`SearchField.onSearch`).
+  const [typed, setTyped] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const write = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
   const refusal = write.allowed ? undefined : (write.reason ?? undefined);
   const campaigns = useCampaignPage(session, { page, pageSize: PAGE_SIZE, status, search });
-  const [rowError, setRowError] = useState<unknown>(null);
 
   const data = campaigns.data;
   const pages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
   const everything = data ? Object.values(data.status_counts).reduce((a, b) => a + b, 0) : 0;
   const detail = (id: string) => href(`/c/${slug}/campaigns/${id}`);
+
+  const chooseStatus = (next: CampaignStatus | undefined) => {
+    setStatus(next);
+    setPage(1);
+  };
+  const runSearch = (query: string) => {
+    setSearch(query);
+    setPage(1);
+  };
+  const clearAll = () => {
+    setTyped("");
+    runSearch("");
+    chooseStatus(undefined);
+  };
+  const statusLabel = STATUS_FILTERS.find((filter) => filter.value === status)?.label;
+  const active = [
+    ...(status && statusLabel
+      ? [{ id: "status", label: `Status: ${statusLabel}`, onRemove: () => chooseStatus(undefined) }]
+      : []),
+    ...(search
+      ? [
+          {
+            id: "search",
+            label: `Name: ${search}`,
+            onRemove: () => {
+              setTyped("");
+              runSearch("");
+            },
+          },
+        ]
+      : []),
+  ];
 
   const columns: DataColumn<CampaignSummary>[] = [
     {
@@ -135,9 +168,7 @@ export function CampaignsListScreen({ slug }: { slug: string }) {
       align: "right",
       // On a phone the row is a stacked card and its Pause lives on the campaign page.
       hideBelow: "sm",
-      cell: (row) => (
-        <RowActions campaign={row} canWrite={write.allowed} refusal={refusal} onError={setRowError} />
-      ),
+      cell: (row) => <RowActions campaign={row} canWrite={write.allowed} refusal={refusal} />,
     } satisfies DataColumn<CampaignSummary>] : []),
   ];
 
@@ -159,46 +190,45 @@ export function CampaignsListScreen({ slug }: { slug: string }) {
       />
       <TrialLockNotice lock="campaigns" />
       <RestrictionNote reason={write.reason} />
-      {rowError != null && <ProblemNotice error={rowError} />}
-
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div role="group" aria-label="Show campaigns by status" className="flex flex-wrap gap-1.5">
-          {FILTERS.map((filter) => {
-            const count = filter.value ? data?.status_counts[filter.value] : everything;
-            return (
-              <FilterChip
-                key={filter.label}
-                label={data ? `${filter.label} ${formatCount(count ?? 0)}` : filter.label}
-                active={status === filter.value}
-                onClick={() => {
-                  setStatus(filter.value);
-                  setPage(1);
-                }}
-              />
-            );
-          })}
-        </div>
-        <label className="block w-full sm:w-64">
-          <span className="sr-only">Search campaigns by name</span>
-          <input
-            type="search"
-            value={search}
+      <FilterToolbar
+        search={
+          <SearchField
+            label="Search campaigns by name"
+            hideLabel
             placeholder="Search by name"
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            className={FIELD}
+            value={typed}
+            onValueChange={setTyped}
+            onSearch={runSearch}
+            slashToFocus
+            className="w-full sm:w-64"
           />
-        </label>
-      </div>
+        }
+        filters={
+          <ChipGroup
+            mode="single"
+            label="Show campaigns by status"
+            value={status ?? null}
+            onChange={(next) => chooseStatus(initialStatus(next))}
+            allLabel={data ? `All ${formatCount(everything)}` : "All"}
+            chips={STATUS_FILTERS.map((filter) => ({
+              value: filter.value,
+              label: data ? `${filter.label} ${formatCount(data.status_counts[filter.value] ?? 0)}` : filter.label,
+            }))}
+          />
+        }
+        active={active}
+        onClearAll={clearAll}
+        count={data ? { shown: data.total, total: everything, noun: "campaign" } : undefined}
+      />
 
       {campaigns.isLoading ? (
         <Skeleton rows={4} />
       ) : !data ? (
-        <ProblemNotice
-          error={campaigns.error ?? new Error("Your campaigns did not load.")}
-          onRetry={() => campaigns.refetch()}
+        <EmptyState
+          variant="error"
+          message="Your campaigns did not load."
+          error={campaigns.error}
+          onRetry={() => void campaigns.refetch()}
         />
       ) : data.items.length === 0 ? (
         everything === 0 ? (
@@ -208,18 +238,13 @@ export function CampaignsListScreen({ slug }: { slug: string }) {
             hint="Start one with New campaign: your agent calls the people you add."
           />
         ) : (
-          <p className="text-body text-ink-muted">No campaign matches. Clear the search or choose All.</p>
+          <EmptyState variant="filtered" message="No campaign matches." onClear={clearAll} clearLabel="Show all campaigns" />
         )
       ) : (
         <div className="space-y-4">
           {campaigns.error ? <ProblemNotice error={campaigns.error} onRetry={() => campaigns.refetch()} /> : null}
           <DataTable label="Your campaigns" rows={data.items} columns={columns} getRowId={(row) => row.id} />
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-meta text-ink-muted">
-              {formatCount(data.total)} {data.total === 1 ? "campaign" : "campaigns"}
-            </p>
-            {pages > 1 && <Pagination count={pages} page={page} onPageChange={setPage} label="Campaign pages" />}
-          </div>
+          {pages > 1 && <Pagination count={pages} page={page} onPageChange={setPage} label="Campaign pages" />}
         </div>
       )}
     </div>
@@ -256,25 +281,23 @@ function NameCell({ campaign, href }: { campaign: CampaignSummary; href: string 
 }
 
 /**
- * Pause or Resume, bound to the row's own id. A paused campaign whose automatic reason
- * still holds is refused by the server with that reason, which is reported above the table.
+ * Pause or Resume, bound to the row's own id. The new state shows in the row's own status
+ * pill, so success needs no toast; a refusal is toasted with the server's reason.
  */
 function RowActions({
   campaign,
   canWrite,
   refusal,
-  onError,
 }: {
   campaign: CampaignSummary;
   canWrite: boolean;
   refusal: string | undefined;
-  onError: (error: unknown) => void;
 }) {
   const { session } = useClientRealm();
   const setStatus = usePauseCampaign(session, campaign.id);
-  useEffect(() => {
-    if (setStatus.error) onError(setStatus.error);
-  }, [setStatus.error, onError]);
+  const feedback = useActionFeedback(setStatus, {
+    errorTitle: `Could not change ${campaign.name}`,
+  });
   if (campaign.status !== "running" && campaign.status !== "paused") return null;
   // A pause whose cause must be cleared first (a review, credit, the cap) is resumed from
   // the campaign's own page, where the cause and its fix are shown.
@@ -283,17 +306,18 @@ function RowActions({
   const action = campaign.status === "running" ? "pause" : "resume";
   return (
     <div className="relative z-raised flex justify-end">
-      <button
-        type="button"
+      <ActionButton
+        variant="secondary-sm"
         title={refusal}
-        disabled={!canWrite || setStatus.isPending}
-        onClick={() => setStatus.mutate(action)}
+        disabled={!canWrite}
+        status={feedback.status}
+        successLabel={action === "pause" ? "Paused" : "Resumed"}
+        onClick={() => feedback.run(action)}
         aria-label={`${action === "pause" ? "Pause" : "Resume"} ${campaign.name}`}
-        className={SECONDARY_BUTTON_SM}
       >
         {action === "pause" ? <Pause aria-hidden className="h-3.5 w-3.5" /> : <Play aria-hidden className="h-3.5 w-3.5" />}
-        <span className="hidden sm:inline">{action === "pause" ? "Pause" : "Resume"}</span>
-      </button>
+        {action === "pause" ? "Pause" : "Resume"}
+      </ActionButton>
     </div>
   );
 }

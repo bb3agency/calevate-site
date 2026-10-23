@@ -9,6 +9,10 @@ import type {
   ContactResults,
 } from "@/lib/api/campaigns";
 
+import { fireEvent, screen } from "@testing-library/react";
+
+import { formatDateLong, todayIST } from "@/components/arc/ist-dates";
+
 import type { Routes } from "./harness";
 
 /**
@@ -90,12 +94,40 @@ export function resultsFixture(over: Partial<CampaignResults> = {}): CampaignRes
 export const contactsPath = (id: string = FIXTURE_CAMPAIGN_ID) =>
   `/v1/campaigns/${id}/contacts?limit=50&offset=0`;
 
+/**
+ * Picks `iso` in the kit `DatePicker` labelled `label`: opens it, steps month by month
+ * towards the day (from today, where an empty picker opens), and presses the day.
+ */
+export async function pickDate(label: string, iso: string): Promise<void> {
+  fireEvent.click(screen.getByRole("button", { name: label }));
+  const day = new RegExp(`^${formatDateLong(iso)}`);
+  const step = iso < todayIST() ? "Previous month" : "Next month";
+  await screen.findByRole("grid");
+  for (let moves = 0; moves < 240; moves += 1) {
+    const cell = screen.queryByRole("button", { name: day });
+    if (cell) {
+      fireEvent.click(cell);
+      return;
+    }
+    fireEvent.click(screen.getByRole("button", { name: step }));
+  }
+  throw new Error(`${iso} never appeared in the ${label} calendar`);
+}
+
+/** A launched campaign's day-by-day read (`CampaignTimeline`): the server's whole year. */
+export const timelinePath = (id: string = FIXTURE_CAMPAIGN_ID) =>
+  `/v1/analytics/campaigns?days=366&campaign_id=${id}`;
+
 /** The reads every render of one campaign makes, besides the progress and launch check. */
 export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
   return {
     [contactsPath(id)]: contactsFixture(),
     [`/v1/campaigns/${id}/results`]: resultsFixture(),
     "/v1/campaigns/lead-pool": { matching: 0, limit: 5000 },
+    [timelinePath(id)]: {
+      window: { days: 366, from_date: "2025-10-25", to_date: "2026-10-24", timezone: "Asia/Kolkata" },
+      campaigns: [],
+    },
   };
 }
 

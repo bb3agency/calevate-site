@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 
 import { PageHeader } from "@/components/console/pageHeader";
 import { Section, TEXT_ACTION } from "@/components/console/section";
-import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import { isAssignable } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import {
@@ -38,6 +39,8 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
   const numbers = useCampaignNumbers(session);
   const templates = useDltTemplates(session);
   const update = useUpdateCampaign(session, campaignId);
+  // Success moves back to the campaign, so the save is said in a toast that survives it.
+  const updateFeedback = useActionFeedback(update, { errorDisplay: "inline", successToast: "Changes saved" });
   const write = useWriteAccess(session, "leads:dispatch", "change campaigns");
   const form = useCampaignForm();
   const [loaded, setLoaded] = useState(false);
@@ -155,9 +158,16 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
             <button type="button" className={TEXT_ACTION} onClick={() => router.push(detail)}>
               Cancel
             </button>
-            <button type="submit" className={PRIMARY_BUTTON} disabled={update.isPending || !write.allowed}>
-              {update.isPending ? "Saving…" : "Save changes"}
-            </button>
+            <ActionButton
+              type="submit"
+              title={write.allowed ? undefined : (write.reason ?? undefined)}
+              disabled={!write.allowed}
+              status={updateFeedback.status}
+              pendingLabel="Saving"
+              successLabel="Saved"
+            >
+              Save changes
+            </ActionButton>
           </div>
         </div>
       </form>

@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 
-import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
+import { NumberField } from "@/components/arc/number-field";
 import { TEXT_ACTION } from "@/components/console/section";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
@@ -21,7 +21,8 @@ import {
 import { Term } from "@/lib/glossary";
 
 import type { CampaignFormState, ScheduleFormState, StartMode } from "./campaignForm";
-import { WEEKDAYS, offeredClassifications } from "./choices";
+import { offeredClassifications } from "./choices";
+import { RepeatFields, StartAtFields } from "./ScheduleFields";
 import { describeRepeat } from "./scheduleCopy";
 
 /** A read a step is BUILT from: its failure is a dead picker, not an empty one. */
@@ -75,21 +76,15 @@ export function RetryChoice({
   };
   return (
     <div className="space-y-3">
-      <label className="block max-w-xs">
-        <span className={FIELD_LABEL}>Tries per person</span>
-        <select
-          value={value.max_attempts}
-          onChange={(e) => setAttempts(Number(e.target.value))}
-          className={FIELD}
-        >
-          {[1, 2, 3, 4, 5].map((n) => (
-            <option key={n} value={n}>
-              {n === 1 ? "1 (no retries)" : n}
-            </option>
-          ))}
-        </select>
-        <span className={FIELD_HINT}>A try that was answered, or a number on the do-not-call list, is never retried.</span>
-      </label>
+      <NumberField
+        className="max-w-xs"
+        label="Tries per person"
+        hint="1 means no retries. A try that was answered, or a number on the do-not-call list, is never retried."
+        value={value.max_attempts}
+        onChange={(next) => setAttempts(next ?? 1)}
+        min={1}
+        max={5}
+      />
       {gapList.length > 0 && (
         <div className="grid grid-cols-1 max-w-md gap-3 sm:grid-cols-2">
           {gapList.map((gap, index) => (
@@ -299,49 +294,13 @@ export function StartChoice({ schedule }: { schedule: ScheduleFormState }) {
         onChange={schedule.setStartMode}
       />
       {schedule.startMode === "later" && (
-        <div className="settings-enter grid max-w-sm grid-cols-2 gap-3">
-          <label className="block">
-            <span className={FIELD_LABEL}>Start date</span>
-            <input type="date" value={schedule.startDate} onChange={(e) => schedule.setStartDate(e.target.value)} className={FIELD} />
-          </label>
-          <label className="block">
-            <span className={FIELD_LABEL}>Start time (IST)</span>
-            <input type="time" value={schedule.startTime} onChange={(e) => schedule.setStartTime(e.target.value)} className={FIELD} />
-          </label>
+        <div className="settings-enter">
+          <StartAtFields schedule={schedule} />
         </div>
       )}
       {schedule.startMode === "weekly" && (
         <div className="settings-enter space-y-3">
-          <fieldset>
-            <legend className={FIELD_LABEL}>Which days</legend>
-            <div className="mt-1 flex flex-wrap gap-2">
-              {WEEKDAYS.map((day) => (
-                <label
-                  key={day.value}
-                  className={`${CHOICE_CARD} px-3 py-1.5 ${schedule.repeatDays.includes(day.value) ? CHOICE_ON : CHOICE_OFF}`}
-                >
-                  <input
-                    type="checkbox"
-                    className="sr-only"
-                    checked={schedule.repeatDays.includes(day.value)}
-                    onChange={() => schedule.toggleRepeatDay(day.value)}
-                  />
-                  <span aria-hidden className="text-body text-ink">{day.short}</span>
-                  <span className="sr-only">{day.label}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <div className="grid max-w-sm grid-cols-2 gap-3">
-            <label className="block">
-              <span className={FIELD_LABEL}>Time (IST)</span>
-              <input type="time" value={schedule.repeatTime} onChange={(e) => schedule.setRepeatTime(e.target.value)} className={FIELD} />
-            </label>
-            <label className="block">
-              <span className={FIELD_LABEL}>Stop after (optional)</span>
-              <input type="date" value={schedule.repeatEnds} onChange={(e) => schedule.setRepeatEnds(e.target.value)} className={FIELD} />
-            </label>
-          </div>
+          <RepeatFields schedule={schedule} />
           <p className={FIELD_HINT}>{describeRepeat({ days: schedule.repeatDays, at: schedule.repeatTime })}</p>
         </div>
       )}
@@ -408,22 +367,16 @@ export function PaceRows({ form }: { form: CampaignFormState }) {
         action={change("pace")}
       />
       {editing === "pace" && (
-        <div className="settings-enter pb-4">
-          <label className="block max-w-xs">
-            <span className={FIELD_LABEL}>Calls at the same time</span>
-            <input
-              type="number"
-              min={1}
-              max={10}
-              value={form.concurrency}
-              onChange={(e) => form.setConcurrency(Number(e.target.value))}
-              className={FIELD}
-            />
-            <span className={FIELD_HINT}>
-              Between 1 and 10. Your plan and the lines kept free for people calling you can
-              allow fewer; the campaign page shows the number that applies.
-            </span>
-          </label>
+        <div className="settings-enter max-w-xs pb-4">
+          <NumberField
+            label="Calls at the same time"
+            hint="Between 1 and 10. Your plan and the lines kept free for people calling you can allow fewer; the campaign page shows the number that applies."
+            value={form.concurrency}
+            onChange={(next) => form.setConcurrency(next ?? 1)}
+            min={1}
+            max={10}
+            unit="calls"
+          />
         </div>
       )}
       <SettingRow

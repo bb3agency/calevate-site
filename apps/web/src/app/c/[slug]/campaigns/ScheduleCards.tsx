@@ -2,13 +2,11 @@
 
 import { CalendarClock, CircleAlert, Repeat } from "lucide-react";
 
+import { ActionButton, type ActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
-import { FIELD_HINT, SECONDARY_BUTTON, Skeleton, formatIST } from "@/components/ui";
+import { FIELD_HINT, Skeleton, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
-import type {
-  useCampaignProgress,
-  useUnscheduleCampaign,
-} from "@/lib/api/campaigns";
+import type { useCampaignProgress } from "@/lib/api/campaigns";
 
 import { FireTimeRefusal, SKIP_COPY, describeRepeat, formatOccurrence } from "./scheduleCopy";
 
@@ -31,7 +29,8 @@ export function ScheduleCards({
 }: {
   status: string | null;
   progress: ReturnType<typeof useCampaignProgress>;
-  unschedule: ReturnType<typeof useUnscheduleCampaign>;
+  /** The cancel's feedback; one DELETE ends a one-time start and a repeat alike. */
+  unschedule: ActionFeedback<void>;
   /** Would an already-armed schedule be refused if it came due right now? */
   armedScheduleWouldRefuse: boolean;
   canWrite: boolean;
@@ -99,15 +98,17 @@ export function ScheduleCards({
                 {armedScheduleWouldRefuse && (
                   <FireTimeRefusal kind="repeat" when="armed" />
                 )}
-                <button
-                  type="button"
+                <ActionButton
+                  variant="secondary"
                   title={refusal}
-                  disabled={!canWrite || unschedule.isPending}
-                  onClick={() => unschedule.mutate()}
-                  className={SECONDARY_BUTTON}
+                  disabled={!canWrite}
+                  status={unschedule.status}
+                  pendingLabel="Stopping"
+                  successLabel="Stopped"
+                  onClick={() => unschedule.run()}
                 >
-                  {unschedule.isPending ? "Stopping…" : "Stop repeating"}
-                </button>
+                  Stop repeating
+                </ActionButton>
                 <p className={FIELD_HINT}>
                   Stopping ends the repeat only. Calls already going out are not
                   affected — pause the campaign for that.
@@ -153,17 +154,17 @@ export function ScheduleCards({
                   {armedScheduleWouldRefuse && (
                     <FireTimeRefusal kind="start" when="armed" />
                   )}
-                  <button
-                    type="button"
+                  <ActionButton
+                    variant="secondary"
                     title={refusal}
-                    disabled={!canWrite || unschedule.isPending}
-                    onClick={() => unschedule.mutate()}
-                    className={SECONDARY_BUTTON}
+                    disabled={!canWrite}
+                    status={unschedule.status}
+                    pendingLabel="Cancelling"
+                    successLabel="Cancelled"
+                    onClick={() => unschedule.run()}
                   >
-                    {unschedule.isPending
-                      ? "Cancelling…"
-                      : "Cancel scheduled start"}
-                  </button>
+                    Cancel scheduled start
+                  </ActionButton>
                 </div>
               )}
             </Section>
