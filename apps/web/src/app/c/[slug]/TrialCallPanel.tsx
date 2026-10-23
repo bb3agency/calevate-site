@@ -213,7 +213,7 @@ export function TrialCallCard({
               inputMode="tel"
               autoComplete="off"
               placeholder="9876543210 or +919876543210"
-              className={`${FIELD_INLINE} mt-1 w-full font-mono sm:w-56`}
+              className={`${FIELD_INLINE} mt-1 w-full font-mono sm:w-72`}
             />
           </label>
           <button type="submit" disabled={!ready} className={PRIMARY_BUTTON}>
