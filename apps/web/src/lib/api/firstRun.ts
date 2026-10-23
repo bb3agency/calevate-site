@@ -28,11 +28,6 @@ export type FirstRunAnswer = Schemas["AnswerIn"];
 /** One agent does every job picked (D-863). */
 export type FirstRunJob = FirstRun["jobs"][number];
 
-/** The first job picked, for screens that still show one job at a time. */
-export function primaryJob(run: Pick<FirstRun, "jobs"> | undefined): FirstRunJob | null {
-  return run?.jobs[0] ?? null;
-}
-
 export const FIRST_RUN_PATH = "/v1/first-run";
 
 /** How often a background step is asked about. The build's four steps land within seconds

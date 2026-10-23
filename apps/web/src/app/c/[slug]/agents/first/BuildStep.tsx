@@ -1,31 +1,44 @@
 "use client";
 
 import { useId, useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Pencil, RotateCcw } from "lucide-react";
 
 import { TEXT_ACTION } from "@/components/console/section";
-import { TaskSteps, type TaskStep } from "@/components/interior/task-steps";
-import { FIELD, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
+import { FIELD_INLINE, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { useBuildAgent, useRenameAgent, type FirstRun, type FirstRunBuildStep } from "@/lib/api/firstRun";
 import { useClientSession } from "@/lib/api/session";
 import { languageLabel, voicePickNote } from "@/lib/firstAgent";
 
+import { BuildStage, STAGE_BUTTON, type BuildRow, type RowState } from "./LiveStage";
 import { StepScreen } from "./shell";
 
-/** What each step says while it is worked on and once done, in the order the worker takes
- *  them (`apps/workers/first_run.build_first_agent`). */
-function labelOf(step: FirstRunBuildStep["step"], language: string): string {
+/** Each step's name on the stage, and what it says while it is worked on, in the order the
+ *  worker takes them (`apps/workers/first_run.build_first_agent`). */
+function wordsOf(step: FirstRunBuildStep["step"], language: string): { title: string; doing: string } {
   switch (step) {
     case "voice":
-      return `Choosing a voice for ${languageLabel(language)}`;
+      return {
+        title: "Voice",
+        doing: `Choosing a voice for ${languageLabel(language)}`,
+      };
     case "script":
-      return "Writing its script from what you said";
+      return {
+        title: "Script",
+        doing: "Writing its script from what you said",
+      };
     case "greeting":
-      return "Writing its greeting";
+      return { title: "Greeting", doing: "Writing how it opens each call" };
     default:
-      return "Adding its AI notice";
+      return { title: "AI notice", doing: "Adding its AI notice" };
   }
+}
+
+/** The words the picture carries for a finished step: the voice's name and band. */
+export function tagOf(step: FirstRunBuildStep): string | undefined {
+  if (step.step !== "voice" || step.state !== "done") return undefined;
+  const rung = step.rung === "studio" ? "Studio" : step.rung === "clear" ? "Clear" : null;
+  return [step.label, rung].filter(Boolean).join(" · ") || undefined;
 }
 
 /** The line under a finished step: what really happened, including the fallbacks. */
@@ -39,18 +52,30 @@ export function metaOf(step: FirstRunBuildStep): string | undefined {
     if (step.state === "kept") return "Kept the voice it had";
     if (step.state === "none") return "None could be chosen yet. Pick one before the call.";
   }
-  if (step.step === "script" && step.state === "ready_made") return "Started from the ready-made script for your trade";
+  if (step.step === "script")
+    return step.state === "ready_made"
+      ? "Started from the ready-made script for your trade"
+      : "Written from what you said";
   if (step.step === "greeting" && step.state === "ready_made") return "The tried and tested greeting for its language";
+  if (step.step === "greeting") return "Short, and ends on a question";
   if (step.step === "notice" && step.state === "done") return "It always says it is an AI when asked";
   return undefined;
 }
 
+/** A step's state on the stage. The worker works on one step at a time, in order, so the
+ *  first one still waiting while the build runs is the one being worked on. */
+export function rowStateOf(step: FirstRunBuildStep, working: boolean, failed: boolean): RowState {
+  if (step.state === "none") return "warn";
+  if (step.state !== "waiting") return "done";
+  if (working) return failed ? "failed" : "working";
+  return "waiting";
+}
+
 /**
- * THE BUILD, SHOWN (D-855): the real steps, ticked as the worker finishes each one.
- *
- * Nothing here is timed for effect: a step ticks when the server says it is done. Once
- * built, the owner meets the agent by name and can rename it before its first call; the
- * name is the one it gives on the call.
+ * THE BUILD, LIVE (D-855; founder, 23 Oct 2026): the real steps on the dark stage, each one
+ * moving when the worker finishes it, never on a timer. Once built, the owner meets the
+ * agent by name and can rename it before its first call; the name is the one it gives on the
+ * call.
  */
 export function BuildStep({
   run,
@@ -66,50 +91,64 @@ export function BuildStep({
   const session = useClientSession();
   const retry = useBuildAgent(session);
   const language = run.language_primary ?? "te-IN";
-  const steps: TaskStep[] = run.build.steps.map((step) => ({
-    id: step.step,
-    label: labelOf(step.step, language),
-    meta: metaOf(step),
-  }));
-  const firstWaiting = run.build.steps.findIndex((step) => step.state === "waiting");
   const built = run.build.status === "built";
   const failed = run.build.status === "failed";
-  const current = built ? steps.length : firstWaiting === -1 ? steps.length - 1 : firstWaiting;
+  const firstWaiting = run.build.steps.findIndex((step) => step.state === "waiting");
+  const rows: BuildRow[] = run.build.steps.map((step, index) => ({
+    step: step.step,
+    ...wordsOf(step.step, language),
+    result: metaOf(step),
+    tag: tagOf(step),
+    state: rowStateOf(step, !built && index === firstWaiting, failed),
+  }));
 
   return (
     <StepScreen
       title={built && agent ? `Meet ${agent.name}` : failed ? "The build stopped" : "Building your agent"}
       hint={
         built
-          ? "Version one is ready. Hear it on your own phone next."
+          ? "Version one is ready. Next, it rings your phone so you can hear it."
           : failed
             ? "Nothing you wrote is lost."
-            : "This takes a few seconds."
+            : "A few seconds. Each part appears as it is made."
       }
-      onBack={built ? onBack : undefined}
+      onBack={built || failed ? onBack : undefined}
       primary={
         built ? (
           <>
-            Hear it
+            Hear it on my phone
             <ArrowRight aria-hidden className="h-4 w-4" />
           </>
         ) : undefined
       }
       onSubmit={onDone}
     >
-      <TaskSteps steps={steps} current={current} failed={failed} size="md" label="Building your agent" />
-      {failed ? (
-        <div className="space-y-2">
-          {run.build.builds_left > 0 ? (
-            <button type="button" className={SECONDARY_BUTTON} disabled={retry.isPending} onClick={() => retry.mutate(null)}>
-              Try again
-            </button>
-          ) : (
-            <p className="text-meta text-ink-muted">Build it from the Agents screen instead.</p>
-          )}
-          {retry.error ? <ProblemNotice error={retry.error} /> : null}
-        </div>
-      ) : null}
+      <BuildStage
+        rows={rows}
+        name={agent?.name ?? null}
+        greeting={agent?.script_opening_line?.trim() || null}
+        greetingLang={language}
+        built={built}
+        failed={failed}
+        footer={
+          failed ? (
+            run.build.builds_left > 0 ? (
+              <button
+                type="button"
+                className={STAGE_BUTTON}
+                disabled={retry.isPending}
+                onClick={() => retry.mutate(null)}
+              >
+                <RotateCcw aria-hidden className="h-4 w-4" />
+                {retry.isPending ? "Starting again…" : "Try again"}
+              </button>
+            ) : (
+              <p className="text-meta text-stage-muted">Build it from the Agents screen instead.</p>
+            )
+          ) : null
+        }
+      />
+      {retry.error ? <ProblemNotice error={retry.error} /> : null}
       {built && agent ? <Rename agent={agent} /> : null}
       {run.build.disclosure ? <p className="text-meta text-ink-faint">{run.build.disclosure}</p> : null}
     </StepScreen>
@@ -126,12 +165,15 @@ function Rename({ agent }: { agent: Agent }) {
   if (agent.status !== "draft") return null;
   if (!editing) {
     return (
-      <p className="text-body text-ink-muted">
-        It introduces itself as <span className="font-medium text-ink">{agent.name}</span>.{" "}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <p className="text-body text-ink-muted">
+          It introduces itself as <span className="font-medium text-ink">{agent.name}</span>.
+        </p>
         <button type="button" className={TEXT_ACTION} onClick={() => setEditing(true)}>
+          <Pencil aria-hidden className="h-3.5 w-3.5" />
           Change its name
         </button>
-      </p>
+      </div>
     );
   }
   const clean = name.trim();
@@ -154,7 +196,7 @@ function Rename({ agent }: { agent: Agent }) {
               if (clean) rename.mutate({ name: clean }, { onSuccess: () => setEditing(false) });
             }
           }}
-          className={`${FIELD} min-w-0 flex-1 basis-48 text-[16px]`}
+          className={`${FIELD_INLINE} flex-1 basis-48 text-[16px]`}
         />
         <button
           type="button"

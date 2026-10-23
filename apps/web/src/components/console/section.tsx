@@ -61,13 +61,20 @@ export function Section({
 }
 
 /**
- * The quiet text action a section or a row carries: "Change", "View all", "Add another".
- * A link-looking button rather than a bordered one, because on a calm screen the only
- * filled control is the primary action and the only bordered ones are secondary buttons.
+ * THE TERTIARY BUTTON a section or a row carries: "Change", "View all", "Skip for now".
+ * Three ranks, one look each: the filled primary, the bordered secondary, and this, a
+ * borderless button with the button's own shape (padding, radius, a tinted hover and press
+ * ground). It used to be underlined green text, which on a calm screen read as a stray link
+ * rather than a control (founder, 23 Oct 2026). Give it an icon when the verb is not enough
+ * to recognise it at a glance (a plus to add, an arrow to move on, a cross to put aside).
+ *
+ * Optically aligned: the negative inline margin puts the label, not the padding, on the
+ * column's left edge, so a row of these lines up with the text above. Inside a running
+ * sentence use a plain link instead; a padded control there breaks the line.
  */
 export const TEXT_ACTION =
-  "press inline-flex items-center gap-1 rounded-sm text-body font-medium text-brand-strong dark:text-brand-bright hover:underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11";
+  "press -mx-2 inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-body font-medium text-brand-strong transition-colors duration-(--duration-fast) dark:text-brand-bright [&:not(:disabled)]:hover:bg-brand/10 dark:[&:not(:disabled)]:hover:bg-white/5 [&:not(:disabled)]:active:bg-brand/15 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11";
 
-/** The same, for the one destructive text action a row may carry ("Remove"). */
+/** The same, for the one destructive action a row may carry ("Remove"). */
 export const TEXT_ACTION_DANGER =
-  "press inline-flex items-center gap-1 rounded-sm text-body font-medium text-danger hover:underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger touch:min-h-11";
+  "press -mx-2 inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-body font-medium text-danger transition-colors duration-(--duration-fast) [&:not(:disabled)]:hover:bg-danger/10 [&:not(:disabled)]:active:bg-danger/15 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger touch:min-h-11";

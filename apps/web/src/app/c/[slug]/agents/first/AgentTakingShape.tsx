@@ -16,8 +16,8 @@ import {
   GREETING_MAX_CHARS,
   charCount,
   greetingFits,
-  jobCard,
   jobOf,
+  jobsTitle,
   languageLabel,
   type Piece,
   type PieceId,
@@ -39,7 +39,7 @@ import { useBusinessSuggestions, useVerticalExamples } from "@/lib/useVerticalEx
  */
 export function AgentTakingShape({
   agent,
-  job,
+  jobs,
   language,
   brief,
   pieces,
@@ -48,7 +48,7 @@ export function AgentTakingShape({
   voiceNote = null,
 }: {
   agent: Agent | null;
-  job: FirstRunJob | null;
+  jobs: readonly FirstRunJob[];
   language: string | null;
   brief: string | null;
   pieces: readonly Piece[];
@@ -60,7 +60,7 @@ export function AgentTakingShape({
 }) {
   const fresh = useFreshlyDone(pieces, loaded);
   const title = agent?.name ?? null;
-  const subtitle = jobCard(job)?.title ?? (agent ? jobOf(agent) : null);
+  const subtitle = jobsTitle(jobs) ?? (agent ? jobOf(agent) : null);
 
   const header = (
     <div className="flex min-w-0 items-center gap-3">
@@ -112,7 +112,10 @@ export function AgentTakingShape({
   }
 
   return (
-    <section aria-labelledby="first-agent-card" className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
+    <section
+      aria-labelledby="first-agent-card"
+      className="overflow-hidden rounded-card border border-line bg-surface shadow-card"
+    >
       <header className="flex items-center gap-3 border-b border-line px-5 py-4">
         <h2 id="first-agent-card" className="sr-only">
           Your agent so far
@@ -256,7 +259,8 @@ function BriefLine({ brief }: { brief: string | null }) {
   const text = (brief ?? "").trim();
   if (text === "") return <Example>{examples.scriptBrief}</Example>;
   const chars = Array.from(text);
-  const shown = chars.length > BRIEF_PREVIEW_CHARS ? `${chars.slice(0, BRIEF_PREVIEW_CHARS).join("").trimEnd()}…` : text;
+  const shown =
+    chars.length > BRIEF_PREVIEW_CHARS ? `${chars.slice(0, BRIEF_PREVIEW_CHARS).join("").trimEnd()}…` : text;
   return <p className="break-words text-meta text-ink">{shown}</p>;
 }
 
@@ -267,7 +271,10 @@ function NotesLine({ agent }: { agent: Agent | null }) {
     return (
       <ul className="flex flex-wrap gap-1.5">
         {agent.extraction_fields.map((field) => (
-          <li key={field.key} className="max-w-full truncate rounded-full border border-line px-2.5 py-0.5 text-meta text-ink-muted">
+          <li
+            key={field.key}
+            className="max-w-full truncate rounded-full border border-line px-2.5 py-0.5 text-meta text-ink-muted"
+          >
             {field.label}
           </li>
         ))}

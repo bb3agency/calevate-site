@@ -981,6 +981,24 @@ export const FIELD_INLINE =
 export const FIELD_INLINE_ICON =
   "rounded-md border border-line bg-surface pl-8 pr-3 py-1.5 text-sm text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11 transition-[border-color] duration-(--duration-fast) ease-out focus:border-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 aria-[invalid=true]:border-danger";
 /**
+ * A FIELD WITH A FIXED PREFIX OR SUFFIX ("+91", "₹"): the frame is the wrapper, so border,
+ * focus colour and focus ring are drawn ONCE, around prefix and input together, exactly as
+ * `FIELD` draws them around a lone input. `FIELD_GROUP_INPUT` is the bare input inside it.
+ *
+ * Putting `FIELD` inside a ringed wrapper is the defect this replaces: the input kept its own
+ * focus ring and border colour, which the wrapper's `overflow-hidden` clipped into a thick
+ * green bar on its left edge, beside a second ring around the whole group.
+ * `FIELD_GROUP_AFFIX` is the "+91" / "₹" cell, laid OVER the input's left padding and deaf to
+ * the pointer, so a tap on the prefix lands in the field; give the input a left padding
+ * wider than the affix (`pl-14` for "+91").
+ */
+export const FIELD_GROUP =
+  "relative flex min-w-0 items-stretch overflow-hidden rounded-md border border-line bg-surface touch:min-h-11 transition-[border-color,box-shadow] duration-(--duration-fast) ease-out focus-within:border-brand has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand/25 has-[[aria-invalid=true]]:border-danger";
+export const FIELD_GROUP_INPUT =
+  "min-w-0 flex-1 border-0 bg-transparent py-1.5 pr-3 text-sm text-ink placeholder:text-ink-faint outline-none focus:outline-none focus-visible:outline-none";
+export const FIELD_GROUP_AFFIX =
+  "pointer-events-none absolute inset-y-0 left-0 flex select-none items-center border-r border-line bg-surface-muted px-3 text-sm text-ink-muted";
+/**
  * `block` IS THE FIX FOR A BUG THAT LOOKED LIKE THREE DIFFERENT DESIGNS.
  *
  * Without it the label is INLINE, so it renders beside any field narrow enough to leave

@@ -1,5 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
 import { ProblemNotice, Skeleton, formatCount } from "@/components/ui";
 import { Section } from "@/components/console/section";
 import { Metric } from "@/components/console/metric";
@@ -7,6 +10,7 @@ import { useAgentStats, useAgents } from "@/lib/api/agents";
 import { useAttention } from "@/lib/api/attention";
 import { useBusinessProfile } from "@/lib/api/businessProfile";
 import { useCampaignNumbers, useCampaigns } from "@/lib/api/campaigns";
+import { useFirstRun } from "@/lib/api/firstRun";
 import { useForwarding } from "@/lib/api/forwarding";
 import { useLineIncidents } from "@/lib/api/healer";
 import { useCalls, useDashboard, useUsage, useWriteAccess } from "@/lib/api/hooks";
@@ -88,6 +92,19 @@ export function DashboardScreen({ slug }: { slug: string }) {
   const campaigns = useCampaigns(session);
   const creditAccess = useWriteAccess(session, "org:manage", "add credit");
   const agentAccess = useWriteAccess(session, "org:manage", "create an agent");
+  // A NEW OWNER MEETS THEIR AGENT FIRST (D-855). The sign-in junction sends a due first run
+  // there, but an owner can reach the dashboard without passing it (a bookmark, a link in an
+  // email, the address typed), so the dashboard asks too. Only a run never started is sent
+  // on: an owner who began it and came back here chose to, and the invitation below offers
+  // it again; one who put it aside is no longer due.
+  const router = useRouter();
+  const firstRunAsked = agents.data?.length === 0 && agentAccess.allowed && !session.impersonateOrg;
+  const firstRun = useFirstRun(session, firstRunAsked);
+  const firstRunDue = firstRunAsked && firstRun.data?.due === true;
+  const firstRunUnstarted = firstRunDue && firstRun.data?.jobs.length === 0;
+  useEffect(() => {
+    if (firstRunUnstarted) router.replace(href(`/c/${slug}/agents/first`));
+  }, [firstRunUnstarted, router, href, slug]);
   const campaignAccess = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
   /*
    * THE NOTICES' READS START WITH THE DASHBOARD'S, not after it. The line notice, the setup
@@ -254,10 +271,12 @@ export function DashboardScreen({ slug }: { slug: string }) {
           <HeldNumberNotice numbers={numbers.data} topUpHref={href(`/c/${slug}/billing?tab=credits`)} />
         ) : null}
         {agents.data?.length === 0 && agentAccess.allowed ? (
-          <FirstAgentInvite href={(path) => href(`/c/${slug}${path}`)} />
+          <FirstAgentInvite href={(path) => href(`/c/${slug}${path}`)} started={firstRunDue && !firstRunUnstarted} />
         ) : null}
         <GoLiveInvite session={session} href={(path) => href(`/c/${slug}${path}`)} />
-        <SetupChecklist />
+        {/* The business checklist waits while the first agent is still to meet: the owner's
+            first job is the agent, and eight unticked rows under it read as homework. */}
+        {firstRunDue ? null : <SetupChecklist />}
         <ExistingNumberPrompt session={session} href={href} />
         <TrialCallPanel slug={slug} trial={data.trial} />
       </div>

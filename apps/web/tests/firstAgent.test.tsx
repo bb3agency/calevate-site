@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import FirstAgentPage from "@/app/c/[slug]/agents/first/page";
-import { metaOf } from "@/app/c/[slug]/agents/first/BuildStep";
-import { answersOf } from "@/app/c/[slug]/agents/first/QuestionsStep";
+import { metaOf, rowStateOf } from "@/app/c/[slug]/agents/first/BuildStep";
+import { callPhaseOf, isLimitRule } from "@/app/c/[slug]/agents/first/HearItStep";
+import { hoursSummary } from "@/app/c/[slug]/agents/first/QuestionsStep";
 import { recordingMimeType } from "@/components/voiceButton";
 import type { Agent } from "@/lib/api/agents";
 import type { FirstRun, FirstRunQuestion } from "@/lib/api/firstRun";
@@ -17,12 +18,16 @@ import {
   defaultLanguage,
   firstAgentOf,
   greetingFits,
+  jobPayload,
+  jobsTitle,
+  languageGlyph,
   piecesOf,
   resumeStage,
   studioFallbackLine,
   trialMinutesLine,
   voicePickNote,
 } from "@/lib/firstAgent";
+import { answersBody, emptyAnswer } from "@/lib/firstRunQuestions";
 
 import { businessProfileFixture } from "./businessProfileFixture";
 import { OWNER_ME, agentRow } from "./fixtures/sharedReads";
@@ -240,49 +245,81 @@ describe("the pieces and where an owner resumes", () => {
     expect(recordingMimeType(() => false)).toBe("");
   });
 
-  it("sends only the questions answered, each in its kind's field", () => {
-    const question = (id: string, kind: FirstRunQuestion["kind"]): FirstRunQuestion => ({
+  it("sends only the questions answered, each with only its kind's field", () => {
+    const ask = (id: string, kind: FirstRunQuestion["kind"], options: string[] = []): FirstRunQuestion => ({
       id,
-      prompt: "?",
-      hint: "",
       kind,
-      options: [],
+      prompt: id,
+      hint: "",
+      options,
       maps_to: null,
     });
     const questions = [
-      question("q1", "choices"),
-      question("q2", "address"),
-      question("q3", "services"),
-      question("q4", "single_choice"),
-      question("q5", "text"),
+      ask("q1", "choices", ["Villas", "Plots"]),
+      ask("q2", "address"),
+      ask("q3", "services"),
+      ask("q4", "text"),
+      ask("q5", "single_choice", ["Yes", "No"]),
     ];
-    const entry = {
-      choices: [] as string[],
-      text: "",
-      offer: [{ name: "", price: "" }],
-      hours: { opens: "09:00", closes: "18:00", closed: ["sun" as const] },
+    const answers = {
+      q1: { ...emptyAnswer("q1"), choices: ["Villas"], text: "left over" },
+      q2: { ...emptyAnswer("q2"), text: " Kondapur " },
+      q3: { ...emptyAnswer("q3"), services: [{ name: "Villa", price: "₹95,00,000" }, { name: "", price: "" }] },
+      q4: emptyAnswer("q4"),
+      q5: { ...emptyAnswer("q5"), choices: ["Yes"] },
     };
-    const draft = {
-      q1: { ...entry, choices: ["Villas"] },
-      q2: { ...entry, text: " Kondapur " },
-      q3: {
-        ...entry,
-        offer: [
-          { name: "Villa", price: "₹95,00,000" },
-          { name: "", price: "" },
-        ],
-      },
-      q4: { ...entry, choices: ["Yes"] },
-    };
-    expect(answersOf(questions, draft, new Set(["q1", "q2", "q3", "q4", "q5"]))).toEqual({
+    expect(answersBody(questions, answers)).toEqual({
       answers: [
         { id: "q1", choices: ["Villas"] },
         { id: "q2", text: "Kondapur" },
         { id: "q3", services: [{ name: "Villa", price_inr: "9500000" }] },
-        { id: "q4", choices: ["Yes"] },
+        { id: "q5", choices: ["Yes"] },
       ],
     });
-    expect(answersOf(questions, draft, new Set())).toEqual({ answers: [] });
+    expect(answersBody(questions, {})).toEqual({ answers: [] });
+  });
+
+  it("reads the open days and times back as one sentence", () => {
+    expect(hoursSummary({ opens: "09:00", closes: "18:00", closed: ["sun"] })).toBe("Mon to Sat, 9:00 am to 6:00 pm");
+    expect(hoursSummary({ opens: "10:30", closes: "13:00", closed: ["tue", "thu", "sun"] })).toBe(
+      "Mon, Wed, Fri, Sat, 10:30 am to 1:00 pm",
+    );
+    expect(hoursSummary({ opens: "00:00", closes: "23:59", closed: [] })).toBe("Every day, 12:00 am to 11:59 pm");
+  });
+
+  it("lets one agent take several jobs, every one sent, in the cards' order", () => {
+    expect(jobPayload(["call_leads", "answer_calls"], "te-IN", ["en-IN"])).toEqual({
+      jobs: ["answer_calls", "call_leads"],
+      language_primary: "te-IN",
+      languages_extra: ["en-IN"],
+    });
+    expect(jobsTitle(["call_leads", "call_new_leads"])).toBe("Call new leads instantly + 1 more");
+    expect(languageGlyph("te-IN")).toBe("తె");
+  });
+
+  it("moves each build row only on the server's word", () => {
+    const waiting = { step: "script" as const, state: "waiting", label: null, not_female: false };
+    expect(rowStateOf(waiting, true, false)).toBe("working");
+    expect(rowStateOf(waiting, false, false)).toBe("waiting");
+    expect(rowStateOf(waiting, true, true)).toBe("failed");
+    expect(rowStateOf({ ...waiting, state: "ready_made" }, false, false)).toBe("done");
+    expect(rowStateOf({ ...waiting, step: "voice", state: "none" }, false, false)).toBe("warn");
+  });
+
+  it("shows the call as its row says, and a limit as a limit", () => {
+    const base = { preparing: false, placing: false, placedStatus: "queued" as const, callStatus: null, refused: false, failed: false, limit: false };
+    expect(callPhaseOf({ ...base, preparing: true, placedStatus: null })).toBe("preparing");
+    expect(callPhaseOf({ ...base, placing: true, placedStatus: null })).toBe("dialling");
+    expect(callPhaseOf(base)).toBe("dialling");
+    expect(callPhaseOf({ ...base, callStatus: "ringing" })).toBe("ringing");
+    expect(callPhaseOf({ ...base, callStatus: "in_progress" })).toBe("talking");
+    expect(callPhaseOf({ ...base, callStatus: "completed" })).toBe("ended");
+    expect(callPhaseOf({ ...base, callStatus: "no_answer" })).toBe("missed");
+    expect(callPhaseOf({ ...base, placedStatus: "blocked", limit: true })).toBe("limit");
+    expect(callPhaseOf({ ...base, failed: true })).toBe("error");
+    expect(isLimitRule("trial_daily_cap")).toBe(true);
+    expect(isLimitRule("trial_minutes_used")).toBe(true);
+    expect(isLimitRule("trial_line_busy")).toBe(false);
   });
 
   it("says what really happened at each build step, fallbacks included", () => {
@@ -306,7 +343,7 @@ describe("the pieces and where an owner resumes", () => {
 });
 
 describe("meet your agent", () => {
-  it("opens on its job with three cards, all open, and the meter at one of nine", async () => {
+  it("opens on its job with three cards, any of them chosen, and the meter at one of nine", async () => {
     const { calls } = await renderClientPage(
       page,
       routes({
@@ -315,14 +352,20 @@ describe("meet your agent", () => {
     );
     expect(await screen.findByRole("heading", { name: "What should your agent do?" })).toBeTruthy();
     for (const name of [/Answer my calls/, /Call new leads instantly/, /Run calling campaigns/]) {
-      expect((screen.getByRole("radio", { name }) as HTMLInputElement).disabled).toBe(false);
+      expect((screen.getByRole("checkbox", { name }) as HTMLInputElement).disabled).toBe(false);
     }
     expect(screen.getByText("1 of 9 ready")).toBeTruthy();
-    fireEvent.click(screen.getByRole("radio", { name: /Call new leads instantly/ }));
+    expect((screen.getByRole("radio", { name: /Telugu/ }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Run calling campaigns/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Call new leads instantly/ }));
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
     await waitFor(() => expect(calls.some((call) => call.method === "PUT" && call.path === "/v1/first-run/job")).toBe(true));
     const sent = calls.find((call) => call.method === "PUT" && call.path === "/v1/first-run/job");
-    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ jobs: ["call_new_leads"], language_primary: "te-IN", languages_extra: ["en-IN"] });
+    expect(JSON.parse(sent?.body ?? "{}")).toEqual({
+      jobs: ["call_new_leads", "call_leads"],
+      language_primary: "te-IN",
+      languages_extra: ["en-IN"],
+    });
     expect(await screen.findByRole("heading", { name: "Tell it about your business" })).toBeTruthy();
   });
 
@@ -373,10 +416,10 @@ describe("meet your agent", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /I accept the Terms of Service/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: /no-cold-calls pledge/ }));
     expect((call as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("checkbox", { name: /The number below is my own/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /This number is my own/ }));
     expect((call as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(call);
-    expect(await screen.findByText("Ringing your phone…")).toBeTruthy();
+    expect(await screen.findByText("Dialling your phone")).toBeTruthy();
     const posts = calls.filter((entry) => entry.method === "POST").map((entry) => entry.path);
     expect(posts).toEqual([
       "/v1/legal/acceptances",
@@ -401,6 +444,87 @@ describe("meet your agent", () => {
       }),
     );
     expect(await screen.findByText("You have used today's test calls.")).toBeTruthy();
+  });
+
+  it("shows the build live on the stage, the step being worked on named by what it does", async () => {
+    const building = run({
+      jobs: ["answer_calls"],
+      language_primary: "te-IN",
+      brief: "We sell flats in Kondapur.",
+      build: { ...run().build, status: "building" },
+    });
+    await renderClientPage(page, routes({ "/v1/first-run": building }));
+    expect(await screen.findByRole("region", { name: "Your agent being built" })).toBeTruthy();
+    // A picture, one caption in words, and every step in a list a screen reader reads.
+    expect(screen.getByRole("img", { name: "Your agent being put together" })).toBeTruthy();
+    expect(screen.getByText("0 of 4 · Choosing a voice for Telugu")).toBeTruthy();
+    expect(screen.getByText(/Voice: Working on it, Choosing a voice for Telugu/)).toBeTruthy();
+    expect(screen.getByText(/AI notice: Waiting/)).toBeTruthy();
+  });
+
+  it("reads the brief on the stage while the questions are written, with a way to build at once", async () => {
+    const reading = run({
+      jobs: ["answer_calls"],
+      language_primary: "te-IN",
+      brief: "We sell flats in Kondapur.",
+      questions: { status: "writing", items: [], disclosure: null },
+    });
+    await renderClientPage(page, routes({ "/v1/first-run": reading }));
+    expect(await screen.findByRole("region", { name: "Reading what you wrote" })).toBeTruthy();
+    const stage = screen.getByRole("region", { name: "Reading what you wrote" });
+    expect(within(stage).getByText("We sell flats in Kondapur.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Skip the questions and build/ })).toBeTruthy();
+  });
+
+  it("asks for a price list as a list of services, each with a rupee price", async () => {
+    const asked = run({
+      jobs: ["answer_calls"],
+      language_primary: "te-IN",
+      brief: "We sell flats in Kondapur.",
+      questions: {
+        status: "ready",
+        items: [
+          {
+            id: "q1",
+            kind: "services",
+            prompt: "What do you offer?",
+            hint: "Quoted to callers.",
+            options: [],
+            maps_to: "offer",
+          },
+        ],
+        disclosure: null,
+      },
+    });
+    await renderClientPage(page, routes({ "/v1/first-run": asked }));
+    expect(await screen.findByRole("heading", { name: "What do you offer?" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Add another/ }));
+    expect(screen.getAllByRole("textbox", { name: /Price of service/ })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: /Skip this question/ })).toBeTruthy();
+  });
+
+  it("keeps a question answered as shown, the usual hours included, and sends it in its kind's field", async () => {
+    const asked = run({
+      jobs: ["answer_calls"],
+      language_primary: "te-IN",
+      brief: "We sell flats in Kondapur.",
+      questions: {
+        status: "ready",
+        items: [{ id: "q1", kind: "hours", prompt: "When are you open?", hint: "", options: [], maps_to: "hours" }],
+        disclosure: null,
+      },
+    });
+    const { calls } = await renderClientPage(
+      page,
+      routes({ "/v1/first-run": asked, "POST /v1/first-run/answers": asked, "POST /v1/first-run/build": asked }),
+    );
+    expect(await screen.findByText("Mon to Sat, 9:00 am to 6:00 pm")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Build my agent/ }));
+    await waitFor(() => expect(calls.some((call) => call.path === "/v1/first-run/build")).toBe(true));
+    const sent = calls.find((call) => call.path === "/v1/first-run/answers");
+    expect(JSON.parse(sent?.body ?? "{}")).toEqual({
+      answers: [{ id: "q1", hours: { opens: "09:00", closes: "18:00", closed: ["sun"] } }],
+    });
   });
 
   it("refuses a member who may not build agents, in the console's own words", async () => {
