@@ -2,18 +2,15 @@
 
 import Link from "next/link";
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
-import type { ReactNode } from "react";
 
 import { Metric } from "@/components/console/metric";
-import { Section, TEXT_ACTION } from "@/components/console/section";
-import { StatusPill } from "@/components/console/statusPill";
-import { PRIMARY_BUTTON, SECONDARY_BUTTON, formatCount, type NoticeTone } from "@/components/ui";
+import { Section } from "@/components/console/section";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON, formatCount, formatDuration } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import type { CampaignSummary } from "@/lib/api/campaigns";
 import type { Dashboard } from "@/lib/api/client";
 import { activeTrial, walletState, type Wallet } from "@/lib/api/wallet";
-import { STATUS_COPY, canDialOut, isAnsweringNow, isDeleted } from "@/lib/agentState";
-import { lookup } from "@/lib/lookup";
+import { canDialOut, isAnsweringNow, isDeleted } from "@/lib/agentState";
 
 import { trialUrgency, trialView } from "./TrialBanner";
 
@@ -33,15 +30,16 @@ export interface RecapAction {
 }
 
 /**
- * THE WEEK, READ AT A GLANCE, AND WHAT TO DO NEXT.
+ * THE DASHBOARD'S ONE BLOCK OF FIGURES, AND WHAT TO DO NEXT.
  *
- * Three figures for the last 7 days (calls, connected, did not connect) with the
- * week-on-week reading under the first, one line on whether the agents are switched on,
- * and at most three actions. Figures that already have a home on this screen (credit and
- * minutes in "Credit and spend", leads in "Today at a glance") are not repeated here.
+ * The week's calls (with the week-on-week reading), connected and missed, then today's
+ * calls, the week's new leads and the average call length, followed by at most three
+ * actions. Hot leads are not here: "What needs you today" says them with their action.
+ * Whether each agent is on is said once, by "Your agents" in the roster's own words.
  *
  * The first action is the one this account most needs now (`recapActions`), filled; the
- * rest are secondary. A quiet week that needs nothing gets no filled button at all. An action the reader's role cannot perform is not offered.
+ * rest are secondary. A quiet week that needs nothing gets no filled button at all. An
+ * action the reader's role cannot perform is not offered.
  */
 export function WeekRecap({
   data,
@@ -68,9 +66,6 @@ export function WeekRecap({
     <Section title="This week">
       <div className="space-y-5">
         {data.calls_7d > 0 ? <WeekFigures data={data} /> : <QuietWeek data={data} noAgent={current?.length === 0} />}
-        {current && current.length > 0 ? (
-          <AgentLine agents={current} href={href} withLink={!actions.some((action) => action.key === "open-agents")} />
-        ) : null}
         {actions.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {actions.map((action) => (
@@ -85,12 +80,15 @@ export function WeekRecap({
   );
 }
 
+/** Two columns on a phone, three from `sm`, so six figures are three short rows, not a strip. */
+const FIGURE_GRID = "grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3";
+
 function WeekFigures({ data }: { data: Dashboard }) {
   const connected = data.calls_connected_7d;
   const notConnected = data.calls_not_connected_7d;
   const share = Math.round((connected / data.calls_7d) * 100);
   return (
-    <div className="grid grid-cols-3 gap-x-6 gap-y-4">
+    <div className={FIGURE_GRID}>
       <Metric
         label="Calls"
         value={formatCount(data.calls_7d)}
@@ -110,7 +108,33 @@ function WeekFigures({ data }: { data: Dashboard }) {
         tone={notConnected > 0 ? "warn" : "default"}
         hint={notConnected > 0 ? "No answer, busy or failed" : "None missed"}
       />
+      <Metric
+        label="Calls today"
+        value={formatCount(data.calls_today)}
+        flashValue={String(data.calls_today)}
+        hint="Since midnight, India time"
+      />
+      <NewLeads data={data} />
+      {/* A seven-day average of COMPLETED calls (D-215), said in the hint so it is not
+          read as an all-time figure. */}
+      <Metric
+        label="Average call length"
+        value={formatDuration(data.avg_duration_s_7d)}
+        flashValue={data.avg_duration_s_7d == null ? null : String(data.avg_duration_s_7d)}
+        hint="Completed calls"
+      />
     </div>
+  );
+}
+
+function NewLeads({ data }: { data: Dashboard }) {
+  return (
+    <Metric
+      label="New leads"
+      value={formatCount(data.leads_new_7d)}
+      flashValue={String(data.leads_new_7d)}
+      hint={<Trend current={data.leads_new_7d} previous={data.leads_new_prev_7d} />}
+    />
   );
 }
 
@@ -134,73 +158,23 @@ function Trend({ current, previous }: { current: number; previous: number }) {
   );
 }
 
+/** No calls: one sentence instead of a row of zeroes, and new leads only if there were some. */
 function QuietWeek({ data, noAgent }: { data: Dashboard; noAgent: boolean }) {
   return (
-    <p className="max-w-prose text-body text-ink-muted [text-wrap:pretty]">
-      No calls in the last 7 days.
-      {data.calls_prev_7d > 0
-        ? ` The week before had ${formatCount(data.calls_prev_7d)} ${data.calls_prev_7d === 1 ? "call" : "calls"}.`
-        : ""}
-      {noAgent ? " You have no agent yet, so nobody is answering or making calls." : ""}
-    </p>
-  );
-}
-
-/** Whether the agents are switched on, as a state and a way to the agent(s). */
-function AgentLine({
-  agents,
-  href,
-  withLink,
-}: {
-  agents: Agent[];
-  href: (path: string) => string;
-  /** False when the same link is already the card's primary action. */
-  withLink: boolean;
-}) {
-  const on = agents.filter(isAnsweringNow).length;
-  let subject: ReactNode;
-  let state: string;
-  let tone: NoticeTone;
-  let link: { label: string; path: string };
-
-  if (agents.length === 1) {
-    const agent = agents[0]!;
-    subject = <span className="min-w-0 truncate font-medium text-ink">{agent.name}</span>;
-    link = { label: "Open agent", path: `/agents/${agent.id}` };
-    if (on === 1) {
-      state = "Switched on";
-      tone = "ok";
-    } else {
-      // A live agent not yet on the calling system is a wait, not a choice.
-      state =
-        agent.status === "live" ? "Not on the phone yet" : (lookup(STATUS_COPY, agent.status)?.label ?? agent.status);
-      tone = "warn";
-    }
-  } else {
-    subject = <span className="text-ink">Your {formatCount(agents.length)} agents</span>;
-    link = { label: "See agents", path: "/agents" };
-    if (on === agents.length) {
-      state = "All switched on";
-      tone = "ok";
-    } else if (on === 0) {
-      state = "None switched on";
-      tone = "warn";
-    } else {
-      state = `${formatCount(on)} switched on`;
-      tone = "neutral";
-    }
-  }
-
-  return (
-    <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-body">
-      {subject}
-      <StatusPill tone={tone}>{state}</StatusPill>
-      {withLink ? (
-        <Link href={href(link.path)} className={TEXT_ACTION}>
-          {link.label}
-        </Link>
+    <>
+      <p className="max-w-prose text-body text-ink-muted [text-wrap:pretty]">
+        No calls in the last 7 days.
+        {data.calls_prev_7d > 0
+          ? ` The week before had ${formatCount(data.calls_prev_7d)} ${data.calls_prev_7d === 1 ? "call" : "calls"}.`
+          : ""}
+        {noAgent ? " You have no agent yet, so nobody is answering or making calls." : ""}
+      </p>
+      {data.leads_new_7d > 0 ? (
+        <div className={FIGURE_GRID}>
+          <NewLeads data={data} />
+        </div>
       ) : null}
-    </p>
+    </>
   );
 }
 

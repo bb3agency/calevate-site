@@ -29,12 +29,13 @@ import { StatusPill } from "@/components/console/statusPill";
 import { useEnterClass } from "@/components/live/arrivals";
 
 /**
- * "Where the agents struggled on real calls" — the URGENT insights surface.
+ * "Where it struggled on real calls" — one agent's open knowledge gaps, on its Training tab.
  *
  * A gap is a question a live agent could not answer, found automatically from the actual
  * (redacted) conversation — never guessed. It is urgent because the same question recurs on
- * every future call until it is taught, so this card sits on the dashboard HOME (all
- * agents) as well as on the per-agent page (`agentId` set).
+ * every future call until it is taught. The dashboard does not repeat this list: "What needs
+ * you today" carries the open count and links here, or to Knowledge when several agents
+ * struggled.
  *
  * The quotes are the agent's own deflection and the caller's question, both REDACTED
  * server-side (hard rule 6). Every number comes from the API — `occurrence_count` and
@@ -44,16 +45,12 @@ import { useEnterClass } from "@/components/live/arrivals";
 export function KnowledgeGaps({
   agentId,
   className,
-  hideWhenClear = false,
   headingLevel = 2,
 }: {
-  agentId?: string;
+  agentId: string;
   className?: string;
   /** 3 inside an agent's Training tab, whose tab label is the h2; its rows go one lower. */
   headingLevel?: 2 | 3;
-  /** Render nothing until there is something to teach: the dashboard home shows this card
-   *  only when an agent actually struggled. The agent page keeps the calm line. */
-  hideWhenClear?: boolean;
 }) {
   const session = useClientSession();
   // This tenant's trade, not a clinic's — see `lib/verticalExamples.ts`.
@@ -63,12 +60,11 @@ export function KnowledgeGaps({
   // only when their owner has switched curation on (`/v1/me` reports the effective set).
   const write = useWriteAccess(session, "kb:write", "teach or dismiss these");
 
-  const title = agentId ? "Where it struggled on real calls" : "Where your agents struggled";
+  const title = "Where it struggled on real calls";
   // A gap found while the screen is open enters softly (D-774); the list on load does not.
   const enter = useEnterClass(gaps.data ? gaps.data.items.map((gap) => gap.id) : null);
 
   if (gaps.isLoading) {
-    if (hideWhenClear) return null;
     return (
       <Section title={title} headingLevel={headingLevel} className={className}>
         <Skeleton rows={4} />
@@ -88,7 +84,6 @@ export function KnowledgeGaps({
   }
 
   const { items, open_count } = gaps.data;
-  if (hideWhenClear && items.length === 0 && open_count === 0) return null;
 
   return (
     <Section
@@ -131,7 +126,6 @@ export function KnowledgeGaps({
               key={gap.id}
               enterClass={enter(gap.id)}
               gap={gap}
-              showAgent={!agentId}
               canWrite={write.allowed}
               rowHeading={headingLevel === 3 ? "h4" : "h3"}
             />
@@ -150,7 +144,6 @@ const SIGNAL_BADGE: Record<GapSignal, string> = {
 
 function GapRow({
   gap,
-  showAgent,
   canWrite,
   eg,
   enterClass,
@@ -159,7 +152,6 @@ function GapRow({
   enterClass: string;
   rowHeading: "h3" | "h4";
   gap: KnowledgeGap;
-  showAgent: boolean;
   canWrite: boolean;
   /** This tenant's examples, passed down rather than re-read: one `/v1/me` per screen. */
   eg: VerticalExamples;
@@ -207,9 +199,6 @@ function GapRow({
           >
             {gap.topic_label}
           </RowHeading>
-          {showAgent && gap.agent_name ? (
-            <p className="text-meta text-ink-muted">{gap.agent_name}</p>
-          ) : null}
         </div>
         <span className="shrink-0 text-meta tabular-nums text-ink-faint">
           {gap.occurrence_count}× on {gap.call_count} call{gap.call_count === 1 ? "" : "s"}

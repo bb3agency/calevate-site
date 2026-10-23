@@ -2186,9 +2186,8 @@ const CLIENT_SCREENS: Screen[] = [
       ],
       "/v1/agents": [AGENT],
       "/v1/agents/stats": [{ agent_id: "agent-1", status: "live", calls_total: 12, calls_connected: 9, calls_inbound: 0, calls_outbound: 12, last_call_at: "2026-08-13T05:00:00Z", outcomes: { resolved: 6, needs_follow_up: 2, transferred: 0, dropped: 1 } }],
-      // The dashboard-home `KnowledgeGaps` card (all agents). One OPEN gap so the sweep
-      // covers its populated markup — the count badge, the quote, the agent name and the
-      // Teach/Dismiss controls — rather than the empty state.
+      // One OPEN gap, so the sweep covers the "questions your agents could not answer" row
+      // and its link in "What needs you today". The full gap card is swept on the agent page.
       "/v1/knowledge-gaps?status=open&limit=20": {
         items: [KNOWLEDGE_GAP],
         open_count: 1,

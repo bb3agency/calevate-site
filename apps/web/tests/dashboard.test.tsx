@@ -305,7 +305,7 @@ describe("the home screen ranks the day's work (ux-audit D2)", () => {
       page,
       routes({ "/v1/attention": { counts: {}, items: [], total: 0 } }),
     );
-    await screen.findByText("Calls today");
+    await screen.findByRole("heading", { name: "This week" });
     expect(container.textContent).not.toContain("needs your attention");
     expect(container.textContent).not.toContain("could not check");
 
@@ -313,7 +313,7 @@ describe("the home screen ranks the day's work (ux-audit D2)", () => {
     // not within one, so without this the zero-case app stays mounted while the failure
     // case renders beside it — one test holding two whole dashboards. It cost this test
     // four intermittent failures in a single day, in TWO different disguises: a
-    // "Found multiple elements with the text: Calls today" when a document-wide query
+    // "Found multiple elements" when a document-wide query
     // matched both trees, and a `waitFor` TIMEOUT when the second render had to settle
     // against twice the DOM under a loaded CPU. Both read as flakiness, both passed
     // standalone every time, and both were called contention — by three separate readers,
@@ -339,7 +339,7 @@ describe("the home screen ranks the day's work (ux-audit D2)", () => {
     // contention and was misdiagnosed as such three times before somebody read the two
     // queries side by side. The comment six lines down already knew the rule; it just
     // was not applied one line up.
-    await within(failed.container).findByText("Calls today");
+    await within(failed.container).findByRole("heading", { name: "This week" });
     expect(failed.container.textContent).toContain(
       "We could not check whether anything needs your attention",
     );
@@ -386,8 +386,9 @@ describe("the dashboard renders what the server said, or says it could not", () 
   it("renders a zero as zero rather than substituting a healthier number", async () => {
     const { container } = await renderClientPage(page, routes());
 
-    const tile = (await screen.findByText("Calls today")).parentElement;
-    expect(tile?.textContent).toContain("0");
+    // A week with no calls is said as none, not drawn as a healthier number.
+    const week = (await screen.findByRole("heading", { name: "This week" })).closest("section");
+    expect(week?.textContent).toContain("No calls in the last 7 days.");
     expect(container.textContent).not.toContain("5,430");
     expect(container.textContent).toContain("No calls yet");
   });
@@ -666,7 +667,7 @@ describe("the money tile says which kind of nothing it is showing", () => {
     // different read that succeeded, and its balance is not this tile's failure.
     expect(tile?.textContent).not.toContain("₹");
     // The rest of the screen is unaffected: this tile's failure is not the page's.
-    expect(container.textContent).toContain("Calls today");
+    expect(container.textContent).toContain("This week");
   });
 
   it("shows a skeleton, not a dash, while the usage read is in flight", async () => {
@@ -787,7 +788,7 @@ describe("the calling credit tile", () => {
       }),
     );
 
-    await screen.findByText("Calls today");
+    await screen.findByRole("heading", { name: "This week" });
     // A tenant with no wallet is not a tenant whose wallet is empty. A zero here would be
     // the same false alarm the credit screen refuses to raise.
     expect(container.textContent).not.toContain("Calling credit left");
@@ -893,14 +894,18 @@ describe("this week", () => {
       .map((link) => ({ name: link.textContent, primary: link.className.includes("bg-brand-strong") }));
   }
 
-  it("reads a busy week as three figures and compares it with the week before", async () => {
+  it("reads a busy week as the page's one block of figures and compares it with the week before", async () => {
     const card = await recap({
       "/v1/dashboard": {
         ...EMPTY_DASHBOARD,
+        calls_today: 4,
         calls_7d: 29,
         calls_prev_7d: 17,
         calls_connected_7d: 20,
         calls_not_connected_7d: 7,
+        leads_new_7d: 6,
+        leads_new_prev_7d: 2,
+        avg_duration_s_7d: 94,
         daily_7d: WEEK,
       },
       "/v1/agents": [agentRow()],
@@ -912,10 +917,9 @@ describe("this week", () => {
     expect(text).toContain("69% of calls");
     expect(within(card).getByText("Did not connect").parentElement?.textContent).toContain("7");
     expect(text).toContain("No answer, busy or failed");
-    // The agent's state, with a way to it.
-    expect(text).toContain("Reception");
-    expect(text).toContain("Switched on");
-    expect(within(card).getByRole("link", { name: "Open agent" }).getAttribute("href")).toContain("/agents/agent-1");
+    expect(within(card).getByText("Calls today").parentElement?.textContent).toContain("4");
+    expect(within(card).getByText("New leads").parentElement?.textContent).toContain("4 more than the week before");
+    expect(within(card).getByText("Average call length").parentElement?.textContent).toContain("1:34");
     // Nothing urgent: the week's calls lead; an inbound agent cannot dial, so no campaign.
     expect(await actions(card)).toEqual([
       { name: "See calls", primary: true },
@@ -977,20 +981,11 @@ describe("this week", () => {
     const card = await recap({
       "/v1/agents": [agentRow({ status: "paused" })],
     });
-    expect(card.textContent).toContain("Not taking calls");
     const buttons = await actions(card);
     expect(buttons[0]).toEqual({ name: "Open agent", primary: true });
-    // The same link is not offered twice.
-    expect(within(card).getAllByRole("link", { name: "Open agent" })).toHaveLength(1);
-  });
-
-  it("counts several agents rather than naming them", async () => {
-    const card = await recap({
-      "/v1/agents": [agentRow(), agentRow({ id: "agent-2", name: "Sales", status: "paused" })],
-    });
-    expect(card.textContent).toContain("Your 2 agents");
-    expect(card.textContent).toContain("1 switched on");
-    expect(within(card).getByRole("link", { name: "See agents" })).toBeTruthy();
+    expect(within(card).getAllByRole("link", { name: "Open agent" })[0]!.getAttribute("href")).toContain(
+      "/agents/agent-1",
+    );
   });
 
   it("leads with starting a campaign when an agent can dial and there is no campaign yet", async () => {
@@ -1038,6 +1033,121 @@ describe("this week", () => {
   });
 });
 
+/** Finding 15: one vocabulary for an agent's state, the roster's and the agent page's. */
+describe("your agents", () => {
+  const agentsCard = async () =>
+    (await screen.findByRole("heading", { name: "Your agents" })).closest("section") as HTMLElement;
+
+  it("says each agent's state in the roster's words, with a way to it", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents": [
+          agentRow(),
+          agentRow({ id: "agent-2", name: "Sales", status: "paused" }),
+          agentRow({ id: "agent-3", name: "Follow-ups", status: "draft", published: false }),
+        ],
+      }),
+    );
+    const card = await agentsCard();
+    const row = (name: string) => within(card).getByRole("link", { name }).closest("li") as HTMLElement;
+    expect(row("Reception").textContent).toContain("Live");
+    expect(row("Sales").textContent).toContain("Ready, not taking calls");
+    expect(row("Follow-ups").textContent).toContain("Being set up");
+    expect(within(card).getByRole("link", { name: "Reception" }).getAttribute("href")).toContain("/agents/agent-1");
+  });
+
+  it("says a switched-off agent is on for test calls during a trial, from the dashboard's own read", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/dashboard": {
+          ...EMPTY_DASHBOARD,
+          trial: {
+            on_trial: true,
+            status: "active",
+            ends_at: "2026-10-20T17:28:00Z",
+            days_remaining: 3,
+            free_minutes: 30,
+            minutes_used: 4,
+            minutes_left: 26,
+            calls_today: 0,
+            daily_cap: 10,
+            max_call_seconds: 180,
+            pledge_accepted: true,
+            can_call: true,
+            blocked_reason: null,
+          },
+        },
+        "/v1/agents": [agentRow({ status: "paused" })],
+      }),
+    );
+    expect((await agentsCard()).textContent).toContain("On for test calls");
+    expect(calls.some((call) => call.path === "/v1/trial")).toBe(false);
+  });
+});
+
+/** Finding 24: the dashboard says how many questions went unanswered and where to teach them. */
+describe("unanswered questions", () => {
+  const GAP = {
+    id: "gap-1",
+    agent_id: "agent-1",
+    agent_name: "Reception",
+    topic_key: "pricing",
+    topic_label: "Pricing",
+    status: "open",
+    signal: "dont_know",
+    occurrence_count: 3,
+    call_count: 2,
+    example_question: "How much is it?",
+    example_answer: "I don't know.",
+    first_seen_at: "2026-10-20T04:30:00Z",
+    last_seen_at: "2026-10-22T04:30:00Z",
+  };
+  const needsYou = async () =>
+    (await screen.findByRole("heading", { name: "What needs you today" })).closest("section") as HTMLElement;
+
+  it("counts one agent's open questions and links to its Training tab", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/knowledge-gaps?status=open&limit=20": { items: [GAP, { ...GAP, id: "gap-2" }], open_count: 2, total: 2 },
+      }),
+    );
+    const card = await needsYou();
+    expect(card.textContent).toContain("2 questions your agents could not answer");
+    expect(within(card).getByRole("link", { name: "Teach the answers" }).getAttribute("href")).toBe(
+      "/c/acme/agents/agent-1?section=training",
+    );
+  });
+
+  it("links to Knowledge when several agents struggled", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/knowledge-gaps?status=open&limit=20": {
+          items: [GAP, { ...GAP, id: "gap-2", agent_id: "agent-2" }],
+          open_count: 2,
+          total: 2,
+        },
+      }),
+    );
+    const card = await needsYou();
+    expect(within(card).getByRole("link", { name: "Teach the answers" }).getAttribute("href")).toBe("/c/acme/knowledge");
+  });
+
+  it("says it could not check, with a retry, when the read fails", async () => {
+    await renderClientPage(
+      page,
+      routes({ "/v1/knowledge-gaps?status=open&limit=20": problem(503, { title: "Service unavailable" }) }),
+    );
+    const card = await needsYou();
+    expect(card.textContent).toContain("We could not check for questions your agents could not answer");
+    expect(within(card).getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(card.textContent).not.toContain("Nothing needs you right now");
+  });
+});
+
 /**
  * ONE PAINT (D-787). The trial card comes with the dashboard read, and the notices above
  * the figures start their reads with it instead of after it, so nothing arrives a round
@@ -1068,7 +1178,7 @@ describe("the dashboard arrives in one paint", () => {
         "/v1/billing/wallet": wallet({ trial: activeTrialBlock({ test_calls_only: true }) }),
       }),
     );
-    await screen.findByText("Calls today");
+    await screen.findByRole("heading", { name: "This week" });
     expect(screen.getByText("Your free trial")).toBeTruthy();
     expect(screen.getByText("26 of 30")).toBeTruthy();
     expect(calls.some((call) => call.path === "/v1/trial")).toBe(false);
@@ -1079,7 +1189,7 @@ describe("the dashboard arrives in one paint", () => {
       page,
       routes({ "/v1/dashboard": { ...EMPTY_DASHBOARD, trial: { on_trial: false } } }),
     );
-    await screen.findByText("Calls today");
+    await screen.findByRole("heading", { name: "This week" });
     expect(container.textContent).not.toContain("Your free trial");
   });
 
@@ -1103,7 +1213,7 @@ describe("the dashboard arrives in one paint", () => {
     );
     await waitFor(() => expect(calls.some((call) => call.path === "/v1/dashboard")).toBe(true));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(screen.queryByText("Calls today")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "This week" })).toBeNull();
     expect(container.querySelector(".animate-pulse")).not.toBeNull();
   });
 });

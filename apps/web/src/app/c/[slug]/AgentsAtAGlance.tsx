@@ -3,46 +3,50 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 
-import { Section, TEXT_ACTION } from "@/components/console/section";
+import { Section } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { ProblemNotice, Skeleton, formatCount, formatIST } from "@/components/ui";
 import type { useAgentStats, useAgents, Agent } from "@/lib/api/agents";
-import { DIRECTION_COPY, STATUS_COPY, isAnsweringNow, isDeleted } from "@/lib/agentState";
+import { DIRECTION_COPY, isDeleted } from "@/lib/agentState";
 import { lookup } from "@/lib/lookup";
 
+import { liveState } from "./agents/AgentBadge";
+
 /**
- * EACH AGENT, ONE LINE: is it working, what does it do, how much has it done.
+ * EACH AGENT, ONE LINE: is it on, what does it do, how much has it done.
  *
- * A divided list rather than a card per agent: the agents are peers read top to bottom,
- * and what should catch the eye is an agent that is switched on but NOT working, so that
- * is the one warning-toned pill (visual-hierarchy: colour for status, not decoration).
+ * The state is `liveState`, the words and tone the roster and the agent page show, so an
+ * owner can match this row to the agent they open. It is called here rather than through
+ * `LiveBadge` because `LiveBadge` reads `/v1/trial` for a switched-off agent, and the
+ * dashboard already has the trial in its own read (D-787): passing `onTrial` keeps the page
+ * to one paint and still says "On for test calls" on a trial.
+ *
+ * "Add an agent" is not offered here: "This week" offers it, to the roles that may.
  * The count is the agent's whole history (`/v1/agents/stats` is lifetime by design), so it
  * is labelled "calls so far" rather than passed off as this week's.
  */
 export function AgentsAtAGlance({
   agents,
   stats,
+  onTrial,
   href,
 }: {
   agents: ReturnType<typeof useAgents>;
   stats: ReturnType<typeof useAgentStats>;
+  /** The account is on a free trial, from the dashboard read's `trial`. */
+  onTrial: boolean;
   href: (path: string) => string;
 }) {
-  const action = (
-    <Link href={href("/agents/new")} className={TEXT_ACTION}>
-      Add an agent
-    </Link>
-  );
   if (agents.isLoading) {
     return (
-      <Section title="Your agents" action={action}>
+      <Section title="Your agents">
         <Skeleton rows={2} label="Loading your agents" />
       </Section>
     );
   }
   if (agents.error || !agents.data) {
     return (
-      <Section title="Your agents" action={action}>
+      <Section title="Your agents">
         <ProblemNotice
           error={agents.error ?? new Error("Your agents did not load.")}
           onRetry={() => void agents.refetch()}
@@ -56,12 +60,13 @@ export function AgentsAtAGlance({
   if (current.length === 0) return null;
 
   return (
-    <Section title="Your agents" action={action}>
+    <Section title="Your agents">
       <ul className="divide-y divide-line border-y border-line">
         {current.map((agent) => (
           <AgentLine
             key={agent.id}
             agent={agent}
+            onTrial={onTrial}
             stat={stats.data?.find((row) => row.agent_id === agent.id)}
             href={href(`/agents/${agent.id}`)}
           />
@@ -73,19 +78,16 @@ export function AgentsAtAGlance({
 
 function AgentLine({
   agent,
+  onTrial,
   stat,
   href,
 }: {
   agent: Agent;
+  onTrial: boolean;
   stat: { calls_total: number; last_call_at: string | null } | undefined;
   href: string;
 }) {
-  const working = isAnsweringNow(agent);
-  const state = working
-    ? null
-    : agent.status === "live"
-      ? "Not on the phone yet"
-      : (lookup(STATUS_COPY, agent.status)?.label ?? agent.status);
+  const state = liveState(agent, onTrial);
   const role = lookup(DIRECTION_COPY, agent.direction)?.label ?? agent.direction;
   return (
     <li className="relative flex items-center gap-4 py-3.5 transition-colors duration-(--duration-fast) has-[a:hover]:bg-ink/[0.03]">
@@ -108,11 +110,7 @@ function AgentLine({
           <span className="block text-meta text-ink-muted">calls so far</span>
         </p>
       ) : null}
-      {state ? (
-        <StatusPill tone={agent.status === "paused" || agent.status === "draft" ? "neutral" : "warn"}>{state}</StatusPill>
-      ) : (
-        <StatusPill tone="ok">Working</StatusPill>
-      )}
+      <StatusPill tone={state.tone}>{state.label}</StatusPill>
       <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-ink-faint" />
     </li>
   );

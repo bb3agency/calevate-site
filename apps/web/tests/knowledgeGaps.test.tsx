@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { KnowledgeGaps } from "@/app/c/[slug]/KnowledgeGaps";
@@ -8,7 +8,7 @@ import type { KnowledgeGap, KnowledgeGapList } from "@/lib/api/knowledgeGaps";
 import { problem, renderClientPage } from "./harness";
 
 /**
- * The URGENT "where the agents struggled" card — the dashboard-home insights surface.
+ * The URGENT "where it struggled" card on an agent's Training tab.
  *
  * What a wrong render costs, ranked:
  *
@@ -55,7 +55,7 @@ function list(over: Partial<KnowledgeGapList> = {}): KnowledgeGapList {
   return { items: [GAP], open_count: 1, total: 1, ...over };
 }
 
-const GAPS_ROUTE = "/v1/knowledge-gaps?status=open&limit=20";
+const GAPS_ROUTE = `/v1/knowledge-gaps?agent_id=${GAP.agent_id}&status=open&limit=20`;
 
 /**
  * Hold every POST until the screen has painted what the optimistic update did. The stub
@@ -69,7 +69,7 @@ function writesTakeARealRoundTrip(): void {
     return answer(input, init);
   });
 }
-const page = <KnowledgeGaps />;
+const page = <KnowledgeGaps agentId={GAP.agent_id} />;
 
 function routes(over: Record<string, unknown> = {}) {
   return { "/v1/me": ME, [GAPS_ROUTE]: list(), ...over };
@@ -86,9 +86,6 @@ describe("the knowledge-gaps card", () => {
       screen.getByText("I don't know the price, I'll WhatsApp you."),
     ).toBeTruthy();
     expect(screen.getByText("3× on 2 calls")).toBeTruthy();
-    // The agent name is shown on the org-wide card so gaps from several agents are
-    // distinguishable.
-    expect(screen.getByText("Reception")).toBeTruthy();
   });
 
   it("says nothing is unanswered only when the server returned no open gaps", async () => {
@@ -98,24 +95,6 @@ describe("the knowledge-gaps card", () => {
     );
     expect(await screen.findByText("Nothing unanswered")).toBeTruthy();
     expect(container.textContent).not.toContain("Didn't know this");
-  });
-
-  it("on the dashboard, shows nothing at all until an agent actually struggled", async () => {
-    const { container, calls } = await renderClientPage(
-      <KnowledgeGaps hideWhenClear />,
-      routes({ [GAPS_ROUTE]: list({ items: [], open_count: 0, total: 0 }) }),
-    );
-    // Empty while loading too, so wait for the answer before judging the settled state.
-    await waitFor(() => expect(calls.some((c) => c.path.includes("knowledge-gaps"))).toBe(true));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(container.textContent).toBe("");
-    expect(screen.queryByText("Where your agents struggled")).toBeNull();
-  });
-
-  it("on the dashboard, shows the card as soon as there is a gap to teach", async () => {
-    await renderClientPage(<KnowledgeGaps hideWhenClear />, routes());
-    expect(await screen.findByText("Where your agents struggled")).toBeTruthy();
-    expect(screen.getByText("Pricing")).toBeTruthy();
   });
 
   it("does not report calm when the request failed", async () => {
