@@ -12,6 +12,7 @@
 
 import Link from "next/link";
 
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
 import { PipMark } from "@/components/illustration/pip";
 import { ProgressBar } from "@/components/interior/progress-bar";
@@ -68,11 +69,14 @@ export function HowItWorks({ data }: { data: TestConversations }) {
 export function FirstRun({
   data,
   canRun,
+  status = "idle",
   onRun,
   knowledgeHref,
 }: {
   data: TestConversations;
   canRun: boolean;
+  /** The run request's state, for the button. */
+  status?: FeedbackStatus;
   onRun: () => void;
   knowledgeHref: string;
 }) {
@@ -104,9 +108,16 @@ export function FirstRun({
           callers the team will confirm the price.
         </NoticeBox>
       )}
-      <button type="button" className={PRIMARY_BUTTON_SM} disabled={!canRun} onClick={onRun}>
+      <ActionButton
+        variant="primary-sm"
+        status={status}
+        pendingLabel="Starting…"
+        successLabel="Started"
+        disabled={!canRun && status !== "pending"}
+        onClick={onRun}
+      >
         Run the tests
-      </button>
+      </ActionButton>
     </section>
   );
 }
@@ -133,7 +144,17 @@ export function Running({ run, trials }: { run: TestRun | null; trials: number }
   );
 }
 
-export function Stopped({ run, canRun, onRetry }: { run: TestRun; canRun: boolean; onRetry: () => void }) {
+export function Stopped({
+  run,
+  canRun,
+  status = "idle",
+  onRetry,
+}: {
+  run: TestRun;
+  canRun: boolean;
+  status?: FeedbackStatus;
+  onRetry: () => void;
+}) {
   const why =
     run.error_code === "stalled"
       ? "It stopped answering part-way, so we stopped it."
@@ -146,9 +167,16 @@ export function Stopped({ run, canRun, onRetry }: { run: TestRun; canRun: boolea
       title="The test did not finish"
       role="alert"
       action={
-        <button type="button" className={SECONDARY_BUTTON_SM} disabled={!canRun} onClick={onRetry}>
+        <ActionButton
+          variant="secondary-sm"
+          status={status}
+          pendingLabel="Starting…"
+          successLabel="Started"
+          disabled={!canRun && status !== "pending"}
+          onClick={onRetry}
+        >
           Try again
-        </button>
+        </ActionButton>
       }
     >
       <p className="text-meta text-ink-muted">{why}</p>
@@ -253,6 +281,10 @@ export interface NextStepProps {
   hasProposal: boolean;
   showingReview: boolean;
   restoring: boolean;
+  /** Undo's state, for its button; `restoring` is its pending half. */
+  restoreStatus?: FeedbackStatus;
+  /** The "Test again" request's state, for its button. */
+  runStatus?: FeedbackStatus;
   restored: boolean;
   links: ResultLinks;
   /** The server's words when "Test again" was refused because nothing changed. */
@@ -299,9 +331,15 @@ export function NextStepBlock(props: NextStepProps) {
           <p className="max-w-prose text-body text-ink [text-wrap:pretty]">{sentenceOf(step, run, fixable, settings.length)}</p>
           <div className="flex flex-wrap items-center gap-2">
             {step === "undo" && broke !== null && (
-              <button type="button" className={PRIMARY_BUTTON_SM} disabled={restoring} onClick={() => props.onUndo(broke)}>
-                {restoring ? "Undoing…" : "Undo the last change"}
-              </button>
+              <ActionButton
+                variant="primary-sm"
+                status={props.restoreStatus ?? (restoring ? "pending" : "idle")}
+                pendingLabel="Undoing…"
+                successLabel="Undone"
+                onClick={() => props.onUndo(broke)}
+              >
+                Undo the last change
+              </ActionButton>
             )}
             {step === "review" && !props.showingReview && (
               <button type="button" className={PRIMARY_BUTTON_SM} onClick={props.onReopen}>
@@ -326,14 +364,16 @@ export function NextStepBlock(props: NextStepProps) {
                 {SETTING_LINK[firstSetting.area].label}
               </Link>
             )}
-            <button
-              type="button"
-              className={retestPrimary && !unchanged ? PRIMARY_BUTTON_SM : SECONDARY_BUTTON_SM}
-              disabled={!canRun}
+            <ActionButton
+              variant={retestPrimary && !unchanged ? "primary-sm" : "secondary-sm"}
+              status={props.runStatus ?? "idle"}
+              pendingLabel="Starting…"
+              successLabel="Started"
+              disabled={!canRun && props.runStatus !== "pending"}
               onClick={props.onTestAgain}
             >
               Test again
-            </button>
+            </ActionButton>
             {waiting > 0 && (
               <button type="button" className={SECONDARY_BUTTON_SM} disabled={!canRun} onClick={() => props.onNewSet(false)}>
                 Add {waiting === 1 ? "1 new test" : `${waiting} new tests`}

@@ -10,6 +10,7 @@
  * comes from. A failed read is a refusal, never a default shown as if it were the agent's.
  */
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { HangUpRow, PauseRow } from "@/components/callHandlingRows";
 import { AgentVoiceRows } from "@/components/callHandlingVoiceRows";
 import { SettingRows } from "@/components/console/settingRow";
@@ -26,6 +27,8 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
   const session = useClientSession();
   const state = useAgentCallHandling(session, agentId);
   const save = useSetAgentCallHandling(session, agentId);
+  // Each row shows its own saving state and its refusal under itself.
+  useActionFeedback(save, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "change how this agent ends its turn and its calls");
 
   if (state.isLoading) return <Skeleton rows={2} />;

@@ -4,14 +4,14 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PhoneIncoming, PhoneOutgoing, Zap } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { Field } from "@/components/arc/field";
 import { Chooser, ChooserItem } from "@/components/console/chooser";
 import { IconTile } from "@/components/console/iconTile";
 import { TEXT_ACTION } from "@/components/console/section";
 import {
   FIELD,
-  FIELD_HINT,
   FIELD_LABEL,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
@@ -114,6 +114,7 @@ function StarterPreviewStep({
   /* Keyed on the picker, so the greeting shown is the one the agent is created with. */
   const starter = useStarters(session, language);
   const create = useCreateAgent(session);
+  const createFeedback = useActionFeedback(create, { errorDisplay: "inline" });
   /* `org:manage` is what POST /v1/agents requires (the owner's permission). */
   const write = useWriteAccess(session, "org:manage", "create an agent");
   const [typedName, setName] = useState<string | null>(null);
@@ -167,7 +168,7 @@ function StarterPreviewStep({
 
   const submit = () => {
     setTried(true);
-    if (!write.allowed || !preview || nameProblem) return;
+    if (!write.allowed || !preview || nameProblem || create.isPending) return;
     create.mutate(
       {
         name: trimmed,
@@ -249,25 +250,23 @@ function StarterPreviewStep({
           ) : null}
 
           <div className="space-y-5 border-t border-line pt-6">
-            <label className="block max-w-sm">
-              <span className={FIELD_LABEL}>Name</span>
-              <input
-                id="new-agent-name"
-                value={name}
-                maxLength={80}
-                aria-invalid={tried && nameProblem !== null}
-                aria-describedby={tried && nameProblem ? "new-agent-name-problem" : undefined}
-                onChange={(event) => setName(event.target.value)}
-                className={FIELD}
-              />
-              {tried && nameProblem ? (
-                <span id="new-agent-name-problem" role="alert" className="mt-1 block text-meta text-danger">
-                  {nameProblem}
-                </span>
-              ) : (
-                <span className={FIELD_HINT}>Only you see this. Callers never hear it.</span>
+            <Field
+              id="new-agent-name"
+              className="max-w-sm"
+              label="Name"
+              hint="Only you see this. Callers never hear it."
+              error={tried ? nameProblem : null}
+            >
+              {(control) => (
+                <input
+                  {...control}
+                  value={name}
+                  maxLength={80}
+                  onChange={(event) => setName(event.target.value)}
+                  className={FIELD}
+                />
               )}
-            </label>
+            </Field>
             <label className="block max-w-sm">
               <span className={FIELD_LABEL}>Language</span>
               <select
@@ -290,9 +289,15 @@ function StarterPreviewStep({
           {create.error ? <ProblemNotice error={create.error} /> : null}
 
           <div className="space-y-2">
-            <button type="submit" className={PRIMARY_BUTTON} disabled={!write.allowed || create.isPending}>
-              {create.isPending ? "Creating…" : "Create agent"}
-            </button>
+            <ActionButton
+              type="submit"
+              status={createFeedback.status}
+              disabled={!write.allowed}
+              pendingLabel="Creating…"
+              successLabel="Created"
+            >
+              Create agent
+            </ActionButton>
             <p className="text-meta text-ink-muted">
               It is created as a draft and switched off. You can get it ready and try it in the chat; nobody hears it until you switch it on.
             </p>

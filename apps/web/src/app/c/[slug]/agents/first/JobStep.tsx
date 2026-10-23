@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ArrowRight, Check, ChevronRight } from "lucide-react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { ProblemNotice } from "@/components/ui";
 import type { FirstRun, FirstRunJob } from "@/lib/api/firstRun";
@@ -46,6 +47,7 @@ export function JobStep({
 }) {
   const session = useClientSession();
   const save = useSaveJob(session);
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const locked = run.agent_id !== null;
   const [jobs, setJobs] = useState<FirstRunJob[]>(() => sortJobs(run.jobs));
   const [primary, setPrimary] = useState(run.language_primary ?? defaultLanguage);
@@ -66,12 +68,12 @@ export function JobStep({
       hint="Pick one or more. One agent does them all, and you can change this later."
       primary={
         <>
-          {save.isPending ? "Saving…" : "Continue"}
+          Continue
           <ArrowRight aria-hidden className="h-4 w-4" />
         </>
       }
       disabled={jobs.length === 0}
-      pending={save.isPending}
+      status={saveFeedback.status}
       onSubmit={() => {
         if (jobs.length === 0) return;
         save.mutate(jobPayload(jobs, primary, extra), { onSuccess: onDone });

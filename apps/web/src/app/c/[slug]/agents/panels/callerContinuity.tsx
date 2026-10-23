@@ -33,7 +33,8 @@
 import { ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
-import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote, ToggleSwitch } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ProblemNotice, RestrictionNote, ToggleSwitch } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { useSetCallerMemory, type Agent } from "@/lib/api/agents";
 import { useActAccess } from "@/lib/api/hooks";
@@ -53,6 +54,12 @@ function remediation(error: unknown): string | null {
 export function CallerContinuity({ agent }: { agent: Agent }) {
   const session = useClientSession();
   const setCallerMemory = useSetCallerMemory(session, agent.id);
+  // Every refusal here has its own place on the screen (the notice, the opening-line fix,
+  // the attestation), so none is toasted.
+  const memoryFeedback = useActionFeedback(setCallerMemory, { errorDisplay: "inline" });
+  // Which control sent the last request: the confirm button shows its own state only for
+  // its own press, not the switch's first refusal that brought it onto the screen.
+  const [confirming, setConfirming] = useState(false);
   // Local, and only for the width of one refusal: the server decides whether an
   // attestation is still needed, so this is the record of "the client has now READ it",
   // which is a fact about this screen and about nothing else.
@@ -121,9 +128,10 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
           label="Remember callers and book their call-backs"
           checked={agent.caller_memory_enabled}
           disabled={setCallerMemory.isPending}
-          onChange={(next) =>
-            setCallerMemory.mutate({ enabled: next, accept: readStatement })
-          }
+          onChange={(next) => {
+            setConfirming(false);
+            setCallerMemory.mutate({ enabled: next, accept: readStatement });
+          }}
         />
         <p className="mt-2 text-xs text-ink-muted">
           Off unless you switch it on.
@@ -188,15 +196,19 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
             />
             <span>I have read this and confirm it is true of my business.</span>
           </label>
-          <button
-            type="button"
-            className={`${PRIMARY_BUTTON} mt-4`}
-            disabled={!attest.allowed || !readStatement || setCallerMemory.isPending}
+          <ActionButton
+            className="mt-4"
+            status={confirming ? memoryFeedback.status : "idle"}
+            successLabel="Switched on"
+            disabled={!attest.allowed || !readStatement || (setCallerMemory.isPending && !confirming)}
             title={attest.reason ?? undefined}
-            onClick={() => setCallerMemory.mutate({ enabled: true, accept: true })}
+            onClick={() => {
+              setConfirming(true);
+              setCallerMemory.mutate({ enabled: true, accept: true });
+            }}
           >
             Confirm and switch on
-          </button>
+          </ActionButton>
         </div>
       )}
     </section>

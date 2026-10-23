@@ -9,6 +9,7 @@
 
 import { useState } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import { ServiceLogo } from "@/components/console/serviceLogo";
@@ -45,6 +46,8 @@ export function ToolDetail({
   const creds = useCredentials(session);
   const setEnabled = useSetActionEnabled(session, agentId);
   const remove = useDeleteAction(session, agentId);
+  useActionFeedback(setEnabled, { errorDisplay: "inline" });
+  const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline" });
   const [changing, setChanging] = useState(false);
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
   // A kind this build has no form for is listed and removable, never offered for editing.
@@ -156,7 +159,8 @@ export function ToolDetail({
           title={`Remove the action “${tool.name}”?`}
           confirmLabel="Remove it"
           pendingLabel="Removing…"
-          pending={remove.isPending}
+          successLabel="Removed"
+          status={removeFeedback.status}
           error={remove.error}
           onCancel={() => setConfirmingRemoval(false)}
           onConfirm={() =>

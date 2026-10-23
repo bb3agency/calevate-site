@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import { ArrowRight, Clock, MapPin, Plus, SkipForward, Sparkles, X } from "lucide-react";
 
+import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import {
   FIELD,
@@ -54,6 +55,10 @@ export function QuestionsStep({
   const session = useClientSession();
   const answer = useSaveAnswers(session);
   const build = useBuildAgent(session);
+  // Saving the answers then starting the build is one press; its refusal is the notice under
+  // the step (`Errors`), and the button carries the pair's state.
+  const answerFeedback = useActionFeedback(answer, { errorDisplay: "inline" });
+  const buildFeedback = useActionFeedback(build, { errorDisplay: "inline" });
   const questions = run.questions.items;
   const [at, setAt] = useState(0);
   const [answers, setAnswers] = useState<Record<string, DraftAnswer>>({});
@@ -61,6 +66,11 @@ export function QuestionsStep({
   const writing = run.questions.status === "writing";
   const question = questions[at] ?? null;
   const pending = answer.isPending || build.isPending;
+  const status: FeedbackStatus = pending
+    ? "pending"
+    : answerFeedback.status === "error" || buildFeedback.status === "error"
+      ? "error"
+      : "idle";
 
   const finish = async (keep: ReadonlySet<string>, drafts: Readonly<Record<string, DraftAnswer>> = answers) => {
     const sent = answersBody(
@@ -84,8 +94,8 @@ export function QuestionsStep({
             : "Nothing else is needed before your agent is built."
         }
         onBack={onBack}
-        primary={writing ? undefined : pending ? "Starting…" : "Build my agent"}
-        pending={pending}
+        primary={writing ? undefined : "Build my agent"}
+        status={status}
         onSubmit={() => go(kept)}
         aside={
           writing ? (
@@ -126,15 +136,15 @@ export function QuestionsStep({
       onBack={at === 0 ? onBack : () => setAt(at - 1)}
       primary={
         <>
-          {pending ? "Building…" : last ? "Build my agent" : "Next"}
-          {pending ? null : last ? (
+          {last ? "Build my agent" : "Next"}
+          {last ? (
             <Sparkles aria-hidden className="h-4 w-4" />
           ) : (
             <ArrowRight aria-hidden className="h-4 w-4" />
           )}
         </>
       }
-      pending={pending}
+      status={status}
       onSubmit={() => next(true)}
       aside={
         <>

@@ -22,6 +22,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { NoticeBox, ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
@@ -65,6 +66,11 @@ export function TestSection({
   const run = useRunTestConversations(session, agent.id);
   const markWrong = useMarkTestWrong(session, agent.id);
   const restore = useRestoreVersion(session, agent.id);
+  // Every refusal here is drawn on the section (and "nothing changed" as calm guidance), so
+  // none is toasted; the buttons carry pending and failure.
+  const runFeedback = useActionFeedback(run, { errorDisplay: "inline" });
+  const markWrongFeedback = useActionFeedback(markWrong, { errorDisplay: "inline" });
+  const restoreFeedback = useActionFeedback(restore, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "test and improve this agent");
   const [closed, setClosed] = useState<string | null>(null);
 
@@ -81,6 +87,8 @@ export function TestSection({
   // next-step block, in the server's words. Every other refusal stays a ProblemNotice.
   const refusal = run.error instanceof ApiProblem && run.error.code === NOTHING_CHANGED_CODE ? run.error : null;
   const unchanged = refusal ? { said: refusal.message, next: refusal.remediation ?? null } : null;
+  // A refused "Test again" with nothing changed is not a failure of the button.
+  const runStatus: FeedbackStatus = refusal ? "idle" : runFeedback.status;
 
   useCopilotSurface(
     declare
@@ -164,6 +172,7 @@ export function TestSection({
           <Stopped
             run={latest}
             canRun={canRun}
+            status={runStatus}
             onRetry={() => start(latest.retest_of ? { retest_of: latest.retest_of } : {})}
           />
         ) : done ? (
@@ -179,6 +188,8 @@ export function TestSection({
               hasProposal={proposal !== null}
               showingReview={showReview}
               restoring={restore.isPending}
+              restoreStatus={restoreFeedback.status}
+              runStatus={runStatus}
               restored={restore.isSuccess}
               links={links}
               unchanged={unchanged}
@@ -193,6 +204,7 @@ export function TestSection({
           <FirstRun
             data={data}
             canRun={canRun}
+            status={runStatus}
             onRun={() => start({})}
             knowledgeHref={href(`/c/${slug}/knowledge`)}
           />
@@ -220,8 +232,12 @@ export function TestSection({
             actions={{
               canFix: write.allowed && !improving,
               onFix: (key) => askForFixes(key),
-              canMarkWrong: write.allowed && !markWrong.isPending,
-              onMarkWrong: (key) => markWrong.mutate({ runId: done.id, key }),
+              canMarkWrong: write.allowed,
+              onMarkWrong: (key) => {
+                if (!markWrong.isPending) markWrong.mutate({ runId: done.id, key });
+              },
+              markWrongStatus: (key) =>
+                markWrong.variables?.key === key ? markWrongFeedback.status : "idle",
               links,
             }}
           />

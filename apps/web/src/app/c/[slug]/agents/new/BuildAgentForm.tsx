@@ -8,7 +8,8 @@
 
 import { ShieldCheck } from "lucide-react";
 
-import { Disclosure, FIELD, FIELD_HINT, FIELD_LABEL, Skeleton, formatCallCap } from "@/components/ui";
+import { NumberField } from "@/components/arc/number-field";
+import { Disclosure, Skeleton, formatCallCap } from "@/components/ui";
 import type { useLanes } from "@/lib/api/publishing";
 
 /**
@@ -40,25 +41,19 @@ export function CallCapField({
           : `${value.trim()} minutes`
       }
     >
-      <label className="block max-w-sm">
-        <span className={FIELD_LABEL}>Minutes (optional)</span>
-        <input
-          type="number"
-          inputMode="numeric"
-          min={Math.ceil(call_cap_min_s / 60)}
-          max={Math.floor(call_cap_max_s / 60)}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={String(Math.round(call_cap_default_s / 60))}
-          className={FIELD}
-        />
-        <span className={FIELD_HINT}>
-          In minutes. Leave it blank for the standard {formatCallCap(call_cap_default_s)}. It
-          can be anywhere between {formatCallCap(call_cap_min_s)} and{" "}
-          {formatCallCap(call_cap_max_s)}, and there is no way to remove it — it is what stops
-          one stuck call running up a bill.
-        </span>
-      </label>
+      <NumberField
+        className="max-w-sm"
+        label="Minutes (optional)"
+        hint={`Leave it blank for the standard ${formatCallCap(call_cap_default_s)}. It can be anywhere between ${formatCallCap(call_cap_min_s)} and ${formatCallCap(call_cap_max_s)}, and there is no way to remove it: it is what stops one stuck call running up a bill.`}
+        unit="minutes"
+        optional
+        min={Math.ceil(call_cap_min_s / 60)}
+        max={Math.floor(call_cap_max_s / 60)}
+        // The flow keeps the typed minutes as a string ("" = the standard limit), which the
+        // review step and the assistant's fill both read; the field speaks numbers.
+        value={value.trim() === "" || !Number.isFinite(Number(value)) ? null : Number(value)}
+        onChange={(next) => onChange(next === null ? "" : String(next))}
+      />
     </Disclosure>
   );
 }

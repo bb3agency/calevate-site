@@ -24,14 +24,9 @@
 
 import { useState } from "react";
 
-import { FieldMessage, useFormValidation } from "@/components/formValidation";
-import {
-  FIELD,
-  PRIMARY_BUTTON_SM,
-  ProblemNotice,
-  SECONDARY_BUTTON_SM,
-  formatCallCap,
-} from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { NumberField } from "@/components/arc/number-field";
+import { ProblemNotice, SECONDARY_BUTTON_SM, formatCallCap } from "@/components/ui";
 import { TEXT_ACTION } from "@/components/console/section";
 import { SettingRow } from "@/components/console/settingRow";
 import { ClientEngineVoices } from "@/components/engineCatalogueList";
@@ -81,7 +76,7 @@ export function CallCapChoice({ agentId, state }: { agentId: string; state: Pend
   const session = useClientSession();
   const lanes = useLanes(session);
   const save = useSetMyCallCap(session, agentId);
-  const valid = useFormValidation();
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const [editing, setEditing] = useState(false);
   const [seconds, setSeconds] = useState<string | null>(null);
   const field =
@@ -127,35 +122,27 @@ export function CallCapChoice({ agentId, state }: { agentId: string; state: Pend
         <form
           className="settings-enter flex flex-wrap items-end gap-3 pb-4"
           noValidate
-          onSubmit={valid.onSubmit(() => {
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (save.isPending) return;
             save.mutate({ max_call_duration_s: parsed }, { onSuccess: close });
-          })}
+          }}
         >
-          <div className="flex flex-col gap-1">
-            <label htmlFor="my-call-cap" className="text-xs text-ink-muted">
-              Seconds
-            </label>
-            <input
-              id="my-call-cap"
-              {...valid.track("seconds", "Enter how many seconds a call may run.")}
-              type="number"
-              inputMode="numeric"
-              value={field}
-              min={lanes.data?.call_cap_min_s}
-              max={lanes.data?.call_cap_max_s}
-              onChange={(event) => setSeconds(event.target.value)}
-              placeholder={lanes.data ? String(lanes.data.call_cap_default_s) : "standard limit"}
-              className={`w-32 tabular-nums ${FIELD}`}
-              aria-invalid={valid.message("seconds") ? true : undefined}
-              aria-describedby={valid.message("seconds") ? "my-call-cap-error" : undefined}
-            />
-            {valid.message("seconds") ? (
-              <FieldMessage id="my-call-cap-error">{valid.message("seconds")}</FieldMessage>
-            ) : null}
-          </div>
-          <button type="submit" disabled={save.isPending} className={PRIMARY_BUTTON_SM}>
-            {save.isPending ? "Saving…" : "Set limit"}
-          </button>
+          {/* The box keeps the limits it is given: typing past one is pulled back to it and
+              said under the box, so an out-of-range number never reaches the server. */}
+          <NumberField
+            label="Seconds"
+            unit="seconds"
+            optional
+            min={lanes.data?.call_cap_min_s ?? 1}
+            max={lanes.data?.call_cap_max_s}
+            largeStep={60}
+            value={parsed !== null && Number.isFinite(parsed) ? parsed : null}
+            onChange={(next) => setSeconds(next === null ? "" : String(next))}
+          />
+          <ActionButton type="submit" variant="primary-sm" status={saveFeedback.status} successLabel="Saved">
+            Set limit
+          </ActionButton>
           <button type="button" onClick={close} disabled={save.isPending} className={SECONDARY_BUTTON_SM}>
             Cancel
           </button>

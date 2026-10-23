@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { ArrowRight, Check, Link2, PencilLine, PhoneCall } from "lucide-react";
 
 import type { CallAudioPlayerHandle } from "@/components/callAudioPlayer";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton, formatDuration } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
@@ -149,6 +150,8 @@ function Recording({
 }) {
   const { session } = useClientRealm();
   const recording = useRecordingLink(session, callId);
+  // The card shows its own pending face and the refusal under its button.
+  useActionFeedback(recording, { errorDisplay: "inline" });
   const player = useRef<CallAudioPlayerHandle>(null);
   return (
     <RecordingCard
@@ -193,6 +196,11 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
   const { session, href } = useClientRealm();
   const panel = useTrialPanel(session);
   const finish = useFinishFirstRun(session);
+  // Each button finishes the guide and then leaves for its page whatever the answer, so a
+  // refusal is toasted (the stack outlives the navigation) and the state is on the button
+  // that was pressed.
+  const finishFeedback = useActionFeedback(finish, { errorTitle: "Could not finish the guide" });
+  const [pressed, setPressed] = useState<string | null>(null);
   const router = useRouter();
   const trial = panel.data;
   const left = trial?.on_trial ? callsLeft(trial.minutes_left, trial.max_call_seconds) : null;
@@ -202,7 +210,15 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
     "Its first call, to you",
   ];
   const agentHref = href(`/c/${session.orgSlug}/agents/${agent.id}`);
-  const finishThen = (to: string) => finish.mutate(null, { onSettled: () => router.push(to) });
+  const finishThen = (to: string) => {
+    setPressed(to);
+    finish.mutate(null, { onSettled: () => router.push(to) });
+  };
+  const creditsHref = href(`/c/${session.orgSlug}/billing?tab=credits`);
+  const tourHref = `${agentHref}?tour=1`;
+  const homeHref = href(`/c/${session.orgSlug}`);
+  const statusOf = (to: string) => (pressed === to ? finishFeedback.status : "idle");
+  const othersHeld = finish.isPending;
 
   return (
     <StepScreen
@@ -253,35 +269,37 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
           Add credit, then verify your business and choose your number. Until then {agent.name} only makes test calls to
           you.
         </p>
-        <button
-          type="button"
-          className={`${PRIMARY_BUTTON} mt-3`}
-          disabled={finish.isPending}
-          onClick={() => finishThen(href(`/c/${session.orgSlug}/billing?tab=credits`))}
+        <ActionButton
+          className="mt-3"
+          status={statusOf(creditsHref)}
+          disabled={othersHeld && pressed !== creditsHref}
+          successLabel="Opening"
+          onClick={() => finishThen(creditsHref)}
         >
           Add credit
-        </button>
+        </ActionButton>
       </div>
 
       <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          className={SECONDARY_BUTTON}
-          disabled={finish.isPending}
-          onClick={() => finishThen(`${agentHref}?tour=1`)}
+        <ActionButton
+          variant="secondary"
+          status={statusOf(tourHref)}
+          disabled={othersHeld && pressed !== tourHref}
+          successLabel="Opening"
+          onClick={() => finishThen(tourHref)}
         >
           Show me around {agent.name}
-        </button>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON}
-          disabled={finish.isPending}
-          onClick={() => finishThen(href(`/c/${session.orgSlug}`))}
+        </ActionButton>
+        <ActionButton
+          variant="secondary"
+          status={statusOf(homeHref)}
+          disabled={othersHeld && pressed !== homeHref}
+          successLabel="Opening"
+          onClick={() => finishThen(homeHref)}
         >
           Go to my dashboard
-        </button>
+        </ActionButton>
       </div>
-      {finish.error ? <ProblemNotice error={finish.error} /> : null}
     </StepScreen>
   );
 }

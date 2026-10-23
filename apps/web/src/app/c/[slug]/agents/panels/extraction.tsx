@@ -11,8 +11,8 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Plus, Save } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON,
@@ -20,7 +20,6 @@ import {
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
 import { InfoTip } from "@/components/console/infoTip";
-import { SavedTick } from "@/components/console/savedTick";
 import { isDeleted } from "@/lib/agentState";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useSetExtractionSchema, type Agent } from "@/lib/api/agents";
@@ -64,6 +63,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
   // This tenant's trade, not a clinic's — see `lib/verticalExamples.ts`.
   const eg = useVerticalExamples();
   const save = useSetExtractionSchema(session, agent.id);
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "change what this agent captures");
 
   const [rows, setRows] = useState<DraftRow[]>(() => agent.extraction_fields.map(toDraft));
@@ -324,16 +324,16 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
         </button>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
-          <button
+          <ActionButton
             type="submit"
-            disabled={!write.allowed || !dirty || Boolean(clientError) || save.isPending}
+            status={saveFeedback.status}
+            successLabel="Saved"
+            disabled={!write.allowed || (saveFeedback.status === "idle" && (!dirty || Boolean(clientError)))}
             title={write.reason ?? undefined}
-            className={PRIMARY_BUTTON}
           >
             <Save aria-hidden className="h-4 w-4" />
-            {save.isPending ? "Saving…" : "Save variables"}
-          </button>
-          <SavedTick at={save.isSuccess ? save.submittedAt : 0} />
+            Save variables
+          </ActionButton>
           {clientError ? (
             <span className="text-xs text-warn">{clientError}</span>
           ) : dirty ? (

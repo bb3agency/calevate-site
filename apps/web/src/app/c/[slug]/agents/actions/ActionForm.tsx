@@ -13,11 +13,12 @@
 
 import { useCallback, useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { ServiceLogo } from "@/components/console/serviceLogo";
 import { SettingRows } from "@/components/console/settingRow";
 import { useFormValidation } from "@/components/formValidation";
-import { Disclosure, FIELD, FIELD_HINT, FIELD_LABEL, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
+import { Disclosure, FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice } from "@/components/ui";
 import {
   useCreateAction,
   useUpdateAction,
@@ -87,7 +88,10 @@ export function ActionForm({
 }) {
   const create = useCreateAction(session, agentId);
   const update = useUpdateAction(session, agentId);
+  const createFeedback = useActionFeedback(create, { errorDisplay: "inline" });
+  const updateFeedback = useActionFeedback(update, { errorDisplay: "inline" });
   const save = existing ? update : create;
+  const saveStatus = existing ? updateFeedback.status : createFeedback.status;
   const valid = useFormValidation();
   const choices = PROVIDER_CHOICES[kind];
   const [provider, setProvider] = useState<Provider>(
@@ -279,9 +283,9 @@ export function ActionForm({
           <button type="button" className={TEXT_ACTION} onClick={onDone}>
             Cancel
           </button>
-          <button type="submit" className={PRIMARY_BUTTON} disabled={save.isPending}>
-            {save.isPending ? "Saving…" : existing ? "Save changes" : "Turn it on"}
-          </button>
+          <ActionButton type="submit" status={saveStatus} successLabel={existing ? "Saved" : "Turned on"}>
+            {existing ? "Save changes" : "Turn it on"}
+          </ActionButton>
         </div>
       </Section>
     </form>

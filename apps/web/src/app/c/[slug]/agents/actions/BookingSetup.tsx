@@ -17,9 +17,10 @@
 
 import { useCallback, useState } from "react";
 
+import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
-import { Disclosure, FIELD, FIELD_HINT, FIELD_LABEL, FilterChip, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
+import { Disclosure, FIELD, FIELD_HINT, FIELD_LABEL, FilterChip, ProblemNotice } from "@/components/ui";
 import {
   useCreateAction,
   useSetMasterSwitch,
@@ -72,7 +73,11 @@ export function BookingSetup({
   const create = useCreateAction(session, agentId);
   const update = useUpdateAction(session, agentId);
   const setMaster = useSetMasterSwitch(session, agentId);
-  const [busy, setBusy] = useState(false);
+  // The three writes run as one action (below), which owns the button's state; each
+  // refusal is the ProblemNotice under the form, so none of them toasts.
+  useActionFeedback(create, { errorDisplay: "inline" });
+  useActionFeedback(update, { errorDisplay: "inline" });
+  useActionFeedback(setMaster, { errorDisplay: "inline" });
   const failure = create.error ?? update.error ?? setMaster.error;
   const setCredential = useCallback(
     (credentialId: string) => setDraft((d) => ({ ...d, credentialId })),
@@ -128,9 +133,8 @@ export function BookingSetup({
       days: d.days.includes(day) ? d.days.filter((x) => x !== day) : [...d.days, day].sort((a, b) => a - b),
     }));
 
-  async function submit() {
-    setBusy(true);
-    try {
+  const submit = useAsyncAction(
+    async () => {
       const taken = tools.map((t) => t.name);
       const names = {
         check: check?.name ?? uniqueName("find_free_times", taken),
@@ -143,19 +147,17 @@ export function BookingSetup({
       else await create.mutateAsync(bodies.book);
       if (!masterOn) await setMaster.mutateAsync(true);
       onDone();
-    } catch {
-      // The refusal is on the mutation that failed, rendered below.
-    } finally {
-      setBusy(false);
-    }
-  }
+    },
+    { errorDisplay: "inline" },
+  );
+  const busy = submit.status === "pending";
 
   return (
     <form
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        if (!blocked && !busy) void submit();
+        if (!blocked && !busy) submit.run();
       }}
     >
       <Section headingLevel={3} title={editing ? "Change the settings" : "Set it up"}>
@@ -261,9 +263,14 @@ export function BookingSetup({
           <button type="button" className={TEXT_ACTION} onClick={onDone}>
             Cancel
           </button>
-          <button type="submit" className={PRIMARY_BUTTON} disabled={busy || blocked !== null}>
-            {busy ? "Saving…" : editing ? "Save changes" : "Turn on booking"}
-          </button>
+          <ActionButton
+            type="submit"
+            status={submit.status}
+            disabled={blocked !== null}
+            successLabel={editing ? "Saved" : "Turned on"}
+          >
+            {editing ? "Save changes" : "Turn on booking"}
+          </ActionButton>
         </div>
       </Section>
     </form>

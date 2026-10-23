@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowRight, Bot, ExternalLink, MessageCircle, PhoneCall, RotateCcw, Sprout, Target } from "lucide-react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import {
   FIELD_GROUP,
   FIELD_GROUP_AFFIX,
@@ -123,6 +124,13 @@ function CallYou({
   const acceptPledge = useAcceptPledge(session);
   const prepare = useAgentLifecycle(session, agent.id);
   const place = usePlaceTrialCall(session);
+  // From the press on, the call stage below IS these actions' feedback: preparing, dialling,
+  // ringing, or the refusal in its own words with a way to try again. So each failure is
+  // shown there, not toasted, and nothing here offers Undo (a call placed cannot be).
+  useActionFeedback(acceptAgreement, { errorDisplay: "inline" });
+  useActionFeedback(acceptPledge, { errorDisplay: "inline" });
+  useActionFeedback(prepare, { errorDisplay: "inline" });
+  useActionFeedback(place, { errorDisplay: "inline" });
   const numberId = useId();
   const [number, setNumber] = useState("");
   const [ticked, setTicked] = useState<Set<string>>(() => new Set());

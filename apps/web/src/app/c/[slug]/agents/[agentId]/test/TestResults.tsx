@@ -55,6 +55,8 @@ export interface RowActions {
   onFix: (key: string) => void;
   canMarkWrong: boolean;
   onMarkWrong: (key: string) => void;
+  /** The mark's state for one row, so only the pressed row shows it. */
+  markWrongStatus?: (key: string) => "idle" | "pending" | "success" | "error";
   links: ResultLinks;
 }
 
@@ -254,13 +256,10 @@ function ResultRow({ result, actions }: { result: TestResult; actions: RowAction
                 </Link>
               )}
               {canMarkWrong && (
-                <button
-                  type="button"
-                  className={MARK_WRONG}
+                <MarkWrongButton
+                  status={actions.markWrongStatus?.(result.key) ?? "idle"}
                   onClick={() => actions.onMarkWrong(result.key)}
-                >
-                  This test is wrong
-                </button>
+                />
               )}
             </div>
           )}
@@ -272,6 +271,41 @@ function ResultRow({ result, actions }: { result: TestResult; actions: RowAction
   );
 }
 
-/** Quieter than the row's buttons: it overrides the judge rather than fixing the agent. */
+/**
+ * Quieter than the row's buttons (it overrides the judge rather than fixing the agent), so it
+ * keeps its link look and carries the action's state in its words rather than as a filled
+ * `ActionButton`. The name stays "This test is wrong"; the state is spoken beside it.
+ */
+function MarkWrongButton({
+  status,
+  onClick,
+}: {
+  status: "idle" | "pending" | "success" | "error";
+  onClick: () => void;
+}) {
+  const busy = status === "pending";
+  return (
+    <>
+      <button
+        type="button"
+        className={MARK_WRONG}
+        aria-busy={busy || undefined}
+        aria-disabled={busy || undefined}
+        onClick={() => {
+          if (!busy) onClick();
+        }}
+      >
+        This test is wrong
+        {busy ? <span aria-hidden className="ml-1 no-underline">(marking…)</span> : null}
+        {status === "error" ? <span aria-hidden className="ml-1 text-danger no-underline">(try again)</span> : null}
+      </button>
+      <span role="status" className="sr-only">
+        {status === "success" ? "Marked" : status === "error" ? "Did not work" : ""}
+      </span>
+    </>
+  );
+}
+
+
 const MARK_WRONG =
   "press ml-1 inline-flex touch:min-h-11 items-center rounded-sm text-meta font-medium text-ink-muted underline underline-offset-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand";

@@ -6,11 +6,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ArrowLeft, X } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { CopilotPanel } from "@/components/copilot/CopilotPanel";
 import { focusMain } from "@/components/copilot/workspace/AssistantWorkspace";
 import { ProgressBar } from "@/components/interior/progress-bar";
-import { ProblemNotice, RestrictionNote, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import { agentKeys, useAgents, type Agent } from "@/lib/api/agents";
 import { useBusinessProfile } from "@/lib/api/businessProfile";
 import type { CallSummary } from "@/lib/api/client";
@@ -78,6 +79,9 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   const write = useWriteAccess(session, "org:manage", "build an agent");
   const consent = usePipConsent(session);
   const dismiss = useDismissFirstRun(session);
+  // Skipping leaves this screen whatever the answer (onSettled below), so a refusal goes to
+  // the toast stack, which outlives the navigation; an inline notice would vanish with it.
+  const dismissFeedback = useActionFeedback(dismiss, { errorTitle: "Could not put this away" });
   const agent = firstAgentOf(agents.data, run.data);
   const calls = useCalls(session, { agent_id: agent?.id, limit: 1 }, agent !== null);
   const [stage, setStage] = useState<Stage | null>(null);
@@ -213,17 +217,17 @@ export function MeetYourAgent({ slug }: { slug: string }) {
             onGo={(to) => to < step && setStage(to === 0 ? "job" : to === 1 ? "brief" : "hear")}
           />
         </div>
-        <button
-          type="button"
-          className={`${SECONDARY_BUTTON_SM} shrink-0 justify-self-end`}
+        <ActionButton
+          variant="secondary-sm"
+          className="shrink-0 justify-self-end"
+          status={dismissFeedback.status}
+          successLabel="Skipped"
           onClick={skip}
-          disabled={dismiss.isPending}
         >
           <X aria-hidden className="h-3.5 w-3.5" />
           Skip for now
-        </button>
+        </ActionButton>
       </div>
-      {dismiss.error ? <ProblemNotice error={dismiss.error} /> : null}
 
       {/* Two columns from `lg`: the step, as wide as its cards need, and the agent taking
           shape beside it. The rail sits above both, so the step is not squeezed by it. */}

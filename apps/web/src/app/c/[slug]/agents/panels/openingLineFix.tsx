@@ -14,8 +14,9 @@
 
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
-import { FIELD, FIELD_LABEL, PRIMARY_BUTTON_SM, ProblemNotice } from "@/components/ui";
+import { FIELD, FIELD_LABEL, ProblemNotice } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useReplaceOpeningLine } from "@/lib/api/script";
@@ -82,10 +83,14 @@ export function OpeningLineFix({
 }) {
   const session = useClientSession();
   const replace = useReplaceOpeningLine(session, agent.id);
+  const replaceFeedback = useActionFeedback(replace, { errorDisplay: "inline" });
   const [line, setLine] = useState(agent.script_opening_line);
   const { over } = roomLabel(line, room);
   const empty = spokenLength(line) === 0;
   const busy = replace.isPending || retrying;
+  // One press does two things (save the line, then switch the notice on again); the button is
+  // busy across both, and the switch's own outcome is drawn by the panel that owns it.
+  const status: FeedbackStatus = busy ? "pending" : replaceFeedback.status === "error" ? "error" : "idle";
   const counterId = `opening-fix-room-${agent.id}`;
 
   return (
@@ -107,14 +112,15 @@ export function OpeningLineFix({
         <RoomCounter id={counterId} text={line} room={room} />
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className={PRIMARY_BUTTON_SM}
-          disabled={over || empty || busy}
+        <ActionButton
+          variant="primary-sm"
+          status={status}
+          pendingLabel="Saving…"
+          disabled={over || empty}
           onClick={() => replace.mutate(line, { onSuccess: () => retry() })}
         >
-          {busy ? "Saving…" : "Save and switch on"}
-        </button>
+          Save and switch on
+        </ActionButton>
         <AskAssistant
           prompt={`Shorten the opening line of ${agent.name} to at most ${room} characters, in the same language, keeping what it says.`}
           label={`Ask ${ASSISTANT_NAME} to shorten it`}
