@@ -2,10 +2,9 @@
 
 import { useId, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2 } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
+import { ChoiceCards } from "@/components/console/choiceCards";
 import { FIELD, MonoValue, ProblemNotice, Skeleton, formatIST, formatPhone } from "@/components/ui";
 import { type Session } from "@/lib/api/client";
 import {
@@ -19,16 +18,16 @@ import {
 } from "@/lib/api/dnc";
 import { useClientRealm } from "@/lib/api/session";
 
-const GROUNDS: { value: DncRestoreGround; label: string; note: string }[] = [
+const GROUNDS: { value: DncRestoreGround; label: string; hint: string }[] = [
   {
     value: "never_asked",
     label: "They never asked to stop",
-    note: "It was recorded by mistake — for example they said they were not interested, or asked to end the call.",
+    hint: "It was recorded by mistake — for example they said they were not interested, or asked to end the call.",
   },
   {
     value: "asked_to_be_called",
     label: "They have since asked to be called",
-    note: "They got in touch and asked you to call them again.",
+    hint: "They got in touch and asked you to call them again.",
   },
 ];
 
@@ -146,33 +145,14 @@ export function RestoreDialog({
         )}
       </section>
 
-      <fieldset className="space-y-2" aria-describedby={`${groupId}-why`}>
-        <legend className="text-meta font-semibold text-ink">Why should it come off?</legend>
-        <p id={`${groupId}-why`} className="text-meta text-ink-faint">
-          Your choice is kept in this account&apos;s records with your name.
-        </p>
-        <div className="grid gap-2">
-          {GROUNDS.map((option) => (
-            <label
-              key={option.value}
-              className={`${CHOICE_CARD} ${ground === option.value ? CHOICE_ON : CHOICE_OFF}`}
-            >
-              <input
-                type="radio"
-                name={`${groupId}-ground`}
-                className="sr-only"
-                checked={ground === option.value}
-                onChange={() => setGround(option.value)}
-              />
-              {ground === option.value && (
-                <CheckCircle2 aria-hidden className="absolute right-2 top-2 h-4 w-4 text-brand" />
-              )}
-              <span className="block pr-6 text-sm font-semibold text-ink">{option.label}</span>
-              <span className="mt-0.5 block text-meta text-ink-muted">{option.note}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <ChoiceCards
+        legend="Why should it come off?"
+        description="Your choice is kept in this account's records with your name."
+        name={`${groupId}-ground`}
+        value={ground}
+        options={GROUNDS}
+        onChange={setGround}
+      />
 
       {ground === "asked_to_be_called" && (
         <div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { CheckCircle2, Webhook } from "lucide-react";
+import { Webhook } from "lucide-react";
 
 import { Drawer, DrawerSubmit } from "@/components/console/drawer";
 import { IconTile } from "@/components/console/iconTile";
@@ -19,7 +19,7 @@ import {
 import type { useAgents } from "@/lib/api/agents";
 import type { useCreateLeadSource } from "@/lib/api/leadSources";
 
-import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
+import { ChoiceCards } from "@/components/console/choiceCards";
 import { IssuedSecretNotice, type IssuedSecret } from "./IssuedSecretNotice";
 import { META_SOURCE, WEBHOOK_KINDS, sourceLabel, sourceLogo } from "./sourceKinds";
 import { FIELD } from "./styles";
@@ -128,28 +128,18 @@ export function AddSourceDrawer({
         <form id={formId} noValidate onSubmit={valid.onSubmit(submit)}>
           <fieldset disabled={!canWrite} className="m-0 space-y-5 border-0 p-0">
             {create.error != null && <ProblemNotice error={create.error} />}
-            <fieldset>
-              <legend className={FIELD_LABEL}>Where leads come from</legend>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                {KINDS.map((option) => (
-                  <label key={option.value} className={`${CHOICE_CARD} ${kind === option.value ? CHOICE_ON : CHOICE_OFF}`}>
-                    <input
-                      type="radio"
-                      name={`${formId}-kind`}
-                      className="sr-only"
-                      checked={kind === option.value}
-                      onChange={() => setKind(option.value)}
-                    />
-                    {kind === option.value && (
-                      <CheckCircle2 aria-hidden className="absolute right-2 top-2 h-4 w-4 text-brand-strong" />
-                    )}
-                    <IconTile service={sourceLogo(option.value)} icon={Webhook} className="mb-3" />
-                    <span className="block pr-6 text-body font-semibold text-ink">{option.label}</span>
-                    <span className="mt-0.5 block text-meta text-ink-faint">{option.hint}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
+            <ChoiceCards
+              legend="Where leads come from"
+              legendClassName={FIELD_LABEL}
+              name={`${formId}-kind`}
+              value={kind}
+              options={KINDS.map((option) => ({
+                ...option,
+                icon: <IconTile service={sourceLogo(option.value)} icon={Webhook} />,
+              }))}
+              onChange={setKind}
+              columns="sm:grid-cols-2"
+            />
 
             {!isMeta && (
               <label className="block">

@@ -1,8 +1,6 @@
 "use client";
 
-import { Check } from "lucide-react";
-
-import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
+import { ChoiceCards } from "@/components/console/choiceCards";
 import { InfoTip } from "@/components/console/infoTip";
 import { FIELD, FIELD_LABEL } from "@/components/ui";
 import { DEFAULT_RING_SECONDS, RING_SECONDS, type ForwardingMode } from "@/lib/api/forwarding";
@@ -33,32 +31,19 @@ export function ModeChoice({
     onChange(next, next === "all_calls" ? 0 : seconds === 0 ? DEFAULT_RING_SECONDS : seconds);
   return (
     <div className="space-y-4">
-      <fieldset className="space-y-2">
-        <legend className="sr-only">How calls reach your agent</legend>
-        {(["conditional", "all_calls"] as const).map((option) => {
-          const on = mode === option;
-          return (
-            <label key={option} className={`${CHOICE_CARD} ${on ? CHOICE_ON : CHOICE_OFF}`}>
-              <input
-                type="radio"
-                name={`${idPrefix}-mode`}
-                value={option}
-                checked={on}
-                disabled={disabled}
-                onChange={() => choose(option)}
-                className="sr-only"
-              />
-              <span className="flex items-start justify-between gap-3">
-                <span className="min-w-0">
-                  <span className="block text-body font-medium text-ink">{MODE_COPY[option].title}</span>
-                  <span className="mt-0.5 block text-meta text-ink-muted">{MODE_COPY[option].line}</span>
-                </span>
-                {on && <Check aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-strong" />}
-              </span>
-            </label>
-          );
-        })}
-      </fieldset>
+      <ChoiceCards
+        legend="How calls reach your agent"
+        legendClassName="sr-only"
+        name={`${idPrefix}-mode`}
+        value={mode}
+        disabled={disabled}
+        options={(["conditional", "all_calls"] as const).map((option) => ({
+          value: option,
+          label: MODE_COPY[option].title,
+          hint: MODE_COPY[option].line,
+        }))}
+        onChange={choose}
+      />
       <div>
         <div className="flex items-center gap-1">
           <label htmlFor={`${idPrefix}-ring`} className={FIELD_LABEL}>

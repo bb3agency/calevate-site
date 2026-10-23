@@ -4,8 +4,9 @@
  * the add-a-lead-source drawer and the add-a-destination drawer; one definition so the
  * three cannot drift.
  *
- * Usage: `<label className={`${CHOICE_CARD} ${on ? CHOICE_ON : CHOICE_OFF}`}>` around an
- * `sr-only` input and the option's text.
+ * In the client realm use the component, `ChoiceCard` / `ChoiceCards` in `./choiceCards.tsx`,
+ * rather than these classes by hand; options a word each can name belong in
+ * `SegmentedControl`. The classes remain for the admin screens that still compose them.
  */
 /**
  * A radio rendered as a card.

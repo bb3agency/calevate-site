@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2 } from "lucide-react";
 
 import {
   FIELD,
@@ -21,7 +20,7 @@ import {
   type ConsentSource,
 } from "@/lib/api/campaigns";
 
-import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
+import { ChoiceCards } from "@/components/console/choiceCards";
 import { CONSENT_SOURCES } from "./choices";
 
 /**
@@ -60,42 +59,22 @@ export function ConsentProvenanceFields({
 }) {
   return (
     <div className="space-y-4">
-      <fieldset>
-        <legend className={FIELD_LABEL}>Where did this list come from?</legend>
-        <p className="mt-1 text-xs text-ink-faint">
-          You&apos;re putting this on the record: it&apos;s how we can show,
-          later, that the people on this list agreed to hear from you. Pick the
-          one that&apos;s true.
-        </p>
-        <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          {CONSENT_SOURCES.map((option) => (
-            <label
-              key={option.value}
-              className={`${CHOICE_CARD} ${source === option.value ? CHOICE_ON : CHOICE_OFF}`}
-            >
-              <input
-                type="radio"
-                name={`${idPrefix}-consent-source`}
-                className="sr-only"
-                checked={source === option.value}
-                onChange={() => onSource(option.value)}
-              />
-              {source === option.value && (
-                <CheckCircle2
-                  aria-hidden
-                  className="absolute right-2 top-2 h-4 w-4 text-brand"
-                />
-              )}
-              <span className="block pr-6 text-sm font-semibold text-ink">
-                {option.label}
-              </span>
-              <span className="mt-0.5 block text-xs text-ink-faint">
-                {option.hint}
-              </span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <ChoiceCards
+        legend="Where did this list come from?"
+        legendClassName={FIELD_LABEL}
+        description={
+          <>
+            You&apos;re putting this on the record: it&apos;s how we can show,
+            later, that the people on this list agreed to hear from you. Pick the
+            one that&apos;s true.
+          </>
+        }
+        name={`${idPrefix}-consent-source`}
+        value={source}
+        options={CONSENT_SOURCES}
+        onChange={onSource}
+        columns="sm:grid-cols-2"
+      />
 
       <div className="max-w-xs">
         <label className="block">

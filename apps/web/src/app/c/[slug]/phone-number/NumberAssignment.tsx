@@ -22,9 +22,9 @@
  *
  * ## What it is FOR is asked here as well as at purchase
  *
- * The same three legs, worded once in `direction.tsx` — including the sentence that
- * stops "call out from this number" reading as a freedom an ordinary number does not
- * have.
+ * The same three legs as the purchase: the segment words are the agent page's (one
+ * question, one set of words), and the line under them is `direction.tsx`'s, which says
+ * what the number itself does.
  */
 
 import Link from "next/link";
@@ -32,6 +32,7 @@ import { useState } from "react";
 
 import {
   FIELD,
+  FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
   PRIMARY_BUTTON_SM,
@@ -39,8 +40,10 @@ import {
   RestrictionNote,
   SECONDARY_BUTTON_SM,
   Skeleton,
+  formatPhone,
 } from "@/components/ui";
 import { useAgents } from "@/lib/api/agents";
+import { useCampaignNumbers } from "@/lib/api/campaigns";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
   NOT_ACTIVATED_CODE,
@@ -48,7 +51,9 @@ import {
   type CallDirection,
 } from "@/lib/api/numberProvisioning";
 import { useClientRealm } from "@/lib/api/session";
+import { SegmentedControl } from "@/components/interior/segmented-control";
 
+import { DIRECTIONS as AGENT_DIRECTIONS } from "../agents/DirectionChoice";
 import { DIRECTIONS } from "./direction";
 
 /** Detach: the recovery path from a wrong binding, and a real choice rather than a gap. */
@@ -78,6 +83,10 @@ export function NumberAssignment({
 
   const [agentId, setAgentId] = useState<string | null>(currentAgentId);
   const [direction, setDirection] = useState<CallDirection>(currentDirection);
+  // The segmented control is a named region, and the screen lists every number with one of
+  // these panels, so each needs its own name. The list is the screen's own cached read.
+  const e164 = useCampaignNumbers(session).data?.find((number) => number.id === numberId)?.e164;
+  const directionLabel = e164 ? `What it does, ${formatPhone(e164)}` : "What it does";
 
   if (agents.isLoading) return <Skeleton rows={2} label="Loading your agents" />;
   if (agents.error || !agents.data) {
@@ -117,27 +126,23 @@ export function NumberAssignment({
         </select>
       </div>
 
-      <fieldset className="mt-3" disabled={!write.allowed}>
-        <legend className={FIELD_LABEL}>What it is for</legend>
-        <div className="mt-2 space-y-2">
-          {DIRECTIONS.map((option) => (
-            <label key={option.value} className="flex items-start gap-2 text-body text-ink">
-              <input
-                type="radio"
-                className="mt-1"
-                name={`direction-${numberId}`}
-                value={option.value}
-                checked={direction === option.value}
-                onChange={() => setDirection(option.value)}
-              />
-              <span>
-                {option.label}
-                <span className="block text-meta text-ink-muted">{option.hint}</span>
-              </span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <div className="mt-3">
+        <p className={FIELD_LABEL} aria-hidden>
+          What it does
+        </p>
+        <SegmentedControl
+          label={directionLabel}
+          className="mt-1.5"
+          value={direction}
+          options={DIRECTIONS.map((option) => ({
+            value: option.value,
+            label: AGENT_DIRECTIONS.find((agent) => agent.value === option.value)?.label ?? option.label,
+            disabled: !write.allowed,
+          }))}
+          onValueChange={(next) => setDirection(next as CallDirection)}
+        />
+        <p className={FIELD_HINT}>{DIRECTIONS.find((option) => option.value === direction)?.hint}</p>
+      </div>
 
       <div className="mt-3">
         <RestrictionNote reason={write.reason} />

@@ -152,57 +152,8 @@ export function StepRail({
   );
 }
 
-/** A choice drawn as a card: a real radio or checkbox underneath, so it is one tab stop per
- *  group, arrow keys move, and a screen reader says "selected". */
-export function ChoiceCard({
-  type,
-  name,
-  value,
-  checked,
-  onChange,
-  children,
-}: {
-  type: "radio" | "checkbox";
-  name: string;
-  value: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  children: ReactNode;
-}) {
-  return (
-    <label
-      className={`press relative flex cursor-pointer gap-3 rounded-card border bg-surface p-4 transition-[border-color,box-shadow] duration-(--duration-fast) has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand ${
-        checked ? "border-brand-strong shadow-card" : "border-line hover:border-ink/30"
-      }`}
-    >
-      <input
-        type={type}
-        name={name}
-        value={value}
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="sr-only"
-      />
-      <span
-        aria-hidden
-        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center border-[1.5px] ${
-          type === "radio" ? "rounded-full" : "rounded-[5px]"
-        } ${checked ? "border-brand-strong bg-brand-strong" : "border-ink/30"}`}
-      >
-        {checked ? (
-          type === "radio" ? (
-            <span className="h-2 w-2 rounded-full bg-white" />
-          ) : (
-            <svg viewBox="0 0 256 256" width="11" height="11" fill="none" className="text-white">
-              <polyline points="216 72 104 184 48 128" stroke="currentColor" strokeWidth="28" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          )
-        ) : null}
-      </span>
-      <span className="min-w-0 flex-1">{children}</span>
-    </label>
-  );
-}
+/** The first run's cards are the console's one choice card. */
+export { ChoiceCard } from "@/components/console/choiceCards";
 
 /** A small pill choice for a list of options (languages, trade choices, closed days). */
 export function ChipChoice({
