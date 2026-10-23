@@ -1,0 +1,43 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "accordion",
+  "type": "registry:ui",
+  "title": "Accordion",
+  "description": "Progressively reveal supporting information in place.",
+  "categories": [
+    "disclosure"
+  ],
+  "dependencies": [
+    "@radix-ui/react-accordion",
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/accordion/accordion.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/accordion/accordion.tsx",
+      "content_sha256": "4d24d519b511812da9dd2b5e2c7d696c0f849ac9ea391480927acf5cfaa3a977"
+    },
+    {
+      "path": "registry/components/accordion/accordion.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/accordion/accordion.module.css",
+      "content_sha256": "8a4fc9578571f3d7d2fe16998f7977f12671fcabcfc8d50a462c7bf9abd65243"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/accordion",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "disclosure",
+      "layout"
+    ],
+    "docs": "https://uiarc.dev/components/accordion",
+    "markdown": "https://uiarc.dev/components/accordion/markdown"
+  }
+}

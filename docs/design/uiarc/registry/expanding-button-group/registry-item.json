@@ -1,0 +1,43 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "expanding-button-group",
+  "type": "registry:ui",
+  "title": "Expanding button group",
+  "description": "Icon buttons in a compact group: the one you point at or focus grows to reveal its label while its neighbours slide aside, and an action confirms in place.",
+  "categories": [
+    "actions"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/expanding-button-group/expanding-button-group.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/expanding-button-group/expanding-button-group.tsx",
+      "content_sha256": "a41472ade73b7bd4ba8d528056791d5b997d937fb9b9caad8ce7c142b5b5536e"
+    },
+    {
+      "path": "registry/components/expanding-button-group/expanding-button-group.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/expanding-button-group/expanding-button-group.module.css",
+      "content_sha256": "86fb44cde48fa77b0785fe2e42c75880358eb1403879adf2d9a4349d361677c9"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/expanding-button-group",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "action",
+      "group",
+      "toolbar",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/expanding-button-group",
+    "markdown": "https://uiarc.dev/components/expanding-button-group/markdown"
+  }
+}

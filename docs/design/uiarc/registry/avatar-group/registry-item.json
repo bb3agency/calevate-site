@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "avatar-group",
+  "type": "registry:ui",
+  "title": "Avatar group",
+  "description": "Show a team or set of contributors in a small space.",
+  "categories": [
+    "data"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json",
+    "https://uiarc.dev/r/avatar.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/avatar-group/avatar-group.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/avatar-group/avatar-group.tsx",
+      "content_sha256": "937f6581c5fc0f3f4e52c357ac6c59cb1a4bcba7221ddebf32d944219fcec62a"
+    },
+    {
+      "path": "registry/components/avatar-group/avatar-group.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/avatar-group/avatar-group.module.css",
+      "content_sha256": "390515d480d1d441670087be4394db6bae9423e4cb1dcc269c83c25505c8c4fb"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/avatar-group",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "identity",
+      "people"
+    ],
+    "docs": "https://uiarc.dev/components/avatar-group",
+    "markdown": "https://uiarc.dev/components/avatar-group/markdown"
+  }
+}

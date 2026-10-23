@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "money-input",
+  "type": "registry:ui",
+  "title": "Money input",
+  "description": "A currency field with live grouping, stable width, rolling digits, and minor-unit output.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/money-input/money-input.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/money-input/money-input.tsx",
+      "content_sha256": "55411d79e0e1d0e5a8c5d81b377fb135dac10cc347960ae985980c66535c4f84"
+    },
+    {
+      "path": "registry/components/money-input/money-input.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/money-input/money-input.module.css",
+      "content_sha256": "88559c08f38ebd4fbd2a9cc0c7fae0d2078ab018267ac907dab93586306fc0a7"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/money-input",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "inputs",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/money-input",
+    "markdown": "https://uiarc.dev/components/money-input/markdown"
+  }
+}

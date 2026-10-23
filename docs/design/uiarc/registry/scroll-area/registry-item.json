@@ -1,0 +1,37 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "scroll-area",
+  "type": "registry:ui",
+  "title": "Scroll area",
+  "description": "A native scroll container with thin overlay scrollbars and edge fades that appear only when content overflows.",
+  "categories": [
+    "disclosure"
+  ],
+  "dependencies": [],
+  "registryDependencies": [],
+  "files": [
+    {
+      "path": "registry/components/scroll-area/scroll-area.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/scroll-area/scroll-area.tsx",
+      "content_sha256": "82c53c56af335d0a6d808ecd4cbb3c97e8fa83ca56ccd35f71605ae8dd8b0891"
+    },
+    {
+      "path": "registry/components/scroll-area/scroll-area.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/scroll-area/scroll-area.module.css",
+      "content_sha256": "904fdc63e0f818ad95ea148637dcbdd3e1a7c29408928fae2126f26abdf21bbb"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/scroll-area",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "disclosure",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/scroll-area",
+    "markdown": "https://uiarc.dev/components/scroll-area/markdown"
+  }
+}

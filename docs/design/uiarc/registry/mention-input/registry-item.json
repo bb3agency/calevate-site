@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "mention-input",
+  "type": "registry:ui",
+  "title": "Mention input",
+  "description": "A textarea with @people and #channel mentions that act as single tokens, with suggestions at the caret.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/mention-input/mention-input.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/mention-input/mention-input.tsx",
+      "content_sha256": "aef3f5eb1bcf6f83cc5ef8a8f6dd4d064ce5dc57373ca2cf47e1d4079a489b91"
+    },
+    {
+      "path": "registry/components/mention-input/mention-input.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/mention-input/mention-input.module.css",
+      "content_sha256": "ff715146d8d89a0bacf9dfb80747e53f243816a610dd9921637a1d594b718e72"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/mention-input",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "inputs",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/mention-input",
+    "markdown": "https://uiarc.dev/components/mention-input/markdown"
+  }
+}

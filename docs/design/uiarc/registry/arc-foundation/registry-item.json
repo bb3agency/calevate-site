@@ -1,0 +1,28 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "arc-foundation",
+  "type": "registry:item",
+  "title": "Arc foundation",
+  "description": "Arc design tokens (color, surface, radius, shadow, accent, focus, light and dark themes), plus the shared motion presets. Install once per app.",
+  "categories": [
+    "foundation"
+  ],
+  "dependencies": [],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/foundation.css",
+      "type": "registry:component",
+      "target": "@components/arc/foundation.css",
+      "content_sha256": "8a7094c7636298d9c8c389d585201c07d1c65b9117c869e6dfc19055cbbdd23d"
+    }
+  ],
+  "docs": "Install once per app, then import the tokens once in your root layout: import \"@/components/arc/foundation.css\" (Arc installs into an arc/ folder under your components alias). Components never import this file and do not reinstall it, so you can keep the tokens anywhere your app loads them globally. Set data-theme=\"dark\" on <html> for dark mode and data-accent (violet, blue, green, amber, orange, coral, rose) to change the accent.",
+  "meta": {
+    "tier": "free",
+    "kind": "foundation",
+    "docs": "https://uiarc.dev/docs/ai"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "search-field",
+  "type": "registry:ui",
+  "title": "Search field",
+  "description": "A recognizable search entry point with clear affordances.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/search-field/search-field.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/search-field/search-field.tsx",
+      "content_sha256": "d93a8d0778c83d33793bf3fe7e5b206a5d0c6e50948b83f39777b89899392d93"
+    },
+    {
+      "path": "registry/components/search-field/search-field.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/search-field/search-field.module.css",
+      "content_sha256": "3b74ebb74a675ab8a0202d9234b8865fdd0d26033f056aa6e3de9bc9bffacce2"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/search-field",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "field",
+      "search"
+    ],
+    "docs": "https://uiarc.dev/components/search-field",
+    "markdown": "https://uiarc.dev/components/search-field/markdown"
+  }
+}

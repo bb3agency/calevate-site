@@ -1,0 +1,53 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "sign-in",
+  "type": "registry:block",
+  "title": "Sign in",
+  "description": "A sign in card that morphs from email to a six digit code to your account.",
+  "categories": [
+    "blocks"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json",
+    "https://uiarc.dev/r/avatar.json",
+    "https://uiarc.dev/r/button.json",
+    "https://uiarc.dev/r/input.json",
+    "https://uiarc.dev/r/otp-input.json"
+  ],
+  "files": [
+    {
+      "path": "registry/blocks/sign-in/sign-in.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/sign-in/sign-in.tsx",
+      "content_sha256": "c711c3f51ee7c82cea44aaa8bd842700283b96d90b21f6c5d177d9c2e17b1274"
+    },
+    {
+      "path": "registry/blocks/sign-in/sign-in.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/sign-in/sign-in.module.css",
+      "content_sha256": "30efd256b8d7bba067d188e4668e3a078fb5030e028f19acd89049d1f28646c3"
+    },
+    {
+      "path": "lib/media.ts",
+      "type": "registry:lib",
+      "target": "@components/arc/lib/media.ts",
+      "content_sha256": "765732e3b5112fcff330137ab9a8c63c641d5662f1dddba5cc8abf2bb02ffdb0"
+    }
+  ],
+  "docs": "Use this as the entry to your app. Send and check codes through your auth provider, connect the passkey button to WebAuthn and the single sign-on buttons to OAuth; everything in the preview is simulated.",
+  "meta": {
+    "tier": "free",
+    "kind": "block",
+    "builtFrom": [
+      "Input",
+      "OTP input",
+      "Button",
+      "Avatar"
+    ],
+    "docs": "https://uiarc.dev/components/blocks/sign-in"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "password-strength",
+  "type": "registry:ui",
+  "title": "Password strength",
+  "description": "Show how strong a new password is while it is typed.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/password-strength/password-strength.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/password-strength/password-strength.tsx",
+      "content_sha256": "8271b05ab8102aaf9cf39b097d97f1112da41dc6f705c22e5842fc96e3cf8996"
+    },
+    {
+      "path": "registry/components/password-strength/password-strength.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/password-strength/password-strength.module.css",
+      "content_sha256": "57080bc46186fa8643600e5ee609e63fc4b6c741ef23cf158f1abccc3747dd68"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/password-strength",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "password",
+      "strength meter",
+      "validation"
+    ],
+    "docs": "https://uiarc.dev/components/password-strength",
+    "markdown": "https://uiarc.dev/components/password-strength/markdown"
+  }
+}

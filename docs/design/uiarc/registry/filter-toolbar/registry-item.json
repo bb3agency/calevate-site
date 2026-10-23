@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "filter-toolbar",
+  "type": "registry:ui",
+  "title": "Filter toolbar",
+  "description": "Keep collection filters close and easy to reset.",
+  "categories": [
+    "data"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/filter-toolbar/filter-toolbar.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/filter-toolbar/filter-toolbar.tsx",
+      "content_sha256": "90fbd7b5dfca993bb6992cda514d7c17df406fcf63ecf2c04712a20c538ed1db"
+    },
+    {
+      "path": "registry/components/filter-toolbar/filter-toolbar.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/filter-toolbar/filter-toolbar.module.css",
+      "content_sha256": "b24254c41e9113d0765773381a17c7eca246ed533bcb0c6e711d25e34746b250"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/filter-toolbar",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "data",
+      "filter"
+    ],
+    "docs": "https://uiarc.dev/components/filter-toolbar",
+    "markdown": "https://uiarc.dev/components/filter-toolbar/markdown"
+  }
+}

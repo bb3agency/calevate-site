@@ -1,0 +1,41 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "otp-input",
+  "type": "registry:block",
+  "title": "OTP input",
+  "description": "A six digit verification flow with paste support and keyboard navigation.",
+  "categories": [
+    "blocks"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/otp-input/otp-input.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/otp-input/otp-input.tsx",
+      "content_sha256": "9b7c948a73d93c2d31f1c031b70ba62c969689fe4625d1762d1e4418c39f30bf"
+    },
+    {
+      "path": "registry/components/otp-input/otp-input.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/otp-input/otp-input.module.css",
+      "content_sha256": "4bcfd659a2d6597f558ae2d02214c1dabfcbc795fca8a664b1abda369a872640"
+    }
+  ],
+  "docs": "Use it as part of verification after you have sent a code. Validate the code on your server.",
+  "meta": {
+    "tier": "free",
+    "kind": "block",
+    "builtFrom": [
+      "Input",
+      "Keyboard navigation",
+      "Validation"
+    ],
+    "docs": "https://uiarc.dev/components/blocks/otp-input"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "comparison-table",
+  "type": "registry:block",
+  "title": "Comparison table",
+  "description": "An us versus them table with a sticky header, a highlighted column, and a stacked phone view.",
+  "categories": [
+    "blocks"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/blocks/comparison-table/comparison-table.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/comparison-table/comparison-table.tsx",
+      "content_sha256": "21e121691a7b7eba0aee957d9614e0d210e734c4af8a98bac9071466a14901e8"
+    },
+    {
+      "path": "registry/blocks/comparison-table/comparison-table-data.ts",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/comparison-table/comparison-table-data.ts",
+      "content_sha256": "3410f9d5483fd7a84affbc5bf58fefad09a8b0ee035197131e65737477a1105a"
+    },
+    {
+      "path": "registry/blocks/comparison-table/comparison-table.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/comparison-table/comparison-table.module.css",
+      "content_sha256": "bf60cab371cc1a504a80111c4eca824129d0ea4b15960403e6870caafc595672"
+    }
+  ],
+  "docs": "Use this on a pricing or alternatives page. Describe your columns and feature rows in comparison-table-data.ts, mark your product with highlight, and point the cta at signup; stickyTop offsets the header under a fixed site header.",
+  "meta": {
+    "tier": "free",
+    "kind": "block",
+    "builtFrom": [
+      "Switch",
+      "Button"
+    ],
+    "docs": "https://uiarc.dev/components/blocks/comparison-table"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "slider",
+  "type": "registry:ui",
+  "title": "Slider",
+  "description": "Pick a value or a range on a track that follows your finger.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/slider/slider.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/slider/slider.tsx",
+      "content_sha256": "4f460de666d2fb4cc7417abbbad69f3aab01afca41dafd5a4b5453fcc2506e0a"
+    },
+    {
+      "path": "registry/components/slider/slider.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/slider/slider.module.css",
+      "content_sha256": "d87a96b49a67a497450e89593f94abf65a9767d8b44156791d29d0547e3316d0"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/slider",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "slider",
+      "range",
+      "input"
+    ],
+    "docs": "https://uiarc.dev/components/slider",
+    "markdown": "https://uiarc.dev/components/slider/markdown"
+  }
+}

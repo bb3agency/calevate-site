@@ -1,5 +1,7 @@
 # UI component catalogue: interior.dev and Pixel Perfect
 
+> **Part D lives in `docs/design/UIARC-COMPONENTS.md`.** It reviews the uiarc (Arc) components the founder chose (MIT, source in `docs/design/uiarc/`): verdicts in the same ADOPT / ADAPT / SKIP vocabulary, the token mapping from Arc to Calevate, and an adoption plan for the founder's named screens. Where an Arc component and a component here cover the same problem, Part D says which one wins.
+
 This catalogue reviews two third-party component sources for the Calevate consoles: the client panel (`app.calevate.tech`) and the admin panel (`admin.calevate.tech`). Each component gets a verdict:
 
 - **ADOPT** means use it, with at most mechanical fixes.

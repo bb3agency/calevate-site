@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "rich-text-editor",
+  "type": "registry:ui",
+  "title": "Rich text editor",
+  "description": "A lightweight editor with markdown shortcuts, a floating toolbar, a slash menu, and HTML and markdown output.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/rich-text-editor/rich-text-editor.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/rich-text-editor/rich-text-editor.tsx",
+      "content_sha256": "daa384e877a82da12ea82d96781e13879ca4605ee3c91966af65b340d109a869"
+    },
+    {
+      "path": "registry/components/rich-text-editor/rich-text-editor.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/rich-text-editor/rich-text-editor.module.css",
+      "content_sha256": "6833c362e0f58e0dcd24705d9d378b4bc6745dd2faa25e22c41ffebe9b7ae05a"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/rich-text-editor",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "inputs",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/rich-text-editor",
+    "markdown": "https://uiarc.dev/components/rich-text-editor/markdown"
+  }
+}

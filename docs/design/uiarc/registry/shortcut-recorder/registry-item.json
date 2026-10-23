@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "shortcut-recorder",
+  "type": "registry:ui",
+  "title": "Shortcut recorder",
+  "description": "Record key combinations into key caps, with conflict warnings, Kbd, and a searchable cheatsheet.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/shortcut-recorder/shortcut-recorder.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/shortcut-recorder/shortcut-recorder.tsx",
+      "content_sha256": "e9941d875579297a4f666aa711e703f282d98759635e9da53090338e416b8f37"
+    },
+    {
+      "path": "registry/components/shortcut-recorder/shortcut-recorder.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/shortcut-recorder/shortcut-recorder.module.css",
+      "content_sha256": "a658a5ccd0d5c3d372d778f73cfffe7f909350a8ee258c92c9a05c8ab31add2e"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/shortcut-recorder",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "inputs",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/shortcut-recorder",
+    "markdown": "https://uiarc.dev/components/shortcut-recorder/markdown"
+  }
+}

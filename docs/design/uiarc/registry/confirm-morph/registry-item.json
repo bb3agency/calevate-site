@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "confirm-morph",
+  "type": "registry:ui",
+  "title": "Confirm morph",
+  "description": "A destructive button that morphs into an inline confirmation, a spinner, and a result with undo.",
+  "categories": [
+    "actions"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/confirm-morph/confirm-morph.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/confirm-morph/confirm-morph.tsx",
+      "content_sha256": "151698eb1a316e38985d748f8e23b4e04d948a19a66212ef26de0b09fab2b563"
+    },
+    {
+      "path": "registry/components/confirm-morph/confirm-morph.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/confirm-morph/confirm-morph.module.css",
+      "content_sha256": "0117c11659e56d60b99e0e69fe042327a759d93d2b4db13164a6c1dcf93101fa"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/confirm-morph",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "actions",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/confirm-morph",
+    "markdown": "https://uiarc.dev/components/confirm-morph/markdown"
+  }
+}

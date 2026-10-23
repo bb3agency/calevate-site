@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "tag-input",
+  "type": "registry:ui",
+  "title": "Tag input",
+  "description": "Turn short text values into removable tags.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/tag-input/tag-input.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/tag-input/tag-input.tsx",
+      "content_sha256": "c17d9903f365a2901676d09692d93a283367825ae0aa53deb00d942e8440472c"
+    },
+    {
+      "path": "registry/components/tag-input/tag-input.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/tag-input/tag-input.module.css",
+      "content_sha256": "d6b84d67e6ff5626c50cff759decba51ce77197b09cd812c759ea47904b6074b"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/tag-input",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "field",
+      "tags"
+    ],
+    "docs": "https://uiarc.dev/components/tag-input",
+    "markdown": "https://uiarc.dev/components/tag-input/markdown"
+  }
+}

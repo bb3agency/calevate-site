@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "number-field",
+  "type": "registry:ui",
+  "title": "Number field",
+  "description": "Enter a bounded number with clear increment controls.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/number-field/number-field.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/number-field/number-field.tsx",
+      "content_sha256": "ad4bba584f4626939c76e61d04eac1d20c2d33b46425df6406414a94a38237c2"
+    },
+    {
+      "path": "registry/components/number-field/number-field.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/number-field/number-field.module.css",
+      "content_sha256": "3898aa73a014b3f7aee2a7d0f99999ceaa95e789e8a299bcc5eaa0323f03702a"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/number-field",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "field",
+      "numeric"
+    ],
+    "docs": "https://uiarc.dev/components/number-field",
+    "markdown": "https://uiarc.dev/components/number-field/markdown"
+  }
+}

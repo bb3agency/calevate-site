@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "ridgeline",
+  "type": "registry:ui",
+  "title": "Ridgeline",
+  "description": "Overlapping distributions, one ridge per group: hover to lift a ridge and read its quartiles, switch datasets and every curve morphs.",
+  "categories": [
+    "data"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/ridgeline/ridgeline.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/ridgeline/ridgeline.tsx",
+      "content_sha256": "82048bc381bc1755030fad27b0a4c0a97a0fe87913f507d27aaf75cb75c226ae"
+    },
+    {
+      "path": "registry/components/ridgeline/ridgeline.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/ridgeline/ridgeline.module.css",
+      "content_sha256": "5f05deb648fea914e894ee3c3025c987c19bef4d0b1eeeb30c0ce63210edefa9"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/ridgeline",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "data",
+      "chart",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/ridgeline",
+    "markdown": "https://uiarc.dev/components/ridgeline/markdown"
+  }
+}

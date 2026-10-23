@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "activity-heatmap",
+  "type": "registry:ui",
+  "title": "Activity heatmap",
+  "description": "See a year of activity at a glance, one square per day.",
+  "categories": [
+    "data"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/activity-heatmap/activity-heatmap.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/activity-heatmap/activity-heatmap.tsx",
+      "content_sha256": "47b16d2211727d8f1a4b4791e777f4f8d3791d55a68aad9625377e63e8db0933"
+    },
+    {
+      "path": "registry/components/activity-heatmap/activity-heatmap.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/activity-heatmap/activity-heatmap.module.css",
+      "content_sha256": "b509d20ff7f152093a2f5c6b87d4391b2a80d9ad63dd1cf5846cb8d5def240a4"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/activity-heatmap",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "data",
+      "chart",
+      "calendar"
+    ],
+    "docs": "https://uiarc.dev/components/activity-heatmap",
+    "markdown": "https://uiarc.dev/components/activity-heatmap/markdown"
+  }
+}

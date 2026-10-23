@@ -1,0 +1,43 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "date-picker",
+  "type": "registry:ui",
+  "title": "Date picker",
+  "description": "Choose a date without losing context.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json",
+    "https://uiarc.dev/r/calendar.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/date-picker/date-picker.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/date-picker/date-picker.tsx",
+      "content_sha256": "996d6b6703f7478c9ce286a3bbcd49a10aac0cb489b0d8915dfd89dad9c4efb8"
+    },
+    {
+      "path": "registry/components/date-picker/date-picker.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/date-picker/date-picker.module.css",
+      "content_sha256": "fc3907dc484832ef441b367dd16135bf081ec77894ea1ae7c9c59508a2abe95a"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/date-picker",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "date",
+      "field"
+    ],
+    "docs": "https://uiarc.dev/components/date-picker",
+    "markdown": "https://uiarc.dev/components/date-picker/markdown"
+  }
+}

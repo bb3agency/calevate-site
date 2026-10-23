@@ -1,0 +1,43 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "usage-meter",
+  "type": "registry:ui",
+  "title": "Usage meter",
+  "description": "Show what fills an allowance and how close it is to the limit.",
+  "categories": [
+    "feedback"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/usage-meter/usage-meter.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/usage-meter/usage-meter.tsx",
+      "content_sha256": "3dafab782abe29de6cdcb49cf0d4dfc1b31bddd0bf6c8aa7dad035bbbb461bbd"
+    },
+    {
+      "path": "registry/components/usage-meter/usage-meter.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/usage-meter/usage-meter.module.css",
+      "content_sha256": "a5570a22c9ec41d73ad088a6dc66b3b0199b1e53ccb2c46cca5d5e86143881d1"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/usage-meter",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "meter",
+      "usage",
+      "storage"
+    ],
+    "docs": "https://uiarc.dev/components/usage-meter",
+    "markdown": "https://uiarc.dev/components/usage-meter/markdown"
+  }
+}

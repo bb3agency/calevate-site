@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "alert",
+  "type": "registry:ui",
+  "title": "Alert",
+  "description": "A persistent message that helps people recover or continue.",
+  "categories": [
+    "feedback"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/alert/alert.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/alert/alert.tsx",
+      "content_sha256": "ddcd481e2ebc6a1cbf6f053d6de1817d5dfd40b347e0bea561cc9fda2ea54950"
+    },
+    {
+      "path": "registry/components/alert/alert.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/alert/alert.module.css",
+      "content_sha256": "938cddc734989a721d38e92ed62c40df3a911cc3c6af6d9da313daaaf57965a6"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/alert",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "status",
+      "message"
+    ],
+    "docs": "https://uiarc.dev/components/alert",
+    "markdown": "https://uiarc.dev/components/alert/markdown"
+  }
+}

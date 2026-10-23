@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "action-button",
+  "type": "registry:ui",
+  "title": "Action button",
+  "description": "A compact button for frequent toolbar actions.",
+  "categories": [
+    "actions"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/action-button/action-button.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/action-button/action-button.tsx",
+      "content_sha256": "2cb2354db41b0dd06e714a33d138cd83a6d68f12e52a6a6f0f9f85f92d300131"
+    },
+    {
+      "path": "registry/components/action-button/action-button.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/action-button/action-button.module.css",
+      "content_sha256": "fe09236a2f499755c579bb6f28357f3d44873aa31e138e25981c39c3af0f53ca"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/action-button",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "action",
+      "toolbar"
+    ],
+    "docs": "https://uiarc.dev/components/action-button",
+    "markdown": "https://uiarc.dev/components/action-button/markdown"
+  }
+}

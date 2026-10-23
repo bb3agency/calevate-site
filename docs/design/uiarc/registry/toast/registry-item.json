@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "toast",
+  "type": "registry:ui",
+  "title": "Toast",
+  "description": "Brief confirmation for a completed background action.",
+  "categories": [
+    "feedback"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/toast/toast.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/toast/toast.tsx",
+      "content_sha256": "cc68a59e0db6f1f1a0c1b8ec6aaa7638c08be7e13367b370f8d3f44accddba7f"
+    },
+    {
+      "path": "registry/components/toast/toast.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/toast/toast.module.css",
+      "content_sha256": "7c971d71804b5d4b10c876a08d8a5b3caa0ef19aa7d94d0ccfdb9e291d02fa1c"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/toast",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "status",
+      "message"
+    ],
+    "docs": "https://uiarc.dev/components/toast",
+    "markdown": "https://uiarc.dev/components/toast/markdown"
+  }
+}

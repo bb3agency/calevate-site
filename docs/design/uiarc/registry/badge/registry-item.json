@@ -1,0 +1,41 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "badge",
+  "type": "registry:ui",
+  "title": "Badge",
+  "description": "A small label for status, category, or metadata.",
+  "categories": [
+    "data"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/badge/badge.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/badge/badge.tsx",
+      "content_sha256": "3c55d03480156cd7636e171ce8649ddc9616db7484dea50063d8b589810c4aad"
+    },
+    {
+      "path": "registry/components/badge/badge.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/badge/badge.module.css",
+      "content_sha256": "3306e97600585992b6dbc19db1d55961cbfacd24f5942d80ac3078d6887b3644"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/badge",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "label",
+      "status"
+    ],
+    "docs": "https://uiarc.dev/components/badge",
+    "markdown": "https://uiarc.dev/components/badge/markdown"
+  }
+}

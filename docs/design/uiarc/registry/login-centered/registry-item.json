@@ -1,0 +1,45 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "login-centered",
+  "type": "registry:block",
+  "title": "Centered login",
+  "description": "A passkey-first login card on a quiet ring backdrop that morphs through email and code.",
+  "categories": [
+    "blocks"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json",
+    "https://uiarc.dev/r/button.json",
+    "https://uiarc.dev/r/input.json",
+    "https://uiarc.dev/r/otp-input.json"
+  ],
+  "files": [
+    {
+      "path": "registry/blocks/login-centered/login-centered.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/login-centered/login-centered.tsx",
+      "content_sha256": "2a4976fb83f34a8d904abed1b38693d0db4ffd380e6f4bdc18570f96f5f839e2"
+    },
+    {
+      "path": "registry/blocks/login-centered/login-centered.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/login-centered/login-centered.module.css",
+      "content_sha256": "a6d3716eca7851b9dfe136e63b45319cd41322541e49e0801fd85d119ba8e0e2"
+    }
+  ],
+  "docs": "Use this as a full screen sign in page (pass fullScreen). Connect the passkey button to WebAuthn, the email step to your magic code sender, the code step to verification, and the SSO buttons to your OAuth routes; onSignIn receives the email, method and mode.",
+  "meta": {
+    "tier": "free",
+    "kind": "block",
+    "builtFrom": [
+      "Button",
+      "Input",
+      "OTP input"
+    ],
+    "docs": "https://uiarc.dev/components/blocks/login-centered"
+  }
+}

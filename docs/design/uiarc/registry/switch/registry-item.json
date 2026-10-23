@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "switch",
+  "type": "registry:ui",
+  "title": "Switch",
+  "description": "A tactile toggle for settings that take effect immediately.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "@radix-ui/react-switch",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/switch/switch.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/switch/switch.tsx",
+      "content_sha256": "6ab95cb9c0aaa80599cdc0605abf959a20f5030fe4ecdf57f6894274a9c5d73b"
+    },
+    {
+      "path": "registry/components/switch/switch.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/switch/switch.module.css",
+      "content_sha256": "3793e7ee1a4c2db46fce615c3fd76212c3c78ea005e23ae07c24b53453c1b6f7"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/switch",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "toggle",
+      "settings"
+    ],
+    "docs": "https://uiarc.dev/components/switch",
+    "markdown": "https://uiarc.dev/components/switch/markdown"
+  }
+}

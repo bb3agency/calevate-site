@@ -1,0 +1,41 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "slot-text",
+  "type": "registry:ui",
+  "title": "Slot text",
+  "description": "Text and numbers that spin into their new value on staggered slot machine reels.",
+  "categories": [
+    "special"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [],
+  "files": [
+    {
+      "path": "registry/components/slot-text/slot-text.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/slot-text/slot-text.tsx",
+      "content_sha256": "35ec44001e89ebdd707deb9a9bbbf1ebf099bc7728325e03f9754035d9e1fbc5"
+    },
+    {
+      "path": "registry/components/slot-text/slot-text.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/slot-text/slot-text.module.css",
+      "content_sha256": "d72527fa79c320f29b9502891e5b04e12aa044bcd77754e598811853872b09a8"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/slot-text",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "special",
+      "text",
+      "numbers",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/slot-text",
+    "markdown": "https://uiarc.dev/components/slot-text/markdown"
+  }
+}

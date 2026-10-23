@@ -1,0 +1,41 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "button",
+  "type": "registry:ui",
+  "title": "Button",
+  "description": "A clear, responsive action with quiet secondary states.",
+  "categories": [
+    "actions"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/button/button.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/button/button.tsx",
+      "content_sha256": "6a56d78cb75a6fd5f5cfdd03be8b02bf96f0bc96790d3c81abeee10e089fecec"
+    },
+    {
+      "path": "registry/components/button/button.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/button/button.module.css",
+      "content_sha256": "77323140c3f9fbad7b08dddba0db7260aa233c34c39a9d24cfa646fea287e140"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/button",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "action",
+      "control"
+    ],
+    "docs": "https://uiarc.dev/components/button",
+    "markdown": "https://uiarc.dev/components/button/markdown"
+  }
+}

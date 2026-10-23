@@ -1,0 +1,31 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "arc-motion-tokens",
+  "type": "registry:item",
+  "title": "Arc motion tokens",
+  "description": "The shared motion presets (durations, easings, springs, staggers) Arc components import. Installed automatically with any item that uses them.",
+  "categories": [
+    "foundation"
+  ],
+  "dependencies": [],
+  "files": [
+    {
+      "path": "registry/motion-tokens.ts",
+      "type": "registry:component",
+      "target": "@components/arc/motion-tokens.ts",
+      "content_sha256": "81235a2bf09738ff9ad8d49ab50631d6a31541838dbc84414f8d97544c2fde73"
+    },
+    {
+      "path": "lib/motion-tokens.ts",
+      "type": "registry:lib",
+      "target": "@components/arc/lib/motion-tokens.ts",
+      "content_sha256": "bec65d2e1b180dd3c574edc60cf84e0fa336e7ff8640eba0c70bcf0ae765fb8a"
+    }
+  ],
+  "docs": "Installed automatically by the items that import it, into components/arc/motion-tokens.ts and components/arc/lib/motion-tokens.ts.",
+  "meta": {
+    "tier": "free",
+    "kind": "foundation",
+    "docs": "https://uiarc.dev/docs/ai"
+  }
+}

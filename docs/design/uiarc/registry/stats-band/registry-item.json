@@ -1,0 +1,52 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "stats-band",
+  "type": "registry:block",
+  "title": "Stats band",
+  "description": "Headline numbers that count up in view, each with a tiny visual that proves it and a context line on hover, plain or in a hairline grid.",
+  "categories": [
+    "blocks"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json",
+    "https://uiarc.dev/r/segmented-control.json"
+  ],
+  "files": [
+    {
+      "path": "registry/blocks/stats-band/stats-band.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/stats-band/stats-band.tsx",
+      "content_sha256": "0d6a2042c103ce57617d299869770077f30121aeeec9ce4d01af9306f517bc0e"
+    },
+    {
+      "path": "registry/blocks/stats-band/stats-band-data.ts",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/stats-band/stats-band-data.ts",
+      "content_sha256": "e0cc847732c8d3bd64a81299a1199c03136525b71d7c8854c1ccb7c3f2ef70a4"
+    },
+    {
+      "path": "registry/blocks/stats-band/stats-band.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/stats-band/stats-band.module.css",
+      "content_sha256": "43121f42f3140161871f1425274f8d1a491616f4bf30839e9f7e5ed08b19fc62"
+    },
+    {
+      "path": "registry/blocks/stats-band/stats-band-world.ts",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/stats-band/stats-band-world.ts",
+      "content_sha256": "ffb88c3b89a1f4aec5842980eb8442b101f804c7e3f2405dae73c2428d3d9eec"
+    }
+  ],
+  "docs": "Use this under a hero or between sections to back a claim with numbers. Replace the sample stats in stats-band-data.ts.",
+  "meta": {
+    "tier": "free",
+    "kind": "block",
+    "builtFrom": [
+      "Segmented control"
+    ],
+    "docs": "https://uiarc.dev/components/blocks/stats-band"
+  }
+}

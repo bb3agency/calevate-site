@@ -1,0 +1,43 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "expanding-search",
+  "type": "registry:ui",
+  "title": "Expanding search",
+  "description": "An icon that morphs into a search field with results beneath it.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/expanding-search/expanding-search.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/expanding-search/expanding-search.tsx",
+      "content_sha256": "d76550fe9c4227e5329a14ae3dc7e419103f13e26408f057c04be47ea898e2a2"
+    },
+    {
+      "path": "registry/components/expanding-search/expanding-search.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/expanding-search/expanding-search.module.css",
+      "content_sha256": "bd66136f51a698d3e5403ad69de96a3bad22b4c6f2d59ad00d3324d661a5a71a"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/expanding-search",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "search",
+      "field",
+      "motion"
+    ],
+    "docs": "https://uiarc.dev/components/expanding-search",
+    "markdown": "https://uiarc.dev/components/expanding-search/markdown"
+  }
+}

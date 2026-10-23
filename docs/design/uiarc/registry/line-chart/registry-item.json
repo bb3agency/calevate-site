@@ -1,0 +1,41 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "line-chart",
+  "type": "registry:ui",
+  "title": "Line chart",
+  "description": "A multi-series line chart with a gliding crosshair, legend toggles, and paths that morph between ranges.",
+  "categories": [
+    "data"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/line-chart/line-chart.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/line-chart/line-chart.tsx",
+      "content_sha256": "f05816e33d5d7b323e2cf63d16863919f9c4b633ba6bdef99dc45c85d0da59ed"
+    },
+    {
+      "path": "registry/components/line-chart/line-chart.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/line-chart/line-chart.module.css",
+      "content_sha256": "6ab0971d5471b39ea9b03a78fefb8bb4f641326160299943a2983b72133dfb55"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/line-chart",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "data",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/line-chart",
+    "markdown": "https://uiarc.dev/components/line-chart/markdown"
+  }
+}

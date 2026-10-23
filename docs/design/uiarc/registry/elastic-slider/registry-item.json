@@ -1,0 +1,41 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "elastic-slider",
+  "type": "registry:ui",
+  "title": "Elastic slider",
+  "description": "A slider that stretches like rubber past its ends, with a swaying value tag and detents the thumb clicks into.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/elastic-slider/elastic-slider.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/elastic-slider/elastic-slider.tsx",
+      "content_sha256": "25deb1d0c69dc37025c2f099131e24460a757c278b8b4a1ca98e0e45ea93ec79"
+    },
+    {
+      "path": "registry/components/elastic-slider/elastic-slider.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/elastic-slider/elastic-slider.module.css",
+      "content_sha256": "67fa7e4b5906daf030770e87d1218c42830f2931ae4b4c8e18c8c16ef34b1feb"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/elastic-slider",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "inputs",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/elastic-slider",
+    "markdown": "https://uiarc.dev/components/elastic-slider/markdown"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "copy-button",
+  "type": "registry:ui",
+  "title": "Copy button",
+  "description": "Copy a value with immediate confirmation.",
+  "categories": [
+    "actions"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/copy-button/copy-button.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/copy-button/copy-button.tsx",
+      "content_sha256": "c345c70cabb29267e3c390ea5aed221289bcfb2697f6e18ac73fbc4b46ef89f8"
+    },
+    {
+      "path": "registry/components/copy-button/copy-button.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/copy-button/copy-button.module.css",
+      "content_sha256": "fb107f31c3827db457090da67f5c24f92d088e9ae14d3a8b18ff651fa4760ba6"
+    },
+    {
+      "path": "lib/use-copy-feedback.ts",
+      "type": "registry:lib",
+      "target": "@components/arc/lib/use-copy-feedback.ts",
+      "content_sha256": "88d0ae55bb3e241f529912a4802bbf014e4ba437025acc90ab13e012702273c5"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/copy-button",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "action",
+      "utility"
+    ],
+    "docs": "https://uiarc.dev/components/copy-button",
+    "markdown": "https://uiarc.dev/components/copy-button/markdown"
+  }
+}

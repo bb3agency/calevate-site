@@ -1,0 +1,41 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "donut-chart",
+  "type": "registry:ui",
+  "title": "Donut chart",
+  "description": "A donut whose arcs morph between datasets, with the active value rolling into the center.",
+  "categories": [
+    "data"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/donut-chart/donut-chart.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/donut-chart/donut-chart.tsx",
+      "content_sha256": "31ce6f4502dbf2e45e80d68cd7e430b7017d45a6a405914c310e4abac470cbc4"
+    },
+    {
+      "path": "registry/components/donut-chart/donut-chart.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/donut-chart/donut-chart.module.css",
+      "content_sha256": "bfd5bb52ff46a7f17ae22976169c31d7994d94c6e2cc92f28361fc393ec4ff81"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/donut-chart",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "data",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/donut-chart",
+    "markdown": "https://uiarc.dev/components/donut-chart/markdown"
+  }
+}

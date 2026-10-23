@@ -1,0 +1,47 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "changelog-feed",
+  "type": "registry:block",
+  "title": "Changelog feed",
+  "description": "Release notes you can filter, open in place, and scroll through month by month.",
+  "categories": [
+    "blocks"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json",
+    "https://uiarc.dev/r/copy-button.json"
+  ],
+  "files": [
+    {
+      "path": "registry/blocks/changelog-feed/changelog-feed.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/changelog-feed/changelog-feed.tsx",
+      "content_sha256": "86bba12881fb6eabad79ddc8cb8543918a6d3b09d35287a1d6d3b2a9fd0332e1"
+    },
+    {
+      "path": "registry/blocks/changelog-feed/changelog-feed.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/changelog-feed/changelog-feed.module.css",
+      "content_sha256": "84b99e472af69d1452c3e012d1f7a499dc904fe629ea698576ebf974f7924abb"
+    },
+    {
+      "path": "lib/media.ts",
+      "type": "registry:lib",
+      "target": "@components/arc/lib/media.ts",
+      "content_sha256": "765732e3b5112fcff330137ab9a8c63c641d5662f1dddba5cc8abf2bb02ffdb0"
+    }
+  ],
+  "docs": "Use this for a product changelog page. Load entries from your release notes source and connect the subscribe control to your mailing list.",
+  "meta": {
+    "tier": "free",
+    "kind": "block",
+    "builtFrom": [
+      "Copy button"
+    ],
+    "docs": "https://uiarc.dev/components/blocks/changelog-feed"
+  }
+}

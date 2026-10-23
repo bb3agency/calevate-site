@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "file-dropzone",
+  "type": "registry:ui",
+  "title": "File dropzone",
+  "description": "A generous target for dropping one or more files.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/file-dropzone/file-dropzone.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/file-dropzone/file-dropzone.tsx",
+      "content_sha256": "1702b59c1f5e236733a9761636d25213485cbbd12b7887cc078467638d9dc283"
+    },
+    {
+      "path": "registry/components/file-dropzone/file-dropzone.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/file-dropzone/file-dropzone.module.css",
+      "content_sha256": "0d1cc9a41e724b04727f3392e29ef588c0211db4745bc87b784da999b03a2ef4"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/file-dropzone",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "field",
+      "files"
+    ],
+    "docs": "https://uiarc.dev/components/file-dropzone",
+    "markdown": "https://uiarc.dev/components/file-dropzone/markdown"
+  }
+}

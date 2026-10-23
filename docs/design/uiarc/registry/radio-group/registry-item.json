@@ -1,0 +1,41 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "radio-group",
+  "type": "registry:ui",
+  "title": "Radio group",
+  "description": "Choose one option from a visible set.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/radio-group/radio-group.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/radio-group/radio-group.tsx",
+      "content_sha256": "b64932d460b1366d5bd057af9bb372003380da8afb3ec306754fafa025d8a3eb"
+    },
+    {
+      "path": "registry/components/radio-group/radio-group.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/radio-group/radio-group.module.css",
+      "content_sha256": "b5a7ececee88f400799ee00c1a710a278a776a5930f76388f8f0fe99c7602929"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/radio-group",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "field",
+      "choice"
+    ],
+    "docs": "https://uiarc.dev/components/radio-group",
+    "markdown": "https://uiarc.dev/components/radio-group/markdown"
+  }
+}

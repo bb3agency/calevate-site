@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "expandable-card",
+  "type": "registry:ui",
+  "title": "Expandable card",
+  "description": "Give a dense card more room when requested.",
+  "categories": [
+    "disclosure"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/expandable-card/expandable-card.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/expandable-card/expandable-card.tsx",
+      "content_sha256": "3373b065317869244a61c96760a21ed037c3177766f8bd54bca2336d82a698c8"
+    },
+    {
+      "path": "registry/components/expandable-card/expandable-card.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/expandable-card/expandable-card.module.css",
+      "content_sha256": "f85ff47844ffd2c845c71fc10e4cf7872c00823dd54882b99ec3ea4515881d7e"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/expandable-card",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "disclosure",
+      "layout"
+    ],
+    "docs": "https://uiarc.dev/components/expandable-card",
+    "markdown": "https://uiarc.dev/components/expandable-card/markdown"
+  }
+}

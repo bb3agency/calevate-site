@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "metric-card",
+  "type": "registry:ui",
+  "title": "Metric card",
+  "description": "A compact summary for a number that needs context.",
+  "categories": [
+    "data"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json",
+    "https://uiarc.dev/r/animated-counter.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/metric-card/metric-card.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/metric-card/metric-card.tsx",
+      "content_sha256": "ac550e49b6e9f680f32a694dd27cb42597795465d4709f2418230fbbde865906"
+    },
+    {
+      "path": "registry/components/metric-card/metric-card.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/metric-card/metric-card.module.css",
+      "content_sha256": "733ad2b10292f583f11a7b4e21c09b0d9334bfff15c8abb52baab965dc851235"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/metric-card",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "data",
+      "summary"
+    ],
+    "docs": "https://uiarc.dev/components/metric-card",
+    "markdown": "https://uiarc.dev/components/metric-card/markdown"
+  }
+}

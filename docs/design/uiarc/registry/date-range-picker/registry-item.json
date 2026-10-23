@@ -1,0 +1,48 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "date-range-picker",
+  "type": "registry:ui",
+  "title": "Date range picker",
+  "description": "A range picker that grows from its trigger into two months with presets and a stretching range highlight.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/date-range-picker/date-range-picker.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/date-range-picker/date-range-picker.tsx",
+      "content_sha256": "93658f3a1a4fc15fd71db90789b75d0866ecd5b5e96f45f2281599319e62f3dc"
+    },
+    {
+      "path": "lib/use-today.ts",
+      "type": "registry:lib",
+      "target": "@components/arc/lib/use-today.ts",
+      "content_sha256": "069a833b34cb103040013346c07ad453d235da1096ea011d2c50bd148029a3af"
+    },
+    {
+      "path": "registry/components/date-range-picker/date-range-picker.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/date-range-picker/date-range-picker.module.css",
+      "content_sha256": "40db1644922b78c237b7bb726685fe100480561c178d0235b3a556bda966f7eb"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/date-range-picker",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "inputs",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/date-range-picker",
+    "markdown": "https://uiarc.dev/components/date-range-picker/markdown"
+  }
+}

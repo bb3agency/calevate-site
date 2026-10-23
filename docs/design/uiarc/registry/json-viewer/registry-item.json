@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "json-viewer",
+  "type": "registry:ui",
+  "title": "JSON viewer",
+  "description": "A collapsible JSON tree with search, paging for long arrays, and copy value or path.",
+  "categories": [
+    "data"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/json-viewer/json-viewer.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/json-viewer/json-viewer.tsx",
+      "content_sha256": "993dde4169d8bfc53e44b678d3e4b0510470a2ee881548ced01cfe9988ef8866"
+    },
+    {
+      "path": "registry/components/json-viewer/json-viewer.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/json-viewer/json-viewer.module.css",
+      "content_sha256": "c6ffedc6fb954166ddb5ba15eb911609f101031b26b3af6ef0b719db2a44ff95"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/json-viewer",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "data",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/json-viewer",
+    "markdown": "https://uiarc.dev/components/json-viewer/markdown"
+  }
+}

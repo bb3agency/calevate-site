@@ -1,0 +1,41 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "animated-counter",
+  "type": "registry:ui",
+  "title": "Animated counter",
+  "description": "Give changing totals a clear sense of movement.",
+  "categories": [
+    "data"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/animated-counter/animated-counter.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/animated-counter/animated-counter.tsx",
+      "content_sha256": "2542f8bcd8a413c7a846d440d917a3c11a77f4e016014dfdd242c4549df01750"
+    },
+    {
+      "path": "registry/components/animated-counter/animated-counter.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/animated-counter/animated-counter.module.css",
+      "content_sha256": "33b7d7f0081f4fd3907a4fafcff64444581845a58cb7b0b7844c394a2e254adf"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/animated-counter",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "data",
+      "motion"
+    ],
+    "docs": "https://uiarc.dev/components/animated-counter",
+    "markdown": "https://uiarc.dev/components/animated-counter/markdown"
+  }
+}

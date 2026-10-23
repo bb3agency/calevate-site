@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "action-swap",
+  "type": "registry:ui",
+  "title": "Action swap",
+  "description": "Swap an action label while preserving its place and intent.",
+  "categories": [
+    "actions"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/action-swap/action-swap.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/action-swap/action-swap.tsx",
+      "content_sha256": "b152c93287b16ebc6cbbfd655308f6ce58ea361ad0aa926db61d4a5bafdc0258"
+    },
+    {
+      "path": "registry/components/action-swap/action-swap.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/action-swap/action-swap.module.css",
+      "content_sha256": "8467c23b63fa4738679842f7fbd1c9ce53f53d95272db04334f205c04cff284a"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/action-swap",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "action",
+      "motion"
+    ],
+    "docs": "https://uiarc.dev/components/action-swap",
+    "markdown": "https://uiarc.dev/components/action-swap/markdown"
+  }
+}

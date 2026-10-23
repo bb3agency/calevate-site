@@ -1,0 +1,41 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "gauge",
+  "type": "registry:ui",
+  "title": "Gauge",
+  "description": "Show a value against a known range.",
+  "categories": [
+    "data"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/gauge/gauge.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/gauge/gauge.tsx",
+      "content_sha256": "c8cab550f9d0b7d0482e266cd7280c293c725efb2d417275edb8ce2040784441"
+    },
+    {
+      "path": "registry/components/gauge/gauge.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/gauge/gauge.module.css",
+      "content_sha256": "523456638d3edcb059c858c732bd7b9a264848da72f6b99838c3c089c335238c"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/gauge",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "data",
+      "chart"
+    ],
+    "docs": "https://uiarc.dev/components/gauge",
+    "markdown": "https://uiarc.dev/components/gauge/markdown"
+  }
+}

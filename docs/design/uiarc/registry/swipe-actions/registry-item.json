@@ -1,0 +1,44 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "swipe-actions",
+  "type": "registry:ui",
+  "title": "Swipe actions",
+  "description": "Reveal row actions with a swipe, or from the same actions in a menu.",
+  "categories": [
+    "actions"
+  ],
+  "dependencies": [
+    "@radix-ui/react-dropdown-menu",
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/swipe-actions/swipe-actions.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/swipe-actions/swipe-actions.tsx",
+      "content_sha256": "44636a22e832e09a3ac30f42dbcfb2674a930127e4b288bfc5078b094a1888c0"
+    },
+    {
+      "path": "registry/components/swipe-actions/swipe-actions.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/swipe-actions/swipe-actions.module.css",
+      "content_sha256": "2acdbeda8ff1c228fcece9b19d90b740a69af9e99892217c10146348220002b7"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/swipe-actions",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "swipe",
+      "gesture",
+      "list"
+    ],
+    "docs": "https://uiarc.dev/components/swipe-actions",
+    "markdown": "https://uiarc.dev/components/swipe-actions/markdown"
+  }
+}

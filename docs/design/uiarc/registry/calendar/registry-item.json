@@ -1,0 +1,48 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "calendar",
+  "type": "registry:ui",
+  "title": "Calendar",
+  "description": "Browse dates in a clear, compact month view.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/calendar/calendar.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/calendar/calendar.tsx",
+      "content_sha256": "cf09873e5d895e46129159e62f7e494f448cfd247aaddd6c9a54de45a5d6c108"
+    },
+    {
+      "path": "lib/use-today.ts",
+      "type": "registry:lib",
+      "target": "@components/arc/lib/use-today.ts",
+      "content_sha256": "069a833b34cb103040013346c07ad453d235da1096ea011d2c50bd148029a3af"
+    },
+    {
+      "path": "registry/components/calendar/calendar.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/calendar/calendar.module.css",
+      "content_sha256": "2e019a6ca658f124c7ea0303aac46aa615a4e6bb3bc485c57d3b85acb0d26adc"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/calendar",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "date",
+      "field"
+    ],
+    "docs": "https://uiarc.dev/components/calendar",
+    "markdown": "https://uiarc.dev/components/calendar/markdown"
+  }
+}

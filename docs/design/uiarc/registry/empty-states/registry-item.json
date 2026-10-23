@@ -1,0 +1,43 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "empty-states",
+  "type": "registry:block",
+  "title": "Empty states",
+  "description": "Four empty states in one illustration whose shapes morph between scenes as you switch tabs.",
+  "categories": [
+    "blocks"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json",
+    "https://uiarc.dev/r/button.json"
+  ],
+  "files": [
+    {
+      "path": "registry/blocks/empty-states/empty-states.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/empty-states/empty-states.tsx",
+      "content_sha256": "5c24e909420b3874ca455d0f6364939de5f1700b17cfad3a1ae2f72a665a902c"
+    },
+    {
+      "path": "registry/blocks/empty-states/empty-states.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/empty-states/empty-states.module.css",
+      "content_sha256": "ff517745774f84eb030993650f9f60fe93b8f31fec581ec822974d7694d0775a"
+    },
+    {
+      "path": "registry/blocks/empty-states/empty-states-art.ts",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/empty-states/empty-states-art.ts",
+      "content_sha256": "86c5c3d7630416831fd884f58e657f15ae36c9e8ccac21cdae06e1f1d79a7e2b"
+    }
+  ],
+  "docs": "Use this for no results, offline, inbox zero and missing page moments. Wire each action to your real filter reset, retry, refresh or search; the preview simulates them locally.",
+  "meta": {
+    "tier": "free",
+    "kind": "block",
+    "docs": "https://uiarc.dev/components/blocks/empty-states"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "sparkline",
+  "type": "registry:ui",
+  "title": "Sparkline",
+  "description": "Show a compact trend beside a value.",
+  "categories": [
+    "data"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/sparkline/sparkline.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/sparkline/sparkline.tsx",
+      "content_sha256": "b61f2b54bac7774d7af8d3a0b0939584487d72c0f2d20131cc2f14e915b05859"
+    },
+    {
+      "path": "registry/components/sparkline/sparkline.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/sparkline/sparkline.module.css",
+      "content_sha256": "0b7995379fb5a7955d48ff95871e06494a6092ca028c0c5d43aade2f364d844b"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/sparkline",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "data",
+      "chart"
+    ],
+    "docs": "https://uiarc.dev/components/sparkline",
+    "markdown": "https://uiarc.dev/components/sparkline/markdown"
+  }
+}

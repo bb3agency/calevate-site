@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "billing-toggle",
+  "type": "registry:ui",
+  "title": "Billing toggle",
+  "description": "A monthly and yearly switch with a savings badge and prices that roll to the new amount.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json",
+    "https://uiarc.dev/r/animated-counter.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/billing-toggle/billing-toggle.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/billing-toggle/billing-toggle.tsx",
+      "content_sha256": "e17e3900f6c5efa2824b22b725c2d7501b2203491bd33b7c446fe817bf4fef20"
+    },
+    {
+      "path": "registry/components/billing-toggle/billing-toggle.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/billing-toggle/billing-toggle.module.css",
+      "content_sha256": "0695e1f157d9a0b298ed84441a46c5f50577e7b7a82381bce7df6f6bf9c1227b"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/billing-toggle",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "inputs",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/billing-toggle",
+    "markdown": "https://uiarc.dev/components/billing-toggle/markdown"
+  }
+}

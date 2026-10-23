@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "text-shimmer",
+  "type": "registry:ui",
+  "title": "Text shimmer",
+  "description": "Show ongoing work with a calm light across the words.",
+  "categories": [
+    "text"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/text-shimmer/text-shimmer.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/text-shimmer/text-shimmer.tsx",
+      "content_sha256": "021bfe6d2ae791f2e4e3832473e2bb76b01e929aded277025810013045950236"
+    },
+    {
+      "path": "registry/components/text-shimmer/text-shimmer.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/text-shimmer/text-shimmer.module.css",
+      "content_sha256": "a16da76e363bd7cec888c848b67043f5e1000f8bf9f1b3cc57a0dd01109ace4b"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/text-shimmer",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "text",
+      "motion",
+      "loading"
+    ],
+    "docs": "https://uiarc.dev/components/text-shimmer",
+    "markdown": "https://uiarc.dev/components/text-shimmer/markdown"
+  }
+}

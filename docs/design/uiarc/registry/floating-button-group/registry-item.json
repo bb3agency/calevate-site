@@ -1,0 +1,45 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "floating-button-group",
+  "type": "registry:ui",
+  "title": "Floating button group",
+  "description": "Separate soft buttons in a quiet tray, with one shared highlight that morphs from button to button as you move, and a pressed state that settles in place.",
+  "categories": [
+    "actions"
+  ],
+  "dependencies": [
+    "@radix-ui/react-tooltip",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json",
+    "https://uiarc.dev/r/tooltip.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/floating-button-group/floating-button-group.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/floating-button-group/floating-button-group.tsx",
+      "content_sha256": "2de3b52da32ed257e749b07971f7c3888dae127f7c1bafcbfdd7488a7b453d11"
+    },
+    {
+      "path": "registry/components/floating-button-group/floating-button-group.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/floating-button-group/floating-button-group.module.css",
+      "content_sha256": "a79a1fa8cb57d963f66d61678c2ba76becd41bb169e7ded0b3054f125a4f9f6e"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/floating-button-group",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "action",
+      "group",
+      "toolbar",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/floating-button-group",
+    "markdown": "https://uiarc.dev/components/floating-button-group/markdown"
+  }
+}

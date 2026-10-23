@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "bar-chart",
+  "type": "registry:ui",
+  "title": "Bar chart",
+  "description": "Compare one measure across days and scrub any bar for its value.",
+  "categories": [
+    "data"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/bar-chart/bar-chart.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/bar-chart/bar-chart.tsx",
+      "content_sha256": "cca5e519cc0ed8588f9a7e087c5e8b449a0960f8cc66e6d64544d336382d042e"
+    },
+    {
+      "path": "registry/components/bar-chart/bar-chart.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/bar-chart/bar-chart.module.css",
+      "content_sha256": "e647e55f0622ff4f8f17d7890a987138d185aadb4bda1dd0ab83b456d48acd1c"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/bar-chart",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "chart",
+      "bar",
+      "data"
+    ],
+    "docs": "https://uiarc.dev/components/bar-chart",
+    "markdown": "https://uiarc.dev/components/bar-chart/markdown"
+  }
+}

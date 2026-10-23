@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "morph-select",
+  "type": "registry:ui",
+  "title": "Morph select",
+  "description": "A select whose trigger grows into the list, with a gliding highlight and type-ahead.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/morph-select/morph-select.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/morph-select/morph-select.tsx",
+      "content_sha256": "8417d32c57ab0e790dd58a845b2597a7dfc0bce2f50e3a4f4083163afab38aeb"
+    },
+    {
+      "path": "registry/components/morph-select/morph-select.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/morph-select/morph-select.module.css",
+      "content_sha256": "a04d516ec799568dc15a73a9a8b430ce837c5b69bf9069bde029e8b4be3a06d4"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/morph-select",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "inputs",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/morph-select",
+    "markdown": "https://uiarc.dev/components/morph-select/markdown"
+  }
+}

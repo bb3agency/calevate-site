@@ -1,0 +1,45 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "plan-comparison",
+  "type": "registry:block",
+  "title": "Plan comparison",
+  "description": "Compare meaningful differences between plans and billing periods.",
+  "categories": [
+    "blocks"
+  ],
+  "dependencies": [
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json",
+    "https://uiarc.dev/r/button.json",
+    "https://uiarc.dev/r/segmented-control.json",
+    "https://uiarc.dev/r/switch.json"
+  ],
+  "files": [
+    {
+      "path": "registry/blocks/plan-comparison/plan-comparison.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/plan-comparison/plan-comparison.tsx",
+      "content_sha256": "381004e6e9cfa1e60f3ac8b7b6781889d703b456a2aa128b809f04f776fd8b33"
+    },
+    {
+      "path": "registry/blocks/plan-comparison/plan-comparison.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/plan-comparison/plan-comparison.module.css",
+      "content_sha256": "8554773b001e19d1a5a3b2604a38cf6d3b76a0c7a3f89c2f795514d895b880c2"
+    }
+  ],
+  "docs": "Use this when people need to weigh plans side by side. Replace the sample features and prices with your current offering.",
+  "meta": {
+    "tier": "free",
+    "kind": "block",
+    "builtFrom": [
+      "Segmented control",
+      "Button",
+      "Motion"
+    ],
+    "docs": "https://uiarc.dev/components/blocks/plan-comparison"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "input",
+  "type": "registry:ui",
+  "title": "Input",
+  "description": "A single line field with clear labels and useful states.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/input/input.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/input/input.tsx",
+      "content_sha256": "16a4e761b51482e9c066f284a38171085e71ae390e4b26f9f0c18dd8af21c8f2"
+    },
+    {
+      "path": "registry/components/input/input.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/input/input.module.css",
+      "content_sha256": "ef6716aa7b9f45898859735f416ac932517b94e66bed6b3d23d7aed180529bdf"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/input",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "field",
+      "form"
+    ],
+    "docs": "https://uiarc.dev/components/input",
+    "markdown": "https://uiarc.dev/components/input/markdown"
+  }
+}

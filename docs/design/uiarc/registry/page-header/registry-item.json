@@ -1,0 +1,53 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "page-header",
+  "type": "registry:block",
+  "title": "Page header",
+  "description": "A project page header that folds into a compact bar as you scroll, with tabs whose counts roll.",
+  "categories": [
+    "blocks"
+  ],
+  "dependencies": [
+    "@radix-ui/react-dropdown-menu",
+    "@radix-ui/react-tabs",
+    "lucide-react",
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json",
+    "https://uiarc.dev/r/animated-counter.json",
+    "https://uiarc.dev/r/avatar-group.json",
+    "https://uiarc.dev/r/avatar.json",
+    "https://uiarc.dev/r/badge.json",
+    "https://uiarc.dev/r/button.json",
+    "https://uiarc.dev/r/progress.json"
+  ],
+  "files": [
+    {
+      "path": "registry/blocks/page-header/page-header.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/page-header/page-header.tsx",
+      "content_sha256": "715ba538c005c38686d69d3ea7d02bf0dd05d912973cd81a456273733969d4da"
+    },
+    {
+      "path": "registry/blocks/page-header/page-header.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/blocks/page-header/page-header.module.css",
+      "content_sha256": "fe117fc7b586814614f2386135c84da505fc6309592a544aaa7ac655fbf882de"
+    }
+  ],
+  "docs": "Use this at the top of a project, repository, or record page. Connect breadcrumbs to your router, tab counts and status to your data, and Follow, Share update, New issue, and Archive to your API; every action in the preview is simulated.",
+  "meta": {
+    "tier": "free",
+    "kind": "block",
+    "builtFrom": [
+      "Button",
+      "Badge",
+      "Animated counter",
+      "Avatar group",
+      "Avatar",
+      "Progress"
+    ],
+    "docs": "https://uiarc.dev/components/blocks/page-header"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "brush-chart",
+  "type": "registry:ui",
+  "title": "Brush chart",
+  "description": "A dense time series with an overview strip: drag a window to zoom, resize it by its handles, and read events in place.",
+  "categories": [
+    "data"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/brush-chart/brush-chart.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/brush-chart/brush-chart.tsx",
+      "content_sha256": "d37c0f866336bd4aee61e3523edd60be4bfe23894116124758e61f964dc0758b"
+    },
+    {
+      "path": "registry/components/brush-chart/brush-chart.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/brush-chart/brush-chart.module.css",
+      "content_sha256": "de7ee8510ef381ef28a527642b918c89109a4e41d2b6ed768f5b25c3a39073fe"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/brush-chart",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "data",
+      "chart",
+      "new"
+    ],
+    "docs": "https://uiarc.dev/components/brush-chart",
+    "markdown": "https://uiarc.dev/components/brush-chart/markdown"
+  }
+}

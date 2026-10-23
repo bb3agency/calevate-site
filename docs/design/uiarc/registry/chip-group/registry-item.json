@@ -1,0 +1,42 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "chip-group",
+  "type": "registry:ui",
+  "title": "Chip group",
+  "description": "Filter by a few facets with chips that morph as you pick them.",
+  "categories": [
+    "inputs"
+  ],
+  "dependencies": [
+    "motion"
+  ],
+  "registryDependencies": [
+    "https://uiarc.dev/r/arc-motion-tokens.json"
+  ],
+  "files": [
+    {
+      "path": "registry/components/chip-group/chip-group.tsx",
+      "type": "registry:component",
+      "target": "@components/arc/chip-group/chip-group.tsx",
+      "content_sha256": "18bd79ee819c6546b6f538bc1df5b2645e07093cb8eeb3637939087cd81b7bfd"
+    },
+    {
+      "path": "registry/components/chip-group/chip-group.module.css",
+      "type": "registry:component",
+      "target": "@components/arc/chip-group/chip-group.module.css",
+      "content_sha256": "cc8c6c63756b0dee42c97c55ede87074996628f237bc31ef32e3d64f8f72b928"
+    }
+  ],
+  "docs": "Docs and live preview: https://uiarc.dev/components/chip-group",
+  "meta": {
+    "tier": "free",
+    "kind": "component",
+    "tags": [
+      "chips",
+      "filter",
+      "toggle"
+    ],
+    "docs": "https://uiarc.dev/components/chip-group",
+    "markdown": "https://uiarc.dev/components/chip-group/markdown"
+  }
+}
