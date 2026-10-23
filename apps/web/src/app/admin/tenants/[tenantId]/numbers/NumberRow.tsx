@@ -220,7 +220,7 @@ export function NumberRow({
           <div className="flex flex-wrap gap-2">
             <input
               aria-label={`Voice platform identifier for ${formatPhone(number.e164)}`}
-              className={`flex-1 font-mono ${FIELD_INLINE}`}
+              className={`flex-1 basis-80 font-mono ${FIELD_INLINE}`}
               value={ref}
               disabled={!canWrite}
               onChange={(ev) => setRef(ev.target.value.trim())}
