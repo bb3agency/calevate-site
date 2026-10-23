@@ -37,6 +37,7 @@ import { Card, Skeleton } from "@/components/ui";
 import { useUnscopedMe } from "@/lib/api/hooks";
 import { ApiProblem, apiRequest } from "@/lib/api/client";
 import { FIRST_RUN_PATH, type FirstRun } from "@/lib/api/firstRun";
+import { GO_LIVE_PATH, type GoLive } from "@/lib/api/goLive";
 import { clientRealmSession } from "@/lib/authn/realmSessions";
 import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { ClientSessionGate, ClientSessionProvider } from "@/lib/authn/clientSession";
@@ -77,14 +78,27 @@ function Resolve() {
     enabled: Boolean(slug) && owner,
     retry: false,
   });
-  const decided = !owner || firstRun.isSuccess || firstRun.isError;
+  const firstRunDecided = !owner || firstRun.isSuccess || firstRun.isError;
   const due = firstRun.data?.due === true;
+  // AFTER THE FIRST PAYMENT, THE GO-LIVE GUIDE (D-859), while it is owed and neither finished
+  // nor put aside. Asked only once the first run is not due, so a new owner meets their agent
+  // first; a failed read falls through to the dashboard, which offers the guide again.
+  const goLive = useQuery({
+    queryKey: ["junction-go-live", slug],
+    queryFn: () => apiRequest<GoLive>(clientRealmSession(slug as string), GO_LIVE_PATH),
+    enabled: Boolean(slug) && owner && firstRunDecided && !due,
+    retry: false,
+  });
+  const decided = firstRunDecided && (!owner || due || goLive.isSuccess || goLive.isError);
+  const goLiveDue = goLive.data?.due === true;
 
   useEffect(() => {
     if (!slug || !decided || typeof window === "undefined") return;
     // `replace`: see the module docstring — this junction must not sit in the history.
-    window.location.replace(due ? `/c/${slug}/agents/first` : `/c/${slug}`);
-  }, [slug, decided, due]);
+    window.location.replace(
+      due ? `/c/${slug}/agents/first` : goLiveDue ? `/c/${slug}/go-live` : `/c/${slug}`,
+    );
+  }, [slug, decided, due, goLiveDue]);
 
   // A signed-in person with no workspace yet (a new self-serve account, D-703) goes to
   // create one rather than reading a refusal.

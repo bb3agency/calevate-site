@@ -29,6 +29,7 @@ const ENDS = new Date("2026-10-10T17:28:00Z");
 function panel(over: Partial<TrialPanel> = {}): TrialPanel {
   return {
     on_trial: true,
+    paid_test_calls: false,
     status: "active",
     ends_at: "2026-10-10T17:28:00Z",
     days_remaining: 3,

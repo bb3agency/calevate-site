@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type FormEvent, type ReactNode } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Check } from "lucide-react";
 
 import { PRIMARY_BUTTON_LG } from "@/components/ui";
 
@@ -82,6 +82,73 @@ export function StepScreen({
         </div>
       ) : null}
     </form>
+  );
+}
+
+/**
+ * The four steps of a guided flow ("Meet your agent", D-855; the go-live guide, D-859). A row
+ * of four on a phone (the current one named under it), a column with every name from `lg`. A
+ * finished step can be gone back to.
+ */
+export function StepRail({
+  steps,
+  current,
+  onGo,
+}: {
+  /** Four steps: the phone row is four columns. */
+  steps: readonly { id: string; label: string }[];
+  current: number;
+  onGo: (step: number) => void;
+}) {
+  return (
+    <nav aria-label="Steps">
+      <ol className="grid grid-cols-4 gap-1.5 lg:grid-cols-1 lg:gap-1">
+        {steps.map((entry, index) => {
+          const done = index < current;
+          const here = index === current;
+          const tile = (
+            <>
+              <span
+                aria-hidden
+                className={`grid h-7 w-7 shrink-0 place-items-center rounded-[8px] border text-[12px] font-medium tabular-nums ${
+                  done ? "border-brand-strong bg-brand-strong text-white" : here ? "border-ink/40 text-ink" : "border-line text-ink-faint"
+                }`}
+              >
+                {done ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : index + 1}
+              </span>
+              <span
+                className={`hidden text-body lg:inline ${here ? "font-medium text-ink" : done ? "text-ink-muted" : "text-ink-faint"}`}
+              >
+                {entry.label}
+              </span>
+              <span className="sr-only lg:hidden">{entry.label}</span>
+            </>
+          );
+          const bar = <span aria-hidden className={`h-1 rounded-full lg:hidden ${done || here ? "bg-brand-strong" : "bg-line"}`} />;
+          return (
+            <li key={entry.id} aria-current={here ? "step" : undefined} className="flex min-w-0 flex-col gap-1.5 lg:block">
+              {bar}
+              {done ? (
+                <button
+                  type="button"
+                  onClick={() => onGo(index)}
+                  className="press hidden w-full items-center gap-3 rounded-md px-1 py-1 text-left hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand lg:flex"
+                >
+                  {tile}
+                  <span className="sr-only">, done. Go back to it</span>
+                </button>
+              ) : (
+                <span className="hidden items-center gap-3 px-1 py-1 lg:flex">{tile}</span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      <p className="mt-2 text-meta text-ink-muted lg:hidden">
+        Step {Math.min(current, steps.length - 1) + 1} of {steps.length}:{" "}
+        <span className="font-medium text-ink">{steps[Math.min(current, steps.length - 1)]?.label}</span>
+      </p>
+    </nav>
   );
 }
 
