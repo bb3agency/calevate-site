@@ -1799,3 +1799,21 @@ minutes per client; ESTIMATE, confirmed by the founder by sending it.
    reaches an agent only as `text` we extract. Test Chat on the throwaway agent answered
    `{"reply": "", "error": "An error occurred."}` (a bare agent with no knowledge; not a
    knowledge finding). Cleanup: all four documents and the agent deleted, 204.
+
+## 31. Knowledge files through the API (drafted 24 Oct 2026; the founder sends)
+
+Built on §30 q4's probe. The founder chose to wait for this reply before building the
+knowledge fix (D-868 reserved for it): extract PDF text ourselves, send links as `url`, show
+each item's status, the admin's per-agent view of what ThinnestAI holds, ThinnestAI's
+`knowledgeGaps`, and the "What your agents know" redesign.
+
+Asked:
+1. a file upload endpoint for knowledge (PDF, DOCX, XLSX, CSV, TXT, MD) with the usual
+   `pending` → `indexing` → `ready` / `failed` statuses;
+2. a `url` that serves a PDF read as a file (today `422 Unsupported content type:
+   application/pdf`);
+3. OCR for scanned pages (their Knowledge page: "There is no OCR");
+4. knowledge shared across a workspace instead of per agent;
+5. replacing a document in place (no update endpoint today);
+6. a webhook when a document finishes indexing or fails;
+7. reading back a document's indexed text or passages.
