@@ -53,8 +53,13 @@ export function LiveCallsPill({ slug }: { slug: string }) {
         className={`${BAR_STATUS} text-ink-muted`}
       >
         <span aria-hidden className="h-2 w-2 rounded-full bg-ink-faint" />
-        <span>
+        {/* On a phone a grey dot and a dash stand where the count would be, as the live
+            pill does: the sentence took the whole bar from the page title. */}
+        <span className="max-sm:sr-only">
           <span className="text-ink-muted">Live calls:</span> {"couldn't check"}
+        </span>
+        <span aria-hidden className="sm:hidden">
+          —
         </span>
       </Link>
     );
