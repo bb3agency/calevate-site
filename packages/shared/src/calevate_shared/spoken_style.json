@@ -572,7 +572,8 @@
       ],
       "openings": {
         "inbound": "నమస్కారం అండి, {business} కి call చేసినందుకు thanks. చెప్పండి, ఏం కావాలి?",
-        "outbound": "నమస్కారం అండి, {business} నుంచి call చేస్తున్నాను. ఇప్పుడు రెండు నిమిషాలు మాట్లాడొచ్చా?"
+        "outbound": "నమస్కారం అండి, {business} నుంచి call చేస్తున్నాను. ఇప్పుడు రెండు నిమిషాలు మాట్లాడొచ్చా?",
+        "test_call": "నమస్కారం అండి, నేను {name}, {business} నుంచి, ఇది మీ కొత్త receptionist test call. ఇప్పుడు మాట్లాడొచ్చా?"
       },
       "prompt_swaps": [
         "ధన్యవాదాలు",
@@ -616,7 +617,8 @@
         {
           "id": "okka-second",
           "text": "ఒక్క సెకండ్ అండి",
-          "use": "Before checking something or looking it up."
+          "use": "Before checking something or looking it up.",
+          "thinking": true
         },
         {
           "id": "ante",
@@ -1104,7 +1106,8 @@
       ],
       "openings": {
         "inbound": "नमस्ते जी, {business} में call करने के लिए thank you. बताइए, क्या चाहिए?",
-        "outbound": "नमस्ते जी, {business} की तरफ़ से call है। अभी दो minute बात हो सकती है?"
+        "outbound": "नमस्ते जी, {business} की तरफ़ से call है। अभी दो minute बात हो सकती है?",
+        "test_call": "नमस्ते जी, मैं {name}, {business} से, ये आपके नए receptionist का test call है। अभी बात हो सकती है?"
       },
       "prompt_swaps": [
         "कृपया",
@@ -1133,7 +1136,8 @@
         {
           "id": "ek-minute",
           "text": "एक minute जी",
-          "use": "Before checking something or looking it up."
+          "use": "Before checking something or looking it up.",
+          "thinking": true
         },
         {
           "id": "matlab",
@@ -1467,6 +1471,9 @@
             "Okay. Which day can you bring it in?"
           ]
         ]
+      },
+      "openings": {
+        "test_call": "Hello, this is {name}, your new receptionist at {business}, on a test call. Is now a good time to talk?"
       },
       "word_swaps": [
         [

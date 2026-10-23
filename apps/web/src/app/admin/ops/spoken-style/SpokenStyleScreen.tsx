@@ -41,6 +41,13 @@ import type { NoticeTone } from "@/components/ui";
 /** The language the screen opens on: Telugu is the product's first language. */
 const FIRST_LANGUAGE = "te-IN";
 
+/** Which call an opening starts (`calevate_shared.spoken_style.OPENING_KEYS`). */
+const OPENING_LABELS: Readonly<Record<string, string>> = {
+  inbound: "Answering a call",
+  outbound: "Calling someone",
+  test_call: "A receptionist ringing its owner on a free-trial test call",
+};
+
 const STATUS_LABELS: Record<StyleEntry["status"], string> = {
   approved: "Approved",
   needs_review: "Needs review",
@@ -80,6 +87,7 @@ interface Draft {
   formal: string;
   spoken: string;
   inPrompt: boolean;
+  thinking: boolean;
 }
 
 function draftOf(entry: StyleEntry | null): Draft {
@@ -91,6 +99,7 @@ function draftOf(entry: StyleEntry | null): Draft {
     formal: value?.formal ?? "",
     spoken: value?.spoken ?? "",
     inPrompt: Boolean(value?.in_prompt),
+    thinking: Boolean(value?.thinking),
   };
 }
 
@@ -99,7 +108,7 @@ function valueOf(kind: EntryKind, draft: Draft): StyleValue {
     return { formal: draft.formal.trim(), spoken: draft.spoken.trim(), in_prompt: draft.inPrompt };
   }
   if (kind === "example") return { turns: textToTurns(draft.text) };
-  if (kind === "filler") return { text: draft.text.trim(), use: draft.use.trim() };
+  if (kind === "filler") return { text: draft.text.trim(), use: draft.use.trim(), thinking: draft.thinking };
   return { text: draft.text.trim() };
 }
 
@@ -220,6 +229,16 @@ function EntryForm({
               />
             </label>
           )}
+          {kind === "filler" && (
+            <label className="flex items-center gap-2 text-body text-ink">
+              <input
+                type="checkbox"
+                checked={draft.thinking}
+                onChange={(e) => set({ thinking: e.target.checked })}
+              />
+              Say this while a reply is slow
+            </label>
+          )}
         </>
       )}
       <div className="flex flex-wrap gap-2">
@@ -261,9 +280,17 @@ function EntryRow({
               {entry.key === "_default" ? "Any business" : entry.key.replace(/_/g, " ")}
             </span>
           ) : null}
+          {entry.kind === "opening" ? (
+            <span className="mb-1 block text-meta font-medium text-ink-muted">
+              {lookup(OPENING_LABELS, entry.key) ?? entry.key}
+            </span>
+          ) : null}
           {summary}
           {entry.kind === "swap" && entry.value?.in_prompt ? (
             <span className="ml-2 text-meta text-ink-muted">· in every agent&apos;s instructions</span>
+          ) : null}
+          {entry.kind === "filler" && entry.value?.thinking ? (
+            <span className="ml-2 text-meta text-ink-muted">· said while a reply is slow</span>
           ) : null}
         </p>
         <StatusPill tone={lookup(STATUS_TONES, entry.status) ?? "neutral"}>

@@ -1975,7 +1975,10 @@ class ThinnestEngine:
             "nudges": cfg.nudge_count,
             "nudgePhrase": cfg.nudge_phrase or None,
             "endAfterSilenceSeconds": cfg.end_after_silence_seconds,
-            # The client's filler lines; empty is the vendor's own, in the caller's language.
+            # The client's filler lines, else ours in the agent's languages (founder, 23 Oct
+            # 2026); empty only for languages with none, which keeps the vendor's own. The
+            # engine says the lines written in the caller's script (create-agent.md:1438-1454,
+            # 19 Oct 2026 snapshot), and only after `thinkingDelayMs` of quiet.
             "thinking": True,
             "thinkingLines": list(cfg.filler_lines),
             # The client's background office sound. Volume is a fraction with at most two
@@ -2939,7 +2942,16 @@ class ThinnestEngine:
         if len(variables) > CALL_VARIABLES_MAX:
             raise _dial_precondition_failed(missing=f"room for {len(variables)} call variables")
         raw_agent, workspace = self._at(ref)
-        purpose = await self._outbound_opening(ref, variables)
+        # `purpose` is per call ("Why you are calling, as you would say it — the first thing
+        # the customer hears", place-call.md:783-789, 19 Oct 2026 snapshot), so a dial that
+        # brings its own first words (`CallContext.opening`) needs no change to the agent.
+        # Too long for `purpose` (a long business name beside both notices), the agent's own
+        # greeting is spoken instead: a test call with the wrong first line is better than none.
+        opening = _tidy_spoken(ctx.opening or "")
+        if len(opening) > PURPOSE_MAX_CHARS:
+            log.warning("thinnest_call_opening_too_long", extra={"length": len(opening)})
+            opening = ""
+        purpose = opening or await self._outbound_opening(ref, variables)
         body: dict[str, Any] = {
             "to": to,
             "purpose": purpose,

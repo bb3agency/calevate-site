@@ -58,8 +58,10 @@ ENTRY_KINDS: Final[tuple[EntryKind, ...]] = get_args(EntryKind)
 DEFAULT_EXAMPLES: Final = "_default"
 #: The key of a language's one register line.
 REGISTER_KEY: Final = "line"
-#: The call directions an opening is keyed by.
-OPENING_KEYS: Final = ("inbound", "outbound")
+#: What an opening is keyed by: the call direction, and `test_call`, the line an agent that
+#: only answers calls opens with when it rings its owner on a free-trial test call (founder,
+#: 23 Oct 2026), with `{name}` and `{business}` to fill.
+OPENING_KEYS: Final = ("inbound", "outbound", "test_call")
 
 #: Bounds on what an edit may hold, so a typo cannot blow the prompt budget.
 MAX_TEXT: Final = 600
@@ -83,6 +85,9 @@ class Filler:
     text: str
     #: When it is used, in English, for the writers.
     use: str = ""
+    #: Said while a reply is slow (the engine's filler line, `thinking_lines`), not only a
+    #: word the writers may use.
+    thinking: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +190,7 @@ def normalize_value(kind: str, key: str, raw: Mapping[str, Any]) -> dict[str, An
         return {
             "text": _text(raw, "text", MAX_SHORT),
             "use": _text(raw, "use", 300, required=False),
+            "thinking": bool(raw.get("thinking", False)),
         }
     if kind in ("number_rule", "punctuation"):
         return {"text": _text(raw, "text", 400)}
@@ -315,7 +321,14 @@ def _build(tag: str, row: Mapping[str, Any]) -> LanguageStyle:
         prompt_swaps=tuple(
             (e.value["formal"], e.value["spoken"]) for e in by_kind["swap"] if e.value["in_prompt"]
         ),
-        fillers=tuple(Filler(text=e.value["text"], use=e.value["use"]) for e in by_kind["filler"]),
+        fillers=tuple(
+            Filler(
+                text=e.value["text"],
+                use=e.value["use"],
+                thinking=bool(e.value.get("thinking", False)),
+            )
+            for e in by_kind["filler"]
+        ),
         number_rules=tuple(e.value["text"] for e in by_kind["number_rule"]),
         native_price_words=_native_price_words(tag, row),
         punctuation=tuple(e.value["text"] for e in by_kind["punctuation"]),
@@ -678,6 +691,33 @@ def example_exchange(tag: str | None, business_type: str | None) -> tuple[Exampl
     return style.examples.get(business_type or "", style.examples.get(DEFAULT_EXAMPLES, ()))
 
 
+def thinking_lines(tags: Sequence[str]) -> tuple[str, ...]:
+    """The fillers marked `thinking` for each language the agent speaks, in that order, each
+    once: the platform's own lines an agent says while a reply is slow (founder, 23 Oct 2026).
+
+    Every language's lines go together because the engine picks, per call, the lines written in
+    the caller's script (`voice.thinkingLines`, `thinnest-findings/mirror/snapshots/2026-10-19/
+    pages/api-reference/agents/create-agent.md:1446-1454`). A language with no such filler adds
+    none, so an agent whose languages have none sends none and keeps the engine's own."""
+    lines: list[str] = []
+    for tag in tags:
+        style = style_for(tag)
+        for filler in style.fillers if style is not None else ():
+            if filler.thinking and filler.text not in lines:
+                lines.append(filler.text)
+    return tuple(lines)
+
+
+def trial_call_opening(tag: str | None, *, name: str, business: str) -> str | None:
+    """The line an answer-only agent opens a free-trial test call with: who it is, from which
+    business, why it rings (a test of the owner's new receptionist) and whether now suits. None
+    where the language has no such line."""
+    template = opening_in(tag, "test_call")
+    if template is None:
+        return None
+    return " ".join(template.replace("{name}", name).replace("{business}", business).split())
+
+
 def opening_in(tag: str | None, direction: str) -> str | None:
     """A starter's opening line in the agent's language (`{business}` unfilled), or None
     where the table has none for it."""
@@ -799,5 +839,7 @@ __all__ = [
     "register_guidance",
     "shipped_pack_choice",
     "style_for",
+    "thinking_lines",
+    "trial_call_opening",
     "writer_guidance",
 ]

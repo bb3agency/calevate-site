@@ -89,6 +89,18 @@ describe("Ops > Spoken style", () => {
     });
   });
 
+  it("edits a filler with its slow-reply tick", async () => {
+    const page = renderAdminPage(<SpokenStylePage />, routes());
+    fireEvent.click(await screen.findByRole("button", { name: /^Edit: సరే అండి/ }));
+    fireEvent.click(screen.getByLabelText("Say this while a reply is slow"));
+    fireEvent.click(screen.getByRole("button", { name: "Save and approve" }));
+    await waitFor(() =>
+      expect(page.calls.some((c) => c.method === "POST" && c.path.endsWith("/entries"))).toBe(true),
+    );
+    const edit = page.calls.find((c) => c.method === "POST" && c.path.endsWith("/entries"));
+    expect(JSON.parse(edit?.body ?? "{}").value).toMatchObject({ text: "సరే అండి", thinking: true });
+  });
+
   it("publishes with the reviewer's name and the server's confirmation string", async () => {
     const page = renderAdminPage(<SpokenStylePage />, routes());
     fireEvent.change(await screen.findByLabelText(/^Reviewed by/), { target: { value: "Sri" } });

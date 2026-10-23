@@ -76,8 +76,8 @@ class TurnBody(BaseModel):
 
 class EntryValue(BaseModel):
     """One entry's value; which fields are set depends on the kind (register, opening,
-    number_rule, punctuation: `text`; filler: `text` and `use`; swap: `formal`, `spoken`
-    and `in_prompt`; example: `turns`)."""
+    number_rule, punctuation: `text`; filler: `text`, `use` and `thinking`; swap: `formal`,
+    `spoken` and `in_prompt`; example: `turns`)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -86,6 +86,8 @@ class EntryValue(BaseModel):
     formal: str | None = Field(default=None, max_length=120)
     spoken: str | None = Field(default=None, max_length=120)
     in_prompt: bool | None = None
+    #: A filler said while a reply is slow (`spoken_style.thinking_lines`).
+    thinking: bool | None = None
     turns: list[TurnBody] | None = Field(default=None, max_length=10)
 
 
@@ -381,6 +383,8 @@ async def change_entry(
         if kind == "swap":
             raw.setdefault("formal", key)
             raw.setdefault("in_prompt", bool(existing and existing.get("in_prompt")))
+        if kind == "filler":
+            raw.setdefault("thinking", bool(existing and existing.get("thinking")))
         try:
             value = normalize_value(kind, key, raw)
         except ValueError as exc:
