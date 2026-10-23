@@ -111,23 +111,6 @@
   --elevation-2: 0 1px 2px rgb(15 23 42 / 0.05), 0 4px 12px -2px rgb(15 23 42 / 0.08);
   --elevation-3: 0 2px 4px rgb(15 23 42 / 0.06), 0 12px 32px -6px rgb(15 23 42 / 0.18),
     0 24px 64px -12px rgb(15 23 42 / 0.16);
-
-  /*
-   * THE LIVE STAGE (`agents/first/LiveStage.tsx`): the one dark panel on the light first-run
-   * screen, where the build and the test call play out. Dark in both themes on purpose: it is
-   * a screen within the screen, so the eye goes to it while something is happening. A green
-   * black rather than slate, so it reads as ours beside the brand greens. Every text tone is
-   * at least 4.5:1 on `--stage` (faint 5.8:1, muted 9.1:1).
-   */
-  --stage: #082016;
-  --stage-raised: #0e2c1f;
-  --stage-line: rgb(255 255 255 / 0.1);
-  --stage-ink: #f0fdf4;
-  --stage-muted: #a7c4b4;
-  --stage-faint: #7f9e8d;
-  --stage-live: #4ade80;
-  --stage-warn: #fbbf24;
-  --stage-danger: #fb7185;
 }
 
 /*
@@ -214,15 +197,6 @@
   --color-chart-warn: var(--chart-warn);
   --color-chart-danger: var(--chart-danger);
   --color-chart-neutral: var(--chart-neutral);
-  --color-stage: var(--stage);
-  --color-stage-raised: var(--stage-raised);
-  --color-stage-line: var(--stage-line);
-  --color-stage-ink: var(--stage-ink);
-  --color-stage-muted: var(--stage-muted);
-  --color-stage-faint: var(--stage-faint);
-  --color-stage-live: var(--stage-live);
-  --color-stage-warn: var(--stage-warn);
-  --color-stage-danger: var(--stage-danger);
 
   --font-sans: var(--font-pp-mori);
   /* JetBrains Mono first (bundled, glyph-disambiguated — see app/layout.tsx), then the
@@ -603,22 +577,15 @@
  * motion paints the final frame.
  */
 /*
- * THE LIVE STAGE'S MOTION (`agents/first/LiveStage.tsx`). Every animation here shows a state
- * the server reported: a step being worked on, a line being drawn as a step lands, the call
- * dialling, ringing or live. None runs on a timer of its own. Under reduced motion each one
- * paints its finished frame (a drawn check, a still phone, level bars), and the words beside
- * it carry the state.
+ * THE LIVE PANEL'S MOTION (`agents/first/LiveStage.tsx`). Every animation here shows a state
+ * the server reported: a part being made or arriving as its step lands, the call dialling,
+ * ringing or live. None runs on a timer of its own. Transform and opacity only. Under reduced
+ * motion each one paints its finished frame (a part in place, a still phone, level bars), and
+ * the words beside it carry the state.
  */
 @keyframes stage-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-/* With `pathLength="1"` on the element, so one value draws any path. */
-@keyframes stage-draw {
-  from {
-    stroke-dashoffset: 1;
   }
 }
 
@@ -673,16 +640,6 @@
   from {
     opacity: 0;
     transform: translateY(4px);
-    filter: blur(2px);
-  }
-}
-
-@keyframes stage-shimmer {
-  from {
-    background-position: 130% 0;
-  }
-  to {
-    background-position: -100% 0;
   }
 }
 
@@ -694,16 +651,8 @@
   }
 }
 
-@utility stage-draw {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 0;
-  @media (prefers-reduced-motion: no-preference) {
-    animation: stage-draw 420ms var(--ease-out-strong) both;
-  }
-}
-
 @utility stage-dash {
-  background-image: repeating-linear-gradient(90deg, var(--stage-live) 0 4px, transparent 4px 12px);
+  background-image: repeating-linear-gradient(90deg, var(--brand) 0 4px, transparent 4px 12px);
   @media (prefers-reduced-motion: no-preference) {
     animation: stage-dash 600ms linear infinite;
   }
@@ -784,6 +733,13 @@
   }
 }
 
+@keyframes stage-arrive {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+}
+
 /* Bars of the voice: they rise as if speaking, then settle to `--settle` of their height. */
 @utility stage-settle {
   @media (prefers-reduced-motion: no-preference) {
@@ -816,22 +772,16 @@
   }
 }
 
-@utility stage-in {
+/* A finished part's words settling into their slot. */
+@utility stage-arrive {
   @media (prefers-reduced-motion: no-preference) {
-    animation: stage-in 280ms var(--ease-out-strong) both;
+    animation: stage-arrive 360ms var(--ease-out-strong) both;
   }
 }
 
-/* `text-shimmer` for the dark stage: the band is the live green, not `--brand-strong`,
-   which would vanish into the ground. */
-@utility stage-shimmer {
-  @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
-    background-image: linear-gradient(90deg, currentColor 35%, var(--stage-live) 50%, currentColor 65%);
-    background-size: 200% 100%;
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: stage-shimmer 2.4s linear infinite;
+@utility stage-in {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: stage-in 280ms var(--ease-out-strong) both;
   }
 }
 

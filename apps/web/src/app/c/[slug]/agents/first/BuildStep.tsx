@@ -4,13 +4,13 @@ import { useId, useState } from "react";
 import { ArrowRight, Pencil, RotateCcw } from "lucide-react";
 
 import { TEXT_ACTION } from "@/components/console/section";
-import { FIELD_INLINE, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
+import { FIELD_INLINE, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { useBuildAgent, useRenameAgent, type FirstRun, type FirstRunBuildStep } from "@/lib/api/firstRun";
 import { useClientSession } from "@/lib/api/session";
 import { languageLabel, voicePickNote } from "@/lib/firstAgent";
 
-import { BuildStage, STAGE_BUTTON, type BuildRow, type RowState } from "./LiveStage";
+import { BuildStage, type BuildRow, type RowState } from "./LiveStage";
 import { StepScreen } from "./shell";
 
 /** Each step's name on the stage, and what it says while it is worked on, in the order the
@@ -135,7 +135,7 @@ export function BuildStep({
             run.build.builds_left > 0 ? (
               <button
                 type="button"
-                className={STAGE_BUTTON}
+                className={PRIMARY_BUTTON}
                 disabled={retry.isPending}
                 onClick={() => retry.mutate(null)}
               >
@@ -143,7 +143,7 @@ export function BuildStep({
                 {retry.isPending ? "Starting again…" : "Try again"}
               </button>
             ) : (
-              <p className="text-meta text-stage-muted">Build it from the Agents screen instead.</p>
+              <p className="text-meta text-ink-muted">Build it from the Agents screen instead.</p>
             )
           ) : null
         }

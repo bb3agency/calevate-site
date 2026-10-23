@@ -11,11 +11,12 @@
 /**
  * A radio rendered as a card.
  *
- * Selection is a brand ring plus a tick, NOT a brand fill. `--brand-soft` has no dark
- * value by design (it is the medallion tint, and `ui.tsx` uses it with a fixed dark-green
- * foreground), so a filled card would need its own text colour in each theme to stay
- * readable — a two-colour pair that the next person to add an option will get wrong. A
- * ring changes nothing about the text.
+ * Selection is a brand ring, a tick and a faint brand wash, NOT a `--brand-soft` fill.
+ * `--brand-soft` has no dark value by design (it is the medallion tint, and `ui.tsx` uses it
+ * with a fixed dark-green foreground), so a filled card would need its own text colour in
+ * each theme to stay readable. The wash is the brand at 5% over the card's own surface, so
+ * the text keeps its colour in either theme; it is there because a 1px ring alone left a
+ * chosen card hard to tell from the rest at a glance (founder, 23 Oct 2026).
  */
 /*
  * The FOCUS ring, on the card rather than on the input.
@@ -32,5 +33,5 @@
 export const CHOICE_CARD =
   "relative block cursor-pointer rounded-card border p-3 transition-colors " +
   "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app";
-export const CHOICE_ON = "border-brand ring-1 ring-brand bg-surface";
+export const CHOICE_ON = "border-brand ring-1 ring-brand bg-brand/[0.05]";
 export const CHOICE_OFF = "border-line bg-surface hover:border-ink-faint";

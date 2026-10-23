@@ -22,7 +22,7 @@ import { CapturedDetails } from "../../calls/[callId]/CapturedDetails";
 import { RecordingCard } from "../../calls/[callId]/RecordingCard";
 import { useRecordingLink } from "../../calls/[callId]/transcriptAccess";
 import { TestCallTranscript } from "../../TestCallTranscript";
-import { CallStage, STAGE_BUTTON } from "./LiveStage";
+import { CallStage } from "./LiveStage";
 import { StepScreen } from "./shell";
 
 /** A call that did not connect has nothing to show; it gets "Try again" instead. */
@@ -66,7 +66,7 @@ export function ResultStep({
           name={agent.name}
           detail={missed}
           actions={
-            <button type="button" className={STAGE_BUTTON} onClick={onCallAgain}>
+            <button type="button" className={PRIMARY_BUTTON} onClick={onCallAgain}>
               <PhoneCall aria-hidden className="h-4 w-4" />
               Call me again
             </button>

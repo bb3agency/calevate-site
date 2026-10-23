@@ -456,7 +456,7 @@ describe("meet your agent", () => {
     await renderClientPage(page, routes({ "/v1/first-run": building }));
     expect(await screen.findByRole("region", { name: "Your agent being built" })).toBeTruthy();
     // A picture, one caption in words, and every step in a list a screen reader reads.
-    expect(screen.getByRole("img", { name: "Your agent being put together" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Your agent's card being put together" })).toBeTruthy();
     expect(screen.getByText("0 of 4 · Choosing a voice for Telugu")).toBeTruthy();
     expect(screen.getByText(/Voice: Working on it, Choosing a voice for Telugu/)).toBeTruthy();
     expect(screen.getByText(/AI notice: Waiting/)).toBeTruthy();

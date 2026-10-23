@@ -7,38 +7,25 @@ import { formatDuration } from "@/components/ui";
 import type { FirstRunBuildStep } from "@/lib/api/firstRun";
 
 /**
- * THE LIVE STAGE (founder, 23 Oct 2026): the one dark panel on the light first-run screen,
- * where the agent is built and where it calls you.
+ * THE LIVE PANEL (founder, 23 Oct 2026): where the agent is built and where it calls you.
  *
- * Every frame is a state the server reported. The build's rows move when `GET /v1/first-run`
+ * Part of the page: the soft grey well the console uses for a read-only area, a hairline
+ * border, the brand green as the accent, and the illustration drawn in white on it as the
+ * focus. It was a dark panel first; the founder rejected that as a dark hero card that read
+ * as Outpero's.
+ *
+ * Every frame is a state the server reported. The build's parts move when `GET /v1/first-run`
  * says a step is being worked on or is done; the call moves when the call's own row says
- * queued, ringing, in progress or ended. Nothing waits on a timer of its own, so the stage
+ * queued, ringing, in progress or ended. Nothing waits on a timer of its own, so the panel
  * can never show progress that did not happen.
  *
- * Hand-built from HTML, inline SVG and the `stage-*` utilities in `globals.css`: transform
- * and opacity only, no library, nothing loaded. Under reduced motion each state paints its
- * finished frame and the words carry it.
+ * Inline SVG and HTML with the `stage-*` motion utilities in `globals.css`: transform and
+ * opacity only, no library. Under reduced motion each state paints its finished frame and the
+ * words carry it.
  */
-export function Stage({
-  label,
-  children,
-  className = "",
-}: {
-  /** The region's accessible name ("Your agent being built"). */
-  label: string;
-  children: ReactNode;
-  className?: string;
-}) {
+export function Stage({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <section
-      aria-label={label}
-      className={`relative isolate overflow-hidden rounded-[18px] bg-stage p-5 text-stage-ink shadow-raised sm:p-6 ${className}`}
-    >
-      {/* The agent's light: one soft green glow behind the mark, so the stage has a source. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -left-16 -top-20 z-below h-56 w-56 rounded-full bg-[radial-gradient(closest-side,rgb(74_222_128/0.16),transparent)]"
-      />
+    <section aria-label={label} className="rounded-card border border-line bg-surface-muted p-4 sm:p-5">
       {children}
     </section>
   );
@@ -47,20 +34,15 @@ export function Stage({
 export type OrbState = "idle" | "working" | "ready" | "live" | "trouble";
 
 /**
- * THE AGENT'S MARK on the stage: its initial in a disc, inside a ring that says what it is
- * doing. Working: an arc goes round. Ready: the ring draws closed. Live (on a call): the ring
- * is lit. Trouble: the ring turns amber.
+ * THE AGENT'S MARK on the call: its initial in a soft green disc, inside a ring that says what
+ * it is doing. Working: an arc goes round. Ready or live: the ring is green. Trouble: amber.
  */
-export function AgentOrb({ initial, state, size = 64 }: { initial: string | null; state: OrbState; size?: number }) {
-  const ring = state === "trouble" ? "var(--stage-warn)" : state === "idle" ? "var(--stage-line)" : "var(--stage-live)";
+export function AgentOrb({ initial, state, size = 56 }: { initial: string | null; state: OrbState; size?: number }) {
+  const ring = state === "trouble" ? "var(--warn)" : "var(--brand)";
   return (
-    <span
-      aria-hidden
-      className="relative inline-grid shrink-0 place-items-center"
-      style={{ width: size, height: size }}
-    >
+    <span aria-hidden className="relative inline-grid shrink-0 place-items-center" style={{ width: size, height: size }}>
       <svg viewBox="0 0 64 64" className="absolute inset-0 h-full w-full" fill="none">
-        <circle cx="32" cy="32" r="30" stroke="var(--stage-line)" strokeWidth="2" />
+        <circle cx="32" cy="32" r="30" stroke="var(--line)" strokeWidth="2" />
         {state === "working" ? (
           <circle
             cx="32"
@@ -74,28 +56,12 @@ export function AgentOrb({ initial, state, size = 64 }: { initial: string | null
             className="stage-spin"
           />
         ) : state !== "idle" ? (
-          <circle
-            key={state}
-            cx="32"
-            cy="32"
-            r="30"
-            stroke={ring}
-            strokeWidth="2.5"
-            pathLength={1}
-            transform="rotate(-90 32 32)"
-            className="stage-draw"
-          />
+          <circle key={state} cx="32" cy="32" r="30" stroke={ring} strokeWidth="2.5" className="stage-in" />
         ) : null}
       </svg>
       <span
-        className={`grid place-items-center rounded-full bg-stage-raised font-semibold text-stage-ink ${
-          state === "live" ? "ring-1 ring-stage-live/40" : ""
-        }`}
-        style={{
-          width: size - 16,
-          height: size - 16,
-          fontSize: Math.round(size * 0.36),
-        }}
+        className="grid place-items-center rounded-full bg-brand-soft font-semibold text-brand-strong"
+        style={{ width: size - 16, height: size - 16, fontSize: Math.round(size * 0.36) }}
       >
         {initial ?? ""}
       </span>
@@ -131,27 +97,33 @@ const ROW_WORDS: Readonly<Record<RowState, string>> = {
 
 /** The voice's bars: their height while speaking and the share of it they settle to. */
 const VOICE_BARS = [
-  { h: 18, settle: 0.45 },
-  { h: 32, settle: 0.4 },
-  { h: 24, settle: 0.5 },
-  { h: 40, settle: 0.35 },
-  { h: 28, settle: 0.45 },
-  { h: 36, settle: 0.4 },
-  { h: 20, settle: 0.5 },
+  { h: 14, settle: 0.5 },
+  { h: 22, settle: 0.45 },
+  { h: 16, settle: 0.55 },
+  { h: 24, settle: 0.4 },
+  { h: 18, settle: 0.5 },
+  { h: 22, settle: 0.45 },
+  { h: 12, settle: 0.6 },
 ] as const;
 
-/** The script page's lines, by width. */
-const SCRIPT_LINES = [40, 34, 40, 26, 36] as const;
+/** The script's lines inside its page, by width. */
+const SCRIPT_LINES = [104, 86, 112, 66] as const;
 
 /**
- * THE AGENT BEING PUT TOGETHER (founder, 23 Oct 2026: a picture, not a checklist). The agent
- * sits in the middle; each of its four parts comes to it when the server says that step is
- * done: the voice as bars that speak and settle, the script as a page whose lines fill, the
- * greeting as a bubble, the AI notice as a badge stamped on. The part being made breathes
- * in outline; parts not reached are faint outlines. One caption says the same in words, and a
- * hidden list gives a screen reader every step.
+ * THE AGENT'S CARD, PUT TOGETHER (founder, 23 Oct 2026: a picture, ours, on a light page).
  *
- * Transform and opacity only, in one `viewBox`, so it scales to the panel at any width.
+ * The picture is the card the agent ends up with: its face and name at the top, its voice
+ * under its name, its script and its greeting side by side below, and the AI notice as a seal
+ * on the card's corner. Each piece is a slot drawn as a light grey outline until the server
+ * says that step is done; then it fills with the soft green and settles into place. The slot
+ * being made is outlined in green and breathes. When all four are in, the card's own border
+ * turns green: the agent is whole.
+ *
+ * One composed object rather than a list of steps, so it reads as the agent and not as a
+ * checklist; it is also the same anatomy as the "Your agent" card beside the steps, so the
+ * picture and the card agree. One caption says the same in words, and a hidden list gives a
+ * screen reader every step. Transform and opacity only, in one `viewBox`, so it scales to the
+ * panel at any width.
  */
 export function BuildStage({
   rows,
@@ -183,38 +155,43 @@ export function BuildStage({
 
   return (
     <Stage label={built ? `${name ?? "Your agent"} is built` : "Your agent being built"}>
-      {/* The step's own heading says "Building your agent"; the stage names the agent once it
-          has a name, which arrives with its voice. */}
-      {name ? <p className="truncate text-heading text-stage-ink">{built ? name : `Building ${name}`}</p> : null}
-
       <svg
-        viewBox="0 0 360 190"
-        className="mx-auto mt-2 block h-auto w-full max-w-[460px]"
+        viewBox="0 0 360 214"
+        className="mx-auto block h-auto w-full max-w-[480px]"
         role="img"
-        aria-label={built ? "Your agent, with its voice, script, greeting and AI notice" : "Your agent being put together"}
+        aria-label={
+          built ? "Your agent's card, with its voice, script, greeting and AI notice" : "Your agent's card being put together"
+        }
       >
-        <SceneLinks stateOf={stateOf} />
-        <VoicePart state={stateOf("voice")} tag={voice?.state === "done" ? voice.tag : undefined} />
-        <ScriptPart state={stateOf("script")} />
-        <GreetingPart state={stateOf("greeting")} />
-        <Avatar initial={initial} built={built} failed={failed} />
-        <NoticePart state={stateOf("notice")} />
+        <rect
+          x="8"
+          y="14"
+          width="344"
+          height="192"
+          rx="16"
+          fill="var(--surface)"
+          stroke={built ? "var(--brand)" : "var(--line)"}
+          strokeWidth="1.5"
+          className="transition-[stroke] duration-500"
+        />
+        <Face initial={initial} name={name} built={built} failed={failed} />
+        <VoiceSlot state={stateOf("voice")} tag={voice?.state === "done" ? voice.tag : undefined} />
+        <line x1="24" y1="108" x2="336" y2="108" stroke="var(--line)" strokeWidth="1" />
+        <ScriptSlot state={stateOf("script")} />
+        <GreetingSlot state={stateOf("greeting")} />
+        <NoticeSeal state={stateOf("notice")} />
       </svg>
 
       {stateOf("greeting") === "done" && greeting ? (
-        <figure className="stage-in relative mx-auto mt-2 max-w-md rounded-xl border border-stage-line bg-stage-raised px-4 py-3">
-          <span
-            aria-hidden
-            className="absolute -top-1.5 left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-l border-t border-stage-line bg-stage-raised"
-          />
-          <figcaption className="text-meta text-stage-faint">It opens every call with</figcaption>
-          <blockquote lang={greetingLang} className="mt-1 line-clamp-3 break-words text-[15px] leading-relaxed text-stage-ink">
+        <figure className="stage-in mx-auto mt-3 max-w-md rounded-md border border-line bg-surface px-4 py-3">
+          <figcaption className="text-meta text-ink-muted">It opens every call with</figcaption>
+          <blockquote lang={greetingLang} className="mt-1 line-clamp-3 break-words text-[15px] leading-relaxed text-ink">
             “{greeting}”
           </blockquote>
         </figure>
       ) : null}
-      <p aria-live="polite" className="mt-3 text-center text-meta text-stage-muted">
-        {working && !failed ? <span className="stage-shimmer">{caption}</span> : caption}
+      <p aria-live="polite" className="mt-3 text-center text-meta text-ink-muted">
+        {working && !failed ? <span className="text-shimmer">{caption}</span> : caption}
       </p>
       <ol className="sr-only">
         {rows.map((row) => (
@@ -225,118 +202,137 @@ export function BuildStage({
           </li>
         ))}
       </ol>
-
-      {footer ? <div className="mt-5">{footer}</div> : null}
+      {footer ? <div className="mt-4 flex justify-center">{footer}</div> : null}
     </Stage>
   );
 }
 
-/** A part's tone: lit when done, amber when it needs the owner, red when the build stopped
- *  on it, breathing while it is made, faint before. */
-function toneOf(state: RowState): { stroke: string; fill: string; className: string } {
+/** A slot's look: a light grey outline before it is reached, green and breathing while it is
+ *  made, soft green when done, amber when it needs the owner, red where the build stopped. */
+function slotTone(state: RowState): { stroke: string; fill: string; ink: string; dash?: string; className: string } {
   switch (state) {
     case "done":
-      return { stroke: "var(--stage-live)", fill: "rgb(74 222 128 / 0.12)", className: "stage-in" };
+      return { stroke: "var(--brand)", fill: "var(--brand-soft)", ink: "var(--brand-strong)", className: "" };
     case "warn":
-      return { stroke: "var(--stage-warn)", fill: "rgb(251 191 36 / 0.1)", className: "stage-in" };
+      return { stroke: "var(--warn)", fill: "var(--warn-soft)", ink: "var(--warn)", className: "" };
     case "failed":
-      return { stroke: "var(--stage-danger)", fill: "transparent", className: "" };
+      return { stroke: "var(--danger)", fill: "var(--surface)", ink: "var(--danger)", dash: "4 4", className: "" };
     case "working":
-      return { stroke: "var(--stage-live)", fill: "transparent", className: "stage-breathe" };
+      return { stroke: "var(--brand)", fill: "var(--surface)", ink: "var(--brand)", dash: "5 4", className: "stage-breathe" };
     default:
-      return { stroke: "var(--stage-line)", fill: "transparent", className: "" };
+      return { stroke: "var(--chart-neutral)", fill: "var(--surface)", ink: "var(--chart-neutral)", className: "" };
   }
 }
 
-/** The faint lines that join each part to the agent, lit as the part arrives. */
-function SceneLinks({ stateOf }: { stateOf: (step: BuildRow["step"]) => RowState }) {
-  const lit = (step: BuildRow["step"]) => (stateOf(step) === "done" ? "var(--stage-live)" : "var(--stage-line)");
-  const line = (step: BuildRow["step"], d: string) => (
-    <path
-      d={d}
-      fill="none"
-      stroke={lit(step)}
-      strokeWidth="1.5"
-      strokeDasharray="2 4"
-      strokeLinecap="round"
-      className="transition-[stroke] duration-500"
-    />
-  );
-  return (
-    <g aria-hidden>
-      {line("voice", "M118 92 H140")}
-      {line("script", "M220 92 H244")}
-      {line("greeting", "M152 52 L164 62")}
-    </g>
-  );
+/** The pieces of a slot that arrive with it: they rise a few pixels and fade in, once. */
+function Arrival({ state, children }: { state: RowState; children: ReactNode }) {
+  return <g className={state === "done" || state === "warn" ? "stage-arrive" : ""}>{children}</g>;
 }
 
-function Avatar({ initial, built, failed }: { initial: string | null; built: boolean; failed: boolean }) {
-  const ring = failed ? "var(--stage-warn)" : "var(--stage-live)";
+const LABEL = { fontSize: 11.5, fontWeight: 500 } as const;
+
+function Face({
+  initial,
+  name,
+  built,
+  failed,
+}: {
+  initial: string | null;
+  name: string | null;
+  built: boolean;
+  failed: boolean;
+}) {
   return (
     <g aria-hidden>
-      <circle cx="180" cy="92" r="44" fill="none" stroke="var(--stage-line)" strokeWidth="2" />
+      <circle cx="52" cy="60" r="28" fill="none" stroke="var(--line)" strokeWidth="2" />
       {built || failed ? (
-        <circle key={String(built)} cx="180" cy="92" r="44" fill="none" stroke={ring} strokeWidth="2.5" className="stage-in" />
+        <circle
+          key={String(built)}
+          cx="52"
+          cy="60"
+          r="28"
+          fill="none"
+          stroke={failed ? "var(--warn)" : "var(--brand)"}
+          strokeWidth="2.5"
+          className="stage-in"
+        />
       ) : (
         <circle
-          cx="180"
-          cy="92"
-          r="44"
+          cx="52"
+          cy="60"
+          r="28"
           fill="none"
-          stroke={ring}
+          stroke="var(--brand)"
           strokeWidth="2.5"
           strokeLinecap="round"
           pathLength={1}
-          strokeDasharray="0.2 0.8"
+          strokeDasharray="0.22 0.78"
           className="stage-spin"
         />
       )}
-      <circle cx="180" cy="92" r="34" fill="var(--stage-raised)" />
+      <circle cx="52" cy="60" r="22" fill={initial ? "var(--brand-soft)" : "var(--surface-muted)"} />
       {initial ? (
         <text
-          x="180"
-          y="92"
+          x="52"
+          y="60"
           textAnchor="middle"
           dominantBaseline="central"
-          fill="var(--stage-ink)"
-          fontSize="28"
+          fill="var(--brand-strong)"
+          fontSize="20"
           fontWeight="600"
           className="stage-in"
         >
           {initial}
         </text>
       ) : (
-        <g fill="var(--stage-faint)">
-          <circle cx="180" cy="84" r="9" />
-          <path d="M163 108c3-9 10-13 17-13s14 4 17 13z" />
+        <g fill="var(--chart-neutral)">
+          <circle cx="52" cy="54" r="7" />
+          <path d="M39 74c2-7 7-10 13-10s11 3 13 10z" />
         </g>
+      )}
+      {name ? (
+        <text x="92" y="50" fill="var(--text)" fontSize="17" fontWeight="600" className="stage-in">
+          {name.length > 18 ? `${name.slice(0, 17)}…` : name}
+        </text>
+      ) : (
+        <rect x="92" y="38" width="96" height="12" rx="6" fill="var(--surface-muted)" />
       )}
     </g>
   );
 }
 
-/** The voice: bars that rise as if speaking, then settle to a low line, with its name. */
-function VoicePart({ state, tag }: { state: RowState; tag?: string }) {
-  const tone = toneOf(state);
+/** The voice, under the name: bars that rise as if speaking, then settle low, with its name. */
+function VoiceSlot({ state, tag }: { state: RowState; tag?: string }) {
+  const tone = slotTone(state);
   const arrived = state === "done";
   return (
     <g aria-hidden>
-      <rect x="44" y="64" width="72" height="56" rx="12" fill={tone.fill} stroke={tone.stroke} strokeWidth="1.5" className={tone.className} />
+      <rect
+        x="88"
+        y="62"
+        width="200"
+        height="30"
+        rx="15"
+        fill={tone.fill}
+        stroke={tone.stroke}
+        strokeWidth="1.5"
+        strokeDasharray={tone.dash}
+        className={tone.className}
+      />
       {VOICE_BARS.map((bar, index) => (
         <rect
           key={index}
-          x={53 + index * 8.5}
-          y={92 - bar.h / 2}
-          width="5"
+          x={102 + index * 7}
+          y={77 - bar.h / 2}
+          width="3.5"
           height={bar.h}
-          rx="2.5"
-          fill={arrived ? "var(--stage-live)" : "var(--stage-line)"}
+          rx="1.75"
+          fill={arrived ? "var(--brand)" : tone.ink}
           className={arrived ? "stage-settle" : ""}
           style={
             {
               "--settle": bar.settle,
-              transform: `scaleY(${arrived ? bar.settle : 0.25})`,
+              transform: `scaleY(${arrived ? bar.settle : 0.3})`,
               transformBox: "fill-box",
               transformOrigin: "center",
               animationDelay: `${index * 40}ms`,
@@ -344,99 +340,129 @@ function VoicePart({ state, tag }: { state: RowState; tag?: string }) {
           }
         />
       ))}
-      {arrived && tag ? (
-        <text x="80" y="140" textAnchor="middle" fill="var(--stage-muted)" fontSize="12.5" className="stage-in">
-          {tag.length > 22 ? `${tag.slice(0, 21)}…` : tag}
+      <Arrival state={state}>
+        <text x="158" y="81" fill={arrived ? "var(--brand-strong)" : "var(--text-faint)"} {...LABEL}>
+          {arrived && tag ? (tag.length > 20 ? `${tag.slice(0, 19)}…` : tag) : "Voice"}
         </text>
-      ) : (
-        <text x="80" y="140" textAnchor="middle" fill="var(--stage-faint)" fontSize="12.5">
-          Voice
-        </text>
-      )}
+      </Arrival>
     </g>
   );
 }
 
 /** The script: a page whose lines fill in, one after another. */
-function ScriptPart({ state }: { state: RowState }) {
-  const tone = toneOf(state);
+function ScriptSlot({ state }: { state: RowState }) {
+  const tone = slotTone(state);
   const arrived = state === "done";
   return (
     <g aria-hidden>
-      <path
-        d="M244 58h44l14 14v58a6 6 0 0 1-6 6h-52a6 6 0 0 1-6-6V64a6 6 0 0 1 6-6z"
-        fill={arrived ? "var(--stage-raised)" : tone.fill}
+      <rect
+        x="24"
+        y="120"
+        width="150"
+        height="74"
+        rx="10"
+        fill={tone.fill}
         stroke={tone.stroke}
         strokeWidth="1.5"
+        strokeDasharray={tone.dash}
         className={tone.className}
       />
-      <path d="M288 58v14h14" fill="none" stroke={tone.stroke} strokeWidth="1.5" />
+      <text x="36" y="138" fill={arrived ? "var(--brand-strong)" : "var(--text-faint)"} {...LABEL}>
+        Script
+      </text>
       {SCRIPT_LINES.map((width, index) => (
         <rect
           key={index}
-          x="248"
-          y={80 + index * 10}
+          x="36"
+          y={148 + index * 10}
           width={width}
-          height="3.5"
-          rx="1.75"
-          fill={arrived ? "var(--stage-muted)" : "var(--stage-line)"}
+          height="4"
+          rx="2"
+          fill={arrived ? "var(--brand)" : "var(--line)"}
+          opacity={arrived ? 0.55 : 1}
           className={arrived ? "stage-line-in" : ""}
           style={{ transformBox: "fill-box", transformOrigin: "left center", animationDelay: `${index * 90}ms` }}
         />
       ))}
-      <text x="272" y="152" textAnchor="middle" fill={arrived ? "var(--stage-muted)" : "var(--stage-faint)"} fontSize="12.5">
-        Script
-      </text>
     </g>
   );
 }
 
-/** The greeting: a speech bubble that pops out of the agent. */
-function GreetingPart({ state }: { state: RowState }) {
-  const tone = toneOf(state);
+/** The greeting: a speech bubble beside the script that pops out once it is written. */
+function GreetingSlot({ state }: { state: RowState }) {
+  const tone = slotTone(state);
   const arrived = state === "done";
   return (
-    <g aria-hidden className={arrived ? "stage-pop" : tone.className} style={{ transformBox: "fill-box", transformOrigin: "80% 100%" }}>
+    <g
+      aria-hidden
+      className={arrived ? "stage-pop" : tone.className}
+      style={{ transformBox: "fill-box", transformOrigin: "10% 100%" }}
+    >
       <path
-        d="M104 14h52a10 10 0 0 1 10 10v16a10 10 0 0 1-10 10h-4l-6 10-4-10h-38a10 10 0 0 1-10-10V24a10 10 0 0 1 10-10z"
-        fill={arrived ? "rgb(74 222 128 / 0.14)" : tone.fill}
+        d="M196 120h128a12 12 0 0 1 12 12v38a12 12 0 0 1-12 12H216l-14 12 2-12h-8a12 12 0 0 1-12-12v-38a12 12 0 0 1 12-12z"
+        fill={tone.fill}
         stroke={tone.stroke}
         strokeWidth="1.5"
+        strokeDasharray={tone.dash}
       />
-      {[118, 130, 142].map((cx) => (
-        <circle key={cx} cx={cx} cy="32" r="3" fill={arrived ? "var(--stage-live)" : "var(--stage-line)"} />
-      ))}
-      <text x="78" y="36" textAnchor="end" fill={arrived ? "var(--stage-muted)" : "var(--stage-faint)"} fontSize="12.5">
+      <text x="198" y="138" fill={arrived ? "var(--brand-strong)" : "var(--text-faint)"} {...LABEL}>
         Greeting
       </text>
+      {[0, 1].map((index) => (
+        <rect
+          key={index}
+          x="198"
+          y={150 + index * 11}
+          width={index === 0 ? 118 : 80}
+          height="4"
+          rx="2"
+          fill={arrived ? "var(--brand)" : "var(--line)"}
+          opacity={arrived ? 0.55 : 1}
+        />
+      ))}
     </g>
   );
 }
 
-/** The AI notice: a shield stamped onto the agent. */
-function NoticePart({ state }: { state: RowState }) {
-  const tone = toneOf(state);
+/** The AI notice: a seal stamped on the card's corner. */
+function NoticeSeal({ state }: { state: RowState }) {
+  const tone = slotTone(state);
   const arrived = state === "done";
   return (
     <g aria-hidden>
-      <g className={arrived ? "stage-stamp" : tone.className} style={{ transformBox: "fill-box", transformOrigin: "center" }}>
-        <path
-          d="M212 104l13 5v9c0 8-6 13-13 16-7-3-13-8-13-16v-9z"
-          fill={arrived ? "var(--stage-live)" : "var(--stage)"}
-          stroke={arrived ? "var(--stage-live)" : tone.stroke}
+      <g
+        className={arrived ? "stage-stamp" : tone.className}
+        style={{ transformBox: "fill-box", transformOrigin: "center" }}
+      >
+        <circle
+          cx="316"
+          cy="48"
+          r="20"
+          fill={arrived ? "var(--brand-strong)" : "var(--surface)"}
+          stroke={arrived ? "var(--brand-strong)" : tone.stroke}
           strokeWidth="1.5"
+          strokeDasharray={arrived ? undefined : tone.dash}
         />
         {arrived ? (
-          <path d="M206.5 118.5l4 4 7-8" fill="none" stroke="var(--stage)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-        ) : (
-          <text x="212" y="122" textAnchor="middle" fill="var(--stage-faint)" fontSize="8" fontWeight="600">
-            AI
-          </text>
-        )}
+          <path
+            d="M316 36l8 3v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10v-6z"
+            fill="none"
+            stroke="white"
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+          />
+        ) : null}
+        <text
+          x="316"
+          y={arrived ? 47 : 52}
+          textAnchor="middle"
+          fill={arrived ? "white" : "var(--text-faint)"}
+          fontSize={arrived ? 7.5 : 11}
+          fontWeight="700"
+        >
+          AI
+        </text>
       </g>
-      <text x="212" y="152" textAnchor="middle" fill={arrived ? "var(--stage-muted)" : "var(--stage-faint)"} fontSize="12.5">
-        AI notice
-      </text>
     </g>
   );
 }
@@ -445,12 +471,12 @@ function NoticePart({ state }: { state: RowState }) {
 /* Reading the brief                                                                     */
 /* ------------------------------------------------------------------------------------- */
 
-/** How much of the brief the reading stage shows: enough to recognise as yours. */
+/** How much of the brief the reading panel shows: enough to recognise as yours. */
 const READ_PREVIEW_CHARS = 220;
 
 /**
  * While a worker reads the description and writes the follow-up questions: the owner's own
- * words, with a band passing over them, under an agent mark that is working. It says what is
+ * words, with a band passing over them, beside an agent mark that is working. It says what is
  * happening ("reading what you wrote") without inventing what the worker is looking for.
  */
 export function ReadingStage({ brief, lang }: { brief: string; lang: string }) {
@@ -460,20 +486,17 @@ export function ReadingStage({ brief, lang }: { brief: string; lang: string }) {
   return (
     <Stage label="Reading what you wrote">
       <div className="flex items-center gap-4">
-        <AgentOrb initial={null} state="working" size={48} />
+        <AgentOrb initial={null} state="working" size={44} />
         <div className="min-w-0">
-          <p className="text-heading text-stage-ink">Reading what you wrote</p>
-          <p role="status" className="text-meta text-stage-muted">
+          <p className="text-heading text-ink">Reading what you wrote</p>
+          <p role="status" className="text-meta text-ink-muted">
             Working out what a caller would still ask
           </p>
         </div>
       </div>
       {shown ? (
-        <p
-          lang={lang}
-          className="mt-5 break-words border-l-2 border-stage-live/50 pl-4 text-[15px] leading-relaxed text-stage-muted"
-        >
-          <span className="stage-shimmer">{shown}</span>
+        <p lang={lang} className="mt-4 break-words border-l-2 border-brand/40 pl-4 text-[15px] leading-relaxed text-ink-muted">
+          <span className="text-shimmer">{shown}</span>
         </p>
       ) : null}
     </Stage>
@@ -499,9 +522,9 @@ const PHASE_WORDS: Readonly<Record<CallPhase, string>> = {
 
 /**
  * The call as the call: the agent on the left, your phone on the right, and the line between
- * them doing what the line is doing. Dashes travel while it dials; the phone buzzes with
- * rings spreading while it rings; level bars move while you talk, with the clock; the line
- * lights and the phone takes a tick when it ends. A call that did not connect, a limit and a
+ * them doing what the line is doing. Dashes travel while it dials; the phone buzzes with rings
+ * spreading while it rings; level bars move while you talk, with the clock; the line turns
+ * green and the phone takes a tick when it ends. A call that did not connect, a limit and a
  * failure each have their own still frame, words and way on.
  */
 export function CallStage({
@@ -526,33 +549,32 @@ export function CallStage({
 }) {
   const initial = Array.from(name.trim())[0]?.toUpperCase() ?? null;
   const trouble = phase === "missed" || phase === "limit" || phase === "error";
-  const orb: OrbState =
-    phase === "preparing" ? "working" : trouble ? "trouble" : phase === "dialling" ? "idle" : "live";
+  const orb: OrbState = phase === "preparing" ? "working" : trouble ? "trouble" : phase === "dialling" ? "idle" : "live";
   return (
     <Stage label={`Test call: ${PHASE_WORDS[phase]}`}>
-      <div className="flex items-center gap-3">
+      <div className="mx-auto flex max-w-md items-center gap-3">
         <div className="flex flex-col items-center gap-1.5">
           <AgentOrb initial={initial} state={orb} size={56} />
-          <span className="max-w-20 truncate text-[12px] text-stage-faint">{name}</span>
+          <span className="max-w-20 truncate text-[12px] text-ink-muted">{name}</span>
         </div>
         <Line phase={phase} />
         <div className="flex flex-col items-center gap-1.5">
           <PhoneMark phase={phase} icon={icon} />
-          <span className="text-[12px] text-stage-faint">You</span>
+          <span className="text-[12px] text-ink-muted">You</span>
         </div>
       </div>
 
-      <div className="mt-5 text-center" role="status" aria-live="polite">
-        <p className="text-heading text-stage-ink">{title ?? PHASE_WORDS[phase]}</p>
+      <div className="mt-4 text-center" role="status" aria-live="polite">
+        <p className="text-heading text-ink">{title ?? PHASE_WORDS[phase]}</p>
         {phase === "talking" || (phase === "ended" && seconds > 0) ? (
-          <p className="mt-1 font-mono text-[28px] font-medium tabular-nums leading-none tracking-tight text-stage-ink">
+          <p className="mt-1 font-mono text-[28px] font-medium tabular-nums leading-none tracking-tight text-ink">
             {formatDuration(seconds)}
           </p>
         ) : null}
-        {detail ? <div className="mx-auto mt-1.5 max-w-sm text-meta text-stage-muted">{detail}</div> : null}
+        {detail ? <div className="mx-auto mt-1.5 max-w-sm text-meta text-ink-muted">{detail}</div> : null}
       </div>
       {actions ? (
-        <div className="mt-5 flex flex-col items-stretch gap-2 sm:flex-row sm:justify-center">{actions}</div>
+        <div className="mt-4 flex flex-col items-stretch gap-2 sm:flex-row sm:justify-center">{actions}</div>
       ) : null}
     </Stage>
   );
@@ -576,7 +598,7 @@ function Line({ phase }: { phase: CallPhase }) {
         {LEVELS.map((bar, index) => (
           <span
             key={index}
-            className="stage-level h-8 w-1.5 rounded-full bg-stage-live"
+            className="stage-level h-8 w-1.5 rounded-full bg-brand"
             style={{
               animationDuration: `${bar.d}ms`,
               animationDelay: `${bar.delay}ms`,
@@ -589,37 +611,33 @@ function Line({ phase }: { phase: CallPhase }) {
   }
   const solid = phase === "ringing" || phase === "ended";
   return (
-    <span aria-hidden className="relative h-0.5 min-w-0 flex-1 overflow-hidden rounded-full bg-stage-line">
+    <span aria-hidden className="relative h-0.5 min-w-0 flex-1 overflow-hidden rounded-full bg-line">
       {phase === "dialling" ? <span className="stage-dash absolute inset-y-0 -left-3 right-0" /> : null}
-      {solid ? (
-        <span className={`stage-in absolute inset-0 ${phase === "ended" ? "bg-stage-live" : "bg-stage-live/50"}`} />
-      ) : null}
+      {solid ? <span className={`stage-in absolute inset-0 ${phase === "ended" ? "bg-brand" : "bg-brand/50"}`} /> : null}
     </span>
   );
 }
 
 function PhoneMark({ phase, icon }: { phase: CallPhase; icon?: LucideIcon }) {
-  const trouble = phase === "missed" || phase === "error";
+  const trouble = phase === "missed" || phase === "error" || phase === "limit";
   const Icon = icon ?? (phase === "limit" ? Hourglass : trouble ? PhoneOff : Smartphone);
   const tone = trouble
-    ? "border-stage-warn/60 text-stage-warn"
-    : phase === "limit"
-      ? "border-stage-warn/60 text-stage-warn"
-      : phase === "dialling" || phase === "preparing"
-        ? "border-stage-line text-stage-faint"
-        : "border-stage-live/60 text-stage-live";
+    ? "border-warn-line bg-warn-soft text-warn"
+    : phase === "dialling" || phase === "preparing"
+      ? "border-line bg-surface text-ink-faint"
+      : "border-brand/50 bg-surface text-brand-strong";
   return (
     <span aria-hidden className="relative grid h-14 w-14 place-items-center">
       {phase === "ringing" ? (
         <>
-          <span className="stage-ripple absolute inset-0 rounded-full border border-stage-live" />
-          <span className="stage-ripple absolute inset-0 rounded-full border border-stage-live [animation-delay:800ms]" />
+          <span className="stage-ripple absolute inset-0 rounded-full border border-brand" />
+          <span className="stage-ripple absolute inset-0 rounded-full border border-brand [animation-delay:800ms]" />
         </>
       ) : null}
-      <span className={`relative grid h-12 w-12 place-items-center rounded-full border bg-stage-raised ${tone}`}>
+      <span className={`relative grid h-12 w-12 place-items-center rounded-full border ${tone}`}>
         <Icon className={`h-5 w-5 ${phase === "ringing" ? "stage-buzz" : ""}`} />
         {phase === "ended" ? (
-          <span className="absolute -bottom-0.5 -right-0.5 grid h-5 w-5 place-items-center rounded-full bg-stage-live text-stage">
+          <span className="absolute -bottom-0.5 -right-0.5 grid h-5 w-5 place-items-center rounded-full bg-brand-strong text-white">
             <Check className="h-3 w-3" strokeWidth={3} />
           </span>
         ) : null}
@@ -632,9 +650,3 @@ function PhoneMark({ phase, icon }: { phase: CallPhase; icon?: LucideIcon }) {
 export function limitIcon(rule: string | null | undefined): LucideIcon {
   return rule && rule.includes("daily") ? Clock : Hourglass;
 }
-
-/** A button on the stage. Light on dark, so the stage's one action reads as the action. */
-export const STAGE_BUTTON =
-  "press inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-stage-ink px-4 text-sm font-semibold text-stage transition-colors duration-(--duration-fast) [&:not(:disabled)]:hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stage-live focus-visible:ring-offset-2 focus-visible:ring-offset-stage";
-export const STAGE_BUTTON_QUIET =
-  "press inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-stage-line px-4 text-sm font-medium text-stage-ink transition-colors duration-(--duration-fast) [&:not(:disabled)]:hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stage-live focus-visible:ring-offset-2 focus-visible:ring-offset-stage";

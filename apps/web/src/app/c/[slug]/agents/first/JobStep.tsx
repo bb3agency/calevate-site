@@ -217,7 +217,7 @@ function JobChoice({
 function LanguageTile({ tag, checked, onChange }: { tag: string; checked: boolean; onChange: () => void }) {
   return (
     <label
-      className={`press flex min-h-12 min-w-0 cursor-pointer items-center gap-2.5 rounded-card border px-2.5 py-2 transition-[border-color,box-shadow] duration-(--duration-fast) has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 ${
+      className={`press flex min-h-12 min-w-0 cursor-pointer flex-col items-center gap-1 rounded-card border px-2 py-2 max-sm:text-center sm:flex-row sm:gap-2.5 sm:px-2.5 transition-[border-color,box-shadow] duration-(--duration-fast) has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 ${
         checked ? CHOICE_ON : CHOICE_OFF
       }`}
     >

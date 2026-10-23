@@ -12,6 +12,7 @@ import {
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON,
   Skeleton,
 } from "@/components/ui";
 import { useAcceptAgreement, useAgreementsReadiness, needsAction } from "@/lib/api/agreements";
@@ -25,7 +26,7 @@ import { useAcceptPledge, useOutboundPledge } from "@/lib/api/verifyBusiness";
 import { callIntroFor, trialMinutesLine } from "@/lib/firstAgent";
 import { lookup } from "@/lib/lookup";
 
-import { CallStage, STAGE_BUTTON, STAGE_BUTTON_QUIET, limitIcon, type CallPhase } from "./LiveStage";
+import { CallStage, limitIcon, type CallPhase } from "./LiveStage";
 import { StepScreen, TickRow } from "./shell";
 
 /** The three things a new owner should know before they hear their agent (D-855). */
@@ -266,7 +267,7 @@ function CallYou({
           actions={
             <Link
               href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=training`)}
-              className={STAGE_BUTTON_QUIET}
+              className={SECONDARY_BUTTON}
             >
               <MessageCircle aria-hidden className="h-4 w-4" />
               Try it in the chat instead
@@ -580,7 +581,7 @@ function CallInProgress({
             ended ? (
               <button
                 type="button"
-                className={STAGE_BUTTON}
+                className={PRIMARY_BUTTON}
                 onClick={() => {
                   handedOn.current = true;
                   onEnded(ended);
@@ -604,11 +605,11 @@ function CallInProgress({
           actions={
             <>
               {minutes ? (
-                <Link href={creditHref} className={STAGE_BUTTON}>
+                <Link href={creditHref} className={PRIMARY_BUTTON}>
                   Add credit
                 </Link>
               ) : null}
-              <Link href={chatHref} className={STAGE_BUTTON_QUIET}>
+              <Link href={chatHref} className={SECONDARY_BUTTON}>
                 <MessageCircle aria-hidden className="h-4 w-4" />
                 Try it in the chat instead
               </Link>
@@ -625,7 +626,7 @@ function CallInProgress({
           detail={failure instanceof ApiProblem ? failure.message : "Check your connection, then try again."}
           actions={
             <>
-              <button type="button" className={STAGE_BUTTON} onClick={onRetryFailure}>
+              <button type="button" className={PRIMARY_BUTTON} onClick={onRetryFailure}>
                 <RotateCcw aria-hidden className="h-4 w-4" />
                 Try again
               </button>
@@ -646,12 +647,12 @@ function CallInProgress({
           actions={
             <>
               {placed?.status === "queued" ? (
-                <button type="button" className={STAGE_BUTTON} onClick={() => onRetry(call?.id ?? null)}>
+                <button type="button" className={PRIMARY_BUTTON} onClick={() => onRetry(call?.id ?? null)}>
                   <PhoneCall aria-hidden className="h-4 w-4" />
                   Call me again
                 </button>
               ) : null}
-              <button type="button" className={STAGE_BUTTON_QUIET} onClick={onStartOver}>
+              <button type="button" className={SECONDARY_BUTTON} onClick={onStartOver}>
                 Use another number
               </button>
             </>
