@@ -4,9 +4,11 @@
    owner's language as a hint, metered at our cost under its own feature, and the audio
    DELETED as soon as the words exist (founder, 23 Oct 2026: the screen says the audio is not
    kept, so it is not). Failed or not, nothing is left in the bucket.
-2. ASK (`write_first_run_questions`): the model chooses up to three follow-up questions from
-   the fixed set (`first_run/questions.py`) that the brief has not answered. Without a model
-   the profile's empty sections are asked instead: the step never stops for lack of AI.
+2. ASK (`write_first_run_questions`): the model WRITES two to four follow-up questions the
+   brief leaves open, each with its kind of answer (D-863); what it writes reaches the screen
+   only through `first_run/questions.written_questions`, which drops any item that breaks a
+   rule. Without a model, or with nothing left, the fixed questions for the profile's empty
+   sections are asked instead: the step never stops for lack of AI.
 3. BUILD the first agent (`build_first_agent`), each step written to the row as it lands so
    the screen ticks what really happened:
    - **voice**: a woman's Studio voice for its language, or Clear when Studio cannot be used
@@ -47,7 +49,7 @@ from apps.api.agents.script_builder import (
     save_agent_script,
 )
 from apps.api.agents.script_proposals import brief_for
-from apps.api.agents.starters import JOB_DIRECTION, StarterJob, starter_for
+from apps.api.agents.starters import StarterJob, direction_of_jobs, starter_jobs, starter_script
 from apps.api.agents.voice_pick import pick_voice
 from apps.api.billing.ai_quota import new_assist_ref, platform_brake_tripped
 from apps.api.billing.models import ASSIST_FEATURE_FIRST_RUN
@@ -57,9 +59,29 @@ from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.first_run.models import MAX_QUESTIONS, MAX_RECORDING_WORDS, MIN_BRIEF_CHARS
 from apps.api.first_run.names import FIRST_AGENT_NAME, identity_with_name
-from apps.api.first_run.questions import QuestionKey, askable, chosen_keys, question_for
-from apps.api.first_run.service import BUILD_JOB, HEAR_JOB, QUESTIONS_JOB, store_questions
-from apps.api.tenancy.business_profile import load_profile
+from apps.api.first_run.questions import (
+    HINT_MAX,
+    MAX_OPTIONS,
+    MAX_WRITTEN,
+    MIN_OPTIONS,
+    MIN_WRITTEN,
+    OPTION_MAX,
+    PROFILE_TOPICS,
+    PROMPT_MAX,
+    QUESTION_KINDS,
+    Question,
+    answered_topics,
+    fallback_questions,
+    written_questions,
+)
+from apps.api.first_run.service import (
+    BUILD_JOB,
+    HEAR_JOB,
+    QUESTIONS_JOB,
+    answers_for_script,
+    store_questions,
+)
+from apps.api.tenancy.business_profile import Profile, load_profile
 from apps.workers.script_assist import JsonAnswer, ScriptDraft, ask_json, draft_script
 from apps.workers.speech_to_text import meter_clip, transcribe
 from apps.workers.storage import delete_objects, read_kb_object
@@ -80,15 +102,34 @@ _JOB_CONTEXT: Final[dict[str, str]] = {
         "It calls each person within minutes of their enquiry, while it is fresh, so it can "
         "thank them for the enquiry they just made."
     ),
-    "call_leads": "It calls people on the business's list who showed interest earlier.",
+    "call_leads": (
+        "It runs calling campaigns: it calls people on the business's list who showed "
+        "interest earlier."
+    ),
 }
+#: Said once when the agent does more than one job (D-863).
+_SEVERAL_JOBS: Final = (
+    "It is ONE agent doing all of these jobs, so the script keeps a separate part for "
+    "calls the person made and calls the agent makes."
+)
 
 QUESTIONS_INSTRUCTION: Final = (
-    "A small Indian business owner has described the phone agent they want. Choose which of "
-    "the follow-up questions you are given would still help: a question is worth asking only "
-    "if the description does NOT already answer it. Choose at most three, most useful first, "
-    "and none if the description answers them all. Use only the keys you are given. Return "
-    'ONLY JSON: {"questions": [key, ...]}.'
+    "A small Indian business owner has described the phone agent they want. Write "
+    f"{MIN_WRITTEN} to {MAX_WRITTEN} short follow-up questions that would help the agent "
+    "serve THIS business and that the description does NOT already answer, most useful "
+    "first. Plain English only: no links, no markdown, no emoji, no other script. Each "
+    f"question: prompt (at most {PROMPT_MAX} characters), hint (one helpful sentence, at "
+    f"most {HINT_MAX} characters), kind, options and maps_to. kind is one of: choices (tick "
+    "all that apply), single_choice (pick one), text, address, services (a list of what "
+    f"they offer with prices), hours (opening hours). choices and single_choice need "
+    f"{MIN_OPTIONS} to {MAX_OPTIONS} options of at most {OPTION_MAX} characters; every other "
+    "kind has options []. maps_to names the business profile section the answer belongs "
+    "in, or null: trade (choices or single_choice about what kinds of thing they offer), "
+    "location (address), offer (services), hours (hours), booking (text about how a "
+    "booking is made). address, services and hours must use their section. "
+    "Never use a section listed as already known. Return ONLY JSON: "
+    '{"questions": [{"prompt": "...", "hint": "...", "kind": "...", "options": [...], '
+    '"maps_to": ... }]}.'
 )
 
 
@@ -164,36 +205,57 @@ async def hear_first_run_recording(ctx: dict[str, Any], payload: dict[str, Any])
 # --------------------------------------------------------------------------- ask
 
 
-def _questions_parser(allowed: list[QuestionKey]) -> Any:
-    def parse(raw: dict[str, Any]) -> list[str] | None:
-        chosen = raw.get("questions")
-        if not isinstance(chosen, list):
+def _questions_parser(profile: Profile) -> Any:
+    """The model's questions through the gate; None (no answer) when none survive, so the
+    next leg of the ladder gets its chance and the fixed questions come last."""
+
+    def parse(raw: dict[str, Any]) -> list[Question] | None:
+        written = raw.get("questions")
+        if not isinstance(written, list):
             return None
-        return chosen_keys(chosen, allowed, MAX_QUESTIONS)
+        return written_questions(written, profile) or None
 
     return parse
 
 
-def _questions_format(allowed: list[QuestionKey]) -> dict[str, object]:
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "first_run_questions",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "questions": {"type": "array", "items": {"type": "string", "enum": allowed}}
-                },
-                "required": ["questions"],
-                "additionalProperties": False,
+#: The paid leg's strict schema. Lengths and patterns are the gate's to enforce: a strict
+#: schema rejects `maxLength`, and the gate must run on every leg anyway.
+QUESTIONS_FORMAT: Final[dict[str, object]] = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "first_run_questions",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "prompt": {"type": "string"},
+                            "hint": {"type": "string"},
+                            "kind": {"type": "string", "enum": list(QUESTION_KINDS)},
+                            "options": {"type": "array", "items": {"type": "string"}},
+                            "maps_to": {
+                                "type": ["string", "null"],
+                                "enum": [*PROFILE_TOPICS, None],
+                            },
+                        },
+                        "required": ["prompt", "hint", "kind", "options", "maps_to"],
+                        "additionalProperties": False,
+                    },
+                }
             },
+            "required": ["questions"],
+            "additionalProperties": False,
         },
-    }
+    },
+}
 
 
 async def write_first_run_questions(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    """Choose the follow-up questions for one brief and store them on the run."""
+    """Write the follow-up questions for one brief and store them on the run."""
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
     run_id = UUID(str(payload["run_id"]))
@@ -202,7 +264,7 @@ async def write_first_run_questions(ctx: dict[str, Any], payload: dict[str, Any]
         row = (
             await session.execute(
                 text(
-                    "SELECT r.brief, r.questions_status, r.questions_brief_hash, "
+                    "SELECT r.brief, r.jobs, r.questions_status, r.questions_brief_hash, "
                     "o.vertical_template FROM first_runs r "
                     "JOIN organizations o ON o.id = r.tenant_id WHERE r.id = :id"
                 ),
@@ -212,46 +274,42 @@ async def write_first_run_questions(ctx: dict[str, Any], payload: dict[str, Any]
         if row is None or row.questions_status != "writing" or row.questions_brief_hash != digest:
             return "not_pending"
         vertical = None if row.vertical_template is None else str(row.vertical_template)
-        allowed = list(askable(await load_profile(session, tenant_id=tenant_id), vertical))
+        profile = await load_profile(session, tenant_id=tenant_id)
         tenant_leg = await account_assist_leg(session)
         braked = await platform_brake_tripped(session)
-    keys: list[str] = list(allowed[:MAX_QUESTIONS])
+    questions = fallback_questions(profile, vertical, limit=MAX_QUESTIONS)
     disclosure: str | None = None
-    if allowed:
-        offered = "\n".join(
-            f"{key}: {question.prompt}"
-            for key in allowed
-            if (question := question_for(key, vertical)) is not None
+    known = ", ".join(sorted(answered_topics(profile))) or "none"
+    jobs = "; ".join(_JOB_CONTEXT[job] for job in row.jobs or [] if job in _JOB_CONTEXT)
+    try:
+        answer: JsonAnswer[list[Question]] = await ask_json(
+            f"The owner's description:\n{row.brief}\n\nWhat the agent does: {jobs or 'not said'}"
+            f"\nBusiness profile sections already known: {known}",
+            QUESTIONS_INSTRUCTION,
+            parse=_questions_parser(profile),
+            azure_format=QUESTIONS_FORMAT,
+            tenant_leg=tenant_leg,
+            quota_exhausted=braked,
+            max_tokens=900,
+            temperature=0.3,
+            health_leg="script",
         )
-        try:
-            answer: JsonAnswer[list[str]] = await ask_json(
-                f"The owner's description:\n{row.brief}\n\nFollow-up questions you may choose:\n"
-                f"{offered}",
-                QUESTIONS_INSTRUCTION,
-                parse=_questions_parser(allowed),
-                azure_format=_questions_format(allowed),
-                tenant_leg=tenant_leg,
-                quota_exhausted=braked,
-                max_tokens=200,
-                temperature=0.1,
-                health_leg="script",
+    except ProblemError as refused:
+        log.info("first_run_questions_fixed", extra={"reason": refused.code})
+        async with tenant_session(tenant_id) as session:
+            await crm_assist.meter_refusal(
+                session, tenant_id=tenant_id, refusal=refused, feature=ASSIST_FEATURE_FIRST_RUN
             )
-        except ProblemError as refused:
-            log.info("first_run_questions_unchosen", extra={"reason": refused.code})
-            async with tenant_session(tenant_id) as session:
-                await crm_assist.meter_refusal(
-                    session, tenant_id=tenant_id, refusal=refused, feature=ASSIST_FEATURE_FIRST_RUN
-                )
-        else:
-            keys = answer.value
-            disclosure = answer.capability.disclosure
-            await _meter(tenant_id, answer)
+    else:
+        questions = answer.value
+        disclosure = answer.capability.disclosure
+        await _meter(tenant_id, answer)
     async with tenant_session(tenant_id) as session:
         stored = await store_questions(
             session,
             run_id=run_id,
             brief_hash=None if digest is None else str(digest),
-            keys=keys,
+            questions=questions,
             disclosure=disclosure,
         )
     return "ready" if stored else "not_pending"
@@ -321,20 +379,25 @@ def greeting_fits(line: str, language: str) -> bool:
     )
 
 
+def _jobs(run: Any) -> tuple[StarterJob, ...]:
+    return starter_jobs(list(run.jobs or []))
+
+
 async def _create(
     tenant_id: UUID, run: Any, *, name: str, voice_id: str | None, created_by: UUID | None
 ) -> tuple[UUID, bool]:
-    """The agent, from its job's ready-made script, with its voice. Returns (id, voice set)."""
-    job: StarterJob = run.job
+    """The ONE agent for every job picked, from their ready-made script, with its voice.
+    Returns (id, voice set)."""
+    jobs = _jobs(run)
     async with tenant_session(tenant_id) as session:
         agent_id = await create_agent(
             session,
             tenant_id=tenant_id,
             name=name,
-            direction=JOB_DIRECTION[job],
+            direction=direction_of_jobs(jobs),
             language_primary=str(run.language_primary),
             languages_extra=list(run.languages_extra or []),
-            starter=job,
+            starter=jobs,
             created_by=created_by,
         )
         voiced = False
@@ -371,9 +434,15 @@ async def _write_script(
             context = await brief_for(session, tenant_id, agent_id)
             tenant_leg = await account_assist_leg(session)
             braked = await platform_brake_tripped(session)
+        jobs = _jobs(run)
+        what_it_does = " ".join(_JOB_CONTEXT[job] for job in jobs)
+        if len(jobs) > 1:
+            what_it_does += f" {_SEVERAL_JOBS}"
+        answers = answers_for_script(run.answers or [])
         description = (
-            f"{brief}\n{_JOB_CONTEXT.get(str(run.job), '')}\n"
-            f"The agent's name is {name}; it gives this name when it introduces itself or is "
+            f"{brief}\n{what_it_does}\n"
+            + (f"The owner's answers to follow-up questions:\n{answers}\n" if answers else "")
+            + f"The agent's name is {name}; it gives this name when it introduces itself or is "
             "asked. Keep the opening line under "
             f"{GREETING_MAX_CHARS} characters, ending with a question to the person."
         )
@@ -431,9 +500,12 @@ async def _write_greeting(
         ).one()
     if greeting_fits(current, language):
         return {"state": "done"}
-    starter_line = starter_for(
-        None if business[1] is None else str(business[1]), run.job
-    ).opening_for(str(business[0]), language)
+    starter_line = starter_script(
+        None if business[1] is None else str(business[1]),
+        _jobs(run),
+        business=str(business[0]),
+        language=language,
+    ).opening_line
     if starter_line.strip() == current:
         return {"state": "kept"}
     try:
@@ -477,8 +549,8 @@ async def build_first_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str
                 text(
                     "UPDATE first_runs SET build_steps = build_steps || '{\"claimed\": true}' "
                     "WHERE id = :id AND build_status = 'building' AND build_runs = :build "
-                    "AND NOT build_steps ? 'claimed' RETURNING id, job, language_primary, "
-                    "languages_extra, brief, agent_id"
+                    "AND NOT build_steps ? 'claimed' RETURNING id, jobs, language_primary, "
+                    "languages_extra, brief, answers, agent_id"
                 ),
                 {"id": run_id, "build": build},
             )

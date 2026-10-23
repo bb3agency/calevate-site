@@ -122,26 +122,35 @@ def own_number_ref(tenant_id: UUID, phone_e164: str) -> str:
     return hmac.new(material, message, hashlib.sha256).hexdigest()
 
 
-async def attest_own_number(
-    session: AsyncSession, *, principal: Principal, number: str, ip: str | None
-) -> None:
+async def attest_own_number(*, principal: Principal, number: str, ip: str | None) -> None:
     """Record that the person placing a test call said the number is their own (founder,
     23 Oct 2026: a tick, not a code sent to the phone). In the hash-chained audit log, by
-    keyed reference only."""
+    keyed reference only.
+
+    In its own transaction, committed before the dial, never on the request's. An audit
+    write holds the chain's advisory lock until its transaction ends
+    (`compliance.audit.lock_chain`); on the request's transaction that is until the
+    response, across the vendor round trip, and `place_trial_call` records the placed call
+    in a transaction of its own, which then waited on that lock until `statement_timeout`
+    cancelled it: a rung phone answered 503 `database_busy` (D-863). The tick is a
+    statement about the number, true whether or not the dial goes ahead, so committing it
+    first loses nothing."""
     assert principal.tenant_id is not None
+    tenant_id = principal.tenant_id
     phone = normalize_phone(number)
     if phone is None:
         raise _bad_number()
-    await write_audit(
-        session,
-        action=NUMBER_ATTESTED_ACTION,
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        object_type="organization",
-        object_id=str(principal.tenant_id),
-        ip=ip,
-        summary={"number_ref": own_number_ref(principal.tenant_id, phone)},
-    )
+    async with tenant_session(tenant_id) as attest_session:
+        await write_audit(
+            attest_session,
+            action=NUMBER_ATTESTED_ACTION,
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="organization",
+            object_id=str(tenant_id),
+            ip=ip,
+            summary={"number_ref": own_number_ref(tenant_id, phone)},
+        )
 
 
 async def place_trial_call(

@@ -5,7 +5,7 @@ import { ArrowRight } from "lucide-react";
 
 import { ProblemNotice } from "@/components/ui";
 import type { FirstRun, FirstRunJob } from "@/lib/api/firstRun";
-import { useSaveJob } from "@/lib/api/firstRun";
+import { primaryJob, useSaveJob } from "@/lib/api/firstRun";
 import { useClientSession } from "@/lib/api/session";
 import { defaultExtraLanguages } from "@/lib/agentState";
 import { JOBS, LANGUAGES } from "@/lib/firstAgent";
@@ -32,7 +32,7 @@ export function JobStep({
   const session = useClientSession();
   const save = useSaveJob(session);
   const locked = run.agent_id !== null;
-  const [job, setJob] = useState<FirstRunJob | null>(run.job);
+  const [job, setJob] = useState<FirstRunJob | null>(primaryJob(run));
   const [primary, setPrimary] = useState(run.language_primary ?? defaultLanguage);
   const [extra, setExtra] = useState<string[]>(
     run.language_primary ? run.languages_extra : defaultExtraLanguages(defaultLanguage),
@@ -57,12 +57,12 @@ export function JobStep({
       pending={save.isPending}
       onSubmit={() => {
         if (job === null) return;
-        save.mutate({ job, language_primary: primary, languages_extra: extra }, { onSuccess: onDone });
+        save.mutate({ jobs: [job], language_primary: primary, languages_extra: extra }, { onSuccess: onDone });
       }}
     >
       <fieldset className="space-y-3">
         <legend className="sr-only">Its job</legend>
-        {JOBS.filter((card) => !locked || card.job === run.job).map((card) => (
+        {JOBS.filter((card) => !locked || run.jobs.includes(card.job)).map((card) => (
           <ChoiceCard
             key={card.job}
             type="radio"

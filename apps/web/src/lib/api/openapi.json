@@ -4119,22 +4119,17 @@
         "title": "AlertReport",
         "type": "object"
       },
-      "AnswersIn": {
+      "AnswerIn": {
         "additionalProperties": false,
-        "description": "The follow-up answers the owner gave. A question skipped is simply left out.",
+        "description": "One answer, in the field its question's kind uses: `choices` for `choices` and\n`single_choice` (exactly one), `text` for `text` and `address`, `services`, `hours`.",
         "properties": {
-          "booking": {
-            "anyOf": [
-              {
-                "maxLength": 2000,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Booking"
+          "choices": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Choices",
+            "type": "array"
           },
           "hours": {
             "anyOf": [
@@ -4146,10 +4141,24 @@
               }
             ]
           },
-          "location": {
+          "id": {
+            "maxLength": 8,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceItem"
+            },
+            "maxItems": 20,
+            "title": "Services",
+            "type": "array"
+          },
+          "text": {
             "anyOf": [
               {
-                "maxLength": 400,
+                "maxLength": 2000,
                 "minLength": 1,
                 "type": "string"
               },
@@ -4157,22 +4166,25 @@
                 "type": "null"
               }
             ],
-            "title": "Location"
-          },
-          "offer": {
+            "title": "Text"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "AnswerIn",
+        "type": "object"
+      },
+      "AnswersIn": {
+        "additionalProperties": false,
+        "description": "The follow-up answers the owner gave. A question skipped is simply left out.",
+        "properties": {
+          "answers": {
             "items": {
-              "$ref": "#/components/schemas/ServiceItem"
+              "$ref": "#/components/schemas/AnswerIn"
             },
-            "maxItems": 20,
-            "title": "Offer",
-            "type": "array"
-          },
-          "trade": {
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 12,
-            "title": "Trade",
+            "maxItems": 4,
+            "title": "Answers",
             "type": "array"
           }
         },
@@ -19187,21 +19199,17 @@
             ],
             "title": "Finished At"
           },
-          "job": {
-            "anyOf": [
-              {
-                "enum": [
-                  "answer_calls",
-                  "call_new_leads",
-                  "call_leads"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Job"
+          "jobs": {
+            "items": {
+              "enum": [
+                "answer_calls",
+                "call_new_leads",
+                "call_leads"
+              ],
+              "type": "string"
+            },
+            "title": "Jobs",
+            "type": "array"
           },
           "language_primary": {
             "anyOf": [
@@ -19233,7 +19241,7 @@
         },
         "required": [
           "due",
-          "job",
+          "jobs",
           "language_primary",
           "languages_extra",
           "brief",
@@ -23297,14 +23305,19 @@
       "JobIn": {
         "additionalProperties": false,
         "properties": {
-          "job": {
-            "enum": [
-              "answer_calls",
-              "call_new_leads",
-              "call_leads"
-            ],
-            "title": "Job",
-            "type": "string"
+          "jobs": {
+            "items": {
+              "enum": [
+                "answer_calls",
+                "call_new_leads",
+                "call_leads"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Jobs",
+            "type": "array"
           },
           "language_primary": {
             "enum": [
@@ -23338,7 +23351,7 @@
           }
         },
         "required": [
-          "job",
+          "jobs",
           "language_primary"
         ],
         "title": "JobIn",
@@ -34139,27 +34152,39 @@
             "title": "Hint",
             "type": "string"
           },
-          "key": {
-            "enum": [
-              "trade",
-              "location",
-              "offer",
-              "hours",
-              "booking"
-            ],
-            "title": "Key",
+          "id": {
+            "title": "Id",
             "type": "string"
           },
           "kind": {
             "enum": [
               "choices",
+              "single_choice",
+              "text",
               "address",
               "services",
-              "hours",
-              "text"
+              "hours"
             ],
             "title": "Kind",
             "type": "string"
+          },
+          "maps_to": {
+            "anyOf": [
+              {
+                "enum": [
+                  "trade",
+                  "location",
+                  "offer",
+                  "hours",
+                  "booking"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maps To"
           },
           "options": {
             "items": {
@@ -34174,11 +34199,12 @@
           }
         },
         "required": [
-          "key",
+          "id",
           "prompt",
           "hint",
           "kind",
-          "options"
+          "options",
+          "maps_to"
         ],
         "title": "QuestionOut",
         "type": "object"
@@ -68133,7 +68159,7 @@
     },
     "/v1/first-run/answers": {
       "post": {
-        "description": "Each answer is merged into the business profile (`PATCH /v1/business-profile`'s own save), so every agent of the business learns it. A skipped question is left out.",
+        "description": "Each answer names its question by `id` and uses the field its kind asks for (`choices` for `choices` and `single_choice`, which takes exactly one; `text` for `text` and `address`; `services`; `hours`), and is refused with `first_run_answer_mismatch` otherwise. Every answer is kept with its question and given to the script writer; one whose question has `maps_to` is also merged into that business-profile section (`PATCH /v1/business-profile`'s own save), so every agent of the business learns it. A skipped question is left out.",
         "operationId": "post_answers_v1_first_run_answers_post",
         "requestBody": {
           "content": {
@@ -68163,7 +68189,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Write the follow-up answers into the business profile",
+        "summary": "Answer the follow-up questions",
         "tags": [
           "first-run"
         ],
@@ -68172,7 +68198,7 @@
     },
     "/v1/first-run/brief": {
       "put": {
-        "description": "A brief with something to read is sent to a worker that chooses up to three follow-up questions from a fixed set (`questions.status` is `writing` until it answers; poll this resource). A short brief gets the business profile's own gaps at once.",
+        "description": "A brief with something to read is sent to a worker whose AI writes two to four follow-up questions for this business, each with the kind of answer it wants (`questions.status` is `writing` until it answers; poll this resource). A short brief, or no usable answer from the AI, gets fixed questions about the business profile's own gaps.",
         "operationId": "put_brief_v1_first_run_brief_put",
         "requestBody": {
           "content": {
@@ -68296,7 +68322,7 @@
     },
     "/v1/first-run/job": {
       "put": {
-        "description": "Refused with `first_run_job_locked` once the agent is built for another job: the job set its calling direction and its ready-made script.",
+        "description": "One to three jobs, each once; ONE agent does every job picked (answering only: inbound; calling only: outbound; both: `both`). Refused with `first_run_job_locked` once the agent is built for other jobs: they set its calling direction and its ready-made script.",
         "operationId": "put_job_v1_first_run_job_put",
         "requestBody": {
           "content": {
@@ -68326,7 +68352,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Choose the agent's job and the languages it speaks",
+        "summary": "Choose the agent's jobs and the languages it speaks",
         "tags": [
           "first-run"
         ],

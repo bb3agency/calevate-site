@@ -93,7 +93,7 @@ export const JOBS: readonly JobCard[] = [
   },
   {
     job: "call_leads",
-    title: "Call my list",
+    title: "Run calling campaigns",
     line: "Works through a list of people who showed interest earlier.",
     callIntro: () => "It rings you as if you were the first person on your list.",
   },
@@ -140,7 +140,7 @@ export function piecesOf({ run, agent, calls }: FirstAgentState): Piece[] {
   const has = agent !== null;
   return [
     { id: "account", label: "Account created", done: true },
-    { id: "job", label: "Its job", done: Boolean(run?.job) },
+    { id: "job", label: "Its job", done: (run?.jobs.length ?? 0) > 0 },
     { id: "about", label: "What it knows about you", done: Boolean(run?.brief?.trim()) },
     { id: "name", label: "Its name", done: has && agent.name.trim() !== "" },
     { id: "voice", label: "Its voice", done: has && Boolean(agent.engine_voice_id) },
@@ -153,7 +153,7 @@ export function piecesOf({ run, agent, calls }: FirstAgentState): Piece[] {
 
 /** Where an owner resumes, from what the server holds. */
 export function resumeStage({ run, agent, calls }: FirstAgentState): Stage {
-  if (!run || !run.job) return "job";
+  if (!run || run.jobs.length === 0) return "job";
   if (run.finished_at) return "team";
   if (run.build.status === "building" || run.build.status === "failed") return "build";
   if (agent === null) return run.brief === null ? "brief" : "questions";
@@ -239,5 +239,5 @@ export function introFor(agentName: string | null): string {
 export function quickRepliesFor(hasAgent: boolean): readonly string[] {
   return hasAgent
     ? ["Make the greeting warmer", "What does it note down?"]
-    : ["Answer my calls", "Call new leads instantly", "Call my list"];
+    : ["Answer my calls", "Call new leads instantly", "Run calling campaigns"];
 }

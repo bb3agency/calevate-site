@@ -90,7 +90,7 @@ async def create_trial_call(
         )
     if payload.number_is_mine:
         await attest_own_number(
-            session, principal=principal, number=payload.number, ip=client_request_ip(request)
+            principal=principal, number=payload.number, ip=client_request_ip(request)
         )
     result = await place_trial_call(
         session,

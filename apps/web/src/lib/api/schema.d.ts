@@ -7398,8 +7398,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Write the follow-up answers into the business profile
-         * @description Each answer is merged into the business profile (`PATCH /v1/business-profile`'s own save), so every agent of the business learns it. A skipped question is left out.
+         * Answer the follow-up questions
+         * @description Each answer names its question by `id` and uses the field its kind asks for (`choices` for `choices` and `single_choice`, which takes exactly one; `text` for `text` and `address`; `services`; `hours`), and is refused with `first_run_answer_mismatch` otherwise. Every answer is kept with its question and given to the script writer; one whose question has `maps_to` is also merged into that business-profile section (`PATCH /v1/business-profile`'s own save), so every agent of the business learns it. A skipped question is left out.
          */
         post: operations["post_answers_v1_first_run_answers_post"];
         delete?: never;
@@ -7418,7 +7418,7 @@ export interface paths {
         get?: never;
         /**
          * Keep the brief and find its follow-up questions
-         * @description A brief with something to read is sent to a worker that chooses up to three follow-up questions from a fixed set (`questions.status` is `writing` until it answers; poll this resource). A short brief gets the business profile's own gaps at once.
+         * @description A brief with something to read is sent to a worker whose AI writes two to four follow-up questions for this business, each with the kind of answer it wants (`questions.status` is `writing` until it answers; poll this resource). A short brief, or no usable answer from the AI, gets fixed questions about the business profile's own gaps.
          */
         put: operations["put_brief_v1_first_run_brief_put"];
         post?: never;
@@ -7491,8 +7491,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Choose the agent's job and the languages it speaks
-         * @description Refused with `first_run_job_locked` once the agent is built for another job: the job set its calling direction and its ready-made script.
+         * Choose the agent's jobs and the languages it speaks
+         * @description One to three jobs, each once; ONE agent does every job picked (answering only: inbound; calling only: outbound; both: `both`). Refused with `first_run_job_locked` once the agent is built for other jobs: they set its calling direction and its ready-made script.
          */
         put: operations["put_job_v1_first_run_job_put"];
         post?: never;
@@ -12796,19 +12796,28 @@ export interface components {
             window_days: number;
         };
         /**
+         * AnswerIn
+         * @description One answer, in the field its question's kind uses: `choices` for `choices` and
+         *     `single_choice` (exactly one), `text` for `text` and `address`, `services`, `hours`.
+         */
+        AnswerIn: {
+            /** Choices */
+            choices?: string[];
+            hours?: components["schemas"]["HoursIn"] | null;
+            /** Id */
+            id: string;
+            /** Services */
+            services?: components["schemas"]["ServiceItem"][];
+            /** Text */
+            text?: string | null;
+        };
+        /**
          * AnswersIn
          * @description The follow-up answers the owner gave. A question skipped is simply left out.
          */
         AnswersIn: {
-            /** Booking */
-            booking?: string | null;
-            hours?: components["schemas"]["HoursIn"] | null;
-            /** Location */
-            location?: string | null;
-            /** Offer */
-            offer?: components["schemas"]["ServiceItem"][];
-            /** Trade */
-            trade?: string[];
+            /** Answers */
+            answers?: components["schemas"]["AnswerIn"][];
         };
         /** ApplyEditsIn */
         ApplyEditsIn: {
@@ -18517,8 +18526,8 @@ export interface components {
             due: boolean;
             /** Finished At */
             finished_at: string | null;
-            /** Job */
-            job: ("answer_calls" | "call_new_leads" | "call_leads") | null;
+            /** Jobs */
+            jobs: ("answer_calls" | "call_new_leads" | "call_leads")[];
             /** Language Primary */
             language_primary: string | null;
             /** Languages Extra */
@@ -20068,11 +20077,8 @@ export interface components {
         };
         /** JobIn */
         JobIn: {
-            /**
-             * Job
-             * @enum {string}
-             */
-            job: "answer_calls" | "call_new_leads" | "call_leads";
+            /** Jobs */
+            jobs: ("answer_calls" | "call_new_leads" | "call_leads")[];
             /**
              * Language Primary
              * @enum {string}
@@ -24119,16 +24125,15 @@ export interface components {
         QuestionOut: {
             /** Hint */
             hint: string;
-            /**
-             * Key
-             * @enum {string}
-             */
-            key: "trade" | "location" | "offer" | "hours" | "booking";
+            /** Id */
+            id: string;
             /**
              * Kind
              * @enum {string}
              */
-            kind: "choices" | "address" | "services" | "hours" | "text";
+            kind: "choices" | "single_choice" | "text" | "address" | "services" | "hours";
+            /** Maps To */
+            maps_to: ("trade" | "location" | "offer" | "hours" | "booking") | null;
             /** Options */
             options: string[];
             /** Prompt */

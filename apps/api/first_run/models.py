@@ -47,10 +47,18 @@ MAX_RECORDING_WORDS: Final = 2000
 MAX_QUESTION_RUNS: Final = 3
 MAX_BUILD_RUNS: Final = 3
 
-#: The three questions at most that follow the brief.
-MAX_QUESTIONS: Final = 3
+#: The four questions at most that follow the brief (D-863).
+MAX_QUESTIONS: Final = 4
+
+#: One agent does every job picked, so at most all three (D-863).
+MAX_JOBS: Final = len(FIRST_RUN_JOBS)
 
 _JOBS_SQL: Final = f"job IS NULL OR job IN {FIRST_RUN_JOBS!r}"
+_JOBS_ARRAY_SQL: Final = (
+    "jobs <@ ARRAY["
+    + ", ".join(f"'{job}'" for job in FIRST_RUN_JOBS)
+    + f"]::text[] AND cardinality(jobs) <= {MAX_JOBS}"
+)
 
 
 class FirstRun(PKMixin, TimestampMixin, Base):
@@ -60,6 +68,8 @@ class FirstRun(PKMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", name="uq_first_runs_tenant"),
         CheckConstraint(_JOBS_SQL, name="job_enum"),
+        CheckConstraint(_JOBS_ARRAY_SQL, name="jobs_enum"),
+        CheckConstraint("jsonb_typeof(answers) = 'array'", name="answers_is_array"),
         CheckConstraint(f"questions_status IN {QUESTIONS_STATES!r}", name="questions_status_enum"),
         CheckConstraint(f"build_status IN {BUILD_STATES!r}", name="build_status_enum"),
         CheckConstraint("jsonb_typeof(questions) = 'array'", name="questions_is_array"),
@@ -73,7 +83,11 @@ class FirstRun(PKMixin, TimestampMixin, Base):
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
     )
+    #: Read by the release before D-863 only; nothing writes it now. Dropped in the release
+    #: after (hard rule 8's two steps).
     job: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The jobs picked, in the order the owner sees them; one agent does them all (D-863).
+    jobs: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
     language_primary: Mapped[str | None] = mapped_column(Text, nullable=True)
     languages_extra: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default="{}"
@@ -84,8 +98,14 @@ class FirstRun(PKMixin, TimestampMixin, Base):
         ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
     )
     questions_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="idle")
-    #: `[{"key": <questions.QuestionKey>}]`, in the order they are asked.
+    #: The questions as asked, in order (`questions.Question.stored`); a row from before
+    #: D-863 holds `[{"key": <ProfileTopic>}]` (`questions.legacy_questions`).
     questions: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
+    #: Each answer the owner gave, with its question's words (`service.StoredAnswer`), for
+    #: the script writer.
+    answers: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, nullable=False, server_default="[]"
     )
     #: The fallback model's disclosure (D-127 G-6), when another model wrote them.
@@ -138,6 +158,7 @@ __all__ = [
     "FIRST_RUN_JOBS",
     "MAX_BRIEF_CHARS",
     "MAX_BUILD_RUNS",
+    "MAX_JOBS",
     "MAX_QUESTIONS",
     "MAX_QUESTION_RUNS",
     "MAX_RECORDINGS",

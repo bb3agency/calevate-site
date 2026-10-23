@@ -6,10 +6,11 @@ own seams; what is under test is what reaches the row, the profile and the agent
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Final
 
 import pytest
 from apps.api.admin import service as admin_service
@@ -106,7 +107,7 @@ async def test_a_new_account_is_due_and_one_with_its_own_agent_is_not() -> None:
         fresh = await http.get("/v1/first-run", headers=headers)
     assert fresh.status_code == 200, fresh.text
     body = fresh.json()
-    assert body["due"] is True and body["job"] is None and body["recordings_left"] == 3
+    assert body["due"] is True and body["jobs"] == [] and body["recordings_left"] == 3
     assert [step["state"] for step in body["build"]["steps"]] == ["waiting"] * 4
 
     async with tenant_session(tenant_id) as session:
@@ -138,7 +139,11 @@ async def test_another_tenant_reads_zero_rows() -> None:
     theirs = await _tenant()
     async with tenant_session(mine) as session:
         await first_run.save_job(
-            session, tenant_id=mine, job="call_leads", language_primary="te-IN", languages_extra=[]
+            session,
+            tenant_id=mine,
+            jobs=["call_leads"],
+            language_primary="te-IN",
+            languages_extra=[],
         )
         await first_run.start_recording(
             session,
@@ -151,7 +156,7 @@ async def test_another_tenant_reads_zero_rows() -> None:
     async with tenant_session(theirs) as session:
         for table in ("first_runs", "first_run_recordings"):
             assert (await session.execute(text(f"SELECT count(*) FROM {table}"))).scalar() == 0
-        assert (await first_run.read_state(session, tenant_id=theirs)).job is None
+        assert (await first_run.read_state(session, tenant_id=theirs)).jobs == []
     with pytest.raises(Exception, match="row-level security"):
         async with tenant_session(theirs) as session:
             await session.execute(
@@ -171,24 +176,83 @@ async def test_a_short_brief_asks_the_profiles_own_gaps_without_a_model() -> Non
             "/v1/first-run/job",
             headers=headers,
             json={
-                "job": "call_new_leads",
+                "jobs": ["call_new_leads", "answer_calls"],
                 "language_primary": "te-IN",
                 "languages_extra": ["en-IN"],
             },
         )
         assert job.status_code == 200, job.text
-        assert job.json()["job"] == "call_new_leads"
+        assert job.json()["jobs"] == ["call_new_leads", "answer_calls"], "the owner's order"
         assert job.json()["languages_extra"] == ["en-IN"]
         brief = await http.put("/v1/first-run/brief", headers=headers, json={"brief": "Flats"})
     questions_out = brief.json()["questions"]
     assert questions_out["status"] == "ready"
-    assert [item["key"] for item in questions_out["items"]] == ["trade", "location", "offer"]
-    trade = questions_out["items"][0]
+    items = questions_out["items"]
+    assert [item["maps_to"] for item in items] == ["trade", "location", "offer", "hours"]
+    assert [item["id"] for item in items] == ["q1", "q2", "q3", "q4"]
+    trade = items[0]
     assert trade["kind"] == "choices" and "Villas" in trade["options"]
     assert (await _run(tenant_id)).question_runs == 0
 
 
-async def test_a_long_brief_lets_the_model_choose_only_from_the_fixed_set(
+async def test_jobs_are_one_to_three_each_once() -> None:
+    tenant_id = await _tenant()
+    headers = await _owner(tenant_id)
+    async with _client() as http:
+        twice = await http.put(
+            "/v1/first-run/job",
+            headers=headers,
+            json={"jobs": ["call_leads", "call_leads"], "language_primary": "te-IN"},
+        )
+        none = await http.put(
+            "/v1/first-run/job", headers=headers, json={"jobs": [], "language_primary": "te-IN"}
+        )
+    assert twice.status_code == 422 and none.status_code == 422
+
+
+#: What a model might write for a property office: two good questions, and one each of the
+#: kinds of item the gate must drop whole.
+WRITTEN: Final = [
+    {
+        "prompt": "Which areas of Hyderabad do your projects cover?",
+        "hint": "Callers often ask whether you have something near them.",
+        "kind": "choices",
+        "options": ["Kondapur", "Gachibowli", "Kokapet"],
+        "maps_to": None,
+    },
+    {
+        "prompt": "Do you help with home loans?",
+        "hint": "",
+        "kind": "single_choice",
+        "options": ["Yes, we arrange them", "No"],
+        "maps_to": None,
+    },
+    {
+        "prompt": "See **our** site",
+        "hint": "",
+        "kind": "text",
+        "options": [],
+        "maps_to": None,
+    },
+    {
+        "prompt": "Visit www.example.com?",
+        "hint": "",
+        "kind": "text",
+        "options": [],
+        "maps_to": None,
+    },
+    {
+        "prompt": "When are you open? 😀",
+        "hint": "",
+        "kind": "hours",
+        "options": [],
+        "maps_to": "hours",
+    },
+    {"prompt": "Where are you?", "hint": "", "kind": "address", "options": [], "maps_to": None},
+]
+
+
+async def test_the_model_writes_the_questions_and_the_gate_drops_bad_ones(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id = await _tenant()
@@ -197,17 +261,18 @@ async def test_a_long_brief_lets_the_model_choose_only_from_the_fixed_set(
         await http.put(
             "/v1/first-run/job",
             headers=headers,
-            json={"job": "answer_calls", "language_primary": "te-IN"},
+            json={"jobs": ["answer_calls"], "language_primary": "te-IN"},
         )
         writing = await http.put("/v1/first-run/brief", headers=headers, json={"brief": LONG_BRIEF})
     assert writing.json()["questions"]["status"] == "writing"
     run = await _run(tenant_id)
+    sent: list[str] = []
 
-    async def chose(*_args: Any, parse: Any, **_kwargs: Any) -> SimpleNamespace:
-        # The model names a key it was not offered and repeats one: both are dropped.
-        return _answer(parse({"questions": ["hours", "staff", "hours", "booking"]}))
+    async def wrote(description: str, *_args: Any, parse: Any, **_kwargs: Any) -> SimpleNamespace:
+        sent.append(description)
+        return _answer(parse({"questions": WRITTEN}))
 
-    monkeypatch.setattr(worker, "ask_json", chose)
+    monkeypatch.setattr(worker, "ask_json", wrote)
     monkeypatch.setattr(worker, "_meter", _no_meter)
     outcome = await worker.write_first_run_questions(
         {},
@@ -218,11 +283,53 @@ async def test_a_long_brief_lets_the_model_choose_only_from_the_fixed_set(
         },
     )
     assert outcome == "ready"
+    assert "Kondapur" in sent[0], "the brief is what the model writes from"
     async with _client() as http:
         ready = await http.get("/v1/first-run", headers=headers)
-    assert [item["key"] for item in ready.json()["questions"]["items"]] == ["hours", "booking"]
-    booking = ready.json()["questions"]["items"][1]
-    assert booking["prompt"] == "How does someone book a site visit?"
+    items = ready.json()["questions"]["items"]
+    assert [(i["id"], i["kind"]) for i in items] == [("q1", "choices"), ("q2", "single_choice")]
+    assert items[0]["prompt"] == "Which areas of Hyderabad do your projects cover?"
+
+
+def test_the_gate_drops_an_item_rather_than_repairing_it() -> None:
+    from apps.api.tenancy.business_profile import Profile
+
+    profile = Profile(tenant_id=uuid.uuid4())
+    good = dict(WRITTEN[0])
+    cases: list[dict[str, Any]] = [
+        {**good, "prompt": "x" * 91},
+        {**good, "hint": "y" * 141},
+        {**good, "options": ["Only one"]},
+        {**good, "options": [f"Area {n}" for n in range(9)]},
+        {**good, "options": ["Kondapur", "kondapur"]},
+        {**good, "options": ["A" * 41, "B"]},
+        {**good, "prompt": " Leading space?"},
+        {**good, "prompt": "Mee shop ekkada undi? ఎక్కడ"},
+        {**good, "prompt": "Email us at owner@example.in?"},
+        {**good, "prompt": "# Heading?"},
+        {**good, "kind": "text"},
+        {**good, "kind": "address", "options": [], "maps_to": None},
+        {**good, "kind": "services", "options": [], "maps_to": "offer", "prompt": "1234?"},
+        {**good, "maps_to": "location"},
+        {**good, "maps_to": "staff"},
+        "not an object",
+    ]
+    for case in cases:
+        assert questions.written_questions([case], profile) == [], case
+    assert len(questions.written_questions([good] * 6, profile)) == 1, "the same prompt once"
+    many = [{**good, "prompt": f"Question number {n}?"} for n in range(6)]
+    assert [q.id for q in questions.written_questions(many, profile)] == ["q1", "q2", "q3", "q4"]
+
+
+def test_a_section_already_known_is_not_asked_about_again() -> None:
+    from apps.api.tenancy.business_profile import Branch, Profile
+
+    profile = Profile(tenant_id=uuid.uuid4(), branches=[Branch(label="Main", address="X")])
+    where = {"prompt": "Where are you?", "hint": "", "kind": "address", "options": []}
+    assert questions.written_questions([{**where, "maps_to": "location"}], profile) == []
+    hours = {"prompt": "When are you open?", "hint": "", "kind": "hours", "options": []}
+    twice = [{**hours, "maps_to": "hours"}, {**hours, "maps_to": "hours", "prompt": "Hours?"}]
+    assert len(questions.written_questions(twice, Profile(tenant_id=uuid.uuid4()))) == 1
 
 
 async def test_with_no_model_the_questions_are_the_profiles_gaps(
@@ -235,7 +342,7 @@ async def test_with_no_model_the_questions_are_the_profiles_gaps(
         await first_run.save_job(
             session,
             tenant_id=tenant_id,
-            job="answer_calls",
+            jobs=["answer_calls"],
             language_primary="te-IN",
             languages_extra=[],
         )
@@ -254,7 +361,26 @@ async def test_with_no_model_the_questions_are_the_profiles_gaps(
             "brief_hash": run.questions_brief_hash,
         },
     )
-    assert [q["key"] for q in (await _run(tenant_id)).questions] == ["trade", "location", "offer"]
+    stored = (await _run(tenant_id)).questions
+    assert [q["maps_to"] for q in stored] == ["trade", "location", "offer", "hours"]
+
+
+async def test_a_run_from_before_d863_reads_its_keys_as_the_fixed_questions() -> None:
+    tenant_id = await _tenant()
+    headers = await _owner(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO first_runs (id, tenant_id, questions_status, questions) "
+                "VALUES (:id, :t, 'ready', CAST(:q AS jsonb))"
+            ),
+            {"id": uuid7(), "t": tenant_id, "q": '[{"key": "hours"}, {"key": "booking"}]'},
+        )
+    async with _client() as http:
+        read = await http.get("/v1/first-run", headers=headers)
+    items = read.json()["questions"]["items"]
+    assert [(i["id"], i["maps_to"]) for i in items] == [("q1", "hours"), ("q2", "booking")]
+    assert items[1]["prompt"] == "How does someone book a site visit?"
 
 
 async def test_a_stale_questions_job_writes_nothing_over_a_newer_brief(
@@ -278,26 +404,70 @@ async def test_a_stale_questions_job_writes_nothing_over_a_newer_brief(
     assert outcome == "not_pending"
 
 
+async def _asked(tenant_id: uuid.UUID, items: list[questions.Question]) -> None:
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO first_runs (id, tenant_id, questions_status, questions) "
+                "VALUES (:id, :t, 'ready', CAST(:q AS jsonb))"
+            ),
+            {"id": uuid7(), "t": tenant_id, "q": json.dumps([q.stored() for q in items])},
+        )
+
+
 async def test_the_answers_land_in_the_business_profile_merged() -> None:
     tenant_id = await _tenant()
     headers = await _owner(tenant_id)
+    fixed = [
+        questions.fixed_question(topic, "real_estate", question_id=f"q{n}")
+        for n, topic in enumerate(questions.PROFILE_TOPICS, 1)
+    ]
+    loans = questions.Question("q6", "Do you help with loans?", "", "single_choice", ("Yes", "No"))
+    await _asked(tenant_id, [q for q in fixed if q is not None] + [loans])
     async with _client() as http:
         saved = await http.post(
             "/v1/first-run/answers",
             headers=headers,
             json={
-                "trade": ["Apartments", "Villas"],
-                "location": "Plot 4, Kondapur, Hyderabad",
-                "offer": [{"name": "Villas", "price_inr": "9500000"}],
-                "hours": {"opens": "09:30", "closes": "19:00", "closed": ["sun"]},
-                "booking": "We confirm site visits on WhatsApp within an hour.",
+                "answers": [
+                    {"id": "q1", "choices": ["Apartments", "Villas"]},
+                    {"id": "q2", "text": "Plot 4, Kondapur, Hyderabad"},
+                    {"id": "q3", "services": [{"name": "Villas", "price_inr": "9500000"}]},
+                    {"id": "q4", "hours": {"opens": "09:30", "closes": "19:00", "closed": ["sun"]}},
+                ]
             },
         )
-        refused = await http.post(
-            "/v1/first-run/answers", headers=headers, json={"trade": ["Spaceships"]}
+        later = await http.post(
+            "/v1/first-run/answers",
+            headers=headers,
+            json={
+                "answers": [
+                    {"id": "q5", "text": "We confirm site visits on WhatsApp within an hour."},
+                    {"id": "q6", "choices": ["Yes"]},
+                ]
+            },
         )
+        refusals = [
+            await http.post("/v1/first-run/answers", headers=headers, json={"answers": [bad]})
+            for bad in (
+                {"id": "q1", "choices": ["Spaceships"]},
+                {"id": "q6", "choices": ["Yes", "No"]},
+                {"id": "q2", "choices": ["Kondapur"]},
+                {"id": "q4", "text": "nine to five"},
+                {"id": "q9", "text": "no such question"},
+            )
+        ]
     assert saved.status_code == 200, saved.text
-    assert refused.status_code == 422 and refused.json()["type"].endswith("/first_run_trade_choice")
+    assert later.status_code == 200, later.text
+    for refused in refusals:
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["type"].endswith("/first_run_answer_mismatch")
+    stored = (await _run(tenant_id)).answers
+    assert [a["id"] for a in stored] == ["q1", "q2", "q3", "q4", "q5", "q6"]
+    assert stored[5]["choices"] == ["Yes"] and stored[5]["maps_to"] is None
+    script_lines = first_run.answers_for_script(stored)
+    assert "Q: Do you help with loans?\nA: Yes" in script_lines
+    assert "Villas, Rs 9500000" in script_lines
     async with tenant_session(tenant_id) as session:
         profile = await load_profile(session, tenant_id=tenant_id)
     assert [(s.name, s.price_inr) for s in profile.services] == [
@@ -389,17 +559,91 @@ async def test_a_fourth_recording_is_refused(s3: FakeS3) -> None:
 # ------------------------------------------------------------------ the build
 
 
-async def _ready_to_build(tenant_id: uuid.UUID, brief: str) -> None:
+async def _ready_to_build(
+    tenant_id: uuid.UUID,
+    brief: str,
+    jobs: tuple[str, ...] = ("answer_calls",),
+) -> None:
     async with tenant_session(tenant_id) as session:
         await first_run.save_job(
             session,
             tenant_id=tenant_id,
-            job="answer_calls",
+            jobs=list(jobs),
             language_primary="en-IN",
             languages_extra=[],
         )
         await first_run.save_brief(session, tenant_id=tenant_id, brief=brief)
         await first_run.request_build(session, tenant_id=tenant_id, user_id=None)
+
+
+async def test_several_jobs_build_one_agent_with_a_block_per_direction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = await _tenant()
+    await _ready_to_build(tenant_id, "Flats", jobs=("call_leads", "answer_calls", "call_new_leads"))
+    run = await _run(tenant_id)
+    monkeypatch.setattr(worker, "pick_voice", _no_voice)
+    assert (
+        await worker.build_first_agent(
+            {}, {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
+        )
+        == "built"
+    )
+    after = await _run(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        from apps.api.agents.script_builder import load_agent_script
+
+        count = (await session.execute(text("SELECT count(*) FROM agents"))).scalar()
+        direction = (
+            await session.execute(
+                text("SELECT direction FROM agents WHERE id = :a"), {"a": after.agent_id}
+            )
+        ).scalar()
+        script = (await load_agent_script(session, after.agent_id)).script
+    assert count == 1, "one agent for all three jobs"
+    assert direction == "both"
+    assert [s.id for s in script.stages] == [f"in{n}" for n in range(1, 6)] + [
+        f"out{n}" for n in range(1, 6)
+    ]
+    assert script.stages[4].otherwise == "end", "an incoming call never runs on into calling"
+    assert script.stages[0].name.startswith("Incoming call: ")
+    assert "enquiry only minutes ago" in script.stages[7].instruction
+    assert script.opening_line.startswith("Hello, thank you for calling")
+    assert script.ending.endswith("{{lead_name}}"), "the per-call value stays last (D-816)"
+
+
+async def test_the_answers_and_every_job_reach_the_script_writer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.core.errors import ProblemError
+
+    tenant_id = await _tenant()
+    await _ready_to_build(tenant_id, LONG_BRIEF, jobs=("answer_calls", "call_leads"))
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE first_runs SET answers = CAST(:a AS jsonb)"),
+            {
+                "a": json.dumps(
+                    [{"id": "q1", "prompt": "Do you help with loans?", "choices": ["Yes"]}]
+                )
+            },
+        )
+    run = await _run(tenant_id)
+    briefs: list[str] = []
+
+    async def drafted(brief: Any, **_kwargs: Any) -> SimpleNamespace:
+        briefs.append(brief.description)
+        raise ProblemError.business_rule("assist_unavailable", "No model.")
+
+    monkeypatch.setattr(worker, "pick_voice", _no_voice)
+    monkeypatch.setattr(worker, "draft_script", drafted)
+    monkeypatch.setattr(worker.crm_assist, "meter_refusal", _no_meter)
+    await worker.build_first_agent(
+        {}, {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
+    )
+    assert "Q: Do you help with loans?\nA: Yes" in briefs[0]
+    assert "calling campaigns" in briefs[0] and "ONE agent" in briefs[0]
+    assert (await _run(tenant_id)).build_steps["script"]["state"] == "ready_made"
 
 
 async def _no_voice(_tenant_id: uuid.UUID, _language: str) -> None:
@@ -502,7 +746,7 @@ async def test_the_job_is_locked_once_the_agent_is_built(monkeypatch: pytest.Mon
         moved = await http.put(
             "/v1/first-run/job",
             headers=headers,
-            json={"job": "call_leads", "language_primary": "en-IN"},
+            json={"jobs": ["call_leads"], "language_primary": "en-IN"},
         )
         renamed = await http.put("/v1/first-run/name", headers=headers, json={"name": "Lakshmi"})
     assert moved.status_code == 409 and moved.json()["type"].endswith("/first_run_job_locked")
@@ -561,6 +805,29 @@ def test_every_job_has_a_starter_and_the_outbound_pair_shares_its_line_set() -> 
     assert "enquiry you just made" in fresh.opening_line
 
 
+def test_every_combination_of_jobs_is_one_valid_script_for_every_trade() -> None:
+    from itertools import combinations
+
+    from apps.api.agents.starters import (
+        STARTER_JOBS,
+        TRADES,
+        direction_of_jobs,
+        jobs_label,
+        starter_script,
+    )
+
+    for size in (1, 2, 3):
+        for jobs in combinations(STARTER_JOBS, size):
+            for vertical in TRADES:
+                script = starter_script(vertical, jobs, business="Sri Estates", language="te-IN")
+                assert len(script.stages) <= 12, (vertical, jobs)
+    assert direction_of_jobs(["call_leads"]) == "outbound"
+    assert direction_of_jobs(["call_leads", "call_new_leads"]) == "outbound"
+    assert direction_of_jobs(["answer_calls"]) == "inbound"
+    assert direction_of_jobs(["call_leads", "answer_calls"]) == "both"
+    assert jobs_label(["call_leads", "answer_calls"]) == "Answer my calls + Run calling campaigns"
+
+
 def test_the_first_agent_is_anjali_and_the_identity_is_never_stacked() -> None:
     assert names.FIRST_AGENT_NAME == "Anjali"
     assert gender_of("Female") == "female" and gender_of("woman") == "female"
@@ -584,13 +851,17 @@ def test_questions_already_answered_are_not_asked() -> None:
         branches=[Branch(label="Main", address="Kondapur")],
         services=[ServiceItem(name="Villas", price_inr="100")],
     )
-    assert questions.askable(profile, "real_estate") == ("hours", "booking")
-    assert questions.askable(Profile(tenant_id=uuid.uuid4()), "custom") == (
+
+    def topics(p: Profile, vertical: str) -> list[str | None]:
+        return [q.maps_to for q in questions.fallback_questions(p, vertical, limit=4)]
+
+    assert topics(profile, "real_estate") == ["hours", "booking"]
+    assert topics(Profile(tenant_id=uuid.uuid4()), "custom") == [
         "location",
         "offer",
         "hours",
         "booking",
-    )
+    ]
 
 
 def _voice(

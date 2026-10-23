@@ -6,12 +6,12 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from apps.api.agents.languages import OfferedLanguage
 from apps.api.agents.starters import StarterJob
-from apps.api.first_run.models import MAX_BRIEF_CHARS, MAX_RECORDINGS
-from apps.api.first_run.questions import AnswerKind, QuestionKey
+from apps.api.first_run.models import MAX_BRIEF_CHARS, MAX_JOBS, MAX_QUESTIONS, MAX_RECORDINGS
+from apps.api.first_run.questions import MAX_OPTIONS, ProfileTopic, QuestionKind
 from apps.api.tenancy.business_profile import ServiceItem
 
 _HHMM = r"^(?:[01]\d|2[0-3]):[0-5]\d$"
@@ -23,12 +23,17 @@ class Strict(BaseModel):
 
 
 class QuestionOut(Strict):
-    key: QuestionKey
+    #: `q1`.. in the order asked; an answer names its question by it.
+    id: str
     prompt: str
     hint: str
-    kind: AnswerKind
-    #: The choices of a `choices` question; empty otherwise.
+    #: `choices` = tick all that apply; `single_choice` = pick one.
+    kind: QuestionKind
+    #: The choices of a `choices` or `single_choice` question; empty otherwise.
     options: list[str]
+    #: The business-profile section the answer is saved into, or null when it only informs
+    #: the script.
+    maps_to: ProfileTopic | None
 
 
 class QuestionsOut(Strict):
@@ -76,7 +81,8 @@ class FirstRunOut(Strict):
     #: Is this account's owner still on their first run? The sign-in junction sends them here
     #: while it is.
     due: bool
-    job: StarterJob | None
+    #: The jobs picked, in the order chosen; one agent does them all. Empty until chosen.
+    jobs: list[StarterJob]
     language_primary: str | None
     languages_extra: list[str]
     brief: str | None
@@ -89,10 +95,18 @@ class FirstRunOut(Strict):
 
 
 class JobIn(Strict):
-    job: StarterJob
+    #: One to three jobs, each once, in the order the owner sees them.
+    jobs: list[StarterJob] = Field(min_length=1, max_length=MAX_JOBS)
     language_primary: OfferedLanguage
     #: The languages it also speaks, after the main one.
     languages_extra: list[OfferedLanguage] = Field(default_factory=list, max_length=3)
+
+    @field_validator("jobs")
+    @classmethod
+    def _each_job_once(cls, value: list[StarterJob]) -> list[StarterJob]:
+        if len(set(value)) != len(value):
+            raise ValueError("pick each job once")
+        return value
 
 
 class BriefIn(Strict):
@@ -105,14 +119,28 @@ class HoursIn(Strict):
     closed: list[Day] = Field(default_factory=list, max_length=7)
 
 
+class AnswerIn(Strict):
+    """One answer, in the field its question's kind uses: `choices` for `choices` and
+    `single_choice` (exactly one), `text` for `text` and `address`, `services`, `hours`."""
+
+    id: str = Field(min_length=1, max_length=8)
+    choices: list[str] = Field(default_factory=list, max_length=MAX_OPTIONS)
+    text: str | None = Field(default=None, min_length=1, max_length=2000)
+    services: list[ServiceItem] = Field(default_factory=list, max_length=20)
+    hours: HoursIn | None = None
+
+
 class AnswersIn(Strict):
     """The follow-up answers the owner gave. A question skipped is simply left out."""
 
-    trade: list[str] = Field(default_factory=list, max_length=12)
-    location: str | None = Field(default=None, min_length=1, max_length=400)
-    offer: list[ServiceItem] = Field(default_factory=list, max_length=20)
-    hours: HoursIn | None = None
-    booking: str | None = Field(default=None, min_length=1, max_length=2000)
+    answers: list[AnswerIn] = Field(default_factory=list, max_length=MAX_QUESTIONS)
+
+    @field_validator("answers")
+    @classmethod
+    def _one_answer_per_question(cls, value: list[AnswerIn]) -> list[AnswerIn]:
+        if len({a.id for a in value}) != len(value):
+            raise ValueError("answer each question once")
+        return value
 
 
 class NameIn(Strict):
@@ -129,6 +157,7 @@ class RecordingOut(Strict):
 
 
 __all__ = [
+    "AnswerIn",
     "AnswersIn",
     "BriefIn",
     "BuildOut",

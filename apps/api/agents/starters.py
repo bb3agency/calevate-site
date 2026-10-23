@@ -2,9 +2,16 @@
 
 A new agent used to start with no script at all, and the owner faced a blank builder. The
 founder's rule (redesign #2, item 5) is that the owner picks a JOB, "Answer my calls",
-"Call new leads instantly" (D-855) or "Call my list", and their account's business type
-fills in a ready agent: a structured call script, an opening line and the details the agent
-captures. The owner reviews and adjusts it before switching it on.
+"Call new leads instantly" (D-855) or "Run calling campaigns" (D-863), and their account's
+business type fills in a ready agent: a structured call script, an opening line and the
+details the agent captures. The owner reviews and adjusts it before switching it on.
+
+SEVERAL JOBS, ONE AGENT (D-863). The first run lets the owner pick more than one job, and one
+agent does them all: one voice, one script with a block of sections per job
+(`starter_script`). Its direction is inbound, outbound, or `both` when it answers and dials.
+The two calling jobs share their step shape, so they share one block whose needs step knows
+the person may have enquired minutes ago; that keeps every combination inside the script's
+section limit.
 
 WHAT A STARTER MAY SAY. A starter is written by us and stored as the owner's own script, so
 it must hold for every business of its type:
@@ -33,6 +40,7 @@ rules above.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -41,7 +49,9 @@ from uuid import UUID
 
 from calevate_shared.call_script import (
     END_OF_CALL,
+    MAX_SCRIPT_OBJECTIONS,
     SCRIPT_SCHEMA_VERSION,
+    STAGE_TITLE_MAX,
     CallScript,
     ConversationStage,
     ExampleLine,
@@ -76,25 +86,51 @@ from apps.api.tenancy.business_copy import read_state as read_business_copy
 StarterJob = Literal["answer_calls", "call_new_leads", "call_leads"]
 STARTER_JOBS: Final[tuple[StarterJob, ...]] = get_args(StarterJob)
 
-#: The job decides the calling direction. "Both" is not a starter: an agent that answers
-#: AND dials is one an owner builds deliberately, not one a first click should produce.
 #: A starter preview greets in English; a starter agent is made Telugu-first unless the
 #: owner chose otherwise. Derived from the language registry, never spelled here.
 PREVIEW_LANGUAGE: Final = get_language("english_india").bcp47
 STARTER_LANGUAGE: Final = get_language("telugu").bcp47
 
+#: Each job's calling direction. An agent given an answering job and a calling one is `both`
+#: (`direction_of_jobs`): the owner ticked both, which is the deliberate choice.
 JOB_DIRECTION: Final[Mapping[StarterJob, AgentDirection]] = {
     "answer_calls": "inbound",
     "call_new_leads": "outbound",
     "call_leads": "outbound",
 }
 
-#: The job's name as the owner sees it, used in the version note.
+#: One job, or the several one agent does (D-863).
+JobChoice = StarterJob | Sequence[StarterJob]
+
+
+def starter_jobs(choice: JobChoice) -> tuple[StarterJob, ...]:
+    """The jobs chosen, each once, in `STARTER_JOBS` order: answering first, because a
+    caller who rang is the one who hears an agent that does both greet first."""
+    picked = {choice} if isinstance(choice, str) else set(choice)
+    jobs = tuple(job for job in STARTER_JOBS if job in picked)
+    if not jobs:
+        raise ValueError("at least one job")
+    return jobs
+
+
+def direction_of_jobs(choice: JobChoice) -> AgentDirection:
+    """inbound or outbound when every job agrees, `both` when they do not."""
+    directions = {JOB_DIRECTION[job] for job in starter_jobs(choice)}
+    return directions.pop() if len(directions) == 1 else "both"
+
+
+#: The job's name as the owner sees it, used in the version note. `call_leads` is bulk
+#: calling, which lives on the Campaigns page, hence its campaign name (D-863).
 JOB_LABEL: Final[Mapping[StarterJob, str]] = {
     "answer_calls": "Answer my calls",
     "call_new_leads": "Call new leads instantly",
-    "call_leads": "Call my list",
+    "call_leads": "Run calling campaigns",
 }
+
+
+def jobs_label(choice: JobChoice) -> str:
+    return " + ".join(JOB_LABEL[job] for job in starter_jobs(choice))
+
 
 #: The business copy writes one set of example lines per step shape
 #: (`tenancy/business_copy.StarterLines`). The two outbound jobs share a shape step for step,
@@ -482,16 +518,16 @@ def starter_for(vertical_template: str | None, job: StarterJob) -> Starter:
     return CATALOGUE[(vertical_of(vertical_template), job)]
 
 
-def direction_for(job: StarterJob, requested: AgentDirection | None) -> AgentDirection:
-    """The direction a starter's job sets, refusing an explicit direction that contradicts it."""
-    direction = JOB_DIRECTION[job]
+def direction_for(job: JobChoice, requested: AgentDirection | None) -> AgentDirection:
+    """The direction the jobs set, refusing an explicit direction that contradicts it."""
+    direction = direction_of_jobs(job)
     if requested is not None and requested != direction:
         raise ProblemError(
             kind="validation",
             code="starter_direction_mismatch",
             title="The job and the calling direction disagree",
             detail=(
-                f'"{JOB_LABEL[job]}" makes an agent that only takes {direction} calls. '
+                f'"{jobs_label(job)}" makes an agent whose calls are {direction}. '
                 "Leave the direction out, or choose the other job."
             ),
             fields=[{"name": "direction", "reason": f"must be {direction} for this job"}],
@@ -499,12 +535,116 @@ def direction_for(job: StarterJob, requested: AgentDirection | None) -> AgentDir
     return direction
 
 
+#: A block's section-id prefix and the heading its sections' names carry, so the agent and the
+#: owner both see which job a section belongs to.
+_BLOCKS: Final[Mapping[str, tuple[str, str]]] = {
+    "inbound": ("in", "Incoming call"),
+    "outbound": ("out", "Outgoing call"),
+}
+#: What each block's goal is prefixed with in a script that does both.
+_GOAL_LEAD: Final[Mapping[str, str]] = {
+    "inbound": "When someone rings the business:",
+    "outbound": "When you ring someone:",
+}
+#: The calling block of an agent that does both calling jobs: a person on a campaign list
+#: and a person who enquired minutes ago get the same steps, and only the needs step differs
+#: (`trade_playbooks._call_new_leads`), so that step learns the difference rather than the
+#: script carrying two near-identical blocks past `MAX_SCRIPT_STAGES`.
+_JUST_ENQUIRED: Final = "If they made their enquiry only minutes ago, thank them for it first. "
+_NEEDS_STEP: Final = 2
+_BOTH_CALLING_PURPOSE: Final = (
+    "They showed interest in {business}, just now or earlier, and you are calling to help."
+)
+
+
+def _block(script: CallScript, direction: str) -> list[ConversationStage]:
+    """One job's sections, renamed into its block and closed at its last section, so a call
+    in one block never runs on into the other."""
+    prefix, heading = _BLOCKS[direction]
+    ids = {stage.id: f"{prefix}{i}" for i, stage in enumerate(script.stages, 1)}
+    out: list[ConversationStage] = []
+    for i, stage in enumerate(script.stages):
+        data = stage.model_dump()
+        data["id"] = ids[stage.id]
+        data["name"] = f"{heading}: {stage.name}"[:STAGE_TITLE_MAX]
+        data["branches"] = [
+            {**branch, "target": ids.get(branch["target"], branch["target"])}
+            for branch in data["branches"]
+        ]
+        last = i == len(script.stages) - 1
+        data["otherwise"] = END_OF_CALL if last else ids.get(stage.otherwise, stage.otherwise)
+        out.append(ConversationStage.model_validate(data))
+    return out
+
+
+def starter_script(
+    vertical_template: str | None,
+    job: JobChoice,
+    *,
+    business: str,
+    language: str = STARTER_LANGUAGE,
+) -> CallScript:
+    """The ready-made script for one job, or for the several one agent does (D-863).
+
+    Several: the answering block first, then one calling block. The greeting is the first
+    job's (a caller who rang hears it), the per-call lead name stays in the LAST section
+    (D-816's cache rule) by taking the calling ending whenever the agent dials, and the
+    objections are both jobs', each once."""
+    jobs = starter_jobs(job)
+    vertical = vertical_of(vertical_template)
+    if len(jobs) == 1:
+        return CATALOGUE[(vertical, jobs[0])].call_script(business=business, language=language)
+    answering = "answer_calls" in jobs
+    calling = tuple(j for j in jobs if JOB_DIRECTION[j] == "outbound")
+    first = CATALOGUE[(vertical, jobs[0])].call_script(business=business, language=language)
+    parts: list[tuple[str, CallScript]] = []
+    if answering:
+        parts.append(("inbound", first))
+    if calling:
+        base = CATALOGUE[(vertical, calling[-1])].call_script(business=business, language=language)
+        if len(calling) > 1:
+            # The list's own needs step (index 2 of the shared shape), told about new enquiries.
+            stages = list(base.stages)
+            needs = stages[_NEEDS_STEP]
+            # Past the step's 600 characters, the list's step stays as it is.
+            with contextlib.suppress(ValueError):
+                stages[_NEEDS_STEP] = ConversationStage.model_validate(
+                    {**needs.model_dump(), "instruction": _JUST_ENQUIRED + needs.instruction}
+                )
+            base = base.model_copy(
+                update={
+                    "stages": stages,
+                    "outbound_purpose": _BOTH_CALLING_PURPOSE.replace("{business}", business),
+                }
+            )
+        parts.append(("outbound", base))
+    if len(parts) == 1:
+        # Both calling jobs and no answering one: one block, needing no headings.
+        return parts[0][1]
+    objections: list[Objection] = []
+    for _direction, part in parts:
+        for objection in part.objections:
+            if all(o.objection != objection.objection for o in objections):
+                objections.append(objection)
+    return CallScript.model_validate(
+        {
+            **first.model_dump(),
+            "identity": " ".join(part.identity for _d, part in parts),
+            "goal": " ".join(f"{_GOAL_LEAD[d]} {part.goal}" for d, part in parts),
+            "outbound_purpose": parts[-1][1].outbound_purpose,
+            "stages": [s.model_dump() for d, part in parts for s in _block(part, d)],
+            "objections": [o.model_dump() for o in objections[:MAX_SCRIPT_OBJECTIONS]],
+            "ending": parts[-1][1].ending,
+        }
+    )
+
+
 async def apply_starter(
     session: AsyncSession,
     *,
     tenant_id: UUID,
     agent_id: UUID,
-    job: StarterJob,
+    job: JobChoice,
     vertical_template: str | None,
     business: str,
     created_by: UUID | None,
@@ -521,8 +661,7 @@ async def apply_starter(
     the save. `language` picks the example call (`spoken_style.json`). Returns the script
     version.
     """
-    vertical = vertical_of(vertical_template)
-    starter = CATALOGUE[(vertical, job)]
+    jobs = starter_jobs(job)
     # The ACCOUNT's business fields, not the starter catalogue's vertical: a type with no
     # starter row of its own (a shop) still gets its own standard set, and a custom business
     # gets its one AI draft once it exists (`agents/lead_fields`).
@@ -531,16 +670,24 @@ async def apply_starter(
     )
     validate_fields(fields)
     await write_schema(session, agent_id=agent_id, fields=fields)
-    script = starter.call_script(business=business, language=language)
+    script = starter_script(vertical_template, jobs, business=business, language=language)
     stored = await read_business_copy(session)
-    if stored is not None and stored.copy is not None and stored.language == language:
-        script = with_example_lines(script, getattr(stored.copy.starter_lines, LINES_OF_JOB[job]))
+    # The business's lines are written per job's step shape; a several-job script's blocks
+    # match none of them, so it keeps the plans' own lines.
+    if (
+        len(jobs) == 1
+        and stored is not None
+        and stored.copy is not None
+        and stored.language == language
+    ):
+        lines = getattr(stored.copy.starter_lines, LINES_OF_JOB[jobs[0]])
+        script = with_example_lines(script, lines)
     saved = await save_agent_script(
         session,
         tenant_id=tenant_id,
         agent_id=agent_id,
         script=script,
-        notes=f"Ready-made starter: {JOB_LABEL[job]}",
+        notes=f"Ready-made starter: {jobs_label(jobs)}",
         created_by=created_by,
     )
     return saved.version
@@ -574,8 +721,9 @@ def with_example_lines(script: CallScript, lines: Sequence[str]) -> CallScript:
     return script.model_copy(update={"stages": stages})
 
 
-#: The jobs an agent's direction may have come from. "both" has none: no starter makes such
-#: an agent. Outbound has two, told apart by the script's content (`starter_vertical_of`).
+#: The single jobs an agent's direction may have come from. "both" has none: a several-job
+#: script (D-863) matches no one catalogue starter, so `replace_unedited_starter` leaves it
+#: alone, the safe side. Outbound has two, told apart by content (`starter_vertical_of`).
 JOBS_OF_DIRECTION: Final[Mapping[str, tuple[StarterJob, ...]]] = {
     direction: tuple(job for job in STARTER_JOBS if JOB_DIRECTION[job] == direction)
     for direction in set(JOB_DIRECTION.values())
@@ -717,6 +865,7 @@ __all__ = [
     "NEUTRAL_VERTICAL",
     "STARTER_JOBS",
     "TRADES",
+    "JobChoice",
     "LineSet",
     "RewrittenOpening",
     "Starter",
@@ -726,9 +875,13 @@ __all__ = [
     "apply_starter",
     "captured_fields",
     "direction_for",
+    "direction_of_jobs",
+    "jobs_label",
     "replace_unedited_starter",
     "rewrite_opening_in_language",
     "starter_for",
+    "starter_jobs",
+    "starter_script",
     "starter_vertical_of",
     "vertical_of",
     "with_example_lines",

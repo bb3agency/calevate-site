@@ -1,12 +1,12 @@
 """The first run, "Meet your agent": a new owner's first agent, from its job and their words.
 
-D-855.
+D-855, D-863.
 
 Founder, 23 Oct 2026. The first thing a new owner sees is their agent taking shape, not the
-business setup wizard: its job, its languages, a brief in their own words (typed, spoken, or
-the trade's own example), up to three follow-up questions, a build they watch step by step,
-and a test call to their own phone. The wizard stays on the dashboard checklist and in
-Settings.
+business setup wizard: its jobs (one agent does every job picked, D-863), its languages, a
+brief in their own words (typed, spoken, or the trade's own example), up to four follow-up
+questions our AI writes for the business, a build they watch step by step, and a test call
+to their own phone. The wizard stays on the dashboard checklist and in Settings.
 
 WHERE THE OWNER IS LIVES IN ONE ROW (`first_runs`), so a reload, a second device or a return
 next week lands on the same step, and the sign-in junction can tell a first-time owner from
@@ -46,7 +46,12 @@ from apps.api.first_run.models import (
     MIN_BRIEF_CHARS,
 )
 from apps.api.first_run.names import identity_with_name
-from apps.api.first_run.questions import QuestionKey, askable
+from apps.api.first_run.questions import (
+    CHOICE_KINDS,
+    Question,
+    fallback_questions,
+    stored_questions,
+)
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.business_copy import queue_generation
 from apps.api.tenancy.business_profile import DAYS, Branch, DayHours, ServiceItem, load_profile
@@ -59,10 +64,12 @@ BUILD_JOB: Final = "build_first_agent"
 
 #: The label of the branch the "Where are you?" answer creates.
 MAIN_BRANCH_LABEL: Final = "Main branch"
+#: An address answer, the old `location` answer's bound.
+MAX_ADDRESS_CHARS: Final = 400
 
 _COLUMNS: Final = (
-    "id, job, language_primary, languages_extra, brief, agent_id, questions_status, "
-    "questions, questions_disclosure, question_runs, build_status, build_steps, "
+    "id, jobs, language_primary, languages_extra, brief, agent_id, questions_status, "
+    "questions, answers, questions_disclosure, question_runs, build_status, build_steps, "
     "build_disclosure, build_runs, build_requested_at, finished_at, dismissed_at"
 )
 
@@ -71,13 +78,13 @@ _COLUMNS: Final = (
 class RunState:
     #: None until the owner's first answer creates the row.
     id: UUID | None
-    job: str | None
+    jobs: list[str]
     language_primary: str | None
     languages_extra: list[str]
     brief: str | None
     agent_id: UUID | None
     questions_status: str
-    questions: list[QuestionKey]
+    questions: list[Question]
     questions_disclosure: str | None
     question_runs: int
     build_status: str
@@ -108,16 +115,16 @@ def _build_status(row: Any, *, now: datetime | None = None) -> str:
     return "failed" if status == "building" and stale else status
 
 
-def _state(row: Any, *, recordings_used: int, due: bool) -> RunState:
+def _state(row: Any, *, recordings_used: int, due: bool, vertical: str | None) -> RunState:
     return RunState(
         id=row.id,
-        job=row.job,
+        jobs=list(row.jobs or []),
         language_primary=row.language_primary,
         languages_extra=list(row.languages_extra or []),
         brief=row.brief,
         agent_id=row.agent_id,
         questions_status=str(row.questions_status),
-        questions=[q["key"] for q in row.questions or [] if isinstance(q, dict) and "key" in q],
+        questions=stored_questions(row.questions or [], vertical),
         questions_disclosure=row.questions_disclosure,
         question_runs=int(row.question_runs),
         build_status=_build_status(row),
@@ -188,7 +195,7 @@ async def read_state(session: AsyncSession, *, tenant_id: UUID) -> RunState:
     if row is None:
         return RunState(
             id=None,
-            job=None,
+            jobs=[],
             language_primary=None,
             languages_extra=[],
             brief=None,
@@ -205,7 +212,12 @@ async def read_state(session: AsyncSession, *, tenant_id: UUID) -> RunState:
             dismissed_at=None,
             due=due,
         )
-    return _state(row, recordings_used=await _recordings_used(session, row.id), due=due)
+    return _state(
+        row,
+        recordings_used=await _recordings_used(session, row.id),
+        due=due,
+        vertical=await _vertical(session),
+    )
 
 
 def _job_locked() -> ProblemError:
@@ -220,22 +232,23 @@ async def save_job(
     session: AsyncSession,
     *,
     tenant_id: UUID,
-    job: str,
+    jobs: Sequence[str],
     language_primary: str,
     languages_extra: list[str],
 ) -> RunState:
-    """The job and the languages. Once the agent is built its job stays, because the job set
-    its calling direction and its ready-made script."""
+    """The jobs and the languages. Once the agent is built its jobs stay, because they set
+    its calling direction and its ready-made script. Kept in the order the owner gave."""
     row = await _ensure(session, tenant_id=tenant_id)
-    if row.agent_id is not None and row.job not in (None, job):
+    held = set(row.jobs or [])
+    if row.agent_id is not None and held and held != set(jobs):
         raise _job_locked()
     extra = published_extra_languages(language_primary, languages_extra)
     await session.execute(
         text(
-            "UPDATE first_runs SET job = :job, language_primary = :lang, "
+            "UPDATE first_runs SET jobs = :jobs, language_primary = :lang, "
             "languages_extra = :extra, updated_at = now() WHERE id = :id"
         ),
-        {"id": row.id, "job": job, "lang": language_primary, "extra": extra},
+        {"id": row.id, "jobs": list(jobs), "lang": language_primary, "extra": extra},
     )
     return await read_state(session, tenant_id=tenant_id)
 
@@ -250,9 +263,9 @@ async def _vertical(session: AsyncSession) -> str | None:
 async def save_brief(session: AsyncSession, *, tenant_id: UUID, brief: str) -> RunState:
     """Keep the brief and find the follow-up questions for it.
 
-    A brief with something to read is sent to the model to choose questions (queued, once per
+    A brief with something to read is sent to the model to write questions (queued, once per
     distinct brief, at most `MAX_QUESTION_RUNS` times); a short one, or one past that bound,
-    gets the profile's own gaps at once with no model at all.
+    gets the fixed questions for the profile's own gaps at once with no model at all.
     """
     row = await _ensure(session, tenant_id=tenant_id)
     cleaned = brief.strip()
@@ -285,9 +298,14 @@ async def save_brief(session: AsyncSession, *, tenant_id: UUID, brief: str) -> R
         )
     else:
         profile = await load_profile(session, tenant_id=tenant_id)
-        keys = list(askable(profile, await _vertical(session)))[:MAX_QUESTIONS]
+        fixed = fallback_questions(profile, await _vertical(session), limit=MAX_QUESTIONS)
         await store_questions(
-            session, run_id=row.id, brief_hash=digest, keys=keys, disclosure=None, writing=False
+            session,
+            run_id=row.id,
+            brief_hash=digest,
+            questions=fixed,
+            disclosure=None,
+            writing=False,
         )
     return await read_state(session, tenant_id=tenant_id)
 
@@ -297,25 +315,28 @@ async def store_questions(
     *,
     run_id: UUID,
     brief_hash: str | None,
-    keys: Sequence[str],
+    questions: Sequence[Question],
     disclosure: str | None,
     writing: bool = True,
 ) -> bool:
-    """Write the questions for the brief they were chosen for. False when the owner has since
-    changed the brief, so the job that chose them for the old one writes nothing."""
+    """Write the questions for the brief they were written for. False when the owner has since
+    changed the brief, so the job that wrote them for the old one writes nothing. Answers
+    given to the previous questions are cleared: they name questions no longer asked (what
+    they put into the business profile stays there)."""
     guard = "AND questions_status = 'writing' AND questions_brief_hash = :hash" if writing else ""
     stored = (
         await session.execute(
             text(
                 "UPDATE first_runs SET questions_status = 'ready', "
-                "questions = CAST(:questions AS jsonb), questions_disclosure = :disclosure, "
+                "questions = CAST(:questions AS jsonb), answers = '[]'::jsonb, "
+                "questions_disclosure = :disclosure, "
                 "questions_brief_hash = :hash, updated_at = now() "
                 f"WHERE id = :id {guard} RETURNING id"
             ),
             {
                 "id": run_id,
                 "hash": brief_hash,
-                "questions": json.dumps([{"key": key} for key in keys]),
+                "questions": json.dumps([question.stored() for question in questions]),
                 "disclosure": disclosure,
             },
         )
@@ -461,6 +482,160 @@ async def save_answers(
     return steps
 
 
+@dataclass(frozen=True, slots=True)
+class GivenAnswer:
+    """One answer as the owner sent it, before it is checked against its question."""
+
+    id: str
+    choices: tuple[str, ...] = ()
+    text: str | None = None
+    services: tuple[ServiceItem, ...] = ()
+    hours: OpenHours | None = None
+
+
+def _mismatch(index: int, reason: str) -> ProblemError:
+    return ProblemError(
+        kind="validation",
+        code="first_run_answer_mismatch",
+        title="That answer does not fit its question",
+        detail="Answer the questions shown, in the way each one asks.",
+        fields=[{"name": f"answers[{index}]", "reason": reason}],
+    )
+
+
+def _checked(index: int, answer: GivenAnswer, question: Question) -> None:
+    """Refuse an answer in a shape its question did not ask for."""
+    kind = question.kind
+    uses = {
+        "choices": bool(answer.choices),
+        "text": answer.text is not None,
+        "services": bool(answer.services),
+        "hours": answer.hours is not None,
+    }
+    field = (
+        "choices"
+        if kind in CHOICE_KINDS
+        else "text"
+        if kind in ("text", "address")
+        else "services"
+        if kind == "services"
+        else "hours"
+    )
+    if not uses[field] or any(used for name, used in uses.items() if name != field):
+        raise _mismatch(index, f"a {kind} question is answered in `{field}` alone")
+    if kind in CHOICE_KINDS:
+        if any(choice not in question.options for choice in answer.choices):
+            raise _mismatch(index, "not one of the choices offered")
+        if len(set(answer.choices)) != len(answer.choices):
+            raise _mismatch(index, "each choice once")
+        if kind == "single_choice" and len(answer.choices) != 1:
+            raise _mismatch(index, "pick exactly one")
+    if kind == "address" and answer.text is not None and len(answer.text) > MAX_ADDRESS_CHARS:
+        raise _mismatch(index, f"at most {MAX_ADDRESS_CHARS} characters")
+    if answer.text is not None and not answer.text.strip():
+        raise _mismatch(index, "empty")
+
+
+def _profile_part(pairs: Sequence[tuple[GivenAnswer, Question]]) -> Answers:
+    """The answers whose questions name a profile section, as that section's patch."""
+    by_topic = {question.maps_to: answer for answer, question in pairs if question.maps_to}
+    trade, location, offer = by_topic.get("trade"), by_topic.get("location"), by_topic.get("offer")
+    hours, booking = by_topic.get("hours"), by_topic.get("booking")
+    return Answers(
+        trade=trade.choices if trade else (),
+        location=location.text if location else None,
+        offer=offer.services if offer else (),
+        hours=hours.hours if hours else None,
+        booking=booking.text if booking else None,
+    )
+
+
+def _stored(answer: GivenAnswer, question: Question) -> dict[str, Any]:
+    return {
+        "id": question.id,
+        "prompt": question.prompt,
+        "kind": question.kind,
+        "maps_to": question.maps_to,
+        "choices": list(answer.choices),
+        "text": None if answer.text is None else answer.text.strip(),
+        "services": [item.model_dump(mode="json") for item in answer.services],
+        "hours": None
+        if answer.hours is None
+        else {
+            "opens": answer.hours.opens,
+            "closes": answer.hours.closes,
+            "closed": list(answer.hours.closed),
+        },
+    }
+
+
+async def answer_questions(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    answers: Sequence[GivenAnswer],
+    user_id: UUID | None,
+) -> set[str]:
+    """Check each answer against the question it names, keep every answer with its question
+    for the script writer, and write the ones that name a profile section into the profile
+    (`save_answers`). Returns the profile sections written.
+
+    An answer to a question already answered replaces it; the others are kept. Refused whole,
+    with nothing written, when any answer names no question asked or does not fit it."""
+    row = await _ensure(session, tenant_id=tenant_id)
+    asked = {q.id: q for q in stored_questions(row.questions or [], await _vertical(session))}
+    pairs: list[tuple[GivenAnswer, Question]] = []
+    for index, answer in enumerate(answers):
+        question = asked.get(answer.id)
+        if question is None:
+            raise _mismatch(index, "no such question was asked")
+        _checked(index, answer, question)
+        pairs.append((answer, question))
+    given = {answer.id for answer in answers}
+    kept = [
+        stored
+        for stored in row.answers or []
+        if isinstance(stored, dict) and stored.get("id") in asked and stored["id"] not in given
+    ]
+    merged = sorted(
+        [*kept, *(_stored(answer, question) for answer, question in pairs)],
+        key=lambda stored: list(asked).index(stored["id"]),
+    )
+    await session.execute(
+        text(
+            "UPDATE first_runs SET answers = CAST(:answers AS jsonb), updated_at = now() "
+            "WHERE id = :id"
+        ),
+        {"id": row.id, "answers": json.dumps(merged)},
+    )
+    return await save_answers(
+        session, tenant_id=tenant_id, answers=_profile_part(pairs), user_id=user_id
+    )
+
+
+def answers_for_script(stored: Sequence[object]) -> str:
+    """The owner's answers as plain lines for the script writer: each question, then what
+    they said. Empty when there are none."""
+    lines: list[str] = []
+    for item in stored:
+        if not isinstance(item, dict):
+            continue
+        said: list[str] = []
+        said += [str(choice) for choice in item.get("choices") or []]
+        if item.get("text"):
+            said.append(str(item["text"]))
+        for service in item.get("services") or []:
+            price = service.get("price_inr")
+            said.append(f"{service.get('name')}" + (f", Rs {price}" if price else ""))
+        hours = item.get("hours")
+        if isinstance(hours, dict):
+            closed = ", ".join(hours.get("closed") or []) or "none"
+            said.append(f"{hours.get('opens')} to {hours.get('closes')}, closed on: {closed}")
+        if said:
+            lines.append(f"Q: {item.get('prompt')}\nA: {'; '.join(said)}")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------- the build
 
 
@@ -481,7 +656,7 @@ async def request_build(
     The first build also queues the business's examples to be written again (D-827), so the
     hints on every screen use what the owner said rather than only the trade's defaults."""
     row = await _ensure(session, tenant_id=tenant_id)
-    if row.job is None or row.language_primary is None:
+    if not row.jobs or row.language_primary is None:
         raise _not_ready_to_build("Go back to the first step and pick what it should do.")
     if _build_status(row) == "building":
         return await read_state(session, tenant_id=tenant_id)
@@ -580,10 +755,13 @@ __all__ = [
     "MAIN_BRANCH_LABEL",
     "QUESTIONS_JOB",
     "Answers",
+    "GivenAnswer",
     "Marker",
     "OpenHours",
     "Recording",
     "RunState",
+    "answer_questions",
+    "answers_for_script",
     "brief_hash",
     "due_for",
     "mark",

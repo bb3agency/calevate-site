@@ -22,7 +22,6 @@ from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.languages import OfferedLanguage
@@ -36,7 +35,6 @@ from apps.api.core.rbac import permission_meta
 from apps.api.db.base import uuid7
 from apps.api.first_run import service
 from apps.api.first_run.models import BUILD_STEPS, MAX_BUILD_RUNS, MAX_RECORDINGS, BuildStep
-from apps.api.first_run.questions import question_for, trade_choices
 from apps.api.first_run.schemas import (
     AnswersIn,
     BriefIn,
@@ -60,13 +58,6 @@ Owner = Annotated[Principal, Depends(requires("org:manage"))]
 _MANAGE = permission_meta("org:manage")
 
 
-async def _vertical(session: AsyncSession) -> str | None:
-    value = (
-        await session.execute(text("SELECT vertical_template FROM organizations LIMIT 1"))
-    ).scalar()
-    return None if value is None else str(value)
-
-
 def _step_out(step: BuildStep, found: dict[str, Any]) -> BuildStepOut:
     """One build step as the worker wrote it; a step it has not reached is `waiting`."""
     return BuildStepOut(
@@ -81,22 +72,21 @@ def _step_out(step: BuildStep, found: dict[str, Any]) -> BuildStepOut:
 
 async def _out(session: AsyncSession, tenant_id: UUID) -> FirstRunOut:
     state = await service.read_state(session, tenant_id=tenant_id)
-    vertical = await _vertical(session)
     items = [
         QuestionOut(
-            key=question.key,
+            id=question.id,
             prompt=question.prompt,
             hint=question.hint,
             kind=question.kind,
             options=list(question.options),
+            maps_to=question.maps_to,
         )
-        for key in state.questions
-        if (question := question_for(key, vertical)) is not None
+        for question in state.questions
     ]
     steps = [_step_out(step, state.build_steps.get(step) or {}) for step in BUILD_STEPS]
     return FirstRunOut(
         due=state.due,
-        job=cast("StarterJob | None", state.job),
+        jobs=cast("list[StarterJob]", state.jobs),
         language_primary=state.language_primary,
         languages_extra=state.languages_extra,
         brief=state.brief,
@@ -151,10 +141,12 @@ async def read_first_run(session: Session, principal: Owner) -> FirstRunOut:
     "/job",
     response_model=FirstRunOut,
     openapi_extra=_MANAGE,
-    summary="Choose the agent's job and the languages it speaks",
+    summary="Choose the agent's jobs and the languages it speaks",
     description=(
-        "Refused with `first_run_job_locked` once the agent is built for another job: the job "
-        "set its calling direction and its ready-made script."
+        "One to three jobs, each once; ONE agent does every job picked (answering only: "
+        "inbound; calling only: outbound; both: `both`). Refused with "
+        "`first_run_job_locked` once the agent is built for other jobs: they set its calling "
+        "direction and its ready-made script."
     ),
 )
 async def put_job(
@@ -164,7 +156,7 @@ async def put_job(
     await service.save_job(
         session,
         tenant_id=principal.tenant_id,
-        job=payload.job,
+        jobs=list(payload.jobs),
         language_primary=payload.language_primary,
         languages_extra=list(payload.languages_extra),
     )
@@ -173,7 +165,7 @@ async def put_job(
         principal,
         request,
         "first_run.job",
-        {"job": payload.job, "language": payload.language_primary},
+        {"jobs": list(payload.jobs), "language": payload.language_primary},
     )
     return await _out(session, principal.tenant_id)
 
@@ -184,10 +176,11 @@ async def put_job(
     openapi_extra=_MANAGE,
     summary="Keep the brief and find its follow-up questions",
     description=(
-        "A brief with something to read is sent to a worker that chooses up to three "
-        "follow-up questions from a fixed set (`questions.status` is `writing` until it "
-        "answers; poll this resource). A short brief gets the business profile's own gaps at "
-        "once."
+        "A brief with something to read is sent to a worker whose AI writes two to four "
+        "follow-up questions for this business, each with the kind of answer it wants "
+        "(`questions.status` is `writing` until it answers; poll this resource). A short "
+        "brief, or no usable answer from the AI, gets fixed questions about the business "
+        "profile's own gaps."
     ),
 )
 async def put_brief(
@@ -272,46 +265,49 @@ async def read_recording(recording_id: UUID, session: Session, _: Owner) -> Reco
     "/answers",
     response_model=FirstRunOut,
     openapi_extra=_MANAGE,
-    summary="Write the follow-up answers into the business profile",
+    summary="Answer the follow-up questions",
     description=(
-        "Each answer is merged into the business profile (`PATCH /v1/business-profile`'s own "
-        "save), so every agent of the business learns it. A skipped question is left out."
+        "Each answer names its question by `id` and uses the field its kind asks for "
+        "(`choices` for `choices` and `single_choice`, which takes exactly one; `text` for "
+        "`text` and `address`; `services`; `hours`), and is refused with "
+        "`first_run_answer_mismatch` otherwise. Every answer is kept with its question and "
+        "given to the script writer; one whose question has `maps_to` is also merged into "
+        "that business-profile section (`PATCH /v1/business-profile`'s own save), so every "
+        "agent of the business learns it. A skipped question is left out."
     ),
 )
 async def post_answers(
     payload: AnswersIn, request: Request, session: Session, principal: Owner
 ) -> FirstRunOut:
     assert principal.tenant_id is not None
-    choices = trade_choices(await _vertical(session))
-    offered = set(choices.options) if choices else set()
-    unknown = [option for option in payload.trade if option not in offered]
-    if unknown:
-        raise ProblemError(
-            kind="validation",
-            code="first_run_trade_choice",
-            title="That choice is not on the list",
-            detail="Pick from the choices shown for your kind of business.",
-            fields=[{"name": "trade", "reason": "not one of the choices offered"}],
-        )
-    sections = await service.save_answers(
+    sections = await service.answer_questions(
         session,
         tenant_id=principal.tenant_id,
-        answers=service.Answers(
-            trade=tuple(payload.trade),
-            location=payload.location,
-            offer=tuple(payload.offer),
-            hours=None
-            if payload.hours is None
-            else service.OpenHours(
-                opens=payload.hours.opens,
-                closes=payload.hours.closes,
-                closed=tuple(payload.hours.closed),
-            ),
-            booking=payload.booking,
-        ),
+        answers=[
+            service.GivenAnswer(
+                id=answer.id,
+                choices=tuple(answer.choices),
+                text=answer.text,
+                services=tuple(answer.services),
+                hours=None
+                if answer.hours is None
+                else service.OpenHours(
+                    opens=answer.hours.opens,
+                    closes=answer.hours.closes,
+                    closed=tuple(answer.hours.closed),
+                ),
+            )
+            for answer in payload.answers
+        ],
         user_id=principal.client_user_id,
     )
-    await _audit(session, principal, request, "first_run.answers", {"sections": sorted(sections)})
+    await _audit(
+        session,
+        principal,
+        request,
+        "first_run.answers",
+        {"answers": len(payload.answers), "sections": sorted(sections)},
+    )
     return await _out(session, principal.tenant_id)
 
 

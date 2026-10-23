@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * "Meet your agent", a new owner's first run (D-855): `/v1/first-run/**`.
+ * "Meet your agent", a new owner's first run (D-855, D-863): `/v1/first-run/**`.
  *
- * The server holds where the owner is (the job, the brief, the questions a worker chose, the
+ * The server holds where the owner is (the jobs, the brief, the questions a worker wrote, the
  * build's steps), so a reload or another device lands on the same step. Two things are
  * worked on in the background and polled while they are: the follow-up questions
  * (`questions.status === "writing"`) and the build (`build.status === "building"`); a
@@ -24,7 +24,14 @@ export type FirstRunQuestion = Schemas["QuestionOut"];
 export type FirstRunBuildStep = Schemas["BuildStepOut"];
 export type FirstRunRecording = Schemas["RecordingOut"];
 export type FirstRunAnswers = Schemas["AnswersIn"];
-export type FirstRunJob = NonNullable<FirstRun["job"]>;
+export type FirstRunAnswer = Schemas["AnswerIn"];
+/** One agent does every job picked (D-863). */
+export type FirstRunJob = FirstRun["jobs"][number];
+
+/** The first job picked, for screens that still show one job at a time. */
+export function primaryJob(run: Pick<FirstRun, "jobs"> | undefined): FirstRunJob | null {
+  return run?.jobs[0] ?? null;
+}
 
 export const FIRST_RUN_PATH = "/v1/first-run";
 
@@ -68,7 +75,7 @@ function useFirstRunWrite<Body>(
 }
 
 export function useSaveJob(session: Session) {
-  return useFirstRunWrite<{ job: FirstRunJob; language_primary: string; languages_extra: string[] }>(
+  return useFirstRunWrite<{ jobs: FirstRunJob[]; language_primary: string; languages_extra: string[] }>(
     session,
     "/job",
     "PUT",
