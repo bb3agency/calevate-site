@@ -300,6 +300,8 @@ def _keep(reason: str, slug: str) -> list[str]:
         "date. Calls start again straight away, on the same agent as before.",
         "",
         "Add credit here:",
+        # Its own paragraph, so `from_text` renders it as the email's button.
+        "",
         f"{CONSOLE_BASE}/c/{slug}/credits",
     ]
 
