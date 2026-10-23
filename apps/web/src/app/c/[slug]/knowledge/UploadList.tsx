@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { CheckCircle2, FileText, Globe, ImageIcon, Trash2 } from "lucide-react";
 
-import { RowMenu } from "@/components/console/rowMenu";
+import { RowMenu } from "@/components/arc/menu";
 import { TaskSteps } from "@/components/interior/task-steps";
 import {
   PRIMARY_BUTTON_SM,

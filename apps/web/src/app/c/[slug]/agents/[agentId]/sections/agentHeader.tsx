@@ -34,7 +34,7 @@ import { formatINR, ProblemNotice, PRIMARY_BUTTON, RestrictionNote, SECONDARY_BU
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { useSectionLink } from "@/components/console/settingsLayout";
-import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
+import { RowMenu, type RowMenuItem } from "@/components/arc/menu";
 import { STATUS_COPY, isDeleted, movesFor } from "@/lib/agentState";
 import { useAgentLifecycle, type Agent, type LifecycleMove } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";

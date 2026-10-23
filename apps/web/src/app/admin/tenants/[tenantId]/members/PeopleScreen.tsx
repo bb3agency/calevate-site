@@ -4,7 +4,7 @@ import { EmptySketch } from "@/components/console/emptySketch";
 import { useState } from "react";
 import { KeyRound, UserPlus } from "lucide-react";
 
-import { ActionButton } from "@/components/actionButton";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Drawer } from "@/components/console/drawer";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -261,6 +261,7 @@ function InviteForm({
   write: ReturnType<typeof useAdminAccess>;
 }) {
   const invite = useInvite();
+  const inviteFeedback = useActionFeedback(invite, { errorDisplay: "inline" });
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("owner");
   const malformed = !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
@@ -319,7 +320,7 @@ function InviteForm({
           <span className={FIELD_HINT}>{lookup(ROLE_COPY, role)?.can}</span>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <ActionButton type="submit" loading={invite.isPending} disabled={malformed || !write.allowed}>
+          <ActionButton type="submit" status={inviteFeedback.status} disabled={malformed || !write.allowed}>
             <KeyRound aria-hidden className="h-4 w-4" />
             Send the invitation
           </ActionButton>

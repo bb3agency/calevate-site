@@ -88,7 +88,7 @@ import Link from "next/link";
 import { useId, useMemo, useState } from "react";
 import { Bot, Filter, Handshake, TrendingDown, UserRound } from "lucide-react";
 
-import { RANGE_INPUT } from "@/components/ui";
+import { SliderTrack } from "@/components/arc/slider";
 import {
   cardFromRate,
   cheapestPack,
@@ -162,24 +162,16 @@ function Control({
           {unit && <span className="w-12 text-sm text-ink-faint">{unit}</span>}
         </div>
       </div>
-      <input
-        type="range"
+      {/* The exact path to the same value is the labelled number field above. */}
+      <SliderTrack
         min={bounds.min}
         max={bounds.max}
         step={bounds.step}
-        value={
-          Number.isFinite(value)
-            ? Math.min(Math.max(value, bounds.min), bounds.max)
-            : bounds.min
-        }
-        onChange={(e) => onChange(Number(e.target.value))}
+        value={Number.isFinite(value) ? value : bounds.min}
+        onValueChange={onChange}
         aria-label={label}
         aria-valuetext={unit ? `${value} ${unit}` : String(value)}
-        /*
-         * The 44px path to the same value is the labelled number field above, which carries
-         * `touch:min-h-11`; the slider's own thumb is sized in `RANGE_INPUT`.
-         */
-        className={`mt-3 ${RANGE_INPUT}`}
+        className="mt-3"
       />
       {hint && <p className="mt-2 text-sm text-ink-faint">{hint}</p>}
     </div>

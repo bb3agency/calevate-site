@@ -2,8 +2,7 @@
 
 import { BellOff, BellRing, Lock } from "lucide-react";
 
-import { SECONDARY_BUTTON } from "@/components/ui";
-import { ActionButton } from "@/components/actionButton";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 
 /**
  * The two halves of the consent, kept in one file because their ASYMMETRY is the
@@ -22,23 +21,21 @@ export function GrantControl({
   notice,
   allowed,
   reason,
-  pending,
+  status,
   onGrant,
 }: {
   notice: string;
   allowed: boolean;
   reason: string | null;
-  pending: boolean;
+  status: FeedbackStatus;
   onGrant: () => void;
 }) {
   return (
     <div className="space-y-3">
       <blockquote className="border-l-2 border-brand pl-4 text-body text-ink">{notice}</blockquote>
-      {/* Shared ActionButton: the spinner rides `loading` while the opt-in is recorded, and
-          the disabled logic is unchanged (`disabled || loading`). The accessible name stays
-          "I agree…" through the write, so `whatsappAlerts.test.tsx`'s `/I agree/` — and a
-          screen reader — never lose the control. */}
-      <ActionButton type="button" loading={pending} disabled={!allowed} onClick={onGrant}>
+      {/* The accessible name stays "I agree…" through the write, so a screen reader never
+          loses the control while it shows pending, then recorded or failed. */}
+      <ActionButton type="button" status={status} successLabel="Recorded" disabled={!allowed} onClick={onGrant}>
         <BellRing aria-hidden className="h-4 w-4" />
         I agree, send me WhatsApp alerts
       </ActionButton>
@@ -62,12 +59,12 @@ export function GrantControl({
 export function WithdrawControl({
   allowed,
   reason,
-  pending,
+  status,
   onWithdraw,
 }: {
   allowed: boolean;
   reason: string | null;
-  pending: boolean;
+  status: FeedbackStatus;
   onWithdraw: () => void;
 }) {
   return (
@@ -88,15 +85,17 @@ export function WithdrawControl({
        * what makes them an equal pair of choices rather than a nudge; nothing is hidden,
        * collapsed or made harder to reach.
        */}
-      <button
+      <ActionButton
         type="button"
-        disabled={!allowed || pending}
+        variant="secondary"
+        status={status}
+        successLabel="Stopped"
+        disabled={!allowed}
         onClick={onWithdraw}
-        className={SECONDARY_BUTTON}
       >
         <BellOff aria-hidden className="h-4 w-4" />
-        {pending ? "Saving…" : "Stop sending me WhatsApp alerts"}
-      </button>
+        Stop sending me WhatsApp alerts
+      </ActionButton>
       <p className="text-meta text-ink-faint">
         Hot leads keep reaching you by email and on your dashboard. You can turn WhatsApp
         back on here whenever you like.

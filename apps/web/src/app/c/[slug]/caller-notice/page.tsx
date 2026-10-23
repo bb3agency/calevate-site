@@ -3,7 +3,7 @@
 import { useMemo, useRef } from "react";
 
 import { PageHeader } from "@/components/console/pageHeader";
-import { RowMenu } from "@/components/console/rowMenu";
+import { RowMenu } from "@/components/arc/menu";
 import { CopyButton } from "@/components/interior/copy-button";
 import { NoticeDocument, printableClone } from "@/components/noticeDocument";
 import { PRIMARY_BUTTON, ProblemNotice, Skeleton, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";

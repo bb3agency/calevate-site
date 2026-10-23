@@ -1,5 +1,10 @@
 # UI component catalogue, Part D: uiarc (Arc)
 
+> **Superseded for decisions by `docs/design/KIT.md` (24 Oct 2026).** The founder then
+> asked for most of the components below that this review marked SKIP, and installed the
+> Radix packages. What was built, and which component won where two overlapped, is in
+> KIT.md; this file remains the per-component review of the Arc source.
+
 This is Part D of the UI component catalogue (Parts A to C, interior.dev and Pixel Perfect, are in `docs/design/UI-COMPONENTS.md`). It reviews the uiarc ("Arc") components the founder chose for the Calevate consoles: the client panel (`app.calevate.tech`, routes under `apps/web/src/app/c/[slug]/`) and the admin panel (`admin.calevate.tech`, `apps/web/src/app/admin/`). It uses the same verdicts:
 
 - **ADOPT** means use it, with at most mechanical fixes (the token mapping every Arc component needs counts as mechanical).

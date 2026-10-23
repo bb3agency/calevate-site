@@ -14,8 +14,12 @@ const BACK_CLASS =
  *   one is a visible duplicate (UX-DOCTRINE §2).
  * - `description` is ONE line naming the job. Reasoning goes behind an ⓘ, not here.
  * - `status` is a pill or two: state, never a paragraph about state.
+ * - `meta` is a row of quiet facts about a record ("Called 24 Oct, 10:42 · 3 min 12 s ·
+ *   Reception"): adopted from uiarc's `page-header` for the detail screens, which each wrote
+ *   their own line of this.
  * - `actions` holds the screen's one primary action and at most a quiet secondary or a
- *   `RowMenu`. On a phone they wrap under the title, full width.
+ *   `RowMenu`. On a phone they wrap under the title, full width. A record with more
+ *   actions than that passes the kit's `ButtonGroup`, which folds the rest into ⋯.
  *
  * The heading is an `h2` by default because the shell already owns the page's `h1`.
  */
@@ -23,6 +27,7 @@ export function PageHeader({
   title,
   description,
   status,
+  meta,
   actions,
   back,
   headingLevel = 2,
@@ -31,6 +36,7 @@ export function PageHeader({
   title?: ReactNode;
   description?: ReactNode;
   status?: ReactNode;
+  meta?: ReactNode;
   actions?: ReactNode;
   /**
    * The way back: a link (`href`, the usual case) or, on a screen whose "pages" are state
@@ -70,6 +76,9 @@ export function PageHeader({
             <p className={`max-w-prose text-[14px] text-ink-muted ${title || status ? "mt-1" : ""}`}>
               {description}
             </p>
+          )}
+          {meta && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-ink-faint">{meta}</div>
           )}
         </div>
         {actions && (

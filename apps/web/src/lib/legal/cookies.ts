@@ -49,9 +49,25 @@ import type { LegalDocument } from "./types";
  * was right about the item and wrong about the page, in the direction that matters: it
  * denied a write that happens.
  *
- * Nothing else writes to the browser: `set_cookie` appears in exactly one module in the
- * backend (`apps/api/authn/cookies.py`), no code in `apps/web/src` touches
- * `document.cookie`, and there is no `localStorage` anywhere in the tree.
+ * ## Section 3 lists every item the signed-in dashboards keep in the browser
+ *
+ * `set_cookie` appears in exactly one backend module (`apps/api/authn/cookies.py`) and no
+ * code in `apps/web/src` touches `document.cookie`. Browser storage is a different answer:
+ * the dashboards write the items section 3 names, each for a feature the person used. The
+ * writers, so a reviewer can re-check the list by reading them rather than this comment:
+ *
+ * - session marks: `lib/authn/signedOutNotice.ts`;
+ * - dismissals and opt-ins (local): `agents/[agentId]/tour/tourModel.ts`,
+ *   `c/[slug]/TrialBanner.tsx`, `components/forwarding/ExistingNumberPrompt.tsx`,
+ *   `lib/copilot/attachments.ts`, `lib/desktopAlerts.ts`;
+ * - caller-notice blanks (local, the client's own words): `caller-notice/useBlankValues.ts`;
+ * - a step in progress: `integrations/oauthReturn.ts` (local, 10 minutes),
+ *   `lib/api/verifyBusiness.ts` and `lib/authn/clientAuthn.ts` (session);
+ * - operator support access (session, admin console): `lib/api/admin.ts`.
+ *
+ * All are functional: none is analytics, advertising or a cross-site identifier, so there
+ * is still nothing to consent to and no banner. A new writer of browser storage belongs
+ * in this list and in section 3 in the same change.
  */
 export const COOKIE_NOTICE: LegalDocument = {
   slug: "cookies",
@@ -87,15 +103,13 @@ export const COOKIE_NOTICE: LegalDocument = {
             "No third-party fonts. The typeface is served from our own server, so your " +
               "browser makes no request to a font provider.",
             "No embedded video, no chat widget, no third-party script of any kind.",
-            "No local storage anywhere on this service, and — on these legal pages — no " +
-              "session storage either. The home page is one narrow exception and we " +
-              "would rather state it than round it off: if you are already signed in to " +
-              "a client dashboard, the header on the home page checks with our server " +
-              "so that it can offer you your console instead of a sign-in link, and a " +
-              "successful check leaves a single mark in session storage. That is the " +
-              "same one item section 3 describes, it is the only item of browser storage " +
-              "anywhere on this service, and a visitor who is not signed in never gets " +
-              "it.",
+            "No local storage or session storage on these legal pages. The home page is " +
+              "one narrow exception and we would rather state it than round it off: if " +
+              "you are already signed in to a client dashboard, the header on the home " +
+              "page checks with our server so that it can offer you your console instead " +
+              "of a sign-in link, and a successful check leaves a single mark in session " +
+              "storage, described in section 3. A visitor who is not signed in gets no " +
+              "browser storage anywhere on the public site.",
           ],
         },
         {
@@ -174,15 +188,16 @@ export const COOKIE_NOTICE: LegalDocument = {
     },
     {
       id: "browser-storage",
-      heading: "3. One thing that is not a cookie",
+      heading: "3. What the dashboards keep in your browser",
       blocks: [
         {
           kind: "para",
           text:
             "A cookie notice that answers only the cookie question is answering an easier " +
-            "question than the one you asked, so: there is one other thing kept in your " +
-            "browser by this service. It is not a tracker, it is not a cookie, and it " +
-            "never leaves your machine.",
+            "question than the one you asked, so: once you are signed in, the dashboards " +
+            "also keep a few small items in your browser's local storage or session " +
+            "storage. Each one exists because you used a feature. None is a tracker, none " +
+            "is used for analytics or advertising, and none identifies you to anyone.",
         },
         {
           kind: "definitions",
@@ -208,16 +223,49 @@ export const COOKIE_NOTICE: LegalDocument = {
                 "can inspect it either. It is per-tab storage, so closing the tab removes " +
                 "it, and it is never sent to us or to anyone else.",
             },
+            {
+              term: "Things you closed or switched on — local storage",
+              detail:
+                "A yes-or-no mark, per account, that you have seen the guided tour of an " +
+                "agent, closed a trial reminder or a setup prompt, read the note about " +
+                "attaching files to the assistant, or switched on desktop alerts in this " +
+                "browser. It holds nothing else and is never sent to us. Removing it " +
+                "means the reminder shows again, or desktop alerts are off in this browser.",
+            },
+            {
+              term: "The blanks you filled in on the caller notice — local storage",
+              detail:
+                "The words you typed into the caller notice template, kept only in this " +
+                "browser so that reloading the page does not lose them. They are never " +
+                "sent to us, and they are not kept when one of our staff is looking at " +
+                "your account to help you.",
+            },
+            {
+              term: "A step you started and have not finished — local or session storage",
+              detail:
+                "While you connect a calendar, spreadsheet or CRM, verify your business, " +
+                "or accept an invitation by signing in with Google, the page keeps a short " +
+                "note of what was started so that the page you come back to can finish " +
+                "it. It is used only by our own pages to complete that step and is " +
+                "removed when the step finishes; a connection note also expires after ten " +
+                "minutes.",
+            },
+            {
+              term: "Support access — session storage, operator console only",
+              detail:
+                "When one of our operators opens a client's account to help them, the " +
+                "short-lived permission for that visit is kept in that operator's browser " +
+                "tab and ends with it. Nothing of this is stored in a client's browser.",
+            },
           ],
         },
         {
           kind: "para",
           text:
-            "It is strictly necessary in the same sense the cookies are, and its entire " +
-            "effect is one sentence of explanation on a sign-in page. A browser that " +
-            "refuses storage gets no mark, no sentence, and no other difference — the " +
-            "code that reads it treats a refusal as \"say nothing\" rather than as an " +
-            "error.",
+            "Every one of these is functional in the same sense the cookies are " +
+            "necessary: it is how a feature you used keeps working. A browser that " +
+            "refuses storage still works; the pages that read these items treat a " +
+            "refusal as \"nothing stored\" rather than as an error.",
         },
       ],
     },
@@ -234,8 +282,10 @@ export const COOKIE_NOTICE: LegalDocument = {
             "section 3 — which you only ever had if you were signed in. Blocking them " +
             "for the dashboard " +
             "signs you out and stops you signing back in, since the cookie is the " +
-            "sign-in; blocking storage alone costs you only the sentence described in " +
-            "section 3.",
+            "sign-in. Blocking storage alone costs you what section 3 describes: " +
+            "reminders you closed may show again, desktop alerts stay off, caller notice " +
+            "blanks are not kept across a reload, and a connection started in one visit " +
+            "may need starting again.",
         },
         {
           kind: "para",

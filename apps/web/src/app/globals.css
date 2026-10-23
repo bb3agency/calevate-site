@@ -80,6 +80,19 @@
   --chart-warn: #fbbf24;
   --chart-danger: #f43f5e;
   --chart-neutral: #cbd5e1;
+  /*
+   * CATEGORICAL SERIES for the kit's charts (components/arc/chart-core.tsx), assigned in
+   * this fixed order and never cycled: a seventh series folds into "Other". Brand green
+   * leads so a one-series chart is on-brand. Validated with the dataviz skill's
+   * validate_palette.js (light, adjacent pairs): every slot >= 3:1 on the surface, worst
+   * adjacent CVD ΔE 11.0 and normal-vision ΔE 18.1. Marks only; text never wears these.
+   */
+  --series-1: #16a05d;
+  --series-2: #2a78d6;
+  --series-3: #e0602b;
+  --series-4: #6250d6;
+  --series-5: #d55181;
+  --series-6: #b07400;
 
   /*
    * MOTION. One set of curves and durations for every transition in the app.
@@ -197,6 +210,12 @@
   --color-chart-warn: var(--chart-warn);
   --color-chart-danger: var(--chart-danger);
   --color-chart-neutral: var(--chart-neutral);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --color-series-3: var(--series-3);
+  --color-series-4: var(--series-4);
+  --color-series-5: var(--series-5);
+  --color-series-6: var(--series-6);
 
   --font-sans: var(--font-pp-mori);
   /* JetBrains Mono first (bundled, glyph-disambiguated — see app/layout.tsx), then the
@@ -266,10 +285,11 @@
   --z-raised: 1;
   --z-sticky: 10; /* sticky page bars, table headers, the player over a transcript */
   --z-header: 20; /* the shells' top bars and the nav rail */
-  --z-dropdown: 30; /* menus, popovers, tooltips */
+  --z-dropdown: 30; /* in-flow dropdowns that open inside their own component (a combobox list) */
   --z-drawer: 40; /* side drawers and sheets */
   --z-assistant: 50; /* the assistant panel and its launcher */
   --z-modal: 60; /* dialogs and their scrim: above the assistant, which can open one */
+  --z-popover: 65; /* portalled popovers, menus and tooltips: above a dialog or drawer they open from */
   --z-toast: 70;
 }
 @utility z-below {
@@ -298,6 +318,9 @@
 }
 @utility z-modal {
   z-index: var(--z-modal);
+}
+@utility z-popover {
+  z-index: var(--z-popover);
 }
 @utility z-toast {
   z-index: var(--z-toast);
@@ -871,6 +894,29 @@
       no-repeat scroll,
     radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 0.12), transparent) right center / 0.75rem
       100% no-repeat scroll;
+}
+
+/*
+ * A POPOVER, MENU OR TOOLTIP's entry (components/arc/popover.tsx, menu.tsx, tooltip.tsx):
+ * it grows from the edge of its trigger (Radix sets `--radix-popper-transform-origin` to
+ * that point), never from its own centre. No exit, as for modals. Reduced motion fades.
+ */
+@utility popover-enter {
+  transform-origin: var(--radix-popper-transform-origin);
+  transition-property: opacity, transform;
+  transition-duration: var(--duration-fast);
+  transition-timing-function: var(--ease-out-strong);
+
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    @starting-style {
+      transform: none;
+    }
+  }
 }
 
 @utility scrim-enter {

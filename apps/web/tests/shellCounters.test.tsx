@@ -126,7 +126,7 @@ describe("the admin shell's bell (held accounts and identity checks)", () => {
     const link = await screen.findByLabelText(
       "Waiting on us: we could not read every queue",
     );
-    expect(link.textContent).toContain("?");
+    expect(link.querySelector("[data-testid=attention-unchecked]")).toBeTruthy();
   });
 
   it("counts what the server sent when the server answered", async () => {

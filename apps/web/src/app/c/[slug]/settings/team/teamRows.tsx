@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import type { DataColumn } from "@/components/console/dataTable";
 import { InfoTip } from "@/components/console/infoTip";
-import { RowMenu } from "@/components/console/rowMenu";
+import { RowMenu } from "@/components/arc/menu";
 import { SavedTick } from "@/components/console/savedTick";
 import { TEXT_ACTION_DANGER } from "@/components/console/section";
 import {

@@ -17,13 +17,33 @@ const VALUE_TONES = {
  * icons adds nothing a reader uses. When the screen polls, pass the raw wire value as
  * `flashValue` and the figure marks itself only when that value actually changes.
  * A tone is never the only signal: the hint says what the colour means (WCAG 1.4.1).
+ *
+ * This is the kit's metric card too: uiarc's `metric-card` was reviewed against it and
+ * lost (number-only values, en-US grouping, colour by sign). What it had worth keeping is
+ * here as `delta` and `trend`. A delta's colour comes from `delta.good`, not from its
+ * sign, because fewer failed calls is a fall that is good news.
  */
+export type MetricDelta = {
+  /** The change as the screen words it: "+12%", "−₹420.00", "3 more than last week". */
+  text: string;
+  direction: "up" | "down" | "flat";
+  /** Whether this change is good news; omitted means neither. */
+  good?: boolean;
+  /** Spoken after the change: "vs last week". */
+  context?: string;
+};
+
+const DELTA_TONE = { good: "text-brand-strong", bad: "text-danger", neutral: "text-ink-muted" } as const;
+const ARROW = { up: "↑", down: "↓", flat: "→" } as const;
+
 export function Metric({
   label,
   value,
   flashValue,
   hint,
   tone = "default",
+  delta,
+  trend,
   className = "",
 }: {
   label: string;
@@ -31,6 +51,9 @@ export function Metric({
   flashValue?: string | null;
   hint?: ReactNode;
   tone?: keyof typeof VALUE_TONES;
+  delta?: MetricDelta;
+  /** A `Sparkline` (or any small figure) beside the value. */
+  trend?: ReactNode;
   className?: string;
 }) {
   // A figure that is plain text marks itself when it changes without the caller passing
@@ -45,9 +68,23 @@ export function Metric({
   return (
     <div className={`min-w-0 ${className}`}>
       <p className="text-[13px] font-medium text-ink-muted">{label}</p>
-      <p className={`mt-1 text-figure tabular-nums [overflow-wrap:anywhere] ${VALUE_TONES[tone]}`}>
-        {compared === undefined ? value : <FlashValue value={compared}>{value}</FlashValue>}
-      </p>
+      <div className="mt-1 flex flex-wrap items-end gap-x-3 gap-y-1">
+        <p className={`text-figure tabular-nums [overflow-wrap:anywhere] ${VALUE_TONES[tone]}`}>
+          {compared === undefined ? value : <FlashValue value={compared}>{value}</FlashValue>}
+        </p>
+        {trend ? <div className="mb-1.5 shrink-0">{trend}</div> : null}
+      </div>
+      {delta ? (
+        <p
+          className={`mt-0.5 text-[12px] font-medium tabular-nums ${
+            DELTA_TONE[delta.good === undefined ? "neutral" : delta.good ? "good" : "bad"]
+          }`}
+        >
+          <span aria-hidden>{ARROW[delta.direction]} </span>
+          {delta.text}
+          {delta.context ? <span className="font-normal text-ink-muted"> {delta.context}</span> : null}
+        </p>
+      ) : null}
       {hint && <div className="mt-1 text-[12px] leading-snug text-ink-muted">{hint}</div>}
     </div>
   );

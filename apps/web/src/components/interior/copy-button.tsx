@@ -12,6 +12,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 
+import { useToast } from "@/components/arc/toast";
+
 const EASE = [0.23, 1, 0.32, 1] as const;
 const FADE = { duration: 0.16, ease: EASE } as const;
 const DRAW = { duration: 0.26, ease: EASE } as const;
@@ -105,6 +107,8 @@ export type CopyButtonProps = {
   label: string;
   copiedLabel?: string;
   errorLabel?: string;
+  /** The failure toast's second line: what to do instead. */
+  errorHint?: string;
   variant?: "icon" | "text";
   disabled?: boolean;
   className?: string;
@@ -115,11 +119,19 @@ export function CopyButton({
   label,
   copiedLabel = "Copied",
   errorLabel = "Could not copy",
+  errorHint = "Your browser did not allow it. Select the text and copy it yourself.",
   variant = "icon",
   disabled = false,
   className = "",
 }: CopyButtonProps) {
   const { copy, status } = useCopyToClipboard();
+  // The button's own cross says it failed, and goes after two seconds; the toast keeps the
+  // failure and the way round it until it is dismissed (the kit's feedback standard).
+  const toasts = useToast();
+  const run = async () => {
+    const ok = await copy(value);
+    if (!ok && value) toasts.toast({ kind: "error", title: errorLabel, description: errorHint });
+  };
   const reduced = useReducedMotion();
   const fade = reduced ? INSTANT : FADE;
   const draw = reduced ? INSTANT : DRAW;
@@ -152,7 +164,7 @@ export function CopyButton({
         disabled={disabled}
         aria-label={label}
         title={variant === "icon" ? label : undefined}
-        onClick={() => void copy(value)}
+        onClick={() => void run()}
         style={{ touchAction: "manipulation" }}
         className={
           variant === "icon"

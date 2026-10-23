@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { ArrowRight, Check, ChevronDown, ChevronRight, Clock3, Lock } from "lucide-react";
 
 import { InfoTip } from "./infoTip";
 import { TEXT_ACTION } from "./section";
 import { StatusPill } from "./statusPill";
-import { NOTICE_BAR, type NoticeTone } from "@/components/ui";
+import { NOTICE_BAR, PRIMARY_BUTTON_SM, type NoticeTone } from "@/components/ui";
 
 export type ChecklistState = "done" | "todo" | "waiting" | "blocked";
 
@@ -80,13 +80,17 @@ function Progress({ label, done, total }: { label: string; done: number; total: 
   );
 }
 
-function Row({ item }: { item: ChecklistItem }) {
+function Row({ item, next = false, nextLabel }: { item: ChecklistItem; next?: boolean; nextLabel?: string }) {
   const disabled = item.disabledReason !== undefined;
   const action =
     !disabled && item.link ? (
       <Link
         href={item.link.href}
-        className="inline-flex max-w-full items-center gap-1 rounded-sm text-[13px] font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+        className={
+          next
+            ? `${PRIMARY_BUTTON_SM} max-w-full`
+            : "inline-flex max-w-full items-center gap-1 rounded-sm text-[13px] font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+        }
       >
         {item.link.label}
         <ArrowRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
@@ -96,10 +100,12 @@ function Row({ item }: { item: ChecklistItem }) {
     ) : null;
   // One line of text: centre the marker on the row, because a touch-sized action (44px)
   // makes the row taller than the text and a top-aligned marker then sits above it.
-  const oneLine = !(disabled ? item.disabledReason : item.detail);
+  const oneLine = !(disabled ? item.disabledReason : item.detail) && !next;
   return (
     <li
-      className={`flex gap-3 py-3 first:pt-0 last:pb-0 ${oneLine ? "items-center" : "items-start"} ${disabled ? "opacity-70" : ""}`}
+      data-checklist-row={item.id}
+      data-next={next || undefined}
+      className={`flex gap-3 ${next ? "-mx-3 my-1 rounded-md bg-brand-soft/60 px-3 py-3" : "py-3 first:pt-0 last:pb-0"} ${oneLine ? "items-center" : "items-start"} ${disabled ? "opacity-70" : ""}`}
     >
       <span className={oneLine ? "flex" : "mt-0.5"}>
         <Marker state={item.state} />
@@ -109,6 +115,9 @@ function Row({ item }: { item: ChecklistItem }) {
           drops under the text instead of squeezing it to a word per line. */}
       <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
         <div className="min-w-0 grow basis-56">
+          {next && nextLabel ? (
+            <p className="text-meta font-semibold text-brand-strong">{nextLabel}</p>
+          ) : null}
           <p className={`text-[14px] font-medium ${item.state === "done" ? "text-ink-muted" : "text-ink"}`}>
             <span className="sr-only">{STATE_TEXT[item.state]}: </span>
             {item.label}
@@ -121,6 +130,28 @@ function Row({ item }: { item: ChecklistItem }) {
       </div>
     </li>
   );
+}
+
+/**
+ * When a row the person was working on turns done (the server answered), focus moves to
+ * the next step's action instead of falling back to the page top: the done row's link has
+ * gone, and a keyboard user would otherwise lose their place. Nothing moves when focus is
+ * elsewhere on the screen, because a background refresh must never steal it.
+ */
+function useFocusHandoff(listRef: RefObject<HTMLOListElement | null>, items: ChecklistItem[], nextId: string | undefined) {
+  const previous = useRef<Map<string, ChecklistState> | null>(null);
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = new Map(items.map((item) => [item.id, item.state]));
+    if (!before || !nextId) return;
+    const finished = items.some((item) => item.state === "done" && before.get(item.id) !== "done");
+    if (!finished) return;
+    const active = document.activeElement;
+    const list = listRef.current;
+    if (!list || (active && active !== document.body && !list.contains(active))) return;
+    const row = list.querySelector<HTMLElement>(`[data-checklist-row="${CSS.escape(nextId)}"]`);
+    row?.querySelector<HTMLElement>("a[href], button:not([disabled])")?.focus();
+  }, [items, nextId, listRef]);
 }
 
 /**
@@ -142,6 +173,12 @@ export function Checklist({
   headingLevel = 3,
   collapsible = false,
   defaultOpen = true,
+  emphasizeNext = false,
+  foldDone = false,
+  allDoneLabel = "All done",
+  countLabel = (done, total) => `${done} of ${total} done`,
+  nextLabel = "Next",
+  foldedLabel = (n) => `${n} done`,
   className = "",
 }: {
   items: ChecklistItem[];
@@ -151,24 +188,60 @@ export function Checklist({
   headingLevel?: 2 | 3;
   collapsible?: boolean;
   defaultOpen?: boolean;
+  /**
+   * The first row that can be acted on is drawn as THE next step: tinted, labelled "Next",
+   * its link a primary button. One next step, so an owner never has to choose where to start.
+   */
+  emphasizeNext?: boolean;
+  /** Finished rows fold into a "3 done" disclosure at the end, so a long list shows what is left. */
+  foldDone?: boolean;
+  allDoneLabel?: string;
+  countLabel?: (done: number, total: number) => string;
+  nextLabel?: string;
+  foldedLabel?: (count: number) => string;
   className?: string;
 }) {
   const Heading = headingLevel === 2 ? "h2" : "h3";
   const done = items.filter((item) => item.state === "done").length;
   const total = items.length;
   const allDone = total > 0 && done === total;
+  const nextId = emphasizeNext
+    ? items.find((item) => item.state === "todo" && item.disabledReason === undefined)?.id
+    : undefined;
+  const listRef = useRef<HTMLOListElement>(null);
+  useFocusHandoff(listRef, items, nextId);
   const count = (
     <span className={`flex items-center gap-1.5 text-[13px] tabular-nums ${allDone ? "text-brand-strong" : "text-ink-muted"}`}>
       {allDone && <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={3} />}
-      {allDone ? "All done" : `${done} of ${total} done`}
+      {allDone ? allDoneLabel : countLabel(done, total)}
     </span>
   );
+  const open = foldDone ? items.filter((item) => item.state !== "done") : items;
+  const finished = foldDone ? items.filter((item) => item.state === "done") : [];
   const list = (
-    <ol className="divide-y divide-line">
-      {items.map((item) => (
-        <Row key={item.id} item={item} />
-      ))}
-    </ol>
+    <>
+      <ol ref={listRef} className="divide-y divide-line">
+        {open.map((item) => (
+          <Row key={item.id} item={item} next={item.id === nextId} nextLabel={nextLabel} />
+        ))}
+      </ol>
+      {finished.length > 0 ? (
+        <details className="group/done mt-3 border-t border-line pt-3">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-sm text-[13px] font-medium text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 [&::-webkit-details-marker]:hidden">
+            <ChevronRight
+              aria-hidden
+              className="h-3.5 w-3.5 transition-transform duration-(--duration-fast) group-open/done:rotate-90 motion-reduce:transition-none"
+            />
+            {foldedLabel(finished.length)}
+          </summary>
+          <ol className="mt-2 divide-y divide-line">
+            {finished.map((item) => (
+              <Row key={item.id} item={item} />
+            ))}
+          </ol>
+        </details>
+      ) : null}
+    </>
   );
 
   if (collapsible) {

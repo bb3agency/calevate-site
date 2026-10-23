@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Mail, TriangleAlert } from "lucide-react";
 
-import { ActionButton } from "@/components/actionButton";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { useFormValidation } from "@/components/formValidation";
 import { Section } from "@/components/console/section";
 import {
@@ -33,6 +33,7 @@ import { refusalReason } from "@/app/admin/new/shared";
  */
 export function OwnerInvitePanel({ created }: { created: { id: string; slug: string } }) {
   const invite = useInvite();
+  const inviteFeedback = useActionFeedback(invite, { errorDisplay: "inline" });
   const revoke = useRevokeTenantInvitation();
   // THE FOUNDER'S OWN ASK, and until now the only route in D-538 with no caller: *"the
   // invite link can be re-sent via the admin panel ... until that mail sets up their
@@ -149,7 +150,7 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
             <ActionButton
               type="submit"
               title={refusal ?? undefined}
-              loading={invite.isPending}
+              status={inviteFeedback.status}
               /* Emptiness is answered at the field now. `refusal` is a permission or a
                  lifecycle gate and stays. */
               disabled={Boolean(refusal)}

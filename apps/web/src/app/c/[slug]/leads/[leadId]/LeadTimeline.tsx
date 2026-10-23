@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Bell, CircleDot, PhoneCall, StickyNote, UserCheck } from "lucide-react";
 
+import { Timeline, TimelineItem } from "@/components/arc/timeline";
 import { ProblemNotice, Skeleton, formatCount, formatIST } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
 import { EmptySketch } from "@/components/console/emptySketch";
@@ -95,11 +96,11 @@ export function LeadTimeline({
           </div>
         ) : !timeline.data ? null : events.length ? (
           <div className="border-y border-line">
-            <ol className="divide-y divide-line">
+            <Timeline>
               {events.map((event) => (
                 <TimelineRow key={event.id} event={event} slug={slug} href={href} />
               ))}
-            </ol>
+            </Timeline>
             {/* The rest of the record, reachable (ux-audit LD4): the history used to
                 stop at the newest 50 with an honest sentence about an unreachable
                 remainder. `auto` off — a reverse-chronological audit trail should grow
@@ -161,22 +162,14 @@ function TimelineRow({
   href: (path: string) => string;
 }) {
   const style = lookup(EVENT_STYLES, event.type) ?? FALLBACK_STYLE;
-  const Icon = style.icon;
   return (
-    <li className="flex gap-3 px-3 py-3">
-      <span
-        className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${style.medallion}`}
-        aria-hidden
-      >
-        <Icon className="h-3.5 w-3.5" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-ink">{event.title}</p>
-        {event.detail && <p className="mt-0.5 text-xs text-ink-muted">{event.detail}</p>}
-        {event.call_id && event.moments.length > 0 && (
-          <CallMoments event={event} callId={event.call_id} slug={slug} href={href} />
-        )}
-        <p className="mt-1 text-xs text-ink-faint">
+    <TimelineItem
+      icon={style.icon}
+      markerClassName={style.medallion}
+      title={event.title}
+      detail={event.detail || undefined}
+      meta={
+        <>
           {formatIST(event.occurred_at)}
           {/* "Calevate" for a platform event and the colleague's name for a human one.
               A member the account can no longer name arrives as `actor_kind: "member"`
@@ -195,9 +188,13 @@ function TimelineRow({
               </Link>
             </>
           )}
-        </p>
-      </div>
-    </li>
+        </>
+      }
+    >
+      {event.call_id && event.moments.length > 0 && (
+        <CallMoments event={event} callId={event.call_id} slug={slug} href={href} />
+      )}
+    </TimelineItem>
   );
 }
 

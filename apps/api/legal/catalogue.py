@@ -1269,6 +1269,14 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "session takes the client bounds (12h idle, 14d). Non-material: it "
                 "describes operator sessions, and nothing a client accepted changed.",
             ),
+            Revision(
+                "6",
+                False,
+                "Section 3 lists every item the signed-in dashboards keep in browser "
+                "storage (dismissals, opt-ins, caller-notice blanks, steps in progress, "
+                "operator support access); the notice had said the session mark was the "
+                "only one. Non-material: no tracking was added and nothing accepted changed.",
+            ),
         ),
         effective_date="2026-09-02",
     ),

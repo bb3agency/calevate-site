@@ -3,7 +3,8 @@
 import type { ReactNode } from "react";
 
 import { ModalDialog } from "./modalDialog";
-import { DANGER_BUTTON, ProblemNotice, SECONDARY_BUTTON } from "./ui";
+import { ActionButton, type FeedbackStatus } from "./arc/feedback";
+import { ProblemNotice, SECONDARY_BUTTON } from "./ui";
 
 /**
  * "Are you sure?" for the actions a client cannot take back — ONE dialog, not one per
@@ -50,7 +51,9 @@ export function ConfirmDialog({
   confirmLabel,
   pendingLabel,
   cancelLabel = "Cancel",
-  pending,
+  pending = false,
+  status,
+  successLabel = "Done",
   confirmDisabled = false,
   error,
   onCancel,
@@ -61,10 +64,18 @@ export function ConfirmDialog({
   title: string;
   /** The confirm button's label. Say the action, never "OK" — "OK" confirms nothing. */
   confirmLabel: string;
-  /** The confirm button's label while the mutation is in flight. */
+  /** What the confirm button's face says while the mutation is in flight. */
   pendingLabel: string;
   cancelLabel?: string;
-  pending: boolean;
+  /** The in-flight flag, for a caller without the kit's feedback; `status` supersedes it. */
+  pending?: boolean;
+  /**
+   * The action's state from `useActionFeedback(...).status`: the confirm button shows
+   * pending, then its tick or its failure, on the button itself.
+   */
+  status?: FeedbackStatus;
+  /** One past-tense word for the success face, for a caller that keeps the dialog open. */
+  successLabel?: string;
   /** Holds the confirm button until the body's own gate is met (a typed confirmation). */
   confirmDisabled?: boolean;
   error: unknown;
@@ -73,6 +84,7 @@ export function ConfirmDialog({
   /** The consequence, in the client's own terms. Rendered as the dialog's description. */
   children: ReactNode;
 }) {
+  const shown: FeedbackStatus = status ?? (pending ? "pending" : "idle");
   return (
     <ModalDialog
       title={title}
@@ -80,12 +92,19 @@ export function ConfirmDialog({
       onClose={onCancel}
       actions={
         <>
-          <button type="button" className={SECONDARY_BUTTON} onClick={onCancel} disabled={pending}>
+          <button type="button" className={SECONDARY_BUTTON} onClick={onCancel} disabled={shown === "pending"}>
             {cancelLabel}
           </button>
-          <button type="button" className={DANGER_BUTTON} onClick={onConfirm} disabled={pending || confirmDisabled}>
-            {pending ? pendingLabel : confirmLabel}
-          </button>
+          <ActionButton
+            variant="danger"
+            status={shown}
+            pendingLabel={pendingLabel}
+            successLabel={successLabel}
+            onClick={onConfirm}
+            disabled={confirmDisabled}
+          >
+            {confirmLabel}
+          </ActionButton>
         </>
       }
     >

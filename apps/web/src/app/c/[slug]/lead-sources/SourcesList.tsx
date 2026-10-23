@@ -6,7 +6,7 @@ import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { IconTile } from "@/components/console/iconTile";
-import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
+import { RowMenu, type RowMenuItem } from "@/components/arc/menu";
 import { CopyButton } from "@/components/interior/copy-button";
 import {
   MonoValue,

@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, Menu } from "lucide-react";
+import { Menu } from "lucide-react";
 
+import { NotificationCenter, type NotificationItem } from "@/components/arc/notification-center";
 import { ClientCopilotDock } from "@/components/copilot/CopilotDock";
 import { LiveCallsPill } from "@/components/console/liveCalls";
 import { BAR_STATUS } from "@/components/console/statusPill";
-import { NOTICE_DOT, SHELL_RAIL_CLASS, formatCountOf } from "@/components/ui";
-import { useAttention } from "@/lib/api/attention";
+import { NOTICE_DOT, SHELL_RAIL_CLASS, formatCount, formatCountOf } from "@/components/ui";
+import { useAttention, type AttentionKind } from "@/lib/api/attention";
 import { useClientRealm } from "@/lib/api/session";
 import { creditLeftPhrase, useWallet, walletState } from "@/lib/api/wallet";
 import { clientNavigation } from "@/lib/clientNav";
@@ -16,6 +17,23 @@ import { useDesktopAlerts } from "@/lib/desktopAlerts";
 
 import { currentItem } from "./ClientSidebar";
 import { TrialChip, trialView } from "./TrialBanner";
+
+/** Rows the bell shows; the attention screen has the rest. */
+const BELL_ROWS = 6;
+
+/** Failures read red, things slowing down read amber, good news (a hot lead) stays neutral. */
+const KIND_TONE: Record<AttentionKind, NotificationItem["tone"]> = {
+  lead_blocked: "warn",
+  delivery_failed: "danger",
+  campaign_stalled: "warn",
+  kb_rejected: "warn",
+  inbound_stopped: "danger",
+  action_broken: "danger",
+  lead_hot: "default",
+  call_failed: "danger",
+  credit_low: "warn",
+  forwarded_line_quiet: "warn",
+};
 
 export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuToggle: () => void }) {
   const pathname = usePathname();
@@ -33,6 +51,7 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
   // all-clear, which is the same "nobody is waiting" claim §52 exists to stop the shell
   // making. A bell that has lost the API says so.
   const waiting = attention.data?.total;
+  const bellItems = (attention.data?.items ?? []).slice(0, BELL_ROWS);
   // New items on the bell also become desktop notifications, once turned on in Alerts.
   useDesktopAlerts(slug, attention.data, href);
 
@@ -64,9 +83,9 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
               stands in for the credit chip: the trial is what the balance means then. */}
           <TrialChip slug={slug} />
           <CreditChip slug={slug} />
-          <Link
-            href={href(`/c/${slug}/attention`)}
-            aria-label={
+          <NotificationCenter
+            heading="Needs attention"
+            label={
               attention.error != null
                 ? "Needs attention: we couldn't check for new items. Open to try again."
                 : waiting !== undefined && waiting > 0
@@ -78,26 +97,25 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
                 ? "We couldn't check for new items. Open to try again."
                 : undefined
             }
-            className="press relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 dark:hover:bg-white/5"
-          >
-            <Bell className="h-4 w-4" />
-            {attention.error != null ? (
-              /* A plain warn dot, not a "?": the link's label and title carry the meaning
-                 in words, and a lone glyph read as a riddle. */
-              <span
-                aria-hidden
-                data-testid="attention-unchecked"
-                className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface bg-warn"
-              />
-            ) : (
-              waiting !== undefined &&
-              waiting > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-danger px-1 text-[9px] font-bold text-white">
-                  {waiting > 99 ? "99+" : waiting}
-                </span>
-              )
-            )}
-          </Link>
+            state={attention.error != null ? "error" : attention.data ? "ready" : "loading"}
+            count={waiting}
+            onRetry={() => void attention.refetch()}
+            items={bellItems.map((item) => ({
+              id: `${item.kind}-${item.id}-${item.occurred_at}`,
+              title: item.title,
+              detail: item.detail,
+              at: item.occurred_at,
+              href: item.href ? href(`/c/${slug}${item.href}`) : null,
+              tone: KIND_TONE[item.kind],
+            }))}
+            shortfall={
+              // The rows actually shown, not the cap: the server may send fewer.
+              waiting !== undefined && waiting > bellItems.length
+                ? `The newest ${formatCount(bellItems.length)} of ${formatCount(waiting)}.`
+                : undefined
+            }
+            seeAll={{ href: href(`/c/${slug}/attention`), label: "Open everything that needs you" }}
+          />
           {/* The screen assistant, in the bar rather than floating over the page: a floating
               button sat on top of whatever filled the bottom-right corner. Inside
               \`ClientRealmProvider\` (it reads the realm session, view-as included); its panel opens

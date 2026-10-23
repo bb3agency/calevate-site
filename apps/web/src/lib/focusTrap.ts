@@ -106,7 +106,17 @@ export function useFocusTrap(
     if (!active) return;
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
-        escape.current();
+        // Only an Escape pressed in THIS panel (or with focus on nothing) closes it. A
+        // menu, popover or nested dialog opened from it lives in its own portal outside the
+        // panel and handles its own Escape; closing this one too would take two layers
+        // down for one keypress.
+        const target = event.target instanceof Element ? event.target : null;
+        const layer = target?.closest(
+          '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"],[data-radix-popper-content-wrapper]',
+        );
+        const own = panel.current;
+        const another = layer && own && !layer.contains(own) && !own.contains(layer);
+        if (!another) escape.current();
         return;
       }
       if (event.key !== "Tab") return;

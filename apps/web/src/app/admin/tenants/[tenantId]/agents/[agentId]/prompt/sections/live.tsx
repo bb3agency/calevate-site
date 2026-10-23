@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { ActionButton } from "@/components/actionButton";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { SuccessRipple } from "@/components/successRipple";
 import { Section } from "@/components/console/section";
 import {
@@ -93,6 +93,7 @@ export function GoLivePanel({
   write: ReturnType<typeof useAdminAccess>;
 }) {
   const publish = usePublishAgent({ tenantId, agentId, slug });
+  const publishFeedback = useActionFeedback(publish, { errorDisplay: "inline" });
 
   return (
     <Section title="Voice platform" headingLevel={3}>
@@ -153,7 +154,7 @@ export function GoLivePanel({
                   platform/)` — and a screen reader — pointing at the same control mid-press. */}
               <ActionButton
                 type="button"
-                loading={publish.isPending}
+                status={publishFeedback.status}
                 disabled={!write.allowed || hasAScript === false}
                 onClick={() => publish.mutate()}
               >

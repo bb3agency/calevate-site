@@ -10,7 +10,7 @@ import {
   RestrictionNote,
   istInputToInstant,
 } from "@/components/ui";
-import { ActionButton } from "@/components/actionButton";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { FieldMessage, wholeNumberProblem } from "@/components/formValidation";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import type { useAdminAccess } from "@/app/admin/access";
@@ -114,6 +114,7 @@ export function TermsForm({
   confirmation: string;
   write: ReturnType<typeof useAdminAccess>;
 }) {
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const [draft, setDraft] = useState<Draft>(() => initialDraft(inEffect));
   // Whole-number problems show once a submit has been tried, then stay live so a fix
   // clears them.
@@ -239,7 +240,7 @@ export function TermsForm({
           </NoticeBox>
         )}
 
-        <ActionButton type="submit" loading={save.isPending} disabled={!write.allowed}>
+        <ActionButton type="submit" status={saveFeedback.status} successLabel="Recorded" disabled={!write.allowed}>
           Record new terms
         </ActionButton>
       </form>

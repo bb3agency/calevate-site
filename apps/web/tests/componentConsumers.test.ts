@@ -58,8 +58,6 @@ const AWAITING_A_DECISION = [
   "interior/collapsible-banner",
   "interior/dropdown",
   "interior/floating-label",
-  "interior/loading-button",
-  "interior/show-more",
   "interior/sticky-header",
   "interior/streaming-text",
   "interior/tree-view",

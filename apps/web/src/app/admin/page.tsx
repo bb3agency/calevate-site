@@ -10,7 +10,7 @@ import { CreditLeft } from "@/components/admin/credit";
 import { ADMIN_PAGE_WIDE, HAIRLINE_LIST, LIST_HEAD, ROW_HOVER, StatusPill, sentenceCase } from "@/components/admin/kit";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
-import { RowMenu } from "@/components/console/rowMenu";
+import { RowMenu } from "@/components/arc/menu";
 import {
   FIELD_INLINE,
   FIELD_INLINE_ICON,

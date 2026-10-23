@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -412,12 +412,15 @@ describe("the two consoles do not look like each other", () => {
     expect(admin.querySelector("[data-admin-realm-rail]")).toBeNull();
     expect(admin.querySelector(".h-1\\.5.bg-slate-900")).toBeNull();
 
-    const adminShell = admin.querySelector("[data-app-shell]");
+    const adminShellClass = admin.querySelector("[data-app-shell]")?.className;
+    // Unmount the admin shell first: its queue reads are still settling, and the client
+    // render swaps the stub's route table under them.
+    cleanup();
     const clientShell = (await renderClientShell("/c/acme")).querySelector(
       "[data-app-shell]",
     );
-    expect(adminShell?.className).not.toContain("flex-col");
-    expect(adminShell?.className).toBe(clientShell?.className);
+    expect(adminShellClass).not.toContain("flex-col");
+    expect(adminShellClass).toBe(clientShell?.className);
   });
 
   it("still tells the two shells apart without reading a word", async () => {
@@ -445,6 +448,7 @@ describe("the two consoles do not look like each other", () => {
       "the marker carries no treatment, so the two shells look alike",
     ).toContain(ADMIN_REALM_IDENTITY_CLASS);
 
+    cleanup();
     const client = await renderClientShell("/c/acme");
     expect(client.querySelector("[data-realm-marker='admin']")).toBeNull();
   });

@@ -21,7 +21,8 @@ import { SaveBar } from "@/components/console/saveBar";
 import { TEXT_ACTION } from "@/components/console/section";
 import { SettingRow } from "@/components/console/settingRow";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import { FIELD_HINT, FIELD_LABEL, ProblemNotice, RANGE_INPUT, ToggleSwitch } from "@/components/ui";
+import { Slider } from "@/components/arc/slider";
+import { FIELD_HINT, ProblemNotice, ToggleSwitch } from "@/components/ui";
 import {
   PAUSE_PRESETS,
   formatPause,
@@ -107,32 +108,17 @@ export function SliderField({
   onChange: (value: number) => void;
 }) {
   return (
-    <div>
-      <div className="flex items-baseline justify-between gap-3">
-        <label htmlFor={id} className={FIELD_LABEL}>
-          {label}
-        </label>
-        <span className="text-meta tabular-nums text-ink" aria-hidden>
-          {valueText}
-        </span>
-      </div>
-      <input
-        id={id}
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        aria-valuetext={valueText}
-        aria-describedby={`${id}-scale`}
-        className={`mt-2 ${RANGE_INPUT}`}
-      />
-      <div id={`${id}-scale`} className={`${FIELD_HINT} flex justify-between`}>
-        <span>{scale[0]}</span>
-        <span>{scale[1]}</span>
-      </div>
-    </div>
+    <Slider
+      id={id}
+      label={label}
+      value={value}
+      valueText={() => valueText}
+      min={min}
+      max={max}
+      step={step}
+      scale={scale}
+      onChange={onChange}
+    />
   );
 }
 

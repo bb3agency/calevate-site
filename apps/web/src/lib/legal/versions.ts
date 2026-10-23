@@ -1058,6 +1058,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:e82ec50aa55fb674639c98a3c553e267559c8c484e8ed00ffcc1c06520a867d6",
       },
+      // The notice said the session mark was the only browser storage on the service;
+      // the dashboards also keep dismissals, opt-ins, caller-notice blanks and in-progress
+      // steps. Section 3 now lists them. No tracking was added and nothing a client
+      // accepted changes, so `material: false`.
+      {
+        revision: "6",
+        material: false,
+        contentHash:
+          "sha256:e578759f084b5a8f5776ceaedad8742a42abe1a95d3c7af8de7e24584123a32e",
+      },
     ],
     effectiveDate: "2026-09-02",
   },

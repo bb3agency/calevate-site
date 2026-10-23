@@ -6,7 +6,7 @@ import { ClientCopilotDock } from "@/components/copilot/CopilotDock";
 import { ApprovalsInbox } from "@/components/copilot/workspace/ApprovalsInbox";
 import { ActivityLog } from "@/components/copilot/workspace/ActivityLog";
 import { Routines } from "@/components/copilot/workspace/Routines";
-import { ToastProvider } from "@/components/interior/toaster";
+import { ToastProvider } from "@/components/arc/toast";
 import { useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { selectionFact, selectionSummary, MAX_SELECTED_IDS } from "@/lib/copilot/selection";

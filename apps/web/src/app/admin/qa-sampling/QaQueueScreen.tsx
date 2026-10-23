@@ -8,7 +8,7 @@ import { ChevronRight } from "lucide-react";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
-import { SearchSelect } from "@/components/console/searchSelect";
+import { Combobox } from "@/components/arc/combobox";
 import { TEXT_ACTION } from "@/components/console/section";
 import { Pagination } from "@/components/interior/pagination";
 import { SegmentedControl } from "@/components/interior/segmented-control";
@@ -275,7 +275,7 @@ function Filters({
 
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-[minmax(0,1.4fr)_auto_minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
-      <SearchSelect
+      <Combobox
         className="col-span-2 lg:col-span-1"
         label="Client"
         allLabel="All clients"

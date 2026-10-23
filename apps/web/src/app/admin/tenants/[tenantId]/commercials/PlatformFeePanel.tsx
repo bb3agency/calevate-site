@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { StatusPill } from "@/components/admin/kit";
-import { ActionButton } from "@/components/actionButton";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import {
   FIELD,
@@ -91,6 +91,7 @@ function FeeDetail({ tenantId, fee }: { tenantId: string; fee: AdminPlatformFee 
 
 function WaiverForm({ tenantId, fee }: { tenantId: string; fee: AdminPlatformFee }) {
   const waiver = useSetFeeWaiver(adminSession(), tenantId);
+  const waiverFeedback = useActionFeedback(waiver, { errorDisplay: "inline" });
   const write = useAdminAccess("admin:tenants", "waive this client's platform fee");
   const [reason, setReason] = useState("");
   const tooShort = reason.trim().length < 3;
@@ -104,7 +105,7 @@ function WaiverForm({ tenantId, fee }: { tenantId: string; fee: AdminPlatformFee
         <RestrictionNote reason={write.reason} />
         <ActionButton
           type="button"
-          loading={waiver.isPending}
+          status={waiverFeedback.status}
           disabled={!write.allowed}
           onClick={() => waiver.mutate(null)}
         >
@@ -141,7 +142,7 @@ function WaiverForm({ tenantId, fee }: { tenantId: string; fee: AdminPlatformFee
         </div>
         <span className={FIELD_HINT}>Required.</span>
       </div>
-      <ActionButton type="submit" loading={waiver.isPending} disabled={tooShort || !write.allowed}>
+      <ActionButton type="submit" status={waiverFeedback.status} disabled={tooShort || !write.allowed}>
         Waive the platform fee
       </ActionButton>
       {waiver.error != null && <ProblemNotice error={waiver.error} />}
@@ -151,6 +152,7 @@ function WaiverForm({ tenantId, fee }: { tenantId: string; fee: AdminPlatformFee
 
 function ChargeRow({ tenantId, charge }: { tenantId: string; charge: PlatformFeeCharge }) {
   const record = useRecordFeePayment(adminSession(), tenantId);
+  const recordFeedback = useActionFeedback(record, { errorDisplay: "inline" });
   const write = useAdminAccess("admin:tenants", "record a platform fee payment");
   const [reference, setReference] = useState("");
   const copy = feeStatusCopy(charge.status);
@@ -196,7 +198,7 @@ function ChargeRow({ tenantId, charge }: { tenantId: string; charge: PlatformFee
           </div>
           <ActionButton
             type="submit"
-            loading={record.isPending}
+            status={recordFeedback.status}
             disabled={reference.trim().length < 3 || !write.allowed}
           >
             Record bank transfer

@@ -18,15 +18,14 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import {
   FIELD,
-  FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
-  RANGE_INPUT,
   SECONDARY_BUTTON_SM,
   Skeleton,
 } from "@/components/ui";
+import { Slider as KitSlider } from "@/components/arc/slider";
 import { TEXT_ACTION } from "@/components/console/section";
 import { ApiProblem } from "@/lib/api/client";
 import { useClientSession } from "@/lib/api/session";
@@ -133,45 +132,33 @@ function Slider({
   max: number;
   onChange: (value: number) => void;
 }) {
+  // The track runs over positions, not values (each half is scaled to its own side), so the
+  // words are read from `value` rather than from the position the slider hands back.
   return (
-    <div>
-      <div className="flex items-baseline justify-between gap-3">
-        <label htmlFor={id} className={FIELD_LABEL}>
-          {label}
-        </label>
-        <span className="flex items-baseline gap-3">
-          <span className="text-meta tabular-nums text-ink" aria-hidden>
-            {multiplierLabel(value)}
-          </span>
-          <button
-            type="button"
-            className={TEXT_ACTION}
-            disabled={value === NORMAL}
-            onClick={() => onChange(NORMAL)}
-            aria-label={`Reset ${label.toLowerCase()} to normal`}
-          >
-            Reset
-          </button>
-        </span>
-      </div>
-      <input
-        id={id}
-        type="range"
-        min={0}
-        max={2 * HALF}
-        step={1}
-        value={positionOf(value, min, max)}
-        onChange={(event) => onChange(valueOf(Number(event.target.value), min, max))}
-        aria-valuetext={value === NORMAL ? "Normal" : `${value.toFixed(2)} times normal`}
-        aria-describedby={`${id}-scale`}
-        className={`mt-2 ${RANGE_INPUT}`}
-      />
-      <div id={`${id}-scale`} className={`${FIELD_HINT} flex justify-between`}>
-        <span>{slower}</span>
-        <span>Normal</span>
-        <span>{faster}</span>
-      </div>
-    </div>
+    <KitSlider
+      id={id}
+      label={label}
+      min={0}
+      max={2 * HALF}
+      step={1}
+      value={positionOf(value, min, max)}
+      onChange={(position) => onChange(valueOf(position, min, max))}
+      valueText={() => multiplierLabel(value)}
+      spokenText={() => (value === NORMAL ? "Normal" : `${value.toFixed(2)} times normal`)}
+      scale={[slower, "Normal", faster]}
+      marks={[HALF]}
+      labelAction={
+        <button
+          type="button"
+          className={TEXT_ACTION}
+          disabled={value === NORMAL}
+          onClick={() => onChange(NORMAL)}
+          aria-label={`Reset ${label.toLowerCase()} to normal`}
+        >
+          Reset
+        </button>
+      }
+    />
   );
 }
 

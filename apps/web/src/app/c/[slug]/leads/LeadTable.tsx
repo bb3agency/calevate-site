@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { SECONDARY_BUTTON_SM, formatPhone } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
 import { EmptySketch } from "@/components/console/emptySketch";
-import { RowMenu } from "@/components/console/rowMenu";
+import { RowMenu } from "@/components/arc/menu";
 import { copyText } from "@/components/interior/copy-button";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import type { Lead } from "@/lib/api/leads";

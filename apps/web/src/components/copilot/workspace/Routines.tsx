@@ -8,7 +8,7 @@ import { ConfirmDialog } from "@/components/confirmDialog";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { Drawer } from "@/components/console/drawer";
 import { EmptyState } from "@/components/console/emptyState";
-import { RowMenu } from "@/components/console/rowMenu";
+import { RowMenu } from "@/components/arc/menu";
 import { StepFlow } from "@/components/console/stepFlow";
 import {
   FIELD,
