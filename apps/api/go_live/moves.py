@@ -4,7 +4,9 @@ ThinnestAI documents no way to move an agent between workspaces (a phone number 
 `api-reference/customers.md:185-200`), so an agent moves the way D-693 built: its next publish
 recreates it in the client's workspace, re-attaches its knowledge, webhook, in-call actions and
 numbers, and retires the old one after the commit, waiting out a live call
-(`agents/service.publish_agent`, `workers/engine_workspaces.retire_moved_engine_agent`). This
+(`agents/service.publish_agent`, `workers/engine_workspaces.retire_moved_engine_agent`); an
+agent with no number keeps the old one as its test copy for paid test calls on the shared trial
+line (founder option A, `agents/paid_test_calls`) until the hourly sweep retires it. This
 module decides WHEN that publish runs and records what came of it; it adds no second publish.
 
 WHEN. The workspace becoming active queues one move job (`queue_agent_move`, from
@@ -28,7 +30,8 @@ its outcome recorded in `agent_workspace_moves`:
 * `held`: refused for a reason a retry cannot change (the plan's agent allowance, a voice the
   client workspace does not list, a Studio set-up, or a refusal about the account). The agent
   keeps working where it is; an operator is alarmed once per cause; the hourly sweep retries.
-  What to do about a voice or a plan limit waits on the founder (D-859, decisions 4 and 7).
+  The agent allowance is counted per customer workspace (2 on pay as you go, raised on request;
+  ThinnestAI, 23 Oct 2026), so a client's third agent is held until its workspace is raised.
 * `waiting`: owed, or retried after something that may pass;
 * `failed`: the job's retries are spent on an unexpected error; alarmed, and the sweep retries.
 """
@@ -59,8 +62,8 @@ MOVE_JOB: Final = "move_agents_to_workspace"
 #: activation that makes it so queues the move again. Not an operator's problem.
 WAITING_CODES: Final = frozenset({"engine_workspace_not_provisioned", "platform_maintenance"})
 
-#: Refusals the founder decides on once the voice platform answers (D-859 decisions 4 and 7):
-#: the plan's agent allowance, and voices the client workspace cannot speak on our plan.
+#: Refusals an operator lifts at the voice platform (a raise of the client workspace's agent
+#: allowance, a voice it does not list yet); the agent is never moved onto another voice.
 PLAN_OR_VOICE_CODES: Final = frozenset(
     {
         "engine_agent_allowance_used",
@@ -203,7 +206,7 @@ async def _record(tenant_id: UUID, agent_id: UUID, workspace: str, record: _Reco
                 f"({record.code}). It keeps working from our developer workspace and is "
                 "retried every hour. "
                 + (
-                    "This is a plan or voice limit the founder decides on (D-859); "
+                    "This is a plan or voice limit to lift at the voice platform; "
                     if decided_later
                     else "The client or an operator has to act first; "
                 )

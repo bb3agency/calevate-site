@@ -32,7 +32,11 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.paid_test_calls import DAILY_CAP_RULE, read_paid_test_access
+from apps.api.agents.paid_test_calls import (
+    DAILY_CAP_RULE,
+    read_paid_test_access,
+    refresh_test_copy,
+)
 from apps.api.billing.first_payment import has_paid
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
@@ -230,6 +234,24 @@ async def place_trial_call(
         owner_test = OwnerTestDial(
             max_call_seconds=call_seconds, daily_cap=paid.daily_cap, day_start=paid.day_start
         )
+        if paid.line in ("trial_line_own", "trial_line_copy"):
+            # Before the client has a number of its own: the shared trial line, through the
+            # agent's developer-workspace engine agent, republished first when it is the test
+            # copy so it never lags the agent (D-859, option A).
+            try:
+                dial_ref = (
+                    await refresh_test_copy(tenant_id=tenant_id, agent_id=agent_id)
+                    if paid.line == "trial_line_copy"
+                    else None
+                )
+            except Exception:
+                await release()
+                raise
+            caller_number = get_settings().trial_caller_number
+            assert caller_number is not None  # `read_paid_test_access` refused otherwise
+            trial = TrialDial(
+                from_e164=caller_number, max_call_seconds=call_seconds, agent_ref=dial_ref
+            )
     else:
         assert access is not None  # refused above otherwise
         caller_number = get_settings().trial_caller_number

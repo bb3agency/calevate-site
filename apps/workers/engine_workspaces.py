@@ -695,6 +695,10 @@ async def retire_moved_engine_agent(ctx: dict[str, Any], payload: dict[str, Any]
             ),
             {"engine": engine.name, "ref": old_ref},
         )
+        # A retired test copy (D-859, option A) is gone; the next test call makes another.
+        await session.execute(
+            text("DELETE FROM agent_test_copies WHERE engine_agent_ref = :ref"), {"ref": old_ref}
+        )
     log.info("engine_agent_retired_after_move", extra={"agent_id": str(agent_id)})
     return "retired"
 

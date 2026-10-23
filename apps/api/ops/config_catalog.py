@@ -415,6 +415,15 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Once used, Studio test calls are refused and Clear ones go on. 0 allows none.",
         _THINNEST,
     ),
+    "paid_test_copy_idle_days": _m(
+        "calling-limits",
+        "trial",
+        "Days a paid account's test copy may sit unused",
+        "Before a paying client has its own number, its test calls ring from the shared trial "
+        "number through a copy of the agent in our own account. A copy unused this many days "
+        "is removed; the next test call makes it again.",
+        _THINNEST,
+    ),
     "staged_agent_languages_enabled": _m(
         "speech",
         "languages",
@@ -1251,6 +1260,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "razorpay_reconciliation_days": ControlHint(unit="days"),
     "trial_daily_call_cap": ControlHint(unit="calls a day"),
     "trial_studio_minutes": ControlHint(unit="minutes"),
+    "paid_test_copy_idle_days": ControlHint(unit="days"),
     "forwarding_test_daily_cap": ControlHint(unit="tests a day"),
     "whatsapp_message_inr": ControlHint(unit="rupees"),
     "thinnest_max_concurrent_calls": ControlHint(unit="calls at once"),

@@ -15,11 +15,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.paid_test_calls import (
-    NEEDS_OWN_NUMBER_REASON,
-    any_agent_can_test,
-    read_paid_test_access,
-)
+from apps.api.agents.paid_test_calls import read_paid_test_access
 from apps.api.agents.trial_calls import NOT_READY_REASON, TRIAL_CALL_ENGINES, trial_calling_ready
 from apps.api.compliance.outbound_pledge import pledge_blocker
 from apps.api.compliance.trial_access import TRIAL_REFUSALS, read_trial_access
@@ -34,8 +30,9 @@ class TrialPanelOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     on_trial: bool
-    #: The account has paid, and its test calls ring from its own number (D-859): the panel
-    #: shows today's test calls and the limits, never trial copy. `on_trial` is then false.
+    #: The account has paid (D-859): its test calls ring from its own number, or before it has
+    #: one from the shared trial line, and are billed. The panel shows today's test calls and
+    #: the limits, never trial copy. `on_trial` is then false.
     paid_test_calls: bool = False
     #: `active`, `expired` or `stopped`; null when not on a trial.
     status: str | None = None
@@ -105,8 +102,6 @@ async def _paid_panel(session: AsyncSession, *, tenant_id: UUID, at: datetime) -
         reason = paid.blocker[1]
     elif unpledged is not None:
         reason = unpledged[1]
-    elif not await any_agent_can_test(session, tenant_id=tenant_id):
-        reason = NEEDS_OWN_NUMBER_REASON
     return TrialPanelOut(
         on_trial=False,
         paid_test_calls=True,

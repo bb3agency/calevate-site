@@ -388,6 +388,9 @@ TENANT_TABLES = [
     # machine the worker moves, and the guide's marker is the owner's.
     "agent_workspace_moves",
     "go_live_guides",
+    # A moved agent's developer-workspace copy kept for test calls on the shared trial line
+    # while its client has no number (D-859, option A). Not append-only: retired with it.
+    "agent_test_copies",
     "handoff_attempts",
     "kb_retrieval_logs",
     # The stored monthly QA report (SURFACES §2) and the weekly 5% spot-check queue

@@ -911,7 +911,8 @@ Owner surfaces: client — Pip's panel, `/c/<slug>/knowledge`, `/c/<slug>/settin
 3. **The move.** Each live or ready agent (and running script-test arm) still in our developer
    workspace is republished with "not taking calls", one transaction each: recreated in the
    client workspace, knowledge, webhook, in-call actions and numbers re-attached, the old copy
-   deleted after the commit (waiting out a live call). A ready agent stays ready, a live one
+   deleted after the commit (waiting out a live call), or kept as the agent's test copy while it
+   has no number (step 6). A ready agent stays ready, a live one
    stays live; drafts are made there when first got ready. Each outcome is an
    `agent_workspace_moves` row.
 4. **When one cannot move**, the others still do. A plan or voice limit, or a refusal the
@@ -922,9 +923,13 @@ Owner surfaces: client — Pip's panel, `/c/<slug>/knowledge`, `/c/<slug>/settin
    ticking), Verify your business (the KYC flow), Get your number (the number purchase flow),
    Switch it on (each agent's own switch and its gate reasons). Shown to the owner from the `/c`
    junction until finished or put aside; offered on the dashboard until then.
-6. **Test calls after payment** ring from the client's own number only, from a moved agent that
-   holds it, billed like any call, capped per day (`trial_daily_call_cap`) and per call
-   (`trial_call_max_seconds`); the shared trial number cannot serve a client-workspace agent.
+6. **Test calls after payment** ring from the client's own number once the agent holds one.
+   Before that they ride the shared trial line exactly as a trial call, through the agent's
+   developer-workspace test copy (kept by the move, republished from the agent before each call,
+   made again if gone; founder option A), because the shared number cannot serve a
+   client-workspace agent. Billed like any call, capped per day (`trial_daily_call_cap`) and per
+   call (`trial_call_max_seconds`). The hourly sweep retires copies once the client owns a number
+   or after `paid_test_copy_idle_days` unused.
 7. **A refund or a dispute** on a paid account reverses nothing; an operator is alarmed
    (`paid_account_payment_reversed`) and decides.
 

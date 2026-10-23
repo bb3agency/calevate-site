@@ -145,6 +145,20 @@ async def test_a_legacy_agent_is_recreated_in_the_clients_workspace_and_retired_
             ),
             {"r": legacy, "t": tenant, "a": agent},
         )
+        # A number of the client's own on the agent: no test copy is kept (D-859, option A).
+        await session.execute(
+            text(
+                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, provider, "
+                "direction, dlt_status, engine_owned, created_at, updated_at) VALUES "
+                "(:id, :t, :a, :e, 'standard', 'thinnest', 'both', 'pending', true, now(), now())"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "t": tenant,
+                "a": agent,
+                "e": f"+9180{uuid.uuid4().int % 10**8:08d}",
+            },
+        )
 
     with selected(engine):
         ref = await _publish(tenant, agent)

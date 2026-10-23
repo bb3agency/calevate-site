@@ -204,6 +204,11 @@ one trial account may place per IST day; `trial_call_max_seconds` (default 180, 
 the per-call `maxCallSeconds` each test call carries (THINNEST-INTEGRATION §3c).
 D-727 adds `trial_studio_minutes` (default 15, 0..1000, live): the Studio minutes one trial
 account may use on test calls before a Studio test call is refused; Clear test calls go on.
+D-859 adds `paid_test_copy_idle_days` (default 14, 1..365, live): how long a paying client's
+developer-workspace test copy of an agent (used for its test calls on the shared trial line
+before it has a number, founder option A) may sit unused before the hourly sweep retires it;
+the next test call makes it again. A paying client's test calls are capped by the same
+`trial_daily_call_cap` and `trial_call_max_seconds`.
 D-855 adds two settings under Speech, Agent languages, both live. `staged_agent_languages_enabled`
 (comma-separated tags from `ta-IN`, `kn-IN`, `ml-IN`, `mr-IN`; default empty; high risk) names
 the held-back languages every client may give an agent. A write naming a language whose

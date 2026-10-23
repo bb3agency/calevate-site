@@ -259,13 +259,101 @@ async def test_live_and_ready_agents_move_with_their_state_and_drafts_stay(
     assert await _agent_row(tenant_id, draft_id) == ("draft", None)
     rows = await _move_rows(tenant_id)
     assert rows == {live_id: ("moved", None), ready_id: ("moved", None)}
-    retired = {job["old_ref"] for job in await _jobs("retire_moved_engine_agent", tenant_id)}
-    assert retired == {old_live, old_ready}
+    # Option A: with no number of the client's own, each developer copy is kept for test
+    # calls, its route still active, and none is retired yet.
+    assert await _copies(tenant_id) == {live_id: old_live, ready_id: old_ready}
+    assert await _jobs("retire_moved_engine_agent", tenant_id) == []
+    assert await _route_active(tenant_id, old_live)
 
-    # Idempotent: a second run finds nothing left behind and owes no second retirement.
+    # Idempotent: a second run finds nothing left behind.
     with selected(engine):
         assert await _run(tenant_id) == "nothing_to_move"
-    assert len(await _jobs("retire_moved_engine_agent", tenant_id)) == 2
+    assert len(await _copies(tenant_id)) == 2
+
+
+async def _copies(tenant_id: UUID) -> dict[UUID, str]:
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(text("SELECT agent_id, engine_agent_ref FROM agent_test_copies"))
+        ).all()
+    return {UUID(str(r[0])): str(r[1]) for r in rows}
+
+
+async def _route_active(tenant_id: UUID, ref: str) -> bool:
+    async with tenant_session(tenant_id) as session:
+        return bool(
+            (
+                await session.execute(
+                    text("SELECT active FROM engine_agent_routes WHERE engine_agent_ref = :r"),
+                    {"r": ref},
+                )
+            ).scalar()
+        )
+
+
+async def test_the_sweep_retires_test_copies_once_a_number_is_owned_or_they_sit_idle(
+    attested: set[str],  # noqa: F811
+    no_webhook: None,  # noqa: F811
+    hosted_rows: CatalogueRows,
+    workspaces_on: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, agent_id, _voice = await _paid_client(hosted_rows)
+    engine = HostingEngine()
+    old = await _in_developer_workspace(engine, tenant_id, agent_id, status="paused")
+    with selected(engine):
+        await _run(tenant_id)
+    assert await _copies(tenant_id) == {agent_id: old}
+
+    await agent_moves.sweep_agent_moves({})
+    assert await _jobs("retire_moved_engine_agent", tenant_id) == [], "fresh and no number"
+
+    # Unused past the console's idle days: retired.
+    monkeypatch.setattr(get_settings(), "paid_test_copy_idle_days", 1)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agent_test_copies SET created_at = now() - interval '2 days'")
+        )
+    await agent_moves.sweep_agent_moves({})
+    [job] = await _jobs("retire_moved_engine_agent", tenant_id)
+    assert job["old_ref"] == old
+
+
+async def test_owning_a_number_retires_the_test_copy(
+    attested: set[str],  # noqa: F811
+    no_webhook: None,  # noqa: F811
+    hosted_rows: CatalogueRows,
+    workspaces_on: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, agent_id, _voice = await _paid_client(hosted_rows)
+    engine = HostingEngine()
+    old = await _in_developer_workspace(engine, tenant_id, agent_id, status="paused")
+    with selected(engine):
+        await _run(tenant_id)
+    await _own_number(tenant_id, None)
+    await agent_moves.sweep_agent_moves({})
+    [job] = await _jobs("retire_moved_engine_agent", tenant_id)
+    assert job["old_ref"] == old
+    # The retirement deletes the vendor agent and forgets the copy.
+    from types import SimpleNamespace
+
+    async def _no_live_call(ref: str) -> bool:
+        return False
+
+    async def _nothing(*_a: Any, **_k: Any) -> int:
+        return 0
+
+    monkeypatch.setattr(
+        workspace_jobs, "thinnest_actions", lambda: SimpleNamespace(has_live_call=_no_live_call)
+    )
+    monkeypatch.setattr(workspace_jobs, "retire_in_call_actions", _nothing)
+    monkeypatch.setattr(workspace_jobs, "retire_agent_webhook", _nothing)
+    with selected(engine):
+        assert await workspace_jobs.retire_moved_engine_agent({"job_try": 1}, job) == "retired"
+    assert old in engine.deleted
+    assert await _copies(tenant_id) == {}
+    assert not await _route_active(tenant_id, old)
 
 
 async def test_a_running_arm_moves_with_its_agent(
@@ -478,7 +566,7 @@ async def _test_call(tenant_id: UUID, agent_id: UUID) -> Any:
         )
 
 
-async def _own_number(tenant_id: UUID, agent_id: UUID) -> None:
+async def _own_number(tenant_id: UUID, agent_id: UUID | None) -> None:
     digits = f"9180{uuid.uuid4().int % 10**8:08d}"
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -504,22 +592,121 @@ def _dialling(engine: HostingEngine) -> Iterator[None]:
         yield
 
 
-async def test_a_paid_test_call_waits_for_the_agent_to_move(
-    hosted_rows: CatalogueRows, paid_calls: None
+@pytest.fixture
+def trial_line(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The shared trial number set, and each lend of it recorded (the agent it was lent to)."""
+    from apps.api.campaigns import engine_numbers
+
+    lent: list[str] = []
+
+    async def _lend(agent_ref: str) -> bool:
+        lent.append(agent_ref)
+        return True
+
+    monkeypatch.setattr(get_settings(), "trial_caller_number", "+918045678901")
+    monkeypatch.setattr(engine_numbers, "lend_trial_line", _lend)
+    return lent
+
+
+async def _calls(tenant_id: UUID) -> list[tuple[bool, bool]]:
+    """Each call's (trial_call, paid_test_call), oldest first; the calls are then ended, so
+    the platform's one trial line is free for the next test."""
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text("SELECT trial_call, paid_test_call FROM calls ORDER BY created_at, id")
+            )
+        ).all()
+        await session.execute(text("UPDATE calls SET status = 'completed'"))
+    return [(bool(r[0]), bool(r[1])) for r in rows]
+
+
+async def test_before_the_move_a_paid_test_call_rings_the_agent_on_the_trial_line(
+    hosted_rows: CatalogueRows, paid_calls: None, trial_line: list[str]
 ) -> None:
     tenant_id, agent_id, _voice = await _paid_client(hosted_rows)
     engine = HostingEngine()
-    await _in_developer_workspace(engine, tenant_id, agent_id, status="live")
+    old = await _in_developer_workspace(engine, tenant_id, agent_id, status="live")
     with _dialling(engine):
         result = await _test_call(tenant_id, agent_id)
-    assert (result.status, result.blocked_rule) == ("blocked", "paid_test_call_agent_moving")
+    assert result.status == "queued", result
+    assert trial_line == [old], "the agent itself, still in our developer workspace"
+    assert await _calls(tenant_id) == [(True, True)], "on the trial line, billed as paid"
+    assert await _copies(tenant_id) == {}
 
 
-async def test_a_paid_test_call_rings_from_the_clients_own_number_only(
+async def test_after_the_move_the_test_copy_is_republished_then_rung(
+    attested: set[str],  # noqa: F811
+    no_webhook: None,  # noqa: F811
+    hosted_rows: CatalogueRows,
+    workspaces_on: None,
+    paid_calls: None,
+    trial_line: list[str],
+) -> None:
+    tenant_id, agent_id, _voice = await _paid_client(hosted_rows)
+    engine = HostingEngine()
+    old = await _in_developer_workspace(engine, tenant_id, agent_id, status="live")
+    with selected(engine):
+        await _run(tenant_id)
+    moved = (await _agent_row(tenant_id, agent_id))[1]
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET name = 'Renamed after the move' WHERE id = :a"), {"a": agent_id}
+        )
+    sent_before = len(engine.sent)
+    with _dialling(engine):
+        result = await _test_call(tenant_id, agent_id)
+    assert result.status == "queued", result
+    assert trial_line == [old], "rung through the kept developer copy"
+    republished = engine.sent[sent_before:]
+    assert republished and republished[-1].engine_workspace is None
+    assert engine._agents[old].name == "Renamed after the move", "the copy is not stale"
+    assert (await _agent_row(tenant_id, agent_id))[1] == moved, "the agent itself is untouched"
+    assert await _calls(tenant_id) == [(True, True)]
+    async with tenant_session(tenant_id) as session:
+        used = (await session.execute(text("SELECT last_used_at FROM agent_test_copies"))).scalar()
+    assert used is not None
+
+
+class _ForgetfulEngine(HostingEngine):
+    """Answers an update of an agent it does not hold with the vendor's 404."""
+
+    async def update_agent(self, ref: str, cfg: AgentConfig) -> None:
+        if ref not in self._agents:
+            from apps.api.engine.vendor_http import EngineRejectedError
+
+            raise EngineRejectedError(status=404)
+        await super().update_agent(ref, cfg)
+
+
+async def test_a_test_copy_gone_from_the_vendor_is_made_again(
+    attested: set[str],  # noqa: F811
+    no_webhook: None,  # noqa: F811
+    hosted_rows: CatalogueRows,
+    workspaces_on: None,
+    paid_calls: None,
+    trial_line: list[str],
+) -> None:
+    tenant_id, agent_id, _voice = await _paid_client(hosted_rows)
+    engine = _ForgetfulEngine()
+    old = await _in_developer_workspace(engine, tenant_id, agent_id, status="live")
+    with selected(engine):
+        await _run(tenant_id)
+    del engine._agents[old]
+    with _dialling(engine):
+        result = await _test_call(tenant_id, agent_id)
+    assert result.status == "queued", result
+    [copy] = (await _copies(tenant_id)).values()
+    assert copy != old and copy in engine._agents and trial_line == [copy]
+    await _calls(tenant_id)
+
+
+async def test_with_its_own_number_a_paid_test_call_leaves_the_trial_line(
     attested: set[str],  # noqa: F811
     no_webhook: None,  # noqa: F811
     hosted_rows: CatalogueRows,
     paid_calls: None,
+    trial_line: list[str],
 ) -> None:
     tenant_id, agent_id, _voice = await _paid_client(hosted_rows)
     engine = HostingEngine()
@@ -531,16 +718,11 @@ async def test_a_paid_test_call_rings_from_the_clients_own_number_only(
         before = await _test_call(tenant_id, agent_id)
         await _own_number(tenant_id, agent_id)
         placed = await _test_call(tenant_id, agent_id)
-    assert (before.status, before.blocked_rule) == ("blocked", "paid_test_call_needs_own_number")
-    assert placed.status == "queued", placed
-    async with tenant_session(tenant_id) as session:
-        row = (
-            await session.execute(
-                text("SELECT trial_call, paid_test_call FROM calls WHERE agent_id = :a"),
-                {"a": agent_id},
-            )
-        ).one()
-    assert tuple(row) == (False, True), "billed like any call, counted as the owner's test"
+    assert before.status == "queued" and placed.status == "queued", (before, placed)
+    assert len(trial_line) == 1, "only the call before the number used the trial line"
+    assert await _calls(tenant_id) == [(True, True), (False, True)], (
+        "the second rang from the client's own number, billed like any call"
+    )
 
 
 async def test_paid_test_calls_stop_at_the_daily_cap(
@@ -572,9 +754,12 @@ async def test_the_dashboard_panel_shows_paid_test_calls_without_trial_copy(
     async with tenant_session(tenant_id) as session:
         panel = await read_trial_panel(session, tenant_id=tenant_id)
     assert panel.on_trial is False and panel.paid_test_calls is True
-    assert panel.can_call is False and panel.blocked_reason is not None
-    assert "trial" not in panel.blocked_reason.lower()
-    assert panel.answering_locked_reason is None
+    assert panel.can_call is True and panel.blocked_reason is None
+    assert (panel.days_remaining, panel.free_minutes, panel.answering_locked_reason) == (
+        None,
+        None,
+        None,
+    )
 
 
 # --- money taken back ---------------------------------------------------------------------

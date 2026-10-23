@@ -38,8 +38,8 @@ import { TestCallTranscript } from "./TestCallTranscript";
  * every other dashboard would be noise — and the dashboard says its own read's failure.
  *
  * AFTER THE FIRST PAYMENT the same card offers the owner's PAID test calls (D-859,
- * `paid_test_calls`): from a live agent on the account's own number, billed like any call,
- * with no trial words in it.
+ * `paid_test_calls`): from the agent's own number once it has one, from the shared trial
+ * number until then (option A), billed like any call, with no trial words in it.
  */
 export function TrialCallPanel({ slug, trial }: { slug: string; trial: TrialPanel | null | undefined }) {
   const { href } = useClientRealm();
@@ -105,12 +105,12 @@ export function TrialCallCard({
   const [agentId, setAgentId] = useState("");
   const [number, setNumber] = useState("");
 
-  // On a trial every agent can be test-called, including a draft and one that only answers
-  // calls: a draft is got ready first (the same `/prepare` the first run uses), and the server
-  // says in its own words what stops that. After payment a test call rings from the agent's
-  // own number, which only a live agent holds (D-859).
+  // Every agent can be test-called, including a draft and one that only answers calls: a
+  // draft is got ready first (the same `/prepare` the first run uses), and the server says in
+  // its own words what stops that. After payment the call rings from the agent's own number
+  // once it has one, and from the shared Calevate number until then (D-859, option A).
   const paid = trial.paid_test_calls === true;
-  const dialers = agents.data?.filter((agent) => !isDeleted(agent) && (!paid || agent.status === "live"));
+  const dialers = agents.data?.filter((agent) => !isDeleted(agent));
   const chosen = agentId || (dialers !== undefined && dialers.length > 0 ? dialers[0].id : "");
   const chosenAgent = dialers?.find((agent) => agent.id === chosen);
   const prepare = useAgentLifecycle(session, chosen);
@@ -137,7 +137,7 @@ export function TrialCallCard({
 
         <p className="text-sm text-ink-muted">
           {paid
-            ? "Ring your own phone from one of your agents that is taking calls. It calls from your own number and is billed like any call. "
+            ? "Ring your own phone from one of your agents. It calls from your own number once the agent has one, and from a shared Calevate number until then. Test calls are billed like any call. "
             : "Try your agent on a real phone: pick an agent, type an Indian number, and it calls that number from a shared Calevate number, opening with its usual greeting. "}
           Each test call ends after {minutesText(trial.max_call_seconds)}. The do-not-call list
           and calling hours (9am to 9pm) still apply, and the agent always says it is an AI when
@@ -173,8 +173,6 @@ export function TrialCallCard({
               <span className="mt-1 block text-sm text-ink-muted">
                 Your agents did not load. Reload the page to try again.
               </span>
-            ) : paid && dialers !== undefined && dialers.length === 0 ? (
-              <span className="mt-1 block text-sm text-ink-muted">None of your agents is taking calls yet.</span>
             ) : agents.data !== undefined && agents.data.length === 0 ? (
               <span className="mt-1 block text-sm text-ink-muted">
                 You have no agents yet.{" "}

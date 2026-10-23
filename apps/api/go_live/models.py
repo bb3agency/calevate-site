@@ -68,4 +68,26 @@ class GoLiveGuide(PKMixin, TimestampMixin, Base):
     dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-__all__ = ["MOVE_STATES", "AgentWorkspaceMove", "GoLiveGuide", "MoveState"]
+class AgentTestCopy(PKMixin, TimestampMixin, Base):
+    """A moved agent's developer-workspace engine agent, kept for test calls on the shared
+    trial line while its client has no number of its own (founder option A, D-859)."""
+
+    __tablename__ = "agent_test_copies"
+    __table_args__ = (
+        UniqueConstraint("agent_id", name="uq_agent_test_copies_agent"),
+        UniqueConstraint("engine_agent_ref", name="uq_agent_test_copies_ref"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    #: The copy's handle in our developer workspace (unscoped).
+    engine_agent_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The last test call placed through it; the idle retirement counts from here.
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+__all__ = ["MOVE_STATES", "AgentTestCopy", "AgentWorkspaceMove", "GoLiveGuide", "MoveState"]

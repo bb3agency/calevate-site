@@ -74,20 +74,23 @@ The founder's answers, 23 Oct 2026 (built as **D-859**):
    - until then, our shared number.
 
    (Whether ThinnestAI lets a developer-workspace number place a call for an agent in a customer
-   workspace must be verified in their docs before building.)
+   workspace must be verified in their docs before building. It does not (§5); the founder then
+   chose option A (§6).)
 4. **A voice that cannot move** (Studio or a clone on our plan): decided after Ashutosh replies to
-   the §27 email.
+   the §27 email. He turned Studio and cloning on for our pay-as-you-go account (§7 below).
 5. **What the client sees during the move:** an interactive guide like D-855's first run: moving
    your agents (real progress), verify your business, get your number, switch it on (founder,
    23 Oct 2026, later the same day).
 6. **Payment refunded or disputed:** no automatic reversal; alert an operator, who decides.
-7. **The 4th paying client and the workspace cap:** decided after Ashutosh replies.
+7. **The 4th paying client and the workspace cap:** decided after Ashutosh replies. He raised the
+   cap to 100 (§7 below).
 8. **Fixed without asking** (clear bugs): a restated transfer that reaches ₹100 counts as a first
    payment, and an operator-converted invoiced account is stamped as paid.
 
 ## 5. Verified before building item 3 (hash-pinned mirror 2026-10-19)
 
-The shared trial number **cannot** place a call for an agent in a customer workspace:
+The shared trial number **cannot** place a call for an agent in a customer workspace, so it
+rings through a developer-workspace copy of the agent instead (§6):
 
 - A call runs in the workspace the request names; `agent` must answer the phone **in this
   workspace** (`api-reference/calls/place-call.md:617-629`, `agent_not_found`), and a `from`
@@ -100,7 +103,34 @@ The shared trial number **cannot** place a call for an agent in a customer works
   business details are approved (`phone-numbers/move-phone-number.md:9,598-618`). It would take the
   shared number from every trial account.
 
-So paid test calls ring only from the client's own number (on a live agent holding it). What a
-paying client without a number may use is left to the founder (OPERATIONS T-37).
+## 6. Founder option A for test calls before a number (23 Oct 2026), as built
+
+Because the shared number cannot reach an agent in the client workspace, the trial copy stays:
+
+- **The move keeps the developer-workspace copy** of an agent that has no number
+  (`agent_test_copies`, its route left active so its calls report back). An agent with a number
+  has its copy retired after the commit, as before.
+- **A paid test call before the agent has its own number rides the shared trial line** exactly
+  as a trial call does (the platform-wide trial line lock, `lend_trial_line`, the per-call
+  limit), through the agent's developer-workspace engine agent: the agent itself if it has not
+  moved yet, else its copy. Once the agent holds its own number in its workspace the call rings
+  from that number instead.
+- **The copy is never stale:** before each such call the agent's current config is republished
+  onto it through `publish_agent(onto_test_copy=True)` (the same publish path), and it is made
+  again if the vendor no longer holds it. Knowledge documents converge on the agent's own
+  engine agent only, so the copy keeps those it held when it moved (a known limit).
+- **Retirement:** the hourly sweep retires every copy once the client owns a number in its
+  workspace, and any copy unused for `paid_test_copy_idle_days` (console, default 14); the next
+  test call makes another.
+- Billed at normal rates and marked `calls.paid_test_call` (and `trial_call` on the trial line);
+  every dial gate, the daily cap and the per-call cap apply.
+
+## 7. ThinnestAI's answer (§28 of `docs/vendor/thinnest-replies-2026-10-12.md`, 23 Oct 2026)
+
+VENDOR-STATED: agents are counted **per workspace**: our developer workspace 100, each customer
+workspace 2 on pay as you go, raised per workspace on request. The customer-workspace cap is 100;
+the Studio band and cloning are on for our pay-as-you-go account. So a client's third agent is
+held (`engine_agent_allowance_used`, `agent_move_held`) until its workspace is raised, and gap 5
+above no longer applies to the developer workspace once the raise is live.
 
 Built as D-859 (`docs/ROADMAP.md` §6); runbook `runbooks/agent-workspace-move.md`.

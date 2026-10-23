@@ -11,9 +11,14 @@ and test calls to the owner's phone go on after payment.
 2. `go_live_guides`: one row per client, written at the first payment: when the guide was
    owed, and when the owner finished it or put it aside. The sign-in junction and the
    dashboard read it as the guide's marker.
-3. `calls.paid_test_call`: a test call a paying account placed to the owner's own phone from
-   its own number. A partial index on `(tenant_id, created_at) WHERE paid_test_call` serves
-   the daily cap, as `ix_calls_trial_recent` serves the trial's.
+3. `calls.paid_test_call`: a test call a paying account placed to the owner's own phone, from
+   its own number or, before it has one, from the shared trial line. A partial index on
+   `(tenant_id, created_at) WHERE paid_test_call` serves the daily cap, as
+   `ix_calls_trial_recent` serves the trial's.
+3a. `agent_test_copies`: one row per moved agent whose developer-workspace engine agent (the
+   trial copy) is kept for test calls on the shared trial line while the client has no number
+   of its own (founder option A, 23 Oct 2026): the copy's engine handle and when it was last
+   used. Retired with the copy.
 4. `organizations.first_paid_via` admits `operator_conversion`: an operator converting an
    invoiced or managed account's trial (`billing/trial_routes.close_trial`) stamps the account
    paid, so `PAID_TENANT_SQL` and everything keyed on it agree with the trial. Accounts an
@@ -21,11 +26,11 @@ and test calls to the owner's phone go on after payment.
    `NO FORCE ROW LEVEL SECURITY` bracket (the owner is subject to the FORCEd policies, so an
    unbracketed UPDATE would see no row).
 
-RLS: both new tables carry `tenant_id` and the FORCEd `tenant_isolation` policy (hard rule 1);
-the cross-tenant zero-rows proof is `tests/go_live_test.py`. An account's erasure deletes both
+RLS: the three new tables carry `tenant_id` and the FORCEd `tenant_isolation` policy (hard rule 1);
+the cross-tenant zero-rows proof is `tests/go_live_test.py`. An account's erasure deletes all three
 (`workers/retention.execute_tenant_erasure`).
 
-Downgrade drops both tables and the column, clears the backfilled stamps (they were NULL
+Downgrade drops the three tables and the column, clears the backfilled stamps (they were NULL
 before) and restores the narrower CHECK.
 
 Revision ID: b5d8f2a9c741
@@ -48,6 +53,7 @@ depends_on: str | Sequence[str] | None = None
 
 MOVES = "agent_workspace_moves"
 GUIDES = "go_live_guides"
+COPIES = "agent_test_copies"
 _GUC = "NULLIF(current_setting('app.tenant_id', true), '')"
 _OWN_TENANT = f"(tenant_id = ({_GUC})::uuid)"
 
@@ -155,6 +161,32 @@ def upgrade() -> None:
     )
     _isolate(GUIDES)
 
+    op.create_table(
+        COPIES,
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("tenant_id", sa.UUID(), nullable=False),
+        sa.Column("agent_id", sa.UUID(), nullable=False),
+        sa.Column("engine_agent_ref", sa.Text(), nullable=False),
+        sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True),
+        *_stamps(),
+        sa.PrimaryKeyConstraint("id", name=op.f(f"pk_{COPIES}")),
+        sa.ForeignKeyConstraint(
+            ["tenant_id"],
+            ["organizations.id"],
+            name=op.f(f"fk_{COPIES}_tenant_id_organizations"),
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["agent_id"],
+            ["agents.id"],
+            name=op.f(f"fk_{COPIES}_agent_id_agents"),
+            ondelete="CASCADE",
+        ),
+        sa.UniqueConstraint("agent_id", name="uq_agent_test_copies_agent"),
+        sa.UniqueConstraint("engine_agent_ref", name="uq_agent_test_copies_ref"),
+    )
+    _isolate(COPIES)
+
     op.add_column(
         "calls",
         sa.Column("paid_test_call", sa.Boolean(), server_default=sa.false(), nullable=False),
@@ -191,6 +223,8 @@ def downgrade() -> None:
         op.execute("ALTER TABLE organizations FORCE ROW LEVEL SECURITY")
     op.drop_index("ix_calls_paid_test_recent", table_name="calls")
     op.drop_column("calls", "paid_test_call")
+    op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {COPIES}")
+    op.drop_table(COPIES)
     op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {GUIDES}")
     op.drop_table(GUIDES)
     op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {MOVES}")
