@@ -191,6 +191,8 @@ async def test_a_call_outside_the_platforms_hours_says_so_in_plain_words() -> No
     refused = await _dial(409, {"error": "Outside hours", "code": "outside_calling_hours"})
     assert refused.title == "Calls can only ring between 9am and 9pm"
     assert "9am and 9pm IST" in refused.detail
+    # A rule, not an outage: below 500, so the error handler raises no operator alarm.
+    assert refused.status == 422 and refused.kind == "business_rule"
     assert dial_was_not_placed(refused) is True
 
 

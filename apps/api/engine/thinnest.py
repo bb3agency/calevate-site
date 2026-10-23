@@ -1098,8 +1098,11 @@ def _dial_refusal(exc: EngineRejectedError) -> ProblemError:
     if code == "outside_calling_hours":
         # The vendor holds every call to 09:00-21:00 in the callee's own time whatever our
         # gate allows (place-call.md:7, 19 Oct 2026 snapshot), so the owner's own-number
-        # tick (D-866) cannot ring a phone at night. Said plainly rather than as a generic
-        # platform failure, which reads as something broken.
+        # tick (D-866) cannot ring a phone at night. A rule, not a fault: 422 and not
+        # retryable, so it neither reads as a broken platform nor pages an operator (the
+        # handler alarms on every 5xx).
+        refusal.kind = "business_rule"
+        refusal.status = 422
         refusal.title = "Calls can only ring between 9am and 9pm"
         refusal.detail = "Phones can be rung only between 9am and 9pm IST, test calls included."
         refusal.remediation = "Try again after 9am IST."
