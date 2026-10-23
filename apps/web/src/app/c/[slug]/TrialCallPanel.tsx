@@ -127,7 +127,7 @@ export function TrialCallCard({
   return (
     <Card title={paid ? "Test calls" : "Your free trial"}>
       <div className="space-y-4">
-        <dl className="grid gap-3 text-sm sm:grid-cols-3">
+        <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
           {paid ? null : <TrialFigures trial={trial} />}
           <div>
             <dt className={FIELD_LABEL}>Test calls today</dt>

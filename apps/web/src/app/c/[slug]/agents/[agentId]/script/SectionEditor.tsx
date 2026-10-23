@@ -155,7 +155,7 @@ export function SectionEditor({
                 to your line as closely as it can, but it may change a word or two.
               </InfoTip>
             </legend>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <ModeOption
                 name={field("mode")}
                 checked={!say}

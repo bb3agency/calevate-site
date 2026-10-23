@@ -161,7 +161,7 @@ export function FieldEditorRow({
         </div>
       </div>
 
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className="block">
             <span className={FIELD_LABEL}>Name</span>

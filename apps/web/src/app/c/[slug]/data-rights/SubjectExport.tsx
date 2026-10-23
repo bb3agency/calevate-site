@@ -130,7 +130,7 @@ export function SubjectExport({ session }: { session: Session }) {
             {/* Counts, and deliberately only counts: they let a client check the file
                 is about the person they meant before handing it over, and they are the
                 one part of the document that is not itself that person's data. */}
-            <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+            <dl className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
               <Fact label="Calls" value={formatCount(exportDocument.data.counts.calls)} />
               <Fact
                 label="Transcript turns"

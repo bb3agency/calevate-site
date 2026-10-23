@@ -516,7 +516,7 @@ function RecopyRow({ target }: { target: RecopyTarget }) {
 
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="grid gap-1 py-2.5 sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-3">
+    <div className="grid grid-cols-1 gap-1 py-2.5 sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-3">
       <dt className="text-meta text-ink-muted">{label}</dt>
       <dd className="min-w-0 text-ink">{value}</dd>
     </div>

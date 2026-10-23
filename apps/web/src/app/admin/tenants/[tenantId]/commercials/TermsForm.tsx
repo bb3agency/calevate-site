@@ -184,7 +184,7 @@ export function TermsForm({
       >
         <RestrictionNote reason={write.reason} />
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="AI model surcharge (₹ / minute)" id="terms-llm-surcharge" hint="Added only for minutes this client's own model choice upgraded, never for the platform default. Leave empty unless a number has been decided.">
             <input id="terms-llm-surcharge" value={draft.llm_model_surcharge_inr} disabled={!write.allowed} onChange={(event) => set("llm_model_surcharge_inr", event.target.value)} inputMode="decimal" className={FIELD} />
           </Field>

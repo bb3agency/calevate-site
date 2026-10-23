@@ -112,7 +112,7 @@ export function GrantPanel({
         error is taken back with a compensating adjustment.
       </p>
 
-      <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+      <dl className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
         {/* THE TWO LIFETIME FIGURES, SIDE BY SIDE, at the moment one of them is about to
             move. The founder's guardrail is that paid and given never blur; printing only
             the balance here would be exactly that blur. */}

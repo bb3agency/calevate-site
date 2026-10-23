@@ -230,7 +230,7 @@ export function AddSourceDrawer({
               title="Your form's field names"
               subtitle={`Phone: ${phoneField || "as sent"} · Name: ${nameField || "as sent"} · Consent: ${consentField || "none"}`}
             >
-              <fieldset className="grid gap-3 sm:grid-cols-3">
+              <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <legend className="sr-only">What your form calls each field (leave blank to send ours)</legend>
                 <label className="block min-w-0">
                   <span className={FIELD_LABEL}>Phone</span>

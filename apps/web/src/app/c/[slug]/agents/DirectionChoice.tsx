@@ -63,7 +63,7 @@ export function DirectionPicker({
   disabled?: boolean;
 }) {
   return (
-    <div className="mt-2 grid gap-2 sm:grid-cols-3">
+    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
       {DIRECTIONS.map((option) => {
         const checked = option.value === value;
         return (

@@ -91,7 +91,7 @@ export function RetryChoice({
         <span className={FIELD_HINT}>A try that was answered, or a number on the do-not-call list, is never retried.</span>
       </label>
       {gapList.length > 0 && (
-        <div className="grid max-w-md gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 max-w-md gap-3 sm:grid-cols-2">
           {gapList.map((gap, index) => (
             <label key={index} className="block">
               <span className={FIELD_LABEL}>Wait before try {index + 2}</span>

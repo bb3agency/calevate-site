@@ -136,7 +136,7 @@ export function EngineVoiceList({
       {control && lockReason && <p className="text-meta text-ink-muted">{lockReason}</p>}
       {control?.error && <ProblemNotice error={control.error} />}
       {control && (
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <ChoiceCard
             name="engine-voice"
             value={DEFAULT}
@@ -169,7 +169,7 @@ export function EngineVoiceList({
               ) : voices.length === 0 ? (
                 <p className="mt-2 text-body text-ink-muted">No {rung.label} voice is offered yet.</p>
               ) : (
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {voices.map((entry) => {
                     const blocked = entry.rung === "studio" ? studioBlocked : null;
                     return (

@@ -391,7 +391,7 @@ export function StyleSection({
       />
       <fieldset>
         <legend className={FIELD_LABEL}>English words in its speech</legend>
-        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
           {CODE_MIX_OPTIONS.map((option) => (
             <label
               key={option.value}

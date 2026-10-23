@@ -617,25 +617,28 @@ describe("console pages sit on the rail's left edge", () => {
   });
 });
 
-describe("a layout grid names its phone column", () => {
+describe("a grid names its phone column", () => {
   /**
-   * A `grid` that only declares columns from `md`/`lg` up has ONE implicit `auto` column on
+   * A `grid` that only declares columns from a breakpoint up has ONE implicit `auto` column on
    * a phone, and an auto track is as wide as its widest child's min-content. A `truncate`
    * line's min-content is its whole text, so one long agent name widened the dashboard's
    * column to 711px on a 375px phone and the page scrolled sideways inside <main>.
    * `grid-cols-1` is `minmax(0, 1fr)`: the column is the screen's width and truncation
-   * works. Form grids that switch at `sm` hold full-width fields, not lists, and are
-   * left alone.
+   * works. A form grid that switches at `sm` is no exception: a select is as wide as its
+   * longest option, so one long agent or team-member name did the same on the lead page.
    */
-  it("every console grid with md/lg columns declares a base column", () => {
+  it("every console grid with responsive columns declares a base column", () => {
     const offenders: string[] = [];
     for (const file of sourceFiles()) {
       const key = relPosix(SRC, file);
-      if (!(key.startsWith("app/c/") || key.startsWith("app/admin/") || key.startsWith("components/console/"))) continue;
+      const inConsole =
+        key.startsWith("app/c/") || key.startsWith("app/admin/") || key.startsWith("app/(auth)/") ||
+        (key.startsWith("components/") && !key.startsWith("components/marketing/"));
+      if (!inConsole) continue;
       blankComments(readFileSync(file, "utf8").split("\n")).forEach((line, i) => {
         const cls = /className=["{`]+([^"`]*)/.exec(line)?.[1];
         if (!cls || !/(?:^|\s)grid(?:\s|$)/.test(cls)) return;
-        if (!/(?:^|\s)(?:md|lg|xl):grid-cols-/.test(cls) || /(?:^|\s)sm:grid-cols-/.test(cls)) return;
+        if (!/(?:^|\s)(?:sm|md|lg|xl|2xl):grid-cols-/.test(cls)) return;
         if (!/(?:^|\s)grid-cols-/.test(cls)) offenders.push(`${key}:${i + 1}`);
       });
     }

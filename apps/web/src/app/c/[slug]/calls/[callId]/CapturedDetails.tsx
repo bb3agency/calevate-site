@@ -39,7 +39,7 @@ export function CapturedDetails({ detail }: { detail: CallDetail }) {
           {given.map((field) => {
             const review = detail.extraction_needs_review?.[field.key];
             return (
-              <div key={field.key} className="grid gap-x-4 gap-y-0.5 py-3 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
+              <div key={field.key} className="grid grid-cols-1 gap-x-4 gap-y-0.5 py-3 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
                 <dt className="text-body text-ink-muted">
                   {field.label}
                   {!field.current && <span className="block text-meta text-ink-faint">No longer asked</span>}

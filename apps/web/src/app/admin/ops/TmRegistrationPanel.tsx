@@ -139,7 +139,7 @@ export function TmRegistrationPanel({
           </p>
         </NoticeBox>
 
-        <dl className="grid gap-3 sm:grid-cols-4">
+        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <Fact label="Status" value={tmStatusCopy(registration.status).label} />
           <Fact label="TM ID" value={registration.tm_id ?? "—"} mono />
           <Fact label="Registered" value={formatIST(registration.registered_at)} />
@@ -196,7 +196,7 @@ export function TmRegistrationPanel({
             );
           })}
         >
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label className="block">
               <span className={FIELD_LABEL}>Registration status</span>
               <select

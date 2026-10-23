@@ -283,7 +283,7 @@ function DetailsCard({ session, record, access }: { session: Session; record: Ky
     <Card title="1. Business details">
       <form
         noValidate
-        className="grid gap-4 sm:grid-cols-2"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2"
         onSubmit={(event) => {
           event.preventDefault();
           if (!ready || gst === null) return;

@@ -13,7 +13,7 @@ export function SubHeading({ children }: { children: ReactNode }) {
 export function FactList({ rows }: { rows: { label: string; value: string | null }[] }) {
   const shown = rows.filter((row) => row.value !== null && row.value !== "");
   return (
-    <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+    <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
       {shown.map((row) => (
         <div key={row.label} className="min-w-0 text-meta">
           <dt className="text-ink-muted">{row.label}</dt>

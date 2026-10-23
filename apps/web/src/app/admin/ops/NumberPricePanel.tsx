@@ -112,7 +112,7 @@ export function NumberPricePanel() {
         )}
 
         {current?.attested && (
-          <dl className="grid gap-3 sm:grid-cols-3">
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <dt className="text-meta font-medium text-ink-muted">Per number, per month</dt>
               <dd className="mt-0.5 text-body font-semibold text-ink">
@@ -165,7 +165,7 @@ export function NumberPricePanel() {
               );
             })}
           >
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <label className="block">
                 <span className={FIELD_LABEL}>Rupees per number, per month</span>
                 <input

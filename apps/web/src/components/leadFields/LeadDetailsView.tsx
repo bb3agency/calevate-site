@@ -118,7 +118,7 @@ function CoreFields({ fields }: { fields: LeadField[] }) {
       title="Always captured"
       description="Every business gets these on every call, along with the caller's phone number. They can't be changed or removed."
     >
-      <ul className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
         {fields.map((field) => (
           <li key={field.key} className="flex min-w-0 items-start gap-2">
             <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-faint" />

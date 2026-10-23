@@ -175,7 +175,7 @@ export function NumberRow({
             <p className="text-meta text-ink-muted">Reading this client&apos;s agents…</p>
           ) : (
             <label className="flex flex-wrap items-end gap-2">
-              <span className="flex flex-col gap-1">
+              <span className="flex min-w-0 max-w-full flex-col gap-1">
                 <span className={FIELD_LABEL}>Answered by</span>
                 <select
                   className={FIELD_INLINE}

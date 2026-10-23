@@ -120,7 +120,7 @@ function ChoiceCards({
   return (
     <fieldset className="min-w-0">
       <legend className={FIELD_LABEL}>{legend}</legend>
-      <div className="mt-1 grid gap-2 sm:grid-cols-2">
+      <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
         {cards.map((card) => {
           const on = selected(card.value);
           return (

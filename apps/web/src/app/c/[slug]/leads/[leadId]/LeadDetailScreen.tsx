@@ -250,7 +250,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
 
           {/* The stage and owner are CHANGEABLE here (ux-audit LD1): this page is where the
               decision is made, with the same shared selects and mutation as the table. */}
-          <div className="mt-4 grid gap-3 border-t border-line pt-4 sm:grid-cols-2 lg:max-w-xl">
+          <div className="mt-4 grid grid-cols-1 gap-3 border-t border-line pt-4 sm:grid-cols-2 lg:max-w-xl">
             <div className="flex flex-col gap-1">
               <span className="text-meta font-medium text-ink-muted">Stage</span>
               <StatusSelect

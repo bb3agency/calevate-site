@@ -129,13 +129,13 @@ function NextSteps({ detail }: { detail: CallDetail }) {
   return (
     <dl className="max-w-2xl divide-y divide-line border-y border-line">
       {detail.next_step && (
-        <div className="grid gap-x-6 gap-y-0.5 py-3 sm:grid-cols-[9rem_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 py-3 sm:grid-cols-[9rem_minmax(0,1fr)]">
           <dt className="text-body text-ink-muted">Next step</dt>
           <dd className="text-body text-ink [text-wrap:pretty]">{detail.next_step}</dd>
         </div>
       )}
       {callback && (
-        <div className="grid gap-x-6 gap-y-0.5 py-3 sm:grid-cols-[9rem_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 py-3 sm:grid-cols-[9rem_minmax(0,1fr)]">
           <dt className="text-body text-ink-muted">Call back</dt>
           <dd className="text-body text-ink">
             <span className="tabular-nums">{callback.when}</span>

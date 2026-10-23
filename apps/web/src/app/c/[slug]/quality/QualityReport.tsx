@@ -79,7 +79,7 @@ export function QualityReport({ report }: { report: QaReport }) {
           </p>
         </div>
 
-        <div className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-x-10 gap-y-6 sm:grid-cols-3">
           <Metric label="Defects" value={String(report.defects)} />
           <Metric label="Everything captured" value={renderMeasurement(report.everything_captured)} />
           <Metric

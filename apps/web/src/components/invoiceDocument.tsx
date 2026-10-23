@@ -81,7 +81,7 @@ export function InvoiceDocument({ data }: { data: Invoice }) {
 
       {!isTaxInvoice && <NotATaxInvoice note={data.tax_note} />}
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <PartyCard heading="Billed by">
           {/* The supplier's LEGAL NAME from config, never a literal. Calevate is a trade
               name of a sole proprietor (`docs/legal/LEGAL-OPS-PLAYBOOK.md:16`, `:80-96`),
