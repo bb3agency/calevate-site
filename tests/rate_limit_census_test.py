@@ -148,6 +148,18 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         ("/v1/agents/{agent_id}/script/apply", "POST", "costly"),
         ("/v1/agents/{agent_id}/script/undo", "POST", "costly"),
         ("/v1/agents/{agent_id}/script", "PUT", "client_api"),
+        # The other client doors to a vendor write: activating and preparing publish an agent,
+        # switching off stops its numbers answering, the opening-line edit puts it live, the own
+        # number routes buy and release on the voice platform, and a link is DNS-vetted and
+        # queued for a fetch of a host the client names.
+        ("/v1/agents/{agent_id}/activate", "POST", "costly"),
+        ("/v1/agents/{agent_id}/prepare", "POST", "costly"),
+        ("/v1/agents/{agent_id}/deactivate", "POST", "costly"),
+        ("/v1/agents/{agent_id}/script/opening-line", "PUT", "costly"),
+        ("/v1/numbers/own/purchase", "POST", "costly"),
+        ("/v1/numbers/own/{number_id}/release", "POST", "costly"),
+        ("/v1/kb/links", "POST", "costly"),
+        ("/v1/kb/links", "GET", "client_api"),
         ("/v1/auth/signup", "POST", "auth"),
         ("/healthz/ready", "GET", "exempt"),
         # The public rate card must NOT fall into `client_api`: its one caller is the
