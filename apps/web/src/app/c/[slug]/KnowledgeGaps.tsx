@@ -4,9 +4,9 @@ import { Section } from "@/components/console/section";
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import {
   FIELD,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -59,6 +59,35 @@ export function KnowledgeGaps({
   // Reading gaps is `calls:read`; teaching and dismissing are `kb:write`, which staff hold
   // only when their owner has switched curation on (`/v1/me` reports the effective set).
   const write = useWriteAccess(session, "kb:write", "teach or dismiss these");
+  /*
+   * The writes live here, not in the row: both remove the row optimistically, so the row
+   * that started one is gone before it settles. The confirmation is a toast because the
+   * row leaving is the only other sign; a failure puts the row back and it shows the
+   * reason itself (`useLastGapWriteFailure`), so it is not toasted as well.
+   */
+  const dismiss = useDismissGap(session);
+  const teach = useTeachGap(session);
+  const dismissFeedback = useActionFeedback(dismiss, {
+    errorDisplay: "inline",
+    successToast: "Dismissed",
+  });
+  const teachFeedback = useActionFeedback(teach, {
+    errorDisplay: "inline",
+    successToast: "Answer saved",
+    successDescription: "It is in your agent's knowledge now.",
+  });
+  const actions: GapActions = {
+    dismiss: (gapId) => dismissFeedback.run({ gapId }),
+    teach: (gapId, answer) => teachFeedback.run({ gapId, answer }),
+    status: (gapId, kind) =>
+      kind === "dismiss"
+        ? dismiss.variables?.gapId === gapId
+          ? dismissFeedback.status
+          : "idle"
+        : teach.variables?.gapId === gapId
+          ? teachFeedback.status
+          : "idle",
+  };
 
   const title = "Where it struggled on real calls";
   // A gap found while the screen is open enters softly (D-774); the list on load does not.
@@ -127,6 +156,7 @@ export function KnowledgeGaps({
               enterClass={enter(gap.id)}
               gap={gap}
               canWrite={write.allowed}
+              actions={actions}
               rowHeading={headingLevel === 3 ? "h4" : "h3"}
             />
           ))}
@@ -142,9 +172,16 @@ const SIGNAL_BADGE: Record<GapSignal, string> = {
   unanswered_question: "Left unanswered",
 };
 
+interface GapActions {
+  dismiss: (gapId: string) => void;
+  teach: (gapId: string, answer: string) => void;
+  status: (gapId: string, kind: "dismiss" | "teach") => FeedbackStatus;
+}
+
 function GapRow({
   gap,
   canWrite,
+  actions,
   eg,
   enterClass,
   rowHeading: RowHeading,
@@ -153,12 +190,11 @@ function GapRow({
   rowHeading: "h3" | "h4";
   gap: KnowledgeGap;
   canWrite: boolean;
+  actions: GapActions;
   /** This tenant's examples, passed down rather than re-read: one `/v1/me` per screen. */
   eg: VerticalExamples;
 }) {
   const session = useClientSession();
-  const dismiss = useDismissGap(session);
-  const teach = useTeachGap(session);
   // Set when this row was remounted by a rollback: the write that failed belonged to
   // the row the optimistic removal unmounted.
   const failed = useLastGapWriteFailure(session, gap.id);
@@ -183,8 +219,10 @@ function GapRow({
     if (teaching) answerRef.current?.focus();
   }, [teaching]);
 
-  const busy = dismiss.isPending || teach.isPending;
-  const error = dismiss.error ?? teach.error ?? failed?.error ?? null;
+  const teachStatus = actions.status(gap.id, "teach");
+  const dismissStatus = actions.status(gap.id, "dismiss");
+  const busy = teachStatus === "pending" || dismissStatus === "pending";
+  const error = failed?.error ?? null;
 
   return (
     <li className={`px-2 py-3 ${enterClass}`}>
@@ -226,10 +264,7 @@ function GapRow({
              refusal than the browser bubble the rest of this realm was converted away
              from. The rule is on the control now and it answers in words. */
           onSubmit={valid.onSubmit(() => {
-            teach.mutate(
-              { gapId: gap.id, answer: answer.trim() },
-              { onSuccess: () => setTeaching(false) },
-            );
+            actions.teach(gap.id, answer.trim());
           })}
         >
           <label htmlFor={`teach-${gap.id}`} className="block text-meta font-medium text-ink-muted">
@@ -256,9 +291,9 @@ function GapRow({
             review.
           </p>
           <div className="flex gap-2">
-            <button type="submit" className={PRIMARY_BUTTON_SM} disabled={busy}>
-              {teach.isPending ? "Saving…" : "Save answer"}
-            </button>
+            <ActionButton type="submit" variant="primary-sm" status={teachStatus} successLabel="Saved">
+              Save answer
+            </ActionButton>
             <button
               type="button"
               className={SECONDARY_BUTTON_SM}
@@ -281,14 +316,14 @@ function GapRow({
           >
             Teach the answer
           </button>
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            onClick={() => dismiss.mutate({ gapId: gap.id })}
-            disabled={busy}
+          <ActionButton
+            variant="secondary-sm"
+            status={dismissStatus}
+            successLabel="Dismissed"
+            onClick={() => actions.dismiss(gap.id)}
           >
-            {dismiss.isPending ? "Dismissing…" : "Dismiss"}
-          </button>
+            Dismiss
+          </ActionButton>
         </div>
       )}
     </li>

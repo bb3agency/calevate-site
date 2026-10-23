@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
+
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ConfirmDialog } from "@/components/confirmDialog";
 import { Section } from "@/components/console/section";
 import {
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -29,6 +32,16 @@ export function SavedTests({
   const session = useClientSession();
   const cases = useTestCases(session, agentId);
   const run = useRunTestCases(session, agentId);
+  // The run's failure is shown above the list, so it is not toasted.
+  const runFeedback = useActionFeedback(run, { errorDisplay: "inline" });
+  /* Deleting lives here, not in the row: the row is gone once it succeeds, so its own hook
+     could not confirm it. */
+  const remove = useDeleteTestCase(session, agentId);
+  const removeFeedback = useActionFeedback(remove, {
+    errorDisplay: "inline",
+    successToast: "Test deleted",
+  });
+  const [deleting, setDeleting] = useState<TestCase | null>(null);
 
   const data = cases.data;
   const running = data?.cases.some((c) => c.status !== "idle") ?? false;
@@ -45,15 +58,19 @@ export function SavedTests({
       }
       action={
         canWrite && data && data.cases.length > 0 ? (
-          <button
-            type="button"
-            className={PRIMARY_BUTTON_SM}
-            disabled={!data.available || running || run.isPending}
+          <ActionButton
+            variant="primary-sm"
+            // The run carries on on the server after the request returns; the button stays
+            // busy until every case is back.
+            status={running ? "pending" : runFeedback.status}
+            pendingLabel="Running"
+            successLabel="Done"
+            disabled={!data.available}
             title={data.unavailable_reason ?? undefined}
-            onClick={() => run.mutate()}
+            onClick={() => runFeedback.run()}
           >
-            {running ? "Running…" : "Run all"}
-          </button>
+            Run all
+          </ActionButton>
         ) : undefined
       }
     >
@@ -79,33 +96,47 @@ export function SavedTests({
             {data.cases.map((testCase) => (
               <CaseRow
                 key={testCase.id}
-                agentId={agentId}
                 testCase={testCase}
                 liveVersion={data.live_version ?? null}
                 canWrite={canWrite}
+                onDelete={() => {
+                  remove.reset();
+                  setDeleting(testCase);
+                }}
               />
             ))}
           </ul>
           <p className="text-meta text-ink-faint">{data.cost_note}</p>
         </div>
       )}
+      {deleting ? (
+        <ConfirmDialog
+          title={`Delete the test "${deleting.title}"?`}
+          confirmLabel="Delete test"
+          pendingLabel="Deleting"
+          status={removeFeedback.status}
+          error={remove.error}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}
+        >
+          It stops running with this agent&apos;s other tests. The call it was made from is kept.
+        </ConfirmDialog>
+      ) : null}
     </Section>
   );
 }
 
 function CaseRow({
-  agentId,
   testCase,
   liveVersion,
   canWrite,
+  onDelete,
 }: {
-  agentId: string;
   testCase: TestCase;
   liveVersion: number | null;
   canWrite: boolean;
+  onDelete: () => void;
 }) {
-  const session = useClientSession();
-  const remove = useDeleteTestCase(session, agentId);
   const result = testCase.last_result;
   const stale =
     result && liveVersion !== null && testCase.last_prompt_version !== liveVersion;
@@ -148,15 +179,9 @@ function CaseRow({
           ))}
         </ol>
       )}
-      {remove.error ? <ProblemNotice error={remove.error} /> : null}
       {canWrite ? (
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          disabled={remove.isPending}
-          onClick={() => remove.mutate(testCase.id)}
-        >
-          {remove.isPending ? "Deleting…" : "Delete test"}
+        <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDelete}>
+          Delete test
         </button>
       ) : null}
     </li>

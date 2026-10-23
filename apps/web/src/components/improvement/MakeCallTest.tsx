@@ -6,13 +6,12 @@ import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
 } from "@/components/ui";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
-import { useToast } from "@/components/arc/toast";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { useClientSession } from "@/lib/api/session";
 import { useCaseDraft, useDiscardPreparedTest, useMakeCallATest } from "@/lib/api/teach";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
@@ -39,7 +38,16 @@ export function MakeCallTest({ callId, canWrite = true }: { callId: string; canW
   const draft = useCaseDraft(session, callId, canWrite);
   const make = useMakeCallATest(session, callId);
   const discard = useDiscardPreparedTest(session, callId);
-  const { toast } = useToast();
+  // Saving closes this form, so the confirmation is a toast; failures stay beside the form.
+  const makeFeedback = useActionFeedback(make, {
+    errorDisplay: "inline",
+    successToast: "Test saved",
+    successDescription: () =>
+      draft.data?.agent_name
+        ? `It runs with ${draft.data.agent_name}'s other tests.`
+        : "It runs with the agent's other tests.",
+  });
+  const discardFeedback = useActionFeedback(discard, { errorDisplay: "inline" });
   const [lines, setLines] = useState<string[]>([]);
   const [expected, setExpected] = useState("");
   const [title, setTitle] = useState("");
@@ -63,7 +71,7 @@ export function MakeCallTest({ callId, canWrite = true }: { callId: string; canW
   }
 
   const kept = lines.map((line) => line.trim()).filter(Boolean);
-  const busy = make.isPending || discard.isPending;
+  const busy = makeFeedback.status === "pending" || discardFeedback.status === "pending";
 
   return (
     <section aria-label="Make this call a test" className="space-y-3 border-t border-line pt-4">
@@ -76,20 +84,8 @@ export function MakeCallTest({ callId, canWrite = true }: { callId: string; canW
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          if (!kept.length || !expected.trim()) return;
-          make.mutate(
-            { title, caller_lines: kept, expected: expected.trim() },
-            {
-              onSuccess: () =>
-                toast({
-                  kind: "success",
-                  title: "Test saved",
-                  description: draft.data?.agent_name
-                    ? `It runs with ${draft.data.agent_name}'s other tests.`
-                    : "It runs with the agent's other tests.",
-                }),
-            },
-          );
+          if (!kept.length || !expected.trim() || busy) return;
+          makeFeedback.run({ title, caller_lines: kept, expected: expected.trim() });
         }}
       >
         <fieldset className="space-y-2">
@@ -136,21 +132,24 @@ export function MakeCallTest({ callId, canWrite = true }: { callId: string; canW
         {make.error ? <ProblemNotice error={make.error} /> : null}
         {discard.error ? <ProblemNotice error={discard.error} /> : null}
         <div className="flex gap-2">
-          <button
+          <ActionButton
             type="submit"
-            className={PRIMARY_BUTTON_SM}
-            disabled={!kept.length || !expected.trim() || busy}
+            variant="primary-sm"
+            status={makeFeedback.status}
+            successLabel="Saved"
+            disabled={!kept.length || !expected.trim() || discardFeedback.status === "pending"}
           >
-            {make.isPending ? "Saving…" : "Save test"}
-          </button>
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={busy}
-            onClick={() => discard.mutate()}
+            Save test
+          </ActionButton>
+          <ActionButton
+            variant="secondary-sm"
+            status={discardFeedback.status}
+            successLabel="Discarded"
+            disabled={makeFeedback.status === "pending"}
+            onClick={() => discardFeedback.run()}
           >
-            {discard.isPending ? "Discarding…" : "Discard"}
-          </button>
+            Discard
+          </ActionButton>
         </div>
       </form>
     </section>

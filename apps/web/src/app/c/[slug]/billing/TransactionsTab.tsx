@@ -2,8 +2,9 @@
 
 import { Download } from "lucide-react";
 
-import { SECONDARY_BUTTON_SM, istDateStamp } from "@/components/ui";
-import { useWalletLedger } from "@/lib/api/wallet";
+import { ActionButton, useAsyncAction } from "@/components/arc/feedback";
+import { istDateStamp } from "@/components/ui";
+import { useWalletLedger, type WalletEntry } from "@/lib/api/wallet";
 import type { Session } from "@/lib/api/client";
 
 import { WalletLedgerPanel } from "./WalletLedgerPanel";
@@ -41,28 +42,36 @@ export function TransactionsTab({
  */
 function WalletExport({ session }: { session: Session }) {
   const ledger = useWalletLedger(session);
+  const download = useAsyncAction(
+    (entries: WalletEntry[]) => {
+      // A BOM so Excel opens the file as UTF-8 — a ₹ or a Telugu agent name otherwise opens
+      // as mojibake (the leads export settled the same question, `lib/api/leads.ts`).
+      const blob = new Blob(["﻿", walletStatementCsv(entries)], {
+        type: "text/csv;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `calevate-transactions-${istDateStamp()}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    },
+    { errorTitle: "Could not make the CSV" },
+  );
   if (ledger.isPending || ledger.isError) return null;
   const entries = ledger.data.entries;
   if (entries.length === 0) {
     return <span className="text-meta text-ink-muted">There is nothing to download yet.</span>;
   }
-  const download = () => {
-    // A BOM so Excel opens the file as UTF-8 — a ₹ or a Telugu agent name otherwise opens
-    // as mojibake (the leads export settled the same question, `lib/api/leads.ts`).
-    const blob = new Blob(["﻿", walletStatementCsv(entries)], {
-      type: "text/csv;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `calevate-transactions-${istDateStamp()}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
   return (
-    <button type="button" onClick={download} className={SECONDARY_BUTTON_SM}>
+    <ActionButton
+      variant="secondary-sm"
+      status={download.status}
+      successLabel="Downloaded"
+      onClick={() => download.run(entries)}
+    >
       <Download className="h-4 w-4" aria-hidden />
       Download CSV
-    </button>
+    </ActionButton>
   );
 }

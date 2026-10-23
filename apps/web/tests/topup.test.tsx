@@ -362,7 +362,7 @@ afterEach(() => {
 async function payCustomAmount(): Promise<void> {
   const field = await screen.findByLabelText("Other amount");
   fireEvent.change(field, { target: { value: "2500.10" } });
-  fireEvent.click(screen.getByText("Pay this amount"));
+  fireEvent.click(screen.getByRole("button", { name: "Pay this amount" }));
 }
 
 describe("the top-up panel", () => {
@@ -388,8 +388,8 @@ describe("the top-up panel", () => {
       screen.queryByLabelText("Other amount"),
       "no form when it cannot work",
     ).toBeNull();
-    expect(screen.queryByText("Get payment details")).toBeNull();
-    expect(screen.queryByText("Pay this amount")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Get payment details" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pay this amount" })).toBeNull();
     // Not an error either: this deployment is configured, not broken.
     expect(screen.queryByRole("alert")).toBeNull();
 
@@ -486,7 +486,7 @@ describe("the top-up panel", () => {
 
     const field = await screen.findByLabelText("Other amount");
     fireEvent.change(field, { target: { value: "2500.10" } });
-    fireEvent.click(screen.getByText("Get payment details"));
+    fireEvent.click(screen.getByRole("button", { name: "Get payment details" }));
 
     await screen.findByText(/nothing has been charged yet/);
     // The paise the server priced, on screen exactly as sent. `Number("2500.10")` on the

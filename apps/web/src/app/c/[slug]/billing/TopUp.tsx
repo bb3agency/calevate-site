@@ -2,14 +2,14 @@
 
 import { useId, useState } from "react";
 
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
+import { MoneyInput, compareMoney } from "@/components/arc/money-input";
 import {
   FIELD,
   MonoValue,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON,
   Skeleton,
   formatCount,
   formatINR,
@@ -87,6 +87,10 @@ export function TopUp({ session }: { session: Session }) {
   const intent = useTopUpIntent(session);
   const packs = useCreditPacks(session);
   const confirm = useConfirmTopUp(session);
+  // Both outcomes are said on this panel (the intent's ProblemNotice, the stage notices), so
+  // neither is toasted; the buttons carry pending and their tick.
+  const intentFeedback = useActionFeedback(intent, { errorDisplay: "inline" });
+  const confirmFeedback = useActionFeedback(confirm, { errorDisplay: "inline" });
   const [stage, setStage] = useState<Stage>({ at: "idle" });
   const creditLanded = useCreditLanding(
     session,
@@ -202,7 +206,8 @@ export function TopUp({ session }: { session: Session }) {
             labels={labels}
             payable={false}
             disabled
-            pendingPackId={null}
+            busy={false}
+            statusFor={() => "idle"}
             onSelect={() => undefined}
           />
         )}
@@ -223,6 +228,15 @@ export function TopUp({ session }: { session: Session }) {
   const payable = capability.data.provider_orders_available;
   const busy = intent.isPending || stage.at === "opening" || stage.at === "open";
   const order = intent.data ?? null;
+  /** The state of the control that started the current intent, and idle on every other. */
+  const intentStatus = (control: string): FeedbackStatus =>
+    pending === control ? intentFeedback.status : "idle";
+  const payNowStatus: FeedbackStatus =
+    stage.at === "opening" || stage.at === "open" || stage.at === "verifying"
+      ? "pending"
+      : stage.at === "failed" || stage.at === "blocked"
+        ? "error"
+        : confirmFeedback.status;
 
   return (
     <div className="space-y-4">
@@ -258,11 +272,6 @@ export function TopUp({ session }: { session: Session }) {
 
       {stage.at === "failed" && <ProblemNotice error={PAYMENT_FAILED} />}
       {stage.at === "blocked" && <ProblemNotice error={stage.problem} />}
-      {stage.at === "verifying" && (
-        <p role="status" className="text-body text-ink-muted">
-          <span className="text-shimmer">Confirming your payment…</span>
-        </p>
-      )}
 
       {intent.error && <ProblemNotice error={intent.error} />}
 
@@ -278,8 +287,9 @@ export function TopUp({ session }: { session: Session }) {
             packs={packs.data.packs}
             labels={labels}
             payable={payable}
-            disabled={!write.allowed || busy}
-            pendingPackId={intent.isPending ? pending : null}
+            disabled={!write.allowed}
+            busy={busy}
+            statusFor={intentStatus}
             onSelect={(packId) => {
               setPending(packId);
               setStage({ at: "idle" });
@@ -312,42 +322,35 @@ export function TopUp({ session }: { session: Session }) {
           price it reaches (plan §0 Q3), so somebody typing ₹4,999 is not punished for
           missing a rung by a rupee. */}
       <form
-        className="flex flex-wrap items-center gap-2"
+        className="flex flex-wrap items-end gap-x-3 gap-y-2"
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
+          if (amount === "" || busy) return;
           setPending(CUSTOM);
           setStage({ at: "idle" });
           intent.mutate({ amountInr: amount }, { onSuccess: onIntent });
         }}
       >
-        <label htmlFor="topup-amount" className="text-body text-ink-muted">
-          Other amount
-        </label>
-        <span className="text-body text-ink-faint">₹</span>
-        <input
-          id="topup-amount"
-          inputMode="decimal"
+        <MoneyInput
+          label="Other amount"
+          hint={`${formatINR(String(MIN_TOPUP_INR))} to ${formatINR(String(MAX_TOPUP_INR))}`}
           value={amount}
+          onChange={setAmount}
+          min={String(MIN_TOPUP_INR)}
+          max={String(MAX_TOPUP_INR)}
           disabled={!write.allowed}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder="2000"
-          className={`${FIELD} mt-0 w-32 tabular-nums`}
+          className="min-w-0 flex-1 basis-56"
         />
-        <button
+        <ActionButton
           type="submit"
-          disabled={!write.allowed || !amount.trim() || busy}
-          className={SECONDARY_BUTTON}
+          variant="secondary"
+          status={intentStatus(CUSTOM)}
+          successLabel={payable ? "Ready to pay" : "Details ready"}
+          disabled={!write.allowed || amount === "" || (busy && pending !== CUSTOM)}
         >
-          {intent.isPending && pending === CUSTOM
-            ? "Working…"
-            : payable
-              ? "Pay this amount"
-              : "Get payment details"}
-        </button>
-        <span className="text-meta text-ink-faint">
-          ₹{MIN_TOPUP_INR.toLocaleString("en-IN")} to ₹{MAX_TOPUP_INR.toLocaleString("en-IN")}
-        </span>
+          {payable ? "Pay this amount" : "Get payment details"}
+        </ActionButton>
         {/* WHAT THIS AMOUNT BUYS AT, BEFORE THE BUTTON. A free amount is priced by the
             server at the largest pack it reaches, and a client who cannot see that before
             paying discovers their rates afterwards — on a purchase whose terms are then
@@ -404,20 +407,25 @@ export function TopUp({ session }: { session: Session }) {
                   the whole reason a dismissal keeps the panel: a client who closed the
                   window by accident should not end up with two orders against one
                   top-up. */}
-              <button
-                type="button"
-                disabled={!write.allowed || busy || stage.at === "verifying"}
+              <ActionButton
+                status={payNowStatus}
+                pendingLabel={
+                  stage.at === "opening"
+                    ? "Opening the payment window"
+                    : stage.at === "open"
+                      ? "Payment window is open"
+                      : "Confirming your payment"
+                }
+                successLabel="Paid"
+                // Unverified means the money may have moved: the notice above says not to pay again.
+                disabled={!write.allowed || stage.at === "unverified"}
                 onClick={() =>
                   startCheckout({ ...order, provider_order_id: order.provider_order_id as string })
                 }
-                className={`${PRIMARY_BUTTON} mt-3`}
+                className="mt-3"
               >
-                {stage.at === "opening"
-                  ? "Opening…"
-                  : stage.at === "open"
-                    ? "Payment window is open"
-                    : `Pay ${formatINR(order.amount_inr)} now`}
-              </button>
+                Pay {formatINR(order.amount_inr)} now
+              </ActionButton>
             </>
           )}
           <p className="mt-2 text-meta text-ink-faint">
@@ -541,7 +549,8 @@ function PackChooser({
   labels,
   payable,
   disabled,
-  pendingPackId,
+  busy,
+  statusFor,
   onSelect,
 }: {
   packs: CreditPack[];
@@ -549,7 +558,9 @@ function PackChooser({
   labels: TierLabels | undefined;
   payable: boolean;
   disabled: boolean;
-  pendingPackId: string | null;
+  /** A payment is under way: every pack but the one that started it holds. */
+  busy: boolean;
+  statusFor: (packId: string) => FeedbackStatus;
   onSelect: (packId: string) => void;
 }) {
   const [monthly, setMonthly] = useState("");
@@ -659,18 +670,16 @@ function PackChooser({
                     WCAG 2.5.3 (Label in Name) honest for voice control: "click Pay fifty
                     thousand" hits the right one. An `aria-label` fixed at the amount while
                     the visible text said "Working…" would break exactly that. */}
-                <button
-                  type="button"
-                  disabled={disabled}
+                <ActionButton
+                  variant={pack.best_value ? "primary" : "secondary"}
+                  status={statusFor(pack.pack_id)}
+                  successLabel={payable ? "Ready to pay" : "Details ready"}
+                  disabled={disabled || (busy && statusFor(pack.pack_id) !== "pending")}
                   onClick={() => onSelect(pack.pack_id)}
-                  className={`${pack.best_value ? PRIMARY_BUTTON : SECONDARY_BUTTON} w-full justify-center`}
+                  className="w-full"
                 >
-                  {pendingPackId === pack.pack_id
-                    ? "Working…"
-                    : payable
-                      ? `Pay ${formatINR(pack.amount_inr)}`
-                      : `Select ${formatINR(pack.amount_inr)}`}
-                </button>
+                  {payable ? `Pay ${formatINR(pack.amount_inr)}` : `Select ${formatINR(pack.amount_inr)}`}
+                </ActionButton>
               </div>
             </li>
           );
@@ -704,6 +713,9 @@ function AmountRates({
 }) {
   const typed = amount.trim();
   if (typed === "") return null;
+  if (compareMoney(typed, String(MIN_TOPUP_INR)) < 0 || compareMoney(typed, String(MAX_TOPUP_INR)) > 0) {
+    return null;
+  }
   const pack = packForAmount(packs, typed);
   if (pack === undefined) return null;
   return (
