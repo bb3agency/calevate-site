@@ -99,6 +99,7 @@ async def create_trial_call(
         number=payload.number,
         idempotency_key=idem_key,
         ip=client_request_ip(request),
+        own_number_attested=payload.number_is_mine,
     )
     return TrialCallOut(
         status=result.status,

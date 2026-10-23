@@ -162,11 +162,14 @@ async def place_trial_call(
     number: str,
     idempotency_key: str,
     ip: str | None = None,
+    own_number_attested: bool = False,
 ) -> TrialCallResult:
     """Gate, then place, one test call. `blocked` is an answer, not an exception.
 
     `tenant_id` is the client's own (its principal) or, for an operator's smoke call from
-    the admin console, the tenant named in the path; the gate is the same either way."""
+    the admin console, the tenant named in the path; the gate is the same either way.
+    `own_number_attested`: the owner ticked "this number is my own" on this request, which
+    lets the call ring outside 09:00-21:00 IST (`check_dispatch`)."""
     tenant_id = tenant_id or principal.tenant_id
     assert tenant_id is not None
     phone = normalize_phone(number)
@@ -197,7 +200,12 @@ async def place_trial_call(
 
     try:
         decision = await check_dispatch(
-            session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone, trial_call=True
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            phone_e164=phone,
+            trial_call=True,
+            own_number_attested=own_number_attested,
         )
         access = await read_trial_access(session, tenant_id=tenant_id)
         # After the first payment: the owner's test call from the account's own number (D-859).

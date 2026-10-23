@@ -57,7 +57,8 @@ export function isLimitRule(rule: string | null | undefined): boolean {
  *
  * The button accepts what was ticked (`POST /v1/legal/acceptances` per document, the pledge),
  * gets a draft agent ready (`/prepare`), then asks `POST /v1/trial/calls` to ring the number,
- * so every gate that endpoint keeps (the daily cap, the trial's minutes, calling hours) is the
+ * so every gate that endpoint keeps (the daily cap, the trial's minutes; calling hours only
+ * without the own-number tick) is the
  * one that answers, in its own words. From the press on, the stage shows the call as the
  * call: getting ready, dialling, ringing, talking with a clock, ended; or why it did not
  * connect, with a way to try again. There is no live transcript, so none is pretended.

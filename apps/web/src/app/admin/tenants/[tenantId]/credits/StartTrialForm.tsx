@@ -260,8 +260,9 @@ export function StartTrialForm({
           <p className="mt-1 text-ink-muted">
             <span className="font-semibold">A trial is a billing state, not a licence.</span>{" "}
             The no-cold-calls pledge, the signed agreements, this client&apos;s own spend
-            cap, calling hours, do-not-call, consent and the AI disclosure still apply to
-            every test call. A client that has already paid keeps everything it had, and a
+            cap, do-not-call, consent and the AI disclosure still apply to every test call,
+            and so do calling hours unless the owner ticks that the number is their own. A
+            client that has already paid keeps everything it had, and a
             trial only puts its calls on us.
           </p>
           {replacing && (

@@ -828,6 +828,7 @@ async def check_dispatch(
     agent_id: UUID,
     phone_e164: str,
     trial_call: bool = False,
+    own_number_attested: bool = False,
 ) -> DispatchDecision:
     """Returns a decision rather than raising, so callers can render *why* a button is
     disabled — SURFACES §2b asks for blocked features to be visibly explained instead
@@ -847,7 +848,9 @@ async def check_dispatch(
     unlocks only after payment);
     it is still asked the halt, the drain, the account, the
     agent and its truthful answers (hard rule 5), the pledge, the agreements, the spend cap,
-    calling hours, the India-only destination, the do-not-call list and consent."""
+    the India-only destination, the do-not-call list and consent, and calling hours unless
+    the owner attested the number as their own (`own_number_attested`, founder 23 Oct
+    2026)."""
     platform = await get_platform_status()
     if platform.outbound_halted:
         return DispatchDecision(
@@ -970,7 +973,10 @@ async def check_dispatch(
             rule, reason = busy
             return DispatchDecision(allowed=False, rule=rule, reason=reason)
 
-    if not within_calling_hours():
+    # A test call the owner places to a number they have attested as their own is not a
+    # commercial communication to a subscriber, which is what the 21:00-09:00 band forbids;
+    # without the attestation the trial could ring anyone at night, so it keeps the window.
+    if not (trial_call and own_number_attested) and not within_calling_hours():
         return DispatchDecision(
             allowed=False,
             rule=CALLING_HOURS_RULE,

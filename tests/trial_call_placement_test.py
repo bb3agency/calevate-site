@@ -329,3 +329,28 @@ async def test_the_own_number_tick_lets_the_placed_call_be_recorded(line: Line) 
             ).scalars()
         )
     assert actions == ["trial.number_attested", "trial.test_call_placed"]
+
+
+async def test_at_night_only_a_number_attested_as_the_owners_own_is_rung(
+    line: Line, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Founder, 23 Oct 2026: an owner trying Calevate at 1 am gets their test call, because
+    they attested the number as their own; an unattested number still waits for 09:00."""
+    monkeypatch.setattr(compliance_service, "within_calling_hours", lambda *a, **k: False)
+    _tenant_id, agent_id, principal = await _account(line)
+    blocked = await _place(principal, agent_id, str(uuid.uuid4()))
+    assert (blocked.status, blocked.blocked_rule) == ("blocked", "calling_hours")
+    assert line.lent_to == []
+
+    assert principal.tenant_id is not None
+    async with tenant_session(principal.tenant_id) as session:
+        placed = await trial_calls.place_trial_call(
+            session,
+            principal=principal,
+            agent_id=agent_id,
+            number="98765 43210",
+            idempotency_key=str(uuid.uuid4()),
+            own_number_attested=True,
+        )
+    assert placed.status == "queued"
+    assert len(line.lent_to) == 1
