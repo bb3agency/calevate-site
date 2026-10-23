@@ -1782,3 +1782,11 @@ minutes per client; ESTIMATE, confirmed by the founder by sending it.
    question; widening our gate for requested callbacks needs the operative TRAI direction read
    (or counsel's answer) on whether a callback the person requested is a commercial
    communication, recorded as its own decision.
+4. **Is there an API to upload a knowledge FILE?** Add Knowledge Document takes `url` or `text`
+   only and says "Files are uploaded in the console"; List Knowledge Documents lists
+   `type: file` documents and says console-uploaded files appear there
+   (docs.thinnest.ai/api-reference/knowledge/add-knowledge-document.md and
+   list-knowledge-documents.md, read live 24 Oct 2026). Ask: is the console's file upload
+   available to developers (endpoint, size limit, types), and does a `url` pointing at a PDF
+   get read as a file. `scripts/probe_thinnest_pdf_knowledge.py` tests the second part on a
+   throwaway agent; record its result here.
