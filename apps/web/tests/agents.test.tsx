@@ -145,6 +145,7 @@ function routes(over: Record<string, unknown> = {}) {
     [ARCHIVED_QUERY]: [],
     "/v1/agents/stats": [stats()],
     "/v1/agents/lanes": LANES,
+    "/v1/trial": { on_trial: false },
     ...over,
   };
 }
@@ -746,5 +747,20 @@ describe("the page's own chrome", () => {
 
     const row = await screen.findByRole("link", { name: /Reception/ });
     expect(row.getAttribute("href")).toBe("/c/acme/agents/agent-1");
+  });
+});
+
+describe("a ready agent on a free trial", () => {
+  it("reads as on for test calls, not as waiting", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents": [agent({ id: "a-ready", name: "Sravani", status: "paused", published: true })],
+        "/v1/agents/stats": [],
+        "/v1/trial": { on_trial: true },
+      }),
+    );
+    expect(await screen.findByText("On for test calls")).toBeTruthy();
+    expect(screen.queryByText("Ready, not taking calls")).toBeNull();
   });
 });

@@ -77,10 +77,10 @@ export function AgentHeader({
   const spend = useSpend(session, undefined, { enabled: billing.allowed });
   const deleted = isDeleted(agent);
 
-  const live = liveState(agent);
   const moves = movesFor(agent.status);
   const trial = useTrialPanel(session, !deleted && agent.status !== "live");
   const onTrial = trial.data?.on_trial === true;
+  const live = liveState(agent, onTrial);
   const staged = pending.data ? stagedScript(pending.data) : undefined;
   const base = `/c/${slug}/agents/${agent.id}`;
   // Guarded by the layout when the header is drawn inside it; a plain link otherwise.
@@ -108,7 +108,7 @@ export function AgentHeader({
 
   const status = lookup(STATUS_COPY, agent.status);
   const stateLine =
-    status && !deleted && agent.published !== (agent.status === "live")
+    status && !deleted && !onTrial && agent.published !== (agent.status === "live")
       ? `${live.detail} Status: ${status.label}.`
       : live.detail;
   // The tier it speaks in, and that tier's rate, beside the state (Clear or Studio only).

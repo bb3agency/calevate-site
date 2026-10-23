@@ -18,6 +18,8 @@ import { StatusPill } from "@/components/console/statusPill";
 import type { NoticeTone } from "@/components/ui";
 import { humanise, isDeleted } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
+import { useClientSession } from "@/lib/api/session";
+import { useTrialPanel } from "@/lib/api/trialCalls";
 
 export interface LiveState {
   /** The badge word. */
@@ -38,8 +40,11 @@ export interface LiveState {
  *
  * Tones: ok for live (the console's one "this is working" colour), neutral for the waits,
  * and warn for paused, the one state a client may want to act on.
+ *
+ * On a free trial a ready agent is as on as it can be: the trial's switch gets it ready
+ * for test calls from the shared trial number (D-853), so it reads as on, not as waiting.
  */
-export function liveState(agent: Agent): LiveState {
+export function liveState(agent: Agent, onTrial = false): LiveState {
   if (isDeleted(agent)) {
     return {
       // "Deleted", the console's word for this state since D-527 — the badge, the section
@@ -62,6 +67,14 @@ export function liveState(agent: Agent): LiveState {
   /* Published and switched off: the server's "Ready, not taking calls" (D-838). Readied to
      try or switched off after working, it is one fact for the owner: it can be tried in the
      chat, and it answers no calls and makes none. */
+  if (agent.status === "paused" && onTrial) {
+    return {
+      label: "On for test calls",
+      tone: "ok",
+      detail:
+        "Ready for test calls from our shared trial number. It answers your own number and calls your leads once your account goes live.",
+    };
+  }
   if (agent.status === "paused") {
     return {
       label: "Ready, not taking calls",
@@ -124,6 +137,9 @@ export function VoiceTierBadge({ agent }: { agent: Agent }) {
 
 /** The badge, wherever an agent is named. */
 export function LiveBadge({ agent }: { agent: Agent }) {
-  const live = liveState(agent);
+  const session = useClientSession();
+  // One cached read per account, asked only where the answer changes the words.
+  const trial = useTrialPanel(session, agent.published && agent.status === "paused");
+  const live = liveState(agent, trial.data?.on_trial === true);
   return <StatusPill tone={live.tone}>{live.label}</StatusPill>;
 }
