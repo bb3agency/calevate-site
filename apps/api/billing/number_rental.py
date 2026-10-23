@@ -61,6 +61,11 @@ screen, the daily spend series, the ledger and the statement tell it from a call
 * **A renewal the wallet cannot cover still lands** (`allow_negative=True`), as call
   minutes do: the number is live and renewing at the carrier, so the charge is owed, and
   the overdraft is what the signed balance shows as "You owe" until the next top-up.
+  That lasts only while the client is not stopped (D-860): once the account is closed, or
+  the wallet has been below zero for `number_hold_after_negative_days`, the number is held
+  (`campaigns/number_holds.py`), the renewal job skips it, and it is released before the
+  next renewal unless the hold ends first.
+
 WHO PAYS WHICH PERIOD (founder, 3 Oct 2026) — `collect_number_rental` is the one place
 it is decided, for the purchase and the daily renewal alike:
 
@@ -317,7 +322,7 @@ RENTAL_CHARGE_META_KIND: Final = "number_rental"
 RENTAL_CHARGE_LABEL: Final = "Phone number rental"
 
 
-def _add_months(anchor: date, months: int) -> date:
+def add_months(anchor: date, months: int) -> date:
     """`anchor` moved `months` calendar months on, the day clamped to the month's last.
 
     Always computed from the ANCHOR, never chained from the previous renewal: chaining
@@ -337,8 +342,8 @@ def rental_period_start(anchor: date, on: date) -> date:
     if on < anchor:
         raise ValueError("a rental period cannot start before the number was bought")
     months = (on.year - anchor.year) * 12 + (on.month - anchor.month)
-    start = _add_months(anchor, months)
-    return start if start <= on else _add_months(anchor, months - 1)
+    start = add_months(anchor, months)
+    return start if start <= on else add_months(anchor, months - 1)
 
 
 def ist_date(moment: datetime) -> date:
@@ -611,6 +616,7 @@ __all__ = [
     "RentalCharge",
     "RentalMetered",
     "RentalOutcome",
+    "add_months",
     "charge_number_rental",
     "collect_number_rental",
     "invoice_number_rental",

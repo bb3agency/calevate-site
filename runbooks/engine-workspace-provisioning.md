@@ -42,7 +42,7 @@ do not do it in the ThinnestAI console either.
 | `active` | The workspace exists and is the client's own | Publish agents; once business details are approved, buy numbers |
 | `plan_limit` | Our ThinnestAI plan's customer limit is reached (402) | Same as `pending` |
 | `failed` | Provisioning failed for another reason; the error code is on the page | Same as `pending` |
-| `offboarding` | The account was closed; numbers being released, agents and customer deleted | Nothing (account closed) |
+| `offboarding` | The account was closed; waiting while its rented numbers are held (D-860), then numbers released, agents and customer deleted | Nothing (account closed) |
 | `deleted` | Offboarding finished; the vendor erases the customer 30 days later | Nothing; restoring the account re-provisions |
 
 Provisioning is the outbox job `provision_engine_workspace` (`apps/workers/engine_workspaces.py`),
@@ -165,8 +165,11 @@ nothing new once its number moves.
 
 ## Offboarding
 
-Closing an account queues `offboard_engine_workspace`: every rented number in the client's
-workspace is released with `?confirm=release` — permanent, the number goes back to the pool,
+Closing an account first HOLDS every number the client rents in its workspace (D-860,
+`runbooks/number-holds.md`), and `offboard_engine_workspace` does nothing while one is held:
+it answers `waiting_for_holds=N`, and the hold job queues it again when the last hold ends in
+a release. A reopening inside the hold makes it `not_owed` instead. Then every rented number
+still in the client's workspace is released with `?confirm=release` — permanent, the number goes back to the pool,
 and this month's rent is not refunded (`api-reference/phone-numbers/release-phone-number.md:7`)
 — our rental stops, each agent's actions are retired and the agent deleted, then the
 customer is deleted with `DELETE /customers/{id}`. The vendor refuses that delete with 409

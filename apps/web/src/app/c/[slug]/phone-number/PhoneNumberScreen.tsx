@@ -16,6 +16,7 @@ import { BuyNumber } from "./BuyNumber";
 import { NumberAssignment } from "./NumberAssignment";
 import { OwnNumbersJourney, ReleaseOwnNumber } from "./OwnNumbers";
 import { TrialLockNotice } from "../TrialLockNotice";
+import { HeldNumberLine } from "../HeldNumberNotice";
 import { StatusPill } from "@/components/console/statusPill";
 
 /**
@@ -54,7 +55,7 @@ export function PhoneNumberScreen() {
     agents.data?.some((agent) => agent.id === number.agent_id && agent.direction === "outbound") ===
     true;
   const waiting = (number: CampaignNumber): boolean =>
-    !number.answerable && number.agent_id != null && agents.data !== undefined && !outboundOnly(number);
+    !number.held && !number.answerable && number.agent_id != null && agents.data !== undefined && !outboundOnly(number);
   // Where numbers are rented in the business's own calling account (D-693), the three-step
   // journey replaces the older purchase panel; elsewhere the older panel stays.
   const own = useOwnNumbersStatus(session);
@@ -106,14 +107,14 @@ export function PhoneNumberScreen() {
                   carrier. Only the first is the client's to fix, so the two get different
                   sentences: "nothing for you to do" beside a number with no agent would
                   leave it silent for good. */}
-              {ours.some((number) => !number.answerable && !number.agent_id) && (
+              {ours.some((number) => !number.held && !number.answerable && !number.agent_id) && (
                 <p className="text-body text-ink-muted">
                   A number with no agent on it cannot take calls. Choose the agent that should
                   answer it on its card below, and wait until it says <em>Ready to answer</em>{" "}
                   before you set the forwarding up, or callers will reach silence.
                 </p>
               )}
-              {ours.some((number) => !number.answerable && outboundOnly(number)) && (
+              {ours.some((number) => !number.held && !number.answerable && outboundOnly(number)) && (
                 <p className="text-body text-ink-muted">
                   A number on an agent that only makes calls places calls but does not answer
                   them. To have it answer, choose an agent that answers calls on its card below,
@@ -177,7 +178,10 @@ function NumberCard({
   /** On an agent that only makes calls, so it cannot answer whatever else is in place. */
   outboundOnly?: boolean;
 }) {
-  const status = number.supplied_by_us
+  const { session, href } = useClientRealm();
+  const status = number.held
+    ? { text: "Calls stopped", tone: "stop" as const }
+    : number.supplied_by_us
     ? number.answerable
       ? { text: "Ready to answer", tone: "ok" as const }
       : !number.agent_id
@@ -197,6 +201,7 @@ function NumberCard({
           <StatusPill tone={status.tone}>{status.text}</StatusPill>
           <span className="text-meta text-ink-faint">{number.series} series</span>
         </div>
+        <HeldNumberLine number={number} topUpHref={href(`/c/${session.orgSlug}/billing?tab=credits`)} />
         <NumberAssignment
           numberId={number.id}
           currentAgentId={number.agent_id ?? null}

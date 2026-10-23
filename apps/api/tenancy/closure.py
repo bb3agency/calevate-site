@@ -37,9 +37,10 @@ of reusing it is that they need no edit. Enumerated rather than recalled (hard r
 
 **FOUR THINGS SURVIVE A CLOSE, ALL INTENDED.**
 
-1. **The numbers are detached, not released.** Releasing or porting is the client's call
-   (FLOWS §9) and cannot be undone inside the grace window, so it stays a manual act at the
-   telephony provider.
+1. **The numbers are held, not released at once (D-860).** Nobody answers a rented number
+   and no rent is charged for it; it is released before the voice platform's next monthly
+   renewal (at most 30 days), and reopening the account before then gives it back on the
+   agent it was on (`campaigns/number_holds.py`).
 2. **The retention sweep keeps running**, on this account's own policies. FLOWS §9 is
    explicit about it, and it is right: a closed account's recordings and transcripts age
    out on the schedule the client agreed to, whether or not anybody presses erase.
@@ -160,9 +161,9 @@ the same read plus the erasure request's own status — see that function.
 WHAT IS NOT DONE HERE, SAID PLAINLY (CLAUDE.md: leave no half-wired feature)
 ═══════════════════════════════════════════════════════════════════════════════════════
 
-Closing does not RELEASE the client's telephone numbers (it detaches them; see above), and
-the number-handling lives in the close ROUTE rather than in `close_account`, because it
-calls the carrier and this module only writes rows. An engine whose agents run on a
+Closing does not RELEASE the client's telephone numbers at once (it holds them; see above).
+This module only writes rows: the hold job and the close ROUTE make the carrier calls. An
+engine whose agents run on a
 third-party voice platform (`ENGINE=cartesia`) cannot detach a number and serves no session
 through `load_session`, so on that engine a closed account's agent still answers until it
 is retired there.
@@ -373,9 +374,18 @@ async def close_account(
         "account_closed",
         extra={"tenant_id": str(tenant_id), "grace_days": grace_days},
     )
-    # The client's own voice workspace is offboarded with the account (D-693): its numbers
-    # released (our rental stops with the closure; the vendor's would not), its agents
-    # deleted, the customer deleted. In this transaction, through the outbox.
+    # The numbers it rents are HELD, not released (D-860): nobody answers them, no rent is
+    # charged, and each is released before its next renewal unless the account is reopened
+    # first. The rows are written here so the offboarding queued below finds them and
+    # waits; the hold job does the vendor work.
+    from apps.api.campaigns.number_holds import place_holds, queue_hold_settlement
+
+    await place_holds(session, tenant_id=tenant_id, reason="account_closed")
+    await queue_hold_settlement(session, tenant_id=tenant_id)
+    # The client's own voice workspace is offboarded with the account (D-693): its agents
+    # deleted and the customer deleted, once no number there is held (the platform refuses
+    # to delete a customer that still rents one, and a restore inside the hold needs the
+    # agent its number answered for). In this transaction, through the outbox.
     from apps.api.tenancy.engine_workspace import queue_workspace_offboarding
 
     await queue_workspace_offboarding(session, tenant_id=tenant_id)
@@ -454,6 +464,11 @@ async def restore_account(
 
     if await has_paid(session, tenant_id=tenant_id):
         await queue_workspace_provisioning(session, tenant_id=tenant_id, reopen=True)
+    # Its held numbers answer again on the agents they were on (D-860), unless its wallet
+    # still holds them.
+    from apps.api.campaigns.number_holds import queue_hold_settlement
+
+    await queue_hold_settlement(session, tenant_id=tenant_id)
     return _record(tenant_id, row)
 
 

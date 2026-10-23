@@ -179,9 +179,10 @@ async def queue_workspace_provisioning(
 
 async def queue_workspace_offboarding(session: AsyncSession, *, tenant_id: UUID) -> bool:
     """Owe this tenant's workspace its offboarding, in the caller's (closing) transaction:
-    numbers released, agents deleted, the customer deleted. From this instant the resolver
-    answers "not provisioned", so nothing new is sent there. False when there is nothing to
-    offboard."""
+    numbers released, agents deleted, the customer deleted. The job waits while a number
+    there is held (D-860); the hold job queues it again when the last hold ends in a release
+    (`resume_workspace_offboarding`). From this instant the resolver answers "not
+    provisioned", so nothing new is sent there. False when there is nothing to offboard."""
     if not engine_has_workspaces():
         return False
     state = await read_workspace_state(session, tenant_id)
@@ -194,6 +195,18 @@ async def queue_workspace_offboarding(session: AsyncSession, *, tenant_id: UUID)
         ),
         {"tid": tenant_id},
     )
+    await enqueue_outbox(session, job=OFFBOARD_JOB, payload={"tenant_id": str(tenant_id)})
+    return True
+
+
+async def resume_workspace_offboarding(session: AsyncSession, *, tenant_id: UUID) -> bool:
+    """Queue the offboarding again for a workspace that waited on held numbers, in the
+    caller's transaction. False, and nothing queued, unless it is still offboarding: a
+    reopened account's workspace is being provisioned again instead."""
+    if not engine_has_workspaces():
+        return False
+    if (await read_workspace_state(session, tenant_id)).status != "offboarding":
+        return False
     await enqueue_outbox(session, job=OFFBOARD_JOB, payload={"tenant_id": str(tenant_id)})
     return True
 
@@ -649,6 +662,7 @@ __all__ = [
     "record_retention_check",
     "record_studio_check",
     "resolve_workspace",
+    "resume_workspace_offboarding",
     "studio_enabled",
     "studio_on_in_workspace",
     "studio_workspaces",

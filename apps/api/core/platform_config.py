@@ -426,6 +426,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "razorpay_key_id": AppliesRule(LIVE),  # billing/payments, per capability read
     "razorpay_mode": AppliesRule(LIVE),  # billing/payments.payment_capability()
     "auto_recharge_max_failures": AppliesRule(LIVE),  # billing/auto_recharge, per failure
+    "number_hold_after_negative_days": AppliesRule(LIVE),  # campaigns/number_holds, per sweep
     "razorpay_reconciliation_days": AppliesRule(LIVE),  # workers, per daily run
     "gst_supplier_legal_name": AppliesRule(LIVE),  # billing/gst.supplier_identity()
     "gst_supplier_address": AppliesRule(LIVE),

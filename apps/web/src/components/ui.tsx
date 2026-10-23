@@ -1561,6 +1561,23 @@ export function formatIST(value: string | null | undefined): string {
 }
 
 /**
+ * The calendar day in India an instant falls on, as a person reads a deadline: "Saturday,
+ * 7 November". `null` when there is no instant or it does not parse, so the caller words the
+ * sentence without a date rather than printing a placeholder inside one.
+ */
+export function formatISTDay(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return null;
+  return at.toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+}
+
+/**
  * The calendar day in India, as `YYYY-MM-DD` — for naming a file after the day it was taken.
  *
  * `new Date().toISOString().slice(0, 10)` is the spelling this replaces, and it is wrong

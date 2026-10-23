@@ -698,6 +698,14 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Auto-recharge failures before it switches off",
         "Failed automatic recharges in a row before auto-recharge is turned off.",
     ),
+    "number_hold_after_negative_days": _m(
+        "billing",
+        "payments",
+        "Days below zero before numbers are held",
+        "After this many days below zero, calls to a client's rented numbers stop, no rent is "
+        "charged, and each is given up before it renews unless they top up.",
+        _THINNEST,
+    ),
     "razorpay_reconciliation_days": _m(
         "billing",
         "payments",
@@ -1271,6 +1279,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "copilot_daily_ktok_cap": ControlHint(unit="thousand tokens a day"),
     "cartesia_agent_cap": ControlHint(unit="agents", help="0 switches the Studio voice off."),
     "auto_recharge_max_failures": ControlHint(unit="failures in a row"),
+    "number_hold_after_negative_days": ControlHint(unit="days"),
     "db_pool_size": ControlHint(unit="connections"),
     "worker_max_jobs": ControlHint(unit="jobs"),
     # ---- formats --------------------------------------------------------------------

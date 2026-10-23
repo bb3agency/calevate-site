@@ -326,7 +326,9 @@ async def provision_again(
     summary="Run this closed client's workspace offboarding again",
     description=(
         "Releases the workspace's numbers (permanent, no refund of the month), deletes its "
-        "agents and deletes the customer. Refused unless the account is closed."
+        "agents and deletes the customer. Refused unless the account is closed. While a "
+        "rented number there is still held (D-860) nothing is done; the hold's release "
+        "queues the offboarding again."
     ),
 )
 async def offboard_again(

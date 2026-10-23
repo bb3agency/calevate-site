@@ -2154,6 +2154,21 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/calls?limit=6": [CALL],
       // "Your agents" and "This week" read the roster and its activity.
       "/v1/campaigns": [],
+      // A held number (D-860), so its notice above the figures is swept.
+      "/v1/campaigns/numbers": [
+        {
+          id: "number-held",
+          e164: "+918012345671",
+          series: "standard",
+          dlt_status: "pending",
+          supplied_by_us: true,
+          answerable: false,
+          agent_id: "agent-1",
+          direction: "both",
+          held: true,
+          release_at: "2026-11-06T18:30:00Z",
+        },
+      ],
       "/v1/agents": [AGENT],
       "/v1/agents/stats": [{ agent_id: "agent-1", status: "live", calls_total: 12, calls_connected: 9, calls_inbound: 0, calls_outbound: 12, last_call_at: "2026-08-13T05:00:00Z", outcomes: { resolved: 6, needs_follow_up: 2, transferred: 0, dropped: 1 } }],
       // The dashboard-home `KnowledgeGaps` card (all agents). One OPEN gap so the sweep

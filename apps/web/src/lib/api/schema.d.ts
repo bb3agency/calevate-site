@@ -722,7 +722,7 @@ export interface paths {
         put?: never;
         /**
          * Run this closed client's workspace offboarding again
-         * @description Releases the workspace's numbers (permanent, no refund of the month), deletes its agents and deletes the customer. Refused unless the account is closed.
+         * @description Releases the workspace's numbers (permanent, no refund of the month), deletes its agents and deletes the customer. Refused unless the account is closed. While a rented number there is still held (D-860) nothing is done; the hold's release queues the offboarding again.
          */
         post: operations["offboard_again_v1_admin_engine_workspaces_tenants__tenant_id__offboard_post"];
         delete?: never;
@@ -22208,6 +22208,11 @@ export interface components {
             /** E164 */
             e164: string;
             /**
+             * Held
+             * @default false
+             */
+            held: boolean;
+            /**
              * Id
              * Format: uuid
              */
@@ -22224,6 +22229,8 @@ export interface components {
              * @default false
              */
             releasable: boolean;
+            /** Release At */
+            release_at?: string | null;
             /** Series */
             series: string;
             /**

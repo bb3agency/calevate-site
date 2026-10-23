@@ -1180,6 +1180,92 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
     rental_charged_from: Mapped[date | None] = mapped_column(Date)
 
 
+#: Why a client's rented number is held (D-860): the account was closed, or its wallet has
+#: been below zero for `number_hold_after_negative_days`.
+NumberHoldReason = Literal["account_closed", "wallet_negative"]
+NUMBER_HOLD_REASONS: Final[tuple[NumberHoldReason, ...]] = get_args(NumberHoldReason)
+#: How a hold ended: the client is no longer stopped and the number answers again, or the
+#: number was given back to the voice platform.
+NumberHoldEnd = Literal["resumed", "released"]
+NUMBER_HOLD_ENDS: Final[tuple[NumberHoldEnd, ...]] = get_args(NumberHoldEnd)
+#: Where the release date's renewal day came from: the platform's own rent instant, or only
+#: our record of the number when the platform could not be read.
+NumberHoldAnchor = Literal["vendor", "recorded"]
+NUMBER_HOLD_ANCHORS: Final[tuple[NumberHoldAnchor, ...]] = get_args(NumberHoldAnchor)
+
+
+def number_on_hold_sql(alias: str) -> str:
+    """SQL true while the `phone_numbers` row aliased `alias` has an open hold. The one
+    spelling every reader that must treat a held number as answering nothing uses."""
+    return (
+        "EXISTS (SELECT 1 FROM phone_number_holds h "
+        f"WHERE h.number_id = {alias}.id AND h.ended_at IS NULL)"
+    )
+
+
+class PhoneNumberHold(PKMixin, TimestampMixin, Base):
+    """A stopped client's rented number, held until it is resumed or released (D-860,
+    migration e8c4b1d7a352). `campaigns/number_holds.py` is the one writer.
+
+    A row with `release_at` NULL is recorded but not yet applied: the hold job reads the
+    platform's rent day, sets the release date, detaches the number and queues the notice.
+    The three `*_notice_at` stamps are when each email was queued, written in the
+    transaction that queues it, so a tick never queues one twice.
+    """
+
+    __tablename__ = "phone_number_holds"
+    __table_args__ = (
+        CheckConstraint(f"reason IN {NUMBER_HOLD_REASONS!r}", name="reason_enum"),
+        CheckConstraint(
+            f"end_reason IS NULL OR end_reason IN {NUMBER_HOLD_ENDS!r}", name="end_reason_enum"
+        ),
+        CheckConstraint(
+            f"anchor_source IS NULL OR anchor_source IN {NUMBER_HOLD_ANCHORS!r}",
+            name="anchor_source_enum",
+        ),
+        CheckConstraint("(ended_at IS NULL) = (end_reason IS NULL)", name="ended_with_reason"),
+        CheckConstraint("release_at IS NULL OR release_at >= held_at", name="release_after_hold"),
+        # One open hold per number: the unique index the hold's insert conflicts on.
+        Index(
+            "uq_phone_number_holds_open",
+            "number_id",
+            unique=True,
+            postgresql_where=text("ended_at IS NULL"),
+        ),
+        Index(
+            "ix_phone_number_holds_tenant_open",
+            "tenant_id",
+            postgresql_where=text("ended_at IS NULL"),
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    number_id: Mapped[UUID] = mapped_column(
+        ForeignKey("phone_numbers.id", ondelete="CASCADE"), nullable=False
+    )
+    #: The agent the number was on when the hold began, for the emails: the release clears
+    #: `phone_numbers.agent_id`. The hold never changes `phone_numbers.agent_id`, which is
+    #: what the number answers on again when the hold ends.
+    agent_id: Mapped[UUID | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    held_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    release_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: When the reminder is due; NULL when the hold is too short for one to be useful.
+    remind_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    anchor_source: Mapped[str | None] = mapped_column(Text)
+    #: When the platform confirmed nobody answers the number or calls out on it.
+    detached_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    start_notice_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reminder_notice_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    release_notice_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    end_reason: Mapped[str | None] = mapped_column(Text)
+
+
 class AgentHandoffMember(PKMixin, TimestampMixin, Base):
     """ONE person who can take a call from this agent (D-533, migration c4a91e60d7b3).
 

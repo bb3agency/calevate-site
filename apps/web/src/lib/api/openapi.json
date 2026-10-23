@@ -28729,6 +28729,11 @@
             "title": "E164",
             "type": "string"
           },
+          "held": {
+            "default": false,
+            "title": "Held",
+            "type": "boolean"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -28755,6 +28760,18 @@
             "default": false,
             "title": "Releasable",
             "type": "boolean"
+          },
+          "release_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release At"
           },
           "series": {
             "title": "Series",
@@ -50814,7 +50831,7 @@
     },
     "/v1/admin/engine-workspaces/tenants/{tenant_id}/offboard": {
       "post": {
-        "description": "Releases the workspace's numbers (permanent, no refund of the month), deletes its agents and deletes the customer. Refused unless the account is closed.",
+        "description": "Releases the workspace's numbers (permanent, no refund of the month), deletes its agents and deletes the customer. Refused unless the account is closed. While a rented number there is still held (D-860) nothing is done; the hold's release queues the offboarding again.",
         "operationId": "offboard_again_v1_admin_engine_workspaces_tenants__tenant_id__offboard_post",
         "parameters": [
           {

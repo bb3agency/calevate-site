@@ -26,7 +26,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstrai
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.campaigns import controls, engine_numbers, results, scheduling, service
+from apps.api.campaigns import controls, engine_numbers, number_holds, results, scheduling, service
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -610,6 +610,14 @@ class NumberOut(Strict):
     #: (`service.number_dial_refusal`), so the campaign picker offers only numbers a launch
     #: will accept — with the agent binding, which the picker checks against its agent.
     places_calls: bool = False
+    #: HELD (D-860): this account stopped (its credit below zero for too long, or the account
+    #: closed), so nobody answers the number, no rent is charged for it, and it is given up
+    #: at `release_at` unless the account is back in order first. A held number neither
+    #: answers nor places calls.
+    held: bool = False
+    #: When a held number is given up; null while it is not held, and for the moment
+    #: between a hold starting and its date being worked out.
+    release_at: AwareDatetime | None = None
 
 
 class TemplateOut(Strict):
@@ -729,9 +737,11 @@ async def list_numbers(
     own_workspace: str | None = None
     if engine_has_workspaces() and any(r[9] == engine for r in rows):
         own_workspace = (await read_workspace_state(session, principal.tenant_id)).workspace_id
+    held = await number_holds.held_numbers(session)
     out: list[NumberOut] = []
     for r in rows:
         on_engine = engine is not None and r[9] == engine
+        on_hold = r[0] in held
         # Only a number the voice platform holds can be answered: it routes the number to
         # the answering agent our record gives it.
         answerable = on_engine and engine_numbers.answers_calls(
@@ -740,6 +750,7 @@ async def list_numbers(
             agent_status=r[12],
             agent_direction=r[13],
             agent_deleted=bool(r[14]),
+            held=on_hold,
         )
         out.append(
             NumberOut(
@@ -753,7 +764,9 @@ async def list_numbers(
                 direction=r[6],
                 inr_per_month=r[7],
                 activated=r[8],
-                places_calls=service.number_dial_refusal(r[9], r[6]) is None,
+                places_calls=not on_hold and service.number_dial_refusal(r[9], r[6]) is None,
+                held=on_hold,
+                release_at=held.get(r[0]),
                 releasable=(
                     on_engine
                     and bool(r[10])
