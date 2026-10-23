@@ -33,6 +33,7 @@ from uuid import UUID
 from arq import Retry
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.billing.models import (
@@ -98,32 +99,35 @@ _CANDIDATES_SQL: Final = (
 
 
 async def meter_language_pass(
-    tenant_id: UUID, call_id: UUID, usage: TokenUsage, *, feature: str
+    session: AsyncSession, tenant_id: UUID, call_id: UUID, usage: TokenUsage, *, feature: str
 ) -> None:
     """One language pass on the AI ledger (hard rule 7): the attested Sarvam price or
-    nothing, never a zero row. `feature` decides who pays (`billing/models`)."""
+    nothing, never a zero row. `feature` decides who pays (`billing/models`).
+
+    In the caller's transaction, the one that writes the pass's English. The ref is fresh
+    per pass, so a meter committed apart from its result would be charged again when a
+    failed result write sends the job round to re-run the pass."""
     if not llm_price_is_billable(SARVAM_DEFAULT_LLM):
         log.info(
             "call_language_cost_unpriced",
             extra={"call_id": str(call_id), "model": SARVAM_DEFAULT_LLM},
         )
         return
-    async with tenant_session(tenant_id) as session:
-        await record_ai_assist_usage(
-            session,
-            tenant_id=tenant_id,
-            ref=new_assist_ref(),
-            tokens_in=usage.prompt_tokens,
-            tokens_out=usage.output_tokens,
-            cached_tokens_in=usage.cached_tokens_in,
-            model=SARVAM_DEFAULT_LLM,
-            feature=feature,
-            usage_incomplete=usage.incomplete,
-            extra_meta={
-                "call_id": str(call_id),
-                "cached_prompt_tokens": str(usage.cached_prompt_tokens),
-            },
-        )
+    await record_ai_assist_usage(
+        session,
+        tenant_id=tenant_id,
+        ref=new_assist_ref(),
+        tokens_in=usage.prompt_tokens,
+        tokens_out=usage.output_tokens,
+        cached_tokens_in=usage.cached_tokens_in,
+        model=SARVAM_DEFAULT_LLM,
+        feature=feature,
+        usage_incomplete=usage.incomplete,
+        extra_meta={
+            "call_id": str(call_id),
+            "cached_prompt_tokens": str(usage.cached_prompt_tokens),
+        },
+    )
 
 
 async def translate_call(tenant_id: UUID, call_id: UUID, *, feature: str) -> str:
@@ -166,6 +170,7 @@ async def translate_call(tenant_id: UUID, call_id: UUID, *, feature: str) -> str
 
     turns_en: dict[int, str] = {}
     new_local = new_english = ""
+    usage: TokenUsage | None = None
     if not (pending or want_local or want_english):
         state = "ready" if already_english else "not_needed"
     elif not (api_key := get_settings().sarvam_api_key):
@@ -179,8 +184,7 @@ async def translate_call(tenant_id: UUID, call_id: UUID, *, feature: str) -> str
             summary_en=redact(english).text if english else "",
             summary_local=redact(local).text if local else "",
         )
-        if done.usage is not None:
-            await meter_language_pass(tenant_id, call_id, done.usage, feature=feature)
+        usage = done.usage
         turns_en = call_language.english_lines(pending, done)
         new_local = done.summary_local if want_local else ""
         new_english = done.summary_en if want_english else ""
@@ -220,6 +224,8 @@ async def translate_call(tenant_id: UUID, call_id: UUID, *, feature: str) -> str
                 ),
                 {"en": english_text, "cid": call_id, "tid": tenant_id, "idx": idx},
             )
+        if usage is not None:
+            await meter_language_pass(session, tenant_id, call_id, usage, feature=feature)
     log.info(
         "call_translation_settled",
         extra={"call_id": str(call_id), "state": state, "turns": len(turns_en)},

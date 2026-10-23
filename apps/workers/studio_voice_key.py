@@ -166,7 +166,17 @@ async def sweep_studio_workspaces(ctx: dict[str, Any]) -> str:
     tally = dict.fromkeys(("ok", "repaired", "failed"), 0)
     developer = await check_developer_studio(engine)
     for row in await studio_workspaces():
-        tally[await _check_workspace(engine, row.tenant_id, row.workspace_id)] += 1
+        try:
+            outcome = await _check_workspace(engine, row.tenant_id, row.workspace_id)
+        except Exception as exc:
+            # `_check_workspace` answers the platform's refusals; anything else (a database
+            # error, a timeout) is this workspace's alone and must not skip the ones after it.
+            log.error(
+                "studio_workspace_check_crashed",
+                extra={"tenant_id": str(row.tenant_id), "error": type(exc).__name__},
+            )
+            outcome = "failed"
+        tally[outcome] += 1
     alarm_studio_tally(tally)
     summary = " ".join(f"{k}={v}" for k, v in tally.items())
     return f"developer={developer} {summary}"

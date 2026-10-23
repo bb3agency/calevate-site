@@ -169,6 +169,8 @@ def compose(*, starts_on: str, rungs: Sequence[PackRates], slug: str) -> str:
     lines += [
         "",
         f"If you want to buy credit at today's rates, you can do so any time before {starts_on}:",
+        # Its own paragraph, so `from_text` renders it as the email's button.
+        "",
         f"{CONSOLE_BASE}/c/{slug}/credits",
     ]
     return "\n".join(lines)

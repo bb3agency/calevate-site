@@ -491,6 +491,13 @@ async def sweep_engine_workspaces(ctx: dict[str, Any]) -> str:
                 "engine_workspace_sweep_leg_failed",
                 extra={"tenant_id": str(visit.tenant_id), "code": exc.code},
             )
+        except Exception as exc:
+            # A database error or a timeout is this workspace's alone; the walk goes on.
+            tally["unreadable"] += 1
+            log.error(
+                "engine_workspace_sweep_leg_crashed",
+                extra={"tenant_id": str(visit.tenant_id), "error": type(exc).__name__},
+            )
     summary = " ".join(f"{key}={value}" for key, value in tally.items())
     return f"visited={report.visited} deferred={report.deferred} {summary}"
 

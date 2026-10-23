@@ -27,9 +27,10 @@ import pytest
 from apps.api.agents import service as agents_service
 from apps.api.billing.engine_minutes import (
     CARRIER_RATE_KEY,
-    FORWARD_WITHOUT_AGENT_RATE_KEY,
+    FORWARD_WITHOUT_AGENT_BEFORE_RETIREMENT,
     attest_engine_minute_price,
     engine_minute_cost,
+    forward_without_agent_rate_key,
 )
 from apps.api.campaigns import engine_numbers
 from apps.api.core.settings import get_settings
@@ -268,7 +269,8 @@ async def _cost(tenant_id: uuid.UUID, call_id: uuid.UUID, at: datetime, seconds:
 
 async def test_a_forward_on_a_rented_number_costs_the_attached_agents_plan() -> None:
     """A forward is billed every connected second at the plan it was admitted at: the voice
-    plan of the agent attached to the number, or Standard when none is; it is not the
+    plan of the agent attached to the number, or Standard when none is (before 23 Oct 2026,
+    when standard voices were retired); it is not the
     carrier's fee (snapshots/2026-10-19/pages/api-reference/calls/get-call.md:1249-1254)."""
     at = datetime(2002, 1, 2, tzinfo=UTC) + timedelta(
         microseconds=uuid.uuid4().int % 86_400_000_000
@@ -294,9 +296,19 @@ async def test_a_forward_on_a_rented_number_costs_the_attached_agents_plan() -> 
         at,
         30,
     )
-    assert no_route.rate_key == FORWARD_WITHOUT_AGENT_RATE_KEY == "standard"
+    assert no_route.rate_key == FORWARD_WITHOUT_AGENT_BEFORE_RETIREMENT == "standard"
     assert no_route.inr_per_min == Decimal("2.00")
     assert no_route.client_rate_key == "platform"
+
+
+def test_an_agentless_forward_since_standard_voices_retired_costs_premium() -> None:
+    """FAILS IF: an agentless forward is still costed at Standard after 23 Oct 2026. Live
+    get-call.md (read 24 Oct 2026): "the Premium plan when no agent is", and "`standard`
+    appears only on calls before 23 October 2026, when standard voices were retired"."""
+    ist_midnight = datetime(2026, 10, 22, 18, 30, tzinfo=UTC)
+    assert forward_without_agent_rate_key(ist_midnight - timedelta(seconds=1)) == "standard"
+    assert forward_without_agent_rate_key(ist_midnight) == "premium"
+    assert forward_without_agent_rate_key(datetime(2026, 11, 1, tzinfo=UTC)) == "premium"
 
 
 async def test_a_forward_on_a_brought_number_costs_nothing() -> None:

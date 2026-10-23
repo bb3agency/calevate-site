@@ -196,7 +196,10 @@ async def settle_tenant(tenant_id: UUID) -> tuple[Counter[str], int]:
                     },
                 )
                 tally[f"notice_{event}"] += 1
-        if tally["released"] and not await open_holds(session):
+        # A hold ended by a release elsewhere (an operator's) counts too: nothing else
+        # queues the offboarding that waited on it.
+        ended_by_release = tally["released"] + tally["closed_elsewhere"]
+        if ended_by_release and not await open_holds(session):
             tally["offboarding_resumed"] += int(
                 await resume_workspace_offboarding(session, tenant_id=tenant_id)
             )
@@ -300,6 +303,8 @@ def _keep(reason: str, slug: str) -> list[str]:
         "date. Calls start again straight away, on the same agent as before.",
         "",
         "Add credit here:",
+        # Its own paragraph, so `from_text` renders it as the email's button.
+        "",
         f"{CONSOLE_BASE}/c/{slug}/credits",
     ]
 

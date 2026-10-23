@@ -175,6 +175,7 @@ from apps.api.reliability.service import (
 from apps.api.tenancy.engine_workspace import engine_has_workspaces
 from apps.workers import call_language, call_translation, storage
 from apps.workers import extraction as extraction_module
+from apps.workers.chat import TokenUsage
 from apps.workers.engine_charges import reconcile_call_charge
 from apps.workers.engine_delivery import (
     UNSTATED_STATUS,
@@ -2545,6 +2546,7 @@ async def _record_reading(
     if translation_state in ("pending", "unavailable", "failed"):
         translation_state = "not_needed" if not pending_turns else translation_state
     turns_en: dict[int, str] = {}
+    usage: TokenUsage | None = None
     api_key = get_settings().sarvam_api_key
     if pending_turns or want_local or want_english:
         if api_key:
@@ -2555,10 +2557,7 @@ async def _record_reading(
                 summary_en=redact(english).text if english else "",
                 summary_local=redact(local).text if local else "",
             )
-            if done.usage is not None:
-                await call_translation.meter_language_pass(
-                    tenant_id, call_id, done.usage, feature=ASSIST_FEATURE_CALL_LANGUAGE
-                )
+            usage = done.usage
             turns_en = call_language.english_lines(pending_turns, done)
             if want_local and done.summary_local:
                 local = done.summary_local
@@ -2616,6 +2615,10 @@ async def _record_reading(
                     "WHERE call_id = :cid AND tenant_id = :tid AND idx = :idx"
                 ),
                 {"en": english_text, "cid": call_id, "tid": tenant_id, "idx": idx},
+            )
+        if usage is not None:
+            await call_translation.meter_language_pass(
+                session, tenant_id, call_id, usage, feature=ASSIST_FEATURE_CALL_LANGUAGE
             )
     return _Reading(
         summary=english or None,

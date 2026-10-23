@@ -212,6 +212,34 @@ async def test_a_workspace_that_cannot_be_repaired_pages(
     assert [code for code, _ in alarms] == ["studio_workspace_drift"]
 
 
+async def test_one_workspace_crashing_does_not_skip_the_rest(
+    alarms: list[tuple[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: an error that is not a platform refusal in one workspace's check ends the
+    hourly sweep, so every Studio workspace after it goes unchecked."""
+    from types import SimpleNamespace
+
+    rows = [SimpleNamespace(tenant_id=uuid.uuid4(), workspace_id=f"org_{i}") for i in (1, 2)]
+
+    async def two_workspaces(*, limit: int = 1000) -> list[Any]:
+        return rows
+
+    async def check(_engine: Any, _tenant: Any, workspace: str) -> str:
+        if workspace == "org_1":
+            raise TimeoutError
+        return "ok"
+
+    async def developer(_engine: Any) -> str:
+        return "ok"
+
+    monkeypatch.setattr(studio_voice_key, "studio_workspaces", two_workspaces)
+    monkeypatch.setattr(studio_voice_key, "_check_workspace", check)
+    monkeypatch.setattr(studio_voice_key, "check_developer_studio", developer)
+    with selected(HostingEngine(key_state=OFF_KEY)):
+        summary = await studio_voice_key.sweep_studio_workspaces({})
+    assert "ok=1 repaired=0 failed=1" in summary
+
+
 def _no_client_workspaces(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _none(*, limit: int = 1000) -> list[Any]:
         return []

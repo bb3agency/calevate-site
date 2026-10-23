@@ -176,6 +176,8 @@ def compose(
     lines += [
         "",
         "Add credit here:",
+        # Its own paragraph, so `from_text` renders it as the email's button.
+        "",
         f"{CONSOLE_BASE}/c/{slug}/credits",
     ]
     return "\n".join(lines)

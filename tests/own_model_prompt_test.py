@@ -199,6 +199,40 @@ async def test_the_hourly_sweep_refreshes_the_basis(monkeypatch: pytest.MonkeyPa
     assert result.endswith("prompt=ceiling")
 
 
+async def test_one_workspace_crashing_does_not_skip_the_rest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: an error that is not a platform refusal in one workspace's check ends the
+    hourly sweep, so every workspace after it goes unchecked and the tally is never alarmed."""
+    from types import SimpleNamespace
+
+    rows = [SimpleNamespace(tenant_id=uuid.uuid4(), workspace_id=f"org_{i}") for i in (1, 2)]
+
+    async def two_workspaces() -> list[Any]:
+        return rows
+
+    async def check(_engine: Any, _tenant: Any, workspace: str) -> str:
+        if workspace == "org_1":
+            raise TimeoutError
+        return "ok"
+
+    async def developer(_engine: Any) -> str:
+        return "ok"
+
+    async def refresh(engine: Any) -> omp.PromptBasis:
+        return omp.CEILING_BASIS
+
+    engine = _thinnest()
+    monkeypatch.setattr(own_model_key, "_runs_own_model", lambda: engine)
+    monkeypatch.setattr(own_model_key, "get_engine", lambda: engine)
+    monkeypatch.setattr(own_model_key, "own_model_workspaces", two_workspaces)
+    monkeypatch.setattr(own_model_key, "_check_workspace", check)
+    monkeypatch.setattr(own_model_key, "check_developer_own_model", developer)
+    monkeypatch.setattr(own_model_key, "refresh_prompt_basis", refresh)
+    result = await own_model_key.sweep_own_model_workspaces({})
+    assert "ok=1 repaired=0 failed=1" in result
+
+
 # --- one tenant's rows --------------------------------------------------------------------
 
 
