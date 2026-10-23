@@ -159,7 +159,7 @@ describe("the test-call panel", () => {
 });
 
 describe("the test-call panel's agents (D-853)", () => {
-  it("offers any ready agent, including one that only answers calls, and never a draft", async () => {
+  it("offers every agent, a draft marked as one that gets ready when called", async () => {
     await renderClientPage(<TrialCallCard trial={panel()} {...HREFS} />, {
       "/v1/agents": [
         agentRow({ id: "front", name: "Front desk", direction: "inbound", status: "paused", published: true }),
@@ -169,7 +169,7 @@ describe("the test-call panel's agents (D-853)", () => {
     });
     const select = (await screen.findByRole("combobox")) as HTMLSelectElement;
     const names = Array.from(select.options).map((option) => option.textContent);
-    expect(names).toEqual(["Front desk", "Switched off"]);
+    expect(names).toEqual(["Front desk", "Switched off", "Still a draft (gets ready when you call)"]);
   });
 
   it("links an account with no agents to its first one", async () => {
@@ -178,11 +178,23 @@ describe("the test-call panel's agents (D-853)", () => {
     expect(link.getAttribute("href")).toBe("/c/acme/agents/first");
   });
 
-  it("sends an account whose agents are all drafts to get one ready", async () => {
-    await renderClientPage(<TrialCallCard trial={panel()} {...HREFS} />, {
-      "/v1/agents": [agentRow({ status: "draft", published: false })],
+  it("gets a draft ready, then calls from it", async () => {
+    const page = await renderClientPage(<TrialCallCard trial={panel()} {...HREFS} />, {
+      "/v1/agents": [agentRow({ id: "draft", name: "Still a draft", status: "draft", published: false })],
+      "/v1/agents/draft/prepare": { status: "paused" },
+      "/v1/trial/calls": { status: "queued", call_handle: "out_2", blocked_reason: null, blocked_rule: null },
+      "/v1/calls?agent_id=draft&limit=1": [],
     });
-    expect(await screen.findByText(/Get an agent ready first/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Your agents" }).getAttribute("href")).toBe("/c/acme/agents");
+    await screen.findByRole("option", { name: "Still a draft (gets ready when you call)" });
+    fireEvent.change(screen.getByPlaceholderText("9876543210 or +919876543210"), {
+      target: { value: "9876543210" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Make a test call" }));
+    });
+    await screen.findByText("Calling now. The call appears under Calls once it ends.");
+    const posts = page.calls.filter((call) => call.method === "POST").map((call) => call.path);
+    expect(posts.indexOf("/v1/agents/draft/prepare")).toBeGreaterThanOrEqual(0);
+    expect(posts.indexOf("/v1/agents/draft/prepare")).toBeLessThan(posts.indexOf("/v1/trial/calls"));
   });
 });

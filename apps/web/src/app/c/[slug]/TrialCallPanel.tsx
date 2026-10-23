@@ -15,8 +15,8 @@ import {
 } from "@/components/ui";
 import { RowLink } from "@/components/console/checklist";
 import { TEXT_ACTION } from "@/components/console/section";
-import { canTestCall } from "@/lib/agentState";
-import { useAgents } from "@/lib/api/agents";
+import { canTestCall, isDeleted } from "@/lib/agentState";
+import { useAgentLifecycle, useAgents } from "@/lib/api/agents";
 import { useClientRealm } from "@/lib/api/session";
 import { usePlaceTrialCall, type TrialPanel } from "@/lib/api/trialCalls";
 
@@ -76,10 +76,20 @@ export function TrialCallCard({
   const [agentId, setAgentId] = useState("");
   const [number, setNumber] = useState("");
 
-  // Any ready agent, including one that only answers calls: its greeting opens the call.
-  const dialers = agents.data?.filter(canTestCall);
+  // Every agent can be test-called, including a draft and one that only answers calls: a
+  // draft is got ready first (the same `/prepare` the first run uses), and the server says
+  // in its own words what stops that, such as agreements not yet accepted or no voice chosen.
+  const dialers = agents.data?.filter((agent) => !isDeleted(agent));
   const chosen = agentId || (dialers !== undefined && dialers.length > 0 ? dialers[0].id : "");
-  const ready = trial.can_call && chosen !== "" && number.trim() !== "" && !place.isPending;
+  const chosenAgent = dialers?.find((agent) => agent.id === chosen);
+  const prepare = useAgentLifecycle(session, chosen);
+  const busy = prepare.isPending || place.isPending;
+  const ready = trial.can_call && chosen !== "" && number.trim() !== "" && !busy;
+
+  const call = async () => {
+    if (chosenAgent && !canTestCall(chosenAgent)) await prepare.mutateAsync("prepare");
+    place.mutate({ agentId: chosen, number: number.trim() });
+  };
 
   return (
     <Card title="Your free trial">
@@ -140,7 +150,7 @@ export function TrialCallCard({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            if (ready) place.mutate({ agentId: chosen, number: number.trim() });
+            if (ready) call().catch(() => undefined);
           }}
         >
           <label className="block">
@@ -156,25 +166,19 @@ export function TrialCallCard({
                   Build your first agent
                 </Link>
               </span>
-            ) : dialers !== undefined && dialers.length === 0 ? (
-              <span className="mt-1 block text-sm text-ink-muted">
-                Get an agent ready first, then call it here.{" "}
-                <Link href={agentsHref} className={TEXT_ACTION}>
-                  Your agents
-                </Link>
-              </span>
             ) : (
               <select
                 value={chosen}
                 onChange={(event) => {
                   setAgentId(event.target.value);
                   place.reset();
+                  prepare.reset();
                 }}
                 className={`${FIELD_INLINE} mt-1 sm:min-w-48`}
               >
                 {dialers?.map((agent) => (
                   <option key={agent.id} value={agent.id}>
-                    {agent.name}
+                    {canTestCall(agent) ? agent.name : `${agent.name} (gets ready when you call)`}
                   </option>
                 ))}
               </select>
@@ -198,7 +202,7 @@ export function TrialCallCard({
           </label>
           <button type="submit" disabled={!ready} className={PRIMARY_BUTTON}>
             <PhoneOutgoing aria-hidden className="h-4 w-4" />
-            {place.isPending ? "Calling…" : "Make a test call"}
+            {prepare.isPending ? "Getting it ready…" : place.isPending ? "Calling…" : "Make a test call"}
           </button>
         </form>
 
@@ -216,7 +220,16 @@ export function TrialCallCard({
             {place.data.blocked_reason ?? "This test call was not allowed."}
           </p>
         )}
+        {prepare.error && <ProblemNotice error={prepare.error} />}
         {place.error && <ProblemNotice error={place.error} />}
+        {dialers !== undefined && dialers.length > 0 ? (
+          <p className="text-xs text-ink-muted">
+            Want to change what it says first?{" "}
+            <Link href={agentsHref} className={TEXT_ACTION}>
+              Your agents
+            </Link>
+          </p>
+        ) : null}
 
         <NoticeBox
           tone="neutral"
