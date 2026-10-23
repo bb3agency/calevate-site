@@ -5,9 +5,9 @@
  *
  * PRIMARY JOB: find the calls that need you and open one.
  *
- * ONE filter row: how the call ENDED (outcome chips, "Needs you" first), WHEN and WHICH
- * WAY as two compact dropdowns (India-time days, `lib/callFilters`), and whether free-trial
- * test calls are included. One agent's calls arrive by link from that agent's page
+ * ONE filter row (`FilterToolbar`, folded behind "Filters" on a phone): how the call ENDED
+ * (outcome chips, "Needs you" first), WHEN as a span of India-time days (`DateRangePicker`,
+ * `lib/callFilters`), WHICH WAY, and whether free-trial test calls are included. One agent's calls arrive by link from that agent's page
  * (`?agent_id=`) and show as a chip that clears them. A STATUS filter (no answer, failed …)
  * still arrives by link, from the dashboard's "did not connect" row, and shows as a chip
  * that clears it. Every filter is a server query, never a slice of the loaded page, so a
@@ -15,19 +15,31 @@
  *
  * "Export CSV" downloads the same filtered log (owner-only on the server, audited), so
  * the file is the table.
+ *
+ * Each call carries the follow-up actions (`components/calls/followUpActions`): a swipe on
+ * a phone, where the log is a list rather than a table, and the row's ⋯ menu elsewhere.
  */
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
+import { DateRangePicker, type DateRange } from "@/components/arc/calendar";
+import { ChipGroup } from "@/components/arc/chip-group";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FilterToolbar, type ActiveFilter } from "@/components/arc/filter-toolbar";
+import { formatDateRange } from "@/components/arc/ist-dates";
+import { RowMenu } from "@/components/arc/menu";
+import { useFollowUpActions, type Dialer, type FollowUpTarget } from "@/components/calls/followUpActions";
 import { DataTable } from "@/components/console/dataTable";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
-import { TEXT_ACTION } from "@/components/console/section";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { LoadMore } from "@/components/interior/load-more";
-import { FIELD, FilterChip, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount, istDateStamp } from "@/components/ui";
+import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount, istDateStamp } from "@/components/ui";
+import { canDialOut } from "@/lib/agentState";
+import { useAgents } from "@/lib/api/agents";
+import type { CallSummary } from "@/lib/api/client";
 import { useCallsLog, useExportCalls, useWriteAccess, type CallsLogFilters } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import {
@@ -35,15 +47,29 @@ import {
   OUTCOMES,
   RANGES,
   callWindow,
+  shiftDay,
   type CallDirection,
   type CallOutcome,
-  type CallRange,
 } from "@/lib/callFilters";
+import { callTitle } from "@/lib/callReview";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 
 import { callColumns } from "./callColumns";
+import { CallsPhoneList } from "./CallsPhoneList";
+
+/** Below `sm` the log is a swipeable list, not a table (different markup, so a query). */
+const PHONE = "(max-width: 639px)";
+
+/** The assistant's "When" words, as the span of days they mean. */
+function rangeDays(value: string, today: string): DateRange | null {
+  if (value === "today") return { start: today, end: today };
+  if (value === "7d") return { start: shiftDay(today, -6), end: today };
+  if (value === "30d") return { start: shiftDay(today, -29), end: today };
+  return null;
+}
 
 /**
  * One page of the log. A paged read rather than the whole history: the log grows without
@@ -74,13 +100,12 @@ export function CallsScreen({ slug }: { slug: string }) {
   const [campaignId, setCampaignId] = useState<string | undefined>(() => params.get("campaign_id") || undefined);
   const [outcome, setOutcome] = useState<CallOutcome | undefined>();
   const [direction, setDirection] = useState<CallDirection | undefined>();
-  const [range, setRange] = useState<CallRange>("all");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [dates, setDates] = useState<DateRange | null>(null);
   // On by default: a trial account has only test calls, and a log that hid every one of
   // them would read as "nobody has called". Each one carries a "Test call" tag.
   const [testCalls, setTestCalls] = useState(true);
 
+  const today = istDateStamp();
   const filters: CallsLogFilters = {
     status,
     agentId,
@@ -88,12 +113,42 @@ export function CallsScreen({ slug }: { slug: string }) {
     outcome,
     direction,
     testCalls,
-    ...callWindow(range, istDateStamp(), from, to),
+    ...(dates ? callWindow("custom", today, dates.start, dates.end) : {}),
   };
   const calls = useCallsLog(session, { ...filters, pageSize: CALLS_PAGE_SIZE });
   const exportCalls = useExportCalls(session);
+  // The file arriving is its own success; the button's tick says it started.
+  const exporting = useActionFeedback(exportCalls, { errorTitle: "Could not export your calls" });
   const exportAccess = useWriteAccess(session, "calls:read_raw", "export your calls");
-  const filtered = Boolean(status || agentId || campaignId || outcome || direction || range !== "all" || !testCalls);
+  const filtered = Boolean(status || agentId || campaignId || outcome || direction || dates || !testCalls);
+  const phone = useMediaQuery(PHONE);
+
+  /* Who rings a caller back: the agent that took the call when it places calls, else the
+     account's first agent that does (`canDialOut`, the one definition). */
+  const agents = useAgents(session);
+  const dialers = agents.data ? agents.data.filter(canDialOut) : undefined;
+  const followUp = useFollowUpActions(session, {
+    dialerFor: (target) => {
+      const chosen = dialers?.find((agent) => agent.id === target.agentId) ?? dialers?.[0];
+      return chosen ? ({ id: chosen.id, name: chosen.name } satisfies Dialer) : null;
+    },
+    // "None of your agents places calls" only once the list has arrived and says so.
+    noDialerReason:
+      agents.error != null
+        ? "We could not read your agents just now, so no call can be placed. Reload the page to try again."
+        : !agents.data
+          ? "Checking which of your agents can place the call…"
+          : undefined,
+  });
+  const targetOf = (call: CallSummary): FollowUpTarget => ({
+    key: call.id,
+    name: callTitle(call),
+    phone: call.caller_e164,
+    leadId: call.lead_id ?? null,
+    callId: call.id,
+    followUpState: call.follow_up_state as FollowUpTarget["followUpState"],
+    agentId: call.agent_id,
+  });
 
   // Flattened across the loaded pages, deduped by id: a call landing mid-read shifts
   // rows across an offset boundary, and a duplicate React key would crash the log.
@@ -127,12 +182,12 @@ export function CallsScreen({ slug }: { slug: string }) {
         id: "calls-range",
         label: "When",
         type: "select",
-        value: range,
+        value: dates ? "custom" : "all",
         options: RANGES.map((r) => ({ value: r.value, label: r.label })),
         help: "India time. Custom uses the two dates below.",
       },
-      { id: "calls-from", label: "From (custom range)", type: "date", value: from },
-      { id: "calls-to", label: "To (custom range)", type: "date", value: to },
+      { id: "calls-from", label: "From (custom range)", type: "date", value: dates?.start ?? "" },
+      { id: "calls-to", label: "To (custom range)", type: "date", value: dates?.end ?? "" },
       {
         id: "calls-direction",
         label: "Which way",
@@ -170,152 +225,124 @@ export function CallsScreen({ slug }: { slug: string }) {
         } else if (item.field_id === "calls-direction") {
           setDirection(DIRECTIONS.find((d) => d.value === wanted)?.value);
         } else if (item.field_id === "calls-range") {
-          const next = RANGES.find((r) => r.value === wanted);
-          if (next) setRange(next.value);
-        } else if (item.field_id === "calls-from") {
-          setFrom(wanted);
-          setRange("custom");
-        } else if (item.field_id === "calls-to") {
-          setTo(wanted);
-          setRange("custom");
+          if (wanted === "all") setDates(null);
+          else if (wanted !== "custom") setDates(rangeDays(wanted, today));
+        } else if (item.field_id === "calls-from" && /^\d{4}-\d{2}-\d{2}$/.test(wanted)) {
+          setDates((prev) => ({ start: wanted, end: prev && prev.end >= wanted ? prev.end : wanted }));
+        } else if (item.field_id === "calls-to" && /^\d{4}-\d{2}-\d{2}$/.test(wanted)) {
+          setDates((prev) => ({ start: prev && prev.start <= wanted ? prev.start : wanted, end: wanted }));
         }
       }
     },
   });
 
-  const columns = useMemo(
-    () => callColumns({ callHref: (id) => href(`/c/${slug}/calls/${id}`) }),
-    [href, slug],
-  );
+  // Rebuilt each render: the menu items read the live state of each follow-up action.
+  const columns = callColumns({
+    callHref: (id) => href(`/c/${slug}/calls/${id}`),
+    menu: (call) => <RowMenu label={callTitle(call)} items={followUp.menuItems(targetOf(call))} />,
+  });
   const clearAll = () => {
     setStatus(undefined);
     setAgentId(undefined);
     setCampaignId(undefined);
     setOutcome(undefined);
     setDirection(undefined);
-    setRange("all");
+    setDates(null);
     setTestCalls(true);
   };
+
+  const active: ActiveFilter[] = [
+    ...(outcome ? [{ id: "outcome", label: OUTCOMES.find((o) => o.value === outcome)?.label ?? outcome, onRemove: () => setOutcome(undefined) }] : []),
+    ...(dates ? [{ id: "dates", label: formatDateRange(dates.start, dates.end), onRemove: () => setDates(null) }] : []),
+    ...(direction ? [{ id: "direction", label: DIRECTIONS.find((d) => d.value === direction)?.label ?? direction, onRemove: () => setDirection(undefined) }] : []),
+    ...(!testCalls ? [{ id: "tests", label: "Test calls left out", onRemove: () => setTestCalls(true) }] : []),
+    ...(agentId ? [{ id: "agent", label: `Agent: ${agentName ?? "the chosen agent"}`, onRemove: () => setAgentId(undefined) }] : []),
+    ...(campaignId ? [{ id: "campaign", label: "One campaign's calls", onRemove: () => setCampaignId(undefined) }] : []),
+    ...(status ? [{ id: "status", label: `Only ${lookup(STATUS_WORDS, status) ?? status} calls`, onRemove: () => setStatus(undefined) }] : []),
+  ];
 
   return (
     <div className="space-y-5 pb-12">
       <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <div role="group" aria-label="Show calls by how they ended" className="flex flex-wrap gap-1.5">
-            {OUTCOMES.map((o) => (
-              <FilterChip
-                key={o.value}
-                label={o.label}
-                active={outcome === o.value}
-                onClick={() => setOutcome(outcome === o.value ? undefined : o.value)}
+        <FilterToolbar
+          filters={
+            <>
+              <ChipGroup
+                mode="single"
+                label="Show calls by how they ended"
+                chips={OUTCOMES.map((o) => ({ value: o.value, label: o.label }))}
+                value={outcome ?? null}
+                onChange={(next) => setOutcome(OUTCOMES.find((o) => o.value === next)?.value)}
+                className="gap-1.5"
               />
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="block">
-              <span className="sr-only">When</span>
-              <select
-                value={range}
-                onChange={(e) => setRange(RANGES.find((r) => r.value === e.target.value)?.value ?? "all")}
-                className={`${FIELD} mt-0 w-auto`}
-              >
-                {RANGES.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.value === "custom" ? "Pick dates…" : r.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="sr-only">Which way</span>
-              <select
-                value={direction ?? ""}
-                onChange={(e) => setDirection(DIRECTIONS.find((d) => d.value === e.target.value)?.value)}
-                className={`${FIELD} mt-0 w-auto`}
-              >
-                <option value="">Both ways</option>
-                {DIRECTIONS.map((d) => (
-                  <option key={d.value} value={d.value}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="inline-flex cursor-pointer items-center gap-2 px-1 text-meta text-ink-muted touch:min-h-11">
-              <input
-                type="checkbox"
-                checked={testCalls}
-                onChange={(e) => setTestCalls(e.target.checked)}
-                className="h-4 w-4 accent-brand-strong"
+              <DateRangePicker
+                label="Dates"
+                hideLabel
+                value={dates}
+                onChange={setDates}
+                max={today}
+                placeholder="Any time"
+                clearLabel="Show calls from any time"
+                className="[&>div]:mt-0"
               />
-              Include test calls
-            </label>
-          </div>
-        </div>
-        {range === "custom" && (
-          <div className="settings-enter flex flex-wrap items-end gap-3">
-            <label className="block">
-              <span className="block text-meta text-ink-muted">From</span>
-              <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className={`${FIELD} w-auto`} />
-            </label>
-            <label className="block">
-              <span className="block text-meta text-ink-muted">To</span>
-              <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className={`${FIELD} w-auto`} />
-            </label>
-            <span className="pb-2 text-meta text-ink-muted">India time, both days included.</span>
-          </div>
-        )}
-        {agentId && (
-          <div className="flex flex-wrap items-center gap-2">
-            <FilterChip
-              label={`Agent: ${agentName ?? "the chosen agent"}`}
-              active
-              onClick={() => setAgentId(undefined)}
-            />
-            <span className="text-meta text-ink-muted">Press it to show every agent&rsquo;s calls.</span>
-          </div>
-        )}
-        {campaignId && (
-          <div className="flex flex-wrap items-center gap-2">
-            <FilterChip label="One campaign's calls" active onClick={() => setCampaignId(undefined)} />
-            <span className="text-meta text-ink-muted">Press it to show calls from everywhere.</span>
-          </div>
-        )}
-        {status && (
-          <div className="flex flex-wrap items-center gap-2">
-            <FilterChip label={`Only ${lookup(STATUS_WORDS, status) ?? status} calls`} active onClick={() => setStatus(undefined)} />
-            <span className="text-meta text-ink-muted">Press it to show every call.</span>
-          </div>
-        )}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* The denominator, only once the query has answered — a count rendered while
-              loading says 0 and then jumps. With more pages behind it the loaded length is
-              a statement about our query, not their business, so it is not called a total. */}
-          {calls.data ? (
-            <p className="text-meta text-ink-muted">
-              {calls.hasNextPage ? "Showing the " : ""}
-              <span className="font-semibold tabular-nums text-ink">{formatCount(rows.length)}</span>{" "}
-              {calls.hasNextPage ? "most recent" : rows.length === 1 ? "call" : "calls"}
-              {filtered ? " matching these filters" : ""}
-            </p>
-          ) : (
-            <span />
-          )}
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            {exportAccess.allowed && (
-              <button
-                type="button"
-                className={TEXT_ACTION}
-                disabled={exportCalls.isPending}
-                onClick={() => exportCalls.mutate(filters)}
-              >
-                {exportCalls.isPending ? "Preparing…" : "Export CSV"}
-              </button>
-            )}
-            <AskAssistant prompt="Summarise my latest calls: what callers wanted, and what I should follow up." />
-          </div>
-        </div>
-        {exportCalls.error ? <ProblemNotice error={exportCalls.error} /> : null}
+              <label className="block">
+                <span className="sr-only">Which way</span>
+                <select
+                  value={direction ?? ""}
+                  onChange={(e) => setDirection(DIRECTIONS.find((d) => d.value === e.target.value)?.value)}
+                  className={`${FIELD} mt-0 w-auto`}
+                >
+                  <option value="">Both ways</option>
+                  {DIRECTIONS.map((d) => (
+                    <option key={d.value} value={d.value}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="inline-flex cursor-pointer items-center gap-2 px-1 text-meta text-ink-muted touch:min-h-11">
+                <input
+                  type="checkbox"
+                  checked={testCalls}
+                  onChange={(e) => setTestCalls(e.target.checked)}
+                  className="h-4 w-4 accent-brand-strong"
+                />
+                Include test calls
+              </label>
+            </>
+          }
+          tools={
+            <>
+              {exportAccess.allowed && (
+                <ActionButton
+                  variant="secondary-sm"
+                  status={exporting.status}
+                  pendingLabel="Preparing…"
+                  successLabel="Downloaded"
+                  onClick={() => exporting.run(filters)}
+                >
+                  Export CSV
+                </ActionButton>
+              )}
+              <AskAssistant prompt="Summarise my latest calls: what callers wanted, and what I should follow up." />
+            </>
+          }
+          active={active}
+          onClearAll={clearAll}
+          removeLabel={(filter) => `Remove the filter: ${filter.label}`}
+        />
+        {/* The denominator, only once the query has answered — a count rendered while
+            loading says 0 and then jumps. With more pages behind it the loaded length is
+            a statement about our query, not their business, so it is not called a total. */}
+        {calls.data ? (
+          <p role="status" className="text-meta text-ink-muted">
+            {calls.hasNextPage ? "Showing the " : ""}
+            <span className="font-semibold tabular-nums text-ink">{formatCount(rows.length)}</span>{" "}
+            {calls.hasNextPage ? "most recent" : rows.length === 1 ? "call" : "calls"}
+            {filtered ? " matching these filters" : ""}
+            {phone && rows.length > 0 ? ". Swipe a call for quick actions." : ""}
+          </p>
+        ) : null}
       </div>
 
       {calls.error && <ProblemNotice error={calls.error} onRetry={() => void calls.refetch()} />}
@@ -332,6 +359,13 @@ export function CallsScreen({ slug }: { slug: string }) {
           <div className="p-4">
             <ProblemNotice error={new Error("Your calls did not load.")} onRetry={() => void calls.refetch()} />
           </div>
+        ) : rows.length && phone ? (
+          <CallsPhoneList
+            rows={rows}
+            callHref={(id) => href(`/c/${slug}/calls/${id}`)}
+            actions={followUp}
+            targetOf={targetOf}
+          />
         ) : rows.length ? (
           <DataTable
             rows={rows}
@@ -344,21 +378,17 @@ export function CallsScreen({ slug }: { slug: string }) {
                 : undefined
             }
           />
+        ) : filtered ? (
+          <EmptyState variant="filtered" message="No calls match this filter" onClear={clearAll} clearLabel="Show all calls" />
         ) : (
           <EmptyState
-            illustration={filtered ? undefined : <EmptySketch kind="calls" />}
-            message={filtered ? "No calls match this filter" : "No calls yet."}
-            hint={filtered ? undefined : "A call shows here a couple of minutes after the caller hangs up."}
+            illustration={<EmptySketch kind="calls" />}
+            message="No calls yet."
+            hint="A call shows here a couple of minutes after the caller hangs up."
             action={
-              filtered ? (
-                <button type="button" className={SECONDARY_BUTTON_SM} onClick={clearAll}>
-                  Show all calls
-                </button>
-              ) : (
-                <Link href={href(`/c/${slug}/agents`)} className={SECONDARY_BUTTON_SM}>
-                  Make a test call
-                </Link>
-              )
+              <Link href={href(`/c/${slug}/agents`)} className={SECONDARY_BUTTON_SM}>
+                Make a test call
+              </Link>
             }
           />
         )}
@@ -378,6 +408,7 @@ export function CallsScreen({ slug }: { slug: string }) {
           />
         )}
       </div>
+      {followUp.dialogs}
     </div>
   );
 }

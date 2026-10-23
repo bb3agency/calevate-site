@@ -237,7 +237,8 @@ describe("the column chooser reaches the table AND the file", () => {
     const headers = (await screen.findAllByRole("columnheader")).map(
       (h) => h.textContent,
     );
-    // The leading "Select" is the bulk-selection column (slice AE), not a data column:
+    // The leading header is the bulk-selection column (slice AE; its select-all checkbox
+    // carries the name, so the cell has no text), not a data column:
     // it is a CONTROL the screen owns, so it is not part of the server's resolved list
     // and it is deliberately absent from the CSV. The assertion still pins that the
     // DATA columns are the server's, in the server's order, which is what this test is
@@ -245,7 +246,7 @@ describe("the column chooser reaches the table AND the file", () => {
     // "More" is the row-actions column (`RowMenu`), a control like "Select": its header
     // is visually hidden text, and it is not part of the server's list or the CSV.
     expect(headers).toEqual([
-      "Select",
+      "",
       "Name",
       "Phone",
       "Budget band",

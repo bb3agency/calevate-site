@@ -1,11 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 
+import type { FollowUpActions, FollowUpTarget } from "@/components/calls/followUpActions";
 import { formatCount, formatIST, formatPhone } from "@/components/ui";
-import { type CallLeadResult } from "@/lib/api/client";
-import { useCallLead, useWriteAccess } from "@/lib/api/hooks";
+import { useWriteAccess } from "@/lib/api/hooks";
 import {
   useLeadRowEdit,
   useMembers,
@@ -33,10 +32,9 @@ import type { LeadRowKit } from "./leadRowKit";
  * board share every line of it: they draw the SAME row, so a second copy of any of this
  * would be the drift `leadRowKit.ts` exists to prevent.
  *
- * `callResults` lives HERE rather than on the mutation, and that is the point of putting
- * it beside the control: `callLead.data` is one slot, so calling a second lead would move
- * the first row's verdict onto the second — and a compliance refusal moving rows is worse
- * than none.
+ * Calling a lead goes through the screen's follow-up actions (`followUp`), which keep each
+ * lead's answer against that lead: one mutation slot would move the first row's verdict
+ * onto the second, and a compliance refusal moving rows is worse than none.
  */
 export function useLeadRowKit({
   session,
@@ -48,8 +46,7 @@ export function useLeadRowKit({
   members,
   readOnly,
   canCall,
-  callLead,
-  selectedAgentId,
+  followUp,
   selection,
   setSelection,
   filtered,
@@ -66,8 +63,7 @@ export function useLeadRowKit({
   members: ReturnType<typeof useMembers>;
   readOnly: boolean;
   canCall: boolean;
-  callLead: ReturnType<typeof useCallLead>;
-  selectedAgentId: string;
+  followUp: FollowUpActions;
   selection: BulkSelection;
   setSelection: (update: (prev: BulkSelection) => BulkSelection) => void;
   /** Is ANY filter narrowing the rows — one answer off the lens; see `leadRowKit.ts`. */
@@ -77,28 +73,22 @@ export function useLeadRowKit({
   /** The SERVER's count for a stage, or `undefined` when it did not say. */
   stageCount: (stage: LeadStatus) => number | undefined;
 }): LeadRowKit {
-  /**
-   * The dispatch answer, per lead — see the header.
-   */
-  const [callResults, setCallResults] = useState<Record<string, CallLeadResult>>({});
+  const targetOf = (lead: Lead): FollowUpTarget => ({
+    key: lead.id,
+    name: lead.name ?? formatPhone(lead.phone_e164),
+    phone: lead.phone_e164,
+    leadId: lead.id,
+    leadStatus: lead.status,
+  });
 
-  const dispatch = (leadId: string) =>
-    callLead.mutate(
-      { leadId, agentId: selectedAgentId },
-      // A 200 carrying `status: "blocked"` is the compliance gate answering, not an
-      // error — it is recorded against the row like the queued case (same shape the
-      // call-detail follow-up card handles).
-      {
-        onSuccess: (result) => setCallResults((prev) => ({ ...prev, [leadId]: result })),
-      },
-    );
-
+  // A 200 carrying `status: "blocked"` is the compliance gate answering, not an error: it
+  // is kept against the row like the queued case.
   const callCell = (lead: Lead) =>
     canCall ? (
       <CallControl
-        result={callResults[lead.id]}
-        pending={callLead.isPending && callLead.variables?.leadId === lead.id}
-        onCall={() => dispatch(lead.id)}
+        result={followUp.callResult(lead.id)}
+        pending={followUp.actionsFor(targetOf(lead)).primary.status === "pending"}
+        onCall={() => followUp.startCall(targetOf(lead))}
       />
     ) : null;
 
@@ -234,7 +224,6 @@ export function useLeadRowKit({
   // `useMemo` keyed on it would recompute every render anyway while implying it did not.
   const pageIds = items.map((lead) => lead.id);
   const ticked = new Set(selection.wholeQuery ? pageIds : selection.ids);
-  const allOfPageTicked = pageIds.length > 0 && pageIds.every((id) => ticked.has(id));
 
   const toggleRow = (leadId: string) =>
     setSelection((prev) => {
@@ -261,12 +250,11 @@ export function useLeadRowKit({
     maySelect,
     readOnly,
     ticked,
-    allOfPageTicked,
     toggleRow,
-    toggleAllOnPage: () =>
-      setSelection(() =>
-        allOfPageTicked ? EMPTY_SELECTION : { ids: pageIds, wholeQuery: false },
-      ),
+    // The table's own select-all is page-scoped; narrowing a whole-query selection by
+    // unticking a row lands here too, as an explicit page set (see `toggleRow`).
+    setTicked: (next) =>
+      setSelection(() => (next.size === 0 ? EMPTY_SELECTION : { ids: pageIds.filter((id) => next.has(id)), wholeQuery: false })),
     renderCell,
     rowFailure,
     callCell,
@@ -282,6 +270,8 @@ export function useLeadRowKit({
     ),
     hrefFor: (lead) => href(`/c/${session.orgSlug}/leads/${lead.id}`),
     callHref: (callId) => href(`/c/${session.orgSlug}/calls/${callId}`),
+    followUp,
+    targetOf,
     stageCount,
     filtered,
     askTerm,

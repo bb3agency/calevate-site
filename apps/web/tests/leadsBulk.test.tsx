@@ -182,6 +182,15 @@ async function lastCallTo(
   });
 }
 
+/** The batch's summary: one of several status lines on the screen, told apart by its words. */
+async function bulkSummary(): Promise<HTMLElement> {
+  return vi.waitFor(() => {
+    const found = screen.getAllByRole("status").find((el) => / out of /.test(el.textContent ?? ""));
+    if (!found) throw new Error("no batch summary yet");
+    return found;
+  });
+}
+
 /** Tick a row by the lead's own name — the label the screen actually gives the box. */
 async function tick(name: string) {
   fireEvent.click(await screen.findByLabelText(`Select ${name}`));
@@ -199,7 +208,7 @@ describe("selection scope is never ambiguous", () => {
     await renderClientPage(<LeadsPage />, routes());
     await tick("Ramesh Kumar");
     expect(
-      await screen.findByText(/1 lead on this page is selected/),
+      await screen.findByText(/1 lead on this page selected/),
     ).toBeTruthy();
   });
 
@@ -238,7 +247,7 @@ describe("selection scope is never ambiguous", () => {
     );
     // The bar still names the scope and the count; what is absent is the escape hatch,
     // because there is nothing off-screen for it to reach.
-    await screen.findByText(/2 leads on this page are selected/);
+    await screen.findByText(/2 leads on this page selected/);
     expect(
       screen.queryByRole("button", { name: /matching these filters/ }),
     ).toBeNull();
@@ -332,11 +341,11 @@ describe("selection scope is never ambiguous", () => {
       }),
     );
     await tick("Ramesh Kumar");
-    await screen.findByText(/1 lead on this page is selected/);
+    await screen.findByText(/1 lead on this page selected/);
 
     fireEvent.click(screen.getByRole("radio", { name: /^Won/ }));
     expect(
-      await vi.waitFor(() => screen.queryByText(/is selected/)),
+      await vi.waitFor(() => screen.queryByText(/ selected$/)),
     ).toBeNull();
   });
 
@@ -373,7 +382,7 @@ describe("the confirmation states the consequences before the click", () => {
     await tick("Ramesh Kumar");
     await review();
 
-    const alert = await screen.findByText(/Set the stage to/);
+    const alert = await screen.findByRole("dialog", { name: /Set the stage to/ });
     expect(alert.textContent).toContain("1 lead");
     expect(alert.textContent).toContain("you have ticked on this page");
     // The `unchanged` bucket is promised BEFORE the run, so "3 were already there" in the
@@ -452,7 +461,7 @@ describe("the result is the server's answer, and a partial failure reads as one"
     await review();
     fireEvent.click(await screen.findByRole("button", { name: /Apply to 1/ }));
 
-    const summary = await screen.findByRole("status");
+    const summary = await bulkSummary();
     // Every number is the SERVER's, including the ones the screen never asked for.
     expect(summary.textContent).toContain("1 lead changed");
     expect(summary.textContent).toContain("2 could not be changed");
@@ -485,7 +494,7 @@ describe("the result is the server's answer, and a partial failure reads as one"
     await review();
     fireEvent.click(await screen.findByRole("button", { name: /Apply to 1/ }));
 
-    const summary = await screen.findByRole("status");
+    const summary = await bulkSummary();
     expect(summary.textContent).toContain("7 leads changed");
     expect(summary.textContent).toContain("3 leads were already there");
     expect(summary.textContent).not.toContain("could not be changed");
@@ -508,7 +517,7 @@ describe("the result is the server's answer, and a partial failure reads as one"
     await review();
     fireEvent.click(await screen.findByRole("button", { name: /Apply to 1/ }));
 
-    expect((await screen.findByRole("status")).textContent).toContain(
+    expect((await bulkSummary()).textContent).toContain(
       "out of 140 matching those filters",
     );
   });
@@ -535,7 +544,7 @@ describe("the result is the server's answer, and a partial failure reads as one"
     expect(
       alerts.some((a) => a.textContent?.includes("nothing was changed")),
     ).toBe(true);
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByText(/ out of /)).toBeNull();
   });
 });
 

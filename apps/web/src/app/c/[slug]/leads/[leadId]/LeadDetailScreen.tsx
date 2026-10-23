@@ -1,7 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ButtonGroup } from "@/components/arc/button-group";
+import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
+import { useFollowUpActions } from "@/components/calls/followUpActions";
 
 import {
   NoticeBox,
@@ -16,7 +17,8 @@ import {
 } from "@/components/ui";
 import { CopyButton } from "@/components/interior/copy-button";
 import { PageHeader } from "@/components/console/pageHeader";
-import { TEXT_ACTION } from "@/components/console/section";
+import { canDialOut } from "@/lib/agentState";
+import { useAgents } from "@/lib/api/agents";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { useEditLead, useLead, useLeadTimeline, useMembers } from "@/lib/api/leads";
 import { useClientRealm } from "@/lib/api/session";
@@ -28,6 +30,18 @@ import { AssigneeSelect } from "../AssigneeSelect";
 import { STATUSES, StatusSelect } from "../StatusSelect";
 import { LeadCaptured } from "./LeadCaptured";
 import { LeadTimeline } from "./LeadTimeline";
+
+/** A select's label with its save state beside it: the select itself cannot carry a face. */
+function FieldHead({ label, status }: { label: string; status: FeedbackStatus }) {
+  return (
+    <span className="flex items-center gap-2 text-meta font-medium text-ink-muted">
+      {label}
+      <span role="status" className="font-normal text-ink-faint">
+        {status === "pending" ? "Saving…" : status === "success" ? "Saved" : ""}
+      </span>
+    </span>
+  );
+}
 
 /** How many events one page of the history holds. The API caps this at 100. */
 const TIMELINE_LIMIT = 50;
@@ -68,7 +82,21 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
   // ONE mutation for every edit of a lead — the same `useEditLead` the table uses,
   // moved here in the change that replaced `useAssignLead` and `useUpdateLeadStatus`.
   const editLead = useEditLead(session);
+  // Each select shows its own "Saving…/Saved" beside its label; a failure is a toast.
+  const editing = useActionFeedback(editLead, { errorTitle: "Could not save the change" });
+  const editingField = editLead.variables?.edit.status !== undefined ? "status" : "owner";
   const me = useMe(session);
+  const agents = useAgents(session);
+  const dialer = agents.data?.find(canDialOut);
+  const followUp = useFollowUpActions(session, {
+    dialerFor: () => (dialer ? { id: dialer.id, name: dialer.name } : null),
+    noDialerReason:
+      agents.error != null
+        ? "We could not read your agents just now, so no call can be placed. Reload the page to try again."
+        : !agents.data
+          ? "Checking which of your agents can place the call…"
+          : undefined,
+  });
   const mayAssign = useWriteAccess(session, "leads:write", "change who owns a lead");
 
   // The history, flattened across the loaded pages. Deduped by id: newest-first plus
@@ -173,7 +201,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
         // than cast past it.
         const next = STATUSES.find((stage) => stage === asText(item.value));
         if (next !== undefined && next !== lead.data?.status) {
-          editLead.mutate({ leadId, edit: { status: next } });
+          editing.run({ leadId, edit: { status: next } });
         }
       }
     },
@@ -214,15 +242,22 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
               </>
             }
             actions={
-              lead.data.last_call_id && (
-                <Link
-                  href={href(`/c/${slug}/calls/${lead.data.last_call_id}`)}
-                  className={TEXT_ACTION}
-                >
-                  Open the last call
-                  <ArrowRight aria-hidden className="h-3.5 w-3.5" />
-                </Link>
-              )
+              <ButtonGroup
+                label={`Actions for ${leadTitle(lead.data)}`}
+                moreLabel={`More actions for ${leadTitle(lead.data)}`}
+                actions={[
+                  ...followUp.groupActions({
+                    key: lead.data.id,
+                    name: leadTitle(lead.data),
+                    phone: lead.data.phone_e164,
+                    leadId: lead.data.id,
+                    leadStatus: lead.data.status,
+                  }),
+                  ...(lead.data.last_call_id
+                    ? [{ id: "last-call", label: "Open the last call", href: href(`/c/${slug}/calls/${lead.data.last_call_id}`) }]
+                    : []),
+                ]}
+              />
             }
           />
 
@@ -252,17 +287,17 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
               decision is made, with the same shared selects and mutation as the table. */}
           <div className="mt-4 grid grid-cols-1 gap-3 border-t border-line pt-4 sm:grid-cols-2 lg:max-w-xl">
             <div className="flex flex-col gap-1">
-              <span className="text-meta font-medium text-ink-muted">Stage</span>
+              <FieldHead label="Stage" status={editingField === "status" ? editing.status : "idle"} />
               <StatusSelect
                 value={lead.data.status}
                 label={`Stage for ${lead.data.name ?? lead.data.phone_e164}`}
                 disabled={!mayAssign.allowed || editLead.isPending}
-                onChange={(next) => editLead.mutate({ leadId, edit: { status: next } })}
+                onChange={(next) => editing.run({ leadId, edit: { status: next } })}
                 className="h-9 rounded-md border border-line bg-surface px-2 text-sm capitalize text-ink disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11"
               />
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-meta font-medium text-ink-muted">Owner</span>
+              <FieldHead label="Owner" status={editingField === "owner" ? editing.status : "idle"} />
               <AssigneeSelect
                 lead={lead.data}
                 members={members.data}
@@ -272,7 +307,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
                     : mayAssign.reason
                 }
                 disabled={!mayAssign.allowed || editLead.isPending}
-                onChange={(userId) => editLead.mutate({ leadId, edit: { assigned_to: userId } })}
+                onChange={(userId) => editing.run({ leadId, edit: { assigned_to: userId } })}
                 className="h-9 rounded-md border border-line bg-surface px-2 text-sm text-ink touch:min-h-11"
               />
             </div>
@@ -296,7 +331,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
       )}
 
       {members.error != null && <ProblemNotice error={members.error} />}
-      {editLead.error != null && <ProblemNotice error={editLead.error} />}
+      {followUp.dialogs}
 
       <LeadTimeline
         timeline={timeline}

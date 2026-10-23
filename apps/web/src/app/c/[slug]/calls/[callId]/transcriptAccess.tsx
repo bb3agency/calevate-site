@@ -1,9 +1,9 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { Download, Eye, EyeOff, LoaderCircle } from "lucide-react";
+import { Download, Eye, EyeOff } from "lucide-react";
 
-import { SECONDARY_BUTTON_SM } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ApiProblem, apiRequest, type CallDetail, type Session } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
 import { useMe } from "@/lib/api/hooks";
@@ -195,24 +195,22 @@ function downloadRefusal(error: unknown): string {
 /** "Download recording", beside the player's speed and volume. Owner-only, like playing. */
 export function DownloadRecordingButton({ session, callId }: { session: Session; callId: string }) {
   const download = useRecordingDownload(session, callId);
-  const Icon = download.isPending ? LoaderCircle : Download;
+  // The refusal is said under the button (`downloadRefusal`), so it is not toasted too.
+  const feedback = useActionFeedback(download, { errorDisplay: "inline" });
   return (
     <>
-      <button
-        type="button"
-        onClick={() => download.mutate()}
-        disabled={download.isPending}
-        aria-busy={download.isPending || undefined}
+      <ActionButton
+        variant="secondary-sm"
+        status={feedback.status}
+        pendingLabel="Preparing…"
+        successLabel="Downloaded"
+        onClick={() => feedback.run()}
         aria-label="Download recording"
         title="Download recording"
-        className={SECONDARY_BUTTON_SM}
       >
-        <Icon
-          className={`h-3.5 w-3.5 ${download.isPending ? "animate-spin motion-reduce:animate-none" : ""}`}
-          aria-hidden="true"
-        />
-        {download.isPending ? "Preparing…" : "Download"}
-      </button>
+        <Download className="h-3.5 w-3.5" aria-hidden="true" />
+        Download
+      </ActionButton>
       {download.error != null && (
         <p role="alert" className="basis-full text-meta text-warn">
           {downloadRefusal(download.error)}

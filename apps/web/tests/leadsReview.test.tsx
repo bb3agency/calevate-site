@@ -143,7 +143,7 @@ describe("the leads table", () => {
     const search = calls.find((c) => c.path === "/v1/leads/search");
     expect(JSON.parse(search?.body ?? "{}").columns).toBe("name,need,next_step,last_call,status");
     const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
-    expect(headers).toEqual(["Select", "Name", "What they want", "Next step", "Last call", "Status", "More"]);
+    expect(headers).toEqual(["", "Name", "What they want", "Next step", "Last call", "Status", "More"]);
   });
 
   it("reads a row: the number for a nameless lead, called N times, the last call linked, who set the stage", async () => {

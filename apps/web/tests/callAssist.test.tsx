@@ -75,6 +75,7 @@ function page() {
 function baseRoutes(me: Me = ME): Record<string, unknown> {
   return {
     "/v1/me": me,
+    "/v1/agents": [],
     "/v1/calls/c1": CALL,
     "/v1/calls/c1/callback": {
       eligible: false,
