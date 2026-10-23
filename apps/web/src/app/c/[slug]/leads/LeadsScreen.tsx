@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
@@ -46,7 +46,9 @@ import { useLeadsLens } from "./useLeadsLens";
  *
  * Above the rows there is ONE toolbar (search, the question box, columns, export), the
  * stage chips with their counts, and a closed "More filters" holding what is used now and
- * then (owner, captured-answer filters, saved views). The table starts on five columns —
+ * then (owner, captured-answer filters, saved views). On a phone only search and stage stay
+ * out; the rest folds behind the toolbar's "Filters" button (`LeadsToolbar`), so the rows
+ * start near the top of the screen. The table starts on five columns —
  * who, what they want, what is next, the last call and the stage — and the business's own
  * fields wait in the column chooser. On a phone the table scrolls sideways inside its own
  * region with the Name column pinned, and the page itself never does (founder, 10 Oct 2026).
@@ -197,6 +199,8 @@ export function LeadsScreen() {
   /** How many of the "More filters" are narrowing the rows, for its closed state. */
   const moreInUse =
     (f.assignedTo ? 1 : 0) + Object.values(f.facetValues).filter((values) => values.length > 0).length;
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const panelId = useId();
 
   return (
     <div className="space-y-4 pb-12">
@@ -225,9 +229,11 @@ export function LeadsScreen() {
         exportRefusal={exportRefused}
         exportNote={exportNote}
         onExported={() => undefined}
+        filtersOpen={filtersOpen}
+        onFiltersOpen={setFiltersOpen}
+        filtersInUse={(f.askTerm ? 1 : 0) + moreInUse}
+        filtersPanelIds={`${panelId}-find ${panelId}-more`}
       />
-
-      <RestrictionNote reason={exportRefused} />
 
       {/* STAGE, with the server's count for each beside it — the one filter a client
           uses most, and the stage tally in the same place. */}
@@ -273,6 +279,7 @@ export function LeadsScreen() {
         </div>
       </div>
 
+      <div id={`${panelId}-more`} className={filtersOpen ? undefined : "hidden sm:block"}>
       <MoreFilters
         inUse={moreInUse}
         myUserId={myUserId}
@@ -304,6 +311,7 @@ export function LeadsScreen() {
           columns: f.chosenColumns ?? null,
         }}
       />
+      </div>
 
       {/* WHAT THE ROWS ARE when a question is in force: a ranked table looks exactly like
           a filtered one. `semantic_truncated` is the server's own "is this all of them". */}
