@@ -373,7 +373,8 @@ function SwitchOnStep({
       }
       onBack={onBack}
       primary={live ? "Go to my dashboard" : undefined}
-      pending={finishFeedback.status === "pending"}
+      status={finishFeedback.status}
+      successLabel="Done"
       onSubmit={() => finish.mutate(undefined, { onSuccess: onFinished })}
     >
       {agents.isError ? <ProblemNotice error={agents.error} onRetry={() => void agents.refetch()} /> : null}
