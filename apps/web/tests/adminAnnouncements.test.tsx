@@ -80,7 +80,7 @@ describe("announcements screen", () => {
     });
     expect(await screen.findByText(SHOWING.message)).toBeTruthy();
     expect(screen.getByText("Showing now")).toBeTruthy();
-    expect(screen.getByText("Every client")).toBeTruthy();
+    expect(screen.getByText("Heads up for every client")).toBeTruthy();
     expect(screen.getByText(/until ended IST/)).toBeTruthy();
   });
 

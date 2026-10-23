@@ -308,9 +308,9 @@ function AnnouncementRow({
         <p className="break-words text-body font-medium text-ink">{row.message}</p>
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-ink-muted">
           <StatusPill tone={state.tone}>{state.label}</StatusPill>
-          <span>{TONE_WORD[row.tone]}</span>
-          <span aria-hidden>·</span>
-          <span className="min-w-0 break-words">{audienceLabel(row)}</span>
+          <span className="min-w-0 break-words">
+            {TONE_WORD[row.tone]} for {row.audience === "tenant" ? audienceLabel(row) : audienceLabel(row).toLowerCase()}
+          </span>
         </p>
         <p className="text-meta text-ink-muted">{span} IST</p>
         {row.link_url ? (

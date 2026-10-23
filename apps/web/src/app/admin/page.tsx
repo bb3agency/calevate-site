@@ -509,7 +509,7 @@ function ClientRow({ tenant }: { tenant: TenantSummary }) {
             key={rule}
             href="/admin/holds"
             title="Held for a human decision — see the work list"
-            className="rounded-full hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+            className="rounded-full hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:inline-flex touch:min-h-11 touch:items-center"
           >
             <StatusPill tone="warn">{holdRule(rule)?.label ?? rule}</StatusPill>
           </Link>

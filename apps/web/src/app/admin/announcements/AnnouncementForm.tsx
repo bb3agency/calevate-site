@@ -114,9 +114,7 @@ export function AnnouncementForm({
                 over ? "font-medium text-danger" : near ? "text-warn" : "text-ink-muted",
               )}
             >
-              {over
-                ? `${length - MAX_MESSAGE_CHARS} over the ${MAX_MESSAGE_CHARS}-character limit`
-                : `${length} of ${MAX_MESSAGE_CHARS} characters`}
+              {`${length} of ${MAX_MESSAGE_CHARS} characters`}
             </p>
           </div>
         )}
