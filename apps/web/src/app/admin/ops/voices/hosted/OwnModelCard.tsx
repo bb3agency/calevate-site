@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { configHref } from "@/app/admin/ops/config/configSections";
 import { StatusPill } from "@/components/admin/kit";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { InfoTip } from "@/components/console/infoTip";
@@ -117,10 +118,24 @@ export function OwnModelCard() {
   const own = useOwnModel(true);
   const enable = useEnableOwnModelWorkspace();
   const developer = useEnableOwnModelDeveloper();
+  // Each dialog prints its own refusal; a success closes it, so the toast says what happened.
+  const enableFeedback = useActionFeedback(enable, {
+    errorDisplay: "inline",
+    successToast: "Our Google key is installed for that client",
+  });
+  const developerFeedback = useActionFeedback(developer, {
+    errorDisplay: "inline",
+    successToast: "Our developer workspace is set up",
+  });
   const [confirmingDeveloper, setConfirmingDeveloper] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [tenantId, setTenantId] = useState("");
-  const tenantField = useId();
+  useEffect(() => {
+    if (developerFeedback.status === "success") setConfirmingDeveloper(false);
+  }, [developerFeedback.status]);
+  useEffect(() => {
+    if (enableFeedback.status === "success") setConfirming(false);
+  }, [enableFeedback.status]);
   const openInstall = (client = "") => {
     enable.reset();
     setTenantId(client);
@@ -253,10 +268,10 @@ export function OwnModelCard() {
           title="Set up our developer workspace?"
           confirmLabel="Set up"
           pendingLabel="Working…"
-          pending={developer.isPending}
+          status={developerFeedback.status}
           error={developer.error}
           onCancel={() => setConfirmingDeveloper(false)}
-          onConfirm={() => developer.mutate(undefined, { onSuccess: () => setConfirmingDeveloper(false) })}
+          onConfirm={() => developerFeedback.run(undefined)}
         >
           <p>
             This installs our Google key in our ThinnestAI developer workspace, where free-trial agents
@@ -273,12 +288,12 @@ export function OwnModelCard() {
           confirmDisabled={!tenantId}
           confirmLabel="Install"
           pendingLabel="Working…"
-          pending={enable.isPending}
+          status={enableFeedback.status}
           error={enable.error}
           onCancel={() => setConfirming(false)}
           onConfirm={() => {
             if (!tenantId) return;
-            enable.mutate({ tenant_id: tenantId }, { onSuccess: () => setConfirming(false) });
+            enableFeedback.run({ tenant_id: tenantId });
           }}
         >
           <p>
@@ -288,7 +303,6 @@ export function OwnModelCard() {
             follow them kept off first. You may be asked to confirm it is still you.
           </p>
           <ClientPicker
-            id={tenantField}
             label="Paying client"
             clients={data.clients}
             value={tenantId}

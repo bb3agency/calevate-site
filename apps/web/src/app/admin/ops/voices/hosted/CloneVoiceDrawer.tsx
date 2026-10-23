@@ -4,7 +4,8 @@ import { useId, useState } from "react";
 import { AudioLines } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
-import { Drawer, DrawerSubmit } from "@/components/console/drawer";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { Drawer } from "@/components/console/drawer";
 import {
   FIELD,
   FIELD_HINT,
@@ -42,6 +43,7 @@ const DESCRIPTION_MAX = 200;
  */
 export function CloneVoiceDrawer({ onClose }: { onClose: () => void }) {
   const clone = useCloneVoice();
+  const cloneFeedback = useActionFeedback(clone, { errorDisplay: "inline" });
   const formId = useId();
   const [sample, setSample] = useState<File | null>(null);
   const [name, setName] = useState("");
@@ -89,10 +91,24 @@ export function CloneVoiceDrawer({ onClose }: { onClose: () => void }) {
       width="lg"
       formId={formId}
       footer={
-        <DrawerSubmit className={PRIMARY_BUTTON} disabled={clone.isPending || !complete}>
-          <AudioLines aria-hidden className="h-4 w-4" />
-          {clone.isPending ? "Cloning — this can take a minute…" : "Clone this voice"}
-        </DrawerSubmit>
+        <>
+          {/* Said beside the button, not on it: every face of an ActionButton shares its
+              width, and a sentence-long pending face would widen it past a phone. */}
+          {cloneFeedback.status === "pending" && (
+            <span className="text-meta text-ink-muted">This can take a minute.</span>
+          )}
+          <ActionButton
+            type="submit"
+            form={formId}
+            status={cloneFeedback.status}
+            disabled={!complete}
+            pendingLabel="Cloning…"
+            successLabel="Cloned"
+          >
+            <AudioLines aria-hidden className="h-4 w-4" />
+            Clone this voice
+          </ActionButton>
+        </>
       }
     >
       <form

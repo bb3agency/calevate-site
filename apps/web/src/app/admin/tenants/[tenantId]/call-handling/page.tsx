@@ -11,6 +11,7 @@
 
 import { use } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { CallHandlingDefaultsRows } from "@/components/callHandlingDefaults";
 import { PageHeader } from "@/components/console/pageHeader";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
@@ -37,6 +38,9 @@ export default function TenantCallHandlingPage({
   const tenant = useTenant(tenantId).data;
   const state = useAdminOrganizationCallHandling(tenantId);
   const save = useAdminSetOrganizationCallHandling(tenantId, tenant?.slug);
+  // The shared rows draw their own saving state and refusal beside each control, so this
+  // only keeps the outcome announced; a toast would say the refusal twice.
+  useActionFeedback(save, { errorDisplay: "inline" });
   const write = useAdminAccess("admin:tenants", "change a client's call handling defaults");
   const data = state.data;
 

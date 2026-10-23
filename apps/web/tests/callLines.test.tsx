@@ -28,6 +28,13 @@ function lines(over: Partial<CallLines> = {}): CallLines {
   };
 }
 
+/** Types into the bounded field; it applies the number when focus leaves, as a person's tab does. */
+function enter(value: string) {
+  const box = screen.getByRole("spinbutton", { name: "Calls at once" });
+  fireEvent.change(box, { target: { value } });
+  fireEvent.blur(box);
+}
+
 async function change() {
   await act(async () => {
     fireEvent.click(await screen.findByRole("button", { name: "Change" }));
@@ -47,7 +54,7 @@ describe("calls at once", () => {
       [`PUT ${PATH}`]: lines({ call_lines: 5, call_lines_chosen: 5, source: "organization" }),
     });
     await change();
-    fireEvent.change(screen.getByLabelText(/Calls at once, 1 to 50/), { target: { value: "5" } });
+    enter("5");
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Save" }));
     });
@@ -57,13 +64,33 @@ describe("calls at once", () => {
     expect(screen.getByText("Set for this client")).toBeTruthy();
   });
 
-  it("refuses a number out of range before sending it", async () => {
-    const { calls } = renderAdminPage(<CallLinesPanel tenantId="t1" canWrite />, { [PATH]: lines() });
+  it("holds a number past the limit at the limit and says so", async () => {
+    const { calls } = renderAdminPage(<CallLinesPanel tenantId="t1" canWrite />, {
+      [PATH]: lines(),
+      [`PUT ${PATH}`]: lines({ call_lines: 50, call_lines_chosen: 50, source: "organization" }),
+    });
     await change();
-    fireEvent.change(screen.getByLabelText(/Calls at once, 1 to 50/), { target: { value: "51" } });
-    expect(screen.getByText("Enter 1 to 50, or leave it empty.")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(calls.some((c) => c.method === "PUT")).toBe(false);
+    enter("51");
+    expect(screen.getByText("Kept to 50, the limit here.")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}")).toEqual({ call_lines: 50 });
+  });
+
+  it("sends null for an emptied field, so the default applies", async () => {
+    const { calls } = renderAdminPage(<CallLinesPanel tenantId="t1" canWrite />, {
+      [PATH]: lines({ call_lines: 5, call_lines_chosen: 5, source: "organization" }),
+      [`PUT ${PATH}`]: lines(),
+    });
+    await change();
+    enter("");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}")).toEqual({ call_lines: null });
   });
 
   it("clears the server's refusal when the change is cancelled", async () => {
@@ -72,7 +99,7 @@ describe("calls at once", () => {
       [`PUT ${PATH}`]: problem(409, { title: "Not now", detail: "The workspace is busy." }),
     });
     await change();
-    fireEvent.change(screen.getByLabelText(/Calls at once, 1 to 50/), { target: { value: "3" } });
+    enter("3");
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Save" }));
     });

@@ -11,6 +11,7 @@
 
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
   FIELD_INLINE,
   FIELD_LABEL,
@@ -39,6 +40,7 @@ export function RecordEngineNumber({
   canWrite: boolean;
 }) {
   const record = useRecordEngineNumber(tenantId);
+  const recordFeedback = useActionFeedback(record, { errorDisplay: "inline" });
   const [open, setOpen] = useState(false);
   const [direction, setDirection] = useState<Direction>("both");
   const [agentId, setAgentId] = useState(NO_AGENT);
@@ -62,6 +64,7 @@ export function RecordEngineNumber({
       className="flex w-full flex-wrap items-end gap-2"
       onSubmit={(ev) => {
         ev.preventDefault();
+        if (record.isPending) return;
         record.mutate({
           e164,
           direction,
@@ -96,13 +99,15 @@ export function RecordEngineNumber({
           ))}
         </select>
       </label>
-      <button
+      <ActionButton
         type="submit"
-        className={SECONDARY_BUTTON_SM}
-        disabled={!canWrite || record.isPending}
+        variant="secondary-sm"
+        status={recordFeedback.status}
+        pendingLabel="Recording…"
+        disabled={!canWrite}
       >
-        {record.isPending ? "Recording…" : "Record"}
-      </button>
+        Record
+      </ActionButton>
       {record.error && (
         <div className="w-full">
           <ProblemNotice error={record.error} />

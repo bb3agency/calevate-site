@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import PreferenceScrubPage from "@/app/admin/tenants/[tenantId]/dnd-scrub/page";
@@ -199,13 +199,23 @@ describe("recording a national DND scrub", () => {
     expect(body.submitted_count).toBeUndefined();
   });
 
+  // The day is prefilled to today in IST, so the clock is pinned to 11:30 IST on
+  // 19 Sep 2026 and only the time of day is typed. Only `Date` is faked: the screen's
+  // timers and the harness's promises run as usual.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const pinClock = () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-19T06:00:00Z"));
+  };
+
   it("sends the moment the operator typed as IST, not as the machine's clock", async () => {
+    pinClock();
     const { calls } = await render({ [`POST ${SCRUB_PATH}`]: result() });
 
     await fillForm();
-    fireEvent.change(screen.getByLabelText(/When the provider ran it/), {
-      target: { value: "2026-09-19T11:00" },
-    });
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "11:00" } });
     fireEvent.click(submitButton());
 
     await waitFor(() => {
@@ -218,12 +228,12 @@ describe("recording a national DND scrub", () => {
   });
 
   it("refuses a future timestamp before the round trip, naming the likely cause", async () => {
+    pinClock();
     const { calls, container } = await render({ [`POST ${SCRUB_PATH}`]: result() });
 
     await fillForm();
-    fireEvent.change(screen.getByLabelText(/When the provider ran it/), {
-      target: { value: "2099-01-01T10:00" },
-    });
+    // Half an hour after the pinned clock.
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "12:00" } });
     expect(submitButton().disabled).toBe(true);
     fireEvent.click(submitButton());
     expect(calls.some((c) => c.method === "POST" && c.path === SCRUB_PATH)).toBe(false);

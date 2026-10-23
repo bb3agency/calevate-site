@@ -4,14 +4,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MailCheck, TimerOff, UserCog, UserMinus } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
-import {
-  DANGER_BUTTON,
-  FIELD,
-  FIELD_LABEL,
-  PRIMARY_BUTTON_SM,
-  SECONDARY_BUTTON,
-} from "@/components/ui";
+import { FIELD, FIELD_LABEL, SECONDARY_BUTTON } from "@/components/ui";
 import {
   ROLE_COPY,
   operatorConfirmPhrase,
@@ -41,7 +36,7 @@ function ConfirmBlock({
   pendingLabel,
   danger,
   icon,
-  pending,
+  status,
   error,
   onConfirm,
   onClose,
@@ -61,7 +56,8 @@ function ConfirmBlock({
   pendingLabel: string;
   danger: boolean;
   icon: ReactNode;
-  pending: boolean;
+  /** The act's state from the panel's `useActionFeedback`; a success closes the block. */
+  status: FeedbackStatus;
   error: unknown;
   onConfirm: (reason: string) => void;
   onClose: () => void;
@@ -72,10 +68,15 @@ function ConfirmBlock({
   const panel = useRef<HTMLDivElement>(null);
   // Opened from the row's menu, so focus follows into the block it opened.
   useEffect(() => panel.current?.focus(), []);
+  // Closed from an effect rather than the mutation's `onSuccess`, so the panel's feedback
+  // hook has already raised its success toast when the block unmounts.
+  useEffect(() => {
+    if (status === "success") onClose();
+  }, [status, onClose]);
+  const pending = status === "pending";
   // Trimmed before it is measured: the API strips the reason and refuses anything under
   // three characters, and a form that lit up on "   " would read as a flaky API.
-  const ready =
-    reason.trim().length >= 3 && confirmationMatches(typed, confirmPhrase) && !pending;
+  const ready = reason.trim().length >= 3 && confirmationMatches(typed, confirmPhrase);
 
   return (
     <div
@@ -123,14 +124,15 @@ function ConfirmBlock({
       {error != null && <WriteFailure error={error} actionLabel={actionLabel} />}
 
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
+        <ActionButton
+          status={status}
           disabled={!ready}
+          variant={danger ? "danger" : "primary-sm"}
+          pendingLabel={pendingLabel}
           onClick={() => onConfirm(reason.trim())}
-          className={danger ? DANGER_BUTTON : PRIMARY_BUTTON_SM}
         >
-          {pending ? pendingLabel : actionLabel}
-        </button>
+          {actionLabel}
+        </ActionButton>
         <button type="button" disabled={pending} onClick={onClose} className={SECONDARY_BUTTON}>
           Cancel
         </button>
@@ -153,6 +155,10 @@ export function RoleChangePanel({
   const targetCopy = lookup(ROLE_COPY, target);
   const label = operatorLabel(operator);
   const promoting = target === "superadmin";
+  const changeFeedback = useActionFeedback(change, {
+    errorDisplay: "inline",
+    successToast: promoting ? `${label} is now a super admin` : `${label} is now an admin`,
+  });
 
   return (
     <ConfirmBlock
@@ -180,11 +186,9 @@ export function RoleChangePanel({
       pendingLabel="Saving…"
       danger={promoting}
       icon={<UserCog aria-hidden className="h-4 w-4" />}
-      pending={change.isPending}
+      status={changeFeedback.status}
       error={change.error}
-      onConfirm={(reason) =>
-        change.mutate({ operatorId: operator.id, role: target, reason }, { onSuccess: onClose })
-      }
+      onConfirm={(reason) => changeFeedback.run({ operatorId: operator.id, role: target, reason })}
       onClose={onClose}
     >
       <p className="text-meta text-ink-muted">{targetCopy?.can}</p>
@@ -195,6 +199,10 @@ export function RoleChangePanel({
 export function RevokePanel({ operator, onClose }: { operator: Operator; onClose: () => void }) {
   const revoke = useRevokeOperator();
   const label = operatorLabel(operator);
+  const revokeFeedback = useActionFeedback(revoke, {
+    errorDisplay: "inline",
+    successToast: `${label} can no longer sign in`,
+  });
 
   return (
     <ConfirmBlock
@@ -219,11 +227,9 @@ export function RevokePanel({ operator, onClose }: { operator: Operator; onClose
       pendingLabel="Revoking…"
       danger
       icon={<UserMinus aria-hidden className="h-4 w-4" />}
-      pending={revoke.isPending}
+      status={revokeFeedback.status}
       error={revoke.error}
-      onConfirm={(reason) =>
-        revoke.mutate({ operatorId: operator.id, reason }, { onSuccess: onClose })
-      }
+      onConfirm={(reason) => revokeFeedback.run({ operatorId: operator.id, reason })}
       onClose={onClose}
     />
   );
@@ -232,6 +238,10 @@ export function RevokePanel({ operator, onClose }: { operator: Operator; onClose
 export function ResendPanel({ operator, onClose }: { operator: Operator; onClose: () => void }) {
   const resend = useResendOperatorSetupLink();
   const label = operatorLabel(operator);
+  const resendFeedback = useActionFeedback(resend, {
+    errorDisplay: "inline",
+    successToast: `A new setup link is on its way to ${label}`,
+  });
 
   return (
     <ConfirmBlock
@@ -257,11 +267,9 @@ export function ResendPanel({ operator, onClose }: { operator: Operator; onClose
       pendingLabel="Sending…"
       danger={false}
       icon={<MailCheck aria-hidden className="h-4 w-4" />}
-      pending={resend.isPending}
+      status={resendFeedback.status}
       error={resend.error}
-      onConfirm={(reason) =>
-        resend.mutate({ operatorId: operator.id, reason }, { onSuccess: onClose })
-      }
+      onConfirm={(reason) => resendFeedback.run({ operatorId: operator.id, reason })}
       onClose={onClose}
     />
   );
@@ -277,6 +285,10 @@ export function EndStaySignedInPanel({
 }) {
   const end = useEndOperatorStaySignedIn();
   const label = operatorLabel(operator);
+  const endFeedback = useActionFeedback(end, {
+    errorDisplay: "inline",
+    successToast: `"Stay signed in" is off for ${label}`,
+  });
 
   return (
     <ConfirmBlock
@@ -294,9 +306,9 @@ export function EndStaySignedInPanel({
       pendingLabel="Switching off…"
       danger={false}
       icon={<TimerOff aria-hidden className="h-4 w-4" />}
-      pending={end.isPending}
+      status={endFeedback.status}
       error={end.error}
-      onConfirm={(reason) => end.mutate({ operatorId: operator.id, reason }, { onSuccess: onClose })}
+      onConfirm={(reason) => endFeedback.run({ operatorId: operator.id, reason })}
       onClose={onClose}
     />
   );

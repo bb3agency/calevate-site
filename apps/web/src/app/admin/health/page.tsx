@@ -227,7 +227,7 @@ function HealthRow({ row }: { row: ClientHealth }) {
       <div className="min-w-0">
         <Link
           href={`/admin/tenants/${row.tenant_id}`}
-          className="block truncate rounded-sm text-body font-medium text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+          className="block truncate rounded-sm text-body font-medium text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:py-3"
         >
           {row.name}
         </Link>

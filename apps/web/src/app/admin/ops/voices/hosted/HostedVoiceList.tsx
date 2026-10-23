@@ -4,6 +4,8 @@ import { useState, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 
 import { LIST_HEAD, ROW_HOVER, StatusPill } from "@/components/admin/kit";
+import { ChipGroup } from "@/components/arc/chip-group";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { EmptyState } from "@/components/console/emptyState";
 import { VoicePreviewButton } from "@/components/voicePreviewButton";
 import { ProblemNotice, SECONDARY_BUTTON_SM, ToggleSwitch, formatCount } from "@/components/ui";
@@ -18,11 +20,37 @@ import {
 import { OPS_PREVIEW_PATH } from "@/lib/api/voicePreview";
 import { lookup } from "@/lib/lookup";
 
-import { metaLine } from "./voiceFilters";
+import { metaLine, type TierFilter } from "./voiceFilters";
 
 /** A filter-bar select drawn like `FilterChip`, so the bar reads as one row of filters. */
 export const FILTER_SELECT =
   "rounded-full border border-line bg-surface py-1.5 pl-3 pr-2 text-xs font-medium text-ink-muted touch:min-h-11 hover:bg-black/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:hover:bg-white/5";
+
+/** The tier filter both voice lists share: "All tiers", Clear, Studio, each with its count when given. */
+export function TierChips({
+  value,
+  onChange,
+  countOf,
+}: {
+  value: TierFilter;
+  onChange: (tier: TierFilter) => void;
+  countOf?: (tier: TierFilter) => number;
+}) {
+  const named = (word: string, tier: TierFilter) => (countOf ? `${word} ${formatCount(countOf(tier))}` : word);
+  return (
+    <ChipGroup
+      mode="single"
+      label="Tier"
+      allLabel={countOf ? named("All", "all") : "All tiers"}
+      chips={[
+        { value: "clear", label: named("Clear", "clear") },
+        { value: "studio", label: named("Studio", "studio") },
+      ]}
+      value={value === "all" ? null : value}
+      onChange={(next) => onChange(next === "clear" || next === "studio" ? next : "all")}
+    />
+  );
+}
 
 /** How many rows a list shows before "Show more": enough to scan, few enough to stay quick. */
 export const PAGE_SIZE = 25;
@@ -64,15 +92,24 @@ export function HostedVoiceList({
   voices,
   empty,
   emptyAction,
+  onClearFilters,
   onOpen,
 }: {
   voices: HostedVoice[];
   empty: ReactNode;
   emptyAction?: ReactNode;
+  /** Set while filters narrow the list: an empty list is then "nothing matches", with a way back. */
+  onClearFilters?: () => void;
   onOpen: (voiceId: string) => void;
 }) {
   const [shown, setShown] = useState(PAGE_SIZE);
-  if (voices.length === 0) return <EmptyState message={empty} action={emptyAction} />;
+  if (voices.length === 0) {
+    return onClearFilters ? (
+      <EmptyState variant="filtered" message={empty} onClear={onClearFilters} />
+    ) : (
+      <EmptyState message={empty} action={emptyAction} />
+    );
+  }
   const visible = voices.slice(0, shown);
   return (
     <div>
@@ -142,6 +179,8 @@ export function VoicePills({ voice }: { voice: HostedVoice }) {
 
 function VoiceRow({ voice, onOpen }: { voice: HostedVoice; onOpen: (voiceId: string) => void }) {
   const setState = useSetHostedState();
+  // The switch's own position is the success; a refusal is printed under the name.
+  const setStateFeedback = useActionFeedback(setState, { errorDisplay: "inline" });
   const { tier } = tierText(voice);
   const blocked = switchBlocked(voice);
   const meta = metaLine(voice);
@@ -191,8 +230,8 @@ function VoiceRow({ voice, onOpen }: { voice: HostedVoice; onOpen: (voiceId: str
             </span>
           }
           checked={voice.state === "enabled"}
-          disabled={setState.isPending || blocked !== null}
-          onChange={(on) => setState.mutate({ voice_id: voice.voice_id, state: on ? "enabled" : "disabled" })}
+          disabled={setStateFeedback.status === "pending" || blocked !== null}
+          onChange={(on) => setStateFeedback.run({ voice_id: voice.voice_id, state: on ? "enabled" : "disabled" })}
         />
       </div>
     </li>

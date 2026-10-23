@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+
+import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import {
   PRIMARY_BUTTON,
   ProblemNotice,
@@ -59,6 +61,10 @@ export function CreditsScreen({ tenantId }: { tenantId: string }) {
   const save = useRecordTopUp(adminSession(), tenantId);
   const correct = useRecordAdjustment(adminSession(), tenantId);
   const restate = useRecordRestatement(adminSession(), tenantId);
+  // Each form shows the refusal under its own button, and its receipt beside it.
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
+  const correctFeedback = useActionFeedback(correct, { errorDisplay: "inline" });
+  const restateFeedback = useActionFeedback(restate, { errorDisplay: "inline" });
   // All `admin:tenants`, each with its own sentence: a restriction note has to name the
   // control it sits under, or an operator cannot tell which button it is about.
   const write = useAdminAccess("admin:tenants", "record a payment on this client's wallet");
@@ -161,6 +167,11 @@ export function CreditsScreen({ tenantId }: { tenantId: string }) {
                 clientName={clientName}
                 onAct={setAct}
                 mutations={{ save, correct, restate }}
+                statuses={{
+                  save: saveFeedback.status,
+                  correct: correctFeedback.status,
+                  restate: restateFeedback.status,
+                }}
                 access={{ write, amend, uprate, reprice }}
               />
             )}
@@ -202,6 +213,7 @@ function ActBody({
   clientName,
   onAct,
   mutations,
+  statuses,
   access,
 }: {
   act: Act;
@@ -214,6 +226,7 @@ function ActBody({
     correct: ReturnType<typeof useRecordAdjustment>;
     restate: ReturnType<typeof useRecordRestatement>;
   };
+  statuses: { save: FeedbackStatus; correct: FeedbackStatus; restate: FeedbackStatus };
   access: { write: Access; amend: Access; uprate: Access; reprice: Access };
 }) {
   switch (act.kind) {
@@ -225,6 +238,7 @@ function ActBody({
           clientName={clientName}
           wallet={wallet}
           save={mutations.save}
+          status={statuses.save}
           write={access.write}
         />
       );
@@ -234,6 +248,7 @@ function ActBody({
           clientName={clientName}
           wallet={wallet}
           correct={mutations.correct}
+          status={statuses.correct}
           write={access.amend}
           initialEntryId={act.entryId}
         />
@@ -244,6 +259,7 @@ function ActBody({
           clientName={clientName}
           wallet={wallet}
           restate={mutations.restate}
+          status={statuses.restate}
           write={access.uprate}
           initialPaymentRef={act.paymentRef}
         />

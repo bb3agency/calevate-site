@@ -1,8 +1,10 @@
 "use client";
 
 import { useId, useState, type ReactNode } from "react";
-import { Check, RefreshCw, Search } from "lucide-react";
+import { Check, RefreshCw } from "lucide-react";
 
+import { MoneyInput } from "@/components/arc/money-input";
+import { SearchField } from "@/components/arc/search-field";
 import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import {
@@ -53,7 +55,14 @@ export interface ConfigInputProps {
   /** The ids of the hint and the error under the input. */
   describedBy: string | undefined;
   invalid: boolean;
+  /** The refusal to draw, for an input that draws its own (see `drawsOwnError`). */
+  error?: string | null;
   disabled?: boolean;
+}
+
+/** Whether `ConfigInput` draws the field's error itself (the kit money field does). */
+export function drawsOwnError(field: ConfigField): boolean {
+  return controlKind(field) === "money_inr";
 }
 
 export function ConfigInput(props: ConfigInputProps) {
@@ -305,6 +314,7 @@ function TypedInput({
   inputId,
   describedBy,
   invalid,
+  error,
   kind,
 }: ConfigInputProps & { kind: ControlKind | "unknown" }) {
   const shape = INPUT_TYPES[kind] ?? { type: "text" };
@@ -321,6 +331,20 @@ function TypedInput({
     field.control.help,
   ].filter((line): line is string => Boolean(line));
   const mono = kind === "text" || kind === "url" || kind === "unknown";
+  if (kind === "money_inr") {
+    // The kit's rupee field: the draft stays the decimal string the API takes, grouped
+    // 1,25,000 while typed. The range is the form's own check (`validateDraft`), which
+    // knows an exclusive minimum; the field only draws it.
+    return (
+      <MoneyInput
+        label="New value"
+        hint={lines.length > 0 ? lines.join(" ") : undefined}
+        error={error ?? null}
+        value={draft}
+        onChange={onChange}
+      />
+    );
+  }
   return (
     <div>
       <label htmlFor={inputId} className={FIELD_LABEL}>
@@ -540,9 +564,10 @@ function WorkspacePicker({ field, draft, onChange }: ConfigInputProps) {
 }
 
 function TenantPicker({ field, draft, onChange }: ConfigInputProps) {
+  const [typed, setTyped] = useState("");
+  // The settled query, so the directory is read once typing pauses, not per keystroke.
   const [query, setQuery] = useState("");
   const tenants = useTenants({ q: query, sort: "name" });
-  const searchId = useId();
   const chosen = listOf(draft);
   // Names learned from any page read so far, so a chosen client keeps its name after the
   // search moves on. A chosen id never seen in a page is shown as the id itself.
@@ -558,24 +583,14 @@ function TenantPicker({ field, draft, onChange }: ConfigInputProps) {
 
   return (
     <div className="space-y-2">
-      <label htmlFor={searchId} className={FIELD_LABEL}>
-        Find a client
-      </label>
-      <div className="relative">
-        <Search
-          aria-hidden
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted"
-        />
-        <input
-          id={searchId}
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Business name"
-          autoComplete="off"
-          className={`${FIELD} pl-9`}
-        />
-      </div>
+      <SearchField
+        label="Find a client"
+        value={typed}
+        onValueChange={setTyped}
+        onSearch={setQuery}
+        placeholder="Business name"
+        autoComplete="off"
+      />
       {tenants.error ? (
         <ProblemNotice error={tenants.error} onRetry={() => void tenants.refetch()} />
       ) : tenants.isLoading ? (

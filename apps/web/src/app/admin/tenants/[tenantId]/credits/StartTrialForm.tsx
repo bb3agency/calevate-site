@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { TriangleAlert } from "lucide-react";
 
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import {
   FIELD,
   NoticeBox,
-  PRIMARY_BUTTON,
   RestrictionNote,
   formatCountOf,
   formatIST,
@@ -73,11 +73,14 @@ function dayProblem(raw: string, low: number, high: number, what: string): strin
 export function StartTrialForm({
   clientName,
   start,
+  status,
   write,
   replacing = false,
 }: {
   clientName: string;
   start: ReturnType<typeof useStartTrial>;
+  /** The write's state, from the feedback made beside the mutation in `TrialPanel`. */
+  status: FeedbackStatus;
   write: ReturnType<typeof useAdminAccess>;
   /** A trial is running, and this one replaces it (D-853). */
   replacing?: boolean;
@@ -112,7 +115,7 @@ export function StartTrialForm({
   const reason = draft.reason.trim();
   const reasonReady = reason.length >= 3;
   const ready =
-    write.allowed && confirmed && graceReady && minutesReady && reasonReady && !start.isPending;
+    write.allowed && confirmed && graceReady && minutesReady && reasonReady;
   const days = daysReady ? Number(draft.days.trim()) : null;
 
   return (
@@ -293,13 +296,16 @@ export function StartTrialForm({
         </NoticeBox>
       )}
 
-      <button type="submit" title={write.reason ?? undefined} disabled={!ready} className={PRIMARY_BUTTON}>
-        {start.isPending
-          ? "Starting…"
-          : days === null
-            ? "Start a trial"
-            : `Carry ${clientName} for ${formatCountOf(days, "day")}`}
-      </button>
+      <ActionButton
+        type="submit"
+        title={write.reason ?? undefined}
+        status={status}
+        pendingLabel="Starting…"
+        successLabel="Started"
+        disabled={!ready}
+      >
+        {days === null ? "Start a trial" : `Carry ${clientName} for ${formatCountOf(days, "day")}`}
+      </ActionButton>
 
       <RestrictionNote reason={write.reason} />
 

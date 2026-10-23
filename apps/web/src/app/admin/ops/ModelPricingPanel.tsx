@@ -18,14 +18,15 @@ import {
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
-  istDateStamp,
   istDateToInstant,
 } from "@/components/ui";
+import { DatePicker } from "@/components/arc/calendar";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { todayIST } from "@/components/arc/ist-dates";
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import { useFormValidation } from "@/components/formValidation";
 import {
@@ -47,6 +48,9 @@ import {
   type ModelPrices,
 } from "@/lib/api/opsModelPricing";
 import { providerLabel } from "@/lib/api/llmModels";
+
+/** Every price form closes on success, so the confirmation lands where the form was. */
+const PRICE_FEEDBACK = { errorDisplay: "inline", successToast: "Price confirmed" } as const;
 
 /**
  * Model prices — PLATFORM-CONFIG §5: the founder types the AUTHORITATIVE billing price for
@@ -384,6 +388,7 @@ function AttestForm({
   const [confirm, setConfirm] = useState("");
 
   const save = useAttestModelPrice();
+  const saveFeedback = useActionFeedback(save, PRICE_FEEDBACK);
   // The word the operator TYPES to arm the save — a clean, short word rather than the raw
   // step-up string the API checks. The real confirmation (`attest_model_price:<model>`)
   // still goes on the wire, set inside `useAttestModelPrice`; conflating the two is how a
@@ -500,14 +505,16 @@ function AttestForm({
       />
 
       <div className="flex gap-2">
-        <button
+        <ActionButton
           type="submit"
-          disabled={!ready || save.isPending}
-          className={PRIMARY_BUTTON_SM}
+          variant="primary-sm"
+          disabled={!ready}
+          status={saveFeedback.status}
+          successLabel="Confirmed"
         >
           <Save aria-hidden className="h-3.5 w-3.5" />
-          {save.isPending ? "Saving…" : "Confirm price"}
-        </button>
+          Confirm price
+        </ActionButton>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
           Cancel
         </button>
@@ -717,6 +724,7 @@ function EmbeddingAttestForm({
   const [confirm, setConfirm] = useState("");
 
   const save = useAttestEmbeddingPrice();
+  const saveFeedback = useActionFeedback(save, PRICE_FEEDBACK);
   const word = "CONFIRM";
   const valid = useFormValidation();
   const ready = confirmationMatches(confirm, word, "exact");
@@ -790,14 +798,16 @@ function EmbeddingAttestForm({
       />
 
       <div className="flex gap-2">
-        <button
+        <ActionButton
           type="submit"
-          disabled={!ready || save.isPending}
-          className={PRIMARY_BUTTON_SM}
+          variant="primary-sm"
+          disabled={!ready}
+          status={saveFeedback.status}
+          successLabel="Confirmed"
         >
           <Save aria-hidden className="h-3.5 w-3.5" />
-          {save.isPending ? "Saving…" : "Confirm price"}
-        </button>
+          Confirm price
+        </ActionButton>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
           Cancel
         </button>
@@ -1002,6 +1012,7 @@ function AttestTtsForm({ price, onDone }: { price: TtsPrice; onDone: () => void 
   const [confirm, setConfirm] = useState("");
 
   const save = useAttestTtsPrice();
+  const saveFeedback = useActionFeedback(save, PRICE_FEEDBACK);
   const word = "CONFIRM";
   const valid = useFormValidation();
   const ready = confirmationMatches(confirm, word, "exact");
@@ -1068,10 +1079,16 @@ function AttestTtsForm({ price, onDone }: { price: TtsPrice; onDone: () => void 
       />
 
       <div className="flex gap-2">
-        <button type="submit" disabled={!ready || save.isPending} className={PRIMARY_BUTTON_SM}>
+        <ActionButton
+          type="submit"
+          variant="primary-sm"
+          disabled={!ready}
+          status={saveFeedback.status}
+          successLabel="Confirmed"
+        >
           <Save aria-hidden className="h-3.5 w-3.5" />
-          {save.isPending ? "Saving…" : "Confirm price"}
-        </button>
+          Confirm price
+        </ActionButton>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
           Cancel
         </button>
@@ -1272,6 +1289,7 @@ function InrLlmAttestForm({ price, onDone }: { price: InrLlmPrice; onDone: () =>
   const [confirm, setConfirm] = useState("");
 
   const save = useAttestInrLlmPrice();
+  const saveFeedback = useActionFeedback(save, PRICE_FEEDBACK);
   const word = "CONFIRM";
   const valid = useFormValidation();
   const ready = confirmationMatches(confirm, word, "exact");
@@ -1356,19 +1374,14 @@ function InrLlmAttestForm({ price, onDone }: { price: InrLlmPrice; onDone: () =>
         {valid.error(`${id}-source`)}
       </label>
 
-      <label className="block">
-        <span className={FIELD_LABEL}>Starts on (IST, optional)</span>
-        <input
-          type="date"
-          value={startsOn}
-          min={istDateStamp()}
-          onChange={(e) => setStartsOn(e.target.value)}
-          className={FIELD}
-        />
-        <span className={FIELD_HINT}>
-          Empty means from now. A later date applies from midnight India time that day.
-        </span>
-      </label>
+      <DatePicker
+        label="Starts on (IST, optional)"
+        hint="Empty means from now. A later date applies from midnight India time that day."
+        value={startsOn || null}
+        min={todayIST()}
+        clearable
+        onChange={(day) => setStartsOn(day ?? "")}
+      />
 
       <TypedConfirmation
         match="exact"
@@ -1380,10 +1393,16 @@ function InrLlmAttestForm({ price, onDone }: { price: InrLlmPrice; onDone: () =>
       />
 
       <div className="flex gap-2">
-        <button type="submit" disabled={!ready || save.isPending} className={PRIMARY_BUTTON_SM}>
+        <ActionButton
+          type="submit"
+          variant="primary-sm"
+          disabled={!ready}
+          status={saveFeedback.status}
+          successLabel="Confirmed"
+        >
           <Save aria-hidden className="h-3.5 w-3.5" />
-          {save.isPending ? "Saving…" : "Confirm price"}
-        </button>
+          Confirm price
+        </ActionButton>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
           Cancel
         </button>

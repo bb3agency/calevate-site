@@ -11,24 +11,23 @@
 
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { NumberField } from "@/components/arc/number-field";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
-import { FieldMessage } from "@/components/formValidation";
-import { FIELD_INLINE, PRIMARY_BUTTON, ProblemNotice, Skeleton } from "@/components/ui";
+import { ProblemNotice, Skeleton } from "@/components/ui";
 import { callsAtOnce, useCallLines, useSetCallLines } from "@/lib/api/callLines";
 
 export function CallLinesPanel({ tenantId, canWrite }: { tenantId: string; canWrite: boolean }) {
   const state = useCallLines(tenantId);
   const save = useSetCallLines(tenantId);
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState("");
+  // `null` is "no choice of this client's own", sent as null so the default applies. The
+  // field holds the value inside min..max itself, so there is no out-of-range draft to refuse.
+  const [value, setValue] = useState<number | null>(null);
 
   const data = state.data;
-  const raw = value.trim();
-  const parsed = /^\d+$/.test(raw) ? Number(raw) : null;
-  const valid =
-    raw === "" || (parsed !== null && data !== undefined && parsed >= data.min_lines && parsed <= data.max_lines);
-  const fieldId = `call-lines-${tenantId}`;
 
   return (
     <Section title="Calls at once">
@@ -60,7 +59,7 @@ export function CallLinesPanel({ tenantId, canWrite }: { tenantId: string; canWr
                     type="button"
                     className={TEXT_ACTION}
                     onClick={() => {
-                      setValue(data.call_lines_chosen === null ? "" : String(data.call_lines_chosen));
+                      setValue(data.call_lines_chosen);
                       save.reset();
                       setEditing(true);
                     }}
@@ -78,37 +77,23 @@ export function CallLinesPanel({ tenantId, canWrite }: { tenantId: string; canWr
               noValidate
               onSubmit={(event) => {
                 event.preventDefault();
-                if (!valid) return;
-                save.mutate(
-                  { call_lines: raw === "" ? null : parsed },
-                  { onSuccess: () => setEditing(false) },
-                );
+                if (save.isPending) return;
+                save.mutate({ call_lines: value }, { onSuccess: () => setEditing(false) });
               }}
             >
-              <label htmlFor={fieldId} className="block text-xs text-ink-muted">
-                {`Calls at once, ${data.min_lines} to ${data.max_lines}. Leave empty for the default.`}
-              </label>
-              <input
-                id={fieldId}
-                type="number"
-                inputMode="numeric"
+              <NumberField
+                label="Calls at once"
+                hint={`${data.min_lines} to ${data.max_lines}. Leave empty for the default.`}
+                value={value}
+                onChange={setValue}
                 min={data.min_lines}
                 max={data.max_lines}
-                value={value}
-                onChange={(event) => setValue(event.target.value)}
-                className={`w-28 tabular-nums ${FIELD_INLINE}`}
-                aria-invalid={!valid ? true : undefined}
-                aria-describedby={!valid ? `${fieldId}-error` : undefined}
+                optional
               />
-              {!valid && (
-                <FieldMessage id={`${fieldId}-error`}>
-                  {`Enter ${data.min_lines} to ${data.max_lines}, or leave it empty.`}
-                </FieldMessage>
-              )}
               <div className="flex items-center gap-3">
-                <button type="submit" className={PRIMARY_BUTTON} disabled={!valid || save.isPending}>
-                  {save.isPending ? "Saving" : "Save"}
-                </button>
+                <ActionButton type="submit" status={saveFeedback.status} successLabel="Saved">
+                  Save
+                </ActionButton>
                 <button
                   type="button"
                   className={TEXT_ACTION}

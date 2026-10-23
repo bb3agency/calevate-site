@@ -12,6 +12,7 @@ import {
   Skeleton,
   formatWholeCount,
 } from "@/components/ui";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -164,6 +165,7 @@ function ScrubForCampaign({
 }) {
   const check = useTenantLaunchCheck(slug, campaign.id);
   const record = useRecordPreferenceScrub(tenantId, slug, campaign.id);
+  const recordFeedback = useActionFeedback(record, { errorDisplay: "inline" });
   const write = useAdminAccess("admin:tenants", "record a national DND scrub");
   const blocker = scrubBlocker(check.data);
 
@@ -210,7 +212,7 @@ function ScrubForCampaign({
         </NoticeBox>
       )}
 
-      <ScrubForm campaign={campaign} record={record} write={write} />
+      <ScrubForm campaign={campaign} record={record} status={recordFeedback.status} write={write} />
       {/* Below the form, where the operator's eye is when the write lands. */}
       {record.error != null && <ProblemNotice error={record.error} />}
       {record.data && <ScrubResult result={record.data} />}

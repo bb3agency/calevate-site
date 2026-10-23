@@ -7,9 +7,9 @@ import {
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   RestrictionNote,
 } from "@/components/ui";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import type { useAdminAccess } from "@/app/admin/access";
 import type { useRecordKyc } from "@/lib/api/admin";
 import {
@@ -47,11 +47,14 @@ const ENTITY_TYPE_VALUES = Object.keys(ENTITY_TYPES) as KycEntityType[];
  */
 export function KycRecordForm({
   save,
+  status,
   tenantName,
   record,
   write,
 }: {
   save: ReturnType<typeof useRecordKyc>;
+  /** The save's state from `useActionFeedback`, held by the screen with the mutation. */
+  status: FeedbackStatus;
   tenantName: string;
   record: KycRecord;
   write: ReturnType<typeof useAdminAccess>;
@@ -175,6 +178,7 @@ export function KycRecordForm({
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
+        if (save.isPending) return;
         save.mutate(draft);
       }}
     >
@@ -325,13 +329,15 @@ export function KycRecordForm({
       <WillRecord draft={draft} tenantName={tenantName} />
 
       <div className="flex flex-wrap items-center gap-3">
-        <button
+        <ActionButton
           type="submit"
-          disabled={save.isPending || blocked !== null || !write.allowed}
-          className={`${PRIMARY_BUTTON} max-sm:w-full max-sm:justify-center`}
+          status={status}
+          successLabel="Recorded"
+          disabled={blocked !== null || !write.allowed}
+          className="max-sm:w-full max-sm:justify-center"
         >
-          {save.isPending ? "Recording…" : "Record verification"}
-        </button>
+          Record verification
+        </ActionButton>
         {/* The refusal before the click rather than a 422 — or, for the two rules the
             route does not pre-empt, a 500 out of an IntegrityError. */}
         {blocked && <span className="text-meta text-warn">{blocked}</span>}

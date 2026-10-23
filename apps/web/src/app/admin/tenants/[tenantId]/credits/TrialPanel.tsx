@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import {
   NoticeBox,
@@ -58,6 +59,9 @@ export function TrialPanel({
   const trial = useTenantTrial(adminSession(), tenantId);
   const start = useStartTrial(adminSession(), tenantId);
   const end = useEndTrial(adminSession(), tenantId);
+  // Each form's `WriteFailure` owns the refusal; the button carries the rest.
+  const startFeedback = useActionFeedback(start, { errorDisplay: "inline" });
+  const endFeedback = useActionFeedback(end, { errorDisplay: "inline" });
   // `admin:tenants`, with its own sentence: a restriction note names the control it is under.
   const write = useAdminAccess("admin:tenants", "put this client on a trial");
   // Fixed when the drawer opens, so a trial that starts inside it keeps showing its own
@@ -127,9 +131,15 @@ export function TrialPanel({
         width="lg"
       >
         {mode === "end" ? (
-          <EndTrialForm clientName={clientName} end={end} write={write} />
+          <EndTrialForm clientName={clientName} end={end} status={endFeedback.status} write={write} />
         ) : (
-          <StartTrialForm clientName={clientName} start={start} write={write} replacing={active} />
+          <StartTrialForm
+            clientName={clientName}
+            start={start}
+            status={startFeedback.status}
+            write={write}
+            replacing={active}
+          />
         )}
       </Drawer>
     </Section>

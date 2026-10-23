@@ -10,6 +10,8 @@ import {
   metaLine,
 } from "@/app/admin/ops/voices/hosted/voiceFilters";
 import { ownModelSteps } from "@/app/admin/ops/voices/hosted/OwnModelCard";
+import { formatDateShort } from "@/components/arc/ist-dates";
+import { istDateStamp } from "@/components/ui";
 import { studioSteps } from "@/app/admin/ops/voices/hosted/StudioVoicesCard";
 import {
   OPS_CLONES_PATH,
@@ -54,6 +56,12 @@ import { problem, renderAdminPage, type Routes } from "./harness";
  * 6. **Studio is a checklist** with the next step as the primary action; our developer
  *    workspace's switch is expected ON (D-727), so nothing offers to switch it off.
  */
+
+/** Choose a client in a dialog's "Paying client" combobox by name. */
+function pickClient(dialog: HTMLElement, name: string) {
+  fireEvent.focus(within(dialog).getByRole("combobox", { name: /Paying client/ }));
+  fireEvent.mouseDown(within(dialog).getByRole("option", { name: new RegExp(name) }));
+}
 
 const SUPERADMIN: AdminMe = {
   user_id: "0192f0aa-7777-7000-8000-0000000000f1",
@@ -428,7 +436,7 @@ describe("the offered voices list", () => {
     expect(screen.getByRole("listitem", { name: "Kavya" })).toBeTruthy();
     expect(screen.queryByRole("listitem", { name: "Anjali" })).toBeNull();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Clear filters" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter “kav”" }));
     fireEvent.change(screen.getByRole("combobox", { name: "State" }), { target: { value: "archived" } });
     expect(screen.getByRole("listitem", { name: "Old voice" })).toBeTruthy();
     expect(screen.queryByRole("listitem", { name: "Anjali" })).toBeNull();
@@ -739,7 +747,11 @@ describe("a cloned voice of a real person (D-721)", () => {
     const submit = within(drawer).getByRole("button", { name: "Record consent" }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
     fireEvent.change(within(drawer).getByLabelText(/Speaker.s full name/), { target: { value: "Test Speaker" } });
-    fireEvent.change(within(drawer).getByLabelText("Date they consented"), { target: { value: "2026-10-10" } });
+    // The date defaults to today in IST; the picker shows it on its trigger.
+    const today = istDateStamp();
+    expect(within(drawer).getByRole("button", { name: "Date they consented" }).textContent).toContain(
+      formatDateShort(today),
+    );
     const signed = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d])], "consent.pdf", { type: "application/pdf" });
     await act(async () => {
       fireEvent.change(within(drawer).getByLabelText("Signed consent (optional)"), { target: { files: [signed] } });
@@ -754,7 +766,7 @@ describe("a cloned voice of a real person (D-721)", () => {
     expect(sent.url).toContain(OPS_CLONE_CONSENT_PATH);
     expect(sent.headers["X-Confirm-Action"]).toBe("record_voice_consent:byok:sri-clone");
     expect(sent.form.get("speaker_name")).toBe("Test Speaker");
-    expect(sent.form.get("consented_on")).toBe("2026-10-10");
+    expect(sent.form.get("consented_on")).toBe(today);
     expect(String(sent.form.get("statement"))).toMatch(/cloned copy of my voice/);
     expect(sent.form.get("document")).toBeInstanceOf(File);
   });
@@ -905,7 +917,7 @@ describe("Studio setup", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "List the voices" }));
     const dialog = await screen.findByRole("dialog", { name: "Make Studio ready?" });
-    fireEvent.change(within(dialog).getByLabelText(/Paying client/), { target: { value: tenant } });
+    pickClient(dialog, "Sri Clinic");
     fireEvent.click(within(dialog).getByRole("button", { name: "Studio ready" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === OPS_STUDIO_ENABLE_PATH)).toBe(true));
     const write = calls.find((c) => c.method === "POST" && c.path === OPS_STUDIO_ENABLE_PATH)!;
@@ -1001,7 +1013,7 @@ describe("our own model card (D-764)", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: "Install our key for a client now" }));
     const dialog = await screen.findByRole("dialog", { name: "Install our Google key for a client?" });
-    fireEvent.change(within(dialog).getByLabelText(/Paying client/), { target: { value: tenant } });
+    pickClient(dialog, "Sri Clinic");
     fireEvent.click(within(dialog).getByRole("button", { name: "Install" }));
     await waitFor(() =>
       expect(calls.some((c) => c.method === "POST" && c.path === OPS_OWN_MODEL_ENABLE_PATH)).toBe(true),

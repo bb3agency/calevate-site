@@ -2254,19 +2254,19 @@ describe("our own telemarketer registration", () => {
       // browser's own zone, which is what the field used to show.
       // The registration form opens on request; its verdict and facts are always shown.
     fireEvent.click(await screen.findByRole("button", { name: "Record a change" }));
-    const field = (await screen.findByDisplayValue(
-        "2026-01-04T12:00",
-      )) as HTMLInputElement;
-      expect(field.type).toBe("datetime-local");
+    const time = (await screen.findByDisplayValue("12:00")) as HTMLInputElement;
+      expect(time.type).toBe("time");
+      expect(screen.getByRole("button", { name: "Day" }).textContent).toContain("4 Jan 2026");
 
-      // THE LABEL IS PART OF THE FIX. A `datetime-local` carries no zone, so an unlabelled
-      // one means "this machine's clock" to every reader; a field that quietly means
-      // something else is worse than the bug, because nobody can tell which they typed.
+      // THE LABEL IS PART OF THE FIX: a field that quietly means a zone other than the
+      // reader's is worse than the bug, because nobody can tell which they typed.
       expect(screen.getByText("Registered on (IST)")).toBeTruthy();
 
       // WRITE. The operator retypes what the letter says — 14:45 IST on the 9th — and the
       // instant that leaves must be 09:15Z, never the 19:45Z a New York reading produces.
-      fireEvent.change(field, { target: { value: "2026-01-09T14:45" } });
+      fireEvent.click(screen.getByRole("button", { name: "Day" }));
+      fireEvent.click(await screen.findByRole("button", { name: /, 9 January 2026/ }));
+      fireEvent.change(screen.getByDisplayValue("12:00"), { target: { value: "14:45" } });
       fireEvent.change(screen.getByPlaceholderText(/registrar grant letter/), {
         target: { value: "registrar grant letter 2026-01-09" },
       });
@@ -2396,8 +2396,7 @@ describe("the platform configuration panel", () => {
     await screen.findByText("self_serve_inr_per_min");
     fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
 
-    const [valueInput] = screen.getAllByDisplayValue("6.00");
-    fireEvent.change(valueInput, { target: { value: "7.25" } });
+    fireEvent.change(screen.getByLabelText(/New value/), { target: { value: "7.25" } });
     fireEvent.change(screen.getByPlaceholderText(/Q3 price change/), {
       target: { value: "Q3 self-serve price change" },
     });

@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
 import { Section } from "@/components/console/section";
 import { FileSearch, Lock } from "lucide-react";
@@ -7,7 +8,6 @@ import { FileSearch, Lock } from "lucide-react";
 import {
   NoticeBox,
   ProblemNotice,
-  SECONDARY_BUTTON,
   formatCount,
   formatIST,
 } from "@/components/ui";
@@ -73,6 +73,7 @@ function WeaklyAttestedNote({ count }: { count: number }) {
 
 export function AuditChainPanel({ access }: { access: OpsAccess }) {
   const verify = useVerifyAuditChain();
+  const verifyFeedback = useActionFeedback(verify, { errorDisplay: "inline" });
   const asOf = verify.data ? formatIST(new Date(verify.submittedAt).toISOString()) : null;
 
   return (
@@ -175,16 +176,18 @@ export function AuditChainPanel({ access }: { access: OpsAccess }) {
         )}
 
         <div>
-          <button
-            type="button"
+          <ActionButton
+            variant="secondary"
             title={access.reason ?? undefined}
-            disabled={!access.allowed || verify.isPending}
-            onClick={() => verify.mutate()}
-            className={SECONDARY_BUTTON}
+            disabled={!access.allowed}
+            status={verifyFeedback.status}
+            pendingLabel="Checking…"
+            successLabel="Checked"
+            onClick={() => verifyFeedback.run()}
           >
             <FileSearch aria-hidden className="h-4 w-4" />
-            {verify.isPending ? "Checking…" : "Run the tamper check"}
-          </button>
+            Run the tamper check
+          </ActionButton>
           <p className="mt-2 text-meta text-ink-muted">
             This only reads and reports — it changes nothing.
           </p>

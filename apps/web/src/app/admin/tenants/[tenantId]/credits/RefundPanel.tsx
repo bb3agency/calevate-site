@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
   FIELD,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   formatINR,
@@ -85,6 +85,7 @@ export function RefundPanel({
   initialPaymentRef?: string;
 }) {
   const refund = useIssueRefund(session, tenantId);
+  const refundFeedback = useActionFeedback(refund, { errorDisplay: "inline" });
   const write = useAdminAccess("admin:tenants", "refund a payment");
   const [paymentRef, setPaymentRef] = useState(initialPaymentRef ?? "");
   const [amountInr, setAmountInr] = useState("");
@@ -116,7 +117,7 @@ export function RefundPanel({
   const confirmWord = payment ? refundConfirmationWord(payment) : "";
   const confirmed = payment !== null && confirm.trim() === confirmWord;
   const ready =
-    write.allowed && draft !== null && blocked === null && confirmed && !refund.isPending;
+    write.allowed && draft !== null && blocked === null && confirmed;
 
   return (
     <div>
@@ -266,9 +267,15 @@ export function RefundPanel({
           </NoticeBox>
         )}
 
-        <button type="submit" className={PRIMARY_BUTTON} disabled={!ready}>
-          {refund.isPending ? "Refunding…" : "Refund this payment"}
-        </button>
+        <ActionButton
+          type="submit"
+          status={refundFeedback.status}
+          pendingLabel="Refunding…"
+          successLabel="Issued"
+          disabled={!ready}
+        >
+          Refund this payment
+        </ActionButton>
       </form>
 
       {refund.error != null && <ProblemNotice error={refund.error} />}

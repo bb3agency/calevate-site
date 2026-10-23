@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 
 import { StatusPill } from "@/components/admin/kit";
 import { Section, TEXT_ACTION } from "@/components/console/section";
@@ -13,13 +14,10 @@ import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withhel
 import { CheckCircle2, KeyRound, Lock, RefreshCw, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import {
-  DANGER_BUTTON,
   FIELD,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
   formatIST,
@@ -354,6 +352,7 @@ function RemoveSecretDialog({
   onRemoved: (row: PlatformSecret) => void;
 }) {
   const remove = useRemoveSecret();
+  const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline" });
   const [confirm, setConfirm] = useState("");
   const word = secret.key.toUpperCase();
   const ready = confirmationMatches(confirm, word, "exact");
@@ -363,7 +362,8 @@ function RemoveSecretDialog({
       title={`Remove the ${credentialLabel(secret.key)}?`}
       confirmLabel="Remove key"
       pendingLabel="Removing…"
-      pending={remove.isPending}
+      status={removeFeedback.status}
+      successLabel="Removed"
       confirmDisabled={!ready}
       // A step-up refusal needs WriteFailure's re-confirm path, so the error is shown in
       // the body rather than through the dialog's generic notice.
@@ -462,6 +462,10 @@ function SecretForm({
   const [confirm, setConfirm] = useState("");
   const test = useTestSecret();
   const save = useSetSecret();
+  // Inline, never toasted: a failure toast carries a retry that would hold the plaintext
+  // key in its closure after this form has unmounted.
+  const testFeedback = useActionFeedback(test, { errorDisplay: "inline" });
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
 
   const word = secret.key.toUpperCase();
   const valid = useFormValidation();
@@ -579,19 +583,28 @@ function SecretForm({
       <div className="flex flex-wrap gap-2">
         {/* TEST FIRST, and it needs no typed confirmation: it stores nothing, and a
             confirmation on a check only teaches operators to type past them. */}
-        <button
-          type="button"
-          disabled={value.length === 0 || test.isPending}
-          onClick={() => test.mutate({ key: secret.key, value })}
-          className={SECONDARY_BUTTON_SM}
+        <ActionButton
+          variant="secondary-sm"
+          disabled={value.length === 0}
+          status={testFeedback.status}
+          pendingLabel="Testing…"
+          successLabel="Checked"
+          onClick={() => testFeedback.run({ key: secret.key, value })}
         >
           <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
-          {test.isPending ? "Testing…" : "Test with the vendor"}
-        </button>
-        <button type="submit" disabled={!ready || save.isPending} className={PRIMARY_BUTTON_SM}>
+          Test with the vendor
+        </ActionButton>
+        <ActionButton
+          type="submit"
+          variant="primary-sm"
+          disabled={!ready}
+          status={saveFeedback.status}
+          pendingLabel="Storing…"
+          successLabel="Stored"
+        >
           <KeyRound aria-hidden className="h-3.5 w-3.5" />
-          {save.isPending ? "Storing…" : secret.installed ? "Rotate" : "Install"}
-        </button>
+          {secret.installed ? "Rotate" : "Install"}
+        </ActionButton>
       </div>
 
       <p className="text-meta text-ink-muted">
@@ -661,6 +674,7 @@ export function KeyManagementPanel({
 }) {
   const query = useKekState();
   const rewrap = useRewrapKeks();
+  const rewrapFeedback = useActionFeedback(rewrap, { errorDisplay: "inline" });
   const [confirm, setConfirm] = useState("");
   /** One rewrap in flight at a time — see the submit handler for why state cannot do it. */
   const firing = useRef(false);
@@ -863,15 +877,22 @@ export function KeyManagementPanel({
             disabled={!access.allowed || rewrap.isPending}
             hint="Re-locks every stored key, including old versions. It never unlocks or reads a vendor key — it only changes which master key protects them."
           />
-          <button
+          {/* The typed word is cleared on submit, so it gates only an idle button: the
+              pending, success and failure faces stay readable rather than greyed out. */}
+          <ActionButton
             type="submit"
+            variant="danger"
             title={access.reason ?? undefined}
-            disabled={!access.allowed || confirm !== REWRAP_WORD || rewrap.isPending}
-            className={DANGER_BUTTON}
+            disabled={
+              !access.allowed || (confirm !== REWRAP_WORD && rewrapFeedback.status === "idle")
+            }
+            status={rewrapFeedback.status}
+            pendingLabel="Re-locking…"
+            successLabel="Re-locked"
           >
             <RefreshCw aria-hidden className="h-4 w-4" />
-            {rewrap.isPending ? "Re-locking…" : "Re-lock every key"}
-          </button>
+            Re-lock every key
+          </ActionButton>
           {!access.allowed && access.reason && (
             <p className="flex items-start gap-2 text-meta text-ink-muted">
               <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />

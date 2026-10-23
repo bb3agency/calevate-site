@@ -1,6 +1,7 @@
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { formatDateLong, todayIST } from "@/components/arc/ist-dates";
 import { useCopilotSurfaceHolder } from "@/lib/copilot/registry";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
@@ -144,6 +145,24 @@ async function renderWithTerms(routes: Partial<Routes> = {}) {
   const rendered = await render(routes);
   fireEvent.click(await screen.findByRole("button", { name: "Agree new terms" }));
   return rendered;
+}
+
+/**
+ * Picks an IST day and time in one of the form's date-time fields, as an operator does:
+ * open the day picker, page from this month to the target one, choose the day, type the
+ * time. The month count is taken from `todayIST()` so the walk does not depend on the
+ * day the suite runs.
+ */
+async function pickIstMoment(field: RegExp, day: string, time: string) {
+  const group = await screen.findByRole("group", { name: field });
+  fireEvent.click(within(group).getByRole("button", { name: "Day" }));
+  const [year, month] = day.split("-").map(Number);
+  const [thisYear, thisMonth] = todayIST().split("-").map(Number);
+  let steps = (year - thisYear) * 12 + (month - thisMonth);
+  for (; steps > 0; steps -= 1) fireEvent.click(await screen.findByRole("button", { name: "Next month" }));
+  for (; steps < 0; steps += 1) fireEvent.click(await screen.findByRole("button", { name: "Previous month" }));
+  fireEvent.click(await screen.findByRole("button", { name: new RegExp(formatDateLong(day)) }));
+  fireEvent.change(within(group).getByLabelText("Time"), { target: { value: time } });
 }
 
 describe("the commercials screen", () => {
@@ -362,12 +381,8 @@ describe("the commercials screen", () => {
           },
         });
 
-        fireEvent.change(await screen.findByLabelText(/In effect from/), {
-          target: { value: "2026-09-01T09:00" },
-        });
-        fireEvent.change(screen.getByLabelText(/Until/), {
-          target: { value: "2026-12-31T23:59" },
-        });
+        await pickIstMoment(/In effect from/, "2026-09-01", "09:00");
+        await pickIstMoment(/Until/, "2026-12-31", "23:59");
         fireEvent.click(
           screen.getByRole("button", { name: /Record new terms/ }),
         );
@@ -397,8 +412,8 @@ describe("the commercials screen", () => {
 
   it("says on the label that the window is IST, since the field cannot carry a zone", async () => {
     await renderWithTerms();
-    await screen.findByLabelText(/In effect from \(IST\)/);
-    await screen.findByLabelText(/Until \(IST\)/);
+    await screen.findByRole("group", { name: /In effect from \(IST\)/ });
+    await screen.findByRole("group", { name: /Until \(IST\)/ });
     // The doctrine in `components/ui.tsx` is explicit that the label is part of the
     // contract: a field quietly meaning something other than the machine's clock, with
     // nothing on screen saying so, is worse than the bug it fixes.

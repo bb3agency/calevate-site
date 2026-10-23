@@ -1,9 +1,10 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
-import { Search } from "lucide-react";
 
 import { SavedNote, sentenceCase } from "@/components/admin/kit";
+import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
+import { SearchField } from "@/components/arc/search-field";
 import { Disclosure } from "@/components/ui";
 import { Drawer } from "@/components/console/drawer";
 import { EmptyState } from "@/components/console/emptyState";
@@ -11,8 +12,6 @@ import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
-  FilterChip,
-  PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
@@ -21,7 +20,7 @@ import {
 } from "@/components/ui";
 import { useAddHostedVoice, useHostedVoices, type HostedVoice } from "@/lib/api/opsHostedVoices";
 
-import { FILTER_SELECT, PAGE_SIZE, PlayCell, tierText } from "./HostedVoiceList";
+import { FILTER_SELECT, PAGE_SIZE, PlayCell, TierChips, tierText } from "./HostedVoiceList";
 import { NO_FILTERS, accentOf, applyFilters, choices, findByVoiceId, metaLine, type VoiceFilters } from "./voiceFilters";
 
 /** A voice not yet added has no offer state worth filtering on. */
@@ -38,13 +37,15 @@ type Outcome = { added: string[]; failed: { voiceId: string; label: string }[] }
 export function AddVoicesDrawer({ onClose }: { onClose: () => void }) {
   const everything = useHostedVoices(true, "all");
   const add = useAddHostedVoice();
+  // Each voice is its own request; the per-voice refusal is printed in the outcome below,
+  // so this hook raises no toast. The button's state is the batch's (`batch` below).
+  useActionFeedback(add, { errorDisplay: "inline" });
   const [filters, setFilters] = useState<VoiceFilters>(ALL_STATES);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [shown, setShown] = useState(PAGE_SIZE);
-  const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [pasted, setPasted] = useState("");
-  const ids = { search: useId(), accent: useId(), gender: useId(), lookup: useId() };
+  const lookupId = useId();
 
   const all = useMemo(() => everything.data?.voices ?? [], [everything.data]);
   const candidates = useMemo(() => all.filter((v) => v.sold && !v.added && v.withdrawn_at === null), [all]);
@@ -68,7 +69,6 @@ export function AddVoicesDrawer({ onClose }: { onClose: () => void }) {
     });
 
   async function addSelected() {
-    setBusy(true);
     const result: Outcome = { added: [], failed: [] };
     // One request per voice: the route adds one, idempotently, and audits each.
     for (const voice of candidates.filter((v) => selected.has(v.voice_id))) {
@@ -82,8 +82,11 @@ export function AddVoicesDrawer({ onClose }: { onClose: () => void }) {
     // What failed stays ticked, so a second press retries exactly those.
     setSelected(new Set(result.failed.map((f) => f.voiceId)));
     setOutcome(result);
-    setBusy(false);
+    // A partial failure is the batch's failure, so the button offers "Try again".
+    if (result.failed.length > 0) throw new Error(`${result.failed.length} not added`);
   }
+  const batch = useAsyncAction(addSelected, { errorDisplay: "inline" });
+  const busy = batch.status === "pending";
 
   const count = selected.size;
   return (
@@ -99,9 +102,15 @@ export function AddVoicesDrawer({ onClose }: { onClose: () => void }) {
           <button type="button" className={SECONDARY_BUTTON} onClick={onClose}>
             {outcome && count === 0 ? "Done" : "Cancel"}
           </button>
-          <button type="button" className={PRIMARY_BUTTON} disabled={count === 0 || busy} onClick={() => void addSelected()}>
-            {busy ? "Adding…" : count === 0 ? "Add voices" : `Add ${formatCount(count)} ${count === 1 ? "voice" : "voices"}`}
-          </button>
+          <ActionButton
+            status={batch.status}
+            disabled={count === 0 && !busy}
+            pendingLabel="Adding…"
+            successLabel="Added"
+            onClick={() => batch.run()}
+          >
+            {count === 0 ? "Add voices" : `Add ${formatCount(count)} ${count === 1 ? "voice" : "voices"}`}
+          </ActionButton>
         </>
       }
     >
@@ -129,29 +138,15 @@ export function AddVoicesDrawer({ onClose }: { onClose: () => void }) {
           )}
 
           <div className="space-y-3">
-            <div className="relative">
-              <label htmlFor={ids.search} className="sr-only">
-                Search voices by name
-              </label>
-              <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 mt-0.5 h-4 w-4 -translate-y-1/2 text-ink-faint" />
-              <input
-                id={ids.search}
-                type="search"
-                className={`${FIELD} pl-9`}
-                placeholder="Search by name"
-                value={filters.query}
-                onChange={(event) => set({ query: event.target.value })}
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Tier">
-              {(["all", "clear", "studio"] as const).map((tier) => (
-                <FilterChip
-                  key={tier}
-                  label={tier === "all" ? "All tiers" : tier === "clear" ? "Clear" : "Studio"}
-                  active={filters.tier === tier}
-                  onClick={() => set({ tier })}
-                />
-              ))}
+            <SearchField
+              label="Search voices by name"
+              hideLabel
+              placeholder="Search by name"
+              value={filters.query}
+              onValueChange={(query) => set({ query })}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <TierChips value={filters.tier} onChange={(tier) => set({ tier })} />
               {accents.length > 1 && (
                 <select
                   aria-label="Accent or language"
@@ -191,11 +186,11 @@ export function AddVoicesDrawer({ onClose }: { onClose: () => void }) {
 
           <Disclosure variant="inline" title="Find a voice by its id" headingLevel={3}>
             <div className="space-y-2 pt-2">
-              <label htmlFor={ids.lookup} className={FIELD_LABEL}>
+              <label htmlFor={lookupId} className={FIELD_LABEL}>
                 Voice id
               </label>
               <input
-                id={ids.lookup}
+                id={lookupId}
                 className={`${FIELD} font-mono`}
                 value={pasted}
                 onChange={(event) => setPasted(event.target.value)}
@@ -216,20 +211,15 @@ export function AddVoicesDrawer({ onClose }: { onClose: () => void }) {
           </Disclosure>
 
           {filtered.length === 0 ? (
-            <EmptyState
-              message={
-                candidates.length === 0
-                  ? "Every voice we can sell is already added."
-                  : "No voice matches. Try fewer filters."
-              }
-              action={
-                candidates.length > 0 ? (
-                  <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => set(ALL_STATES)}>
-                    Clear filters
-                  </button>
-                ) : undefined
-              }
-            />
+            candidates.length === 0 ? (
+              <EmptyState message="Every voice we can sell is already added." />
+            ) : (
+              <EmptyState
+                variant="filtered"
+                message="No voice matches. Try fewer filters."
+                onClear={() => set(ALL_STATES)}
+              />
+            )
           ) : (
             <ul className="divide-y divide-line border-y border-line" aria-label="Voices you can add">
               {visible.map((voice) => (

@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { Lock, TriangleAlert } from "lucide-react";
 
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import {
   FIELD,
   NoticeBox,
-  PRIMARY_BUTTON,
   RestrictionNote,
   formatINR,
   formatIST,
@@ -55,12 +55,15 @@ export function RestatementForm({
   clientName,
   wallet,
   restate,
+  status,
   write,
   initialPaymentRef,
 }: {
   clientName: string;
   wallet: Credits;
   restate: ReturnType<typeof useRecordRestatement>;
+  /** The write's state, from the feedback made beside the mutation on the screen. */
+  status: FeedbackStatus;
   write: ReturnType<typeof useAdminAccess>;
   /** Pre-selected from a payment row's menu. Still visible and changeable in the select. */
   initialPaymentRef?: string;
@@ -82,7 +85,7 @@ export function RestatementForm({
   const reason = draft.reason.trim();
   const reasonReady = reason.length >= 3;
   const ready =
-    write.allowed && payment !== null && confirmed && reasonReady && !restate.isPending;
+    write.allowed && payment !== null && confirmed && reasonReady;
 
   if (wallet.payments.length === 0) {
     // A restatement always names a payment we have already recorded — it cannot create one.
@@ -264,18 +267,18 @@ export function RestatementForm({
         )}
         {restate.data && <RestatementOutcome result={restate.data} clientName={clientName} />}
 
-        <button
+        <ActionButton
           type="submit"
           title={write.reason ?? undefined}
+          status={status}
+          pendingLabel="Restating…"
+          successLabel="Restated"
           disabled={!ready}
-          className={PRIMARY_BUTTON}
         >
-          {restate.isPending
-            ? "Restating…"
-            : payment && totalReady
-              ? `Restate ${payment.payment_ref} to ${formatINR(total)}`
-              : "Restate this payment"}
-        </button>
+          {payment && totalReady
+            ? `Restate ${payment.payment_ref} to ${formatINR(total)}`
+            : "Restate this payment"}
+        </ActionButton>
 
         <RestrictionNote reason={write.reason} />
 

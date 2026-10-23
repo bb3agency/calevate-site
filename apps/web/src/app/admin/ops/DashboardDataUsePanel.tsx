@@ -3,6 +3,8 @@
 import { Section } from "@/components/console/section";
 import { useId, useState } from "react";
 
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
+
 import {
   WithheldPanel,
   forbiddenReason,
@@ -17,7 +19,6 @@ import {
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -291,7 +292,12 @@ function DataUseRow({
 }
 
 function DashboardAttestForm(props: { leg: DashboardDataUse; statement: string; onDone: () => void }) {
-  return <AttestForm {...props} save={useAttestDashboardDataUse()} />;
+  const save = useAttestDashboardDataUse();
+  const feedback = useActionFeedback(save, {
+    errorDisplay: "inline",
+    successToast: "Attestation recorded",
+  });
+  return <AttestForm {...props} save={save} status={feedback.status} />;
 }
 
 /** The latest attestation the form is seeded from: the fields both data-use legs share. */
@@ -313,11 +319,14 @@ export function AttestForm({
   statement,
   onDone,
   save,
+  status,
 }: {
   leg: AttestedLeg;
   statement: string;
   onDone: () => void;
   save: AttestMutation;
+  /** The write's state from the caller's `useActionFeedback`. */
+  status: FeedbackStatus;
 }) {
   const [vendorAccountRef, setVendorAccountRef] = useState(leg.vendor_account_ref ?? "");
   // Seeded from the last attestation so an update is an edit, not a retype — the operator
@@ -453,14 +462,16 @@ export function AttestForm({
       />
 
       <div className="flex gap-2">
-        <button
+        <ActionButton
           type="submit"
-          disabled={!ready || save.isPending}
-          className={PRIMARY_BUTTON_SM}
+          variant="primary-sm"
+          disabled={!ready}
+          status={status}
+          successLabel="Recorded"
         >
           <Save aria-hidden className="h-3.5 w-3.5" />
-          {save.isPending ? "Saving…" : "Record attestation"}
-        </button>
+          Record attestation
+        </ActionButton>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
           Cancel
         </button>

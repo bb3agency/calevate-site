@@ -3,14 +3,13 @@
 import { useState } from "react";
 
 import { HAIRLINE_LIST } from "@/components/admin/kit";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import {
-  DANGER_BUTTON,
   FIELD,
   FIELD_LABEL,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON_SM,
   Skeleton,
 } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
@@ -58,7 +57,15 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
   const [rejectReason, setRejectReason] = useState("");
   const preview = useKbPreview(slug, selected);
   const decide = useKbDecision(tenantId);
+  const decideFeedback = useActionFeedback(decide, { errorDisplay: "inline" });
   const kbWrite = useAdminAccess("admin:tenants", "decide on this client's knowledge");
+  // One mutation serves every row, so its state belongs only on the button that sent it.
+  const statusFor = (sourceId: string, decision: string) =>
+    decide.variables?.sourceId === sourceId && decide.variables.decision === decision
+      ? decideFeedback.status
+      : "idle";
+  const otherBusy = (sourceId: string) =>
+    decide.isPending && decide.variables?.sourceId !== sourceId;
 
   return (
     <>
@@ -123,14 +130,15 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                       >
                         {rejecting === source.id ? "Cancel reject" : "Reject…"}
                       </button>
-                      <button
-                        type="button"
-                        className={SECONDARY_BUTTON_SM}
-                        disabled={decide.isPending || !kbWrite.allowed}
-                        onClick={() => decide.mutate({ sourceId: source.id, decision: "approve" })}
+                      <ActionButton
+                        variant="secondary-sm"
+                        status={statusFor(source.id, "approve")}
+                        successLabel="Approved"
+                        disabled={otherBusy(source.id) || !kbWrite.allowed}
+                        onClick={() => decideFeedback.run({ sourceId: source.id, decision: "approve" })}
                       >
                         Approve
-                      </button>
+                      </ActionButton>
                     </div>
                   </div>
                   {rejecting === source.id && (
@@ -175,15 +183,18 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                         />
                       </label>
                       <div className="flex flex-wrap items-center gap-2">
-                        <button
+                        <ActionButton
                           type="submit"
+                          variant="danger"
+                          status={statusFor(source.id, "reject")}
+                          pendingLabel="Rejecting…"
+                          successLabel="Rejected"
                           disabled={
-                            decide.isPending || !kbWrite.allowed || rejectReason.trim().length < 3
+                            otherBusy(source.id) || !kbWrite.allowed || rejectReason.trim().length < 3
                           }
-                          className={DANGER_BUTTON}
                         >
-                          {decide.isPending ? "Rejecting…" : "Reject this document"}
-                        </button>
+                          Reject this document
+                        </ActionButton>
                         {rejectReason.trim().length < 3 && (
                           <span className="text-meta text-danger">
                             Write the reason in your own words first — it goes on the record.
@@ -275,14 +286,15 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                     v{source.version} · {source.chunks} chunks
                   </span>
                   <span className="ml-auto">
-                    <button
-                      type="button"
-                      className={SECONDARY_BUTTON_SM}
-                      disabled={decide.isPending || !kbWrite.allowed}
-                      onClick={() => decide.mutate({ sourceId: source.id, decision: "publish" })}
+                    <ActionButton
+                      variant="secondary-sm"
+                      status={statusFor(source.id, "publish")}
+                      successLabel="Published"
+                      disabled={otherBusy(source.id) || !kbWrite.allowed}
+                      onClick={() => decideFeedback.run({ sourceId: source.id, decision: "publish" })}
                     >
                       Publish
-                    </button>
+                    </ActionButton>
                   </span>
                 </li>
               ))}

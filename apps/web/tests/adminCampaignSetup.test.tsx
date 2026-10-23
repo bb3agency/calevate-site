@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import TenantCampaignSetupPage from "@/app/admin/tenants/[tenantId]/campaign-setup/page";
 import type { TenantSummary } from "@/lib/api/admin";
+import { formatDateLong, startOfMonth, todayIST } from "@/components/arc/ist-dates";
 import type { Routes } from "./harness";
 
 import { problem } from "./harness";
@@ -116,10 +117,14 @@ describe("campaign setup", () => {
         const { calls } = await render({
           [`POST ${dltPath}`]: { status: "active", tm_link_status: "linked" },
         });
-        fireEvent.change(await screen.findByLabelText("Registered on (IST)"), {
-          target: { value: "2026-08-10" },
-        });
+        // The first of this IST month: always pickable (never after today) and needs no
+        // month navigation.
+        const day = startOfMonth(todayIST());
         // Every admin control is disabled until `/v1/admin/me` answers (it fails CLOSED).
+        const picker = (await screen.findByLabelText("Registered on (IST, optional)")) as HTMLButtonElement;
+        await vi.waitFor(() => expect(picker.disabled).toBe(false));
+        fireEvent.click(picker);
+        fireEvent.click(await screen.findByRole("button", { name: new RegExp(formatDateLong(day)) }));
         const submit = screen.getByRole("button", { name: "Record registration" }) as HTMLButtonElement;
         await vi.waitFor(() => expect(submit.disabled).toBe(false));
         fireEvent.click(submit);
@@ -130,7 +135,10 @@ describe("campaign setup", () => {
           calls.find((c) => c.method === "POST" && c.path === dltPath)?.body ?? "{}",
         );
         // Midnight IST on the picked day is 18:30Z the day before.
-        expect(body.registered_at, `registered_at in ${zone}`).toBe("2026-08-09T18:30:00.000Z");
+        expect(body.registered_at, `registered_at in ${zone}`).toBe(
+          new Date(`${day}T00:00:00+05:30`).toISOString(),
+        );
+        expect(body.registered_at.endsWith("T18:30:00.000Z")).toBe(true);
       }
     } finally {
       if (originalTz === undefined) delete process.env.TZ;

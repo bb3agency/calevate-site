@@ -1,9 +1,10 @@
 "use client";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import { useState } from "react";
 
-import { FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, formatIST } from "@/components/ui";
+import { FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, ProblemNotice, SECONDARY_BUTTON, formatIST } from "@/components/ui";
 import type { AdminAccess } from "@/app/admin/access";
 import { lookup } from "@/lib/lookup";
 import {
@@ -47,6 +48,10 @@ export function KycReviewPanel({ tenantId, access }: { tenantId: string; access:
 
 function ReviewCard({ tenantId, record, access }: { tenantId: string; record: AdminKyc; access: AdminAccess }) {
   const review = useReviewKyc(tenantId);
+  const reviewFeedback = useActionFeedback(review, { errorDisplay: "inline" });
+  // One mutation behind two buttons: only the decision that was sent wears its state.
+  const reviewStatus = (decision: "approve" | "reject") =>
+    review.variables?.decision === decision ? reviewFeedback.status : "idle";
   const [documentRef, setDocumentRef] = useState("");
   const [reason, setReason] = useState("");
   const [panChecked, setPanChecked] = useState(false);
@@ -176,10 +181,10 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
             <textarea className={FIELD} value={reason} onChange={(event) => setReason(event.target.value)} rows={2} />
           </label>
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className={PRIMARY_BUTTON}
-              disabled={!access.allowed || review.isPending || (documentReview && !panChecked)}
+            <ActionButton
+              status={reviewStatus("approve")}
+              successLabel="Approved"
+              disabled={!access.allowed || (review.isPending && review.variables?.decision !== "approve") || (documentReview && !panChecked)}
               onClick={() =>
                 review.mutate({
                   decision: "approve",
@@ -190,15 +195,16 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
               }
             >
               Approve
-            </button>
-            <button
-              type="button"
-              className={SECONDARY_BUTTON}
-              disabled={!access.allowed || review.isPending || !reason.trim()}
+            </ActionButton>
+            <ActionButton
+              variant="secondary"
+              status={reviewStatus("reject")}
+              successLabel="Rejected"
+              disabled={!access.allowed || (review.isPending && review.variables?.decision !== "reject") || !reason.trim()}
               onClick={() => review.mutate({ decision: "reject", document_ref: null, reason: reason.trim(), pan_checked: false })}
             >
               Reject
-            </button>
+            </ActionButton>
           </div>
           <p className={FIELD_HINT}>Either decision deletes the owner&apos;s ID file.</p>
           {access.reason && <p className="text-body text-ink-muted">{access.reason}</p>}
@@ -211,6 +217,7 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
 
 function DigiLockerCard({ tenantId, record, access }: { tenantId: string; record: AdminKyc; access: AdminAccess }) {
   const set = useSetDigiLockerRequirement(tenantId);
+  const setFeedback = useActionFeedback(set, { errorDisplay: "inline" });
   const [reason, setReason] = useState("");
   return (
     <Section title="Require DigiLocker">
@@ -224,14 +231,15 @@ function DigiLockerCard({ tenantId, record, access }: { tenantId: string; record
             Required{record.digilocker_required_reason ? `: ${record.digilocker_required_reason}` : ""}.{" "}
             {record.digilocker_outstanding ? "Not completed yet — outbound is paused." : "Completed."}
           </p>
-          <button
-            type="button"
-            className={SECONDARY_BUTTON}
-            disabled={!access.allowed || set.isPending}
+          <ActionButton
+            variant="secondary"
+            status={setFeedback.status}
+            successLabel="Stopped"
+            disabled={!access.allowed}
             onClick={() => set.mutate({ required: false, reason: null })}
           >
             Stop requiring DigiLocker
-          </button>
+          </ActionButton>
         </div>
       ) : (
         <div className="mt-3 space-y-2">
@@ -239,14 +247,14 @@ function DigiLockerCard({ tenantId, record, access }: { tenantId: string; record
             <span className={FIELD_LABEL}>Why</span>
             <input className={FIELD} value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} />
           </label>
-          <button
-            type="button"
-            className={PRIMARY_BUTTON}
-            disabled={!access.allowed || set.isPending || !reason.trim()}
+          <ActionButton
+            status={setFeedback.status}
+            successLabel="Required"
+            disabled={!access.allowed || !reason.trim()}
             onClick={() => set.mutate({ required: true, reason: reason.trim() })}
           >
             Require DigiLocker
-          </button>
+          </ActionButton>
         </div>
       )}
       <ProblemNotice error={set.error} />

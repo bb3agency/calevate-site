@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { InfoTip } from "@/components/console/infoTip";
 import { Metric } from "@/components/console/metric";
@@ -104,8 +105,22 @@ export function CurrentWindow({ window: current }: { window: MaintenanceWindow }
   const copy = STATE_COPY[current.state];
   const cancel = useCancelMaintenance();
   const end = useEndMaintenance();
+  // The dialog shows a refusal itself; the success leaves the page (the window closes), so
+  // it is said in a toast.
+  const cancelFeedback = useActionFeedback(cancel, {
+    errorDisplay: "inline",
+    successToast: "Window called off",
+  });
+  const endFeedback = useActionFeedback(end, {
+    errorDisplay: "inline",
+    successToast: "Window ended",
+    successDescription: "Portals, campaigns and agents are being put back.",
+  });
   const [editing, setEditing] = useState(false);
   const [stopping, setStopping] = useState(false);
+  useEffect(() => {
+    if (cancelFeedback.status === "success" || endFeedback.status === "success") setStopping(false);
+  }, [cancelFeedback.status, endFeedback.status]);
   // Two verbs because the server treats them as two: a window that has not begun is
   // called off (nothing happened); one draining or active is ENDED, which is what puts the
   // campaigns and agents back. Each is offered only where the server accepts it.
@@ -184,13 +199,13 @@ export function CurrentWindow({ window: current }: { window: MaintenanceWindow }
           title="Call off this window?"
           confirmLabel="Call it off"
           pendingLabel="Calling it off…"
-          pending={cancel.isPending}
+          status={cancelFeedback.status}
           error={cancel.error}
           onCancel={() => {
             setStopping(false);
             cancel.reset();
           }}
-          onConfirm={() => cancel.mutate(current.id, { onSuccess: () => setStopping(false) })}
+          onConfirm={() => cancelFeedback.run(current.id)}
         >
           <p>
             The window never opens. Nothing has changed yet, so there is nothing to put back,
@@ -207,13 +222,13 @@ export function CurrentWindow({ window: current }: { window: MaintenanceWindow }
           }
           confirmLabel={stopLabel}
           pendingLabel="Ending…"
-          pending={end.isPending}
+          status={endFeedback.status}
           error={end.error}
           onCancel={() => {
             setStopping(false);
             end.reset();
           }}
-          onConfirm={() => end.mutate(current.id, { onSuccess: () => setStopping(false) })}
+          onConfirm={() => endFeedback.run(current.id)}
         >
           <p>{copy.what}</p>
           <p>{ENDING_RESTORES}</p>

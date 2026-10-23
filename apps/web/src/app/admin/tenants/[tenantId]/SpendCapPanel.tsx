@@ -4,13 +4,13 @@ import { InfoTip } from "@/components/console/infoTip";
 import Link from "next/link";
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
   FIELD,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
@@ -72,6 +72,7 @@ export function SpendCapPanel({
 }) {
   const caps = useCaps(viewAsSession(slug));
   const recompute = useRecomputeSpendCap(tenantId);
+  const recomputeFeedback = useActionFeedback(recompute, { errorDisplay: "inline" });
   // `ops:manage`, not `admin:tenants` — this is the one control on this screen whose route
   // lives under `/v1/ops`, and only `superadmin` holds it (core/rbac.py). Gating it with
   // the panel's neighbours would offer an `operator` a button whose only outcome is a 403.
@@ -238,13 +239,15 @@ export function SpendCapPanel({
             </label>
 
             <div className="flex justify-end">
-              <button
+              <ActionButton
                 type="submit"
-                className={PRIMARY_BUTTON}
-                disabled={!write.allowed || !ready || recompute.isPending}
+                status={recomputeFeedback.status}
+                pendingLabel="Recomputing…"
+                successLabel="Recomputed"
+                disabled={!write.allowed || !ready}
               >
-                {recompute.isPending ? "Recomputing…" : "Recompute this client's spend cap"}
-              </button>
+                Recompute this client&apos;s spend cap
+              </ActionButton>
             </div>
 
             <RestrictionNote reason={write.reason} />

@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowRight, Search, X } from "lucide-react";
+import { ArrowRight, X } from "lucide-react";
 
 import { INR_MODEL_LABELS } from "@/app/admin/ops/ModelPricingPanel";
 import { MonoValue } from "@/app/admin/ops/opsLanguage";
-import { FIELD, FilterChip, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { SearchField } from "@/components/arc/search-field";
+import { FilterChip, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { ConfigList } from "@/lib/api/opsConfig";
 import { useInrLlmPrices, useModelPrices } from "@/lib/api/opsModelPricing";
 import { useSecrets } from "@/lib/api/opsSecrets";
@@ -41,25 +42,18 @@ export function ConfigSearchBar({
 }) {
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-      <label className="relative block sm:flex-1">
-        <span className="sr-only">Search settings, panels and credentials</span>
-        <Search
-          aria-hidden
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted"
-        />
-        <input
-          type="search"
-          value={filter.query}
-          onChange={(event) => onChange({ ...filter, query: event.target.value })}
-          placeholder="Search settings, e.g. trial, carrier, GST"
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          enterKeyHint="search"
-          className={`${FIELD} pl-9`}
-        />
-      </label>
+      {/* Filtered on every keystroke: the index is local, so there is nothing to debounce. */}
+      <SearchField
+        label="Search settings, panels and credentials"
+        hideLabel
+        className="sm:flex-1"
+        value={filter.query}
+        onValueChange={(query) => onChange({ ...filter, query })}
+        placeholder="Search settings, e.g. trial, carrier, GST"
+        autoCorrect="off"
+        autoCapitalize="off"
+        slashToFocus
+      />
       <FilterChip
         label="Edited from default"
         active={filter.changedOnly}

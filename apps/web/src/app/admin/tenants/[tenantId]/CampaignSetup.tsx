@@ -3,16 +3,15 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { EmptyState } from "@/components/console/emptyState";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatPhone,
 } from "@/components/ui";
@@ -57,6 +56,9 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
   const setDlt = useSetNumberDltStatus(tenantId);
   const register = useRegisterTemplate(tenantId);
   const setStatus = useSetTemplateStatus(tenantId);
+  const setDltFeedback = useActionFeedback(setDlt, { errorDisplay: "inline" });
+  const registerFeedback = useActionFeedback(register, { errorDisplay: "inline" });
+  const setStatusFeedback = useActionFeedback(setStatus, { errorDisplay: "inline" });
   // Every write here is `admin:tenants` on `/v1/admin/tenants/{id}/...`.
   const write = useAdminAccess("admin:tenants", "change this client's telecom setup");
 
@@ -119,14 +121,16 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
                 <StatusPill tone="neutral">{number.series}</StatusPill>
                 <span className="text-meta text-ink-muted">{state(number.dlt_status)}</span>
                 {number.dlt_status !== "registered" && (
-                  <button
-                    type="button"
-                    className={`${SECONDARY_BUTTON_SM} ml-auto`}
-                    disabled={setDlt.isPending || !write.allowed}
-                    onClick={() => setDlt.mutate({ numberId: number.id, dltStatus: "registered" })}
+                  <ActionButton
+                    variant="secondary-sm"
+                    className="ml-auto"
+                    status={setDlt.variables?.numberId === number.id ? setDltFeedback.status : "idle"}
+                    successLabel="Marked"
+                    disabled={(setDlt.isPending && setDlt.variables?.numberId !== number.id) || !write.allowed}
+                    onClick={() => setDltFeedback.run({ numberId: number.id, dltStatus: "registered" })}
                   >
                     Mark registered
-                  </button>
+                  </ActionButton>
                 )}
               </li>
             ))}
@@ -159,14 +163,21 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
                   <StatusPill tone="neutral">{template.classification}</StatusPill>
                   <span className="text-meta text-ink-muted">{state(template.status)}</span>
                   {template.status !== "approved" && (
-                    <button
-                      type="button"
-                      className={`${SECONDARY_BUTTON_SM} ml-auto`}
-                      disabled={setStatus.isPending || !write.allowed}
-                      onClick={() => setStatus.mutate({ templateId: template.id, status: "approved" })}
+                    <ActionButton
+                      variant="secondary-sm"
+                      className="ml-auto"
+                      status={
+                        setStatus.variables?.templateId === template.id ? setStatusFeedback.status : "idle"
+                      }
+                      successLabel="Recorded"
+                      disabled={
+                        (setStatus.isPending && setStatus.variables?.templateId !== template.id) ||
+                        !write.allowed
+                      }
+                      onClick={() => setStatusFeedback.run({ templateId: template.id, status: "approved" })}
                     >
                       Registrar approved
-                    </button>
+                    </ActionButton>
                   )}
                 </div>
                 <p className="mt-1.5 max-w-prose text-ink">{template.body}</p>
@@ -240,13 +251,14 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
             {templateValid.error("body")}
           </div>
           <div className="flex justify-end">
-            <button
+            <ActionButton
               type="submit"
-              className={PRIMARY_BUTTON}
-              disabled={register.isPending || !write.allowed}
+              status={registerFeedback.status}
+              successLabel="Registered"
+              disabled={!write.allowed}
             >
               Register template
-            </button>
+            </ActionButton>
           </div>
         </form>
       </Section>

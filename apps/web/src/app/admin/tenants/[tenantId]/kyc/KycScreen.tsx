@@ -1,5 +1,6 @@
 "use client";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 
 import { NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
@@ -41,6 +42,7 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
   // Held here, not in the form: a successful write remounts the form by its key, and a
   // mutation held inside it would take the confirmation of the write down with it.
   const save = useRecordKyc(tenantId);
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const record = useTenantKyc(slug);
   const write = useAdminAccess("admin:tenants", "record an identity verification");
   // Where each client has its own voice workspace (D-693) the number approval is the voice
@@ -116,6 +118,7 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
                 <KycRecordForm
                   key={recordStamp(record.data)}
                   save={save}
+                  status={saveFeedback.status}
                   tenantName={tenant.name}
                   record={record.data}
                   write={write}

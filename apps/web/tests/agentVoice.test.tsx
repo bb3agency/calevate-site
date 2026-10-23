@@ -441,6 +441,8 @@ describe("how a Studio voice sounds (operators only)", () => {
     const volume = await screen.findByLabelText("Volume");
     expect((screen.getByLabelText("Speed") as HTMLInputElement).value).toBe("0.95");
     fireEvent.change(volume, { target: { value: "1.4" } });
+    // The kit number box applies typing when it is left.
+    fireEvent.blur(volume);
     fireEvent.change(screen.getByLabelText("Emotion"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
@@ -473,7 +475,9 @@ describe("how a Studio voice sounds (operators only)", () => {
           headers: { "content-type": "audio/mpeg" },
         }),
     });
-    fireEvent.change(await screen.findByLabelText("Speed"), { target: { value: "1.1" } });
+    const speed = await screen.findByLabelText("Speed");
+    fireEvent.change(speed, { target: { value: "1.1" } });
+    fireEvent.blur(speed);
     fireEvent.click(screen.getByRole("button", { name: "Hear it" }));
 
     await waitFor(() =>

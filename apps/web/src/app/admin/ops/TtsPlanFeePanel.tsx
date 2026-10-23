@@ -12,13 +12,13 @@ import {
 } from "@/app/admin/ops/ttsPlanFee";
 import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withheld";
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { useFormValidation } from "@/components/formValidation";
 import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
@@ -105,6 +105,7 @@ function PlanFeeSlot({
   access: Access;
 }) {
   const attest = useAttestTtsPlanFee();
+  const attestFeedback = useActionFeedback(attest, { errorDisplay: "inline" });
   const valid = useFormValidation();
   const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState("");
@@ -233,16 +234,16 @@ function PlanFeeSlot({
           />
 
           <div className="flex flex-wrap gap-2">
-            <button
+            <ActionButton
               type="submit"
               title={access.reason ?? undefined}
-              disabled={
-                !access.allowed || attest.isPending || !confirmationMatches(confirm, month)
-              }
-              className={PRIMARY_BUTTON}
+              disabled={!access.allowed || !confirmationMatches(confirm, month)}
+              status={attestFeedback.status}
+              pendingLabel="Recording…"
+              successLabel="Recorded"
             >
-              {attest.isPending ? "Recording…" : actionLabel}
-            </button>
+              {actionLabel}
+            </ActionButton>
             <button
               type="button"
               disabled={attest.isPending}

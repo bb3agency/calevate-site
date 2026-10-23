@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { Lock, TriangleAlert } from "lucide-react";
 
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import {
   FIELD,
   NoticeBox,
-  PRIMARY_BUTTON,
   RestrictionNote,
   formatINR,
   formatIST,
@@ -61,12 +61,15 @@ export function CorrectionForm({
   clientName,
   wallet,
   correct,
+  status,
   write,
   initialEntryId,
 }: {
   clientName: string;
   wallet: Credits;
   correct: ReturnType<typeof useRecordAdjustment>;
+  /** The write's state, from the feedback made beside the mutation on the screen. */
+  status: FeedbackStatus;
   write: ReturnType<typeof useAdminAccess>;
   /** Pre-selected from a ledger row's menu. Still visible and changeable in the select. */
   initialEntryId?: string;
@@ -90,7 +93,7 @@ export function CorrectionForm({
   const reason = draft.reason.trim();
   const reasonReady = reason.length >= 3;
   const ready =
-    write.allowed && entry !== null && confirmed && reasonReady && !correct.isPending;
+    write.allowed && entry !== null && confirmed && reasonReady;
   // The DIRECTION, read off the entry exactly as the route derives it.
   const debit = entry !== null && takesCreditAway(entry);
 
@@ -299,20 +302,20 @@ export function CorrectionForm({
           )}
           {correct.data && <CorrectionOutcome result={correct.data} clientName={clientName} />}
 
-          <button
+          <ActionButton
             type="submit"
             title={write.reason ?? undefined}
+            status={status}
+            pendingLabel="Correcting…"
+            successLabel="Corrected"
             disabled={!ready}
-            className={PRIMARY_BUTTON}
           >
-            {correct.isPending
-              ? "Correcting…"
-              : entry && amountReady
-                ? debit
-                  ? `Take ${formatINR(amount)} back off ${clientName}'s wallet`
-                  : `Put ${formatINR(amount)} back on ${clientName}'s wallet`
-                : "Correct this entry"}
-          </button>
+            {entry && amountReady
+              ? debit
+                ? `Take ${formatINR(amount)} back off ${clientName}'s wallet`
+                : `Put ${formatINR(amount)} back on ${clientName}'s wallet`
+              : "Correct this entry"}
+          </ActionButton>
 
           <RestrictionNote reason={write.reason} />
 

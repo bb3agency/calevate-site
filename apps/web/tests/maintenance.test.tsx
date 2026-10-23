@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import MaintenancePage from "@/app/admin/ops/maintenance/page";
+import { formatDateShort } from "@/components/arc/ist-dates";
 import { MaintenanceBanner, MaintenanceGate } from "@/components/maintenance";
 import {
   maintenanceConfirmation,
@@ -255,9 +256,10 @@ describe("the operator's screen", () => {
       },
     });
     await openChangeWindow();
-    fireEvent.change(screen.getByDisplayValue("15"), {
-      target: { value: "40" },
-    });
+    const drain = screen.getByDisplayValue("15");
+    fireEvent.change(drain, { target: { value: "40" } });
+    // NumberField applies what was typed when the box is left.
+    fireEvent.blur(drain);
     fireEvent.click(screen.getByText("Save changes"));
     await waitFor(() => {
       const patch = view.calls.find((call) => call.method === "PATCH");
@@ -380,8 +382,11 @@ describe("the window's times are IST, whoever is looking", () => {
     await openChangeWindow();
     // 2026-09-06T20:30Z is 07 Sep 02:00 IST; the browser's own zone would say 13:30 on
     // the 6th, which is the same digits a different day begins with.
-    expect(screen.getByDisplayValue("2026-09-07T02:00")).toBeTruthy();
-    expect(screen.getByDisplayValue("2026-09-07T03:00")).toBeTruthy();
+    expect(screen.getByDisplayValue("02:00")).toBeTruthy();
+    expect(screen.getByDisplayValue("03:00")).toBeTruthy();
+    const opens = screen.getByRole("group", { name: "Opens at (IST)" });
+    expect(opens.textContent).toContain(formatDateShort("2026-09-07"));
+    expect(opens.textContent).not.toContain(formatDateShort("2026-09-06"));
   });
 
   it("sends what the operator typed read as IST, not as their own clock", async () => {
@@ -395,8 +400,8 @@ describe("the window's times are IST, whoever is looking", () => {
       [`/v1/ops/maintenance/${SCHEDULED.id}`]: SCHEDULED,
     });
     await openChangeWindow();
-    fireEvent.change(screen.getByDisplayValue("2026-09-07T03:00"), {
-      target: { value: "2026-09-07T04:00" },
+    fireEvent.change(screen.getByDisplayValue("03:00"), {
+      target: { value: "04:00" },
     });
     fireEvent.click(screen.getByText("Save changes"));
     await waitFor(() => {

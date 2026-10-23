@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Archive, Check, Copy, Download, RotateCcw, Trash2 } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { SavedNote, StatusPill, sentenceCase } from "@/components/admin/kit";
+import { DatePicker } from "@/components/arc/calendar";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Drawer } from "@/components/console/drawer";
 import { TEXT_ACTION } from "@/components/console/section";
@@ -18,7 +20,6 @@ import {
   FIELD_LABEL,
   MonoValue,
   NoticeBox,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -112,6 +113,9 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 function ListenSection({ voice }: { voice: HostedVoice }) {
   const upload = useUploadPreview();
   const fetchPreview = useFetchPreview();
+  // Both refusals are printed under the control; the new clip is the success.
+  useActionFeedback(upload, { errorDisplay: "inline" });
+  const fetchFeedback = useActionFeedback(fetchPreview, { errorDisplay: "inline" });
   const canGenerate = voice.source === "byok" || voice.is_custom;
   const fetchRefused =
     fetchPreview.error instanceof ApiProblem && fetchPreview.error.code === "voice_preview_unavailable";
@@ -132,14 +136,15 @@ function ListenSection({ voice }: { voice: HostedVoice }) {
           <p className="text-body text-ink-muted">No preview yet, so clients cannot listen to it.</p>
         )}
         {canGenerate && (
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={fetchPreview.isPending}
-            onClick={() => fetchPreview.mutate({ voice_id: voice.voice_id })}
+          <ActionButton
+            variant="secondary-sm"
+            status={fetchFeedback.status}
+            pendingLabel="Fetching…"
+            successLabel="Generated"
+            onClick={() => fetchFeedback.run({ voice_id: voice.voice_id })}
           >
-            {fetchPreview.isPending ? "Fetching…" : voice.preview_available ? "Generate again" : "Generate preview"}
-          </button>
+            {voice.preview_available ? "Generate again" : "Generate preview"}
+          </ActionButton>
         )}
       </div>
       {voice.source === "byok" && !voice.preview_available && (
@@ -184,7 +189,14 @@ function ListenSection({ voice }: { voice: HostedVoice }) {
 function OfferSection({ voice }: { voice: HostedVoice }) {
   const add = useAddHostedVoice();
   const setState = useSetHostedState();
+  const addFeedback = useActionFeedback(add, { errorDisplay: "inline" });
+  const setStateFeedback = useActionFeedback(setState, { errorDisplay: "inline" });
   const [archiving, setArchiving] = useState(false);
+  // An archive that went through closes its dialog; the switch and the next step say the rest.
+  useEffect(() => {
+    if (setStateFeedback.status === "success") setArchiving(false);
+  }, [setStateFeedback.status]);
+  const pressedState = setState.variables?.state;
   const blocked = switchBlocked(voice);
   const state = lookup(HOSTED_STATE, voice.state);
   // Enabled but not on the picker: the API says why in its own fields.
@@ -201,14 +213,16 @@ function OfferSection({ voice }: { voice: HostedVoice }) {
               : (voice.not_sold_reason ?? "In a band we do not sell.")}
           </p>
           {voice.sold && (
-            <button
-              type="button"
-              className={PRIMARY_BUTTON_SM}
-              disabled={add.isPending || voice.withdrawn_at !== null}
-              onClick={() => add.mutate(voice.voice_id)}
+            <ActionButton
+              variant="primary-sm"
+              status={addFeedback.status}
+              disabled={voice.withdrawn_at !== null}
+              pendingLabel="Adding…"
+              successLabel="Added"
+              onClick={() => addFeedback.run(voice.voice_id)}
             >
-              {add.isPending ? "Adding…" : `Add ${voice.label}`}
-            </button>
+              {`Add ${voice.label}`}
+            </ActionButton>
           )}
           {add.error != null && <ProblemNotice error={add.error} />}
         </div>
@@ -224,8 +238,8 @@ function OfferSection({ voice }: { voice: HostedVoice }) {
                   : state?.meaning
             }
             checked={voice.state === "enabled"}
-            disabled={setState.isPending || (blocked !== null && voice.state !== "enabled")}
-            onChange={(on) => setState.mutate({ voice_id: voice.voice_id, state: on ? "enabled" : "disabled" })}
+            disabled={setStateFeedback.status === "pending" || (blocked !== null && voice.state !== "enabled")}
+            onChange={(on) => setStateFeedback.run({ voice_id: voice.voice_id, state: on ? "enabled" : "disabled" })}
           />
           <div className="flex flex-wrap gap-2">
             {voice.state !== "archived" ? (
@@ -241,15 +255,16 @@ function OfferSection({ voice }: { voice: HostedVoice }) {
                 Archive
               </button>
             ) : (
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                disabled={setState.isPending}
-                onClick={() => setState.mutate({ voice_id: voice.voice_id, state: "disabled" })}
+              <ActionButton
+                variant="secondary-sm"
+                status={pressedState === "disabled" ? setStateFeedback.status : "idle"}
+                pendingLabel="Restoring…"
+                successLabel="Restored"
+                onClick={() => setStateFeedback.run({ voice_id: voice.voice_id, state: "disabled" })}
               >
                 <RotateCcw aria-hidden className="h-4 w-4" />
                 Restore, not offered
-              </button>
+              </ActionButton>
             )}
           </div>
           {!archiving && setState.error != null && <ProblemNotice error={setState.error} />}
@@ -261,12 +276,10 @@ function OfferSection({ voice }: { voice: HostedVoice }) {
           title={`Archive ${voice.label}?`}
           confirmLabel="Archive voice"
           pendingLabel="Archiving…"
-          pending={setState.isPending}
+          status={setStateFeedback.status}
           error={setState.error}
           onCancel={() => setArchiving(false)}
-          onConfirm={() =>
-            setState.mutate({ voice_id: voice.voice_id, state: "archived" }, { onSuccess: () => setArchiving(false) })
-          }
+          onConfirm={() => setStateFeedback.run({ voice_id: voice.voice_id, state: "archived" })}
         >
           <p>{HOSTED_STATE.archived!.meaning}</p>
         </ConfirmDialog>
@@ -278,7 +291,11 @@ function OfferSection({ voice }: { voice: HostedVoice }) {
 /** The name clients see; the provider's own name stays visible to the operator. */
 function NameSection({ voice }: { voice: HostedVoice }) {
   const save = useSetDisplayName();
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Name saved" });
   const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    if (saveFeedback.status === "success") setEditing(false);
+  }, [saveFeedback.status]);
   const [draft, setDraft] = useState(voice.display_label ?? "");
   const fieldId = useId();
 
@@ -312,10 +329,7 @@ function NameSection({ voice }: { voice: HostedVoice }) {
           className="space-y-2"
           onSubmit={(event) => {
             event.preventDefault();
-            save.mutate(
-              { voice_id: voice.voice_id, display_label: draft.trim() || null },
-              { onSuccess: () => setEditing(false) },
-            );
+            saveFeedback.run({ voice_id: voice.voice_id, display_label: draft.trim() || null });
           }}
         >
           <label htmlFor={fieldId} className={FIELD_LABEL}>
@@ -335,9 +349,9 @@ function NameSection({ voice }: { voice: HostedVoice }) {
           </p>
           {save.error != null && <ProblemNotice error={save.error} />}
           <div className="flex gap-2">
-            <button type="submit" className={PRIMARY_BUTTON_SM} disabled={save.isPending}>
-              {save.isPending ? "Saving…" : "Save name"}
-            </button>
+            <ActionButton type="submit" variant="primary-sm" status={saveFeedback.status} pendingLabel="Saving…">
+              Save name
+            </ActionButton>
             <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setEditing(false)}>
               Cancel
             </button>
@@ -433,7 +447,11 @@ function AgentsSection({ voice }: { voice: HostedVoice }) {
  */
 function CloneSection({ voice }: { voice: HostedVoice }) {
   const mark = useSetPersonClone();
+  const markFeedback = useActionFeedback(mark, { errorDisplay: "inline" });
   const [unmarking, setUnmarking] = useState(false);
+  useEffect(() => {
+    if (markFeedback.status === "success") setUnmarking(false);
+  }, [markFeedback.status]);
   const [recording, setRecording] = useState(false);
   const consent = voice.clone_consent;
 
@@ -444,11 +462,11 @@ function CloneSection({ voice }: { voice: HostedVoice }) {
         label="A cloned voice of a real person"
         hint="Clients see it under the name above. Note the speaker's consent once, and it is kept on file."
         checked={voice.person_clone || recording}
-        disabled={mark.isPending}
+        disabled={markFeedback.status === "pending"}
         onChange={(on) => {
           // With no consent on file the server refuses the bare mark on an offered voice, so
           // switching on opens the consent form; recording it sets the mark too.
-          if (on && consent) mark.mutate({ voice_id: voice.voice_id, person_clone: true });
+          if (on && consent) markFeedback.run({ voice_id: voice.voice_id, person_clone: true });
           else if (on) setRecording(true);
           else if (recording && !voice.person_clone) setRecording(false);
           else {
@@ -510,12 +528,10 @@ function CloneSection({ voice }: { voice: HostedVoice }) {
           title={`${voice.label} is not a cloned voice?`}
           confirmLabel="Remove the mark"
           pendingLabel="Removing…"
-          pending={mark.isPending}
+          status={markFeedback.status}
           error={mark.error}
           onCancel={() => setUnmarking(false)}
-          onConfirm={() =>
-            mark.mutate({ voice_id: voice.voice_id, person_clone: false }, { onSuccess: () => setUnmarking(false) })
-          }
+          onConfirm={() => markFeedback.run({ voice_id: voice.voice_id, person_clone: false })}
         >
           <p>
             Only do this if the voice is not a copy of a real person&rsquo;s voice.
@@ -537,8 +553,16 @@ function ConsentForm({
   onCancel?: () => void;
 }) {
   const record = useRecordConsent();
-  const ids = { speaker: useId(), date: useId(), statement: useId() };
+  const recordFeedback = useActionFeedback(record, {
+    errorDisplay: "inline",
+    successToast: "Consent recorded",
+  });
+  const ids = { speaker: useId(), statement: useId() };
   const today = istDateStamp();
+  // Closed from an effect so the toast is raised before the form unmounts.
+  useEffect(() => {
+    if (recordFeedback.status === "success") onDone();
+  }, [recordFeedback.status, onDone]);
   const [speaker, setSpeaker] = useState("");
   const [consentedOn, setConsentedOn] = useState(today);
   const [statement, setStatement] = useState(DEFAULT_STATEMENT);
@@ -553,10 +577,13 @@ function ConsentForm({
       onSubmit={(event) => {
         event.preventDefault();
         if (!complete) return;
-        record.mutate(
-          { voiceId: voice.voice_id, speakerName: speaker.trim(), statement: statement.trim(), consentedOn, document },
-          { onSuccess: onDone },
-        );
+        recordFeedback.run({
+          voiceId: voice.voice_id,
+          speakerName: speaker.trim(),
+          statement: statement.trim(),
+          consentedOn,
+          document,
+        });
       }}
     >
       <p className="text-body text-ink-muted">
@@ -569,19 +596,12 @@ function ConsentForm({
         <input id={ids.speaker} className={FIELD} value={speaker} maxLength={120} onChange={(e) => setSpeaker(e.target.value)} />
         <p className={FIELD_HINT}>Kept with the record. Clients never see it.</p>
       </div>
-      <div>
-        <label htmlFor={ids.date} className={FIELD_LABEL}>
-          Date they consented
-        </label>
-        <input
-          id={ids.date}
-          type="date"
-          className={FIELD}
-          value={consentedOn}
-          max={today}
-          onChange={(e) => setConsentedOn(e.target.value)}
-        />
-      </div>
+      <DatePicker
+        label="Date they consented"
+        value={consentedOn || null}
+        max={today}
+        onChange={(day) => setConsentedOn(day ?? "")}
+      />
       <div>
         <label htmlFor={ids.statement} className={FIELD_LABEL}>
           What they agreed to
@@ -609,9 +629,15 @@ function ConsentForm({
       />
       {record.error != null && <WriteFailure error={record.error} actionLabel="Record consent" />}
       <div className="flex flex-wrap gap-2">
-        <button type="submit" className={PRIMARY_BUTTON_SM} disabled={!complete || record.isPending}>
-          {record.isPending ? "Recording…" : "Record consent"}
-        </button>
+        <ActionButton
+          type="submit"
+          variant="primary-sm"
+          status={recordFeedback.status}
+          disabled={!complete}
+          pendingLabel="Recording…"
+        >
+          Record consent
+        </ActionButton>
         {onCancel && (
           <button type="button" className={SECONDARY_BUTTON_SM} onClick={onCancel}>
             Cancel
@@ -667,6 +693,9 @@ function DeleteCloneDialog({
   onDeleted: (said: string) => void;
 }) {
   const remove = useDeleteClone();
+  // Inline: the in-use refusal is the expected first answer (it names the agents and turns
+  // the button into the second decision), and every other refusal is printed in the dialog.
+  const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline" });
   const inUse = remove.error instanceof ApiProblem && remove.error.code === "voice_clone_in_use";
   const [confirmed, setConfirmed] = useState(false);
   return (
@@ -674,7 +703,8 @@ function DeleteCloneDialog({
       title={`Delete the clone ${voice.label}?`}
       confirmLabel={inUse ? "Delete and move those agents" : "Delete clone"}
       pendingLabel="Deleting…"
-      pending={remove.isPending}
+      // The in-use answer is a question, not a failure: the button keeps its new label.
+      status={inUse ? "idle" : removeFeedback.status}
       error={null}
       onCancel={onClose}
       onConfirm={() => {

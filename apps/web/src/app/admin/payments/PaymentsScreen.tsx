@@ -1,10 +1,11 @@
 "use client";
 
 import { ServiceLogo } from "@/components/console/serviceLogo";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useAdminAccess } from "@/app/admin/access";
 import { ADMIN_PAGE, HAIRLINE_LIST, StatusPill, sentenceCase } from "@/components/admin/kit";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -18,7 +19,6 @@ import {
   FIELD_LABEL,
   MonoValue,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON,
@@ -38,9 +38,13 @@ import {
   useRunReconciliation,
 } from "@/lib/api/adminPayments";
 
-/** `payment_admin_routes._EVIDENCE_TYPES` and `_EVIDENCE_MAX_BYTES`: what the API accepts. */
+/**
+ * `payment_admin_routes._EVIDENCE_TYPES`, `_EVIDENCE_MAX_BYTES` and `EVIDENCE_MAX_FILES`:
+ * what the API accepts, checked here too so a refusal comes before the upload.
+ */
 const EVIDENCE_ACCEPT = "application/pdf,image/jpeg,image/png";
 const EVIDENCE_MAX_BYTES = 5 * 1024 * 1024;
+const EVIDENCE_MAX_FILES = 5;
 
 /** The public API host Razorpay posts to; the path comes from the status read. */
 const WEBHOOK_HOST = "https://api.calevate.tech";
@@ -62,6 +66,8 @@ export function PaymentsScreen() {
   const [showClosed, setShowClosed] = useState(false);
   const disputes = useDisputes(showClosed, !access.refused);
   const reconcile = useRunReconciliation();
+  // The refusal and the counts are both printed under the section.
+  const reconcileFeedback = useActionFeedback(reconcile, { errorDisplay: "inline" });
 
   if (access.refused) return <RestrictionNote reason={access.reason} />;
 
@@ -120,7 +126,7 @@ export function PaymentsScreen() {
             </details>
           </div>
         ) : (
-          <ProblemNotice error={status.error} />
+          <ProblemNotice error={status.error} onRetry={() => void status.refetch()} />
         )}
       </Section>
 
@@ -143,9 +149,9 @@ export function PaymentsScreen() {
             ))}
           </ul>
         ) : disputes.data ? (
-          <EmptyState message="No disputes." />
+          <EmptyState message={showClosed ? "No disputes." : "No open disputes."} />
         ) : (
-          <ProblemNotice error={disputes.error} />
+          <ProblemNotice error={disputes.error} onRetry={() => void disputes.refetch()} />
         )}
       </Section>
 
@@ -154,14 +160,17 @@ export function PaymentsScreen() {
         info="Runs daily. Compares Razorpay's payments and refunds with the ledger, credits a payment whose webhook was lost, and raises an alarm for anything it cannot explain."
         description="Matches Razorpay against our ledger every day."
         action={
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={!operator.allowed || reconcile.isPending}
-            onClick={() => reconcile.mutate()}
+          <ActionButton
+            variant="secondary-sm"
+            status={reconcileFeedback.status}
+            disabled={!operator.allowed}
+            title={operator.reason ?? undefined}
+            pendingLabel="Running…"
+            successLabel="Done"
+            onClick={() => reconcileFeedback.run()}
           >
-            {reconcile.isPending ? "Running…" : "Run reconciliation now"}
-          </button>
+            Run reconciliation now
+          </ActionButton>
         }
       >
         <div className="space-y-4">
@@ -239,7 +248,7 @@ export function PaymentsScreen() {
           ) : recent.isLoading ? (
             <Skeleton rows={3} label="Reading Razorpay" />
           ) : (
-            <ProblemNotice error={recent.error} />
+            <ProblemNotice error={recent.error} onRetry={() => void recent.refetch()} />
           )
         ) : (
           <button type="button" className={SECONDARY_BUTTON} onClick={() => setShowRecent(true)}>
@@ -262,13 +271,50 @@ const DISPUTE_TONE: Record<string, "warn" | "stop" | "neutral" | "ok"> = {
 function DisputeRow({ dispute, canAct }: { dispute: Dispute; canAct: boolean }) {
   const accept = useAcceptDispute();
   const contest = useContestDispute();
+  // Both refusals are printed where the decision is made (the dialog, the form); both
+  // successes close what they were made in, so the toast says what happened.
+  const acceptFeedback = useActionFeedback(accept, {
+    errorDisplay: "inline",
+    successToast: "Dispute accepted",
+    successDescription: "The customer is refunded through their bank.",
+  });
+  const contestFeedback = useActionFeedback(contest, {
+    errorDisplay: "inline",
+    successToast: "Contest sent to the bank",
+  });
   const [responding, setResponding] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [summary, setSummary] = useState("");
   const [kind, setKind] = useState(EVIDENCE_KINDS[0]?.value ?? "billing_proof");
   const [files, setFiles] = useState<File[]>([]);
+  const [tooMany, setTooMany] = useState<string | null>(null);
   const open = dispute.status === "open" || dispute.status === "under_review";
   const formId = `dispute-${dispute.dispute_id}`;
+  const full = files.length >= EVIDENCE_MAX_FILES;
+
+  useEffect(() => {
+    if (acceptFeedback.status === "success") setAccepting(false);
+  }, [acceptFeedback.status]);
+  useEffect(() => {
+    if (contestFeedback.status !== "success") return;
+    setResponding(false);
+    setSummary("");
+    setFiles([]);
+    setTooMany(null);
+  }, [contestFeedback.status]);
+
+  /** Holds at most `EVIDENCE_MAX_FILES`; the rest are refused here, before any upload. */
+  const addFiles = (picked: File[]) => {
+    const room = Math.max(0, EVIDENCE_MAX_FILES - files.length);
+    const kept = picked.slice(0, room);
+    const left = picked.length - kept.length;
+    setFiles((held) => [...held, ...kept]);
+    setTooMany(
+      left > 0
+        ? `A contest takes at most ${EVIDENCE_MAX_FILES} files, so ${left === 1 ? "1 file was" : `${left} files were`} not added. Remove one to add another.`
+        : null,
+    );
+  };
 
   return (
     <li className="py-3.5 sm:px-2">
@@ -292,7 +338,7 @@ function DisputeRow({ dispute, canAct }: { dispute: Dispute; canAct: boolean }) 
             <button
               type="button"
               className={TEXT_ACTION_DANGER}
-              disabled={accept.isPending}
+              disabled={acceptFeedback.status === "pending"}
               onClick={() => setAccepting(true)}
             >
               Accept (refunds the customer; cannot be undone)
@@ -329,27 +375,51 @@ function DisputeRow({ dispute, canAct }: { dispute: Dispute; canAct: boolean }) 
           </label>
           <FileDrop
             label="Evidence documents"
-            hint="PDF, JPEG or PNG, up to 5 MB each."
+            hint={
+              full
+                ? `${EVIDENCE_MAX_FILES} of ${EVIDENCE_MAX_FILES} files chosen. Remove one to add another.`
+                : `Up to ${EVIDENCE_MAX_FILES} files, PDF, JPEG or PNG, 5 MB each.`
+            }
             accept={EVIDENCE_ACCEPT}
             maxBytes={EVIDENCE_MAX_BYTES}
             multiple
-            disabled={contest.isPending}
-            onFiles={(picked) => setFiles((held) => [...held, ...picked])}
+            disabled={contestFeedback.status === "pending" || full}
+            onFiles={addFiles}
             files={files}
-            onRemove={(index) => setFiles((held) => held.filter((_, i) => i !== index))}
+            onRemove={(index) => {
+              setFiles((held) => held.filter((_, i) => i !== index));
+              setTooMany(null);
+            }}
           />
+          {tooMany && (
+            <p role="alert" className="text-meta text-warn">
+              {tooMany}
+            </p>
+          )}
           {contest.error ? <ProblemNotice error={contest.error} /> : null}
           <div className="flex flex-wrap items-center justify-end gap-3">
+            {summary.trim().length < 10 || files.length === 0 ? (
+              <p className="mr-auto text-meta text-ink-muted">
+                {summary.trim().length < 10
+                  ? "Write at least 10 characters for the bank."
+                  : "Add at least one evidence file."}
+              </p>
+            ) : null}
             <div className="flex flex-wrap gap-2">
-              <button type="button" className={SECONDARY_BUTTON} onClick={() => setResponding(false)}>
-                Cancel
-              </button>
               <button
                 type="button"
-                className={PRIMARY_BUTTON}
-                disabled={contest.isPending || summary.trim().length < 10 || files.length === 0}
+                className={SECONDARY_BUTTON}
+                disabled={contestFeedback.status === "pending"}
+                onClick={() => setResponding(false)}
+              >
+                Cancel
+              </button>
+              <ActionButton
+                status={contestFeedback.status}
+                disabled={summary.trim().length < 10 || files.length === 0}
+                pendingLabel="Sending…"
                 onClick={() =>
-                  contest.mutate({
+                  contestFeedback.run({
                     disputeId: dispute.dispute_id,
                     summary,
                     evidenceKind: kind,
@@ -359,7 +429,7 @@ function DisputeRow({ dispute, canAct }: { dispute: Dispute; canAct: boolean }) 
                 }
               >
                 Contest with evidence
-              </button>
+              </ActionButton>
             </div>
           </div>
         </div>
@@ -372,13 +442,13 @@ function DisputeRow({ dispute, canAct }: { dispute: Dispute; canAct: boolean }) 
           confirmLabel="Accept and refund"
           pendingLabel="Accepting…"
           cancelLabel="Keep the dispute open"
-          pending={accept.isPending}
+          status={acceptFeedback.status}
           error={accept.error}
           onCancel={() => {
             accept.reset();
             setAccepting(false);
           }}
-          onConfirm={() => accept.mutate(dispute.dispute_id, { onSuccess: () => setAccepting(false) })}
+          onConfirm={() => acceptFeedback.run(dispute.dispute_id)}
         >
           <p>
             {formatINR(dispute.amount_inr)} goes back to {dispute.tenant_name ?? dispute.tenant_id}&apos;s

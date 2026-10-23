@@ -4,15 +4,14 @@ import { ServiceLogo } from "@/components/console/serviceLogo";
 import { useState } from "react";
 import { BellOff, BellRing } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import {
   FIELD,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON,
   Skeleton,
   formatIST,
 } from "@/components/ui";
@@ -52,6 +51,7 @@ import {
 export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
   const state = useTenantAlertOptIn(tenantId);
   const record = useRecordTenantAlertOptIn(tenantId);
+  const recordFeedback = useActionFeedback(record, { errorDisplay: "inline" });
   const write = useAdminAccess("admin:tenants", "record this client's WhatsApp opt-in");
   const [reference, setReference] = useState("");
 
@@ -59,7 +59,12 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
   // The document reference is what makes an operator's claim evidence rather than an
   // assertion — the service and a CHECK both refuse a grant without one, so the button
   // is dead until it is typed rather than sending a request that cannot succeed.
-  const ready = write.allowed && reference.trim().length > 0 && !record.isPending;
+  const ready =
+    write.allowed &&
+    reference.trim().length > 0 &&
+    !(record.isPending && record.variables?.status !== "granted");
+  const statusFor = (status: "granted" | "withdrawn") =>
+    record.variables?.status === status ? recordFeedback.status : "idle";
 
   return (
     <Section
@@ -130,8 +135,9 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
           </label>
 
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
+            <ActionButton
+              status={statusFor("granted")}
+              successLabel="Recorded"
               disabled={!ready}
               title={write.reason ?? undefined}
               onClick={() =>
@@ -140,23 +146,23 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
                   { onSuccess: () => setReference("") },
                 )
               }
-              className={PRIMARY_BUTTON}
             >
               <BellRing aria-hidden className="h-4 w-4" />
               Record that the owner agreed
-            </button>
+            </ActionButton>
             {/* Withdrawing needs no document — nobody has to prove that somebody asked to
                 stop, and requiring evidence for it would be a reason to delay stopping. */}
-            <button
-              type="button"
-              disabled={!write.allowed || record.isPending}
+            <ActionButton
+              variant="secondary"
+              status={statusFor("withdrawn")}
+              successLabel="Recorded"
+              disabled={!write.allowed || (record.isPending && record.variables?.status !== "withdrawn")}
               title={write.reason ?? undefined}
-              onClick={() => record.mutate({ status: "withdrawn", evidence: null })}
-              className={SECONDARY_BUTTON}
+              onClick={() => recordFeedback.run({ status: "withdrawn", evidence: null })}
             >
               <BellOff aria-hidden className="h-4 w-4" />
               Record a withdrawal
-            </button>
+            </ActionButton>
           </div>
         </div>
       )}

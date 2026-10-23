@@ -3,6 +3,7 @@
 import { EmptySketch } from "@/components/console/emptySketch";
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptyState } from "@/components/console/emptyState";
 import { useFormValidation } from "@/components/formValidation";
@@ -11,7 +12,6 @@ import { Section } from "@/components/console/section";
 import {
   FIELD,
   FIELD_LABEL,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -67,6 +67,12 @@ export function ScriptSection({
   const history = usePromptHistory(tenantId, agentId);
   const newVersion = useWritePrompt(tenantId, agentId);
   const rollback = useRollbackPrompt(tenantId, agentId);
+  const newVersionFeedback = useActionFeedback(newVersion, { errorDisplay: "inline" });
+  // The dialog closes on success, so the outcome is said where the operator lands.
+  const rollbackFeedback = useActionFeedback(rollback, {
+    errorDisplay: "inline",
+    successToast: (_data, vars) => `Rolled back to v${vars.version}. Callers hear it now.`,
+  });
   const valid = useFormValidation();
   const [confirming, setConfirming] = useState<PromptVersion | null>(null);
 
@@ -118,15 +124,17 @@ export function ScriptSection({
             />
           </label>
           <div className="flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-end">
-            <button
+            <ActionButton
               type="submit"
+              status={newVersionFeedback.status}
+              pendingLabel="Saving…"
+              successLabel="Saved"
               /* The 20-character rule is the field's, so the button stays live and a press
                  produces a sentence rather than nothing. */
-              disabled={newVersion.isPending || !write.allowed}
-              className={`${PRIMARY_BUTTON} max-sm:justify-center`}
+              disabled={!write.allowed}
             >
-              {newVersion.isPending ? "Saving…" : "Save as new version"}
-            </button>
+              Save as new version
+            </ActionButton>
             {/* Under two-speed publishing a save STAGES, it does not go live — the single
                 most expensive thing this screen could get wrong, so it is said beside the
                 button rather than behind an ⓘ. */}
@@ -196,7 +204,7 @@ export function ScriptSection({
           title={`Roll back to v${confirming.version}?`}
           confirmLabel={`Roll back to v${confirming.version}`}
           pendingLabel="Rolling back…"
-          pending={rollback.isPending}
+          status={rollbackFeedback.status}
           error={rollback.error}
           onCancel={() => setConfirming(null)}
           onConfirm={() =>

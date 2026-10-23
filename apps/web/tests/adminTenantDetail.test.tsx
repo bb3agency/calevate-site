@@ -382,7 +382,7 @@ describe("the client detail screen", () => {
 
     // The confirmation names the specific document and demands the operator's own words —
     // the old one-click reject sent a hardcoded reason the operator never saw.
-    expect(screen.getByText(/Rejecting/).textContent).toContain(
+    expect(screen.getByText(/^Rejecting /).textContent).toContain(
       "Clinic price list",
     );
     const submit = screen.getByRole("button", {

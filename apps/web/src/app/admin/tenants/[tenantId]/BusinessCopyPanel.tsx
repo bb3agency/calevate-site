@@ -1,7 +1,8 @@
 "use client";
 
 import { useAdminAccess } from "@/app/admin/access";
-import { Section, TEXT_ACTION } from "@/components/console/section";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { Section } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { ProblemNotice, Skeleton, formatINR, formatISTStamp } from "@/components/ui";
 import {
@@ -26,6 +27,7 @@ const TRIGGER: Record<string, string> = {
 export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
   const copy = useAdminBusinessCopy(tenantId);
   const refresh = useAdminRefreshBusinessCopy(tenantId);
+  const refreshFeedback = useActionFeedback(refresh, { errorDisplay: "inline" });
   const access = useAdminAccess("ops:manage", "write a client's examples again");
 
   if (copy.isError)
@@ -49,14 +51,16 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
           value={writtenLine(data)}
           action={
             access.allowed ? (
-              <button
-                type="button"
-                className={TEXT_ACTION}
-                disabled={refresh.isPending || data.refreshing}
-                onClick={() => refresh.mutate()}
+              <ActionButton
+                variant="secondary-sm"
+                status={refreshFeedback.status}
+                pendingLabel="Asking…"
+                successLabel="Asked"
+                disabled={data.refreshing}
+                onClick={() => refreshFeedback.run()}
               >
                 {data.refreshing ? "Writing…" : "Write again at our cost"}
-              </button>
+              </ActionButton>
             ) : null
           }
         />

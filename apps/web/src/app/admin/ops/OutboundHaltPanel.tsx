@@ -4,14 +4,8 @@ import { useState } from "react";
 import { Lock, PhoneCall, PhoneOff, TriangleAlert } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
-import {
-  DANGER_BUTTON,
-  FIELD,
-  FIELD_HINT,
-  FIELD_LABEL,
-  NoticeBox,
-  PRIMARY_BUTTON,
-} from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox } from "@/components/ui";
 import { TypedConfirmation } from "@/components/typedConfirmation";
 import { useFormValidation } from "@/components/formValidation";
 import { useSetPlatformState, type PlatformState } from "@/lib/api/admin";
@@ -45,6 +39,7 @@ import type { OpsAccess } from "./opsAccess";
  */
 export function OutboundHaltPanel({ state, access }: { state: PlatformState; access: OpsAccess }) {
   const setState = useSetPlatformState();
+  const setStateFeedback = useActionFeedback(setState, { errorDisplay: "inline" });
   const [reason, setReason] = useState("");
   const [confirm, setConfirm] = useState("");
 
@@ -88,6 +83,7 @@ export function OutboundHaltPanel({ state, access }: { state: PlatformState; acc
           className="space-y-3"
           noValidate
           onSubmit={valid.onSubmit(() => {
+            if (setState.isPending) return;
             setState.mutate(
               { outboundHalted: !halted, reason: reason.trim() },
               {
@@ -164,23 +160,22 @@ export function OutboundHaltPanel({ state, access }: { state: PlatformState; acc
             disabled={!access.allowed}
           />
 
-          <button
+          <ActionButton
             type="submit"
             title={access.reason ?? undefined}
-            disabled={!access.allowed || !ready || setState.isPending}
-            className={halted ? PRIMARY_BUTTON : DANGER_BUTTON}
+            disabled={!access.allowed || !ready}
+            variant={halted ? "primary" : "danger"}
+            status={setStateFeedback.status}
+            pendingLabel="Sending…"
+            successLabel={setState.variables?.outboundHalted ? "Halted" : "Resumed"}
           >
             {halted ? (
               <PhoneCall aria-hidden className="h-4 w-4" />
             ) : (
               <PhoneOff aria-hidden className="h-4 w-4" />
             )}
-            {setState.isPending
-              ? "Sending…"
-              : halted
-                ? "Resume outbound calling"
-                : "Halt all outbound calling"}
-          </button>
+            {halted ? "Resume outbound calling" : "Halt all outbound calling"}
+          </ActionButton>
 
           {/* A dead switch with no explanation is worse than a refusal after the click:
               the operator cannot tell it apart from a broken page. */}

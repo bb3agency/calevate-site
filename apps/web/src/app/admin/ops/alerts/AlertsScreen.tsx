@@ -4,6 +4,7 @@ import { useId, useMemo, useState, type ReactNode } from "react";
 
 import { useAdminAccess } from "@/app/admin/access";
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { Drawer } from "@/components/console/drawer";
 import { EmptyState } from "@/components/console/emptyState";
@@ -16,7 +17,6 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
   formatCountOf,
@@ -479,6 +479,7 @@ function RecopyActions({ targets }: { targets: RecopyTarget[] }) {
  */
 function RecopyRow({ target }: { target: RecopyTarget }) {
   const recopy = useRecopyRecording();
+  const recopyFeedback = useActionFeedback(recopy, { errorDisplay: "inline" });
   const callLabelId = useId();
   const answer = recopy.data;
   return (
@@ -488,15 +489,16 @@ function RecopyRow({ target }: { target: RecopyTarget }) {
           <span className="text-ink-muted">Call </span>
           <MonoValue>{target.callId}</MonoValue>
         </span>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
+        <ActionButton
+          variant="secondary-sm"
+          status={recopyFeedback.status}
           aria-describedby={callLabelId}
-          disabled={recopy.isPending}
-          onClick={() => recopy.mutate(target)}
+          pendingLabel="Asking…"
+          successLabel="Asked"
+          onClick={() => recopyFeedback.run(target)}
         >
-          {recopy.isPending ? "Asking…" : "Copy recording again"}
-        </button>
+          Copy recording again
+        </ActionButton>
       </div>
       {answer && (
         <div role="status">
@@ -506,7 +508,7 @@ function RecopyRow({ target }: { target: RecopyTarget }) {
       {recopy.error && (
         <WriteFailure
           error={recopy.error}
-          onRetry={() => recopy.mutate(target)}
+          onRetry={() => recopyFeedback.run(target)}
           actionLabel="Copy recording again"
         />
       )}

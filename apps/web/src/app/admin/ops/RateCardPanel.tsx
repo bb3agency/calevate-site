@@ -11,12 +11,13 @@ import { lookup } from "@/lib/lookup";
 import { VOICE_TIERS, unpricedTier, type VoiceTier } from "@/lib/api/rateCard";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { useFormValidation } from "@/components/formValidation";
+import { DatePicker } from "@/components/arc/calendar";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON_SM,
   SECONDARY_BUTTON_SM,
   ScrollRegion,
   formatINR,
@@ -731,6 +732,10 @@ function WithdrawForm({ pending, onDone }: { pending: PendingCard; onDone: () =>
   const [reason, setReason] = useState("");
   const [confirm, setConfirm] = useState("");
   const withdraw = useCancelRateCard();
+  const withdrawFeedback = useActionFeedback(withdraw, {
+    errorDisplay: "inline",
+    successToast: "Rate card withdrawn",
+  });
   const valid = useFormValidation();
   const word = "WITHDRAW";
   const ready = confirmationMatches(confirm, word, "exact");
@@ -785,10 +790,17 @@ function WithdrawForm({ pending, onDone }: { pending: PendingCard; onDone: () =>
       />
 
       <div className="flex gap-2">
-        <button type="submit" disabled={!ready || withdraw.isPending} className={PRIMARY_BUTTON_SM}>
+        <ActionButton
+          type="submit"
+          variant="primary-sm"
+          disabled={!ready}
+          status={withdrawFeedback.status}
+          pendingLabel="Withdrawing…"
+          successLabel="Withdrawn"
+        >
           <Undo2 aria-hidden className="h-3.5 w-3.5" />
-          {withdraw.isPending ? "Withdrawing…" : "Withdraw"}
-        </button>
+          Withdraw
+        </ActionButton>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
           Cancel
         </button>
@@ -937,6 +949,10 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
   const [confirm, setConfirm] = useState("");
 
   const save = useRecordRateCard();
+  const saveFeedback = useActionFeedback(save, {
+    errorDisplay: "inline",
+    successToast: "Rate card recorded",
+  });
   const valid = useFormValidation();
   const word = "RECORD";
   const ready = confirmationMatches(confirm, word, "exact");
@@ -945,6 +961,7 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
   const days = noticeDays(card);
   const recipients = noticeRecipients(card);
   const refusal = cardRefusal(save.error, earliestDay);
+  const [dayMissing, setDayMissing] = useState(false);
 
   const cells: CellDraft[] = useMemo(
     () =>
@@ -956,19 +973,24 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
     [card.cells, draft],
   );
 
+  const submit = valid.onSubmit(() => {
+    if (!ready || save.isPending) return;
+    // Null for a day the parser could not read: nothing is sent for an instant nobody picked.
+    const effectiveFrom = cardInstant(day);
+    if (effectiveFrom === null) return;
+    save.mutate({ effectiveFrom, reason: reason.trim(), cells }, { onSuccess: onDone });
+  });
+
   return (
     <form
       className="space-y-3"
       noValidate
-      onSubmit={valid.onSubmit(() => {
-        if (!ready || save.isPending) return;
-        const effectiveFrom = cardInstant(day);
-        // The date box is `required` and `type="date"`, so the browser has already refused
-        // an empty one; this guards the shape the parser could not make sense of rather
-        // than sending an instant nobody picked.
-        if (effectiveFrom === null) return;
-        save.mutate({ effectiveFrom, reason: reason.trim(), cells }, { onSuccess: onDone });
-      })}
+      onSubmit={(event) => {
+        // The picker is a button, not a constrained input, so its "required" is said here,
+        // beside the other refusals rather than after them.
+        if (!day) setDayMissing(true);
+        submit(event);
+      }}
     >
       {refusal ? (
         <CardRefusalNotice refusal={refusal} />
@@ -1039,26 +1061,23 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
         </table>
       </ScrollRegion>
 
-      <label className="block">
-        <span className={FIELD_LABEL}>The day the new rates start (IST)</span>
-        <input
-          {...valid.field("effectiveFrom", "Pick the day these rates start.")}
-          type="date"
-          required
-          value={day}
-          min={earliestDay ?? undefined}
-          onChange={(e) => setDay(e.target.value)}
-          className={FIELD}
-        />
-        {valid.error("effectiveFrom")}
-        <span className={FIELD_HINT}>
-          {earliestDay === null
+      <DatePicker
+        label="The day the new rates start (IST)"
+        value={day || null}
+        min={earliestDay ?? undefined}
+        error={dayMissing ? "Pick the day these rates start." : null}
+        onChange={(picked) => {
+          setDay(picked ?? "");
+          setDayMissing(false);
+        }}
+        hint={
+          earliestDay === null
             ? "Clients are given notice before their rates move, so a card cannot start immediately. The server refuses a date that is too soon."
             : `Clients are given ${
                 days === null ? "notice" : `${days} days' notice`
-              } before their rates move, so the earliest day this deployment accepts is ${earliestDay}. Rates start at midnight IST on the day you pick.`}
-        </span>
-      </label>
+              } before their rates move, so the earliest day this deployment accepts is ${earliestDay}. Rates start at midnight IST on the day you pick.`
+        }
+      />
 
       <label className="block">
         <span className={FIELD_LABEL}>Why are these rates changing?</span>
@@ -1112,10 +1131,17 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
       />
 
       <div className="flex gap-2">
-        <button type="submit" disabled={!ready || save.isPending} className={PRIMARY_BUTTON_SM}>
+        <ActionButton
+          type="submit"
+          variant="primary-sm"
+          disabled={!ready}
+          status={saveFeedback.status}
+          pendingLabel="Recording…"
+          successLabel="Recorded"
+        >
           <Save aria-hidden className="h-3.5 w-3.5" />
-          {save.isPending ? "Recording…" : "Record card"}
-        </button>
+          Record card
+        </ActionButton>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
           Cancel
         </button>

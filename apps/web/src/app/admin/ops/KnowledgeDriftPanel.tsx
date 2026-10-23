@@ -1,8 +1,7 @@
 "use client";
 
-
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
-import { TEXT_ACTION } from "@/components/console/section";
 import {
   MonoValue,
   NoticeBox,
@@ -216,6 +215,7 @@ const ORPHAN_VERDICTS: Record<string, string> = {
  */
 function AccountKnowledgeCheck() {
   const check = useKbOrphanCheck();
+  const checkFeedback = useActionFeedback(check, { errorDisplay: "inline" });
   const report = check.data;
 
   return (
@@ -224,16 +224,17 @@ function AccountKnowledgeCheck() {
         <p className="text-meta text-ink-muted">
           Knowledge the platform account holds that no client of ours claims.
         </p>
-        <button
-          type="button"
-          className={TEXT_ACTION}
-          disabled={check.isPending}
-          onClick={() => check.mutate()}
+        <ActionButton
+          variant="secondary-sm"
+          status={checkFeedback.status}
+          pendingLabel="Checking…"
+          successLabel="Checked"
+          onClick={() => checkFeedback.run()}
         >
-          {check.isPending ? "Checking…" : report ? "Check again" : "Check the account"}
-        </button>
+          {report ? "Check again" : "Check the account"}
+        </ActionButton>
       </div>
-      {check.error && <ProblemNotice error={check.error} onRetry={() => check.mutate()} />}
+      {check.error && <ProblemNotice error={check.error} onRetry={() => checkFeedback.run()} />}
       {check.isPending && <Skeleton rows={2} />}
       {report && !check.isPending && <OrphanReport report={report} />}
     </div>

@@ -3,8 +3,9 @@
 import { useState } from "react";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
-import { ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { ProblemNotice } from "@/components/ui";
 import type { EngineCatalogueModel } from "@/lib/api/engineCatalogue";
 import {
   bandForCatalogueModel,
@@ -33,6 +34,9 @@ export function ModelBandControl({ model }: { model: EngineCatalogueModel }) {
   const unchecked = model.price_band == null;
   const bands = useEngineModelBands({ enabled: unchecked && access.allowed });
   const record = useRecordEngineModelBand();
+  const recordFeedback = useActionFeedback(record, { errorDisplay: "inline" });
+  const statusFor = (band: ModelBand) =>
+    record.variables?.band === band ? recordFeedback.status : "idle";
   const [confirmPaid, setConfirmPaid] = useState(false);
   if (!unchecked) return null;
   if (!access.allowed) {
@@ -43,7 +47,7 @@ export function ModelBandControl({ model }: { model: EngineCatalogueModel }) {
   if (bands.error != null) return <ProblemNotice error={bands.error} />;
   const row = bandForCatalogueModel(bands.data, model.model_id);
   const engine = bands.data?.engine;
-  const ready = row !== undefined && engine != null && !record.isPending;
+  const ready = row !== undefined && engine != null;
 
   const save = (band: ModelBand) => {
     if (!row || engine == null) return;
@@ -60,14 +64,15 @@ export function ModelBandControl({ model }: { model: EngineCatalogueModel }) {
       {confirmPaid ? (
         <div className="flex flex-wrap items-center gap-3 text-meta text-ink-muted">
           <span>Record it as paid? It will no longer be listed anywhere.</span>
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
+          <ActionButton
+            variant="secondary-sm"
+            status={statusFor("premium")}
+            successLabel="Recorded"
             disabled={!ready}
             onClick={() => save("premium")}
           >
             Record as paid
-          </button>
+          </ActionButton>
           <button
             type="button"
             className={TEXT_ACTION}
@@ -78,18 +83,19 @@ export function ModelBandControl({ model }: { model: EngineCatalogueModel }) {
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
+          <ActionButton
+            variant="secondary-sm"
+            status={statusFor("none")}
+            successLabel="Recorded"
             disabled={!ready}
             onClick={() => save("none")}
           >
             No extra charge (checked in the console)
-          </button>
+          </ActionButton>
           <button
             type="button"
             className={TEXT_ACTION}
-            disabled={!ready}
+            disabled={!ready || record.isPending}
             onClick={() => setConfirmPaid(true)}
           >
             Costs extra

@@ -2,16 +2,9 @@
 
 import { useEffect, useId, useState } from "react";
 
-import {
-  FIELD,
-  FIELD_HINT,
-  FIELD_LABEL,
-  PRIMARY_BUTTON_SM,
-  ProblemNotice,
-  RestrictionNote,
-  SECONDARY_BUTTON_SM,
-  Skeleton,
-} from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { NumberField } from "@/components/arc/number-field";
+import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import type { useAdminAccess } from "@/app/admin/access";
 import { useReplyLength, useSetReplyLength } from "@/lib/api/replyLength";
 
@@ -31,12 +24,13 @@ export function ReplyLengthPanel({
 }) {
   const held = useReplyLength(tenantId, agentId);
   const save = useSetReplyLength(tenantId, agentId);
-  const [draft, setDraft] = useState("");
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
+  const [draft, setDraft] = useState<number | null>(null);
   const [saved, setSaved] = useState(false);
   const id = useId();
 
   useEffect(() => {
-    if (held.data) setDraft(held.data.max_reply_tokens == null ? "" : String(held.data.max_reply_tokens));
+    if (held.data) setDraft(held.data.max_reply_tokens ?? null);
   }, [held.data]);
 
   if (held.isLoading) return <Skeleton rows={1} />;
@@ -72,46 +66,45 @@ export function ReplyLengthPanel({
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          submit(draft.trim() === "" ? null : Number(draft));
+          submit(draft);
         }}
       >
-        <div>
-          <label htmlFor={`${id}-tokens`} className={FIELD_LABEL}>
-            Longest reply, in tokens
-          </label>
-          <input
-            id={`${id}-tokens`}
-            aria-describedby={`${id}-hint`}
-            className={FIELD}
-            type="number"
-            inputMode="numeric"
-            step="10"
-            min={data.min}
-            max={data.max}
-            placeholder={String(data.default)}
-            value={draft}
-            disabled={disabled}
-            onChange={(event) => {
-              setSaved(false);
-              setDraft(event.target.value);
-            }}
-          />
-          <span id={`${id}-hint`} className={FIELD_HINT}>
-            {`${String(data.min)} to ${String(data.max)}. A reply that reaches it is cut off mid-sentence. Empty uses the platform setting.`}
-          </span>
-        </div>
-        <button type="submit" className={PRIMARY_BUTTON_SM} disabled={disabled || save.isPending}>
-          {save.isPending ? "Saving…" : "Save"}
-        </button>
+        <NumberField
+          label="Longest reply, in tokens"
+          hint={`${String(data.min)} to ${String(data.max)}. A reply that reaches it is cut off mid-sentence. Empty uses the platform setting.`}
+          value={draft}
+          onChange={(next) => {
+            setSaved(false);
+            setDraft(next);
+          }}
+          optional
+          unit="tokens"
+          min={data.min}
+          max={data.max}
+          step={1}
+          largeStep={10}
+          disabled={disabled}
+          className="w-64"
+        />
+        <ActionButton
+          type="submit"
+          variant="primary-sm"
+          status={save.variables?.max_reply_tokens !== null ? saveFeedback.status : "idle"}
+          pendingLabel="Saving…"
+          successLabel="Saved"
+          disabled={disabled}
+        >
+          Save
+        </ActionButton>
         {!inherited && (
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={disabled || save.isPending}
+          <ActionButton
+            variant="secondary-sm"
+            status={save.variables?.max_reply_tokens === null ? saveFeedback.status : "idle"}
+            disabled={disabled}
             onClick={() => submit(null)}
           >
             Use the platform setting
-          </button>
+          </ActionButton>
         )}
         {saved && (
           <span role="status" className="text-meta text-ink-muted">

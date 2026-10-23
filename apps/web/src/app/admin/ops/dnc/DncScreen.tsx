@@ -3,7 +3,7 @@
 import { SavedNote } from "@/components/admin/kit";
 import { Section } from "@/components/console/section";
 import { useMemo, useState } from "react";
-import { ListPlus, Search } from "lucide-react";
+import { ListPlus } from "lucide-react";
 
 import { useAdminAccess } from "@/app/admin/access";
 import { MonoValue, dncSourceCopy } from "@/app/admin/ops/opsLanguage";
@@ -11,14 +11,14 @@ import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { Drawer } from "@/components/console/drawer";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { RowMenu } from "@/components/arc/menu";
+import { SearchField } from "@/components/arc/search-field";
 import { CopyButton } from "@/components/interior/copy-button";
 import {
-  FIELD_INLINE_ICON,
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
   formatIST,
@@ -62,6 +62,10 @@ export function DncScreen() {
   const entries = useGlobalDncList();
   const suppress = useSuppressGlobally();
   const release = useReleaseGlobally();
+  // Inline: both drawers print the refusal above their controls (`WriteFailure`), and both
+  // successes are already said on screen (the counts, the released note).
+  const suppressFeedback = useActionFeedback(suppress, { errorDisplay: "inline" });
+  const releaseFeedback = useActionFeedback(release, { errorDisplay: "inline" });
   /*
    * `ops:manage` (superadmin only), asked of `GET /v1/admin/me` so the controls disable
    * themselves with the reason. Gated on the permission alone, not on the list read:
@@ -229,31 +233,23 @@ export function DncScreen() {
         ) : (
           <>
             <div className="border-b border-line px-4 pb-3 pt-1">
-              <label className="relative block max-w-xs">
-                <span className="sr-only">Find a number</span>
-                <Search
-                  aria-hidden
-                  className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted"
-                />
-                <input
-                  type="search"
-                  inputMode="tel"
-                  autoComplete="off"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Find a number"
-                  className={`${FIELD_INLINE_ICON} w-full`}
-                />
-              </label>
+              <SearchField
+                label="Find a number"
+                hideLabel
+                inputMode="tel"
+                autoComplete="off"
+                value={query}
+                onValueChange={setQuery}
+                placeholder="Find a number"
+                className="max-w-xs"
+              />
             </div>
             {shown.length === 0 ? (
               <EmptyState
+                variant="filtered"
                 message="No suppressed number matches that."
-                action={
-                  <button type="button" onClick={() => setQuery("")} className={SECONDARY_BUTTON_SM}>
-                    Clear search
-                  </button>
-                }
+                onClear={() => setQuery("")}
+                clearLabel="Clear search"
               />
             ) : (
               <DataTable
@@ -274,7 +270,7 @@ export function DncScreen() {
         title="Suppress numbers for every client"
         width="lg"
       >
-        <SuppressForm access={write} mutation={suppress} />
+        <SuppressForm access={write} mutation={suppress} status={suppressFeedback.status} />
       </Drawer>
 
       <Drawer
@@ -287,6 +283,7 @@ export function DncScreen() {
             key={releasingEntry.id}
             entry={releasingEntry}
             mutation={release}
+            status={releaseFeedback.status}
             onDone={() => {
               setReleased(formatPhone(releasingEntry.phone_e164));
               setReleasingId(null);

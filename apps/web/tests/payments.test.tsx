@@ -149,6 +149,47 @@ describe("payments page", () => {
     expect(screen.getByRole("button", { name: /Accept \(refunds the customer/ })).toBeTruthy();
   });
 
+  it("takes at most five evidence files and says so before anything is uploaded", async () => {
+    const { calls } = renderAdminPage(<PaymentsScreen />, {
+      "/v1/admin/me": {
+        user_id: "admin-1",
+        realm: "admin",
+        role: "superadmin",
+        permissions: ["org:read", "admin:tenants"],
+        impersonating: false,
+      },
+      "/v1/admin/payments/status": STATUS,
+      "/v1/admin/payments/disputes?limit=200&include_closed=false": [
+        {
+          tenant_id: "t1",
+          tenant_name: "Sri Clinic",
+          dispute_id: "disp_1",
+          payment_id: "pay_1",
+          amount_inr: "390.00",
+          hold_inr: "390.00",
+          status: "open",
+          phase: "chargeback",
+          reason_code: "chargeback",
+          respond_by: "2026-10-20T00:00:00Z",
+          action_required: false,
+          created_at: "2026-10-09T00:00:00Z",
+        },
+      ],
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Contest" }));
+    expect(screen.getByText("Up to 5 files, PDF, JPEG or PNG, 5 MB each.")).toBeTruthy();
+    const six = Array.from(
+      { length: 6 },
+      (_, i) => new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], `proof-${i + 1}.pdf`, { type: "application/pdf" }),
+    );
+    fireEvent.change(screen.getByLabelText("Evidence documents"), { target: { files: six } });
+    expect(await screen.findByText(/at most 5 files, so 1 file was not added/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove proof-5.pdf" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Remove proof-6.pdf" })).toBeNull();
+    expect(screen.getByText("5 of 5 files chosen. Remove one to add another.")).toBeTruthy();
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
   it("binds each step-up confirmation to its payment or dispute", () => {
     expect(refundConfirmationHeader("t1", " pay_9 ")).toBe("refund_payment:t1:pay_9");
     expect(disputeConfirmation("disp_1", "accept")).toBe("dispute_accept:disp_1");

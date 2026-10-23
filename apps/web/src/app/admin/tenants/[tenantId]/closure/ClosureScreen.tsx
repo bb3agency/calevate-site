@@ -6,7 +6,6 @@ import { Undo2 } from "lucide-react";
 
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
-  DANGER_BUTTON,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -296,6 +295,7 @@ function CloseForm({
   forfeitedInr: string;
 }) {
   const close = useCloseAccount(tenantId);
+  const closeFeedback = useActionFeedback(close, { errorDisplay: "inline" });
   const [reason, setReason] = useState("");
   const [typed, setTyped] = useState("");
   const reasonMissing = reason.trim().length < 3;
@@ -367,13 +367,17 @@ function CloseForm({
         />
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
+          <ActionButton
             type="submit"
-            disabled={close.isPending || blocked || !write.allowed}
-            className={`${DANGER_BUTTON} max-sm:w-full max-sm:justify-center`}
+            variant="danger"
+            status={closeFeedback.status}
+            pendingLabel="Closing…"
+            successLabel="Closed"
+            disabled={blocked || !write.allowed}
+            className="max-sm:w-full"
           >
-            {close.isPending ? "Closing…" : "Close this account"}
-          </button>
+            Close this account
+          </ActionButton>
           {blocked && (
             <span className="text-meta text-warn">
               {reasonMissing

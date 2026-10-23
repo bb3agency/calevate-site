@@ -7,7 +7,6 @@ import { SuccessRipple } from "@/components/successRipple";
 import { Section } from "@/components/console/section";
 import {
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -225,9 +224,10 @@ export function PublishingPanel({
   const target = { tenantId, agentId, slug };
   const apply = useApplyChanges(target);
   const undo = useUndoChanges(target);
+  const applyFeedback = useActionFeedback(apply, { errorDisplay: "inline" });
+  const undoFeedback = useActionFeedback(undo, { errorDisplay: "inline" });
 
   const staged = pending?.pending.find((change) => change.field === "script");
-  const busy = apply.isPending || undo.isPending;
 
   return (
     <Section
@@ -262,22 +262,25 @@ export function PublishingPanel({
               <p className="mt-0.5">Staged {formatIST(staged.staged_at)}</p>
             </NoticeBox>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={busy || !write.allowed}
-                onClick={() => apply.mutate({ expected_version: staged.staged_version })}
-                className={PRIMARY_BUTTON}
+              <ActionButton
+                status={applyFeedback.status}
+                pendingLabel="Applying…"
+                successLabel="Applied"
+                disabled={undo.isPending || !write.allowed}
+                onClick={() => applyFeedback.run({ expected_version: staged.staged_version })}
               >
-                {apply.isPending ? "Applying…" : "Apply to live calls"}
-              </button>
-              <button
-                type="button"
-                disabled={busy || !write.allowed}
-                onClick={() => undo.mutate()}
-                className={SECONDARY_BUTTON_SM}
+                Apply to live calls
+              </ActionButton>
+              <ActionButton
+                variant="secondary-sm"
+                status={undoFeedback.status}
+                pendingLabel="Undoing…"
+                successLabel="Undone"
+                disabled={apply.isPending || !write.allowed}
+                onClick={() => undoFeedback.run()}
               >
-                {undo.isPending ? "Undoing…" : "Undo"}
-              </button>
+                Undo
+              </ActionButton>
               <span className="text-meta text-ink-muted">
                 {pending.published
                   ? "Apply pushes this script to the voice platform now."

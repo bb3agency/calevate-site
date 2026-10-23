@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   RestrictionNote,
   formatINR,
   formatIST,
@@ -78,6 +78,8 @@ export function OverrideForm({
     lotId: initialLotId ?? "",
   }));
   const apply = useApplyLotOverride(tenantId);
+  // `WriteFailure` above the form owns the refusal, which may be a step-up answer.
+  const applyFeedback = useActionFeedback(apply, { errorDisplay: "inline" });
   const chosen = lots.find((lot) => lot.lot_id === draft.lotId) ?? null;
   const pack = packs.find((row) => row.pack_id === draft.packId) ?? null;
   const ready =
@@ -190,19 +192,20 @@ export function OverrideForm({
 
       {!write.allowed && <RestrictionNote reason={write.reason} />}
 
-      <button
-        type="button"
-        disabled={!ready || !write.allowed || apply.isPending}
+      <ActionButton
+        status={applyFeedback.status}
+        pendingLabel="Re-pricing…"
+        successLabel="Re-priced"
+        disabled={!ready || !write.allowed}
         onClick={() =>
           apply.mutate(
             { lotId: draft.lotId, packId: draft.packId, reason: draft.reason.trim() },
             { onSuccess: () => setDraft(NO_OVERRIDE) },
           )
         }
-        className={PRIMARY_BUTTON}
       >
-        {apply.isPending ? "Re-pricing…" : "Re-price this lot"}
-      </button>
+        Re-price this lot
+      </ActionButton>
     </div>
   );
 }
