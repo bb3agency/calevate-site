@@ -439,6 +439,7 @@ SoundKind = Literal[
     "third_person",
     "foreign_script",
     "repeated_turn",
+    "opened_again",
 ]
 
 

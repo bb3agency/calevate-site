@@ -90,6 +90,40 @@ def has_indic_letters(text: str) -> bool:
     return bool(_INDIC_LETTER.search(text))
 
 
+#: The languages whose spoken lines write every word in the language's own letters, English
+#: words included (D-861): the ones whose spoken style was rewritten that way. The staged
+#: languages keep Latin-letter loanwords until the founder rules on them, and English has no
+#: other letters.
+OWN_LETTER_LANGUAGES: Final = frozenset({"te", "hi"})
+_LATIN_WORD: Final = re.compile(r"[A-Za-z]+")
+
+
+def latin_words(text: str, tag: str | None, *, names: Sequence[str] = ()) -> list[str]:
+    """The words of a spoken line written in English letters where its language writes them
+    in its own (D-861), in order and once each. `names` (the business's and the agent's) are
+    left as written: their spoken forms are not built yet (D-861's open item)."""
+    if not tag or tag.split("-")[0].lower() not in OWN_LETTER_LANGUAGES:
+        return []
+    for name in sorted((n.strip() for n in names if n.strip()), key=len, reverse=True):
+        text = re.sub(re.escape(name), " ", text, flags=re.IGNORECASE)
+    return list(dict.fromkeys(_LATIN_WORD.findall(text)))
+
+
+def latin_word_problem(
+    where: str, text: str, tag: str | None, *, names: Sequence[str] = ()
+) -> str | None:
+    """A problem naming each English-letter word of a spoken line, for a model's repair;
+    None when every word is in the language's own letters."""
+    found = latin_words(text, tag, names=names)
+    if not found:
+        return None
+    quoted = ", ".join(f"“{word}”" for word in found)
+    return (
+        f"{where}: writes {quoted} in English letters; write every word in the language's "
+        "own letters, English words too"
+    )
+
+
 def english_problem(where: str, text: str) -> str | None:
     """A problem for an instruction field written in an Indic script; None when it is not."""
     if not has_indic_letters(text):
@@ -124,10 +158,13 @@ def generation_guidance(
 
 
 __all__ = [
+    "OWN_LETTER_LANGUAGES",
     "Side",
     "english_problem",
     "generation_guidance",
     "has_indic_letters",
+    "latin_word_problem",
+    "latin_words",
     "textbook_note",
     "textbook_problem",
     "textbook_words",

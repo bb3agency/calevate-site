@@ -27870,7 +27870,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "brackets" | "symbols" | "time" | "money_digits" | "formal_words" | "spoken_number" | "repeated_question" | "several_questions" | "unmarked_question" | "too_long" | "wrong_language" | "third_person" | "foreign_script" | "repeated_turn";
+            kind: "brackets" | "symbols" | "time" | "money_digits" | "formal_words" | "spoken_number" | "repeated_question" | "several_questions" | "unmarked_question" | "too_long" | "wrong_language" | "third_person" | "foreign_script" | "repeated_turn" | "opened_again";
             /** Tests */
             tests: number;
         };
@@ -27883,7 +27883,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "brackets" | "symbols" | "time" | "money_digits" | "formal_words" | "spoken_number" | "repeated_question" | "several_questions" | "unmarked_question" | "too_long" | "wrong_language" | "third_person" | "foreign_script" | "repeated_turn";
+            kind: "brackets" | "symbols" | "time" | "money_digits" | "formal_words" | "spoken_number" | "repeated_question" | "several_questions" | "unmarked_question" | "too_long" | "wrong_language" | "third_person" | "foreign_script" | "repeated_turn" | "opened_again";
             /** Reason */
             reason: string;
             /** Tries */

@@ -47,8 +47,9 @@ class QuestionsOut(Strict):
 class BuildStepOut(Strict):
     step: Literal["voice", "script", "greeting", "notice"]
     #: `waiting` until the worker reaches it; then `done`, `ready_made` (the ready-made
-    #: version was kept), `kept` (what it had stays), `none` (no voice could be chosen) or
-    #: `missing`.
+    #: version was kept), `kept` (what it had stays), `none` (no voice could be chosen),
+    #: `missing`, and on the notice step `off` (the owner switched the AI notice off) or
+    #: `no_room` (the greeting leaves no room for it within the engine's limit).
     state: str
     #: The chosen voice's name, on the voice step.
     label: str | None

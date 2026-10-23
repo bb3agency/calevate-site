@@ -16,7 +16,7 @@ from apps.api.core.settings import get_settings
 from apps.workers import chat, script_assist
 from apps.workers.script_assist import _DRAFT_MAX_TOKENS, _draft_via_azure, _draft_via_sarvam
 
-_DRAFT_JSON = json.dumps({"opening_line": "Namaste.", "steps": ["Ask the need."], "faqs": []})
+_DRAFT_JSON = json.dumps({"opening_line": "నమస్తే.", "steps": ["Ask the need."], "faqs": []})
 
 
 @pytest.fixture
@@ -99,7 +99,7 @@ async def test_draft_script_falls_back_when_the_azure_draft_is_truncated(
 
     monkeypatch.setattr(chat, "complete", _complete)
     draft = await script_assist.draft_script("a clinic in Guntur")
-    assert draft.script.opening_line == "Namaste."
+    assert draft.script.opening_line == "నమస్తే."
     # The answer is a substitution and says so (D-127 G-6).
     assert draft.capability.provider == "sarvam"
     assert draft.capability.disclosure is not None

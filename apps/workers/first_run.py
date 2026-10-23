@@ -19,9 +19,11 @@
      as its first version. Without a usable answer the ready-made script stays, and the
      step says so;
    - **greeting**: an opening line that fits the first-agent rule (under 120 characters,
-     ending with a question, no textbook word) and the engine's ceiling, else the starter's
+     ending with a question, no textbook word, every word in the language's own letters but
+     the business's and the agent's names) and the engine's ceiling, else the starter's
      reviewed line for its language;
-   - **notice**: the AI disclosure sentence the agent was created with, read back.
+   - **notice**: the AI notice switched on, said after the greeting on every call (D-864),
+     unless the owner switched it off for this agent or the greeting leaves no room.
 
 The model reads only the owner's own words about their business (the tenant-authored class
 `script_assist` serves), never a caller's, and none of it is logged (hard rule 6). Every model
@@ -31,17 +33,19 @@ call is metered under `ASSIST_FEATURE_FIRST_RUN`, ours to pay for.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import replace
 from typing import Any, Final
 from uuid import UUID
 
 import httpx
 from calevate_shared.call_script import CallScript
-from calevate_shared.spoken_guard import textbook_problem
+from calevate_shared.spoken_guard import latin_words, textbook_problem
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.lifecycle import create_agent, update_agent
+from apps.api.agents.publishing import audit_action_for, set_disclosure_posture
 from apps.api.agents.script_builder import (
     load_agent_script,
     replace_opening_line,
@@ -53,6 +57,7 @@ from apps.api.agents.starters import StarterJob, direction_of_jobs, starter_jobs
 from apps.api.agents.voice_pick import pick_voice
 from apps.api.billing.ai_quota import new_assist_ref, platform_brake_tripped
 from apps.api.billing.models import ASSIST_FEATURE_FIRST_RUN
+from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
@@ -94,6 +99,9 @@ ASSIST_FEATURE_FIRST_RUN_VOICE: Final = "first_run_voice"
 #: The first-agent greeting rule, the one D-854's card and Pip's guide use
 #: (`copilot/screen_guides.FIRST_GREETING_MAX_CHARS`).
 GREETING_MAX_CHARS: Final = 120
+
+#: The switch the notice step turns on (`agents.ai_disclosure_enabled`).
+AI_NOTICE: Final = "ai_disclosure_enabled"
 
 #: What the script writer is told about each job beyond its calling direction.
 _JOB_CONTEXT: Final[dict[str, str]] = {
@@ -367,15 +375,17 @@ async def _finish_build(
         )
 
 
-def greeting_fits(line: str, language: str) -> bool:
+def greeting_fits(line: str, language: str, *, names: Sequence[str] = ()) -> bool:
     """The first-agent greeting rule: short, ending on a question that hands the turn over,
-    with no textbook word callers do not say."""
+    with no textbook word callers do not say, and every word in the language's own letters
+    apart from `names` (D-861, D-864)."""
     clean = line.strip()
     return (
         bool(clean)
         and len(clean) <= GREETING_MAX_CHARS
         and clean.endswith("?")
         and textbook_problem("opening_line", clean, language) is None
+        and not latin_words(clean, language, names=names)
     )
 
 
@@ -489,7 +499,7 @@ async def _write_script(
 
 
 async def _write_greeting(
-    tenant_id: UUID, agent_id: UUID, run: Any, *, created_by: UUID | None
+    tenant_id: UUID, agent_id: UUID, run: Any, *, name: str, created_by: UUID | None
 ) -> dict[str, Any]:
     """Keep the written greeting when it fits the rule, else the starter's reviewed line."""
     language = str(run.language_primary)
@@ -498,7 +508,7 @@ async def _write_greeting(
         business = (
             await session.execute(text("SELECT name, vertical_template FROM organizations LIMIT 1"))
         ).one()
-    if greeting_fits(current, language):
+    if greeting_fits(current, language, names=(str(business[0]), name)):
         return {"state": "done"}
     starter_line = starter_script(
         None if business[1] is None else str(business[1]),
@@ -524,14 +534,53 @@ async def _write_greeting(
     return {"state": "ready_made"}
 
 
-async def _notice_on_file(tenant_id: UUID, agent_id: UUID) -> dict[str, Any]:
+async def _switch_on_ai_notice(tenant_id: UUID, agent_id: UUID) -> dict[str, Any]:
+    """Switch the AI notice on, so the first agent says it after its greeting (D-864).
+
+    Every agent is created with both notices off (D-669), and this step used to only read
+    back that the sentence was on file, so the first run's agent opened with no AI notice
+    while the build said "Adding its AI notice". The recording notice is left as created:
+    it is the owner's choice (D-669, D-163). An owner who has already switched the AI notice
+    off for this agent keeps that choice on a rebuild. Through `set_disclosure_posture`, the
+    one writer of the switch, so the greeting budget is checked (D-846) and a live agent is
+    republished; audited as the system, as the switch route audits the owner."""
     async with tenant_session(tenant_id) as session:
         line = (
             await session.execute(
                 text("SELECT ai_disclosure_line FROM agents WHERE id = :aid"), {"aid": agent_id}
             )
         ).scalar()
-    return {"state": "done" if (line or "").strip() else "missing"}
+        owner_off = (
+            await session.execute(
+                text("SELECT 1 FROM audit_log WHERE action = :a AND object_id = :o LIMIT 1"),
+                {"a": audit_action_for(AI_NOTICE, enabled=False), "o": str(agent_id)},
+            )
+        ).first()
+    if not (line or "").strip():
+        return {"state": "missing"}
+    if owner_off is not None:
+        return {"state": "off"}
+    try:
+        result = await set_disclosure_posture(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            ai_disclosure_enabled=True,
+            recording_notice_enabled=None,
+        )
+    except ProblemError as refused:
+        log.info("first_run_notice_refused", extra={"reason": refused.code})
+        return {"state": "no_room"}
+    if result.changed:
+        async with tenant_session(tenant_id) as session:
+            await write_audit(
+                session,
+                action=audit_action_for(AI_NOTICE, enabled=True),
+                tenant_id=tenant_id,
+                object_type="agent",
+                object_id=str(agent_id),
+                summary={"engine_synced": result.engine_synced, "by": "first_run"},
+            )
+    return {"state": "done"}
 
 
 async def build_first_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -600,11 +649,13 @@ async def build_first_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         )
         if not await _tick(tenant_id, run_id, build, "script", script_state):
             return "replaced"
-        greeting_state = await _write_greeting(tenant_id, agent_id, run, created_by=created_by)
+        greeting_state = await _write_greeting(
+            tenant_id, agent_id, run, name=name, created_by=created_by
+        )
         if not await _tick(tenant_id, run_id, build, "greeting", greeting_state):
             return "replaced"
         if not await _tick(
-            tenant_id, run_id, build, "notice", await _notice_on_file(tenant_id, agent_id)
+            tenant_id, run_id, build, "notice", await _switch_on_ai_notice(tenant_id, agent_id)
         ):
             return "replaced"
         await _finish_build(tenant_id, run_id, build, "built", disclosure)

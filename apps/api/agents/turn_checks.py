@@ -63,6 +63,9 @@ Kind = Literal[
     "asks_to_tell",
     # The founder's comparison of 23 Oct 2026 (D-861): a long stretch with no breath mark.
     "no_breath",
+    # The Sri Estates call of 23 Oct 2026 (D-864): a second greeting, or "can you talk now?"
+    # again, in the first reply after the opening.
+    "opened_again",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -89,6 +92,8 @@ SOUND_KINDS: Final = frozenset(
         "repeated_turn",
         "asks_to_tell",
         "no_breath",
+        # The START OF THE CALL layer decides it, not the owner's script (D-864).
+        "opened_again",
     }
 )
 #: What breaks the caller's task whatever the words: the caller's part said for them, a
@@ -903,6 +908,39 @@ _ASKS_REPEAT: Final = re.compile(
 )
 
 
+#: A reply that opens with a greeting. The opening the engine speaks already greeted, so in
+#: the first reply after it this is a second hello (D-864).
+_OPENS_WITH_GREETING: Final = re.compile(
+    r"^\W*(?:hello|hi|hey|namaste|namaskar(?:am)?|good (?:morning|afternoon|evening)|"
+    r"నమస్కారం|నమస్కారాలు|నమస్తే|హలో|హాయ్|नमस्ते|नमस्कार|हैलो|हेलो)(?=[\s,.!?।]|$)",
+    re.IGNORECASE,
+)
+#: Asking whether now suits, which an opening of ours asks itself ("ఇప్పుడు రెండు నిమిషాలు
+#: మాట్లాడొచ్చా?").
+_ASKS_IF_NOW_SUITS: Final = re.compile(
+    r"good time|(?:is|if) (?:now|this) (?:a good time|ok|okay|fine)|can (?:you|we) talk|"
+    r"free to talk|(?:got|have) a (?:minute|moment)|"
+    r"మాట్లాడొచ్చా|మాట్లాడవచ్చా|మాట్లాడగలరా|మాట్లాడటం కుదురుతుందా|మాట్లాడడం కుదురుతుందా|"
+    r"మాట్లాడటానికి (?:సమయం|టైమ్|వీలు)|ఇప్పుడు కుదురుతుందా|ఫ్రీగా ఉన్నారా|"
+    r"बात कर सकते|बात कर सकती|अभी बात|बात करने का (?:समय|टाइम)|सही समय",
+    re.IGNORECASE,
+)
+
+
+def opened_again(reply: str) -> str | None:
+    """Why the first reply after the opening starts the call over, or None: a second greeting,
+    or asking again whether now is a good time (D-864)."""
+    if _OPENS_WITH_GREETING.search(reply):
+        return "It greeted the caller again, though its opening had already greeted them."
+    if _ASKS_IF_NOW_SUITS.search(reply):
+        return (
+            "It asked again whether now is a good time to talk. Its opening already asked; "
+            "after the caller's reply it should go on to why it is calling or its first "
+            "question."
+        )
+    return None
+
+
 def claims_done(text: str) -> bool:
     """Does this agent line say something was done (placed, saved, booked, sent)?"""
     return bool(_CLAIMS_DONE.search(text))
@@ -1000,6 +1038,9 @@ def conversation_problems(
             awaiting = _digit_count(said)
         if not reply.strip():
             continue
+        restarted = None if previous_reply else opened_again(reply)
+        if restarted:
+            found.setdefault("opened_again", TurnProblem("opened_again", restarted))
         recalled = _false_recall(reply, said_before)
         if recalled:
             found.setdefault(
@@ -1083,6 +1124,7 @@ __all__ = [
     "claims_said_before",
     "conversation_problems",
     "formal_swaps",
+    "opened_again",
     "sentences",
     "turn_problems",
 ]

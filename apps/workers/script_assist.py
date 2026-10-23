@@ -34,7 +34,7 @@ an Azure answer Azure counted, its `usage`; it charges nothing.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Final
@@ -65,7 +65,12 @@ from calevate_shared.engine import (
     google_openai_compat_base_url,
     keeps_default_temperature,
 )
-from calevate_shared.spoken_guard import english_problem, generation_guidance, textbook_problem
+from calevate_shared.spoken_guard import (
+    english_problem,
+    generation_guidance,
+    latin_word_problem,
+    textbook_problem,
+)
 from pydantic import ValidationError
 
 from apps.api.agents.call_rules import OPENING_LINE_RULE, said_line_problem, writer_rules
@@ -251,11 +256,14 @@ def language_problems(
     before: CallScript | None = None,
     allowed: str = "",
     instructions: bool = True,
+    names: Sequence[str] = (),
 ) -> list[str]:
     """What the model must fix in a script it wrote (D-831): an instruction in an Indic
     script, and a spoken line with a textbook word (`spoken_guard`), a provider's name
     (`business_copy.provider_problem`, D-679: callers hear these lines) or a break of the call
-    rules the practice tests check (`call_rules.said_line_problem`, D-849).
+    rules the practice tests check (`call_rules.said_line_problem`, D-849). The opening line,
+    which the engine speaks word for word, must also be in the language's own letters
+    (D-861, D-864), apart from `names` (the business's and the agent's).
 
     Only the model's own writing is judged: with `before` (an edit), a field whose text the
     script already held is the owner's and is skipped, and a textbook word that appears in
@@ -281,6 +289,7 @@ def language_problems(
     for path, text in _spoken_fields(script):
         if text in kept:
             continue
+        owners = bool(allowed) and text.strip() in allowed
         problems += [
             problem
             for problem in (
@@ -289,8 +298,11 @@ def language_problems(
                 # The call rules the practice tests hold the agent to (D-849); a caller's
                 # example line is not the agent's to keep, and the owner's own line is theirs.
                 None
-                if path in callers or (allowed and text.strip() in allowed)
+                if path in callers or owners
                 else said_line_problem(path, text, opening=path == "opening_line"),
+                latin_word_problem(path, text, language, names=names)
+                if path == "opening_line" and not owners
+                else None,
             )
             if problem
         ]
@@ -298,12 +310,19 @@ def language_problems(
 
 
 def drafted_script(
-    raw: dict[str, Any], *, language: str | None, allowed: str = "", instructions: bool = True
+    raw: dict[str, Any],
+    *,
+    language: str | None,
+    allowed: str = "",
+    instructions: bool = True,
+    names: Sequence[str] = (),
 ) -> CallScript:
     """A whole draft (or a conversion) as `_script_from_model_json` reads it, refused with
     the language problems for the one repair when it breaks the language rules."""
     script = _script_from_model_json(raw)
-    problems = language_problems(script, language, allowed=allowed, instructions=instructions)
+    problems = language_problems(
+        script, language, allowed=allowed, instructions=instructions, names=names
+    )
     if problems:
         log.warning("script_assist_language_unusable", extra={"count": len(problems)})
         raise UnusableAnswerError("; ".join(problems[:12]))
@@ -316,6 +335,7 @@ def edited_script(
     *,
     language: str | None = None,
     allowed: str = "",
+    names: Sequence[str] = (),
 ) -> CallScript | None:
     """The model's edited script, validated like any save; None when it is not a valid
     script (the edit is then reported as no draft rather than half applied). A field the
@@ -341,7 +361,7 @@ def edited_script(
         )
         log.warning("script_assist_edit_unusable", extra={"where": where, "count": len(errors)})
         raise UnusableAnswerError("; ".join(problems)) from invalid
-    problems = language_problems(edited, language, before=current, allowed=allowed)
+    problems = language_problems(edited, language, before=current, allowed=allowed, names=names)
     if problems:
         log.warning("script_assist_language_unusable", extra={"count": len(problems)})
         raise UnusableAnswerError("; ".join(problems[:12]))
@@ -424,6 +444,9 @@ class ScriptBrief:
 
     description: str = ""
     business_name: str = ""
+    #: The agent's own name. Like the business name, it may stay in English letters in a
+    #: spoken line (`spoken_guard.latin_words`).
+    agent_name: str = ""
     business_type: str = "custom"
     direction: str = "inbound"
     language: str = "te-IN"
@@ -1108,6 +1131,7 @@ async def draft_script(
     # A bare string is the old one-box description; the builder now sends a full brief.
     full = ScriptBrief(description=brief) if isinstance(brief, str) else brief
     description = full.user_message()
+    names = (full.business_name, full.agent_name)
     parse: Parser
     if edit_of is not None:
         # "Change this" (founder, 10 Oct 2026): the current script with one change made,
@@ -1117,7 +1141,13 @@ async def draft_script(
             f"{description}\nThe owner's change: {change.strip()}\nCurrent script (JSON):\n"
             f"{edit_of.model_dump_json(exclude={'raw_override'})}"
         )
-        parse = partial(edited_script, current=edit_of, language=full.language, allowed=change)
+        parse = partial(
+            edited_script,
+            current=edit_of,
+            language=full.language,
+            allowed=change,
+            names=names,
+        )
     else:
         # A conversion keeps the owner's own sentences, in whatever language they wrote them,
         # so only a textbook word the owner did not write is the model's to fix.
@@ -1131,6 +1161,7 @@ async def draft_script(
             language=full.language,
             allowed=full.description if converting else "",
             instructions=not converting,
+            names=names,
         )
     answer = await ask_json(
         description,

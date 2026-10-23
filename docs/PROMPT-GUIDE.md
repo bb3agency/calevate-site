@@ -209,8 +209,10 @@ NOT re-author `[STYLE]`; the template shows it only so the order is legible.
   regenerate): hours, address, services+prices, top FAQs, staff, booking rules.
 [OPENING] the agent's greeting, one or two short spoken sentences. The first thing
   callers hear; any notice switched on follows it in the same turn (D-708, D-861). The
-  prompt's START OF THE CALL section tells the model both were already said, so it answers
-  the caller's reply instead of greeting again.
+  prompt's START OF THE CALL section quotes both exactly as spoken and says they were
+  already said, so after a bare "hello" it goes on to why it is calling or its first
+  question, never greeting again or asking again whether now suits (D-864). Every word in
+  the language's own letters but the business's and the agent's names (D-861).
 [TASK FLOW] the conversation goal as a loose state outline (greet → understand need →
   answer/qualify → capture <extraction hints> → book/next-step → wrap). Hints, not a
   rigid script — rigid scripts sound robotic and break on interruptions.

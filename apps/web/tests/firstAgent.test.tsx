@@ -304,6 +304,14 @@ describe("the pieces and where an owner resumes", () => {
     expect(rowStateOf(waiting, true, true)).toBe("failed");
     expect(rowStateOf({ ...waiting, state: "ready_made" }, false, false)).toBe("done");
     expect(rowStateOf({ ...waiting, step: "voice", state: "none" }, false, false)).toBe("warn");
+    expect(rowStateOf({ ...waiting, step: "notice", state: "no_room" }, false, false)).toBe("warn");
+  });
+
+  it("says the AI notice is said after the greeting, or why it is not (D-864)", () => {
+    const notice = { step: "notice" as const, label: null, not_female: false };
+    expect(metaOf({ ...notice, state: "done" })).toBe("Said right after its greeting on every call");
+    expect(metaOf({ ...notice, state: "off" })).toBe("Kept off, as you set it");
+    expect(metaOf({ ...notice, state: "no_room" })).toBe("No room after its greeting. Shorten the greeting to add it.");
   });
 
   it("shows the call as its row says, and a limit as a limit", () => {
