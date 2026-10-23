@@ -3,7 +3,7 @@
 import { use, useState } from "react";
 
 import { Providers } from "@/app/providers";
-import { ToastProvider } from "@/components/interior/toaster";
+import { ToastProvider } from "@/components/arc/toast";
 import { ClientLiveUpdates } from "@/components/live/LiveUpdates";
 import { MaintenanceBanner, MaintenanceGate } from "@/components/maintenance";
 import { OfflineBanner } from "@/components/offline";
@@ -45,7 +45,7 @@ export default function ClientRealmLayout({
   return (
     <Providers>
       {/* `ToastProvider` app-wide for this realm, so `useToast()` works on any screen the
-          shell renders. Its notifications region is `fixed` bottom-right, renders AFTER the
+          shell renders. Its notifications region is `fixed` (bottom-right, top on a phone), renders AFTER the
           shell subtree and is `pointer-events-none` with an empty `aria-live` polite region
           until a toast is fired — so it adds no landmark the a11y sweep flags, no focusable
           element ahead of `SkipLink`, and nothing to the DOM the "you are here" checks read.

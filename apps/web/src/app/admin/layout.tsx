@@ -9,7 +9,7 @@ import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { ADMIN_NAV as NAV, type NavItem } from "@/app/admin/adminNav";
 import { AdminCommandPalette } from "@/app/admin/AdminCommandPalette";
 import { Providers } from "@/app/providers";
-import { ToastProvider } from "@/components/interior/toaster";
+import { ToastProvider } from "@/components/arc/toast";
 import { NavDrawer } from "@/components/navDrawer";
 import {
   SIDEBAR_FOOTER_CLASS,
@@ -676,7 +676,7 @@ export default function AdminLayout({
                 factor is refused the stream like everything else. */}
             <AdminLiveUpdates />
             {/* `ToastProvider` app-wide for this realm, so `useToast()` works on any admin
-                screen the shell renders. Its notifications region is `fixed` bottom-right,
+                screen the shell renders. Its notifications region is `fixed` (bottom-right, top on a phone),
                 renders AFTER the shell subtree and is `pointer-events-none` with an empty
                 `aria-live` polite region until a toast fires — so it adds no landmark the
                 a11y sweep flags, no focusable element ahead of `SkipLink`, and no DOM the

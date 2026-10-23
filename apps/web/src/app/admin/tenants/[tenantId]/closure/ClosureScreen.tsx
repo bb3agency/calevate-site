@@ -19,7 +19,7 @@ import {
   formatISTStamp,
   hasNonZeroDigit,
 } from "@/components/ui";
-import { ActionButton } from "@/components/actionButton";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -52,6 +52,7 @@ export function ClosureScreen({ tenantId }: { tenantId: string }) {
   const tenantQuery = useCachedTenant(tenantId);
   const closure = useClosure(tenantId);
   const restore = useRestoreAccount(tenantId);
+  const restoreFeedback = useActionFeedback(restore, { errorDisplay: "inline" });
   const write = useAdminAccess("admin:tenants", "close or reopen a client account");
   // `ops:manage` is the superadmin marker the API checks IN ADDITION to `admin:tenants`
   // before it will erase; previewed so the reason is on screen before anything is typed.
@@ -143,7 +144,7 @@ export function ClosureScreen({ tenantId }: { tenantId: string }) {
           reopenable ? (
             <ActionButton
               type="button"
-              loading={restore.isPending}
+              status={restoreFeedback.status}
               disabled={!write.allowed}
               onClick={() => restore.mutate()}
             >

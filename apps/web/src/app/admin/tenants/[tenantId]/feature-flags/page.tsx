@@ -17,7 +17,7 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
-import { ActionButton } from "@/components/actionButton";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { useTenant } from "@/lib/api/admin";
 import {
   REASON_MAX,
@@ -88,6 +88,7 @@ export default function FeatureFlagsPage({
   // remounted by its key to pick up the new state, and a mutation held inside it would be
   // remounted with it — taking the confirmation down at the moment the write landed.
   const set = useSetFeatureFlag(tenantId);
+  const setFeedback = useActionFeedback(set, { errorDisplay: "inline" });
   const write = useAdminAccess("admin:tenants", "change a client's feature flags");
 
   /*
@@ -216,6 +217,7 @@ export default function FeatureFlagsPage({
               key={`${flag.flag}|${flag.override}|${flag.reason}`}
               flag={flag}
               set={set}
+              setStatus={setFeedback.status}
               write={write}
             />
           ))}
@@ -234,10 +236,13 @@ export default function FeatureFlagsPage({
 function FlagRow({
   flag,
   set,
+  setStatus,
   write,
 }: {
   flag: FeatureFlag;
   set: ReturnType<typeof useSetFeatureFlag>;
+  /** The shared write's state; only the row being written shows it. */
+  setStatus: FeedbackStatus;
   write: ReturnType<typeof useAdminAccess>;
 }) {
   // `null` here is the OVERRIDE's absence, not "unknown" — the three-way choice the API
@@ -386,11 +391,12 @@ function FlagRow({
               className={FIELD}
             />
           </div>
-          {/* Shared primary CTA: the "Save this flag" name stays mounted (no flicker to
-              "Saving…"), and the spinner rides `loading`. */}
+          {/* The "Save this flag" name stays mounted while the button shows its own
+              write's pending, saved or failed face. */}
           <ActionButton
             type="submit"
-            loading={set.isPending}
+            status={set.variables?.flag === flag.flag ? setStatus : "idle"}
+            successLabel="Saved"
             disabled={blocked !== null || !write.allowed}
           >
             Save this flag

@@ -1,6 +1,6 @@
 The components in this directory are adapted from interior.dev
 (https://github.com/ddoemonn/interior, commit 314800833bf01e23e6ae74c2a17fbdaac3688c84),
-except toaster.tsx, which was written in this repository.
+(toaster.tsx, written in this repository, was replaced by ../arc/toast.tsx).
 
 MIT License
 

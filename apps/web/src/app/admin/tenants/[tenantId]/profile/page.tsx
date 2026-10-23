@@ -15,7 +15,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
-import { ActionButton } from "@/components/actionButton";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
   EDIT_FIELD_COPY,
   useEditTenant,
@@ -168,6 +168,7 @@ function EditForm({
   edit: ReturnType<typeof useEditTenant>;
   write: ReturnType<typeof useAdminAccess>;
 }) {
+  const editFeedback = useActionFeedback(edit, { errorDisplay: "inline" });
   const [name, setName] = useState(profile.name);
   const [email, setEmail] = useState(profile.billing_email ?? "");
   const [vertical, setVertical] = useState(profile.vertical_template ?? "");
@@ -327,7 +328,7 @@ function EditForm({
         <div className="flex flex-wrap items-center gap-3">
           <ActionButton
             type="submit"
-            loading={edit.isPending}
+            status={editFeedback.status}
             disabled={blocked || !write.allowed}
           >
             Save changes

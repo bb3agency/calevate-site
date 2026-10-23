@@ -12,7 +12,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
-import { useToast } from "@/components/interior/toaster";
+import { useToast } from "@/components/arc/toast";
 import { useClientSession } from "@/lib/api/session";
 import { useCaseDraft, useDiscardPreparedTest, useMakeCallATest } from "@/lib/api/teach";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
@@ -82,7 +82,7 @@ export function MakeCallTest({ callId, canWrite = true }: { callId: string; canW
             {
               onSuccess: () =>
                 toast({
-                  tone: "success",
+                  kind: "success",
                   title: "Test saved",
                   description: draft.data?.agent_name
                     ? `It runs with ${draft.data.agent_name}'s other tests.`

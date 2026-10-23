@@ -3,6 +3,7 @@
 import { DesktopAlerts } from "./DesktopAlerts";
 
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { ServiceLogo } from "@/components/console/serviceLogo";
@@ -67,6 +68,7 @@ export function AlertsScreen() {
   const session = useClientSession();
   const state = useMyAlertOptIn(session);
   const record = useRecordMyAlertOptIn(session);
+  const recordFeedback = useActionFeedback(record, { errorDisplay: "inline" });
   /**
    * `org:manage` — the permission that already governs the account's own settings, and
    * the one only the `owner` role holds. Agreeing to receive WhatsApp about your own
@@ -190,7 +192,7 @@ export function AlertsScreen() {
                   <WithdrawControl
                     allowed={write.allowed}
                     reason={write.reason}
-                    pending={record.isPending}
+                    status={recordFeedback.status}
                     onWithdraw={() =>
                       record.mutate({
                         status: "withdrawn",
@@ -208,7 +210,7 @@ export function AlertsScreen() {
                         ? null
                         : "We cannot send WhatsApp messages yet, so there is nothing to agree to.")
                     }
-                    pending={record.isPending}
+                    status={recordFeedback.status}
                     onGrant={() =>
                       record.mutate({
                         status: "granted",

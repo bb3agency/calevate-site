@@ -70,7 +70,7 @@ function preloadPanel(): void {
  * ## Position, and the one collision it accepts
  *
  * Bottom-right, the conventional corner, on the `z-assistant` layer. The toast lane
- * (`components/interior/toaster.tsx`, `z-toast`) shares the corner and sits above it:
+ * (`components/arc/toast.tsx`, `z-toast`) shares the corner and sits above it:
  * a toast is short-lived and says its text on the left, so it may cover the launcher's
  * corner for a few seconds. Moving the launcher left would put it over the sidebar's
  * account block above `lg`.

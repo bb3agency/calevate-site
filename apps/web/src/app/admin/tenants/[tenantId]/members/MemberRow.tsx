@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { UserMinus } from "lucide-react";
 
-import { ActionButton } from "@/components/actionButton";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Drawer } from "@/components/console/drawer";
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
@@ -58,6 +58,7 @@ export function MemberRow({
 }) {
   const setRole = useSetTenantMemberRole(tenantId);
   const remove = useRemoveTenantMember(tenantId);
+  const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline" });
   const [removing, setRemoving] = useState(false);
   const [typed, setTyped] = useState("");
 
@@ -189,7 +190,7 @@ export function MemberRow({
               <div className="flex flex-wrap items-center gap-3">
                 <ActionButton
                   type="button"
-                  loading={remove.isPending}
+                  status={removeFeedback.status}
                   disabled={wordMissing || busy || !write.allowed}
                   onClick={() => remove.mutate(member.user_id)}
                 >

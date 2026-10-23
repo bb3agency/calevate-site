@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Send } from "lucide-react";
 
-import { ActionButton } from "@/components/actionButton";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Drawer } from "@/components/console/drawer";
 import { RowMenu } from "@/components/console/rowMenu";
 import { FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, ProblemNotice, formatIST } from "@/components/ui";
@@ -39,6 +39,7 @@ export function InviteRow({
   write: ReturnType<typeof useAdminAccess>;
 }) {
   const resend = useResendTenantInvitation();
+  const resendFeedback = useActionFeedback(resend, { errorDisplay: "inline" });
   const revoke = useRevokeTenantInvitation();
   const [correcting, setCorrecting] = useState(false);
   const [email, setEmail] = useState("");
@@ -69,7 +70,7 @@ export function InviteRow({
         <div className="flex shrink-0 items-center gap-2 max-sm:w-full">
           <ActionButton
             type="button"
-            loading={resend.isPending}
+            status={resendFeedback.status}
             disabled={busy || !write.allowed}
             onClick={() => resend.mutate({ tenantId, invitationId: invite.id })}
           >
@@ -159,7 +160,7 @@ export function InviteRow({
           <div className="flex flex-wrap items-center gap-3">
             <ActionButton
               type="button"
-              loading={resend.isPending}
+              status={resendFeedback.status}
               disabled={correctionBlocked || busy || !write.allowed}
               onClick={() =>
                 resend.mutate({

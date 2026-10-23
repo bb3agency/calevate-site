@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Building2, CheckCircle2 } from "lucide-react";
 
-import { ActionButton } from "@/components/actionButton";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -37,6 +37,7 @@ export function NewClientScreen() {
 
   const [typeMissing, setTypeMissing] = useState(false);
   const createTenant = useCreateTenant();
+  const createTenantFeedback = useActionFeedback(createTenant, { errorDisplay: "inline" });
   const refusal = refusalReason(createTenant.error);
   const valid = useFormValidation();
   const derivedSlug = slug || previewSlug(name);
@@ -271,7 +272,7 @@ export function NewClientScreen() {
             <ActionButton
               type="submit"
               title={refusal ?? undefined}
-              loading={createTenant.isPending}
+              status={createTenantFeedback.status}
               disabled={Boolean(refusal)}
             >
               <Building2 aria-hidden className="h-4 w-4" />
