@@ -50,7 +50,7 @@ export function Stage({
       {/* The agent's light: one soft green glow behind the mark, so the stage has a source. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute -left-16 -top-20 -z-10 h-56 w-56 rounded-full bg-[radial-gradient(closest-side,rgb(74_222_128/0.16),transparent)]"
+        className="pointer-events-none absolute -left-16 -top-20 z-below h-56 w-56 rounded-full bg-[radial-gradient(closest-side,rgb(74_222_128/0.16),transparent)]"
       />
       {children}
     </section>
@@ -244,7 +244,7 @@ const ROW_WORDS: Readonly<Record<RowState, string>> = {
 function StepMark({ state, icon: Icon }: { state: RowState; icon: LucideIcon }) {
   const lit = state === "done";
   return (
-    <span aria-hidden className="relative z-10 grid h-7 w-7 place-items-center rounded-full bg-stage">
+    <span aria-hidden className="relative z-raised grid h-7 w-7 place-items-center rounded-full bg-stage">
       <svg viewBox="0 0 28 28" className="absolute inset-0 h-7 w-7" fill="none">
         <circle
           cx="14"

@@ -342,10 +342,11 @@ function CallYou({
                     href={doc.href}
                     target="_blank"
                     rel="noreferrer"
-                    className="press inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-meta font-medium text-brand-strong hover:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+                    className="press inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-meta font-medium text-brand-strong hover:bg-brand/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
                   >
-                    Read it
-                    <span className="sr-only"> (opens in a new tab)</span>
+                    <span>
+                      Read it<span className="sr-only"> (opens in a new tab)</span>
+                    </span>
                     <ExternalLink aria-hidden className="h-3 w-3" />
                   </a>
                 }

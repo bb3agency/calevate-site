@@ -3,6 +3,7 @@
 import { Fragment, useState } from "react";
 import { ArrowRight, Check, ChevronRight } from "lucide-react";
 
+import { CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { ProblemNotice } from "@/components/ui";
 import type { FirstRun, FirstRunJob } from "@/lib/api/firstRun";
 import { useSaveJob } from "@/lib/api/firstRun";
@@ -157,10 +158,8 @@ function JobChoice({
   const Icon = card.icon;
   return (
     <label
-      className={`press relative block cursor-pointer rounded-card border bg-surface px-4 py-2.5 transition-[border-color,box-shadow,background-color] duration-(--duration-fast) has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app has-[:disabled]:cursor-default ${
-        checked
-          ? "border-brand-strong bg-brand-soft/50 shadow-[inset_0_0_0_1px_var(--brand-strong)]"
-          : "border-line hover:border-ink/25"
+      className={`press relative block cursor-pointer rounded-card border px-4 py-2.5 transition-[border-color,box-shadow] duration-(--duration-fast) has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app has-[:disabled]:cursor-default ${
+        checked ? CHOICE_ON : CHOICE_OFF
       }`}
     >
       <input
@@ -220,10 +219,8 @@ function JobChoice({
 function LanguageTile({ tag, checked, onChange }: { tag: string; checked: boolean; onChange: () => void }) {
   return (
     <label
-      className={`press flex min-h-12 min-w-0 cursor-pointer items-center gap-2.5 rounded-card border px-2.5 py-2 transition-[border-color,background-color] duration-(--duration-fast) has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 ${
-        checked
-          ? "border-brand-strong bg-brand-soft/50 shadow-[inset_0_0_0_1px_var(--brand-strong)]"
-          : "border-line bg-surface hover:border-ink/25"
+      className={`press flex min-h-12 min-w-0 cursor-pointer items-center gap-2.5 rounded-card border px-2.5 py-2 transition-[border-color,box-shadow] duration-(--duration-fast) has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 ${
+        checked ? CHOICE_ON : CHOICE_OFF
       }`}
     >
       <input type="radio" name="language" value={tag} checked={checked} onChange={onChange} className="sr-only" />

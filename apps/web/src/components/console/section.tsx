@@ -73,8 +73,8 @@ export function Section({
  * sentence use a plain link instead; a padded control there breaks the line.
  */
 export const TEXT_ACTION =
-  "press -mx-2 inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-body font-medium text-brand-strong transition-colors duration-(--duration-fast) dark:text-brand-bright [&:not(:disabled)]:hover:bg-brand-soft dark:[&:not(:disabled)]:hover:bg-white/5 [&:not(:disabled)]:active:bg-brand-soft disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11";
+  "press -mx-2 inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-body font-medium text-brand-strong transition-colors duration-(--duration-fast) dark:text-brand-bright [&:not(:disabled)]:hover:bg-brand/10 dark:[&:not(:disabled)]:hover:bg-white/5 [&:not(:disabled)]:active:bg-brand/15 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11";
 
 /** The same, for the one destructive action a row may carry ("Remove"). */
 export const TEXT_ACTION_DANGER =
-  "press -mx-2 inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-body font-medium text-danger transition-colors duration-(--duration-fast) [&:not(:disabled)]:hover:bg-danger-soft [&:not(:disabled)]:active:bg-danger-soft disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger touch:min-h-11";
+  "press -mx-2 inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-body font-medium text-danger transition-colors duration-(--duration-fast) [&:not(:disabled)]:hover:bg-danger/10 [&:not(:disabled)]:active:bg-danger/15 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger touch:min-h-11";
