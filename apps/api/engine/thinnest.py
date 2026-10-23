@@ -950,6 +950,38 @@ def _business_refusal(code: str, *, title: str, detail: str, remediation: str) -
     )
 
 
+#: A new agent refused because the voice platform plan's agent allowance is used up (D-859).
+AGENT_ALLOWANCE_USED: Final = "engine_agent_allowance_used"
+
+
+def agent_allowance_used(route: str) -> ProblemError:
+    """`POST /agents` answers 409 for exactly two causes: the plan's agent allowance is used
+    up, or a phone surface with no number, which carries `phone_number_required`
+    (snapshots/2026-10-19/pages/api-reference/agents/create-agent.md:654-668). Production
+    sends the first with `code: "conflict"` (23 Oct 2026, rememory 4360ad72), so any other
+    code is the allowance. Operators are alarmed; the client reads it without a vendor name."""
+    alert(
+        "CORE_LOGIC",
+        AGENT_ALLOWANCE_USED,
+        detail=(
+            "the voice platform refused to create an agent because the plan's agent allowance "
+            "is used up. Free slots by deleting unused agents in the voice platform's console, "
+            "or upgrade the plan; see runbooks/agent-workspace-move.md."
+        ),
+        route=route,
+    )
+    return ProblemError(
+        kind="business_rule",
+        code=AGENT_ALLOWANCE_USED,
+        title="We could not set up another agent just now",
+        detail=(
+            "Nothing changed for your callers. Our calling account has no room for another "
+            "agent at the moment, and we have been told."
+        ),
+        remediation="Try again later, or contact us if you need it sooner.",
+    )
+
+
 def _bad_response(detail: str) -> ProblemError:
     return ProblemError(
         kind="dependency",
@@ -1800,6 +1832,12 @@ class ThinnestEngine:
             # email of 18 Oct 2026); only adding `phone` without a number is refused, with
             # the 409 below (snapshots/2026-10-18/pages/api-reference/agents/
             # update-agent.md:608-622).
+            if (
+                exc.vendor_status == 409
+                and method == "POST"
+                and exc.vendor_code != PHONE_NUMBER_REQUIRED
+            ):
+                raise agent_allowance_used(route) from exc
             if exc.vendor_status != 409 or exc.vendor_code != PHONE_NUMBER_REQUIRED:
                 raise
             log.warning("thinnest_agent_phone_number_missing", extra={"route": route})

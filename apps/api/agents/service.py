@@ -2365,14 +2365,97 @@ async def _after_workspace_move(
         ),
         {"aid": agent_id, "tid": tenant_id},
     )
-    from apps.api.reliability.service import enqueue_outbox
+    log.warning("engine_agent_moved_to_client_workspace", extra={"agent_id": str(agent_id)})
+    if scope_of(old_ref) is None and not await _has_any_number(session, agent_id=agent_id):
+        # FOUNDER OPTION A (D-859): the developer-workspace copy stays, so the owner's test
+        # calls can ring through the shared trial line until the client has its own number;
+        # its route stays active so those calls report back. The hourly sweep retires it
+        # once the client has a number or it sits unused (`workers/agent_moves`).
+        await _record_test_copy(session, None, tenant_id=tenant_id, agent_id=agent_id, ref=old_ref)
+        return
+    await retire_engine_agent(session, tenant_id=tenant_id, agent_id=agent_id, ref=old_ref)
 
-    await enqueue_outbox(
+
+async def retire_engine_agent(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, ref: str
+) -> None:
+    """Owe the deletion of a vendor agent this agent no longer answers through, after the
+    caller's transaction commits (`workers/engine_workspaces.retire_moved_engine_agent`, which
+    waits out a live call). Keyed by the handle, so owing it twice queues it once."""
+    from apps.api.reliability.service import enqueue_outbox_once
+
+    await enqueue_outbox_once(
         session,
         job=RETIRE_MOVED_AGENT_JOB,
-        payload={"tenant_id": str(tenant_id), "agent_id": str(agent_id), "old_ref": old_ref},
+        payload={"tenant_id": str(tenant_id), "agent_id": str(agent_id), "old_ref": ref},
+        dedupe_key=f"retire-engine-agent:{ref}",
     )
-    log.warning("engine_agent_moved_to_client_workspace", extra={"agent_id": str(agent_id)})
+
+
+async def _has_any_number(session: AsyncSession, *, agent_id: UUID) -> bool:
+    """Is any number of the client's attached to this agent, in any workspace?"""
+    return bool(
+        (
+            await session.execute(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM phone_numbers WHERE agent_id = :aid "
+                    "AND released_at IS NULL)"
+                ),
+                {"aid": agent_id},
+            )
+        ).scalar()
+    )
+
+
+async def test_copy_ref(session: AsyncSession, agent_id: UUID) -> str | None:
+    """The agent's developer-workspace test copy (D-859, option A), if it has one."""
+    value = (
+        await session.execute(
+            text("SELECT engine_agent_ref FROM agent_test_copies WHERE agent_id = :aid"),
+            {"aid": agent_id},
+        )
+    ).scalar()
+    return None if value is None else str(value)
+
+
+def _vendor_says_gone(exc: BaseException) -> bool:
+    """The vendor no longer holds the agent written to (a 404, or our not-found)."""
+    if isinstance(exc, EngineRejectedError):
+        return exc.vendor_status == 404
+    return isinstance(exc, ProblemError) and exc.kind == "not_found"
+
+
+async def _record_test_copy(
+    session: AsyncSession,
+    engine: VoiceEngine | None,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    ref: str,
+) -> None:
+    """Record `ref` as the agent's test copy, with its active route; a copy it held under
+    another handle is retired. `engine` names the route's engine (the active one if None)."""
+    previous = await test_copy_ref(session, agent_id)
+    await session.execute(
+        text(
+            "INSERT INTO agent_test_copies (id, tenant_id, agent_id, engine_agent_ref) "
+            "VALUES (:id, :tid, :aid, :ref) ON CONFLICT (agent_id) DO UPDATE SET "
+            "engine_agent_ref = EXCLUDED.engine_agent_ref, updated_at = now()"
+        ),
+        {"id": uuid7(), "tid": tenant_id, "aid": agent_id, "ref": ref},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
+            "active, created_at, updated_at) VALUES (:engine, :ref, :tid, :aid, true, now(), "
+            "now()) ON CONFLICT (engine, engine_agent_ref) DO UPDATE SET "
+            "tenant_id = EXCLUDED.tenant_id, agent_id = EXCLUDED.agent_id, active = true, "
+            "updated_at = now()"
+        ),
+        {"engine": (engine or get_engine()).name, "ref": ref, "tid": tenant_id, "aid": agent_id},
+    )
+    if previous is not None and previous != ref:
+        await retire_engine_agent(session, tenant_id=tenant_id, agent_id=agent_id, ref=previous)
 
 
 async def retire_developer_workspace_agents(session: AsyncSession, *, tenant_id: UUID) -> int:
@@ -2459,7 +2542,12 @@ async def _hold_tenant_knowledge(session: AsyncSession, *, tenant_id: UUID) -> N
 
 
 async def publish_agent(
-    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, take_calls: bool = True
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    take_calls: bool = True,
+    onto_test_copy: bool = False,
 ) -> str:
     """Create or update the agent on the engine, VERIFY it, then record the mapping.
 
@@ -2467,6 +2555,14 @@ async def publish_agent(
     back like any other, so the Try it chat talks to it, but its status is left as it is, no
     number is bound to it and the go-live checks are not asked. An agent already live is
     republished as live whatever this says, so no caller can unbind a working line with it.
+
+    `onto_test_copy=True` (D-859, founder option A) publishes the same config onto the
+    agent's TEST COPY in our developer workspace instead (`agent_test_copies`), made again if
+    it is gone: the engine agent a paying client's test call rings through on the shared trial
+    line before the client has a number. The agent's own row, numbers, status and arms are not
+    touched; the copy gets its route, results webhook, facts document and in-call actions.
+    Knowledge documents are converged on the agent's own engine agent only
+    (`engine_facts.sync_business_facts`), so the copy keeps those it held when it moved.
 
     The routing row is written HERE, in the same transaction as `engine_agent_ref`,
     because the alternative — writing it from a webhook handler on first sight — means
@@ -2622,7 +2718,9 @@ async def publish_agent(
     # A FREE-TRIAL ACCOUNT'S AGENT PLACES TEST CALLS AND ANSWERS NOTHING (D-697): it has no
     # number until it pays, so an answer-only agent is refused with the step that unlocks it.
     trial_account = await restricting_trial(session, tenant_id=tenant_id) is not None
-    takes_calls = take_calls or agent["status"] == "live"
+    # A trial's agent and a paying client's test copy are made in our developer workspace.
+    in_developer = trial_account or onto_test_copy
+    takes_calls = (take_calls or agent["status"] == "live") and not onto_test_copy
     if trial_account and takes_calls and agent["direction"] == "inbound":
         await refuse_on_trial(session, tenant_id=tenant_id, locked="inbound")
 
@@ -2699,15 +2797,17 @@ async def publish_agent(
     )
 
     config = await _in_client_workspace(
-        session, engine, tenant_id=tenant_id, agent=agent, config=config, trial=trial_account
+        session, engine, tenant_id=tenant_id, agent=agent, config=config, trial=in_developer
     )
     await _studio_in_client_workspace(
-        session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config, trial=trial_account
+        session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config, trial=in_developer
     )
     config, rate_key = await _own_model_in_workspace(
         session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config
     )
-    existing_ref = agent["engine_agent_ref"]
+    existing_ref = (
+        await test_copy_ref(session, agent_id) if onto_test_copy else agent["engine_agent_ref"]
+    )
     # AN AGENT MADE IN OUR DEVELOPER WORKSPACE BEFORE D-693 is recreated in its client's own
     # workspace on this publish, under a new vendor id. The old one keeps answering until
     # this transaction commits, and is deleted only after (`_after_workspace_move`).
@@ -2716,9 +2816,18 @@ async def publish_agent(
         moved_from, existing_ref = existing_ref, None
     created = not (isinstance(existing_ref, str) and existing_ref)
     if isinstance(existing_ref, str) and existing_ref:
-        await engine.update_agent(existing_ref, config)
-        ref = existing_ref
-    elif trial_account:
+        try:
+            await engine.update_agent(existing_ref, config)
+            ref = existing_ref
+        except Exception as gone:
+            # A test copy deleted at the vendor (by hand, or retired while idle) is made
+            # again; anything else, and any other agent, is the publish's failure.
+            if not (onto_test_copy and _vendor_says_gone(gone)):
+                raise
+            created = True
+            with trial_agent_in_developer_workspace():
+                ref = await engine.create_agent(config)
+    elif in_developer:
         with trial_agent_in_developer_workspace():
             ref = await engine.create_agent(config)
     else:
@@ -2758,6 +2867,27 @@ async def publish_agent(
     # From here on a failure rolls back every row that names `ref`, so a vendor agent this
     # publish created is reclaimed by the handler at the end of this block.
     try:
+        if onto_test_copy:
+            await _record_test_copy(
+                session, engine, tenant_id=tenant_id, agent_id=agent_id, ref=ref
+            )
+            await _ensure_results_webhook(
+                engine,
+                ref=ref,
+                agent_id=agent_id,
+                reclaim=False,
+                session=session,
+                rate_key=rate_key,
+                own_model=config.engine_own_model,
+            )
+            await _publish_business_facts(
+                engine, session, agent_id=agent_id, ref=ref, reclaim=False, script=agent["prompt"]
+            )
+            await _ensure_in_call_actions(
+                engine, session, agent_id=agent_id, ref=ref, reclaim=False
+            )
+            log.info("agent_test_copy_published", extra={"agent_id": str(agent_id)})
+            return ref
         result = await session.execute(
             text(
                 (
@@ -3584,6 +3714,50 @@ class TrialDial:
 
     from_e164: str
     max_call_seconds: int
+    #: The developer-workspace engine agent to ring through, when it is not the agent's own:
+    #: a paying client's test copy (D-859, option A).
+    agent_ref: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OwnerTestDial:
+    """A paying account's test call to the owner's own phone (D-859): rung from the agent's
+    own number, billed like any call, cut off at `max_call_seconds`, at most `daily_cap` a
+    day (IST). Built only by `agents/trial_calls.place_trial_call`."""
+
+    max_call_seconds: int
+    daily_cap: int
+    day_start: datetime
+
+
+async def _hold_paid_test_slot(
+    session: AsyncSession, *, tenant_id: UUID, test: OwnerTestDial
+) -> None:
+    """Refuse the test call once today's cap is reached, counted with this call's own row in
+    the intent transaction under a per-tenant lock, so two at once cannot both pass."""
+    from apps.api.agents.paid_test_calls import (
+        DAILY_CAP_RULE,
+        PLACED_TODAY_SQL,
+        paid_daily_cap_reason,
+    )
+
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"paid-test-call:{tenant_id}"},
+    )
+    placed = int(
+        (
+            await session.execute(
+                text(PLACED_TODAY_SQL), {"tid": tenant_id, "since": test.day_start}
+            )
+        ).scalar_one()
+    )
+    if placed > test.daily_cap:
+        raise ProblemError.conflict(
+            DAILY_CAP_RULE,
+            paid_daily_cap_reason(test.daily_cap),
+            remediation="You can place more tomorrow.",
+        )
 
 
 def trial_call_first_words(agent: AgentRow, *, call_is_recorded: bool) -> str | None:
@@ -3617,6 +3791,7 @@ async def dispatch_call(
     on_reserved: Callable[[AsyncSession, UUID], Awaitable[None]] | None = None,
     trial: TrialDial | None = None,
     number_id: UUID | None = None,
+    owner_test: OwnerTestDial | None = None,
 ) -> str:
     """Place ONE outbound call. The caller has already passed the compliance gate.
 
@@ -3684,6 +3859,12 @@ async def dispatch_call(
 
     `number_id` is the number a campaign chose to call from (`campaigns.number_id`); see
     `resolve_caller_id` for how the caller id is decided with and without it.
+
+    An `owner_test` dial (D-859) is a paying account's test call: marked `paid_test_call`, it
+    holds the account's daily test-call cap in the intent transaction, carries the per-call
+    time limit, and takes part in no experiment. Alone it rings from the agent's own number;
+    with `trial` too it takes the shared trial line exactly as a trial call does (option A),
+    through `trial.agent_ref` when that is the agent's developer-workspace test copy.
     """
     await _assert_dialling_tenant_owns_the_session(session, tenant_id=tenant_id)
 
@@ -3710,7 +3891,7 @@ async def dispatch_call(
     # `agents/assignment.py` for why it is not the call id.
     arm = (
         None
-        if trial is not None
+        if trial is not None or owner_test is not None
         else await assignment.assign(
             session, agent_id=agent_id, unit_key=str(lead_id) if lead_id else phone_e164
         )
@@ -3719,7 +3900,13 @@ async def dispatch_call(
     # the agent's own ref rather than failing: the client's call is the thing that
     # matters, and a call that ran the control is a call, whereas a refused dial is an
     # outage caused by an experiment. It is not recorded as assigned — see below.
-    dial_ref = arm.arm.engine_agent_ref if arm and arm.arm.engine_agent_ref else ref
+    dial_ref = (
+        trial.agent_ref
+        if trial is not None and trial.agent_ref
+        else arm.arm.engine_agent_ref
+        if arm and arm.arm.engine_agent_ref
+        else ref
+    )
 
     # THE ENGINE ACCOUNT'S TWO LIMITS (ThinnestAI): the vendor's hold-off after a 429, then
     # its call ceiling under the line lock. Both are refused before the intent row exists,
@@ -3751,8 +3938,8 @@ async def dispatch_call(
         await intent.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
-                "trial_call, status, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
-                "'outbound', :to_e, :trial, 'queued', now(), now())"
+                "trial_call, paid_test_call, status, created_at, updated_at) VALUES (:id, :tid, "
+                ":aid, :ecid, 'outbound', :to_e, :trial, :owner_test, 'queued', now(), now())"
             ),
             {
                 "id": call_id,
@@ -3761,8 +3948,11 @@ async def dispatch_call(
                 "ecid": intent_engine_call_id,
                 "to_e": phone_e164,
                 "trial": trial is not None,
+                "owner_test": owner_test is not None,
             },
         )
+        if owner_test is not None:
+            await _hold_paid_test_slot(intent, tenant_id=tenant_id, test=owner_test)
         # The arm rides the row it describes, in the row's own transaction. There is no
         # `ON CONFLICT` to lose any more: the id is ours and fresh, so this INSERT cannot
         # race the poller. The invariant that mattered — an assignment never MOVES — is
@@ -3820,11 +4010,17 @@ async def dispatch_call(
                 # Our intent row's id, for an engine whose carrier calls back into our
                 # routes with it in the path (`calevate_shared.carrier.answer_path`).
                 call_id=str(call_id),
-                max_call_seconds=trial.max_call_seconds if trial is not None else None,
+                max_call_seconds=(
+                    trial.max_call_seconds
+                    if trial is not None
+                    else owner_test.max_call_seconds
+                    if owner_test is not None
+                    else None
+                ),
                 opening=trial_call_first_words(
                     agent, call_is_recorded=engine.capabilities.records_audio
                 )
-                if trial is not None
+                if trial is not None or owner_test is not None
                 else None,
             ),
         )

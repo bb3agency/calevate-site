@@ -71,6 +71,7 @@ from apps.api.agents.reconciliation import (
     TRUTHFUL_ANSWER_VERDICT_TTL_S,
 )
 from apps.api.billing.dispute_hold import DISPUTE_HOLD_REASON, dispute_hold_active
+from apps.api.billing.first_payment import has_paid
 from apps.api.billing.platform_fee import (
     PLATFORM_FEE_PAUSE_REASON,
     platform_fee_paused,
@@ -768,7 +769,9 @@ async def account_dial_blockers(
     # A FREE-TRIAL ACCOUNT PLACES TEST CALLS AND NOTHING ELSE (D-697), and only it does.
     # First, because KYC is not open to a trial account and must not be the refusal it reads.
     trial = await read_trial_access(session, tenant_id=tenant_id)
-    if trial_call and trial is None:
+    # After the first payment the owner's test call is the paid one (D-859), from the
+    # account's own number; `agents/trial_calls` asks what it needs beyond this gate.
+    if trial_call and trial is None and not await has_paid(session, tenant_id=tenant_id):
         found.append((NOT_ON_TRIAL_RULE, NOT_ON_TRIAL_REASON))
     if trial is not None and not trial_call:
         found.append(TRIAL_REFUSALS["live_outbound"])
@@ -836,10 +839,11 @@ async def check_dispatch(
     leg's own consent gate (`resolve_escalation_destination`'s opt-in) runs at its call
     site, beside this one.
 
-    `trial_call` marks a FREE-TRIAL TEST CALL (D-697, `agents/trial_calls.py`). A trial
-    account is refused every other outbound call, and only a trial account may place a
-    test call. It may come from any READY agent, live or published and not taking calls,
-    including one that only answers calls (D-853). A test call is not asked for KYC (it
+    `trial_call` marks a TEST CALL to the owner's phone (D-697, `agents/trial_calls.py`). A
+    trial account is refused every other outbound call; a test call is placed by a trial
+    account, or after the first payment by a paid one from its own number (D-859). It may
+    come from any READY agent, live or published and not taking calls, including one that
+    only answers calls (D-853). A test call is not asked for KYC (it
     unlocks only after payment);
     it is still asked the halt, the drain, the account, the
     agent and its truthful answers (hard rule 5), the pledge, the agreements, the spend cap,

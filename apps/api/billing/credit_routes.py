@@ -2009,6 +2009,12 @@ async def record_restatement(
                 "reason": payload.reason,
             },
         )
+        # THE ONE PAYMENT-CREDITED HOOK (D-697), with the transfer's restated TOTAL: a
+        # transfer first recorded under the minimum is the first payment once it is stated
+        # correctly (D-859). Once per account, so a restatement of a later payment is a no-op.
+        await on_payment_credited(
+            scoped, tenant_id=tenant_id, amount_inr=corrected, via="manual_topup"
+        )
 
     log.info(
         "credit_restatement",

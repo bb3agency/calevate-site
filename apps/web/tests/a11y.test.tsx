@@ -63,6 +63,7 @@ import TenantCampaignSetupPage from "@/app/admin/tenants/[tenantId]/campaign-set
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import NewAgentPage from "@/app/c/[slug]/agents/new/page";
 import FirstAgentPage from "@/app/c/[slug]/agents/first/page";
+import GoLivePage from "@/app/c/[slug]/go-live/page";
 import AgentsPage from "@/app/c/[slug]/agents/page";
 import AiAssistPage from "@/app/c/[slug]/ai-assist/page";
 import AttentionPage from "@/app/c/[slug]/attention/page";
@@ -2147,6 +2148,20 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/healer/incidents?days=30&limit=20": LINE_INCIDENTS,
       "/v1/me": ME,
       "/v1/dashboard": DASHBOARD,
+      // A paid account part-way through going live, so the invite card is swept (D-859).
+      "/v1/go-live": {
+        due: false,
+        owed_at: "2026-10-23T06:00:00Z",
+        finished_at: null,
+        dismissed_at: "2026-10-23T07:00:00Z",
+        current: "verify",
+        move: { state: "done", agents: [], total: 0 },
+        verify: "todo",
+        number: "locked",
+        numbers: 0,
+        switch_on: "todo",
+        live_agents: 0,
+      },
       "/v1/usage": USAGE,
       // The calling-credit tile, in the state worth sweeping: STOPPED, which is the one
       // that carries a sentence and a link rather than a figure alone.
@@ -2749,6 +2764,36 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/compliance/outbound-pledge": { accepted_at: null, accepted_version: null, is_current: false, pledge_text: "We only call people who asked us to.", text_sha256: "b".repeat(64), version: "1" },
       "/v1/agents/engine-catalogue": { available: true, voices: [], models: [] },
       [`/v1/calls?agent_id=${AGENT.id}&limit=1`]: [],
+    },
+  },
+  {
+    // D-859: the go-live guide on its first step, one agent moved, one still moving, so the
+    // sweep covers the rail, the checklist and the pinned action.
+    file: "c/[slug]/go-live/page.tsx",
+    realm: "client",
+    element: () => <GoLivePage params={slug} />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/go-live": {
+        due: true,
+        owed_at: "2026-10-23T06:00:00Z",
+        finished_at: null,
+        dismissed_at: null,
+        current: "move",
+        move: {
+          state: "moving",
+          agents: [
+            { agent_id: AGENT.id, name: AGENT.name, state: "moved" },
+            { agent_id: "0192f3a4-0000-7000-8000-00000000b002", name: "Ravi", state: "moving" },
+          ],
+          total: 2,
+        },
+        verify: "todo",
+        number: "locked",
+        numbers: 0,
+        switch_on: "todo",
+        live_agents: 0,
+      },
     },
   },
   {
@@ -3536,7 +3581,7 @@ const CLIENT_SCREENS: Screen[] = [
     file: "c/page.tsx",
     realm: "client",
     element: () => <ClientConsoleJunction />,
-    routes: { "/v1/me": ME, "/v1/first-run": { due: false }, "/v1/agents": [] },
+    routes: { "/v1/me": ME, "/v1/first-run": { due: false }, "/v1/go-live": { due: false }, "/v1/agents": [] },
   },
   {
     file: "signup/page.tsx",

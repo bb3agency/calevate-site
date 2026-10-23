@@ -297,6 +297,10 @@ export const STATIC_FAMILIES: Record<string, string> = {
   "first-run": "the first run, polled while its questions or build are being worked on",
   "first-run-recording": "one spoken piece of the brief, polled until it is heard",
   "junction-first-run": "read once by the sign-in junction to choose where to send an owner",
+  // The go-live guide (D-859): the move is written by a worker and polled while it runs; the
+  // checks it reflects are polled while they are out.
+  "go-live": "the go-live guide, polled while the agents move or a check is out",
+  "junction-go-live": "read once by the sign-in junction to choose where to send an owner",
 };
 
 /** Every family a note about `topics` refetches. */

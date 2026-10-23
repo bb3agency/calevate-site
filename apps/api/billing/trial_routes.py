@@ -47,6 +47,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from apps.api.admin.service import tenant_exists
 from apps.api.billing.cost_breakdown import CostBreakdownOut
+from apps.api.billing.first_payment import on_operator_conversion
 from apps.api.billing.service import to_paise
 from apps.api.billing.trials import (
     DEFAULT_ERASURE_GRACE_DAYS,
@@ -56,6 +57,7 @@ from apps.api.billing.trials import (
     MIN_ERASURE_GRACE_DAYS,
     MIN_FREE_MINUTES,
     MIN_TRIAL_DAYS,
+    TRIAL_CONVERTED,
     TRIAL_HUMAN_OUTCOMES,
     TrialState,
     end_trial,
@@ -375,6 +377,10 @@ async def close_trial(
             reason=payload.reason,
             at=at,
         )
+        if payload.outcome == TRIAL_CONVERTED:
+            # An operator converts the trial of an account invoiced outside the wallet: it
+            # is paid, so everything keyed on `first_paid_at` agrees with the trial (D-859).
+            await on_operator_conversion(scoped, tenant_id=tenant_id, at=at)
         await write_audit(
             scoped,
             action="trial.ended",

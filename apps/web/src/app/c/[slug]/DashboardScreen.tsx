@@ -30,6 +30,7 @@ import { OutcomeSplit } from "./OutcomeSplit";
 import { SentimentSplit } from "./SentimentSplit";
 import { SetupChecklist } from "./SetupChecklist";
 import { SpendThisMonth } from "./SpendThisMonth";
+import { GoLiveInvite } from "./GoLiveInvite";
 import { TrialCallPanel } from "./TrialCallPanel";
 import { WhatNeedsYou } from "./WhatNeedsYou";
 import { WeekRecap } from "./WeekRecap";
@@ -254,6 +255,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
         {agents.data?.length === 0 && agentAccess.allowed ? (
           <FirstAgentInvite href={(path) => href(`/c/${slug}${path}`)} />
         ) : null}
+        <GoLiveInvite session={session} href={(path) => href(`/c/${slug}${path}`)} />
         <SetupChecklist />
         <ExistingNumberPrompt session={session} href={href} />
         <TrialCallPanel slug={slug} trial={data.trial} />

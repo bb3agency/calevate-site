@@ -10,7 +10,8 @@ Every job here is reached through the outbox or a cron, and every one is idempot
   (`:136-161`). At the plan's customer cap (3 on pay-as-you-go, 100 on Pro, 1,000 on Scale,
   `:191-200`) the vendor answers 402 (`plan_limit` / `plan_required`, `errors.md:156-157`):
   the tenant is left in `plan_limit`, an operator is alarmed, and the client is told its
-  account is being set up.
+  account is being set up. Activation owes the move of the tenant's agents into it (D-859,
+  `go_live/moves.py`).
 * `retry_engine_workspaces` is the daily sweep: every live tenant that has paid and has no
   workspace row (D-697: owed from the first payment) and every tenant whose provisioning is still
   owed is queued through the same job.
@@ -61,6 +62,7 @@ from apps.api.engine.thinnest_customers import PLAN_CUSTOMER_CAPS, thinnest_cust
 from apps.api.engine.thinnest_numbers import thinnest_numbers
 from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.engine.vendor_http import EngineRejectedError
+from apps.api.go_live.moves import queue_agent_move
 from apps.api.reliability.engine_webhooks import retire_agent_webhook
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.call_lines import queue_call_lines_sync, read_call_lines
@@ -163,6 +165,9 @@ async def _activate(tenant_id: UUID, workspace: str) -> None:
         await queue_call_lines_sync(session, tenant_id=tenant_id)
         # How long the platform keeps its calls, from the client's own policy (D-798).
         await queue_retention_sync(session, tenant_id=tenant_id)
+        # The agents a trial or a pre-D-693 account left in our developer workspace move in
+        # (D-859), keeping their state.
+        await queue_agent_move(session, tenant_id=tenant_id, workspace=workspace)
         ids = [
             str(row)
             for row in (
@@ -689,6 +694,10 @@ async def retire_moved_engine_agent(ctx: dict[str, Any], payload: dict[str, Any]
                 "WHERE engine = :engine AND engine_agent_ref = :ref"
             ),
             {"engine": engine.name, "ref": old_ref},
+        )
+        # A retired test copy (D-859, option A) is gone; the next test call makes another.
+        await session.execute(
+            text("DELETE FROM agent_test_copies WHERE engine_agent_ref = :ref"), {"ref": old_ref}
         )
     log.info("engine_agent_retired_after_move", extra={"agent_id": str(agent_id)})
     return "retired"

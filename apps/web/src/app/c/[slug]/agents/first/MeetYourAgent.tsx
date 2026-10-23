@@ -3,7 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check } from "lucide-react";
+
 
 import { TEXT_ACTION } from "@/components/console/section";
 import { CopilotPanel } from "@/components/copilot/CopilotPanel";
@@ -44,6 +44,7 @@ import { HearItStep } from "./HearItStep";
 import { JobStep } from "./JobStep";
 import { QuestionsStep } from "./QuestionsStep";
 import { ResultStep, TeamStep } from "./ResultStep";
+import { StepRail } from "./shell";
 
 /** The route this screen declares to Pip; the server's first-agent guide is keyed on it. */
 export const FIRST_AGENT_ROUTE = "/c/{slug}/agents/first";
@@ -195,7 +196,11 @@ export function MeetYourAgent({ slug }: { slug: string }) {
 
       <div className="grid gap-5 lg:grid-cols-[13rem_minmax(0,1fr)_minmax(18rem,22rem)] lg:gap-8">
         <aside className="min-w-0 space-y-4" aria-label="Your progress">
-          <Rail current={step} onGo={(to) => to < step && setStage(to === 0 ? "job" : to === 1 ? "brief" : "hear")} />
+          <StepRail
+            steps={STEPS}
+            current={step}
+            onGo={(to) => to < step && setStage(to === 0 ? "job" : to === 1 ? "brief" : "hear")}
+          />
           <Meter pieces={pieces} loaded={loaded} />
         </aside>
         <div className="min-w-0 lg:hidden">{card(true)}</div>
@@ -207,62 +212,6 @@ export function MeetYourAgent({ slug }: { slug: string }) {
         </aside>
       </div>
     </div>
-  );
-}
-
-/**
- * The four steps. A row of four on a phone (the current one named under it), a column with
- * every name from `lg`. A finished step can be gone back to.
- */
-function Rail({ current, onGo }: { current: number; onGo: (step: number) => void }) {
-  return (
-    <nav aria-label="Steps">
-      <ol className="grid grid-cols-4 gap-1.5 lg:grid-cols-1 lg:gap-1">
-        {STEPS.map((entry, index) => {
-          const done = index < current;
-          const here = index === current;
-          const tile = (
-            <>
-              <span
-                aria-hidden
-                className={`grid h-7 w-7 shrink-0 place-items-center rounded-[8px] border text-[12px] font-medium tabular-nums ${
-                  done ? "border-brand-strong bg-brand-strong text-white" : here ? "border-ink/40 text-ink" : "border-line text-ink-faint"
-                }`}
-              >
-                {done ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : index + 1}
-              </span>
-              <span
-                className={`hidden text-body lg:inline ${here ? "font-medium text-ink" : done ? "text-ink-muted" : "text-ink-faint"}`}
-              >
-                {entry.label}
-              </span>
-              <span className="sr-only lg:hidden">{entry.label}</span>
-            </>
-          );
-          const bar = <span aria-hidden className={`h-1 rounded-full lg:hidden ${done || here ? "bg-brand-strong" : "bg-line"}`} />;
-          return (
-            <li key={entry.id} aria-current={here ? "step" : undefined} className="flex min-w-0 flex-col gap-1.5 lg:block">
-              {bar}
-              {done ? (
-                <button
-                  type="button"
-                  onClick={() => onGo(index)}
-                  className="press hidden w-full items-center gap-3 rounded-md px-1 py-1 text-left hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand lg:flex"
-                >
-                  {tile}
-                  <span className="sr-only">, done. Go back to it</span>
-                </button>
-              ) : (
-                <span className="hidden items-center gap-3 px-1 py-1 lg:flex">{tile}</span>
-              )}
-            </li>
-          );
-        })}
-      </ol>
-      <p className="mt-2 text-meta text-ink-muted lg:hidden">
-        Step {current + 1} of {STEPS.length}: <span className="font-medium text-ink">{STEPS[current]?.label}</span>
-      </p>
-    </nav>
   );
 }
 

@@ -102,6 +102,7 @@ from apps.workers.account_closure import (
 )
 from apps.workers.account_closure import notify_account_closed, sweep_due_erasures
 from apps.workers.action_audit import record_action_invocation
+from apps.workers.agent_moves import move_agents_to_workspace, sweep_agent_moves
 from apps.workers.agent_test_cases import run_agent_test_cases
 from apps.workers.agent_test_conversations import (
     improve_agent_test_run,
@@ -382,6 +383,9 @@ FUNCTIONS: list[Any] = [
         submit_engine_business_details,
         offboard_engine_workspace,
         retire_moved_engine_agent,
+        # A paying client's agents moved into its own workspace once it is active (D-859),
+        # from the outbox (`go_live/moves.queue_agent_move`).
+        move_agents_to_workspace,
         # A client's calls at once sent to its workspace (F7, `tenancy/call_lines`).
         sync_engine_call_lines,
         # A call's English, again: an owner's "Try again" from the outbox
@@ -1012,6 +1016,15 @@ CRON_JOBS = [
         walk=bounded("one directory read, then one vendor GET per Studio workspace"),
         minute={37},
         second={20},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-859. An agent left in our developer workspace after its client's own workspace is
+    # active (held by a plan or voice limit, or a lost job) is moved again within the hour.
+    _cron(
+        traced_job(sweep_agent_moves),
+        walk=bounded("one directory read, then one tenant session per active client workspace"),
+        minute={47},
+        second={10},
         max_tries=WORKER_MAX_TRIES,
     ),
     # D-764. Every client workspace on our model verified on our Google key, repaired when

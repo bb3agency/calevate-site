@@ -7661,6 +7661,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/go-live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The go-live guide after the first payment: the agents' move and the next steps */
+        get: operations["read_go_live_v1_go_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/go-live/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put the go-live guide aside for now; the dashboard still offers it */
+        post: operations["post_dismiss_v1_go_live_dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/go-live/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The owner has finished going live: stop sending them to the guide */
+        post: operations["post_finish_v1_go_live_finish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/healer/fallback-phone": {
         parameters: {
             query?: never;
@@ -12321,6 +12372,21 @@ export interface components {
              * @enum {string}
              */
             llm_model_source: "agent" | "organization" | "platform";
+        };
+        /** AgentMoveOut */
+        AgentMoveOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Name */
+            name: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "moving" | "moved" | "finishing";
         };
         /** AgentOut */
         AgentOut: {
@@ -18833,6 +18899,42 @@ export interface components {
             /** Malformed */
             malformed: number;
         };
+        /** GoLiveOut */
+        GoLiveOut: {
+            /**
+             * Current
+             * @enum {string}
+             */
+            current: "move" | "verify" | "number" | "switch_on" | "done";
+            /** Dismissed At */
+            dismissed_at: string | null;
+            /** Due */
+            due: boolean;
+            /** Finished At */
+            finished_at: string | null;
+            /** Live Agents */
+            live_agents: number;
+            move: components["schemas"]["MoveOut"];
+            /**
+             * Number
+             * @enum {string}
+             */
+            number: "locked" | "waiting_approval" | "todo" | "done";
+            /** Numbers */
+            numbers: number;
+            /** Owed At */
+            owed_at: string | null;
+            /**
+             * Switch On
+             * @enum {string}
+             */
+            switch_on: "todo" | "done";
+            /**
+             * Verify
+             * @enum {string}
+             */
+            verify: "todo" | "in_review" | "needs_attention" | "done";
+        };
         /** GoogleCompleteIn */
         GoogleCompleteIn: {
             /** Code */
@@ -22052,6 +22154,18 @@ export interface components {
             prices: components["schemas"]["ModelPriceOut"][];
             /** Tts Prices */
             tts_prices: components["schemas"]["TtsPriceOut"][];
+        };
+        /** MoveOut */
+        MoveOut: {
+            /** Agents */
+            agents: components["schemas"]["AgentMoveOut"][];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "waiting_for_account" | "moving" | "finishing" | "done";
+            /** Total */
+            total: number;
         };
         /** NameIn */
         NameIn: {
@@ -28303,8 +28417,9 @@ export interface components {
         };
         /**
          * TrialPanelOut
-         * @description The trial as its own client reads it. `on_trial` false means none of the rest
-         *     applies: the account has paid, or was never given a trial.
+         * @description The trial as its own client reads it. `on_trial` false means the trial fields do not
+         *     apply: the account has paid (then `paid_test_calls` carries its own test calls), or was
+         *     never given a trial.
          */
         TrialPanelOut: {
             /** Answering Locked Reason */
@@ -28346,6 +28461,11 @@ export interface components {
             minutes_used: number;
             /** On Trial */
             on_trial: boolean;
+            /**
+             * Paid Test Calls
+             * @default false
+             */
+            paid_test_calls: boolean;
             /**
              * Pledge Accepted
              * @default false
@@ -43281,6 +43401,93 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SaveNumberOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_go_live_v1_go_live_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoLiveOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_dismiss_v1_go_live_dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoLiveOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_finish_v1_go_live_finish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoLiveOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

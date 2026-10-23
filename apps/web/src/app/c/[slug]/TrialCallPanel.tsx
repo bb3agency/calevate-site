@@ -36,10 +36,14 @@ import { TestCallTranscript } from "./TestCallTranscript";
  * a read of its own would be a second round trip, and a card that arrives late pushes the
  * dashboard down. Renders NOTHING for an account that is not on a trial — a placeholder on
  * every other dashboard would be noise — and the dashboard says its own read's failure.
+ *
+ * AFTER THE FIRST PAYMENT the same card offers the owner's PAID test calls (D-859,
+ * `paid_test_calls`): from the agent's own number once it has one, from the shared trial
+ * number until then (option A), billed like any call, with no trial words in it.
  */
 export function TrialCallPanel({ slug, trial }: { slug: string; trial: TrialPanel | null | undefined }) {
   const { href } = useClientRealm();
-  if (!trial?.on_trial) return null;
+  if (!trial?.on_trial && !trial?.paid_test_calls) return null;
   return (
     <TrialCallCard
       trial={trial}
@@ -48,6 +52,31 @@ export function TrialCallPanel({ slug, trial }: { slug: string; trial: TrialPane
       agentsHref={href(`/c/${slug}/agents`)}
       newAgentHref={href(`/c/${slug}/agents/first`)}
     />
+  );
+}
+
+/** What is left of the free trial: its days and its free minutes. */
+function TrialFigures({ trial }: { trial: TrialPanel }) {
+  return (
+    <>
+      <div>
+        <dt className={FIELD_LABEL}>Days left</dt>
+        <dd className="mt-1 font-semibold text-ink">
+          {trial.days_remaining === null || trial.days_remaining === undefined
+            ? "Ended"
+            : `${trial.days_remaining} ${trial.days_remaining === 1 ? "day" : "days"}`}
+        </dd>
+        {trial.ends_at ? <dd className="text-xs text-ink-muted">Ends {formatIST(trial.ends_at)} IST</dd> : null}
+      </div>
+      <div>
+        <dt className={FIELD_LABEL}>Free minutes left</dt>
+        <dd className="mt-1 font-semibold text-ink">
+          {trial.free_minutes === null || trial.free_minutes === undefined
+            ? "No minute limit"
+            : `${trial.minutes_left ?? trial.free_minutes} of ${trial.free_minutes}`}
+        </dd>
+      </div>
+    </>
   );
 }
 
@@ -77,8 +106,10 @@ export function TrialCallCard({
   const [number, setNumber] = useState("");
 
   // Every agent can be test-called, including a draft and one that only answers calls: a
-  // draft is got ready first (the same `/prepare` the first run uses), and the server says
-  // in its own words what stops that, such as agreements not yet accepted or no voice chosen.
+  // draft is got ready first (the same `/prepare` the first run uses), and the server says in
+  // its own words what stops that. After payment the call rings from the agent's own number
+  // once it has one, and from the shared Calevate number until then (D-859, option A).
+  const paid = trial.paid_test_calls === true;
   const dialers = agents.data?.filter((agent) => !isDeleted(agent));
   const chosen = agentId || (dialers !== undefined && dialers.length > 0 ? dialers[0].id : "");
   const chosenAgent = dialers?.find((agent) => agent.id === chosen);
@@ -92,28 +123,10 @@ export function TrialCallCard({
   };
 
   return (
-    <Card title="Your free trial">
+    <Card title={paid ? "Test calls" : "Your free trial"}>
       <div className="space-y-4">
         <dl className="grid gap-3 text-sm sm:grid-cols-3">
-          <div>
-            <dt className={FIELD_LABEL}>Days left</dt>
-            <dd className="mt-1 font-semibold text-ink">
-              {trial.days_remaining === null || trial.days_remaining === undefined
-                ? "Ended"
-                : `${trial.days_remaining} ${trial.days_remaining === 1 ? "day" : "days"}`}
-            </dd>
-            {trial.ends_at ? (
-              <dd className="text-xs text-ink-muted">Ends {formatIST(trial.ends_at)} IST</dd>
-            ) : null}
-          </div>
-          <div>
-            <dt className={FIELD_LABEL}>Free minutes left</dt>
-            <dd className="mt-1 font-semibold text-ink">
-              {trial.free_minutes === null || trial.free_minutes === undefined
-                ? "No minute limit"
-                : `${trial.minutes_left ?? trial.free_minutes} of ${trial.free_minutes}`}
-            </dd>
-          </div>
+          {paid ? null : <TrialFigures trial={trial} />}
           <div>
             <dt className={FIELD_LABEL}>Test calls today</dt>
             <dd className="mt-1 font-semibold text-ink">
@@ -123,12 +136,13 @@ export function TrialCallCard({
         </dl>
 
         <p className="text-sm text-ink-muted">
-          Try your agent on a real phone: pick an agent, type an Indian number, and it calls
-          that number from a shared Calevate number, opening with its usual greeting. Each test call ends after{" "}
-          {minutesText(trial.max_call_seconds)}. The do-not-call list and calling hours (9am to
-          9pm) still apply, and the agent always says it is an AI when asked.
+          {paid
+            ? "Ring your own phone from one of your agents. It calls from your own number once the agent has one, and from a shared Calevate number until then. Test calls are billed like any call. "
+            : "Try your agent on a real phone: pick an agent, type an Indian number, and it calls that number from a shared Calevate number, opening with its usual greeting. "}
+          Each test call ends after {minutesText(trial.max_call_seconds)}. The do-not-call list
+          and calling hours (9am to 9pm) still apply, and the agent always says it is an AI when
+          asked.
         </p>
-
         {!trial.pledge_accepted && (
           <NoticeBox
             tone="warn"
@@ -231,12 +245,14 @@ export function TrialCallCard({
           </p>
         ) : null}
 
-        <NoticeBox
-          tone="neutral"
-          title="Ready to go live?"
-          action={<RowLink href={creditsHref}>Add credit to go live</RowLink>}
-          info="Adding credit ends the trial and opens business verification, your own phone number, answering calls and campaigns."
-        />
+        {paid ? null : (
+          <NoticeBox
+            tone="neutral"
+            title="Ready to go live?"
+            action={<RowLink href={creditsHref}>Add credit to go live</RowLink>}
+            info="Adding credit ends the trial and opens business verification, your own phone number, answering calls and campaigns."
+          />
+        )}
       </div>
     </Card>
   );

@@ -232,11 +232,28 @@ const page = <DashboardPage params={Promise.resolve({ slug: "acme" })} />;
  * in this file rendered two failures it was not about. `setup.ts` now fails any test that
  * leaves a read unanswered; the fixture test below also pins that none of them alerts.
  */
+/** `GET /v1/go-live` for an account owed no guide: it has not paid (D-859). */
+const NOT_OWED_GUIDE = {
+  due: false,
+  owed_at: null,
+  finished_at: null,
+  dismissed_at: null,
+  current: "move",
+  move: { state: "waiting_for_account", agents: [], total: 0 },
+  verify: "todo",
+  number: "locked",
+  numbers: 0,
+  switch_on: "todo",
+  live_agents: 0,
+};
+
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": ME,
     ...NO_FORWARDING_ROUTES,
     "/v1/dashboard": EMPTY_DASHBOARD,
+    // An account that has not paid is owed no go-live guide (D-859).
+    "/v1/go-live": NOT_OWED_GUIDE,
     "/v1/usage": USAGE,
     "/v1/billing/wallet": wallet(),
     "/v1/calls?limit=6": [],

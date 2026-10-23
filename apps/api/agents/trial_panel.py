@@ -15,18 +15,25 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.trial_calls import NOT_READY_REASON, trial_calling_ready
+from apps.api.agents.paid_test_calls import read_paid_test_access
+from apps.api.agents.trial_calls import NOT_READY_REASON, TRIAL_CALL_ENGINES, trial_calling_ready
 from apps.api.compliance.outbound_pledge import pledge_blocker
 from apps.api.compliance.trial_access import TRIAL_REFUSALS, read_trial_access
+from apps.api.core.settings import get_settings
 
 
 class TrialPanelOut(BaseModel):
-    """The trial as its own client reads it. `on_trial` false means none of the rest
-    applies: the account has paid, or was never given a trial."""
+    """The trial as its own client reads it. `on_trial` false means the trial fields do not
+    apply: the account has paid (then `paid_test_calls` carries its own test calls), or was
+    never given a trial."""
 
     model_config = ConfigDict(extra="forbid")
 
     on_trial: bool
+    #: The account has paid (D-859): its test calls ring from its own number, or before it has
+    #: one from the shared trial line, and are billed. The panel shows today's test calls and
+    #: the limits, never trial copy. `on_trial` is then false.
+    paid_test_calls: bool = False
     #: `active`, `expired` or `stopped`; null when not on a trial.
     status: str | None = None
     ends_at: datetime | None = None
@@ -55,7 +62,7 @@ async def read_trial_panel(session: AsyncSession, *, tenant_id: UUID) -> TrialPa
     now = datetime.now(UTC)
     access = await read_trial_access(session, tenant_id=tenant_id, at=now)
     if access is None:
-        return TrialPanelOut(on_trial=False)
+        return await _paid_panel(session, tenant_id=tenant_id, at=now)
     unpledged = await pledge_blocker(session, tenant_id=tenant_id)
     blocked = access.blocker
     reason: str | None = None
@@ -80,6 +87,30 @@ async def read_trial_panel(session: AsyncSession, *, tenant_id: UUID) -> TrialPa
         can_call=reason is None,
         blocked_reason=reason,
         answering_locked_reason=TRIAL_REFUSALS["inbound"][1],
+    )
+
+
+async def _paid_panel(session: AsyncSession, *, tenant_id: UUID, at: datetime) -> TrialPanelOut:
+    """A paid account's test calls (D-859), or the empty panel for an account that has
+    neither paid nor a trial."""
+    paid = await read_paid_test_access(session, tenant_id=tenant_id, at=at)
+    if paid is None or get_settings().engine not in TRIAL_CALL_ENGINES:
+        return TrialPanelOut(on_trial=False)
+    unpledged = await pledge_blocker(session, tenant_id=tenant_id)
+    reason: str | None = None
+    if paid.blocker is not None:
+        reason = paid.blocker[1]
+    elif unpledged is not None:
+        reason = unpledged[1]
+    return TrialPanelOut(
+        on_trial=False,
+        paid_test_calls=True,
+        calls_today=paid.calls_today,
+        daily_cap=paid.daily_cap,
+        max_call_seconds=paid.max_call_seconds,
+        pledge_accepted=unpledged is None,
+        can_call=reason is None,
+        blocked_reason=reason,
     )
 
 

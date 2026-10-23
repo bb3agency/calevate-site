@@ -17,6 +17,10 @@ number held in our developer workspace (`Settings.trial_caller_number`). The ord
 
 The line is released by the call ending (its `calls` row leaving `queued`/`ringing`/
 `in_progress`), or by the row ageing out at `trial_access.trial_line_horizon()`.
+
+After the first payment the same route places the owner's PAID test call (D-859,
+`agents/paid_test_calls.py`): from the agent's own number in the account's own workspace,
+billed like any call, never from the shared number.
 """
 
 from __future__ import annotations
@@ -29,6 +33,12 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.paid_test_calls import (
+    DAILY_CAP_RULE,
+    read_paid_test_access,
+    refresh_test_copy,
+)
+from apps.api.billing.first_payment import has_paid
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
 from apps.api.compliance.trial_access import TRIAL_STUDIO_MINUTES_USED_RULE, read_trial_access
@@ -61,7 +71,7 @@ NOT_READY_REASON: Final = "Test calls are not available yet. Please try again la
 
 #: Refusals raised before anything rang, after which the client's retry must be allowed.
 _NOT_PLACED: Final = frozenset(
-    {"trial_line_busy", "trial_line_unavailable", TRIAL_STUDIO_MINUTES_USED_RULE}
+    {"trial_line_busy", "trial_line_unavailable", TRIAL_STUDIO_MINUTES_USED_RULE, DAILY_CAP_RULE}
 )
 
 
@@ -153,7 +163,9 @@ async def place_trial_call(
     phone = normalize_phone(number)
     if phone is None:
         raise _bad_number()
-    if not trial_calling_ready():
+    # A paid account's test call rings from its own number, so only the engine is asked.
+    paid_account = await has_paid(session, tenant_id=tenant_id)
+    if not (get_settings().engine in TRIAL_CALL_ENGINES if paid_account else trial_calling_ready()):
         return TrialCallResult(
             status="blocked", blocked_reason=NOT_READY_REASON, blocked_rule=NOT_READY_RULE
         )
@@ -179,14 +191,19 @@ async def place_trial_call(
             session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone, trial_call=True
         )
         access = await read_trial_access(session, tenant_id=tenant_id)
+        # After the first payment: the owner's test call from the account's own number (D-859).
+        paid = (
+            await read_paid_test_access(session, tenant_id=tenant_id, agent_id=agent_id)
+            if access is None
+            else None
+        )
     except Exception:
         await release()
         raise
-    if not decision.allowed or access is None:
-        record_compliance_block(rule=decision.rule or "unknown")
-        result = TrialCallResult(
-            status="blocked", blocked_reason=decision.reason, blocked_rule=decision.rule
-        )
+
+    async def blocked(rule: str | None, reason: str | None) -> TrialCallResult:
+        record_compliance_block(rule=rule or "unknown")
+        result = TrialCallResult(status="blocked", blocked_reason=reason, blocked_rule=rule)
         async with tenant_session(tenant_id) as done_session:
             await complete_idempotency(
                 done_session,
@@ -196,15 +213,52 @@ async def place_trial_call(
             )
         return result
 
+    if not decision.allowed:
+        return await blocked(decision.rule, decision.reason)
+    if paid is not None and paid.blocker is not None:
+        return await blocked(*paid.blocker)
+    if paid is None and access is None:
+        return await blocked(NOT_READY_RULE, NOT_READY_REASON)
+
     from apps.api.agents.service import (
         DialUnconfirmedError,
+        OwnerTestDial,
         TrialDial,
         dial_was_not_placed,
         dispatch_call,
     )
 
-    settings = get_settings()
-    assert settings.trial_caller_number is not None  # `trial_calling_ready` above
+    trial: TrialDial | None = None
+    owner_test: OwnerTestDial | None = None
+    if paid is not None:
+        call_seconds = paid.max_call_seconds
+        owner_test = OwnerTestDial(
+            max_call_seconds=call_seconds, daily_cap=paid.daily_cap, day_start=paid.day_start
+        )
+        if paid.line in ("trial_line_own", "trial_line_copy"):
+            # Before the client has a number of its own: the shared trial line, through the
+            # agent's developer-workspace engine agent, republished first when it is the test
+            # copy so it never lags the agent (D-859, option A).
+            try:
+                dial_ref = (
+                    await refresh_test_copy(tenant_id=tenant_id, agent_id=agent_id)
+                    if paid.line == "trial_line_copy"
+                    else None
+                )
+            except Exception:
+                await release()
+                raise
+            caller_number = get_settings().trial_caller_number
+            assert caller_number is not None  # `read_paid_test_access` refused otherwise
+            trial = TrialDial(
+                from_e164=caller_number, max_call_seconds=call_seconds, agent_ref=dial_ref
+            )
+    else:
+        assert access is not None  # refused above otherwise
+        caller_number = get_settings().trial_caller_number
+        assert caller_number is not None  # `trial_calling_ready` above
+        call_seconds = access.call_seconds
+        trial = TrialDial(from_e164=caller_number, max_call_seconds=call_seconds)
     try:
         handle = await dispatch_call(
             session,
@@ -212,9 +266,8 @@ async def place_trial_call(
             agent_id=agent_id,
             lead_id=None,
             phone_e164=phone,
-            trial=TrialDial(
-                from_e164=settings.trial_caller_number, max_call_seconds=access.call_seconds
-            ),
+            trial=trial,
+            owner_test=owner_test,
         )
     except DialUnconfirmedError as unconfirmed:
         raise ProblemError(
@@ -245,7 +298,11 @@ async def place_trial_call(
             object_type="agent",
             object_id=str(agent_id),
             ip=ip,
-            summary={"engine": get_engine().name, "max_call_seconds": str(access.call_seconds)},
+            summary={
+                "engine": get_engine().name,
+                "max_call_seconds": str(call_seconds),
+                "paid": str(paid is not None),
+            },
         )
         await complete_idempotency(
             record_session,

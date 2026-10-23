@@ -592,6 +592,10 @@ class Settings(BaseSettings):
     #: synthesis; once reached, a Studio test call is refused and Clear ones go on. 0 refuses
     #: every Studio test call.
     trial_studio_minutes: int = Field(default=15, ge=0, le=1000)
+    #: Days a paying client's developer-workspace test copy of an agent may sit unused before
+    #: the hourly sweep retires it (D-859, option A); the next test call recreates it. Each
+    #: copy holds one of the developer workspace's agent slots.
+    paid_test_copy_idle_days: int = Field(default=14, ge=1, le=365)
     #: The staged agent languages clients may choose (D-855), comma-separated BCP-47 tags
     #: from `calevate_shared.languages.STAGED_LANGUAGE_IDS`. Empty, the default, offers
     #: Telugu, Hindi and English only. A write naming a language whose readiness record is

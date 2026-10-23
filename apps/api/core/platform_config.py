@@ -614,6 +614,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "trial_daily_call_cap": AppliesRule(LIVE),
     "trial_call_max_seconds": AppliesRule(LIVE),
     "trial_studio_minutes": AppliesRule(LIVE),
+    "paid_test_copy_idle_days": AppliesRule(LIVE),
     # Which staged agent languages clients may choose (D-855), read on every request that
     # takes a language and at every publish; nothing already published is republished.
     "staged_agent_languages_enabled": AppliesRule(LIVE),

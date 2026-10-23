@@ -98,9 +98,9 @@ TRIAL_MINUTES_USED_REASON: Final = (
 )
 TRIAL_DAILY_CAP_RULE: Final = "trial_daily_cap"
 NOT_ON_TRIAL_RULE: Final = "trial_call_not_on_trial"
-NOT_ON_TRIAL_REASON: Final = (
-    "Test calls are for accounts on a free trial. Your agents call your leads directly."
-)
+#: An account with neither a trial nor a first payment (D-859: a paid account's test calls
+#: ring from its own number).
+NOT_ON_TRIAL_REASON: Final = "Test calls open with a free trial, or once you add credit."
 
 
 #: A trial account's agent cannot promise a call back (founder decision 1, 10 Oct 2026):

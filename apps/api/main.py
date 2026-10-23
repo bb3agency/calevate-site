@@ -211,6 +211,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.flags.routes import router as feature_flags_router
     from apps.api.forwarding.routes import admin_router as admin_forwarding_router
     from apps.api.forwarding.routes import router as forwarding_router
+    from apps.api.go_live.routes import router as go_live_router
     from apps.api.healer.routes import ops_router as ops_healer_router
     from apps.api.healer.routes import public_router as public_status_router
     from apps.api.healer.routes import router as healer_router
@@ -338,6 +339,8 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(business_profile_admin_router)
     # A new owner's first agent, "Meet your agent" (D-855).
     application.include_router(first_run_router)
+    # After the first payment: the agents' move and the go-live guide (D-859).
+    application.include_router(go_live_router)
     # The account's AI-written examples (D-827): the screens' read, and the operator's view.
     application.include_router(business_copy_router)
     application.include_router(business_copy_admin_router)
