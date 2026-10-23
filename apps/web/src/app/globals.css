@@ -80,6 +80,19 @@
   --chart-warn: #fbbf24;
   --chart-danger: #f43f5e;
   --chart-neutral: #cbd5e1;
+  /*
+   * CATEGORICAL SERIES for the kit's charts (components/arc/chart-core.tsx), assigned in
+   * this fixed order and never cycled: a seventh series folds into "Other". Brand green
+   * leads so a one-series chart is on-brand. Validated with the dataviz skill's
+   * validate_palette.js (light, adjacent pairs): every slot >= 3:1 on the surface, worst
+   * adjacent CVD ΔE 11.0 and normal-vision ΔE 18.1. Marks only; text never wears these.
+   */
+  --series-1: #16a05d;
+  --series-2: #2a78d6;
+  --series-3: #e0602b;
+  --series-4: #6250d6;
+  --series-5: #d55181;
+  --series-6: #b07400;
 
   /*
    * MOTION. One set of curves and durations for every transition in the app.
@@ -197,6 +210,12 @@
   --color-chart-warn: var(--chart-warn);
   --color-chart-danger: var(--chart-danger);
   --color-chart-neutral: var(--chart-neutral);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --color-series-3: var(--series-3);
+  --color-series-4: var(--series-4);
+  --color-series-5: var(--series-5);
+  --color-series-6: var(--series-6);
 
   --font-sans: var(--font-pp-mori);
   /* JetBrains Mono first (bundled, glyph-disambiguated — see app/layout.tsx), then the

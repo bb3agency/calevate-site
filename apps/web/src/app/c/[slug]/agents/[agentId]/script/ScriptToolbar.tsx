@@ -15,6 +15,7 @@
  */
 
 import { PRIMARY_BUTTON, formatCount, formatIST, type NoticeTone } from "@/components/ui";
+import { UsageMeter } from "@/components/arc/usage-meter";
 import { Drawer } from "@/components/console/drawer";
 import { RowMenu, type RowMenuItem } from "@/components/arc/menu";
 import { StatusPill } from "@/components/console/statusPill";
@@ -138,25 +139,18 @@ export const ROOM_SHOWN_FROM = 0.85;
  */
 export function RoomLeft({ used, limit }: { used: number; limit: number }) {
   const left = limit - used;
-  const share = Math.min(1, Math.max(0, used / limit));
-  const tone = left < 0 ? "bg-danger" : left < limit * 0.1 ? "bg-warn" : "bg-brand";
   return (
-    <div className="flex min-w-0 items-center gap-2 max-sm:w-full">
-      <div
-        role="meter"
-        aria-label="Room left in the instructions"
-        aria-valuemin={0}
-        aria-valuemax={limit}
-        aria-valuenow={Math.min(used, limit)}
-        aria-valuetext={left < 0 ? `${formatCount(-left)} letters over` : `${formatCount(left)} letters left`}
-        className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-ink/[0.08]"
-      >
-        <div className={`h-full ${tone}`} style={{ width: `${share * 100}%` }} />
-      </div>
-      <span className={`text-meta tabular-nums ${left < 0 ? "text-danger" : "text-ink-muted"}`}>
-        {left < 0 ? `Cut ${formatCount(-left)} letters` : `${formatCount(left)} letters left`}
-      </span>
-    </div>
+    <UsageMeter
+      variant="inline"
+      label="Room left in the instructions"
+      used={used}
+      limit={limit}
+      usedText={formatCount(used)}
+      caption={left < 0 ? `Cut ${formatCount(-left)} letters` : `${formatCount(left)} letters left`}
+      valueText={left < 0 ? `${formatCount(-left)} letters over` : `${formatCount(left)} letters left`}
+      overTone="danger"
+      className="max-sm:w-full"
+    />
   );
 }
 
