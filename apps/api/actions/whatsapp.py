@@ -146,7 +146,10 @@ class WhatsAppBlockedError(ProblemError):
     of the decision and never the number — the reason code is what the executor records
     and what an operator greps for."""
 
-    def __init__(self, rule: str) -> None:
+    def __init__(self, rule: str, *, reason: str | None = None) -> None:
+        #: The gate's own client-facing sentence, for a screen that shows it to the client;
+        #: never put into `detail`, which reaches the agent and the executor's record.
+        self.reason = reason
         super().__init__(
             kind="business_rule",
             code=f"whatsapp_blocked_{rule}",
@@ -265,7 +268,7 @@ async def assert_recipient_may_be_messaged(
             "whatsapp_send_blocked",
             extra={"tenant_id": str(tenant_id), "rule": decision.rule or "unknown"},
         )
-        raise WhatsAppBlockedError(decision.rule or "unknown")
+        raise WhatsAppBlockedError(decision.rule or "unknown", reason=decision.reason)
     consent = await read_messaging_consent(session, tenant_id=tenant_id, raw_phone=phone_e164)
     if spoken is not None:
         await _apply_spoken(
@@ -350,7 +353,7 @@ async def assert_business_contact_may_be_messaged(
         session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone_e164
     )
     if not decision.allowed:
-        raise WhatsAppBlockedError(decision.rule or "unknown")
+        raise WhatsAppBlockedError(decision.rule or "unknown", reason=decision.reason)
     return phone_e164
 
 

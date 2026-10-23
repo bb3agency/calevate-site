@@ -210,7 +210,9 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                     lead_id=callback.lead_id,
                     phone_e164=callback.phone_e164,
                     lead_name=None,
-                    context_note=callbacks.context_note(callback.requested_at, callback.note),
+                    context_note=callbacks.context_note(
+                        callback.requested_at, callback.note, source=callback.source_execution_id
+                    ),
                     on_reserved=callbacks.link_callback_to_call(callback.id),
                 )
             except DialUnconfirmedError as unconfirmed:

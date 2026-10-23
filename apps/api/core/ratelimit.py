@@ -311,6 +311,10 @@ RULES: tuple[Rule, ...] = (
     # The other doors that ring a real phone. Each has its own gate (the dial gate, the trial
     # day cap), which bounds how many calls connect but not how fast the gate is asked.
     Rule("/v1/calls/*/callback", "costly", _m("POST")),
+    # The swipe's "call back later" books a dial, and its WhatsApp follow-up sends a
+    # message on the client's own account (D-869).
+    Rule("/v1/leads/*/callbacks", "costly", _m("POST")),
+    Rule("/v1/leads/*/whatsapp", "costly", _m("POST")),
     Rule("/v1/trial/calls", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/trial/test-call", "costly", _m("POST")),
     # Clients' WhatsApp (D-784): each makes several Graph calls on the client's own Meta

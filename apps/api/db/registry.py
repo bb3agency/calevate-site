@@ -7,6 +7,7 @@ exhaustive. TENANT_TABLES drives RLS policy creation and the coverage check.
 
 from apps.api.actions import models as actions_models
 from apps.api.agents import models as agents_models
+from apps.api.announcements import models as announcements_models
 from apps.api.authn import models as authn_models
 from apps.api.billing import models as billing_models
 from apps.api.billing import payment_models as billing_payment_models
@@ -28,6 +29,7 @@ from apps.api.insights import models as insights_models
 from apps.api.integrations import models as integrations_models
 from apps.api.kb import models as kb_models
 from apps.api.legal import models as legal_models
+from apps.api.notifications import models as notifications_models
 from apps.api.ops import models as ops_models
 from apps.api.quality import models as quality_models
 from apps.api.reliability import models as reliability_models
@@ -42,6 +44,7 @@ __all__ = [
     "Base",
     "actions_models",
     "agents_models",
+    "announcements_models",
     "authn_models",
     "billing_models",
     "billing_payment_models",
@@ -62,6 +65,7 @@ __all__ = [
     "integrations_models",
     "kb_models",
     "legal_models",
+    "notifications_models",
     "ops_models",
     "quality_models",
     "reliability_models",
@@ -471,6 +475,11 @@ TENANT_TABLES = [
     # (`db/session.whatsapp_waba_session`); writes are own-tenant only.
     "whatsapp_accounts",
     "whatsapp_templates",
+    # D-869 (migration b9e4d2a7c513): which announcements an account has put away, and how
+    # far each person has read the bell's feed. Neither holds a caller's data; both are an
+    # account's own state and FORCE-RLS'd like every other one.
+    "announcement_dismissals",
+    "notification_reads",
 ]
 
 # Tables deliberately OUTSIDE tenant isolation, with reasons — the RLS coverage
@@ -657,6 +666,16 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "timestamps, a state word and a straggler COUNT: no tenant id, no call, no "
         "number, no name. Clients read it only through the two surfaces that project it "
         "for them — the banner route and the 503 problem body — never the row."
+    ),
+    "platform_announcements": (
+        "platform-scoped, admin realm only (D-869). The announcement bar an operator "
+        "composes for every client, trial clients, paid clients or one named client: one "
+        "message that is the platform's, not any tenant's, so there is no tenant whose row "
+        "it could be. `target_tenant_id` names the ONE-client audience and is a target, "
+        "never an owner — a policy on it would hide the row from the operator who wrote "
+        "it. Holds an operator's sentence, an optional link, a tone and four instants: no "
+        "call, no number, no caller. Clients read it only through "
+        "`announcements/service.active_for`, which applies the audience, never the row."
     ),
     "platform_engine_health": (
         "platform-scoped. One row per (engine, minute) counting the voice engine's "

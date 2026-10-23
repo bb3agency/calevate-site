@@ -7,6 +7,7 @@ circular). campaign_id stays a plain UUID until the campaigns table lands in M2.
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from calevate_shared.carrier import CARRIERS
@@ -64,6 +65,11 @@ CALL_STATUSES: tuple[CallStatus, ...] = (
     "voicemail",
 )
 CONSENT_STATES = ("granted", "declined", "na")
+#: What a PERSON marked on a call from the swipe or the ⋯ menu (D-869). Not `outcome_tag`:
+#: that is derived by the pipeline and rewritten on a re-run, which must never erase a mark
+#: somebody made by hand.
+CallFollowUpState = Literal["resolved", "needs_you"]
+CALL_FOLLOW_UP_STATES: tuple[CallFollowUpState, ...] = ("resolved", "needs_you")
 OUTCOME_TAGS: tuple[OutcomeTag, ...] = (
     "call_back_booked",
     "needs_you",
@@ -132,6 +138,10 @@ class Call(PKMixin, TimestampMixin, Base):
         CheckConstraint(f"summary_state IN {SUMMARY_STATES!r}", name="summary_state_enum"),
         CheckConstraint(
             f"translation_state IN {TRANSLATION_STATES!r}", name="translation_state_enum"
+        ),
+        CheckConstraint(
+            f"follow_up_state IS NULL OR follow_up_state IN {CALL_FOLLOW_UP_STATES!r}",
+            name="follow_up_state",
         ),
         CheckConstraint("headline IS NULL OR char_length(headline) <= 90", name="headline_length"),
         CheckConstraint(f"sentiment IS NULL OR sentiment IN {SENTIMENTS!r}", name="sentiment_enum"),
@@ -420,6 +430,15 @@ class Call(PKMixin, TimestampMixin, Base):
     # halt from re-POSTing a stop for every dial already stopped -- and then raising
     # "could not stop N dials" on work that succeeded.
     recall_requested_at: Mapped[datetime | None]
+    #: A person's mark on this call (`CALL_FOLLOW_UP_STATES`, D-869, migration b9e4d2a7c513),
+    #: moved only by `crm/swipe.set_call_follow_up` under a compare-and-swap so an undo cannot
+    #: overwrite a colleague's later mark.
+    follow_up_state: Mapped[str | None] = mapped_column(Text)
+    follow_up_set_at: Mapped[datetime | None]
+    #: Who marked it: a `users.id`, NULL when an operator did (view-as) or the person left.
+    follow_up_set_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
 
 
 class TranscriptTurn(PKMixin, TimestampMixin, Base):

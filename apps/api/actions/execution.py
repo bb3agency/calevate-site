@@ -250,6 +250,12 @@ async def _send(request: PreparedRequest, *, client: httpx.AsyncClient) -> httpx
     )
 
 
+async def send_prepared(request: PreparedRequest, *, client: httpx.AsyncClient) -> httpx.Response:
+    """`_send` for a caller outside this module (the leads screen's WhatsApp follow-up,
+    `crm/swipe.py`), so there is one way a prepared vendor request reaches the wire."""
+    return await _send(request, client=client)
+
+
 def _json(response: httpx.Response) -> Any:
     try:
         return response.json()

@@ -29,6 +29,10 @@ from apps.api.main import app
 # no `X-Impersonate-Org` header. Impersonation never touches them, so gating them on a
 # mutating permission costs nobody a view.
 ADMIN_CONSOLE_GETS: dict[str, str] = {
+    "/v1/admin/announcements": (
+        "the operator's composer list of announcements to clients (D-869); a client reads "
+        "its own through GET /v1/announcements, which is org:read"
+    ),
     "/v1/ops/engine-model-bands": (
         "whether each of the voice platform's models costs extra (D-750): a platform "
         "record an operator keeps, never a client view"

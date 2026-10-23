@@ -140,12 +140,16 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.llm_routes import router as llm_defaults_router
     from apps.api.agents.prompt_routes import router as prompt_admin_router
     from apps.api.agents.publishing_routes import router as publishing_router
+    from apps.api.agents.readiness_routes import router as readiness_router
     from apps.api.agents.reply_length_routes import admin_router as reply_length_admin_router
     from apps.api.agents.routes import router as agents_router
     from apps.api.agents.script_routes import router as script_router
     from apps.api.agents.trial_call_routes import router as trial_calls_router
     from apps.api.agents.voice_tuning_routes import admin_router as voice_tuning_admin_router
     from apps.api.agents.voice_tuning_routes import router as voice_tuning_router
+    from apps.api.analytics.routes import router as analytics_router
+    from apps.api.announcements.routes import admin_router as announcements_admin_router
+    from apps.api.announcements.routes import router as announcements_router
     from apps.api.authn.routes import (
         admin_auth_router,
         client_auth_router,
@@ -170,6 +174,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.routes import router as billing_admin_router
     from apps.api.billing.spend_routes import client_router as billing_spend_router
     from apps.api.billing.spend_routes import router as spend_admin_router
+    from apps.api.billing.tier_routes import router as billing_tiers_router
     from apps.api.billing.trial_routes import router as trials_admin_router
     from apps.api.billing.wallet_routes import router as wallet_router
     from apps.api.callbacks.routes import router as callbacks_router
@@ -207,6 +212,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.copilot.routes import router as copilot_router
     from apps.api.copilot.routine_routes import router as copilot_routines_router
     from apps.api.crm.routes import router as crm_router
+    from apps.api.crm.swipe_routes import router as swipe_router
     from apps.api.first_run.routes import router as first_run_router
     from apps.api.flags.routes import router as feature_flags_router
     from apps.api.forwarding.routes import admin_router as admin_forwarding_router
@@ -223,6 +229,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.kb.routes import router as kb_router
     from apps.api.legal.routes import router as legal_readiness_router
     from apps.api.live.routes import router as live_router
+    from apps.api.notifications.routes import router as notifications_router
     from apps.api.ops.config_routes import rate_card_router as ops_rate_card_router
     from apps.api.ops.config_routes import router as ops_config_router
     from apps.api.ops.config_sources import router as ops_config_sources_router
@@ -384,6 +391,13 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/admin/tenants/{tenant_id}` and would swallow a literal segment beside it.
     application.include_router(number_pricing_router)
     application.include_router(crm_router)
+    application.include_router(swipe_router)
+    application.include_router(analytics_router)
+    application.include_router(readiness_router)
+    application.include_router(announcements_router)
+    application.include_router(announcements_admin_router)
+    application.include_router(notifications_router)
+    application.include_router(billing_tiers_router)
     # The call-backs an agent promised on a call (D-514). Its own literal `/v1/callbacks`
     # prefix, which collides with nothing above, so mount order is not load-bearing here.
     # There is no route on it that CREATES one: a call-back exists because a caller asked

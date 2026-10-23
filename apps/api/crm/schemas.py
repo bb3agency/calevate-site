@@ -112,6 +112,9 @@ class CallSummaryOut(Strict):
     #: was not read. Shown beside `outcome_tag`, which keeps precedence.
     business_outcome: str | None = None
     business_outcome_label: str | None = None
+    #: A person's mark from the swipe or the ⋯ menu: `resolved` or `needs_you` (D-869,
+    #: `PUT /v1/calls/{id}/follow-up`). NULL when nobody marked it.
+    follow_up_state: Literal["resolved", "needs_you"] | None = None
     sentiment: str | None = None
     # REDACTED prose, not the stored column: the summary is derived from the transcript,
     # so it ships through the same pass as `text_redacted`. Raw only from the audited
@@ -571,6 +574,10 @@ class LeadUpdateIn(Strict):
     # Statuses are a FIXED enum (D-21): analytics and hot-lead rules key off them, so
     # clients cannot add their own.
     status: LeadStatus | None = None
+    #: The status the lead must hold for `status` to apply — the swipe's Undo (D-869). When
+    #: the lead holds anything else (a colleague moved it since), 409
+    #: `INVALID_STATUS_TRANSITION` and nothing changes. Ignored without `status`.
+    expected_status: LeadStatus | None = None
     name: str | None = Field(default=None, max_length=120)
     # THE OWNER, and the one field here where `null` is a value rather than a silence.
     #
