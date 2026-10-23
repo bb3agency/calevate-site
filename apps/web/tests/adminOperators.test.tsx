@@ -710,6 +710,13 @@ describe("the setup link", () => {
     fireEvent.keyDown(screen.getByRole("menu", { name: "Actions for Ravi K" }), {
       key: "Escape",
     });
+    // Escape hands focus back to Ravi's ⋯ on the next task; open the next menu after that,
+    // as a person would, or the late focus move reads as a press outside Asha's menu.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "More actions for Ravi K" }),
+      ),
+    );
     const asha = await rowMenuItems("Asha Rao");
     expect(asha.map((item) => item.textContent)).toContain("Resend setup link");
   });

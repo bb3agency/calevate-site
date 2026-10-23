@@ -2,19 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { X } from "lucide-react";
 
-import { TEXT_ACTION } from "@/components/console/section";
+import { AnnouncementBar } from "@/components/arc/announcement-bar";
+import { Popover } from "@/components/arc/popover";
 import { BAR_STATUS } from "@/components/console/statusPill";
 import { TrialMeter, trialShareLeft } from "@/components/illustration/trialMeter";
-import { Popover } from "@/components/arc/popover";
-import {
-  FIELD_LABEL,
-  NOTICE_DOT,
-  PRIMARY_BUTTON,
-  SHELL_RAIL_CLASS,
-  istDateStamp,
-} from "@/components/ui";
+import { FIELD_LABEL, PRIMARY_BUTTON, istDateStamp } from "@/components/ui";
 import { useClientRealm } from "@/lib/api/session";
 import { useTrialPanel } from "@/lib/api/trialCalls";
 import {
@@ -153,37 +146,17 @@ export function TrialStrip({
     : "After that, calls go on your monthly invoice.";
 
   return (
-    // A site strip, not a tinted band (D-771): white under a hairline, ink text, a warn dot.
-    <div role="status" className="border-b border-line bg-surface px-4 text-ink lg:px-8">
-      <div className={`${SHELL_RAIL_CLASS} flex items-center gap-3 py-1 text-sm`}>
-        <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${NOTICE_DOT.warn}`} />
-        {/* Two lines at most on a 375px phone: the headline is short, and the second
-            sentence only joins it from `sm`, where the line has room. */}
-        <p className="line-clamp-2 min-w-0 flex-1">
-          <span className="font-semibold">{urgencyHeadline(urgency)}</span>
-          <span className="hidden sm:inline"> {tail}</span>
-        </p>
-        {asksForCredit && (
-          <Link
-            href={creditsHref}
-            className={`${TEXT_ACTION} shrink-0`}
-          >
-            Add credit
-          </Link>
-        )}
-        <button
-          type="button"
-          aria-label="Close until tomorrow"
-          onClick={() => {
-            writeClosed(key);
-            setClosed(true);
-          }}
-          className="press -mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-ink/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:h-11 touch:w-11"
-        >
-          <X aria-hidden className="h-4 w-4" />
-        </button>
-      </div>
-    </div>
+    <AnnouncementBar
+      tone="warn"
+      title={urgencyHeadline(urgency)}
+      detail={tail}
+      action={asksForCredit ? { href: creditsHref, label: "Add credit" } : undefined}
+      dismissLabel="Close until tomorrow"
+      onDismiss={() => {
+        writeClosed(key);
+        setClosed(true);
+      }}
+    />
   );
 }
 

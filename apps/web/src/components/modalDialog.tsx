@@ -4,6 +4,7 @@ import { useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { MODAL_ACTIONS, MODAL_PANEL, MODAL_SCRIM } from "./ui";
+import { SheetHandle, useSheetDrag } from "@/components/arc/bottom-sheet";
 import { useFocusTrap, type InitialFocus } from "@/lib/focusTrap";
 
 /**
@@ -15,6 +16,9 @@ import { useFocusTrap, type InitialFocus } from "@/lib/focusTrap";
  * whatever stacking context its ancestors create (a sticky bar, a transformed card, the
  * assistant panel), so a page container could draw over it. From `document.body` it sits
  * in the root context and its layer (`z-modal`) means what the scale says.
+ *
+ * On a phone it is a bottom sheet (`MODAL_PANEL`) whose grab strip drags it down to close
+ * (`arc/bottom-sheet`); Escape and the caller's cancel button do the same everywhere.
  *
  * Mounting is opening: callers render it inside `{open && …}`, and unmounting hands focus
  * back. It renders only in the browser — every caller opens it from an interaction, so
@@ -44,6 +48,7 @@ export function ModalDialog({
   const titleId = useId();
   const bodyId = useId();
   useFocusTrap(panel, true, onClose, initialFocus);
+  const drag = useSheetDrag(panel, { onDismiss: onClose });
 
   if (typeof document === "undefined") return null;
   return createPortal(
@@ -57,6 +62,7 @@ export function ModalDialog({
         tabIndex={-1}
         className={MODAL_PANEL}
       >
+        <SheetHandle {...drag} />
         <h2 id={titleId} className="text-[17px] font-semibold text-ink">
           {title}
         </h2>

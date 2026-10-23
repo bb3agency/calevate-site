@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Bell, ChevronRight, Lock, Menu, ShieldCheck } from "lucide-react";
+import { ChevronRight, Lock, Menu, ShieldCheck } from "lucide-react";
 
 import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { ADMIN_NAV as NAV, type NavItem } from "@/app/admin/adminNav";
@@ -36,7 +36,7 @@ import {
 } from "@/components/ui";
 import { useHeldTenants, useTenant } from "@/lib/api/admin";
 import { useKycReviewQueue } from "@/lib/api/kycReview";
-import { Popover } from "@/components/arc/popover";
+import { NotificationCenter } from "@/components/arc/notification-center";
 import { ApiProblem } from "@/lib/api/client";
 import { currentNavItem } from "@/lib/nav";
 import { AdminIdleTimeoutModal } from "@/components/authn/adminIdleTimeoutModal";
@@ -405,60 +405,32 @@ function AttentionBell() {
   const total = queues.reduce((sum, q) => sum + (q.count ?? 0), 0);
 
   return (
-    <Popover
-      label="Waiting on us"
-      align="end"
-      className="w-72 max-w-[calc(100vw-1rem)]"
-      trigger={
-        <button
-          type="button"
-          aria-label={
-            failed
-              ? "Waiting on us: we could not read every queue"
-              : total > 0
-                ? `Waiting on us: ${total}`
-                : "Waiting on us"
-          }
-          className="press relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 dark:hover:bg-white/5"
-        >
-          <Bell className="h-4 w-4" />
-          {failed ? (
-            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-warn px-1 text-[9px] font-bold text-white">
-              ?
-            </span>
-          ) : (
-            total > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-danger px-1 text-[9px] font-bold text-white">
-                {total > 99 ? "99+" : total}
-              </span>
-            )
-          )}
-        </button>
+    <NotificationCenter
+      heading="Waiting on us"
+      label={
+        failed
+          ? "Waiting on us: we could not read every queue"
+          : total > 0
+            ? `Waiting on us: ${total}`
+            : "Waiting on us"
       }
-    >
-      <p className="mb-2 text-meta font-semibold text-ink">Waiting on us</p>
-      <ul className="divide-y divide-line">
-        {queues.map((queue) => (
-          <li key={queue.href}>
-            <Link
-              href={queue.href}
-              className="flex items-center justify-between gap-3 rounded-sm py-2 text-body text-ink hover:text-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-            >
-              <span>{queue.label}</span>
-              <span className={`text-meta tabular-nums ${queue.count ? "font-semibold text-danger" : "text-ink-muted"}`}>
-                {queue.failed
-                  ? "Could not read"
-                  : queue.count === undefined
-                    ? "…"
-                    : queue.count === 0
-                      ? "None"
-                      : `${queue.count} waiting`}
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </Popover>
+      state="ready"
+      partial={failed}
+      count={total}
+      items={queues.map((queue) => ({
+        id: queue.href,
+        title: queue.label,
+        href: queue.href,
+        tone: queue.failed ? "warn" : queue.count ? "danger" : "default",
+        meta: queue.failed
+          ? "Could not read"
+          : queue.count === undefined
+            ? "…"
+            : queue.count === 0
+              ? "None"
+              : `${queue.count} waiting`,
+      }))}
+    />
   );
 }
 

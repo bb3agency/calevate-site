@@ -24,6 +24,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 import { DANGER_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
+import { SheetHandle, useSheetDrag } from "@/components/arc/bottom-sheet";
 import { useFocusTrap, type InitialFocus } from "@/lib/focusTrap";
 import { UnsavedRegistry, type UnsavedRegistryValue } from "@/lib/useUnsavedGuard";
 
@@ -166,6 +167,11 @@ function DrawerPanel({
     else onClose();
   };
   useFocusTrap(panel, true, requestClose, initialFocus);
+  // On a phone the sheet drags down to close; with unsaved typing it springs back and asks.
+  const drag = useSheetDrag(panel, {
+    onDismiss: requestClose,
+    willDismiss: () => !dirty && drafts.current.size === 0,
+  });
 
   useEffect(() => {
     if (asking) keepEditing.current?.focus();
@@ -192,7 +198,10 @@ function DrawerPanel({
         tabIndex={-1}
         className={`sheet-enter absolute inset-x-0 bottom-0 top-3 flex flex-col overflow-hidden rounded-t-2xl bg-surface shadow-overlay outline-none sm:inset-y-0 sm:left-auto sm:right-0 sm:top-0 sm:rounded-none sm:border-l sm:border-line ${WIDTHS[width]}`}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3.5 sm:px-5">
+        <div className="pt-2 sm:hidden">
+          <SheetHandle {...drag} />
+        </div>
+        <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3.5 max-sm:pt-1 sm:px-5">
           <div className="min-w-0">
             <h2 id={titleId} className="text-[16px] font-semibold text-ink">
               {title}

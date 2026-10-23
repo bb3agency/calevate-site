@@ -205,7 +205,38 @@ export type DataTableProps<T> = {
    * arrivals worth interrupting for (a new hot lead), never for every refetch.
    */
   announceArrivals?: (rows: T[]) => string | null;
+  /**
+   * Row selection for bulk actions: a checkbox column first, with a select-all header that
+   * reads "some" when part of the rows are chosen. The caller owns the set (it survives
+   * paging and filtering only if the caller wants it to) and renders its own bulk bar.
+   */
+  selection?: {
+    selected: ReadonlySet<string>;
+    onChange: (next: Set<string>) => void;
+    /** Names one row's checkbox: "Select Priya Reddy". */
+    rowLabel: (row: T) => string;
+    /** Names the header checkbox. */
+    allLabel?: string;
+  };
+  /** Shown in place of the rows when there are none (an `EmptyState`, a sentence). */
+  empty?: ReactNode;
 };
+
+const CHECKBOX =
+  "h-4 w-4 cursor-pointer rounded-[4px] border-line accent-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-5 touch:w-5";
+
+/** The header checkbox: checked, unchecked, or the mixed state when only some rows are chosen. */
+function SelectAll({ checked, mixed, label, onChange }: { checked: boolean; mixed: boolean; label: string; onChange: () => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = mixed;
+  }, [mixed]);
+  return (
+    <span className="inline-flex touch:min-h-11 items-center">
+      <input ref={ref} type="checkbox" aria-label={label} checked={checked} onChange={onChange} className={CHECKBOX} />
+    </span>
+  );
+}
 
 /**
  * THE CONSOLE'S DATA TABLE. Sortable headers (`aria-sort`, a polite status naming the
@@ -229,6 +260,8 @@ export function DataTable<T>({
   rowClassName,
   className = "",
   announceArrivals,
+  selection,
+  empty,
 }: DataTableProps<T>) {
   const [internal, setInternal] = useState<SortState>(defaultSort);
   const sort = controlled !== undefined ? controlled : internal;
@@ -274,6 +307,22 @@ export function DataTable<T>({
     onSortChange?.(next);
   };
   const sortedColumn = sort ? columns.find((c) => c.id === sort.id) : undefined;
+  const chosenHere = selection ? ids.filter((id) => selection.selected.has(id)).length : 0;
+  const toggleAll = () => {
+    if (!selection) return;
+    const next = new Set(selection.selected);
+    if (chosenHere === ids.length) for (const id of ids) next.delete(id);
+    else for (const id of ids) next.add(id);
+    selection.onChange(next);
+  };
+  const toggleRow = (id: string) => {
+    if (!selection) return;
+    const next = new Set(selection.selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    selection.onChange(next);
+  };
+  const span = columns.length + (selection ? 1 : 0);
 
   return (
     <div className={className}>
@@ -298,6 +347,16 @@ export function DataTable<T>({
           <caption className="sr-only">{label}</caption>
           <thead>
             <tr className="border-b border-line">
+              {selection ? (
+                <th scope="col" className="w-10 px-3 py-2">
+                  <SelectAll
+                    checked={ids.length > 0 && chosenHere === ids.length}
+                    mixed={chosenHere > 0 && chosenHere < ids.length}
+                    label={selection.allLabel ?? "Select all rows"}
+                    onChange={toggleAll}
+                  />
+                </th>
+              ) : null}
               {columns.map((column) => {
                 const active = sort?.id === column.id ? sort.direction : null;
                 const Icon = active === "asc" ? ArrowUp : active === "desc" ? ArrowDown : ArrowUpDown;
@@ -341,6 +400,13 @@ export function DataTable<T>({
             {/* `initial={false}`: the rows present when the table first renders do not
                 enter. Arrivals enter by class (`live-enter`, CSS, off the main thread);
                 Motion is here only for the exit, which CSS cannot do. */}
+            {ordered.length === 0 && empty ? (
+              <tr>
+                <td colSpan={span} className="px-3 py-6">
+                  {empty}
+                </td>
+              </tr>
+            ) : null}
             <AnimatePresence initial={false} custom={continuous && !reduced}>
             {ordered.map((row) => {
               const id = getRowId(row);
@@ -352,8 +418,21 @@ export function DataTable<T>({
                   exit="leave"
                   className={`relative transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.025] ${
                     arriving ? "live-arrive" : ""
-                  } ${rowClassName?.(row) ?? ""}`}
+                  } ${selection?.selected.has(id) ? "bg-brand-soft/60" : ""} ${rowClassName?.(row) ?? ""}`}
                 >
+                  {selection ? (
+                    <td className="relative z-raised w-10 px-3 py-3 align-middle">
+                      <span className="inline-flex touch:min-h-11 items-center">
+                        <input
+                          type="checkbox"
+                          aria-label={selection.rowLabel(row)}
+                          checked={selection.selected.has(id)}
+                          onChange={() => toggleRow(id)}
+                          className={CHECKBOX}
+                        />
+                      </span>
+                    </td>
+                  ) : null}
                   {columns.map((column) => (
                     <td
                       key={column.id}
