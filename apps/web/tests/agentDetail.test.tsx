@@ -1580,13 +1580,11 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     expect(within(panel).getByRole("button", { name: /^Delete…$/ })).toBeTruthy();
   });
 
-  it("locks a trial account's answer-only agent's switch, with the server's sentence (D-853)", async () => {
-    const reason =
-      "Answering calls starts after your first top-up and business check. Until then, use Try it, or give it a test call from your dashboard.";
-    await renderClientPage(
+  it("on a trial, the switch gets an agent ready for test calls rather than refusing (founder, 23 Oct 2026)", async () => {
+    const { calls } = await renderClientPage(
       page,
       routes({
-        ...SWITCHED_OFF,
+        "/v1/agents/agent-1": agent({ status: "draft", published: false }),
         "/v1/trial": {
           on_trial: true,
           calls_today: 0,
@@ -1595,15 +1593,39 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
           minutes_used: 0,
           pledge_accepted: true,
           can_call: true,
-          answering_locked_reason: reason,
         },
+        "POST /v1/agents/agent-1/prepare": { agent_id: "agent-1", status: "paused", changed: true },
       }),
     );
 
     await screen.findByText("Reception");
     const toggle = screen.getByRole("switch", { name: "Taking calls" }) as HTMLInputElement;
-    await waitFor(() => expect(toggle.disabled).toBe(true));
-    expect(screen.getAllByText(reason).length).toBeGreaterThan(0);
+    await waitFor(() => expect(toggle.disabled).toBe(false));
+    expect(toggle.checked).toBe(false);
+    await act(async () => {
+      fireEvent.click(toggle);
+    });
+    const posts = calls.filter((call) => call.method === "POST").map((call) => call.path);
+    expect(posts).toContain("/v1/agents/agent-1/prepare");
+    expect(posts.some((path) => path.endsWith("/activate"))).toBe(false);
+  });
+
+  it("on a trial, a ready agent shows as on for test calls, with the way to make one", async () => {
+    await renderClientPage(page, routes({ ...SWITCHED_OFF, "/v1/trial": {
+          on_trial: true,
+          calls_today: 0,
+          daily_cap: 10,
+          max_call_seconds: 180,
+          minutes_used: 0,
+          pledge_accepted: true,
+          can_call: true,
+        } }));
+
+    await screen.findByText("Reception");
+    const toggle = screen.getByRole("switch", { name: "Taking calls" }) as HTMLInputElement;
+    await waitFor(() => expect(toggle.checked).toBe(true));
+    expect(screen.getAllByText(/On for test calls from our shared trial number/).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "Make a test call" })[0].getAttribute("href")).toBe("/c/acme");
   });
 
   it("leaves the switch alone for an answer-only agent on an account that has paid", async () => {

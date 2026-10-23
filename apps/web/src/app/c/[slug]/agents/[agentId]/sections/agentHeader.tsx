@@ -8,9 +8,9 @@
  *   on the calling system, and is refused with the server's reason while there is no
  *   script or the agreements are outstanding); off is `POST .../deactivate`. No confirm
  *   step: the consequence is in the ⓘ beside it, and switching back is the same switch.
- *   On a free trial an agent that only answers calls cannot take them, so its switch is
- *   shown locked with the server's sentence under the header rather than offered to fail
- *   (D-853).
+ *   On a free trial the switch means "on for test calls": it gets the agent ready
+ *   (`/prepare`) instead of `activate`, which a trial refuses, and test calls are then
+ *   placed from the dashboard through the shared trial number (D-853, founder 23 Oct 2026).
  * - **Get it ready** (a draft only) publishes it without taking calls, so the chat can try it
  *   (D-838); a refused move shows its reason, with setup links when it is missing facts.
  * - **Try it** opens the Training tab, where the chat and the practice call are (D-825),
@@ -79,11 +79,8 @@ export function AgentHeader({
 
   const live = liveState(agent);
   const moves = movesFor(agent.status);
-  // Read only where a trial could lock the switch: an answer-only agent that is off.
-  const couldLock = !deleted && agent.direction === "inbound" && moves.includes("activate");
-  const trial = useTrialPanel(session, couldLock);
-  const answeringLocked =
-    couldLock && trial.data?.on_trial ? (trial.data.answering_locked_reason ?? null) : null;
+  const trial = useTrialPanel(session, !deleted && agent.status !== "live");
+  const onTrial = trial.data?.on_trial === true;
   const staged = pending.data ? stagedScript(pending.data) : undefined;
   const base = `/c/${slug}/agents/${agent.id}`;
   // Guarded by the layout when the header is drawn inside it; a plain link otherwise.
@@ -143,7 +140,7 @@ export function AgentHeader({
             {restoreButton}
             {!deleted && (
               <>
-                <OnOffSwitch agent={agent} canWrite={write.allowed} locked={answeringLocked !== null} move={move} />
+                <OnOffSwitch agent={agent} canWrite={write.allowed} onTrial={onTrial} move={move} />
                 {moves.includes("prepare") && (
                   <button
                     type="button"
@@ -176,7 +173,14 @@ export function AgentHeader({
       />
       {!deleted && tour}
       <RestrictionNote reason={write.reason} />
-      <RestrictionNote reason={answeringLocked} />
+      {onTrial && agent.published && agent.status === "paused" && (
+        <p role="status" className="text-meta text-ink-muted">
+          On for test calls from our shared trial number.{" "}
+          <Link href={href(`/c/${slug}`)} className="font-medium text-brand-strong underline underline-offset-2">
+            Make a test call
+          </Link>
+        </p>
+      )}
       <LifecycleError error={move.error} />
       {undo.error && <ProblemNotice error={undo.error} />}
     </div>
@@ -186,30 +190,37 @@ export function AgentHeader({
 function OnOffSwitch({
   agent,
   canWrite,
-  locked,
+  onTrial,
   move,
 }: {
   agent: Agent;
   canWrite: boolean;
-  /** Switching it on would be refused (a trial account's answer-only agent). */
-  locked: boolean;
+  /** On a free trial "on" means ready for test calls, reached by `prepare`. */
+  onTrial: boolean;
   move: ReturnType<typeof useAgentLifecycle>;
 }) {
   const moves = movesFor(agent.status);
-  const next: LifecycleMove | null = moves.includes("deactivate")
-    ? "deactivate"
-    : moves.includes("activate")
-      ? "activate"
-      : null;
-  const on = next === "deactivate";
-  const busy = move.isPending && (move.variables === "activate" || move.variables === "deactivate");
+  const readyForTests = onTrial && agent.published && agent.status === "paused";
+  const next: LifecycleMove | null = readyForTests
+    ? null
+    : moves.includes("deactivate")
+      ? "deactivate"
+      : onTrial && moves.includes("activate")
+        ? "prepare"
+        : moves.includes("activate")
+          ? "activate"
+          : null;
+  const on = readyForTests || next === "deactivate";
+  const busy =
+    move.isPending &&
+    (move.variables === "activate" || move.variables === "deactivate" || move.variables === "prepare");
   return (
     <span className="flex items-center gap-1">
       <ToggleSwitch
         className="touch:min-h-11 flex items-center px-1"
         label={busy ? MOVE_COPY[next ?? "activate"].busy : "Taking calls"}
         checked={on}
-        disabled={!canWrite || locked || next === null || move.isPending}
+        disabled={!canWrite || next === null || move.isPending}
         onChange={() => {
           if (next !== null) move.mutate(next);
         }}

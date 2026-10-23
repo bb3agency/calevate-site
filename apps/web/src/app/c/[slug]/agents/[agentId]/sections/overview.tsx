@@ -45,12 +45,10 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
   // Credit is the wallet's own answer — the same read and the same `walletState` the
   // dashboard's credit tile uses — never inferred from the voice tier rates.
   const wallet = useWallet(session);
-  // A trial account's answer-only agent takes calls once the account pays (D-853): its
-  // switch is locked, so the last step waits, in the server's words.
-  const couldLock = agent.direction === "inbound" && agent.status !== "live";
-  const trial = useTrialPanel(session, couldLock);
-  const answeringLocked =
-    couldLock && trial.data?.on_trial ? (trial.data.answering_locked_reason ?? null) : null;
+  // On a free trial "switched on" means ready for test calls from the shared trial number:
+  // the switch gets it ready (`/prepare`), and calls are placed from the dashboard.
+  const trial = useTrialPanel(session, agent.status !== "live");
+  const onTrial = trial.data?.on_trial === true;
   const { href } = useClientRealm();
   // ITS LAST CALLS (founder, REDESIGN-2): what this agent has actually been doing, the
   // first thing an owner checks after "is it live".
@@ -91,7 +89,7 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
         script={script}
         agreements={agreements}
         wallet={wallet}
-        answeringLocked={answeringLocked}
+        onTrial={onTrial}
       />
       {pending.error && (
         <ProblemNotice error={pending.error} onRetry={() => void pending.refetch()} />
@@ -132,7 +130,7 @@ function SetupChecklist({
   script,
   agreements,
   wallet,
-  answeringLocked,
+  onTrial,
 }: {
   agent: Agent;
   slug: string;
@@ -140,12 +138,13 @@ function SetupChecklist({
   script: Read<ScriptOut>;
   agreements: Read<LegalReadiness>;
   wallet: Read<Wallet>;
-  answeringLocked: string | null;
+  onTrial: boolean;
 }) {
   const { href } = useClientRealm();
   const phone = useIsPhone();
   const base = `/c/${slug}/agents/${agent.id}`;
-  const working = agent.published && agent.status === "live";
+  const working =
+    agent.published && (agent.status === "live" || (onTrial && agent.status === "paused"));
 
   if (pending.isLoading || script.isLoading || agreements.isLoading || wallet.isLoading) {
     return <Skeleton rows={4} label="Checking what is left to set up" />;
@@ -259,10 +258,15 @@ function SetupChecklist({
   items.push({
     id: "live",
     label: "Switch it on",
-    state: working ? "done" : answeringLocked ? "waiting" : "todo",
-    detail: working
-      ? undefined
-      : (answeringLocked ?? "Use the Taking calls switch at the top of this page."),
+    state: working ? "done" : "todo",
+    detail: onTrial
+      ? working
+        ? "On for test calls from our shared trial number."
+        : "Use the Taking calls switch at the top of this page. On your free trial it gets the agent ready for test calls."
+      : working
+        ? undefined
+        : "Use the Taking calls switch at the top of this page.",
+    ...(onTrial && working ? { link: { href: href(`/c/${slug}`), label: "Make a test call" } } : {}),
     ...(scriptDone === false && !working
       ? { disabledReason: "An agent with no script cannot be switched on." }
       : agreementsOutstanding && !working
