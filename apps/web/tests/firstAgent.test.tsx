@@ -12,6 +12,7 @@ import type { Agent } from "@/lib/api/agents";
 import type { FirstRun } from "@/lib/api/firstRun";
 import {
   GREETING_MAX_CHARS,
+  NOT_FEMALE_LINE,
   callsLeft,
   defaultLanguage,
   firstAgentOf,
@@ -20,6 +21,7 @@ import {
   resumeStage,
   studioFallbackLine,
   trialMinutesLine,
+  voicePickNote,
 } from "@/lib/firstAgent";
 
 import { businessProfileFixture } from "./businessProfileFixture";
@@ -66,7 +68,7 @@ function run(over: Partial<FirstRun> = {}): FirstRun {
     questions: { status: "idle", items: [], disclosure: null },
     build: {
       status: "idle",
-      steps: STEPS.map((step) => ({ step, state: "waiting", label: null })),
+      steps: STEPS.map((step) => ({ step, state: "waiting", label: null, not_female: false })),
       disclosure: null,
       builds_left: 3,
     },
@@ -88,10 +90,10 @@ function built(over: Partial<FirstRun> = {}): FirstRun {
     build: {
       status: "built",
       steps: [
-        { step: "voice", state: "done", label: "Lakshmi" },
-        { step: "script", state: "done", label: null },
-        { step: "greeting", state: "done", label: null },
-        { step: "notice", state: "done", label: null },
+        { step: "voice", state: "done", label: "Lakshmi", not_female: false },
+        { step: "script", state: "done", label: null, not_female: false },
+        { step: "greeting", state: "done", label: null, not_female: false },
+        { step: "notice", state: "done", label: null, not_female: false },
       ],
       disclosure: null,
       builds_left: 2,
@@ -103,7 +105,7 @@ function built(over: Partial<FirstRun> = {}): FirstRun {
 function agent(over: Partial<Agent> = {}): Agent {
   return agentRow({
     id: AGENT_ID,
-    name: "Sravani",
+    name: "Anjali",
     status: "draft",
     published: false,
     direction: "inbound",
@@ -258,14 +260,22 @@ describe("the pieces and where an owner resumes", () => {
   });
 
   it("says what really happened at each build step, fallbacks included", () => {
-    expect(metaOf({ step: "voice", state: "done", label: "Lakshmi", rung: "studio", fallback: null })).toBe("Lakshmi · Studio");
-    expect(metaOf({ step: "voice", state: "done", label: "Bindu", rung: "clear", fallback: "studio_minutes_used" })).toBe(
+    expect(metaOf({ step: "voice", state: "done", label: "Lakshmi", rung: "studio", fallback: null, not_female: false })).toBe("Lakshmi · Studio");
+    expect(metaOf({ step: "voice", state: "done", label: "Bindu", rung: "clear", fallback: "studio_minutes_used", not_female: false })).toBe(
       "Bindu · Clear. Your trial's Studio minutes are used, so it uses a Clear voice.",
     );
     expect(studioFallbackLine("studio_unavailable")).toBe("Studio voices aren't available right now, so it uses a Clear voice.");
     expect(studioFallbackLine(null)).toBeNull();
-    expect(metaOf({ step: "voice", state: "none", label: null })).toMatch(/Pick one before the call/);
-    expect(metaOf({ step: "script", state: "ready_made", label: null })).toMatch(/ready-made script/);
+    expect(metaOf({ step: "voice", state: "done", label: "Bindu", rung: "clear", fallback: "no_female_studio_voice", not_female: false })).toBe(
+      "Bindu · Clear. No Studio woman's voice speaks this language yet, so it uses a Clear voice.",
+    );
+    expect(metaOf({ step: "voice", state: "done", label: "Ravi", rung: "studio", fallback: null, not_female: true })).toBe(
+      `Ravi · Studio. ${NOT_FEMALE_LINE}`,
+    );
+    expect(voicePickNote(null, false)).toBeNull();
+    expect(NOT_FEMALE_LINE).not.toMatch(/thinnest|cartesia/i);
+    expect(metaOf({ step: "voice", state: "none", label: null, not_female: false })).toMatch(/Pick one before the call/);
+    expect(metaOf({ step: "script", state: "ready_made", label: null, not_female: false })).toMatch(/ready-made script/);
   });
 });
 
@@ -311,7 +321,7 @@ describe("meet your agent", () => {
       }),
     );
     // A built agent with no call yet resumes on "Hear it".
-    expect(await screen.findByRole("heading", { name: "Hear Sravani on your phone" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Hear Anjali on your phone" })).toBeTruthy();
     expect(screen.getByText("It rings you and answers as if you had called Sri Clinic.")).toBeTruthy();
   });
 

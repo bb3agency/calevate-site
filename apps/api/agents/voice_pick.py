@@ -24,6 +24,13 @@ could not have chosen themselves.
 THE ORDER within a rung: a voice that speaks the agent's language, one whose accent is that
 language before the rest, then the catalogue's own order (label), so the same catalogue gives
 every new agent of a language the same first voice.
+
+A WOMAN'S VOICE (founder, 23 Oct 2026): the new agent is named "Anjali"
+(`first_run/names.FIRST_AGENT_NAME`), so the voice is chosen among female voices first: a
+female Studio voice, else a female Clear voice (`no_female_studio_voice` when Studio could have
+been used but has no woman's voice for the language). Only when no female voice can be chosen
+on either rung is the best voice kept, flagged `not_female` so the card says so. A voice whose
+provider states no gender is not counted as female: the name must match what the caller hears.
 """
 
 from __future__ import annotations
@@ -54,9 +61,18 @@ from apps.api.engine.hosted_platform import engine_platform_label
 Rung = Literal["clear", "studio"]
 
 #: Why a Clear voice was chosen instead of Studio, for the card's one line.
-StudioFallback = Literal["studio_unavailable", "studio_minutes_used", "no_studio_voice"]
+StudioFallback = Literal[
+    "studio_unavailable", "studio_minutes_used", "no_studio_voice", "no_female_studio_voice"
+]
 
-FALLBACKS: Final[tuple[str, ...]] = ("studio_unavailable", "studio_minutes_used", "no_studio_voice")
+FALLBACKS: Final[tuple[str, ...]] = (
+    "studio_unavailable",
+    "studio_minutes_used",
+    "no_studio_voice",
+    "no_female_studio_voice",
+)
+
+Gender = Literal["female", "male"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +81,22 @@ class PickedVoice:
     rung: Rung
     #: Set when a Clear voice stands in for Studio.
     fallback: StudioFallback | None = None
+    #: No female voice could be chosen, so this one is not a woman's (or states no gender).
+    not_female: bool = False
+
+
+def gender_of(stated: str | None) -> Gender | None:
+    """The provider's free-text gender as one of ours, or None when it does not say."""
+    word = (stated or "").strip().casefold()
+    if word.startswith(("f", "w")):
+        return "female"
+    if word.startswith("m"):
+        return "male"
+    return None
+
+
+def _female(rows: list[HostedVoiceRow]) -> list[HostedVoiceRow]:
+    return [row for row in rows if gender_of(row.gender) == "female"]
 
 
 def _base(tag: str | None) -> str:
@@ -146,20 +178,33 @@ async def pick_voice(tenant_id: UUID, language: str) -> PickedVoice | None:
 def choose_voice(
     studio: list[HostedVoiceRow], clear: list[HostedVoiceRow], hindrance: StudioFallback | None
 ) -> PickedVoice | None:
-    """Studio's first when nothing stands in its way, else Clear's first with the reason."""
-    if hindrance is None and studio:
-        return PickedVoice(row=studio[0], rung="studio")
+    """A female Studio voice when nothing stands in Studio's way, else a female Clear voice with
+    the reason; with no female voice on either rung, the best voice as before, flagged."""
+    usable_studio = studio if hindrance is None else []
+    if female_studio := _female(usable_studio):
+        return PickedVoice(row=female_studio[0], rung="studio")
+    if female_clear := _female(clear):
+        reason: StudioFallback = hindrance or (
+            "no_female_studio_voice" if usable_studio else "no_studio_voice"
+        )
+        return PickedVoice(row=female_clear[0], rung="clear", fallback=reason)
+    if usable_studio:
+        return PickedVoice(row=usable_studio[0], rung="studio", not_female=True)
     if not clear:
         return None
-    return PickedVoice(row=clear[0], rung="clear", fallback=hindrance or "no_studio_voice")
+    return PickedVoice(
+        row=clear[0], rung="clear", fallback=hindrance or "no_studio_voice", not_female=True
+    )
 
 
 __all__ = [
     "FALLBACKS",
+    "Gender",
     "PickedVoice",
     "Rung",
     "StudioFallback",
     "choose_voice",
+    "gender_of",
     "pick_voice",
     "rank_voices",
     "studio_hindrance",

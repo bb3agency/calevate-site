@@ -59,9 +59,10 @@ Trigger: Sri opens Admin → New Client: one screen, one "Create and invite" (D-
    and its languages; **Tell it about you** (one brief, pre-filled from the trade, typed or
    spoken in up to three 30-second pieces whose audio is deleted once heard; or Pip's chat
    instead), then up to three follow-up questions from a fixed set whose answers go into the
-   business profile, then the build, ticked step by step (a Studio voice, or Clear with the
-   reason when Studio cannot be used; a name to suit it; the script written from the brief
-   and applied as version one; the greeting; the AI notice); **Hear it** (three honest lines,
+   business profile, then the build, ticked step by step (a woman's Studio voice, or Clear
+   with the reason when Studio cannot be used or has none; the name "Anjali" (D-858); the
+   script written from the brief and applied as version one; the greeting; the AI notice);
+   **Hear it** (three honest lines,
    each outstanding agreement, the no-cold-calls pledge and "this number is mine" as separate
    ticks, the number, and the call shown as it happens through the trial test line); then
    what it caught, and **Make it yours** (calls left, add credit to go live, the agent page's

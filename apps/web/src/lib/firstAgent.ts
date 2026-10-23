@@ -191,10 +191,21 @@ const STUDIO_FALLBACK_WORDS: Readonly<Record<string, string>> = {
   studio_unavailable: "Studio voices aren't available right now, so it uses a Clear voice.",
   studio_minutes_used: "Your trial's Studio minutes are used, so it uses a Clear voice.",
   no_studio_voice: "No Studio voice speaks this language yet, so it uses a Clear voice.",
+  no_female_studio_voice: "No Studio woman's voice speaks this language yet, so it uses a Clear voice.",
 };
 
 export function studioFallbackLine(fallback: string | null | undefined): string | null {
   return fallback ? (lookup(STUDIO_FALLBACK_WORDS, fallback) ?? null) : null;
+}
+
+/** Said when no woman's voice could be chosen for the new agent (founder, 23 Oct 2026: it is
+ *  named Anjali, so its voice is a woman's whenever one speaks its language). */
+export const NOT_FEMALE_LINE = "No woman's voice speaks this language yet, so it has the closest voice we have.";
+
+/** The note under the chosen voice: why it is Clear, then why it is not a woman's. */
+export function voicePickNote(fallback: string | null | undefined, notFemale: boolean | null | undefined): string | null {
+  const lines = [studioFallbackLine(fallback), notFemale ? NOT_FEMALE_LINE : null].filter(Boolean);
+  return lines.length ? lines.join(" ") : null;
 }
 
 /** What a test call costs the trial, in one sentence, from the server's own figures (never

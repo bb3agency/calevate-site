@@ -19,7 +19,6 @@ import {
   jobCard,
   jobOf,
   languageLabel,
-  studioFallbackLine,
   type Piece,
   type PieceId,
 } from "@/lib/firstAgent";
@@ -45,7 +44,7 @@ export function AgentTakingShape({
   pieces,
   loaded,
   compact = false,
-  voiceFallback = null,
+  voiceNote = null,
 }: {
   agent: Agent | null;
   job: FirstRunJob | null;
@@ -55,8 +54,8 @@ export function AgentTakingShape({
   /** False until the reads the pieces come from have answered, so nothing pops on arrival. */
   loaded: boolean;
   compact?: boolean;
-  /** Why a Clear voice stands in for Studio (the build's voice step), shown under the voice. */
-  voiceFallback?: string | null;
+  /** Why the build chose this voice when it is not a woman's Studio voice (`voicePickNote`). */
+  voiceNote?: string | null;
 }) {
   const fresh = useFreshlyDone(pieces, loaded);
   const done = pieces.filter((piece) => piece.done).length;
@@ -80,7 +79,7 @@ export function AgentTakingShape({
     <>
       <ol className="divide-y divide-line">
         <Row id="voice" title="Voice" pieces={pieces} fresh={fresh}>
-          <VoiceLine agent={agent} fallback={voiceFallback} />
+          <VoiceLine agent={agent} note={voiceNote} />
         </Row>
         <Row id="greeting" title="How it greets" pieces={pieces} fresh={fresh}>
           <GreetingLine line={agent?.script_opening_line ?? null} />
@@ -196,7 +195,7 @@ function Example({ children }: { children: ReactNode }) {
   );
 }
 
-function VoiceLine({ agent, fallback }: { agent: Agent | null; fallback: string | null }) {
+function VoiceLine({ agent, note }: { agent: Agent | null; note: string | null }) {
   const session = useClientSession();
   const { href } = useClientRealm();
   const catalogue = useEngineCatalogue(session);
@@ -217,7 +216,6 @@ function VoiceLine({ agent, fallback }: { agent: Agent | null; fallback: string 
   }
   const voice = catalogue.data?.voices.find((entry) => entry.voice_id === voiceId);
   const label = voice?.label ?? "Chosen";
-  const note = studioFallbackLine(fallback);
   return (
     <div className="space-y-1">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1">

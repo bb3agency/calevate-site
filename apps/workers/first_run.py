@@ -9,8 +9,9 @@
    the profile's empty sections are asked instead: the step never stops for lack of AI.
 3. BUILD the first agent (`build_first_agent`), each step written to the row as it lands so
    the screen ticks what really happened:
-   - **voice**: a Studio voice for its language, or Clear when Studio cannot be used here
-     (`agents/voice_pick`), and a name to suit it;
+   - **voice**: a woman's Studio voice for its language, or Clear when Studio cannot be used
+     here or has no woman's voice (`agents/voice_pick`), for the agent named "Anjali"
+     (`first_run/names`);
    - **script**: the agent created from its job's ready-made script, then the script written
      from the brief by the script writer (`script_assist.draft_script`) and applied at once
      as its first version. Without a usable answer the ready-made script stays, and the
@@ -55,7 +56,7 @@ from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.first_run.models import MAX_QUESTIONS, MAX_RECORDING_WORDS, MIN_BRIEF_CHARS
-from apps.api.first_run.names import gender_of, identity_with_name, suggested_name
+from apps.api.first_run.names import FIRST_AGENT_NAME, identity_with_name
 from apps.api.first_run.questions import QuestionKey, askable, chosen_keys, question_for
 from apps.api.first_run.service import BUILD_JOB, HEAR_JOB, QUESTIONS_JOB, store_questions
 from apps.api.tenancy.business_profile import load_profile
@@ -501,7 +502,7 @@ async def build_first_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         else:
             picked = await pick_voice(tenant_id, language)
             voice = picked.row if picked else None
-            name = suggested_name(language, gender_of(voice.gender if voice else None))
+            name = FIRST_AGENT_NAME
             agent_id, voiced = await _create(
                 tenant_id,
                 run,
@@ -515,6 +516,7 @@ async def build_first_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str
                     "label": picked.row.label,
                     "rung": picked.rung,
                     "fallback": picked.fallback,
+                    "not_female": picked.not_female,
                 }
                 if picked and voiced
                 else {"state": "none"}

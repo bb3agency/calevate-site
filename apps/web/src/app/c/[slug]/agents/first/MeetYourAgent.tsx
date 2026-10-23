@@ -32,6 +32,7 @@ import {
   piecesOf,
   quickRepliesFor,
   resumeStage,
+  voicePickNote,
   type Piece,
   type Stage,
 } from "@/lib/firstAgent";
@@ -162,6 +163,8 @@ export function MeetYourAgent({ slug }: { slug: string }) {
     }
   }
 
+  const voiceStep = run.data?.build.steps.find((entry) => entry.step === "voice");
+  const voiceNote = voicePickNote(voiceStep?.fallback, voiceStep?.not_female);
   const card = (compact: boolean) => (
     <AgentTakingShape
       agent={agent}
@@ -171,7 +174,7 @@ export function MeetYourAgent({ slug }: { slug: string }) {
       pieces={pieces}
       loaded={loaded}
       compact={compact}
-      voiceFallback={run.data?.build.steps.find((entry) => entry.step === "voice")?.fallback ?? null}
+      voiceNote={voiceNote}
     />
   );
 

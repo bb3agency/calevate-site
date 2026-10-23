@@ -236,10 +236,6 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
         "what a caller actually said. A fact about writing systems keyed by tag, not a "
         "list of languages we sell"
     ),
-    "apps/api/first_run/names.py": (
-        "per-language CONTENT keys: the agent names that suit each language and voice; a "
-        "language with no row falls back, so the keys are data, not a copy of the list"
-    ),
     "apps/web/src/lib/agentState.ts": (
         "the console's one table of language NAMES, `Record<AgentLanguage, string>` over "
         "the generated union — exhaustive by the type checker, so the keys are the built "
