@@ -81,13 +81,25 @@ CORRELATION_HEADER = "X-Correlation-Id"
 #: else is replaced with a fresh id. The web client sends 32 hex characters.
 _CALLER_CORRELATION_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 MAX_BODY_BYTES = 2 * 1024 * 1024  # 2 MiB; CSV import gets its own streaming route
-#: The routes allowed a bigger body, by exact method and path, and nothing else. Pip's file
-#: upload (D-781) streams its body to object storage and enforces its own per-file and
-#: per-message limits as it reads; this is the outer wall at the per-file limit. Exact
-#: paths, not prefixes, so `/v1/copilot/uploads/{id}` and every other route keep 2 MiB.
+#: Room for a multipart envelope (boundary lines, part headers, small form fields) above
+#: the file a route bounds itself.
+_MULTIPART_ROOM = 64 * 1024
+#: The routes allowed a bigger body, by exact method and path, and nothing else. Each reads
+#: its file bounded by its own limit; this is the outer wall at that limit. Exact paths,
+#: not prefixes, so `/v1/copilot/uploads/{id}` and every other route keep 2 MiB. Literals
+#: rather than imports of the routes' constants, because this module is on voice-runtime's
+#: import surface; `tests/upload_body_limits_test.py` holds each one to its route's limit.
 ROUTE_BODY_LIMITS: dict[tuple[str, str], int] = {
+    # Pip's files (D-781), streamed to object storage with per-file and per-message limits.
     ("POST", "/v1/copilot/uploads"): 20 * 1024 * 1024,
     ("POST", "/v1/admin/copilot/uploads"): 20 * 1024 * 1024,
+    # `kb/pdf_render.MAX_UPLOAD_BYTES`, `compliance/kyc_documents.KYC_MAX_DOCUMENT_BYTES`
+    # and `teach/teaching.MAX_VOICE_BYTES`: without these the 2 MiB wall refused a 3 MB
+    # menu, PAN scan or voice note that the screens say is accepted.
+    ("POST", "/v1/kb/uploads"): 20 * 1024 * 1024 + _MULTIPART_ROOM,
+    ("POST", "/v1/compliance/kyc/documents"): 5 * 1024 * 1024 + _MULTIPART_ROOM,
+    ("POST", "/v1/kb/teach/upload"): 3 * 1024 * 1024 + _MULTIPART_ROOM,
+    ("POST", "/v1/first-run/recordings"): 3 * 1024 * 1024 + _MULTIPART_ROOM,
 }
 
 SECURITY_HEADERS = {

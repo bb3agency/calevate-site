@@ -328,6 +328,10 @@ RULES: tuple[Rule, ...] = (
     # instead.
     Rule("/v1/copilot/ask", "costly", _m("POST")),
     Rule("/v1/copilot/uploads", "upload", _m("POST")),
+    # The other routes whose body may pass 2 MiB (`middleware.ROUTE_BODY_LIMITS`): up to
+    # 20 MB spooled to disk and stored per request is not a `client_api` rate.
+    Rule("/v1/kb/uploads", "upload", _m("POST")),
+    Rule("/v1/compliance/kyc/documents", "upload", _m("POST")),
     # The other LLM and engine round trips a client starts with one click. Each is gated on
     # the AI allowance, which bounds the money but not the rate: at `client_api` (240/min)
     # one session could queue a model call every quarter second.
