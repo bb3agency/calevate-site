@@ -5,31 +5,31 @@
  * lines it says while it looks something up, and a background sound. Three rows shared by an
  * agent's Call handling, the organisation's default and the operator's console, beside the
  * pause and hang-up rows (`callHandlingRows`), in the same pattern: a `SettingRow` summary of
- * the value in force and where it comes from, "Change" opening choice cards and the save bar.
+ * the value in force and where it comes from, "Change" opening a compact editor and the save
+ * bar.
  *
- * "Use the default" saves `null`, so the value follows the level above. The standard question
- * and the standard lines are a choice of their own (saved as "" and []), distinct from the
- * default, because an organisation default may be the client's own words. The server checks
- * every range; the limits shown here come from its `bounds`.
+ * "Use the default" is a checkbox and saves `null`, so the value follows the level above. The
+ * standard question and the standard lines are a choice of their own (saved as "" and []),
+ * distinct from the default, because an organisation default may be the client's own words.
+ * The server checks every range; the limits here come from its `bounds`, and each bounded
+ * number is a slider between them, so a value the server would refuse cannot be entered.
  */
 
 import type { UseMutationResult } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { CALL_HANDLING_NEXT_CALL, CallHandlingCard } from "@/components/callHandlingRows";
+import {
+  CALL_HANDLING_EDITOR,
+  CALL_HANDLING_NEXT_CALL,
+  DefaultCheckbox,
+  SliderField,
+} from "@/components/callHandlingRows";
 import { SaveBar } from "@/components/console/saveBar";
 import { TEXT_ACTION } from "@/components/console/section";
 import { SettingRow } from "@/components/console/settingRow";
 import { FieldMessage } from "@/components/formValidation";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import {
-  FIELD,
-  FIELD_HINT,
-  FIELD_INLINE,
-  FIELD_LABEL,
-  ProblemNotice,
-  RANGE_INPUT,
-} from "@/components/ui";
+import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice } from "@/components/ui";
 import {
   AMBIENCE_LABELS,
   ambienceSummary,
@@ -98,11 +98,12 @@ function Footer({
   );
 }
 
-function wholeIn(raw: string, min: number, max: number): number | null {
-  if (!/^\d+$/.test(raw.trim())) return null;
-  const value = Number(raw);
-  return value >= min && value <= max ? value : null;
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
+
+/** A group of one editor, named by a visible legend. */
+const LEGEND = "mb-2 text-sm font-semibold text-ink";
 
 // --- if the caller goes quiet ------------------------------------------------------------
 
@@ -113,14 +114,20 @@ export interface SilenceValues {
   end_after_silence_seconds: number | null;
 }
 
-type AskChoice = "inherit" | "never" | "after";
-type PhraseChoice = "inherit" | "standard" | "own";
+type AskPick = "after" | "never";
+type PhrasePick = "standard" | "own";
 
 const SILENCE_INFO =
   "When the caller says nothing for a while, the agent asks whether they are still there. " +
   "If the silence goes on, it puts the phone down, so a call nobody is on does not keep " +
   "running and being charged.";
 
+/**
+ * The waits are whole seconds, step 1: the Calevate default of 8 s is on no coarser grid that
+ * starts at the 5 s minimum, and every whole second the server accepts stays reachable (arrow
+ * keys move one at a time). The count is 1 to 5, so it is five segments, one tap each, rather
+ * than a slider with five stops or a stepper that hides the other four values.
+ */
 export function SilenceRow({
   idPrefix,
   hint,
@@ -137,34 +144,41 @@ export function SilenceRow({
   effective: { nudge_after_seconds: number; nudge_count: number; nudge_phrase: string; end_after_silence_seconds: number };
   onSave: (next: SilenceValues, done: () => void) => void;
 }) {
-  const initial = () => ({
-    ask: (own.nudge_after_seconds === null ? "inherit" : own.nudge_after_seconds === 0 ? "never" : "after") as AskChoice,
-    after: String(own.nudge_after_seconds && own.nudge_after_seconds > 0 ? own.nudge_after_seconds : effective.nudge_after_seconds || bounds.platform_nudge_after_seconds),
-    count: own.nudge_count === null ? "inherit" : String(own.nudge_count),
-    phrase: (own.nudge_phrase === null ? "inherit" : own.nudge_phrase === "" ? "standard" : "own") as PhraseChoice,
-    words: own.nudge_phrase ?? "",
-    hangUp: own.end_after_silence_seconds === null ? "" : String(own.end_after_silence_seconds),
-  });
+  // Unticking a default starts from that default's value, so nothing moves until changed.
+  const initial = () => {
+    const after = own.nudge_after_seconds ?? inherited.nudge_after_seconds;
+    const phrase = own.nudge_phrase ?? inherited.nudge_phrase;
+    const afterSeed = after > 0 ? after : effective.nudge_after_seconds || bounds.platform_nudge_after_seconds;
+    return {
+      askDefault: own.nudge_after_seconds === null,
+      ask: (after === 0 ? "never" : "after") as AskPick,
+      after: clamp(afterSeed, bounds.nudge_after_min_s, bounds.nudge_after_max_s),
+      // `null` until the owner picks a number, so an untouched count keeps following.
+      count: own.nudge_count,
+      phraseDefault: own.nudge_phrase === null,
+      phrase: (phrase === "" ? "standard" : "own") as PhrasePick,
+      words: phrase,
+      hangUpDefault: own.end_after_silence_seconds === null,
+      hangUp: clamp(
+        own.end_after_silence_seconds ?? inherited.end_after_silence_seconds,
+        bounds.end_after_silence_min_s,
+        bounds.end_after_silence_max_s,
+      ),
+    };
+  };
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(initial);
-  const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
+  const set = (patch: Partial<ReturnType<typeof initial>>) => setForm((f) => ({ ...f, ...patch }));
 
-  const afterValue = wholeIn(form.after, bounds.nudge_after_min_s, bounds.nudge_after_max_s);
-  const hangUpValue =
-    form.hangUp.trim() === ""
-      ? null
-      : wholeIn(form.hangUp, bounds.end_after_silence_min_s, bounds.end_after_silence_max_s);
   const words = form.words.trim();
   const wordsValid = words.length > 0 && words.length <= bounds.nudge_phrase_max_chars;
-  const valid =
-    (form.ask !== "after" || afterValue !== null) &&
-    (form.hangUp.trim() === "" || hangUpValue !== null) &&
-    (form.phrase !== "own" || wordsValid);
+  const ownWords = !form.phraseDefault && form.phrase === "own";
+  const valid = !ownWords || wordsValid;
   const next: SilenceValues = {
-    nudge_after_seconds: form.ask === "inherit" ? null : form.ask === "never" ? 0 : afterValue,
-    nudge_count: form.count === "inherit" ? null : Number(form.count),
-    nudge_phrase: form.phrase === "inherit" ? null : form.phrase === "standard" ? "" : words,
-    end_after_silence_seconds: hangUpValue,
+    nudge_after_seconds: form.askDefault ? null : form.ask === "never" ? 0 : form.after,
+    nudge_count: form.count,
+    nudge_phrase: form.phraseDefault ? null : form.phrase === "standard" ? "" : words,
+    end_after_silence_seconds: form.hangUpDefault ? null : form.hangUp,
   };
   const changed =
     editing &&
@@ -180,6 +194,8 @@ export function SilenceRow({
   };
   const inheritedAsk =
     inherited.nudge_after_seconds === 0 ? "never asks" : `asks after ${formatSeconds(inherited.nudge_after_seconds)}`;
+  const asks = form.askDefault ? inherited.nudge_after_seconds !== 0 : form.ask === "after";
+  const count = form.count ?? inherited.nudge_count;
 
   return (
     <div>
@@ -209,7 +225,7 @@ export function SilenceRow({
       {error && <ProblemNotice error={error} />}
       {editing && (
         <form
-          className="settings-enter space-y-4 pb-4"
+          className="settings-enter space-y-5 pb-4"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
@@ -217,107 +233,92 @@ export function SilenceRow({
             onSave(next, () => setEditing(false));
           }}
         >
-          <fieldset>
-            <legend className="mb-2 text-sm font-semibold text-ink">Ask whether they are still there</legend>
-            <div className="grid gap-2 sm:grid-cols-3">
-              <CallHandlingCard
-                name={`${id}-ask`}
-                checked={form.ask === "inherit"}
-                onSelect={() => set({ ask: "inherit" })}
-                label={`${inherited.from.nudge_after_seconds} (${inheritedAsk})`}
-              />
-              <CallHandlingCard
-                name={`${id}-ask`}
-                checked={form.ask === "after"}
-                onSelect={() => set({ ask: "after" })}
-                label="After a set time"
-                hint={`${bounds.nudge_after_min_s} to ${bounds.nudge_after_max_s} seconds of quiet.`}
-              />
-              <CallHandlingCard
-                name={`${id}-ask`}
-                checked={form.ask === "never"}
-                onSelect={() => set({ ask: "never" })}
-                label="Never ask"
-                hint="The agent waits without asking."
-              />
-            </div>
-          </fieldset>
-          {form.ask === "after" && (
-            <div className="flex flex-wrap gap-4">
-              <div className="flex flex-col gap-1">
-                <label htmlFor={`${id}-after`} className="text-xs text-ink-muted">
-                  Seconds of quiet before asking
-                </label>
-                <input
-                  id={`${id}-after`}
-                  type="number"
-                  inputMode="numeric"
-                  min={bounds.nudge_after_min_s}
-                  max={bounds.nudge_after_max_s}
-                  value={form.after}
-                  onChange={(event) => set({ after: event.target.value })}
-                  className={`w-28 tabular-nums ${FIELD_INLINE}`}
-                  aria-invalid={afterValue === null ? true : undefined}
-                  aria-describedby={afterValue === null ? `${id}-after-error` : undefined}
+          <fieldset className={CALL_HANDLING_EDITOR}>
+            <legend className={LEGEND}>Ask whether they are still there</legend>
+            <DefaultCheckbox
+              label={`Use the ${inherited.from.nudge_after_seconds}: ${inheritedAsk}`}
+              checked={form.askDefault}
+              onChange={(checked) => set({ askDefault: checked })}
+            />
+            {!form.askDefault && (
+              <div>
+                <SegmentedControl
+                  label="When to ask"
+                  options={[
+                    { value: "after", label: "After a set time" },
+                    { value: "never", label: "Never ask" },
+                  ]}
+                  value={form.ask}
+                  onValueChange={(value) => set({ ask: value as AskPick })}
                 />
-                {afterValue === null && (
-                  <FieldMessage id={`${id}-after-error`}>
-                    {`Enter ${bounds.nudge_after_min_s} to ${bounds.nudge_after_max_s} seconds.`}
-                  </FieldMessage>
+                {form.ask === "never" && (
+                  <p className={FIELD_HINT}>The agent waits without asking.</p>
                 )}
               </div>
-              <div className="flex flex-col gap-1">
-                <label htmlFor={`${id}-count`} className="text-xs text-ink-muted">
-                  How many times
-                </label>
-                <select
-                  id={`${id}-count`}
-                  value={form.count}
-                  onChange={(event) => set({ count: event.target.value })}
-                  className={FIELD_INLINE}
-                >
-                  <option value="inherit">{`${inherited.from.nudge_count} (${timesLabel(inherited.nudge_count)})`}</option>
-                  {Array.from(
-                    { length: bounds.nudge_count_max - bounds.nudge_count_min + 1 },
-                    (_, i) => bounds.nudge_count_min + i,
-                  ).map((n) => (
-                    <option key={n} value={String(n)}>
-                      {timesLabel(n)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-          {form.ask !== "never" && (
-            <fieldset>
-              <legend className="mb-2 text-sm font-semibold text-ink">What the agent asks</legend>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <CallHandlingCard
-                  name={`${id}-phrase`}
-                  checked={form.phrase === "inherit"}
-                  onSelect={() => set({ phrase: "inherit" })}
-                  label={inherited.from.nudge_phrase}
-                  hint={inherited.nudge_phrase === "" ? "The standard question." : "Your organisation's words."}
+            )}
+            {!form.askDefault && form.ask === "after" && (
+              <>
+                <SliderField
+                  id={`${id}-after`}
+                  label="Quiet before asking"
+                  value={form.after}
+                  valueText={formatSeconds(form.after)}
+                  min={bounds.nudge_after_min_s}
+                  max={bounds.nudge_after_max_s}
+                  step={1}
+                  scale={[formatSeconds(bounds.nudge_after_min_s), formatSeconds(bounds.nudge_after_max_s)]}
+                  onChange={(after) => set({ after })}
                 />
-                <CallHandlingCard
-                  name={`${id}-phrase`}
-                  checked={form.phrase === "standard"}
-                  onSelect={() => set({ phrase: "standard" })}
-                  label="The standard question"
-                  hint="Asked in the caller's language."
-                />
-                <CallHandlingCard
-                  name={`${id}-phrase`}
-                  checked={form.phrase === "own"}
-                  onSelect={() => set({ phrase: "own" })}
-                  label="In our own words"
-                />
-              </div>
-              {form.phrase === "own" && (
-                <div className="mt-2 flex flex-col gap-1">
-                  <label htmlFor={`${id}-words`} className="text-xs text-ink-muted">
-                    {`The question, up to ${bounds.nudge_phrase_max_chars} characters`}
+                <div>
+                  <p className={FIELD_LABEL} aria-hidden>
+                    How many times
+                  </p>
+                  <SegmentedControl
+                    label="How many times"
+                    className="mt-1.5"
+                    options={Array.from(
+                      { length: bounds.nudge_count_max - bounds.nudge_count_min + 1 },
+                      (_, i) => {
+                        const n = bounds.nudge_count_min + i;
+                        return { value: String(n), label: String(n) };
+                      },
+                    )}
+                    value={String(count)}
+                    onValueChange={(value) => set({ count: Number(value) })}
+                  />
+                  <p className={FIELD_HINT}>{`Asks ${timesLabel(count)}, then hangs up if the silence goes on.`}</p>
+                </div>
+              </>
+            )}
+          </fieldset>
+          {asks && (
+            <fieldset className={CALL_HANDLING_EDITOR}>
+              <legend className={LEGEND}>What the agent asks</legend>
+              <DefaultCheckbox
+                label={`Use the ${inherited.from.nudge_phrase}: ${inherited.nudge_phrase === "" ? "the standard question" : "your organisation's words"}`}
+                checked={form.phraseDefault}
+                onChange={(checked) => set({ phraseDefault: checked })}
+              />
+              {!form.phraseDefault && (
+                <div>
+                  <SegmentedControl
+                    label="What the agent asks"
+                    options={[
+                      { value: "standard", label: "Standard question" },
+                      { value: "own", label: "Our own words" },
+                    ]}
+                    value={form.phrase}
+                    onValueChange={(value) => set({ phrase: value as PhrasePick })}
+                  />
+                  {form.phrase === "standard" && (
+                    <p className={FIELD_HINT}>Asked in the caller&apos;s language.</p>
+                  )}
+                </div>
+              )}
+              {ownWords && (
+                <div className="flex flex-col gap-1">
+                  <label htmlFor={`${id}-words`} className={FIELD_LABEL}>
+                    The question
                   </label>
                   <input
                     id={`${id}-words`}
@@ -331,36 +332,36 @@ export function SilenceRow({
                     aria-describedby={`${id}-words-count`}
                   />
                   <span id={`${id}-words-count`} className="text-xs text-ink-muted tabular-nums">
-                    {`${words.length} of ${bounds.nudge_phrase_max_chars}`}
+                    {`${words.length} of ${bounds.nudge_phrase_max_chars} characters`}
                   </span>
                 </div>
               )}
             </fieldset>
           )}
-          <div className="flex flex-col gap-1">
-            <label htmlFor={`${id}-hang-up`} className="text-xs text-ink-muted">
-              {`Hang up after this many seconds of silence (empty: ${inherited.from.end_after_silence_seconds}, ${formatSeconds(inherited.end_after_silence_seconds)})`}
-            </label>
-            <input
-              id={`${id}-hang-up`}
-              type="number"
-              inputMode="numeric"
-              min={bounds.end_after_silence_min_s}
-              max={bounds.end_after_silence_max_s}
-              value={form.hangUp}
-              onChange={(event) => set({ hangUp: event.target.value })}
-              className={`w-28 tabular-nums ${FIELD_INLINE}`}
-              aria-invalid={form.hangUp.trim() !== "" && hangUpValue === null ? true : undefined}
-              aria-describedby={
-                form.hangUp.trim() !== "" && hangUpValue === null ? `${id}-hang-up-error` : undefined
-              }
+          <fieldset className={CALL_HANDLING_EDITOR}>
+            <legend className={LEGEND}>Hang up after silence</legend>
+            <DefaultCheckbox
+              label={`Use the ${inherited.from.end_after_silence_seconds}: hangs up after ${formatSeconds(inherited.end_after_silence_seconds)}`}
+              checked={form.hangUpDefault}
+              onChange={(checked) => set({ hangUpDefault: checked })}
             />
-            {form.hangUp.trim() !== "" && hangUpValue === null && (
-              <FieldMessage id={`${id}-hang-up-error`}>
-                {`Enter ${bounds.end_after_silence_min_s} to ${bounds.end_after_silence_max_s} seconds, or leave it empty.`}
-              </FieldMessage>
+            {!form.hangUpDefault && (
+              <SliderField
+                id={`${id}-hang-up`}
+                label="Silence before hanging up"
+                value={form.hangUp}
+                valueText={formatSeconds(form.hangUp)}
+                min={bounds.end_after_silence_min_s}
+                max={bounds.end_after_silence_max_s}
+                step={1}
+                scale={[
+                  formatSeconds(bounds.end_after_silence_min_s),
+                  formatSeconds(bounds.end_after_silence_max_s),
+                ]}
+                onChange={(hangUp) => set({ hangUp })}
+              />
             )}
-          </div>
+          </fieldset>
           <Footer changed={changed} saving={saving} label="Save" disabled={!valid} onClose={close} />
         </form>
       )}
@@ -370,7 +371,7 @@ export function SilenceRow({
 
 // --- lines said while the agent looks something up ------------------------------------------
 
-type LinesChoice = "inherit" | "standard" | "own";
+type LinesPick = "standard" | "own";
 
 export function FillerLinesRow({
   idPrefix,
@@ -388,21 +389,25 @@ export function FillerLinesRow({
   effective: string[];
   onSave: (next: string[] | null, done: () => void) => void;
 }) {
-  const initial = () => ({
-    choice: (own === null ? "inherit" : own.length === 0 ? "standard" : "own") as LinesChoice,
-    text: (own ?? []).join("\n"),
-  });
+  const initial = () => {
+    const base = own ?? inherited.filler_lines;
+    return {
+      useDefault: own === null,
+      pick: (base.length === 0 ? "standard" : "own") as LinesPick,
+      text: base.join("\n"),
+    };
+  };
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(initial);
   const lines = form.text
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line !== "");
+  const ownLines = !form.useDefault && form.pick === "own";
   const tooMany = lines.length > bounds.filler_lines_max;
   const tooLong = lines.find((line) => line.length > bounds.filler_line_max_chars);
-  const valid = form.choice !== "own" || (lines.length > 0 && !tooMany && tooLong === undefined);
-  const next: string[] | null =
-    form.choice === "inherit" ? null : form.choice === "standard" ? [] : lines;
+  const valid = !ownLines || (lines.length > 0 && !tooMany && tooLong === undefined);
+  const next: string[] | null = form.useDefault ? null : form.pick === "standard" ? [] : lines;
   const changed = editing && JSON.stringify(next) !== JSON.stringify(own);
   useUnsavedGuard(changed);
   const id = `${idPrefix}-filler`;
@@ -410,6 +415,7 @@ export function FillerLinesRow({
     setEditing(false);
     setForm(initial());
   };
+  const inheritedSummary = fillerSummary(inherited.filler_lines);
 
   return (
     <div>
@@ -446,61 +452,59 @@ export function FillerLinesRow({
             onSave(next, () => setEditing(false));
           }}
         >
-          <fieldset>
-            <legend className="sr-only">Lines the agent says while it looks something up</legend>
-            <div className="grid gap-2 sm:grid-cols-3">
-              <CallHandlingCard
-                name={id}
-                checked={form.choice === "inherit"}
-                onSelect={() => setForm((f) => ({ ...f, choice: "inherit" }))}
-                label={inherited.from.filler_lines}
-                hint={fillerSummary(inherited.filler_lines)}
-              />
-              <CallHandlingCard
-                name={id}
-                checked={form.choice === "standard"}
-                onSelect={() => setForm((f) => ({ ...f, choice: "standard" }))}
-                label="The standard lines"
-                hint="In the caller's language."
-              />
-              <CallHandlingCard
-                name={id}
-                checked={form.choice === "own"}
-                onSelect={() => setForm((f) => ({ ...f, choice: "own" }))}
-                label="Our own lines"
-              />
-            </div>
-          </fieldset>
-          {form.choice === "own" && (
-            <div className="flex flex-col gap-1">
-              <label htmlFor={`${id}-lines`} className="text-xs text-ink-muted">
-                {`One line per row: up to ${bounds.filler_lines_max} lines of ${bounds.filler_line_max_chars} characters`}
-              </label>
-              <textarea
-                id={`${id}-lines`}
-                rows={Math.min(Math.max(lines.length + 1, 3), bounds.filler_lines_max)}
-                value={form.text}
-                onChange={(event) => setForm((f) => ({ ...f, text: event.target.value }))}
-                placeholder={"One moment please.\nLet me check that for you."}
-                className={FIELD}
-                aria-invalid={!valid ? true : undefined}
-                aria-describedby={`${id}-lines-help`}
-              />
-              <span id={`${id}-lines-help`} className="text-xs text-ink-muted tabular-nums">
-                {`${lines.length} of ${bounds.filler_lines_max} lines`}
-              </span>
-              {tooMany && (
-                <FieldMessage id={`${id}-lines-many`}>
-                  {`Keep ${bounds.filler_lines_max} lines or fewer.`}
-                </FieldMessage>
-              )}
-              {tooLong !== undefined && (
-                <FieldMessage id={`${id}-lines-long`}>
-                  {`Each line can be up to ${bounds.filler_line_max_chars} characters.`}
-                </FieldMessage>
-              )}
-            </div>
-          )}
+          <div className={CALL_HANDLING_EDITOR}>
+            <DefaultCheckbox
+              label={`Use the ${inherited.from.filler_lines}: ${inheritedSummary.charAt(0).toLowerCase()}${inheritedSummary.slice(1)}`}
+              checked={form.useDefault}
+              onChange={(checked) => setForm((f) => ({ ...f, useDefault: checked }))}
+            />
+            {!form.useDefault && (
+              <div>
+                <SegmentedControl
+                  label="Lines the agent says while it looks something up"
+                  options={[
+                    { value: "standard", label: "Standard lines" },
+                    { value: "own", label: "Our own lines" },
+                  ]}
+                  value={form.pick}
+                  onValueChange={(value) => setForm((f) => ({ ...f, pick: value as LinesPick }))}
+                />
+                {form.pick === "standard" && (
+                  <p className={FIELD_HINT}>Short lines in the caller&apos;s language.</p>
+                )}
+              </div>
+            )}
+            {ownLines && (
+              <div className="flex flex-col gap-1">
+                <label htmlFor={`${id}-lines`} className={FIELD_LABEL}>
+                  {`One line per row: up to ${bounds.filler_lines_max} lines of ${bounds.filler_line_max_chars} characters`}
+                </label>
+                <textarea
+                  id={`${id}-lines`}
+                  rows={Math.min(Math.max(lines.length + 1, 3), bounds.filler_lines_max)}
+                  value={form.text}
+                  onChange={(event) => setForm((f) => ({ ...f, text: event.target.value }))}
+                  placeholder={"One moment please.\nLet me check that for you."}
+                  className={FIELD}
+                  aria-invalid={!valid ? true : undefined}
+                  aria-describedby={`${id}-lines-help`}
+                />
+                <span id={`${id}-lines-help`} className="text-xs text-ink-muted tabular-nums">
+                  {`${lines.length} of ${bounds.filler_lines_max} lines`}
+                </span>
+                {tooMany && (
+                  <FieldMessage id={`${id}-lines-many`}>
+                    {`Keep ${bounds.filler_lines_max} lines or fewer.`}
+                  </FieldMessage>
+                )}
+                {tooLong !== undefined && (
+                  <FieldMessage id={`${id}-lines-long`}>
+                    {`Each line can be up to ${bounds.filler_line_max_chars} characters.`}
+                  </FieldMessage>
+                )}
+              </div>
+            )}
+          </div>
           <Footer changed={changed} saving={saving} label="Save lines" disabled={!valid} onClose={close} />
         </form>
       )}
@@ -544,17 +548,19 @@ export function BackgroundSoundRow({
 }) {
   const initial = () => ({
     choice: (own.ambience ?? "inherit") as SoundChoice,
-    volume: String(own.ambience_volume_pct ?? effective.ambience_volume_pct),
+    volume: clamp(
+      own.ambience_volume_pct ?? effective.ambience_volume_pct,
+      bounds.ambience_volume_min_pct,
+      bounds.ambience_volume_max_pct,
+    ),
   });
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(initial);
   const audible = form.choice === "office" || form.choice === "office-quiet";
-  const volume = wholeIn(form.volume, bounds.ambience_volume_min_pct, bounds.ambience_volume_max_pct);
-  const valid = !audible || volume !== null;
   const next: SoundValues =
     form.choice === "inherit"
       ? { ambience: null, ambience_volume_pct: null }
-      : { ambience: form.choice, ambience_volume_pct: audible ? volume : own.ambience_volume_pct };
+      : { ambience: form.choice, ambience_volume_pct: audible ? form.volume : own.ambience_volume_pct };
   const changed =
     editing && (next.ambience !== own.ambience || next.ambience_volume_pct !== own.ambience_volume_pct);
   useUnsavedGuard(changed);
@@ -594,25 +600,17 @@ export function BackgroundSoundRow({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            if (!valid) return;
             onSave(next, () => setEditing(false));
           }}
         >
-          <div className="max-w-md space-y-4">
-            <label className="flex items-center gap-2 text-sm text-ink">
-              <input
-                type="checkbox"
-                checked={form.choice === "inherit"}
-                onChange={(event) =>
-                  setForm((f) => ({
-                    ...f,
-                    choice: event.target.checked ? "inherit" : inherited.ambience,
-                  }))
-                }
-                className="h-4 w-4 rounded border-line accent-brand-strong touch:h-5 touch:w-5"
-              />
-              {`Use the ${inherited.from.ambience}: ${ambienceSummary(inherited.ambience, inherited.ambience_volume_pct)}`}
-            </label>
+          <div className={CALL_HANDLING_EDITOR}>
+            <DefaultCheckbox
+              label={`Use the ${inherited.from.ambience}: ${ambienceSummary(inherited.ambience, inherited.ambience_volume_pct)}`}
+              checked={form.choice === "inherit"}
+              onChange={(checked) =>
+                setForm((f) => ({ ...f, choice: checked ? "inherit" : inherited.ambience }))
+              }
+            />
             {form.choice !== "inherit" && (
               <div>
                 <SegmentedControl
@@ -628,35 +626,20 @@ export function BackgroundSoundRow({
               </div>
             )}
             {audible && (
-              <div>
-                <div className="flex items-baseline justify-between gap-3">
-                  <label htmlFor={`${id}-volume`} className={FIELD_LABEL}>
-                    Volume
-                  </label>
-                  <span className="text-meta tabular-nums text-ink" aria-hidden>
-                    {`${volume ?? effective.ambience_volume_pct}%`}
-                  </span>
-                </div>
-                <input
-                  id={`${id}-volume`}
-                  type="range"
-                  min={bounds.ambience_volume_min_pct}
-                  max={bounds.ambience_volume_max_pct}
-                  step={1}
-                  value={volume ?? effective.ambience_volume_pct}
-                  onChange={(event) => setForm((f) => ({ ...f, volume: event.target.value }))}
-                  aria-valuetext={`${volume ?? effective.ambience_volume_pct} percent`}
-                  aria-describedby={`${id}-volume-scale`}
-                  className={`mt-2 ${RANGE_INPUT}`}
-                />
-                <div id={`${id}-volume-scale`} className={`${FIELD_HINT} flex justify-between`}>
-                  <span>Faint</span>
-                  <span>As loud as the voice</span>
-                </div>
-              </div>
+              <SliderField
+                id={`${id}-volume`}
+                label="Volume"
+                value={form.volume}
+                valueText={`${form.volume}%`}
+                min={bounds.ambience_volume_min_pct}
+                max={bounds.ambience_volume_max_pct}
+                step={1}
+                scale={["Faint", "As loud as the voice"]}
+                onChange={(volume) => setForm((f) => ({ ...f, volume }))}
+              />
             )}
           </div>
-          <Footer changed={changed} saving={saving} label="Save sound" disabled={!valid} onClose={close} />
+          <Footer changed={changed} saving={saving} label="Save sound" onClose={close} />
         </form>
       )}
     </div>

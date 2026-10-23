@@ -6,21 +6,22 @@
  * offer the same choices in the same words.
  *
  * Each row is a `SettingRow` summary (the value in force and where it comes from) with
- * "Change", which opens choice cards and the shared save bar. "Use the default" is a card of
- * its own: it saves `null`, so the value follows the level above rather than freezing a copy
- * of it. The server resolves every value; nothing here works out what is in force.
+ * "Change", which opens a compact editor and the shared save bar. "Use the default" is a
+ * checkbox above the choice rather than one more option beside it: following the level above
+ * is a different decision from picking a value, and as an option it sat next to the very
+ * value it resolves to. Ticked, it saves `null`, so the value follows the level above rather
+ * than freezing a copy of it. The server resolves every value; nothing here works out what
+ * is in force.
  */
 
-import { CheckCircle2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { InfoTip } from "@/components/console/infoTip";
 import { SaveBar } from "@/components/console/saveBar";
 import { TEXT_ACTION } from "@/components/console/section";
 import { SettingRow } from "@/components/console/settingRow";
-import { FieldMessage } from "@/components/formValidation";
-import { FIELD_INLINE, ProblemNotice } from "@/components/ui";
+import { SegmentedControl } from "@/components/interior/segmented-control";
+import { FIELD_HINT, FIELD_LABEL, ProblemNotice, RANGE_INPUT, ToggleSwitch } from "@/components/ui";
 import {
   PAUSE_PRESETS,
   formatPause,
@@ -34,6 +35,9 @@ import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 export const CALL_HANDLING_NEXT_CALL =
   "Applies from the next call. A call already in progress finishes as it started.";
 
+/** The editor's column: narrow enough that a choice and its hint read as one unit. */
+export const CALL_HANDLING_EDITOR = "max-w-md space-y-4";
+
 interface RowProps<T> {
   idPrefix: string;
   /** In force now, and the level that chose it. */
@@ -43,7 +47,7 @@ interface RowProps<T> {
   sourceHint?: string;
   /** This level's own value; `null` follows the level above. */
   own: T | null;
-  /** The card that saves `null`, naming what that resolves to. */
+  /** The default and what it resolves to, "Calevate default: Quick (0.25 s)". */
   inheritLabel: string;
   canChange: boolean;
   saving: boolean;
@@ -51,40 +55,97 @@ interface RowProps<T> {
   onSave: (next: T | null, done: () => void) => void;
 }
 
-export function CallHandlingCard({
-  name,
-  checked,
-  onSelect,
+/** "Use the Calevate default: Off". Ticked, the row saves `null`. */
+export function DefaultCheckbox({
   label,
-  hint,
-  children,
+  checked,
+  onChange,
 }: {
-  name: string;
-  checked: boolean;
-  onSelect: () => void;
   label: string;
-  hint?: string;
-  children?: ReactNode;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className={`${CHOICE_CARD} ${checked ? CHOICE_ON : CHOICE_OFF}`}>
-      <input type="radio" name={name} className="sr-only" checked={checked} onChange={onSelect} />
-      {checked && (
-        <CheckCircle2 aria-hidden className="absolute right-2 top-2 h-4 w-4 text-brand-strong" />
-      )}
-      <span className="block pr-6 text-sm font-semibold text-ink">{label}</span>
-      {hint ? <span className="mt-0.5 block text-xs text-ink-muted">{hint}</span> : null}
-      {children}
+    <label className="flex items-start gap-2 text-sm text-ink">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-0.5 h-4 w-4 shrink-0 rounded border-line accent-brand-strong touch:h-5 touch:w-5"
+      />
+      {label}
     </label>
   );
 }
 
-type PauseChoice = "inherit" | "custom" | `${number}`;
-
-function initialPause(own: number | null): PauseChoice {
-  if (own === null) return "inherit";
-  return PAUSE_PRESETS.some((p) => p.ms === own) ? (String(own) as PauseChoice) : "custom";
+/**
+ * A bounded number as a slider with its value read out beside the label. The bounds are the
+ * server's, so the slider cannot hold a value the server would refuse, and the two ends of
+ * the scale show the range before anyone tries to leave it.
+ */
+export function SliderField({
+  id,
+  label,
+  value,
+  valueText,
+  min,
+  max,
+  step,
+  scale,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: number;
+  /** The value as people read it, shown beside the label and announced. */
+  valueText: string;
+  min: number;
+  max: number;
+  step: number;
+  /** The words under each end of the track. */
+  scale: [ReactNode, ReactNode];
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <label htmlFor={id} className={FIELD_LABEL}>
+          {label}
+        </label>
+        <span className="text-meta tabular-nums text-ink" aria-hidden>
+          {valueText}
+        </span>
+      </div>
+      <input
+        id={id}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        aria-valuetext={valueText}
+        aria-describedby={`${id}-scale`}
+        className={`mt-2 ${RANGE_INPUT}`}
+      />
+      <div id={`${id}-scale`} className={`${FIELD_HINT} flex justify-between`}>
+        <span>{scale[0]}</span>
+        <span>{scale[1]}</span>
+      </div>
+    </div>
+  );
 }
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * 50 ms: the presets (250, 500, 700) sit on it, it is the old seconds box's 0.05 step, and
+ * across 0.2 to 3 s it gives a phone thumb about 56 stops, where 10 ms would give 280 stops
+ * on a 300 px track and a drag could not land on a round value.
+ */
+const PAUSE_STEP_MS = 50;
 
 export function PauseRow({
   idPrefix,
@@ -100,26 +161,21 @@ export function PauseRow({
   minMs,
   maxMs,
 }: RowProps<number> & { minMs: number; maxMs: number }) {
+  // Unticking the default starts from this level's own value, else from the one in force,
+  // which is the default's when this level has none.
+  const initial = () => ({ useDefault: own === null, ms: clamp(own ?? effective, minMs, maxMs) });
   const [editing, setEditing] = useState(false);
-  const [choice, setChoice] = useState<PauseChoice>(initialPause(own));
-  const [custom, setCustom] = useState(own === null ? "" : String(own / 1000));
-  const customMs = Math.round(Number(custom) * 1000);
-  const customValid = custom.trim() !== "" && Number.isFinite(customMs) && customMs >= minMs && customMs <= maxMs;
-  const next: number | null =
-    choice === "inherit" ? null : choice === "custom" ? (customValid ? customMs : NaN) : Number(choice);
-  const changed = editing && (next === null ? own !== null : next !== own);
+  const [form, setForm] = useState(initial);
+  const next: number | null = form.useDefault ? null : form.ms;
+  const changed = editing && next !== own;
   useUnsavedGuard(changed);
-  const name = `${idPrefix}-pause`;
-  const customId = `${idPrefix}-pause-seconds`;
+  const id = `${idPrefix}-pause`;
+  const preset = PAUSE_PRESETS.find((p) => p.ms === form.ms);
 
   // From the saved value each time it opens, so a save made since is what it starts on.
-  const reset = () => {
-    setChoice(initialPause(own));
-    setCustom(own === null ? "" : String(own / 1000));
-  };
   const close = () => {
     setEditing(false);
-    reset();
+    setForm(initial());
   };
 
   return (
@@ -141,7 +197,7 @@ export function PauseRow({
             <button
               type="button"
               onClick={() => {
-                reset();
+                setForm(initial());
                 setEditing(true);
               }}
               className={TEXT_ACTION}
@@ -158,68 +214,49 @@ export function PauseRow({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            if (next !== null && Number.isNaN(next)) return;
             onSave(next, () => setEditing(false));
           }}
         >
-          <fieldset>
-            <legend className="sr-only">Pause before the agent replies</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <CallHandlingCard
-                name={name}
-                checked={choice === "inherit"}
-                onSelect={() => setChoice("inherit")}
-                label={inheritLabel}
-              />
-              {PAUSE_PRESETS.map((preset) => (
-                <CallHandlingCard
-                  key={preset.ms}
-                  name={name}
-                  checked={choice === String(preset.ms)}
-                  onSelect={() => setChoice(String(preset.ms) as PauseChoice)}
-                  label={`${preset.label} (${formatPause(preset.ms)})`}
-                  hint={preset.hint}
+          <div className={CALL_HANDLING_EDITOR}>
+            <DefaultCheckbox
+              label={`Use the ${inheritLabel}`}
+              checked={form.useDefault}
+              onChange={(checked) => setForm((f) => ({ ...f, useDefault: checked }))}
+            />
+            {/* The presets are shortcuts onto the slider, not four segments with a "Custom" one
+                that opens it: segments are equal width, so four sized to "Unhurried" overflow a
+                375 px phone's column. A value off the presets leaves no segment selected. */}
+            {!form.useDefault && (
+              <>
+                <div>
+                  <SegmentedControl
+                    label="Pause before the agent replies"
+                    options={PAUSE_PRESETS.map((p) => ({ value: String(p.ms), label: p.label }))}
+                    value={String(form.ms)}
+                    onValueChange={(value) => setForm((f) => ({ ...f, ms: Number(value) }))}
+                  />
+                  <p className={FIELD_HINT}>
+                    {preset ? preset.hint : "A pause of your own."}
+                  </p>
+                </div>
+                <SliderField
+                  id={`${id}-ms`}
+                  label="Pause"
+                  value={form.ms}
+                  valueText={formatPause(form.ms)}
+                  min={minMs}
+                  max={maxMs}
+                  step={PAUSE_STEP_MS}
+                  scale={[formatPause(minMs), formatPause(maxMs)]}
+                  onChange={(ms) => setForm((f) => ({ ...f, ms }))}
                 />
-              ))}
-              <CallHandlingCard
-                name={name}
-                checked={choice === "custom"}
-                onSelect={() => setChoice("custom")}
-                label="Custom"
-                hint={`Between ${formatPause(minMs)} and ${formatPause(maxMs)}.`}
-              />
-            </div>
-          </fieldset>
-          {choice === "custom" && (
-            <div className="flex flex-col gap-1">
-              <label htmlFor={customId} className="text-xs text-ink-muted">
-                Seconds
-              </label>
-              <input
-                id={customId}
-                type="number"
-                inputMode="decimal"
-                step={0.05}
-                min={minMs / 1000}
-                max={maxMs / 1000}
-                value={custom}
-                onChange={(event) => setCustom(event.target.value)}
-                className={`w-32 tabular-nums ${FIELD_INLINE}`}
-                aria-invalid={custom !== "" && !customValid ? true : undefined}
-                aria-describedby={custom !== "" && !customValid ? `${customId}-error` : undefined}
-              />
-              {custom !== "" && !customValid ? (
-                <FieldMessage id={`${customId}-error`}>
-                  {`Enter a pause between ${formatPause(minMs)} and ${formatPause(maxMs)}.`}
-                </FieldMessage>
-              ) : null}
-            </div>
-          )}
+              </>
+            )}
+          </div>
           {(changed || saving) && (
             <SaveBar
               label="Save pause"
               saving={saving}
-              disabled={next !== null && Number.isNaN(next)}
               onCancel={close}
               note={CALL_HANDLING_NEXT_CALL}
             />
@@ -235,12 +272,6 @@ export function PauseRow({
   );
 }
 
-type HangUpChoice = "inherit" | "on" | "off";
-
-function initialHangUp(own: boolean | null): HangUpChoice {
-  return own === null ? "inherit" : own ? "on" : "off";
-}
-
 /** The trade-off, in plain words, for the ⓘ. */
 const HANG_UP_INFO =
   "When the agent has finished, it puts the phone down instead of waiting for the caller " +
@@ -248,7 +279,6 @@ const HANG_UP_INFO =
   "every minute it stays connected is charged to your account.";
 
 export function HangUpRow({
-  idPrefix,
   effective,
   source,
   sourceHint,
@@ -259,17 +289,16 @@ export function HangUpRow({
   error,
   onSave,
 }: RowProps<boolean>) {
+  const initial = () => ({ useDefault: own === null, on: own ?? effective });
   const [editing, setEditing] = useState(false);
-  const [choice, setChoice] = useState<HangUpChoice>(initialHangUp(own));
-  const next: boolean | null = choice === "inherit" ? null : choice === "on";
+  const [form, setForm] = useState(initial);
+  const next: boolean | null = form.useDefault ? null : form.on;
   const changed = editing && next !== own;
   useUnsavedGuard(changed);
-  const name = `${idPrefix}-hang-up`;
 
-  const reset = () => setChoice(initialHangUp(own));
   const close = () => {
     setEditing(false);
-    reset();
+    setForm(initial());
   };
 
   return (
@@ -284,7 +313,7 @@ export function HangUpRow({
             <button
               type="button"
               onClick={() => {
-                reset();
+                setForm(initial());
                 setEditing(true);
               }}
               className={TEXT_ACTION}
@@ -312,31 +341,25 @@ export function HangUpRow({
             onSave(next, () => setEditing(false));
           }}
         >
-          <fieldset>
-            <legend className="sr-only">Hang up when the conversation ends</legend>
-            <div className="grid gap-2 sm:grid-cols-3">
-              <CallHandlingCard
-                name={name}
-                checked={choice === "inherit"}
-                onSelect={() => setChoice("inherit")}
-                label={inheritLabel}
+          <div className={CALL_HANDLING_EDITOR}>
+            <DefaultCheckbox
+              label={`Use the ${inheritLabel}`}
+              checked={form.useDefault}
+              onChange={(checked) => setForm((f) => ({ ...f, useDefault: checked }))}
+            />
+            {!form.useDefault && (
+              <ToggleSwitch
+                label="Hang up when the agent has finished"
+                hint={
+                  form.on
+                    ? "The agent puts the phone down when it has finished."
+                    : "The call stays connected, and charged, until the caller hangs up."
+                }
+                checked={form.on}
+                onChange={(on) => setForm((f) => ({ ...f, on }))}
               />
-              <CallHandlingCard
-                name={name}
-                checked={choice === "on"}
-                onSelect={() => setChoice("on")}
-                label="On"
-                hint="The agent puts the phone down when it has finished."
-              />
-              <CallHandlingCard
-                name={name}
-                checked={choice === "off"}
-                onSelect={() => setChoice("off")}
-                label="Off"
-                hint="The call stays connected, and charged, until the caller hangs up."
-              />
-            </div>
-          </fieldset>
+            )}
+          </div>
           {(changed || saving) && (
             <SaveBar
               label="Save"

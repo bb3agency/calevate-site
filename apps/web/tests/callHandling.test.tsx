@@ -99,6 +99,13 @@ async function pick(name: RegExp | string) {
   });
 }
 
+/** Ticks or unticks a "Use the … default" checkbox. */
+async function toggle(name: RegExp | string) {
+  await act(async () => {
+    fireEvent.click(await screen.findByRole("checkbox", { name }));
+  });
+}
+
 describe("organisation call handling", () => {
   it("shows each value in force and where it comes from", async () => {
     const { container } = await renderClientPage(<ClientCallHandlingPage />, {
@@ -130,7 +137,18 @@ describe("organisation call handling", () => {
     await act(async () => {
       fireEvent.click(pauseChange);
     });
-    await pick(/Unhurried \(0\.7 s\)/);
+    const followDefault = screen.getByRole("checkbox", { name: "Use the Calevate default: Quick (0.25 s)" });
+    expect((followDefault as HTMLInputElement).checked).toBe(true);
+    await toggle("Use the Calevate default: Quick (0.25 s)");
+    const presets = screen.getByRole("radiogroup", { name: "Pause before the agent replies" });
+    expect(within(presets).getAllByRole("radio").map((r) => r.textContent)).toEqual([
+      "Quick",
+      "Relaxed",
+      "Unhurried",
+    ]);
+    await pick("Unhurried");
+    expect(screen.getByText("Good for callers reading out numbers.")).toBeTruthy();
+    expect(screen.getByLabelText("Pause").getAttribute("aria-valuetext")).toBe("0.7 s");
     await press("Save pause");
     await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
     const put = calls.find((c) => c.method === "PUT");
@@ -183,7 +201,7 @@ describe("one agent's call handling", () => {
     await act(async () => {
       fireEvent.click(pauseChange);
     });
-    await pick("Organisation default (0.5 s)");
+    await toggle("Use the Organisation default: Relaxed (0.5 s)");
     await press("Save pause");
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     // Only the pause: the hang-up is left out, so it is untouched.
@@ -193,23 +211,34 @@ describe("one agent's call handling", () => {
     await screen.findByText("Your organisation default");
   });
 
-  it("refuses a custom pause outside the range before sending it", async () => {
+  it("holds a custom pause inside the server's range and saves it in milliseconds", async () => {
     const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
       "/v1/me": OWNER,
       [AGENT_PATH]: agent({ turn_silence_ms: null, turn_silence_source: "organization" }),
+      [`PATCH ${AGENT_PATH}`]: agent({ turn_silence_ms: 3000, turn_silence_ms_effective: 3000 }),
     });
     const [pauseChange] = await screen.findAllByRole("button", { name: "Change" });
     await act(async () => {
       fireEvent.click(pauseChange);
     });
-    await pick(/^Custom/);
+    await toggle(/^Use the Organisation default/);
+    const slider = screen.getByLabelText("Pause") as HTMLInputElement;
+    expect([slider.min, slider.max, slider.step]).toEqual(["200", "3000", "50"]);
+    expect(screen.getByText("0.2 s")).toBeTruthy();
+    // Past the top of the range, the slider stops at the server's maximum.
     await act(async () => {
-      fireEvent.change(screen.getByLabelText("Seconds"), { target: { value: "5" } });
+      fireEvent.change(slider, { target: { value: "5000" } });
     });
-    expect(screen.getByRole("alert").textContent).toContain("between 0.2 s and 3 s");
-    const save = screen.getByRole("button", { name: "Save pause" }) as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
-    expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+    expect(slider.getAttribute("aria-valuetext")).toBe("3 s");
+    // Off the presets, none of them reads as chosen.
+    const presets = screen.getByRole("radiogroup", { name: "Pause before the agent replies" });
+    expect(within(presets).queryByRole("radio", { checked: true })).toBeNull();
+    expect(screen.getByText("A pause of your own.")).toBeTruthy();
+    await press("Save pause");
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).toEqual({
+      turn_silence_ms: 3000,
+    });
   });
 
   it("switches the hang-up off for this agent alone", async () => {
@@ -226,10 +255,13 @@ describe("one agent's call handling", () => {
     await act(async () => {
       fireEvent.click(changes[1]);
     });
-    const group = screen.getByRole("group", { name: "Hang up when the conversation ends" });
+    await toggle("Use the Calevate default: On");
+    const hangUp = screen.getByRole("switch", { name: /^Hang up when the agent has finished/ });
+    expect((hangUp as HTMLInputElement).checked).toBe(true);
     await act(async () => {
-      fireEvent.click(within(group).getByRole("radio", { name: /^Off/ }));
+      fireEvent.click(hangUp);
     });
+    expect(screen.getByText("The call stays connected, and charged, until the caller hangs up.")).toBeTruthy();
     await press("Save");
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).toEqual({
@@ -257,7 +289,8 @@ describe("the voice settings", () => {
     await act(async () => {
       fireEvent.click(changes[2]);
     });
-    await pick(/^Never ask/);
+    await toggle("Use the Calevate default: asks after 8 s");
+    await pick("Never ask");
     await press("Save");
     await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
     expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}")).toEqual({
@@ -270,6 +303,66 @@ describe("the voice settings", () => {
     });
     await screen.findByText("Never asks · hangs up after 20 s of silence");
     expect(container.textContent).not.toMatch(/thinnest|cartesia|sarvam/i);
+  });
+
+  it("sets the wait, the count, the agent's own question and the hang-up, each inside the server's range", async () => {
+    const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
+      "/v1/me": OWNER,
+      [AGENT_PATH]: agent(),
+      [`PATCH ${AGENT_PATH}`]: agent({
+        nudge_after_seconds: 12,
+        nudge_after_seconds_effective: 12,
+        nudge_count: 3,
+        nudge_count_effective: 3,
+        end_after_silence_seconds: 180,
+        end_after_silence_seconds_effective: 180,
+      }),
+    });
+    await screen.findByText("Asks after 8 s, once · hangs up after 20 s of silence");
+    const changes = screen.getAllByRole("button", { name: "Change" });
+    await act(async () => {
+      fireEvent.click(changes[2]);
+    });
+    // Nothing is offered as a bare number box; the rule for an empty box is gone with it.
+    expect(screen.queryByRole("spinbutton")).toBeNull();
+    expect(screen.queryByText(/empty:/)).toBeNull();
+
+    await toggle("Use the Calevate default: asks after 8 s");
+    const wait = screen.getByLabelText("Quiet before asking") as HTMLInputElement;
+    expect([wait.min, wait.max, wait.value]).toEqual(["5", "180", "8"]);
+    await act(async () => {
+      fireEvent.change(wait, { target: { value: "12" } });
+    });
+    expect(wait.getAttribute("aria-valuetext")).toBe("12 s");
+    const times = screen.getByRole("radiogroup", { name: "How many times" });
+    expect(within(times).getAllByRole("radio")).toHaveLength(5);
+    await act(async () => {
+      fireEvent.click(within(times).getByRole("radio", { name: "3" }));
+    });
+
+    await toggle("Use the Calevate default: the standard question");
+    await pick("Our own words");
+    const question = screen.getByLabelText("The question");
+    await act(async () => {
+      fireEvent.change(question, { target: { value: "   " } });
+    });
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => {
+      fireEvent.change(question, { target: { value: " Hello, still with me? " } });
+    });
+
+    await toggle("Use the Calevate default: hangs up after 20 s");
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Silence before hanging up"), { target: { value: "999" } });
+    });
+    await press("Save");
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).toEqual({
+      nudge_after_seconds: 12,
+      nudge_count: 3,
+      nudge_phrase: "Hello, still with me?",
+      end_after_silence_seconds: 180,
+    });
   });
 
   it("sends an agent's own lines, trimmed, and refuses a line that is too long", async () => {
@@ -287,7 +380,8 @@ describe("the voice settings", () => {
     await act(async () => {
       fireEvent.click(changes[3]);
     });
-    await pick(/^Our own lines/);
+    await toggle("Use the Calevate default: the standard lines");
+    await pick("Our own lines");
     const box = screen.getByLabelText(/One line per row/);
     await act(async () => {
       fireEvent.change(box, { target: { value: "x".repeat(61) } });
@@ -370,7 +464,10 @@ describe("a client's call handling defaults, from the operator console", () => {
     await act(async () => {
       fireEvent.click(pauseChange!);
     });
-    await pick(/Unhurried \(0\.7 s\)/);
+    expect(
+      (screen.getByRole("checkbox", { name: /^Use the Calevate default/ }) as HTMLInputElement).checked,
+    ).toBe(false);
+    await pick("Unhurried");
     await press("Save pause");
     await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
     const put = calls.find((c) => c.method === "PUT");

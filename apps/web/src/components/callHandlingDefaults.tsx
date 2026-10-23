@@ -21,7 +21,7 @@ import {
 } from "@/components/callHandlingVoiceRows";
 import { SettingRows } from "@/components/console/settingRow";
 import {
-  formatPause,
+  pauseLabel,
   platformVoice,
   type OrganizationCallHandling,
   type OrganizationCallHandlingIn,
@@ -74,7 +74,7 @@ export function CallHandlingDefaultsRows({
         source={data.turn_silence_ms === null ? "platform" : "organization"}
         sourceHint={ownOrOurs(ownLabel, data.turn_silence_ms)}
         own={data.turn_silence_ms}
-        inheritLabel={`Calevate default (${formatPause(data.bounds.platform_turn_silence_ms)})`}
+        inheritLabel={`Calevate default: ${pauseLabel(data.bounds.platform_turn_silence_ms)}`}
         minMs={data.bounds.turn_silence_min_ms}
         maxMs={data.bounds.turn_silence_max_ms}
         canChange={canChange}
@@ -88,7 +88,7 @@ export function CallHandlingDefaultsRows({
         source={data.end_call_on_finish === null ? "platform" : "organization"}
         sourceHint={ownOrOurs(ownLabel, data.end_call_on_finish)}
         own={data.end_call_on_finish}
-        inheritLabel={`Calevate default (${data.bounds.platform_end_call_on_finish ? "on" : "off"})`}
+        inheritLabel={`Calevate default: ${data.bounds.platform_end_call_on_finish ? "On" : "Off"}`}
         canChange={canChange}
         saving={busy("hang-up")}
         error={error("hang-up")}

@@ -70,19 +70,20 @@ export function sourceLabel(source: CallHandlingSource): string {
   return "Calevate default";
 }
 
-/** The "use the default" card's words: the account's value when it set one, else ours. */
+/** The default "use the default" follows and what it resolves to, "Calevate default: On":
+ * the account's value when it set one, else ours. */
 export function inheritLabels(state: AgentCallHandling): { pause: string; hangUp: string } {
   const pauseMs = state.organization_turn_silence_ms;
   const hangUp = state.organization_end_call_on_finish;
   return {
     pause:
       pauseMs === null
-        ? `Calevate default (${formatPause(state.bounds.platform_turn_silence_ms)})`
-        : `Organisation default (${formatPause(pauseMs)})`,
+        ? `Calevate default: ${pauseLabel(state.bounds.platform_turn_silence_ms)}`
+        : `Organisation default: ${pauseLabel(pauseMs)}`,
     hangUp:
       hangUp === null
-        ? `Calevate default (${state.bounds.platform_end_call_on_finish ? "on" : "off"})`
-        : `Organisation default (${hangUp ? "on" : "off"})`,
+        ? `Calevate default: ${state.bounds.platform_end_call_on_finish ? "On" : "Off"}`
+        : `Organisation default: ${hangUp ? "On" : "Off"}`,
   };
 }
 

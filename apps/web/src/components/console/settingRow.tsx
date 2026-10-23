@@ -13,7 +13,11 @@ import { InfoTip } from "./infoTip";
  *   label is visual, so a bare control inside it would be unnamed.
  * - `action` is the quiet "Change" link of a label–value summary (REDESIGN-2). It sits
  *   after the value, so a settings summary reads "Calendar   Google · sri@…   Change".
- * - Below `sm` the control drops under the label, full width, so nothing is squeezed.
+ *
+ * Below `sm` every row has one shape: the value or control on its own line under the label,
+ * left-aligned, and the action at the top right beside the label. Letting a short value sit
+ * beside its label while a long one wrapped underneath put the value in a different place on
+ * every row, so a list of them had no column to scan.
  *
  * Compose rows inside a `<SettingRows>` (or any element with `divide-y divide-line`).
  */
@@ -42,14 +46,13 @@ export function SettingRow({
   className?: string;
 }) {
   const Label = htmlFor ? "label" : "span";
-  // A read-only fact (value, maybe a Change link) fits beside its label even on a phone;
-  // only a row holding a form control stacks, so the control gets the full width.
-  const layout = control
-    ? "flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
-    : "flex-row flex-wrap items-center justify-between gap-x-6 gap-y-1";
+  // Below `sm` the right-hand group is `display: contents`, so its children are placed by
+  // this row's two-column grid: the action beside the label, the value or control under it.
   return (
-    <div className={`flex py-3.5 ${layout} ${className}`}>
-      <div className="min-w-0 sm:flex-1">
+    <div
+      className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1.5 py-3.5 sm:flex sm:flex-row sm:items-center sm:justify-between sm:gap-6 ${className}`}
+    >
+      <div className="col-start-1 row-start-1 min-w-0 sm:flex-1">
         <div className="flex items-center gap-1">
           {icon ? <span className="mr-1 inline-flex shrink-0">{icon}</span> : null}
           <Label {...(htmlFor ? { htmlFor } : {})} className="text-body font-medium text-ink">
@@ -60,12 +63,14 @@ export function SettingRow({
         {hint && <p className="mt-0.5 text-meta text-ink-muted">{hint}</p>}
       </div>
       {(value !== undefined || control || action) && (
-        <div className={`flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 sm:max-w-[65%] sm:shrink-0 sm:justify-end sm:text-right ${control ? "" : "justify-end text-right"}`}>
+        <div className="contents sm:flex sm:min-w-0 sm:max-w-[65%] sm:shrink-0 sm:flex-wrap sm:items-center sm:justify-end sm:gap-x-4 sm:gap-y-1 sm:text-right">
           {value !== undefined && (
-            <div className="min-w-0 text-body text-ink [overflow-wrap:anywhere]">{value}</div>
+            <div className="col-span-2 min-w-0 text-body text-ink [overflow-wrap:anywhere]">{value}</div>
           )}
-          {control}
-          {action}
+          {control && <div className="col-span-2 min-w-0 sm:contents">{control}</div>}
+          {action && (
+            <div className="col-start-2 row-start-1 self-start justify-self-end sm:contents">{action}</div>
+          )}
         </div>
       )}
     </div>
