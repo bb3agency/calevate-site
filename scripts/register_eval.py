@@ -93,6 +93,7 @@ from calevate_shared.spoken_style import (
     LanguageStyle,
     PackChoice,
     candidate_prompt_examples,
+    english_letters_rule,
     example_sentence,
     register_guidance,
     style_for,
@@ -336,6 +337,9 @@ def register_layer(cfg: AgentConfig, features: frozenset[str], fixture: Fixture)
             lines.append(f"{language.english_name if language else tag}: {guidance}")
         if tag != cfg.language_primary:
             continue
+        letters = english_letters_rule(tag)
+        if letters:
+            lines.append(letters)
         style = style_for(tag)
         exchanges = list(style.prompt_examples) if style is not None else []
         if "examples" in features:

@@ -3588,10 +3588,10 @@ class TrialDial:
 
 def trial_call_first_words(agent: AgentRow, *, call_is_recorded: bool) -> str | None:
     """What an agent that only answers calls says first when it rings its owner on a test
-    call (founder, 23 Oct 2026): the notices its switches turn on, exactly as its greeting
-    carries them, then who it is, from which business, why it rings and whether now suits.
-    None for an agent that calls out (its greeting already does) or a language with no such
-    line (its greeting is spoken)."""
+    call (founder, 23 Oct 2026): who it is, from which business, why it rings and whether now
+    suits, then the notices its switches turn on, in the order its greeting carries them
+    (D-861). None for an agent that calls out (its greeting already does) or a language with
+    no such line (its greeting is spoken)."""
     if agent["direction"] != "inbound":
         return None
     line = trial_call_opening(

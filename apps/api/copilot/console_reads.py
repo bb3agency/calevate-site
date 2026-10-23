@@ -159,7 +159,7 @@ async def _agent_detail(
         + ". Whatever the toggles, the agent always answers truthfully if asked whether "
         "it is an AI or whether the call is recorded.",
         # The notices and the opening line are separate things (D-708): the switches above
-        # decide only whether the notices come before the opening line.
+        # decide only whether the notices follow the opening line (D-861).
         "Its opening line (the greeting, from its script): "
         + (agent.script_opening_line or "none written yet")
         + ".",

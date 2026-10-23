@@ -1,11 +1,40 @@
 {
-  "about": "Spoken-register guidance for voice agents, per call language and business type. AI-drafted 10 Oct 2026 and expanded 11 Oct 2026 (founder decisions 3, 10 Oct, and the 11 Oct spoken-style rules). EVERY entry here is needs_native_review except prompt_examples (founder approved 14 Oct 2026, see its note): the founder reviews them on the admin screen Ops > Spoken style, whose published edits are stored in the database and layered over this file (calevate_shared.spoken_style.install_published). What each part is for: register is the one-line description of how the language is spoken; word_swaps pairs a formal or written form (left) with what people actually say (right), and the ones named in prompt_swaps go into every agent's prompt in that language, while the whole list guides the script writer, the test callers and the test checks; fillers are the spoken tags and light fillers people use; number_rules and punctuation say how numbers and sentences are written for a voice; examples are example exchanges per business type that show HOW to speak, never facts (no price, time, address or stock level, so an agent cannot repeat a made-up fact); openings are a starter's greeting. Register sources for te-IN: Telugu has a literary register (grandhika) and a spoken standard (vyavaharika, the sishta vyavaharika of educated everyday speech), the latter championed by Gidugu Venkata Ramamurthy (https://en.wikipedia.org/wiki/Gidugu_Venkata_Ramamurthy; https://www.deccanchronicle.com/lifestyle/culture-and-society/telugu-language-day-commemorates-gidugu-revolutionary-behind-simple-telugu-usage-1983163). Telugu-English code-mixing ('Tenglish') is extensively used in Hyderabad (Dutta and Rajeswari, Texas Linguistics Forum 2015, https://asol.ling.utexas.edu/salsa/proceedings/2015/Dutta.pdf); Standard and Telangana Telugu differences and code-mixing in speech are studied in Sravani, Kameswari and Mamidi 2021 (https://aclanthology.org/2021.calcs-1.1). Voice facts (Cartesia, read 11 Oct 2026): sonic-3.6 lists Telugu (te); it varies pacing and intonation to the transcript without SSML, pause length adapts to the sentence, and disfluencies such as 'uhm' give a thinking pace (https://docs.cartesia.ai/build-with-cartesia/tts-models/latest); full, punctuated sentences ending in . ? or ! give the best pacing (https://docs.cartesia.ai/build-with-cartesia/sonic-3-5/prompting-tips). Code-switching is documented only for Hindi written in Latin script; Telugu-English mixing is UNVERIFIED in the vendor docs and confirmed only by the founder's ear test (\"whole chilli\", \"call\", \"kg\" spoken naturally). The number style (prices, quantities and times in English words as shop people say them) is the founder's decision of 11 Oct 2026; Cartesia's own guidance would let the model normalise digits, which the founder's ear test overrode for Telugu calls.",
+  "about": "Spoken-register guidance for voice agents, per call language and business type. AI-drafted 10 Oct 2026 and expanded 11 Oct 2026 (founder decisions 3, 10 Oct, and the 11 Oct spoken-style rules). EVERY entry here is needs_native_review except prompt_examples (founder approved 14 Oct 2026, see its note): the founder reviews them on the admin screen Ops > Spoken style, whose published edits are stored in the database and layered over this file (calevate_shared.spoken_style.install_published). What each part is for: register is the one-line description of how the language is spoken; word_swaps pairs a formal or written form (left) with what people actually say (right), and the ones named in prompt_swaps go into every agent's prompt in that language, while the whole list guides the script writer, the test callers and the test checks; fillers are the spoken tags and light fillers people use; number_rules and punctuation say how numbers and sentences are written for a voice; examples are example exchanges per business type that show HOW to speak, never facts (no price, time, address or stock level, so an agent cannot repeat a made-up fact); openings are a starter's greeting; english_in_own_letters pairs an English word written in the language's letters (as speech recognition returns a caller's English words) with its English spelling, and the in-call prompt quotes the first three while the reply checks flag every one (D-861). Register sources for te-IN: Telugu has a literary register (grandhika) and a spoken standard (vyavaharika, the sishta vyavaharika of educated everyday speech), the latter championed by Gidugu Venkata Ramamurthy (https://en.wikipedia.org/wiki/Gidugu_Venkata_Ramamurthy; https://www.deccanchronicle.com/lifestyle/culture-and-society/telugu-language-day-commemorates-gidugu-revolutionary-behind-simple-telugu-usage-1983163). Telugu-English code-mixing ('Tenglish') is extensively used in Hyderabad (Dutta and Rajeswari, Texas Linguistics Forum 2015, https://asol.ling.utexas.edu/salsa/proceedings/2015/Dutta.pdf); Standard and Telangana Telugu differences and code-mixing in speech are studied in Sravani, Kameswari and Mamidi 2021 (https://aclanthology.org/2021.calcs-1.1). Voice facts (Cartesia, read 11 Oct 2026): sonic-3.6 lists Telugu (te); it varies pacing and intonation to the transcript without SSML, pause length adapts to the sentence, and disfluencies such as 'uhm' give a thinking pace (https://docs.cartesia.ai/build-with-cartesia/tts-models/latest); full, punctuated sentences ending in . ? or ! give the best pacing (https://docs.cartesia.ai/build-with-cartesia/sonic-3-5/prompting-tips). Code-switching is documented only for Hindi written in Latin script; Telugu-English mixing is UNVERIFIED in the vendor docs and confirmed only by the founder's ear test (\"whole chilli\", \"call\", \"kg\" spoken naturally). The number style (prices, quantities and times in English words as shop people say them) is the founder's decision of 11 Oct 2026; Cartesia's own guidance would let the model normalise digits, which the founder's ear test overrode for Telugu calls.",
   "languages": {
     "te-IN": {
       "review": "needs_native_review",
       "reviewed_by": null,
       "register_name": "Neutral spoken Telugu",
-      "register": "Everyday spoken Telugu (vyavaharika, never grandhika or bookish), neutral for both Telangana and Andhra, in Telugu script; the English words people use stay in English letters (order, price, delivery, call, kg). అండి and గారు by situation, not in every sentence.",
+      "register": "Everyday spoken Telugu (vyavaharika, never grandhika or bookish), neutral for Telangana and Andhra, in Telugu script. అండి and గారు by situation, not in every sentence.",
+      "english_in_own_letters": [
+        ["బడ్జెట్", "budget"],
+        ["సైట్ విజిట్", "site visit"],
+        ["వాట్సాప్", "WhatsApp"],
+        ["ఆప్షన్స్", "options"],
+        ["ఆప్షన్", "option"],
+        ["ప్రాజెక్ట్", "project"],
+        ["సైట్", "site"],
+        ["విజిట్", "visit"],
+        ["వీక్", "week"],
+        ["టైమ్", "time"],
+        ["టైం", "time"],
+        ["టీమ్", "team"],
+        ["టీం", "team"],
+        ["కన్ఫర్మ్", "confirm"],
+        ["కరెక్ట్", "correct"],
+        ["థాంక్స్", "thanks"],
+        ["థ్యాంక్స్", "thanks"],
+        ["బుక్", "book"],
+        ["ఆర్డర్", "order"],
+        ["డెలివరీ", "delivery"],
+        ["డీటెయిల్స్", "details"],
+        ["ప్రైస్", "price"],
+        ["లొకేషన్", "location"],
+        ["ఫ్లాట్", "flat"],
+        ["ప్లాట్", "plot"],
+        ["కాల్", "call"],
+        ["సారీ", "sorry"]
+      ],
       "examples": {
         "_default": [
           [
@@ -839,7 +868,21 @@
       "review": "needs_native_review",
       "reviewed_by": null,
       "register_name": "Everyday spoken Hindi (Hindustani)",
-      "register": "Everyday spoken Hindi in Devanagari, never shuddh or bookish; the English words people use stay in English letters (order, price, delivery, call). Polite with जी and आप; prefer 'we' forms (बताते हैं) so no gender is assumed.",
+      "register": "Everyday spoken Hindi in Devanagari, never shuddh or bookish, with English words in English letters (order, price). Polite with जी and आप; prefer 'we' forms (बताते हैं) so no gender is assumed.",
+      "english_in_own_letters": [
+        ["बजट", "budget"],
+        ["साइट विज़िट", "site visit"],
+        ["व्हाट्सऐप", "WhatsApp"],
+        ["व्हाट्सएप", "WhatsApp"],
+        ["ऑप्शन", "option"],
+        ["प्रोजेक्ट", "project"],
+        ["कन्फर्म", "confirm"],
+        ["ऑर्डर", "order"],
+        ["डिलीवरी", "delivery"],
+        ["डिटेल्स", "details"],
+        ["थैंक्स", "thanks"],
+        ["सॉरी", "sorry"]
+      ],
       "examples": {
         "_default": [
           [

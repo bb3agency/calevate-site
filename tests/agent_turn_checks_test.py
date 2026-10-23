@@ -35,7 +35,13 @@ from calevate_shared.call_script import (
     native_steps,
 )
 from calevate_shared.engine import VOICE_STYLE_GUIDANCE
-from calevate_shared.spoken_style import languages, register_guidance, style_for
+from calevate_shared.spoken_guard import english_in_own_letters
+from calevate_shared.spoken_style import (
+    english_letters_rule,
+    languages,
+    register_guidance,
+    style_for,
+)
 
 RAGHAVA_TURN = (
     "మీకు whole chilli కావాలా, chilli powder కావాలా? Whole chilli or chilli powder? "
@@ -208,8 +214,9 @@ def test_the_prompt_says_the_turn_and_voice_rules() -> None:
     assert "dashes, slashes, ellipses" in block
     assert '"one twenty rupees"' in block and "never ₹ or digits" in block
     assert 'never "uhm"' in block
-    # English words stay in English in each language's own register line (D-749).
-    assert "English letters" in register_guidance("te-IN")
+    # English words stay in English letters: Telugu says it in its own line (D-861), Hindi in
+    # its register line (D-749).
+    assert "English letters" in (english_letters_rule("te-IN") or "")
     assert "English letters" in register_guidance("hi-IN")
 
 
@@ -271,3 +278,49 @@ def test_fixing_a_slot_is_a_done_claim() -> None:
     assert claims_done("సాటర్డే మధ్యాహ్నం సైట్ విజిట్ ఫిక్స్ చేశాను.")
     assert claims_done("Slot fix कर दिया है।")
     assert not claims_done("Site visit fix చేయమంటారా?")
+
+
+# --- the trial call of 23 Oct 2026 (D-861) ----------------------------------------------
+
+
+def test_booking_a_visit_without_an_action_is_a_done_claim() -> None:
+    assert claims_done("సరే అండి, శనివారం మధ్యాహ్నం రెండు గంటలకి సైట్ విజిట్ బుక్ చేశాను.")
+
+
+def test_english_words_in_the_callers_letters_are_noted_with_their_spelling() -> None:
+    reply = "సరే అండి, two crores బడ్జెట్ లో మూడు ఆప్షన్స్ ఉన్నాయి. సైట్ విజిట్ ఎప్పుడు కుదురుతుంది?"
+    problems = [
+        p for p in turn_problems(reply, language="te-IN") if p.kind == "english_in_own_letters"
+    ]
+    assert len(problems) == 1
+    note = problems[0].reason
+    assert "“బడ్జెట్” (write “budget”)" in note
+    assert "“సైట్ విజిట్” (write “site visit”)" in note
+    # Named once, as the longer phrase, not again as its two words.
+    assert "“సైట్” (" not in note
+    assert "english_in_own_letters" in SOUND_KINDS
+    # A suffixed form counts; the same words in English letters do not.
+    assert "english_in_own_letters" in _kinds("వాట్సాప్లో పంపిస్తారా?", language="te-IN")
+    clean = "సరే అండి, budget లో మూడు options ఉన్నాయి. Site visit ఎప్పుడు కుదురుతుంది?"
+    assert "english_in_own_letters" not in _kinds(clean, language="te-IN")
+
+
+def test_no_approved_spoken_line_writes_a_listed_word_in_the_languages_letters() -> None:
+    """The list is checked against the language's own approved lines, so a word people say
+    in the language's letters (the filler "ఒక్క సెకండ్") cannot be on it."""
+    for tag in languages():
+        style = style_for(tag)
+        assert style is not None
+        lines = [f.text for f in style.fillers]
+        lines += list((style.openings or {}).values())
+        exchanges = [*style.examples.values(), *style.prompt_examples]
+        lines += [t.text for turns in exchanges for t in turns if t.speaker == "agent"]
+        for line in lines:
+            assert english_in_own_letters(line, tag) == [], (tag, line)
+
+
+def test_a_crore_or_a_clock_time_in_telugu_number_words_is_noted() -> None:
+    for said in ("రెండు కోట్ల budget అండి.", "శనివారం రెండు గంటలకి కుదురుతుందా?"):
+        assert "spoken_number" in _kinds(said, language="te-IN"), said
+    for said in ("two crores budget అండి.", "శనివారం two PM కి కుదురుతుందా?", "రెండు గంటలు పడుతుంది."):
+        assert "spoken_number" not in _kinds(said, language="te-IN"), said

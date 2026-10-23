@@ -35,14 +35,17 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
    The two toggles below govern what is VOLUNTEERED, never what is ANSWERED.
    **They are not the agent's opening line either (D-708).** The opening line is the
    agent's greeting, written in its script (`CallScript.opening_line`). What a caller hears
-   first is the notices switched on, then the opening line
-   (`calevate_shared.engine.compose_first_utterance`); with both off it is the opening line
-   alone. No toggle adds, removes or replaces the opening line, and the notice sentences
-   carry no greeting word of their own.
+   first is the opening line, then the notices switched on, in the same first turn before
+   the caller speaks (`calevate_shared.engine.compose_first_utterance`; founder, 23 Oct
+   2026, D-861, which reversed D-708's notices-first order); with both off it is the opening
+   line alone. The publish read-back and the drift sweep check the greeting field for the
+   whole composed text, so a notice is verified at its new place exactly as before. No
+   toggle adds, removes or replaces the opening line, and the notice sentences carry no
+   greeting word of their own.
 1. **AI disclosure** (TRAI/UCC-side): `agents.ai_disclosure_line` is NOT NULL and
    non-blank on every agent, so the sentence always EXISTS and `check_dispatch` refuses a
-   dial from an agent without one. Whether it is spoken at the start of the call, before
-   the opening line, is
+   dial from an agent without one. Whether it is spoken at the start of the call, right
+   after the opening line, is
    `agents.ai_disclosure_enabled`, a per-agent toggle on inbound and outbound alike,
    defaulting FALSE since D-669 (it was TRUE under D-163). `calls.disclosure_played` records whether it was observed on a call —
    and records NULL, not `false`, for an agent whose owner switched the notice off, since

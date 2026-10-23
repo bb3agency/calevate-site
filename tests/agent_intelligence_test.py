@@ -262,8 +262,11 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # before), which tells the model its opening line was already said; D-849 the
     # greeting-language, cut-off, recall and price rules (5,948 before). D-856 moved the call
     # rules in from `CALL_INSTRUCTIONS` (6,239 before), so what a call reads of ours fell from
-    # 6,239 + 1,112 to 6,802 + 149 (`tests/agent_prompt_budget_test.PER_CALL_MAX`).
-    assert len(prompt) <= 6_802
+    # 6,239 + 1,112 to 6,802 + 149 (`tests/agent_prompt_budget_test.PER_CALL_MAX`). D-861 told
+    # an answering agent its test call opens with another line and to answer the caller's
+    # reply rather than greet again (6,802 before); the per-call platform text it measures
+    # without an opening stayed within `PER_CALL_MAX`.
+    assert len(prompt) <= 6_908
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

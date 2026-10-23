@@ -316,6 +316,23 @@ def _script_rewrite() -> dict[str, str]:
 SCRIPT_REWRITE = _script_rewrite()
 
 
+def _reworded() -> dict[str, tuple[str, str]]:
+    """D-861's (tag -> previous, new) sentences, read from its migration's `_LINES` as source."""
+    path = MIGRATION.parent / "c3e8a1f5d702_memory_sentence_reworded.py"
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.AnnAssign | ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "_LINES"
+            for t in (node.targets if isinstance(node, ast.Assign) else [node.target])
+        ):
+            assert node.value is not None
+            return {tag: (old, new) for tag, old, new in ast.literal_eval(node.value)}
+    raise AssertionError(f"no `_LINES` in {path}")
+
+
+REWORDED = _reworded()
+REWORD = dict(REWORDED.values())
+
+
 def _migration_notices() -> dict[str, str]:
     """The migration's `_NOTICE`, read as SOURCE rather than imported.
 
@@ -343,16 +360,24 @@ def test_the_migrations_copy_of_the_sentences_is_byte_identical() -> None:
     the change and after it would open with different sentences in the same language.
 
     D-745 moved the Telugu and Hindi sentences into their own script, and its migration
-    rewrites exactly the old outputs; so the old copy, carried through that rewrite, is
-    today's table. The staged languages (D-855) came later, with no agent holding one, so
-    the copy is compared over the languages it knew."""
+    rewrites exactly the old outputs, and D-861's rewords them again; so the old copy, carried
+    through both rewrites, is today's table. The staged languages (D-855) came later, with no
+    agent holding one, so the copy is compared over the languages it knew."""
     rewritten = {
-        lang: SCRIPT_REWRITE.get(line, line) for lang, line in _migration_notices().items()
+        lang: REWORD.get(SCRIPT_REWRITE.get(line, line), SCRIPT_REWRITE.get(line, line))
+        for lang, line in _migration_notices().items()
     }
     staged = set(staged_language_tags())
     assert rewritten == {
         tag: line for tag, line in CALLER_MEMORY_NOTICE_TEMPLATES.items() if tag not in staged
     }
+
+
+def test_the_reword_migration_writes_todays_sentence_for_every_language() -> None:
+    """D-861's migration rewrites only an exact previous default, and writes today's: its copy
+    of the new sentences must be the templates, every language, staged ones included."""
+    assert {tag: new for tag, (_old, new) in REWORDED.items()} == CALLER_MEMORY_NOTICE_TEMPLATES
+    assert all(old != new for old, new in REWORDED.values())
 
 
 def _backfill_case(languages: list[str]) -> str:

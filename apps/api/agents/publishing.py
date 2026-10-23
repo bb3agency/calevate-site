@@ -1310,15 +1310,15 @@ _APPLIED_BODY_SQL: Final = (
 _NOTICE_ADDED: Final[dict[str, str]] = {
     "ai_disclosure_enabled": (
         "Saying that it is an AI assistant adds a sentence your agent says at the start of "
-        "every call, before its opening line."
+        "every call, right after its opening line."
     ),
     "recording_notice_enabled": (
         "Saying that the call is recorded adds a sentence your agent says at the start of "
-        "every call, before its opening line."
+        "every call, right after its opening line."
     ),
     "caller_memory_enabled": (
         "Remembering callers adds a sentence your agent says at the start of every call, "
-        "before its opening line, telling callers it keeps a short note."
+        "right after its opening line, telling callers it keeps a short note."
     ),
 }
 
@@ -1341,7 +1341,7 @@ def _refuse_notices_without_room(
         _NOTICE_ADDED[turned_on[0]]
         if len(turned_on) == 1
         else "These notices add sentences your agent says at the start of every call, "
-        "before its opening line."
+        "right after its opening line."
     )
     refuse_notice_without_room(
         engine,

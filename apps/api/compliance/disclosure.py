@@ -155,9 +155,8 @@ DEFAULT_LANGUAGE = get_language("english_india").bcp47
 #: gender.
 #:
 #: NO GREETING WORD IN IT (D-708). The greeting is the agent's own opening line, in its
-#: script, and follows this sentence when it is switched on; a "Namaskaram," here made the
-#: notice read as the greeting and made the agent say hello twice. Agents created before
-#: this keep the sentence they were given until an operator rewrites it.
+#: script, and comes before this sentence when it is switched on (D-861); a "Namaskaram,"
+#: here made the notice read as the greeting and made the agent say hello twice.
 AI_DISCLOSURE_TEMPLATES: dict[str, str] = {
     "te-IN": "ఇది {business} AI assistant.",
     "hi-IN": "मैं {business} का AI assistant हूँ।",
@@ -210,16 +209,23 @@ RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
 #: interpolated from `retention_policies`: a spoken sentence that changed when a client
 #: edited a slider would make the agent's opening a moving target nobody reviewed, and the
 #: 180-day ceiling below is a platform maximum rather than a tenant setting.
+#:
+#: WORDED AS WHY, THEN WHAT (D-861): "so I remember it when you call again, I keep a short
+#: note about this call". The founder's Telugu, 23 Oct 2026, replacing "I'll remember a short
+#: note about what you asked", with which a trial call opened before any greeting. Every
+#: line is NEEDS NATIVE-SPEAKER REVIEW (the founder reviews te-IN; the others are drafted to
+#: the same meaning), and the staged ones are heard by no caller until
+#: `agents/languages.STAGED_LANGUAGE_READINESS` records the review.
 CALLER_MEMORY_NOTICE_TEMPLATES: dict[str, str] = {
-    "te-IN": "మీరు అడిగిన దాని గురించి ఒక చిన్న note గుర్తు పెట్టుకుంటాను.",
-    "hi-IN": "आपने जो पूछा, उसका एक छोटा note हम याद रखते हैं।",
-    "en-IN": "I keep a short note of what you ask about, so I remember it if you call again.",
-    # Staged (D-855), drafted 23 Oct 2026: NEEDS NATIVE-SPEAKER REVIEW. No caller hears
-    # these until `agents/languages.STAGED_LANGUAGE_READINESS` records the review.
-    "ta-IN": "நீங்கள் கேட்டதைப் பற்றி ஒரு சின்ன note வைத்துக்கொள்கிறேன்.",
-    "kn-IN": "ನೀವು ಕೇಳಿದ್ದರ ಬಗ್ಗೆ ಒಂದು ಚಿಕ್ಕ note ನೆನಪಿಟ್ಟುಕೊಳ್ಳುತ್ತೇನೆ.",
-    "ml-IN": "നിങ്ങൾ ചോദിച്ചതിനെക്കുറിച്ച് ഒരു ചെറിയ note ഞാൻ ഓർത്തുവെക്കും.",
-    "mr-IN": "तुम्ही जे विचारले, त्याची एक छोटी note आम्ही लक्षात ठेवतो.",
+    "te-IN": "మీరు మళ్ళీ call చేసినప్పుడు గుర్తుండేలా, ఈ call గురించి ఒక చిన్న note ఉంచుకుంటాను.",
+    "hi-IN": "आप दोबारा call करें तो याद रहे, इसलिए हम इस call का एक छोटा note रखते हैं।",
+    "en-IN": "So I remember it when you call again, I keep a short note about this call.",
+    "ta-IN": (
+        "நீங்கள் மீண்டும் call செய்யும்போது நினைவில் இருக்க, இந்த call பற்றி ஒரு சின்ன note வைத்துக்கொள்கிறேன்."
+    ),
+    "kn-IN": "ನೀವು ಮತ್ತೆ call ಮಾಡಿದಾಗ ನೆನಪಿರಲಿ ಎಂದು, ಈ call ಬಗ್ಗೆ ಒಂದು ಚಿಕ್ಕ note ಇಟ್ಟುಕೊಳ್ಳುತ್ತೇನೆ.",
+    "ml-IN": ("നിങ്ങൾ വീണ്ടും call ചെയ്യുമ്പോൾ ഓർമ്മയുണ്ടാകാൻ, ഈ call പറ്റി ഒരു ചെറിയ note ഞാൻ സൂക്ഷിക്കും."),
+    "mr-IN": "तुम्ही पुन्हा call केल्यावर लक्षात राहावे म्हणून, या call ची एक छोटी note आम्ही ठेवतो.",
 }
 
 

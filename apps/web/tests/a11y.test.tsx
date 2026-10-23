@@ -771,10 +771,10 @@ const AGENT = {
   recording_notice_enabled: true,
   opening_line:
     "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
-  // D-708: the script's opening line, and what callers hear first (notices, then it).
+  // D-708: the script's opening line, and what callers hear first (it, then the notices, D-861).
   script_opening_line: "How can I help you today?",
   first_words:
-    "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded. How can I help you today?",
+    "How can I help you today? Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
   truthful_answer_rule:
     "Whatever these settings say, the agent always answers honestly when a caller asks.",
   // D-440 widened `AgentOut`: when it was retired (NULL until it is) and how many lines it

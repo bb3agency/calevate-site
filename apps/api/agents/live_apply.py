@@ -166,7 +166,8 @@ PLATFORM_PROMPT_REASON: Final = "platform_prompt"
 def platform_prompt_revision() -> str:
     """A short digest of the text every live agent carries that only a deploy can change: the
     platform layers `compose_engine_prompt` wraps around a script, how a script's sections
-    compile to engine steps, our call rules (`CALL_INSTRUCTIONS`, D-850) and the
+    compile to engine steps, our call rules (`CALL_INSTRUCTIONS`, D-850), the order of the
+    greeting field (`join_first_words`) and the
     call-behaviour values every agent is published with (`hosted_platform.PLATFORM_AGENT_VALUES`).
 
     Composed over reference agents rather than read from the constants, so a change in any
@@ -180,7 +181,12 @@ def platform_prompt_revision() -> str:
         native_steps,
         render_steps,
     )
-    from calevate_shared.engine import CALL_INSTRUCTIONS, AgentConfig, compose_engine_prompt
+    from calevate_shared.engine import (
+        CALL_INSTRUCTIONS,
+        AgentConfig,
+        compose_engine_prompt,
+        join_first_words,
+    )
     from calevate_shared.languages import offered_language_tags
 
     script = CallScript(
@@ -227,6 +233,9 @@ def platform_prompt_revision() -> str:
         parts.append(compose_engine_prompt(cfg))
     # Our call rules (D-850), sent beside the prompt while their switch is on.
     parts.append(CALL_INSTRUCTIONS)
+    # How the greeting field orders the opening line and the notices (D-861), which the
+    # reference agents above cannot show: their script has no opening line.
+    parts.append(join_first_words("N", "O"))
     # The fixed call-behaviour values too (filler timing, interruptions, re-ask), so a deploy
     # that changes one republishes every live agent rather than each reading as drift.
     from apps.api.engine.hosted_platform import PLATFORM_AGENT_VALUES

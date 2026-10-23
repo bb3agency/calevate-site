@@ -46,7 +46,7 @@ def test_new_agents_get_the_sentences_in_their_own_script() -> None:
     )
     assert recording_notice_for(language="hi-IN") == "यह call record हो रही है।"
     assert caller_memory_notice_for(language="hi-IN") == (
-        "आपने जो पूछा, उसका एक छोटा note हम याद रखते हैं।"
+        "आप दोबारा call करें तो याद रहे, इसलिए हम इस call का एक छोटा note रखते हैं।"
     )
     # The migration's "new" column is the table, so the two cannot drift apart.
     for _, new_ai, _, new_rec, _, new_mem in _revision()._LINES:

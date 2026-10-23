@@ -66,6 +66,21 @@ def textbook_words(text: str, tag: str | None) -> list[tuple[str, str]]:
     return [(formal, spoken) for formal, spoken in style.word_swaps if _uses_word(text, formal)]
 
 
+def english_in_own_letters(text: str, tag: str | None) -> list[tuple[str, str]]:
+    """(English word in the language's letters, its English spelling) for each word of the
+    language's `english_in_own_letters` list that `text` writes, in list order (D-861). A word
+    counts where a word starts, so a suffixed form ("బడ్జెట్లో") is caught; one inside a longer
+    listed phrase already found ("సైట్" inside "సైట్ విజిట్") is not named twice."""
+    style = style_for(tag)
+    if style is None or not text:
+        return []
+    found: list[tuple[str, str]] = []
+    for native, english in style.english_in_own_letters:
+        if not any(native in earlier for earlier, _ in found) and _uses_word(text, native):
+            found.append((native, english))
+    return found
+
+
 def textbook_note(swaps: Sequence[tuple[str, str]]) -> str:
     """The words and their spoken forms as one phrase: “మరియు” (join with ఇంకా, or leave it
     out); “వివరాలు” (say “details”)."""
@@ -125,6 +140,7 @@ def generation_guidance(
 
 __all__ = [
     "Side",
+    "english_in_own_letters",
     "english_problem",
     "generation_guidance",
     "has_indic_letters",

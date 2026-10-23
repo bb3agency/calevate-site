@@ -82,7 +82,7 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
             "Asked to order or book with no action for it, a good agent takes the details and "
             "says the team will confirm; never expect it to say it is done."
         ),
-        prompt_marker="Never say an order's placed or booked",
+        prompt_marker="Never say anything is booked or done",
     ),
     CallRule(
         key="said_before",

@@ -659,7 +659,7 @@ async def _agent_row(session: AsyncSession, agent_id: UUID) -> AgentOut:
         "for you from the chosen language and start switched off, so a new agent opens "
         "with its own opening line (part of its script). They cannot be supplied here: "
         "every agent on this platform has an AI disclosure on file, and no field on this "
-        "form can change that. Switching a notice on adds it before the opening line; it "
+        "form can change that. Switching a notice on adds it after the opening line; it "
         "never replaces the opening line."
     ),
 )
@@ -1076,7 +1076,7 @@ class DisclosureOut(BaseModel):
         "Each opening notice is separately controllable, per agent, on inbound and "
         "outbound agents alike. A notice switched off means the agent does not VOLUNTEER "
         "that fact at the start of the call. Neither switch changes the agent's opening "
-        "line, which is part of its script: a notice switched on is said before it, and "
+        "line, which is part of its script: a notice switched on is said right after it, and "
         "with both off the opening line is the first thing callers hear.\n\n"
         "It does not change what the agent says when a caller ASKS. Asked whether they "
         "are speaking to a human, the agent says it is an AI assistant. Asked whether "
@@ -1195,7 +1195,7 @@ class CallerMemoryOut(BaseModel):
 
     agent_id: UUID
     enabled: bool
-    #: The notices callers now hear before the opening line. When this is on it GAINS the
+    #: The notices callers now hear after the opening line. When this is on it GAINS the
     #: sentence telling them a
     #: short note is kept; when it goes off it loses it. Shown rather than described, so
     #: the screen and the phone line cannot say different things.
