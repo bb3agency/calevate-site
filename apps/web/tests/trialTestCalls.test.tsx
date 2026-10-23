@@ -144,6 +144,26 @@ describe("the test-call panel", () => {
     expect(screen.getByRole("link", { name: "Open this call" }).getAttribute("href")).toBe("/c/acme/calls/call-t1");
   });
 
+  it("sends the own-number tick, which lets a test call ring outside 9am to 9pm (D-866)", async () => {
+    const agent = agentRow({ id: "agent-out", name: "Caller", direction: "outbound" });
+    const page = await renderClientPage(<TrialCallCard trial={panel()} {...HREFS} />, {
+      "/v1/agents": [agent],
+      "/v1/trial/calls": { status: "queued", call_handle: "out_3", blocked_reason: null, blocked_rule: null },
+      "/v1/me": OWNER_ME,
+      "/v1/calls?agent_id=agent-out&limit=1": [],
+    });
+    await screen.findByRole("option", { name: "Caller" });
+    fireEvent.change(screen.getByPlaceholderText("9876543210 or +919876543210"), {
+      target: { value: "9876543210" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /This number is my own/ }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Make a test call" }));
+    });
+    const post = page.calls.find((call) => call.method === "POST" && call.path === "/v1/trial/calls");
+    expect(JSON.parse(post!.body!)).toEqual({ agent_id: "agent-out", number: "9876543210", number_is_mine: true });
+  });
+
   it("asks for the promise first, and does not offer a call the server would refuse", async () => {
     await renderClientPage(
       <TrialCallCard

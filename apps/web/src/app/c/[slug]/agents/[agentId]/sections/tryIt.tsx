@@ -20,8 +20,10 @@
  */
 
 import Link from "next/link";
+import { useState } from "react";
 import { PhoneOutgoing } from "lucide-react";
 
+import { DefaultCheckbox } from "@/components/callHandlingRows";
 import { Section } from "@/components/console/section";
 import { FIELD_INLINE, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { canTestCall, isAnsweringNow } from "@/lib/agentState";
@@ -115,6 +117,7 @@ function TrialTestCall({
   const session = useClientSession();
   const panel = useTrialPanel(session);
   const place = usePlaceTrialCall(session);
+  const [numberIsMine, setNumberIsMine] = useState(false);
 
   let body;
   if (panel.isPending) body = <Skeleton rows={1} label="Checking your test calls" />;
@@ -128,7 +131,7 @@ function TrialTestCall({
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          if (ready) place.mutate({ agentId: agent.id, number: number.trim() });
+          if (ready) place.mutate({ agentId: agent.id, number: number.trim(), numberIsMine });
         }}
       >
         <div className="flex flex-wrap items-end gap-3">
@@ -153,6 +156,14 @@ function TrialTestCall({
             {place.isPending ? "Calling…" : "Ring my phone"}
           </button>
         </div>
+        <DefaultCheckbox
+          label="This number is my own. Test calls to it can ring at any hour."
+          checked={numberIsMine}
+          onChange={(on) => {
+            setNumberIsMine(on);
+            place.reset();
+          }}
+        />
         <p className="text-meta text-ink-muted">
           {trial.calls_today} of {trial.daily_cap} test calls used today.
         </p>

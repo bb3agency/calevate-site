@@ -13,6 +13,7 @@ import {
   ProblemNotice,
   formatIST,
 } from "@/components/ui";
+import { DefaultCheckbox } from "@/components/callHandlingRows";
 import { RowLink } from "@/components/console/checklist";
 import { TEXT_ACTION } from "@/components/console/section";
 import { canTestCall, isDeleted } from "@/lib/agentState";
@@ -104,6 +105,7 @@ export function TrialCallCard({
   const place = usePlaceTrialCall(session);
   const [agentId, setAgentId] = useState("");
   const [number, setNumber] = useState("");
+  const [numberIsMine, setNumberIsMine] = useState(false);
 
   // Every agent can be test-called, including a draft and one that only answers calls: a
   // draft is got ready first (the same `/prepare` the first run uses), and the server says in
@@ -119,7 +121,7 @@ export function TrialCallCard({
 
   const call = async () => {
     if (chosenAgent && !canTestCall(chosenAgent)) await prepare.mutateAsync("prepare");
-    place.mutate({ agentId: chosen, number: number.trim() });
+    place.mutate({ agentId: chosen, number: number.trim(), numberIsMine });
   };
 
   return (
@@ -140,8 +142,8 @@ export function TrialCallCard({
             ? "Ring your own phone from one of your agents. It calls from your own number once the agent has one, and from a shared Calevate number until then. Test calls are billed like any call. "
             : "Try your agent on a real phone: pick an agent, type an Indian number, and it calls that number from a shared Calevate number, opening with its usual greeting. "}
           Each test call ends after {minutesText(trial.max_call_seconds)}. The do-not-call list
-          and calling hours (9am to 9pm) still apply, and the agent always says it is an AI when
-          asked.
+          still applies, calls go out between 9am and 9pm unless the number is your own, and the
+          agent always says it is an AI when asked.
         </p>
         {!trial.pledge_accepted && (
           <NoticeBox
@@ -218,6 +220,16 @@ export function TrialCallCard({
             <PhoneOutgoing aria-hidden className="h-4 w-4" />
             {prepare.isPending ? "Getting it ready…" : place.isPending ? "Calling…" : "Make a test call"}
           </button>
+          <div className="basis-full">
+            <DefaultCheckbox
+              label="This number is my own. Test calls to it can ring at any hour."
+              checked={numberIsMine}
+              onChange={(on) => {
+                setNumberIsMine(on);
+                place.reset();
+              }}
+            />
+          </div>
         </form>
 
         {place.data?.status === "queued" && (
