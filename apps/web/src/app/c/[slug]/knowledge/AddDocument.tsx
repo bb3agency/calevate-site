@@ -3,13 +3,13 @@
 import { useId, useState } from "react";
 import { Link2 } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { FileDrop } from "@/components/fileDrop";
 
 import {
   FIELD_HINT,
   FIELD_INLINE,
   FIELD_LABEL,
-  PRIMARY_BUTTON,
   ProblemNotice,
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
@@ -50,6 +50,11 @@ export function AddDocument({
   const session = useClientSession();
   const upload = useUploadDocument(session);
   const link = useAddLink(session);
+  // Both refusals are drawn beside their control (ProblemNotice), so no toast repeats
+  // them. The upload's pending face is FileDrop's progress row; its success is the new
+  // row in the upload list below.
+  useActionFeedback(upload, { errorDisplay: "inline" });
+  const linkFeedback = useActionFeedback(link, { errorDisplay: "inline" });
 
   const urlInputId = useId();
   const [progress, setProgress] = useState<UploadProgress | null>(null);
@@ -137,16 +142,18 @@ export function AddDocument({
                   className={`${FIELD_INLINE} w-full pl-8`}
                 />
               </div>
-              <button
+              <ActionButton
                 type="submit"
+                status={linkFeedback.status}
+                pendingLabel="Adding…"
+                successLabel="Added"
                 /* The empty-address rule is NOT repeated here: pressing answers in words,
                    where a dead button answers with nothing. */
-                disabled={!allowed || link.isPending}
+                disabled={!allowed}
                 title={reason ?? undefined}
-                className={PRIMARY_BUTTON}
               >
-                {link.isPending ? "Adding…" : "Add page"}
-              </button>
+                Add page
+              </ActionButton>
             </div>
             {valid.error("url")}
             <span className={FIELD_HINT}>

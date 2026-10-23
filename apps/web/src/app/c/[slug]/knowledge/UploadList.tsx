@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CheckCircle2, FileText, Globe, ImageIcon, Trash2 } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { RowMenu } from "@/components/arc/menu";
 import { TaskSteps } from "@/components/interior/task-steps";
 import {
@@ -45,6 +46,13 @@ export function UploadRow({ upload }: { upload: KbUpload }) {
   const state = uploadState(shown);
   const remove = useDeleteUpload(session);
   const original = useOriginalLink(session);
+  // The row leaves the list on success, so the toast is the only place left to say it.
+  const removeFeedback = useActionFeedback(remove, {
+    errorDisplay: "inline",
+    successToast: `Removed ${shown.name}`,
+  });
+  // Its pending face is the menu item's "Opening…"; the refusal is drawn under the row.
+  useActionFeedback(original, { errorDisplay: "inline" });
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
   const [reviewing, setReviewing] = useState(false);
 
@@ -146,7 +154,8 @@ export function UploadRow({ upload }: { upload: KbUpload }) {
           title={`Remove ${shown.name}?`}
           confirmLabel="Remove it"
           pendingLabel="Removing…"
-          pending={remove.isPending}
+          status={removeFeedback.status}
+          successLabel="Removed"
           error={remove.error}
           onCancel={() => setConfirmingRemoval(false)}
           onConfirm={() => remove.mutate(shown.id, { onSuccess: () => setConfirmingRemoval(false) })}
@@ -197,6 +206,12 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
     "publish what we read under this account's name",
   );
   const discard = useDeleteUpload(session);
+  const confirmFeedback = useActionFeedback(confirm, { errorDisplay: "inline" });
+  // This panel closes on success, so the toast says what happened.
+  const discardFeedback = useActionFeedback(discard, {
+    errorDisplay: "inline",
+    successToast: `Threw away what we read from ${upload.name}`,
+  });
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 
   return (
@@ -238,16 +253,18 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
       <RestrictionNote reason={approve.reason} />
 
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          disabled={!approve.allowed || confirm.isPending}
+        <ActionButton
+          variant="primary-sm"
+          status={confirmFeedback.status}
+          pendingLabel="Saving…"
+          successLabel="Confirmed"
+          disabled={!approve.allowed}
           title={approve.reason ?? undefined}
           onClick={() => confirm.mutate(upload.id, { onSuccess: onDone })}
-          className={PRIMARY_BUTTON_SM}
         >
           <CheckCircle2 aria-hidden className="h-3 w-3" />
-          {confirm.isPending ? "Saving…" : "Yes, this is right"}
-        </button>
+          Yes, this is right
+        </ActionButton>
         <button
           type="button"
           onClick={() => setConfirmingDiscard(true)}
@@ -263,7 +280,8 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
           title={`Throw away what we read from ${upload.name}?`}
           confirmLabel="Throw it away"
           pendingLabel="Removing…"
-          pending={discard.isPending}
+          status={discardFeedback.status}
+          successLabel="Thrown away"
           error={discard.error}
           onCancel={() => setConfirmingDiscard(false)}
           onConfirm={() =>

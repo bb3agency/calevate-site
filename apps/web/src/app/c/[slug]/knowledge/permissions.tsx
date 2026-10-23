@@ -1,5 +1,6 @@
 "use client";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ProblemNotice, RestrictionNote, Skeleton, ToggleSwitch } from "@/components/ui";
 import { useMe, type WriteAccess } from "@/lib/api/hooks";
 import { useSetStaffCuration, useStaffCuration } from "@/lib/api/kb";
@@ -27,6 +28,8 @@ export function StaffCurationSwitch({ write }: { write: WriteAccess }) {
   const session = useClientSession();
   const curation = useStaffCuration(session);
   const setCuration = useSetStaffCuration(session);
+  // The switch's own position is the success; the refusal is drawn under it.
+  useActionFeedback(setCuration, { errorDisplay: "inline" });
 
   if (curation.isPending) return <Skeleton rows={1} label="Checking who may add knowledge…" />;
   if (curation.isError) {

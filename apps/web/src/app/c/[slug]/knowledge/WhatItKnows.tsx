@@ -1,15 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useMemo, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, Pin, Search } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, Pin } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { SearchField } from "@/components/arc/search-field";
+import { EmptyState } from "@/components/console/emptyState";
 import { Section } from "@/components/console/section";
 import {
   FIELD,
-  FIELD_INLINE_ICON,
   FIELD_LABEL,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -64,7 +65,7 @@ export function WhatItKnows({
   const session = useClientSession();
   const knows = useKnows(session);
   const [query, setQuery] = useState("");
-  const searchId = useId();
+  const clearQuery = () => setQuery("");
 
   const pinned = useMemo(() => knows.data?.facts.filter((f) => f.pinned) ?? [], [knows.data]);
   const other = useMemo(() => knows.data?.facts.filter((f) => !f.pinned) ?? [], [knows.data]);
@@ -72,8 +73,10 @@ export function WhatItKnows({
   if (knows.isLoading) return <Skeleton rows={5} label="Loading what your agents know" />;
   if (knows.error || !knows.data) {
     return (
-      <ProblemNotice
-        error={knows.error ?? new Error("We could not load what your agents know.")}
+      <EmptyState
+        variant="error"
+        message="We could not load what your agents know."
+        error={knows.error}
         onRetry={() => void knows.refetch()}
       />
     );
@@ -89,20 +92,14 @@ export function WhatItKnows({
       <p className="text-meta text-ink-muted">Every one of your agents knows all of this.</p>
 
       {!empty ? (
-        <div className="relative max-w-sm">
-          <label htmlFor={searchId} className="sr-only">
-            Search what your agents know
-          </label>
-          <Search aria-hidden className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-faint" />
-          <input
-            id={searchId}
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search"
-            className={`${FIELD_INLINE_ICON} w-full`}
-          />
-        </div>
+        <SearchField
+          label="Search what your agents know"
+          hideLabel
+          value={query}
+          onValueChange={setQuery}
+          placeholder="Search"
+          className="max-w-sm"
+        />
       ) : null}
 
       <PinnedFacts
@@ -110,6 +107,7 @@ export function WhatItKnows({
         all={pinned}
         canWrite={canWrite}
         filtered={query.trim() !== ""}
+        onClearFilter={clearQuery}
         notYetOn={knows.data.pinned_not_yet_on}
       />
 
@@ -126,9 +124,11 @@ export function WhatItKnows({
         }
       >
         {shownOther.length === 0 ? (
-          <p className="text-meta text-ink-muted">
-            {other.length ? "No facts match." : "Facts you teach above appear here."}
-          </p>
+          other.length ? (
+            <NoMatch message="No facts match your search." onClear={clearQuery} />
+          ) : (
+            <p className="text-meta text-ink-muted">Facts you teach above appear here.</p>
+          )
         ) : (
           <ul className="divide-y divide-line border-y border-line">
             {shownOther.map((fact) => (
@@ -140,9 +140,11 @@ export function WhatItKnows({
 
       <Section title="Documents, photos and pages" headingLevel={3}>
         {shownItems.length === 0 ? (
-          <p className="text-meta text-ink-muted">
-            {knows.data.items.length ? "Nothing matches." : "Add these under Files and pages."}
-          </p>
+          knows.data.items.length ? (
+            <NoMatch message="No documents, photos or pages match your search." onClear={clearQuery} />
+          ) : (
+            <p className="text-meta text-ink-muted">Add these under Files and pages.</p>
+          )
         ) : (
           <ul className="divide-y divide-line border-y border-line">
             {shownItems.map((item) => (
@@ -154,6 +156,20 @@ export function WhatItKnows({
 
       <SourcesList sources={sources} only="facts" />
     </div>
+  );
+}
+
+/** A list the search emptied: says so, and offers the way back. */
+function NoMatch({ message, onClear }: { message: string; onClear: () => void }) {
+  return (
+    <EmptyState
+      variant="filtered"
+      align="start"
+      className="py-4"
+      message={message}
+      onClear={onClear}
+      clearLabel="Clear the search"
+    />
   );
 }
 
@@ -184,12 +200,14 @@ function PinnedFacts({
   all,
   canWrite,
   filtered,
+  onClearFilter,
   notYetOn,
 }: {
   facts: Fact[];
   all: Fact[];
   canWrite: boolean;
   filtered: boolean;
+  onClearFilter: () => void;
   /** Agents whose live instructions do not carry these facts yet, with the server's reason. */
   notYetOn: PinnedNotYetOn[];
 }) {
@@ -197,13 +215,20 @@ function PinnedFacts({
   const { href } = useClientRealm();
   const [adding, setAdding] = useState(false);
   const reorder = useReorderPinned(session);
+  // The refusal is drawn above the list; the new order is the success.
+  const reorderFeedback = useActionFeedback(reorder, { errorDisplay: "inline" });
+  /** Which arrow was pressed, so only that one shows the move's state. */
+  const [pressed, setPressed] = useState<string | null>(null);
 
   const move = (index: number, by: -1 | 1) => {
     const ids = all.map((f) => f.id);
     const [moved] = ids.splice(index, 1);
     ids.splice(index + by, 0, moved!);
-    reorder.mutate(ids);
+    setPressed(`${moved}:${by}`);
+    reorderFeedback.run(ids);
   };
+  const arrowStatus = (id: string, by: -1 | 1) =>
+    pressed === `${id}:${by}` ? reorderFeedback.status : "idle";
 
   return (
     <Section
@@ -249,9 +274,11 @@ function PinnedFacts({
         </ul>
       ) : null}
       {facts.length === 0 && !adding ? (
-        <p className="text-meta text-ink-muted">
-          {all.length ? "No pinned facts match." : "Nothing pinned yet. Pin a fact when you teach it."}
-        </p>
+        all.length && filtered ? (
+          <NoMatch message="No pinned facts match your search." onClear={onClearFilter} />
+        ) : (
+          <p className="text-meta text-ink-muted">Nothing pinned yet. Pin a fact when you teach it.</p>
+        )
       ) : (
         <ul className="divide-y divide-line border-y border-line" aria-label="Pinned facts">
           {facts.map((fact) => {
@@ -264,24 +291,33 @@ function PinnedFacts({
                 ordering={
                   canWrite && !filtered && all.length > 1 ? (
                     <span className="flex gap-1">
-                      <button
-                        type="button"
+                      {/* Icon-only faces (null labels) keep each arrow its own width. */}
+                      <ActionButton
+                        variant="secondary-sm"
                         aria-label="Move up"
-                        className={SECONDARY_BUTTON_SM}
-                        disabled={index === 0 || reorder.isPending}
+                        status={arrowStatus(fact.id, -1)}
+                        pendingLabel={null}
+                        successLabel={null}
+                        errorLabel={null}
+                        disabled={index === 0 || (reorder.isPending && arrowStatus(fact.id, -1) !== "pending")}
                         onClick={() => move(index, -1)}
                       >
                         <ArrowUp aria-hidden className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
+                      </ActionButton>
+                      <ActionButton
+                        variant="secondary-sm"
                         aria-label="Move down"
-                        className={SECONDARY_BUTTON_SM}
-                        disabled={index === all.length - 1 || reorder.isPending}
+                        status={arrowStatus(fact.id, 1)}
+                        pendingLabel={null}
+                        successLabel={null}
+                        errorLabel={null}
+                        disabled={
+                          index === all.length - 1 || (reorder.isPending && arrowStatus(fact.id, 1) !== "pending")
+                        }
                         onClick={() => move(index, 1)}
                       >
                         <ArrowDown aria-hidden className="h-3.5 w-3.5" />
-                      </button>
+                      </ActionButton>
                     </span>
                   ) : null
                 }
@@ -299,6 +335,8 @@ function PinnedForm({ onDone }: { onDone: () => void }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const add = useAddFact(session);
+  // The form closes on success and the fact appears in the list; a refusal stays here.
+  const addFeedback = useActionFeedback(add, { errorDisplay: "inline" });
   // A question and its answer written as one pair (D-827), so the answer always fits the
   // question shown above it.
   const eg = useVerticalExamples();
@@ -308,7 +346,7 @@ function PinnedForm({ onDone }: { onDone: () => void }) {
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
-        if (answer.trim())
+        if (answer.trim() && !add.isPending)
           add.mutate(
             { text: answer.trim(), question: question.trim() || null, pinned: true },
             { onSuccess: onDone },
@@ -342,9 +380,16 @@ function PinnedForm({ onDone }: { onDone: () => void }) {
       </div>
       {add.error ? <ProblemNotice error={add.error} /> : null}
       <div className="flex gap-2">
-        <button type="submit" className={PRIMARY_BUTTON_SM} disabled={!answer.trim() || add.isPending}>
-          {add.isPending ? "Adding…" : "Add"}
-        </button>
+        <ActionButton
+          type="submit"
+          variant="primary-sm"
+          status={addFeedback.status}
+          pendingLabel="Adding…"
+          successLabel="Added"
+          disabled={!answer.trim()}
+        >
+          Add
+        </ActionButton>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
           Cancel
         </button>
@@ -365,6 +410,14 @@ function FactRow({
   const session = useClientSession();
   const edit = useEditFact(session);
   const remove = useRemoveFact(session);
+  const editFeedback = useActionFeedback(edit, { errorDisplay: "inline" });
+  // The row leaves the list on success, so the toast is where that is said.
+  const removeFeedback = useActionFeedback(remove, {
+    errorDisplay: "inline",
+    successToast: "Fact removed",
+  });
+  /** `edit` both saves the text and pins; only the control that started it shows its state. */
+  const [editKind, setEditKind] = useState<"text" | "pin">("text");
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(fact.text);
   const [question, setQuestion] = useState(fact.question ?? "");
@@ -379,7 +432,8 @@ function FactRow({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            if (!text.trim()) return;
+            if (!text.trim() || busy) return;
+            setEditKind("text");
             edit.mutate(
               {
                 id: fact.id,
@@ -407,9 +461,16 @@ function FactRow({
             className={`${FIELD} mt-0`}
           />
           <div className="flex gap-2">
-            <button type="submit" className={PRIMARY_BUTTON_SM} disabled={busy || !text.trim()}>
-              {edit.isPending ? "Saving…" : "Save"}
-            </button>
+            <ActionButton
+              type="submit"
+              variant="primary-sm"
+              status={editKind === "text" ? editFeedback.status : "idle"}
+              pendingLabel="Saving…"
+              successLabel="Saved"
+              disabled={!text.trim() || remove.isPending}
+            >
+              Save
+            </ActionButton>
             <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setEditing(false)}>
               Cancel
             </button>
@@ -430,22 +491,28 @@ function FactRow({
               <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setEditing(true)} disabled={busy}>
                 Edit
               </button>
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                disabled={busy}
-                onClick={() => edit.mutate({ id: fact.id, pinned: !fact.pinned })}
+              <ActionButton
+                variant="secondary-sm"
+                status={editKind === "pin" ? editFeedback.status : "idle"}
+                successLabel={fact.pinned ? "Pinned" : "Unpinned"}
+                disabled={remove.isPending || (edit.isPending && editKind !== "pin")}
+                onClick={() => {
+                  setEditKind("pin");
+                  editFeedback.run({ id: fact.id, pinned: !fact.pinned });
+                }}
               >
                 {fact.pinned ? "Unpin" : "Pin"}
-              </button>
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                disabled={busy}
-                onClick={() => remove.mutate(fact.id)}
+              </ActionButton>
+              <ActionButton
+                variant="secondary-sm"
+                status={removeFeedback.status}
+                pendingLabel="Removing…"
+                successLabel="Removed"
+                disabled={edit.isPending}
+                onClick={() => removeFeedback.run(fact.id)}
               >
-                {remove.isPending ? "Removing…" : "Remove"}
-              </button>
+                Remove
+              </ActionButton>
             </div>
           ) : null}
         </div>
