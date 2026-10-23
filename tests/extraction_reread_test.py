@@ -195,3 +195,49 @@ async def test_a_call_past_the_day_or_too_young_is_not_read_again(
 
 def _now() -> datetime:
     return datetime.now(UTC) + timedelta(seconds=1)
+
+
+async def test_a_call_the_rereads_gave_up_on_stops_paging_that_leads_are_late(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """21-22 Oct 2026: `postcall_pipeline_stalled` paged on every tick for 43 hours. A
+    provider-failed reading past its last re-read was still "owed" to the stall alarm until
+    a day after the call ended, though nothing automatic would ever change it."""
+    tenant_id, call_id = await _failed_call("gaveup", monkeypatch)
+
+    async def _this_tenant() -> list[UUID]:
+        return [tenant_id]
+
+    fired: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(dispatcher, "callable_tenants", _this_tenant)
+    monkeypatch.setattr(dispatcher, "alert", lambda _stage, code, **kw: fired.append((code, kw)))
+
+    assert await dispatcher.report_stalled_pipeline({}) == "stalled=1 unreached=0"
+    assert fired[-1][0] == "postcall_pipeline_stalled"
+    assert fired[-1][1]["call_id"] == str(call_id), "the page names a call to look up"
+    assert fired[-1][1]["tenant_id"] == str(tenant_id)
+
+    async def _set(assignment: str) -> None:
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text(f"UPDATE call_extractions SET {assignment} WHERE call_id = :c"),
+                {"c": call_id},
+            )
+
+    await _set(f"reread_attempts = {extraction_reread.REREAD_MAX_ATTEMPTS - 1}")
+    assert await _stalled(tenant_id) == 1, "a re-read is still to come"
+
+    await _set(f"reread_attempts = {extraction_reread.REREAD_MAX_ATTEMPTS}")
+    assert await _stalled(tenant_id) == 0, "spent tries are extraction_reread_exhausted's"
+    fired.clear()
+    assert await dispatcher.report_stalled_pipeline({}) == "stalled=0 unreached=0"
+    assert fired == []
+    async with tenant_session(tenant_id) as session:
+        assert await extraction_reread.exhausted_rereads(session, now=_now()) == [call_id]
+
+    # The runbook's repair puts the call back in the re-read's hands, and in this count.
+    await _set("reread_attempts = 0")
+    assert await _stalled(tenant_id) == 1
+
+    await _set("scrubbed_at = now()")
+    assert await _stalled(tenant_id) == 0, "a destroyed reading is never read again"

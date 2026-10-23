@@ -96,6 +96,15 @@ _FAILED_READ_SQL: Final = (
     "  AND COALESCE(c.ended_at, c.created_at) > :window_start "
 )
 
+#: A `call_extractions` row (alias `e`) this sweep will not read again: its tries are spent
+#: or its contents were destroyed. `dispatcher._count_stalled` leaves such a provider
+#: failure to `extraction_reread_exhausted`, which names the call; counted there too, one
+#: call the model could not read paged "leads are late" every 30 minutes until a day after
+#: it ended, with nothing left that would change it (21-22 Oct 2026).
+REREAD_FINISHED_SQL: Final = (
+    f"(e.reread_attempts >= {REREAD_MAX_ATTEMPTS} OR e.scrubbed_at IS NOT NULL)"
+)
+
 _DUE_SQL: Final = (
     "SELECT ce.call_id, ce.reread_attempts "
     + _FAILED_READ_SQL
@@ -411,6 +420,7 @@ async def sweep_failed_extractions(ctx: dict[str, Any]) -> str:
 
 
 __all__ = [
+    "REREAD_FINISHED_SQL",
     "REREAD_JOB",
     "REREAD_MAX_ATTEMPTS",
     "REREAD_PER_SWEEP",

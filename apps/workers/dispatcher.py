@@ -39,6 +39,7 @@ from apps.api.reliability.service import (
     sweep_idempotency,
 )
 from apps.workers.extraction import MODEL_FAILURE
+from apps.workers.extraction_reread import REREAD_FINISHED_SQL
 from apps.workers.fleet_walk import FLEET_WALK_DEADLINE, WalkBudget
 from apps.workers.pipeline import EXTRACTION_OWED_SQL, PIPELINE_STALL_AFTER, callable_tenants
 
@@ -169,7 +170,13 @@ async def sweep_expired(ctx: dict[str, Any]) -> str:
 
 
 async def _count_stalled(session: AsyncSession) -> int:
-    """Completed calls this tenant is still owed an extraction for.
+    """How many completed calls this tenant is still owed an extraction for."""
+    return (await _stalled_calls(session))[0]
+
+
+async def _stalled_calls(session: AsyncSession) -> tuple[int, UUID | None]:
+    """Completed calls this tenant is still owed an extraction for, and the oldest one's id
+    so the alarm names a call an operator can look up.
 
     MUST run inside a `tenant_session`. Counts only — no phone numbers, no transcript
     text ever leaves this query (hard rule 6).
@@ -185,13 +192,15 @@ async def _count_stalled(session: AsyncSession) -> int:
     used to be the only sign of, so what is left in it should be the residue that needs
     a human, not the calls that were never broken.
 
-    A row that records only a provider failure (`errors._model`) is not an extraction: the
-    call has no reading, and `extraction_reread` is still trying to give it one (D-841).
+    A row that records only a provider failure (`errors._model`) is not an extraction while
+    `extraction_reread` is still trying to give the call one (D-841). Once its tries are
+    spent (`REREAD_FINISHED_SQL`) nothing automatic will change the call, so it belongs to
+    `extraction_reread_exhausted`, which names it, and not to this page (D-857).
     """
-    stalled = (
+    row = (
         await session.execute(
             text(
-                "SELECT count(*) FROM calls c "
+                "SELECT count(*), (array_agg(c.id ORDER BY c.ended_at, c.id))[1] FROM calls c "
                 # LEFT, so a call whose agent row was removed still counts on its
                 # transcript alone rather than vanishing from the alarm.
                 "LEFT JOIN agents a ON a.id = c.agent_id AND a.tenant_id = c.tenant_id "
@@ -200,7 +209,8 @@ async def _count_stalled(session: AsyncSession) -> int:
                 "AND c.ended_at < now() - make_interval(mins => :after) "
                 "AND c.ended_at > now() - make_interval(hours => :window) "
                 "AND NOT EXISTS (SELECT 1 FROM call_extractions e WHERE e.call_id = c.id "
-                "  AND (e.errors ->> :model_failure) IS NULL) "
+                "  AND ((e.errors ->> :model_failure) IS NULL "
+                f"       OR {REREAD_FINISHED_SQL})) "
                 f"AND {EXTRACTION_OWED_SQL}"
             ),
             {
@@ -209,8 +219,8 @@ async def _count_stalled(session: AsyncSession) -> int:
                 "model_failure": MODEL_FAILURE,
             },
         )
-    ).scalar()
-    return int(stalled or 0)
+    ).one()
+    return int(row[0] or 0), row[1]
 
 
 async def report_stalled_pipeline(ctx: dict[str, Any]) -> str:
@@ -237,11 +247,12 @@ async def report_stalled_pipeline(ctx: dict[str, Any]) -> str:
     total = 0
     tenants_affected = 0
     unreached = 0
+    named: dict[str, str] = {}
     tenants = await callable_tenants()
     for tenant_id in tenants:
         try:
             async with tenant_session(tenant_id) as session:
-                stalled = await _count_stalled(session)
+                stalled, oldest = await _stalled_calls(session)
         except Exception:
             # The id, never the exception's payload: a psycopg error string can quote the
             # row that broke it, and these rows are calls (hard rule 6).
@@ -251,6 +262,8 @@ async def report_stalled_pipeline(ctx: dict[str, Any]) -> str:
         if stalled:
             total += stalled
             tenants_affected += 1
+            if not named and oldest is not None:
+                named = {"tenant_id": str(tenant_id), "call_id": str(oldest)}
     if total or unreached:
         alert(
             "WORKER_STALL",
@@ -264,6 +277,7 @@ async def report_stalled_pipeline(ctx: dict[str, Any]) -> str:
                     else ""
                 )
             ),
+            **named,
         )
     return f"stalled={total} unreached={unreached}"
 
