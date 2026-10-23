@@ -5,6 +5,7 @@ import { CheckCircle2, Lock } from "lucide-react";
 
 import { MonoValue } from "@/app/admin/ops/opsLanguage";
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Drawer } from "@/components/console/drawer";
 import { TEXT_ACTION } from "@/components/console/section";
@@ -254,6 +255,7 @@ function ResetDialog({
   onWritten: (write: ConfigWrite) => void;
 }) {
   const revert = useRevertConfig();
+  const revertFeedback = useActionFeedback(revert, { errorDisplay: "inline" });
   const [confirm, setConfirm] = useState("");
   const high = field.control.risk === "high";
   const phrase = confirmPhrase(field, field.default);
@@ -266,7 +268,8 @@ function ResetDialog({
       title={field.default === null ? `Clear ${field.label}?` : `Reset ${field.label} to its default?`}
       confirmLabel={label}
       pendingLabel="Saving…"
-      pending={revert.isPending}
+      status={revertFeedback.status}
+      successLabel="Reset"
       confirmDisabled={!ready}
       error={null}
       onCancel={onClose}

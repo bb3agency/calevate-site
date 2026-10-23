@@ -36,6 +36,7 @@ import TenantLeadDetailsPage from "@/app/admin/tenants/[tenantId]/lead-details/p
 import TenantAgentsPage from "@/app/admin/tenants/[tenantId]/agents/page";
 import TenantMembersPage from "@/app/admin/tenants/[tenantId]/members/page";
 import HeldAccountsPage from "@/app/admin/holds/page";
+import AnnouncementsPage from "@/app/admin/announcements/page";
 import KycReviewsPage from "@/app/admin/kyc-reviews/page";
 import NewClientPage from "@/app/admin/new/page";
 import GlobalDncPage from "@/app/admin/ops/dnc/page";
@@ -4089,6 +4090,51 @@ const ADMIN_SCREENS: Screen[] = [
     realm: "admin",
     element: () => <HeldAccountsPage />,
     routes: { "/v1/admin/compliance/holds": [HELD_TENANT] },
+  },
+  {
+    file: "admin/announcements/page.tsx",
+    realm: "admin",
+    element: () => <AnnouncementsPage />,
+    routes: {
+      "/v1/admin/me": { ...ADMIN_ME, permissions: ["admin:tenants"] },
+      "/v1/admin/announcements": {
+        total: 2,
+        items: [
+          {
+            id: "a1",
+            message: "Planned maintenance on Sunday 26 Oct, 02:00 to 03:00 IST. Calls may drop.",
+            link_url: "/status",
+            link_label: "Status page",
+            tone: "warning",
+            audience: "all",
+            target_tenant_id: null,
+            target_tenant_name: null,
+            starts_at: "2026-10-24T03:30:00Z",
+            ends_at: "2026-10-26T21:30:00Z",
+            ended_at: null,
+            state: "showing",
+            created_at: "2026-10-24T03:00:00Z",
+            updated_at: "2026-10-24T03:00:00Z",
+          },
+          {
+            id: "a2",
+            message: "Your new number is ready.",
+            link_url: null,
+            link_label: null,
+            tone: "success",
+            audience: "tenant",
+            target_tenant_id: "t1",
+            target_tenant_name: "Sri Traders",
+            starts_at: "2026-10-27T03:30:00Z",
+            ends_at: null,
+            ended_at: null,
+            state: "scheduled",
+            created_at: "2026-10-24T03:00:00Z",
+            updated_at: "2026-10-24T03:00:00Z",
+          },
+        ],
+      },
+    },
   },
   {
     file: "admin/assistant/page.tsx",

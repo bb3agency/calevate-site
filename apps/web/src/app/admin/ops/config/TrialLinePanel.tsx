@@ -1,7 +1,7 @@
 "use client";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { NoticeBox, ProblemNotice } from "@/components/ui";
-import { TEXT_ACTION } from "@/components/console/section";
 import { useSetUpTrialLine, type TrialLine } from "@/lib/api/opsTrialNumber";
 
 /**
@@ -23,6 +23,11 @@ const STATE_WORDS: Record<TrialLine["state"], string> = {
 
 export function TrialLinePanel({ line }: { line: TrialLine }) {
   const setUp = useSetUpTrialLine();
+  // The button leaves once the line is ready, so the outcome is also said in a toast.
+  const setUpFeedback = useActionFeedback(setUp, {
+    errorDisplay: "inline",
+    successToast: "Trial line set up",
+  });
   const shown = setUp.data ?? line;
   return (
     <NoticeBox
@@ -30,9 +35,15 @@ export function TrialLinePanel({ line }: { line: TrialLine }) {
       title="When someone rings this number back"
       action={
         shown.state !== "ready" ? (
-          <button type="button" className={TEXT_ACTION} disabled={setUp.isPending} onClick={() => setUp.mutate()}>
-            {setUp.isPending ? "Setting it up…" : "Set it up now"}
-          </button>
+          <ActionButton
+            variant="secondary-sm"
+            status={setUpFeedback.status}
+            pendingLabel="Setting it up…"
+            successLabel="Set up"
+            onClick={() => setUpFeedback.run()}
+          >
+            Set it up now
+          </ActionButton>
         ) : undefined
       }
     >

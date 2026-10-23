@@ -10,7 +10,9 @@ import {
   RestrictionNote,
   istInputToInstant,
 } from "@/components/ui";
-import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { IstDateTimeField } from "@/components/admin/istDateTimeField";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { MoneyInput } from "@/components/arc/money-input";
 import { FieldMessage, wholeNumberProblem } from "@/components/formValidation";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import type { useAdminAccess } from "@/app/admin/access";
@@ -45,19 +47,29 @@ const COPILOT_FIELDS: readonly FlatFieldSpec<keyof Draft & string>[] = [
   { id: "terms-concurrency", key: "concurrency_ceiling", label: "Concurrent calls", type: "number", help: "Engine capacity for this account." },
   { id: "terms-cap-spend", key: "hard_cap_spend_inr", label: "Spend ceiling (₹ / month)", type: "text", help: "OUR ceiling. Empty means no ceiling — their dialling is unlimited." },
   { id: "terms-cap-min", key: "hard_cap_minutes", label: "Minute ceiling (/ month)", type: "number", help: "OUR ceiling. Empty means no ceiling." },
-  { id: "terms-from", key: "effective_from", label: "In effect from (IST)", type: "date", help: "A `datetime-local` value (YYYY-MM-DDTHH:MM) read as Indian Standard Time, never as the viewer's clock. Empty = now." },
-  { id: "terms-to", key: "effective_to", label: "Until (IST)", type: "date", help: "A `datetime-local` value (YYYY-MM-DDTHH:MM) read as Indian Standard Time. Empty = until further notice." },
+  { id: "terms-from", key: "effective_from", label: "In effect from (IST)", type: "date", help: "A local date-time (YYYY-MM-DDTHH:MM) read as Indian Standard Time, never as the viewer's clock. Empty = now." },
+  { id: "terms-to", key: "effective_to", label: "Until (IST)", type: "date", help: "A local date-time (YYYY-MM-DDTHH:MM) read as Indian Standard Time. Empty = until further notice." },
 ];
 
 function initialDraft(row: PlanRow | null): Draft {
   return {
     llm_model_surcharge_inr: row?.llm_model_surcharge_inr ?? "",
     hard_cap_minutes: row?.hard_cap_minutes === null || row === null ? "" : String(row.hard_cap_minutes),
-    hard_cap_spend_inr: row?.hard_cap_spend_inr ?? "",
+    hard_cap_spend_inr: moneyDraft(row?.hard_cap_spend_inr ?? ""),
     concurrency_ceiling: String(row?.concurrency_ceiling ?? 10),
     effective_from: "",
     effective_to: "",
   };
+}
+
+/**
+ * The stored ceiling is NUMERIC(…,4) ("20000.0000"); the money box works in paise. Trailing
+ * zeros past the paise are dropped so the box shows "20,000"; a value with real digits
+ * there is kept exactly, because rounding it would send a ceiling nobody agreed.
+ */
+function moneyDraft(value: string): string {
+  const exact = /^(\d+)\.(\d{2})0*$/.exec(value);
+  return exact ? `${exact[1]}.${exact[2]}` : value;
 }
 
 function text(value: string): string | null {
@@ -79,7 +91,7 @@ function count(value: string): number | null {
 }
 
 /**
- * `datetime-local` is a wall clock with no zone; the API takes an instant. It is read as
+ * The window is a wall clock with no zone; the API takes an instant. It is read as
  * IST (`istInputToInstant`), never as the browser's clock — an operator on a laptop set to
  * a US zone typing "09:00" meant IST, and the old `new Date()` recorded a billing boundary
  * eleven and a half hours away. The labels say IST because an unlabelled field meaning
@@ -105,16 +117,18 @@ function toPayload(draft: Draft): CommercialTermsIn {
  */
 export function TermsForm({
   save,
+  status,
   inEffect,
   confirmation,
   write,
 }: {
   save: ReturnType<typeof useRecordTerms>;
+  /** The write's state, from the feedback made where the mutation is. */
+  status: FeedbackStatus;
   inEffect: PlanRow | null;
   confirmation: string;
   write: ReturnType<typeof useAdminAccess>;
 }) {
-  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const [draft, setDraft] = useState<Draft>(() => initialDraft(inEffect));
   // Whole-number problems show once a submit has been tried, then stay live so a fix
   // clears them.
@@ -193,19 +207,33 @@ export function TermsForm({
             <input id="terms-concurrency" value={draft.concurrency_ceiling} disabled={!write.allowed} onChange={(event) => set("concurrency_ceiling", event.target.value)} inputMode="numeric" className={FIELD} {...countProps("concurrency_ceiling")} />
             {countMessage("concurrency_ceiling")}
           </Field>
-          <Field label="Spend ceiling (₹ / month)" id="terms-cap-spend" hint="OUR ceiling. Empty means no ceiling — their dialling is unlimited.">
-            <input id="terms-cap-spend" value={draft.hard_cap_spend_inr} disabled={!write.allowed} onChange={(event) => set("hard_cap_spend_inr", event.target.value)} inputMode="decimal" className={FIELD} />
-          </Field>
+          <MoneyInput
+            label="Spend ceiling (₹ / month)"
+            hint="OUR ceiling. Empty means no ceiling — their dialling is unlimited."
+            value={draft.hard_cap_spend_inr}
+            onChange={(next) => set("hard_cap_spend_inr", next)}
+            disabled={!write.allowed}
+          />
           <Field label="Minute ceiling (/ month)" id="terms-cap-min" hint="OUR ceiling. Empty means no ceiling.">
             <input id="terms-cap-min" value={draft.hard_cap_minutes} disabled={!write.allowed} onChange={(event) => set("hard_cap_minutes", event.target.value)} inputMode="numeric" className={FIELD} {...countProps("hard_cap_minutes")} />
             {countMessage("hard_cap_minutes")}
           </Field>
-          <Field label="In effect from (IST)" id="terms-from" hint="Indian Standard Time, whatever this machine's clock is set to. Empty = now, and since forever for anything already billed.">
-            <input id="terms-from" type="datetime-local" value={draft.effective_from} disabled={!write.allowed} onChange={(event) => set("effective_from", event.target.value)} className={FIELD} />
-          </Field>
-          <Field label="Until (IST)" id="terms-to" hint="Indian Standard Time, whatever this machine's clock is set to. Empty = until further notice. An end date with no successor leaves the account with no rate and no ceiling from that instant.">
-            <input id="terms-to" type="datetime-local" value={draft.effective_to} disabled={!write.allowed} onChange={(event) => set("effective_to", event.target.value)} className={FIELD} />
-          </Field>
+          <IstDateTimeField
+            label="In effect from"
+            hint="Indian Standard Time, whatever this machine's clock is set to. Empty = now, and since forever for anything already billed."
+            value={draft.effective_from}
+            onChange={(next) => set("effective_from", next)}
+            clearable
+            disabled={!write.allowed}
+          />
+          <IstDateTimeField
+            label="Until"
+            hint="Indian Standard Time, whatever this machine's clock is set to. Empty = until further notice. An end date with no successor leaves the account with no rate and no ceiling from that instant."
+            value={draft.effective_to}
+            onChange={(next) => set("effective_to", next)}
+            clearable
+            disabled={!write.allowed}
+          />
         </div>
 
         {loosened.length > 0 && (
@@ -240,7 +268,7 @@ export function TermsForm({
           </NoticeBox>
         )}
 
-        <ActionButton type="submit" status={saveFeedback.status} successLabel="Recorded" disabled={!write.allowed}>
+        <ActionButton type="submit" status={status} successLabel="Recorded" disabled={!write.allowed}>
           Record new terms
         </ActionButton>
       </form>

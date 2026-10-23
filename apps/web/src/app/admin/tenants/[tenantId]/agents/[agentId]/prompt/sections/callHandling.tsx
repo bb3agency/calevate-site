@@ -6,6 +6,7 @@
  * the client's Call handling, so an operator on the phone with an owner sees their screen.
  */
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { HangUpRow, PauseRow } from "@/components/callHandlingRows";
 import { AgentVoiceRows } from "@/components/callHandlingVoiceRows";
 import { SettingRows } from "@/components/console/settingRow";
@@ -30,6 +31,9 @@ export function CallHandlingPanel({
 }) {
   const state = useTenantAgentCallHandling(slug, agentId);
   const save = useAdminSetAgentCallHandling({ tenantId, agentId, slug });
+  // The shared rows draw their own saving state and refusal beside the control, so the
+  // feedback here only keeps the outcome announced; a toast would say it twice.
+  useActionFeedback(save, { errorDisplay: "inline" });
 
   if (state.isLoading) return <Skeleton rows={2} />;
   if (state.error || !state.data) {

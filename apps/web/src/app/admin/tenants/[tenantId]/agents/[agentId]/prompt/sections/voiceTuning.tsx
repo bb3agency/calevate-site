@@ -2,15 +2,9 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
-import {
-  FIELD,
-  FIELD_HINT,
-  FIELD_LABEL,
-  PRIMARY_BUTTON_SM,
-  ProblemNotice,
-  SECONDARY_BUTTON_SM,
-  Skeleton,
-} from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { NumberField } from "@/components/arc/number-field";
+import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice, Skeleton } from "@/components/ui";
 import type { useAdminAccess } from "@/app/admin/access";
 import {
   tuningNumber,
@@ -54,8 +48,8 @@ function range(low: string, high: string): string {
 
 /** The form's own copy of the settings: what the inputs hold, as typed. */
 interface Draft {
-  speed: string;
-  volume: string;
+  speed: number | null;
+  volume: number | null;
   emotion: string;
   model: string;
   dictionaryId: string;
@@ -63,8 +57,8 @@ interface Draft {
 
 function draftOf(held: VoiceTuning): Draft {
   return {
-    speed: held.speed == null ? "" : String(tuningNumber(held.speed)),
-    volume: held.volume == null ? "" : String(tuningNumber(held.volume)),
+    speed: tuningNumber(held.speed),
+    volume: tuningNumber(held.volume),
     emotion: held.emotion ?? "",
     model: held.model ?? "",
     dictionaryId: held.dictionary_id ?? "",
@@ -74,8 +68,8 @@ function draftOf(held: VoiceTuning): Draft {
 /** Every field stated, an empty one as null: a save sets the form exactly as shown. */
 function bodyOf(draft: Draft): VoiceTuningIn {
   return {
-    speed: draft.speed.trim() === "" ? null : Number(draft.speed),
-    volume: draft.volume.trim() === "" ? null : Number(draft.volume),
+    speed: draft.speed,
+    volume: draft.volume,
     emotion: draft.emotion || null,
     model: draft.model || null,
     dictionary_id: draft.dictionaryId.trim() || null,
@@ -103,6 +97,8 @@ export function VoiceTuningPanel({
   const held = useVoiceTuning(tenantId, agentId);
   const save = useSetVoiceTuning(tenantId, agentId);
   const preview = useVoiceTuningPreview(tenantId, agentId);
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
+  const previewFeedback = useActionFeedback(preview, { errorDisplay: "inline" });
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saved, setSaved] = useState(false);
   const [src, setSrc] = useState<string | null>(null);
@@ -176,38 +172,30 @@ export function VoiceTuningPanel({
           save.mutate(bodyOf(form), { onSuccess: () => setSaved(true) });
         }}
       >
-        <Field id={`${id}-speed`} label="Speed" hint={`${range(options.speed_min, options.speed_max)}; 1 is the voice's own pace. A voice cloned from a long recording keeps its own.`}>
-          {(props) => (
-            <input
-              {...props}
-              className={FIELD}
-              type="number"
-              inputMode="decimal"
-              step="0.05"
-              min={tuningNumber(options.speed_min) ?? undefined}
-              max={tuningNumber(options.speed_max) ?? undefined}
-              value={form.speed}
-              disabled={disabled}
-              onChange={(event) => set({ speed: event.target.value })}
-            />
-          )}
-        </Field>
-        <Field id={`${id}-volume`} label="Volume" hint={`${range(options.volume_min, options.volume_max)}; raise it if calls sound quiet.`}>
-          {(props) => (
-            <input
-              {...props}
-              className={FIELD}
-              type="number"
-              inputMode="decimal"
-              step="0.05"
-              min={tuningNumber(options.volume_min) ?? undefined}
-              max={tuningNumber(options.volume_max) ?? undefined}
-              value={form.volume}
-              disabled={disabled}
-              onChange={(event) => set({ volume: event.target.value })}
-            />
-          )}
-        </Field>
+        <NumberField
+          label="Speed"
+          hint={`${range(options.speed_min, options.speed_max)}; 1 is the voice's own pace. A voice cloned from a long recording keeps its own.`}
+          value={form.speed}
+          onChange={(speed) => set({ speed })}
+          optional
+          step={0.05}
+          largeStep={0.25}
+          min={tuningNumber(options.speed_min) ?? undefined}
+          max={tuningNumber(options.speed_max) ?? undefined}
+          disabled={disabled}
+        />
+        <NumberField
+          label="Volume"
+          hint={`${range(options.volume_min, options.volume_max)}; raise it if calls sound quiet.`}
+          value={form.volume}
+          onChange={(volume) => set({ volume })}
+          optional
+          step={0.05}
+          largeStep={0.25}
+          min={tuningNumber(options.volume_min) ?? undefined}
+          max={tuningNumber(options.volume_max) ?? undefined}
+          disabled={disabled}
+        />
         <Field id={`${id}-emotion`} label="Emotion" hint="Empty lets the words decide.">
           {(props) => (
             <select
@@ -273,17 +261,26 @@ export function VoiceTuningPanel({
           )}
         </Field>
         <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={disabled || preview.isPending}
-            onClick={() => preview.mutate(bodyOf(form))}
+          <ActionButton
+            variant="secondary-sm"
+            status={previewFeedback.status}
+            pendingLabel="Speaking…"
+            successLabel="Playing"
+            disabled={disabled}
+            onClick={() => previewFeedback.run(bodyOf(form))}
           >
-            {preview.isPending ? "Speaking…" : "Hear it"}
-          </button>
-          <button type="submit" className={PRIMARY_BUTTON_SM} disabled={disabled || save.isPending}>
-            {save.isPending ? "Saving…" : "Save settings"}
-          </button>
+            Hear it
+          </ActionButton>
+          <ActionButton
+            type="submit"
+            variant="primary-sm"
+            status={saveFeedback.status}
+            pendingLabel="Saving…"
+            successLabel="Saved"
+            disabled={disabled}
+          >
+            Save settings
+          </ActionButton>
           {saved && (
             <span role="status" className="text-meta text-ink-muted">
               Saved. A live agent uses them from its next call.

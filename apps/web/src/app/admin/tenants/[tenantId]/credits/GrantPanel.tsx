@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
   FIELD,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   formatINR,
@@ -83,6 +83,7 @@ export function GrantPanel({
   session: Parameters<typeof useGrantCredits>[0];
 }) {
   const grant = useGrantCredits(session, tenantId);
+  const grantFeedback = useActionFeedback(grant, { errorDisplay: "inline" });
   const write = useAdminAccess("admin:tenants", "give a client credit");
   const [amountInr, setAmountInr] = useState("");
   const [reason, setReason] = useState("");
@@ -100,7 +101,7 @@ export function GrantPanel({
   const confirmWord = amountReady ? toTwoDecimals(amount) : "";
   const confirmed = amountReady && confirm.trim() === confirmWord;
   const reasonReady = reason.trim().length >= 3;
-  const ready = write.allowed && amountReady && confirmed && reasonReady && !grant.isPending;
+  const ready = write.allowed && amountReady && confirmed && reasonReady;
 
   return (
     <div>
@@ -227,9 +228,15 @@ export function GrantPanel({
           />
         </Field>
 
-        <button type="submit" className={PRIMARY_BUTTON} disabled={!ready}>
-          {grant.isPending ? "Granting…" : "Give this credit"}
-        </button>
+        <ActionButton
+          type="submit"
+          status={grantFeedback.status}
+          pendingLabel="Granting…"
+          successLabel="Given"
+          disabled={!ready}
+        >
+          Give this credit
+        </ActionButton>
       </form>
 
       {grant.error != null && <ProblemNotice error={grant.error} />}

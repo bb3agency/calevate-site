@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { StatusPill } from "@/components/admin/kit";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { InfoTip } from "@/components/console/infoTip";
@@ -88,11 +89,15 @@ export function studioSteps(data: StudioVoices): Step[] {
 export function StudioVoicesCard() {
   const studio = useStudioVoices(true);
   const enable = useEnableStudioVoices();
+  // The dialog prints a refusal; a success closes it and the server's note is printed below.
+  const enableFeedback = useActionFeedback(enable, { errorDisplay: "inline" });
   const [confirming, setConfirming] = useState<"enable" | null>(null);
   const [askClient, setAskClient] = useState(false);
   const [tenantId, setTenantId] = useState("");
-  const tenantField = useId();
   const last = enable.data;
+  useEffect(() => {
+    if (enableFeedback.status === "success") setConfirming(null);
+  }, [enableFeedback.status]);
 
   const openEnable = (withClient: boolean, client = "") => {
     enable.reset();
@@ -186,12 +191,10 @@ export function StudioVoicesCard() {
           title="Make Studio ready?"
           confirmLabel="Studio ready"
           pendingLabel="Working…"
-          pending={enable.isPending}
+          status={enableFeedback.status}
           error={enable.error}
           onCancel={() => setConfirming(null)}
-          onConfirm={() => {
-            enable.mutate(tenantId ? { tenant_id: tenantId } : {}, { onSuccess: () => setConfirming(null) });
-          }}
+          onConfirm={() => enableFeedback.run(tenantId ? { tenant_id: tenantId } : {})}
         >
           <p>
             This switches our Cartesia key on, for the voice only, in our developer workspace, where
@@ -199,7 +202,6 @@ export function StudioVoicesCard() {
             installs a credential, so you may be asked to confirm it is still you.
           </p>
           <ClientPicker
-            id={tenantField}
             label={`Paying client to switch on now${askClient ? "" : " (optional)"}`}
             clients={data.clients}
             value={tenantId}

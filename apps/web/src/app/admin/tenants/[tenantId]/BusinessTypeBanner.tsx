@@ -3,8 +3,8 @@
 import { useState } from "react";
 
 import { useAdminAccess } from "@/app/admin/access";
-import { TEXT_ACTION } from "@/components/console/section";
-import { FIELD, NoticeBox, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FIELD, NoticeBox, ProblemNotice } from "@/components/ui";
 import {
   useAdminBusinessType,
   useBusinessTypePoll,
@@ -26,6 +26,8 @@ export function BusinessTypeBanner({ tenantId }: { tenantId: string }) {
   const state = useAdminBusinessType(tenantId);
   const confirm = useConfirmBusinessType(tenantId);
   const suggest = useSuggestBusinessTypeAgain(tenantId);
+  const confirmFeedback = useActionFeedback(confirm, { errorDisplay: "inline" });
+  const suggestFeedback = useActionFeedback(suggest, { errorDisplay: "inline" });
   const [askedAt, setAskedAt] = useState<number | null>(null);
   useBusinessTypePoll(tenantId, askedAt);
   const write = useAdminAccess("admin:tenants", "confirm a client's business type");
@@ -93,13 +95,15 @@ export function BusinessTypeBanner({ tenantId }: { tenantId: string }) {
                 </option>
               ))}
             </select>
-            <button
+            <ActionButton
               type="submit"
-              className={PRIMARY_BUTTON}
-              disabled={!write.allowed || !choice || confirm.isPending}
+              status={confirmFeedback.status}
+              pendingLabel="Confirming…"
+              successLabel="Confirmed"
+              disabled={!write.allowed || !choice}
             >
-              {confirm.isPending ? "Confirming…" : "Confirm"}
-            </button>
+              Confirm
+            </ActionButton>
           </form>
         }
       >
@@ -118,16 +122,16 @@ export function BusinessTypeBanner({ tenantId }: { tenantId: string }) {
             )}
           </span>
           {ask.allowed && !waiting && (
-            <button
-              type="button"
-              className={TEXT_ACTION}
-              disabled={suggest.isPending}
+            <ActionButton
+              variant="secondary-sm"
+              status={suggestFeedback.status}
+              successLabel="Asked"
               onClick={() =>
                 suggest.mutate(undefined, { onSuccess: () => setAskedAt(Date.now()) })
               }
             >
               Suggest again
-            </button>
+            </ActionButton>
           )}
         </p>
         {!write.allowed && write.reason && <p>{write.reason}</p>}

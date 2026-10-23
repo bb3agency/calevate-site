@@ -12,7 +12,6 @@ import {
   MonoValue,
   NoticeBox,
   ProblemNotice,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
 } from "@/components/ui";
@@ -42,6 +41,12 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
   // away a live key to fix a mail that simply never arrived. Resending is the answer to
   // that refusal far more often than cancelling is, so it stands beside it.
   const resend = useResendTenantInvitation();
+  const revokeFeedback = useActionFeedback(revoke, { errorDisplay: "inline" });
+  const resendFeedback = useActionFeedback(resend, { errorDisplay: "inline" });
+  const revokeStatus = (invitationId: string) =>
+    revoke.variables?.invitationId === invitationId ? revokeFeedback.status : "idle";
+  const resendStatus = (invitationId: string) =>
+    resend.variables?.invitationId === invitationId ? resendFeedback.status : "idle";
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -195,26 +200,24 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
                     <span className="text-ink-muted">
                       {row.role} · expires {formatIST(row.expires_at)}
                     </span>
-                    <button
-                      type="button"
-                      disabled={resend.isPending}
-                      className={SECONDARY_BUTTON_SM}
-                      onClick={() =>
-                        resend.mutate({ tenantId: created.id, invitationId: row.id })
-                      }
+                    <ActionButton
+                      variant="secondary-sm"
+                      status={resendStatus(row.id)}
+                      successLabel="Sent"
+                      disabled={resend.isPending && resend.variables?.invitationId !== row.id}
+                      onClick={() => resendFeedback.run({ tenantId: created.id, invitationId: row.id })}
                     >
                       Send this invite again
-                    </button>
-                    <button
-                      type="button"
-                      disabled={revoke.isPending}
-                      className={SECONDARY_BUTTON_SM}
-                      onClick={() =>
-                        revoke.mutate({ tenantId: created.id, invitationId: row.id })
-                      }
+                    </ActionButton>
+                    <ActionButton
+                      variant="secondary-sm"
+                      status={revokeStatus(row.id)}
+                      successLabel="Cancelled"
+                      disabled={revoke.isPending && revoke.variables?.invitationId !== row.id}
+                      onClick={() => revokeFeedback.run({ tenantId: created.id, invitationId: row.id })}
                     >
                       Cancel this invite
-                    </button>
+                    </ActionButton>
                   </div>
                 ))
               )}
@@ -223,10 +226,10 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
 
           {cancellable && (
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={resend.isPending}
-                className={SECONDARY_BUTTON_SM}
+              <ActionButton
+                variant="secondary-sm"
+                status={resendStatus(cancellable)}
+                successLabel="Sent"
                 onClick={() => {
                   // The old confirmation goes: "sent to …" described a link this rotation
                   // has just killed, and leaving it beside the new one is two claims about
@@ -236,11 +239,12 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
                 }}
               >
                 Send it again
-              </button>
-              <button
-                type="button"
-                disabled={revoke.isPending}
-                className={SECONDARY_BUTTON_SM}
+              </ActionButton>
+              <ActionButton
+                variant="secondary-sm"
+                status={revokeStatus(cancellable)}
+                pendingLabel="Cancelling…"
+                successLabel="Cancelled"
                 onClick={() => {
                   // The confirmation goes with the invitation it described — leaving "sent
                   // to …" beside a cancelled link is a claim about a link that no longer
@@ -259,8 +263,8 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
                   );
                 }}
               >
-                {revoke.isPending ? "Cancelling…" : "Cancel the unused invite"}
-              </button>
+                Cancel the unused invite
+              </ActionButton>
               <span className="text-meta text-ink-muted">
                 Cancels the link this wizard already issued, so a fresh one can be sent to
                 the same address. It does nothing to an invite somebody has already used.

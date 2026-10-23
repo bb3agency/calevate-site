@@ -41,6 +41,11 @@ export function InviteRow({
   const resend = useResendTenantInvitation();
   const resendFeedback = useActionFeedback(resend, { errorDisplay: "inline" });
   const revoke = useRevokeTenantInvitation();
+  // The row leaves the list on success, so the outcome is said in a toast rather than on it.
+  useActionFeedback(revoke, {
+    errorDisplay: "inline",
+    successToast: `Invitation for ${invite.email} cancelled`,
+  });
   const [correcting, setCorrecting] = useState(false);
   const [email, setEmail] = useState("");
   const [attestation, setAttestation] = useState("");

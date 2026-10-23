@@ -4,7 +4,7 @@ import { Section } from "@/components/console/section";
 import { useState } from "react";
 
 import { FIELD, FIELD_HINT, FIELD_LABEL, RestrictionNote } from "@/components/ui";
-import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import type { useAdminAccess } from "@/app/admin/access";
 import {
   LIFECYCLE_COPY,
@@ -29,16 +29,18 @@ const CHOICES = Object.keys(LIFECYCLE_COPY) as LifecycleStatus[];
  */
 export function MovePanel({
   move,
+  moveStatus,
   currentStatus,
   tenantName,
   write,
 }: {
   move: ReturnType<typeof useSetTenantStatus>;
+  /** The move's state from `useActionFeedback`, held by the page with the mutation. */
+  moveStatus: FeedbackStatus;
   currentStatus: string;
   tenantName: string;
   write: ReturnType<typeof useAdminAccess>;
 }) {
-  const moveFeedback = useActionFeedback(move, { errorDisplay: "inline" });
   const fixed: LifecycleStatus | null =
     currentStatus === "active" ? "suspended" : currentStatus === "suspended" ? "active" : null;
   const [chosen, setChosen] = useState<LifecycleStatus>("suspended");
@@ -118,7 +120,7 @@ export function MovePanel({
               flickers to "Applying…" mid-request. */}
           <ActionButton
             type="submit"
-            status={moveFeedback.status}
+            status={moveStatus}
             disabled={blocked || !write.allowed}
             className="max-sm:w-full max-sm:justify-center"
           >

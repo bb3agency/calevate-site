@@ -42,6 +42,7 @@ import { Plus } from "lucide-react";
 
 import { useAdminAccess } from "@/app/admin/access";
 import { HAIRLINE_LIST } from "@/components/admin/kit";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Drawer } from "@/components/console/drawer";
 import { EmptyState } from "@/components/console/emptyState";
@@ -53,7 +54,6 @@ import {
   FIELD_HINT,
   FIELD_LABEL,
   PRIMARY_BUTTON,
-  PRIMARY_BUTTON_LG,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
@@ -90,6 +90,12 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
   const write = useAdminAccess("admin:tenants", "record, attach or release a number");
 
   const record = useProvisionNumber(tenantId);
+  // The drawer closes on success, so the outcome is said in a toast; a refusal stays
+  // inside the drawer, above the fields.
+  const recordFeedback = useActionFeedback(record, {
+    errorDisplay: "inline",
+    successToast: (data) => `${formatPhone(data.e164)} recorded`,
+  });
   const [e164, setE164] = useState("");
   const numberValid = useFormValidation();
   // **`standard`, NOT `160`.** The series is fixed when the operator issues the number and
@@ -110,6 +116,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
   const [engineRef, setEngineRef] = useState("");
 
   const release = useReleaseNumber(tenantId);
+  const releaseFeedback = useActionFeedback(release, { errorDisplay: "inline" });
   const [releasing, setReleasing] = useState<TenantNumberCost | null>(null);
   const [recording, setRecording] = useState(false);
 
@@ -187,6 +194,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
           className="space-y-4"
           noValidate
           onSubmit={numberValid.onSubmit(() => {
+            if (record.isPending) return;
             record.mutate(
               {
                 e164,
@@ -287,13 +295,16 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
               number&apos;s row.
             </p>
           </div>
-          <button
+          <ActionButton
             type="submit"
-            className={`${PRIMARY_BUTTON_LG} max-sm:w-full max-sm:justify-center`}
-            disabled={!write.allowed || record.isPending}
+            variant="primary-lg"
+            status={recordFeedback.status}
+            successLabel="Recorded"
+            className="max-sm:w-full max-sm:justify-center"
+            disabled={!write.allowed}
           >
-            {record.isPending ? "Recording…" : "Record this number"}
-          </button>
+            Record this number
+          </ActionButton>
         </form>
       </Drawer>
 
@@ -302,7 +313,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
           title={`Give ${formatPhone(releasing.e164)} back to the voice platform?`}
           confirmLabel="Release the number"
           pendingLabel="Releasing…"
-          pending={release.isPending}
+          status={releaseFeedback.status}
           error={release.error}
           onCancel={() => setReleasing(null)}
           onConfirm={() => release.mutate(releasing.id, { onSuccess: () => setReleasing(null) })}

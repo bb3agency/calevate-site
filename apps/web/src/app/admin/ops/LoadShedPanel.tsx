@@ -5,14 +5,8 @@ import { useState } from "react";
 import { Gauge, Lock, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
-import {
-  DANGER_BUTTON,
-  FIELD,
-  FIELD_HINT,
-  FIELD_LABEL,
-  NoticeBox,
-  PRIMARY_BUTTON,
-} from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox } from "@/components/ui";
 import { TypedConfirmation } from "@/components/typedConfirmation";
 import { useFormValidation } from "@/components/formValidation";
 import {
@@ -105,6 +99,7 @@ const LOAD_SHED_MODES = Object.keys(LOAD_SHED) as LoadShedMode[];
  */
 export function LoadShedPanel({ state, access }: { state: PlatformState; access: OpsAccess }) {
   const setState = useSetPlatformState();
+  const setStateFeedback = useActionFeedback(setState, { errorDisplay: "inline" });
   const current = state.load_shed_mode;
   // A mode this build cannot name seeds `normal`: it is the only direction that is
   // meaningful to offer out of a state this console cannot describe, and it is still a
@@ -156,6 +151,7 @@ export function LoadShedPanel({ state, access }: { state: PlatformState; access:
           className="space-y-3"
           noValidate
           onSubmit={valid.onSubmit(() => {
+            if (setState.isPending) return;
             setState.mutate(
               { loadShedMode: target, reason: reason.trim() },
               {
@@ -241,15 +237,18 @@ export function LoadShedPanel({ state, access }: { state: PlatformState; access:
             disabled={!access.allowed || unchanged}
           />
 
-          <button
+          <ActionButton
             type="submit"
             title={access.reason ?? undefined}
-            disabled={!access.allowed || !ready || setState.isPending}
-            className={target === "normal" ? PRIMARY_BUTTON : DANGER_BUTTON}
+            disabled={!access.allowed || !ready}
+            variant={target === "normal" ? "primary" : "danger"}
+            status={setStateFeedback.status}
+            pendingLabel="Sending…"
+            successLabel="Switched"
           >
             <Gauge aria-hidden className="h-4 w-4" />
-            {setState.isPending ? "Sending…" : `Switch to “${loadShedModeCopy(target).label}”`}
-          </button>
+            {`Switch to “${loadShedModeCopy(target).label}”`}
+          </ActionButton>
 
           {!access.allowed && access.reason && (
             <p className="flex items-start gap-2 text-meta text-ink-muted">

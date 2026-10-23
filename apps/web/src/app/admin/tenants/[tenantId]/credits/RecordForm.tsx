@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { Lock, TriangleAlert } from "lucide-react";
 
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import {
   FIELD,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   formatINR,
@@ -69,11 +69,14 @@ export function RecordForm({
   clientName,
   wallet,
   save,
+  status,
   write,
 }: {
   clientName: string;
   wallet: Credits;
   save: ReturnType<typeof useRecordTopUp>;
+  /** The write's state, from the feedback made beside the mutation on the screen. */
+  status: FeedbackStatus;
   write: ReturnType<typeof useAdminAccess>;
 }) {
   const [draft, setDraft] = useState<Draft>(EMPTY);
@@ -150,7 +153,7 @@ export function RecordForm({
     ? wallet.entries.find((entry) => entry.reason === "topup" && entry.ref === reference)
     : undefined;
 
-  const ready = write.allowed && amountReady && confirmed && !save.isPending;
+  const ready = write.allowed && amountReady && confirmed;
 
   // Which step is outstanding, beside the button. The permission case is absent because
   // `RestrictionNote` renders it directly under the button.
@@ -325,18 +328,16 @@ export function RecordForm({
         {save.error != null && <ProblemNotice error={save.error} />}
         {save.data && <Outcome result={save.data} />}
 
-        <button
+        <ActionButton
           type="submit"
           title={write.reason ?? undefined}
+          status={status}
+          pendingLabel="Recording…"
+          successLabel="Recorded"
           disabled={!ready}
-          className={PRIMARY_BUTTON}
         >
-          {save.isPending
-            ? "Recording…"
-            : amountReady
-              ? `Credit ${formatINR(amount)} to ${clientName}`
-              : "Credit this payment"}
-        </button>
+          {amountReady ? `Credit ${formatINR(amount)} to ${clientName}` : "Credit this payment"}
+        </ActionButton>
 
         <RestrictionNote reason={write.reason} />
 

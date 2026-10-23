@@ -1,20 +1,20 @@
 "use client";
 
-import { useId, useState } from "react";
-import { AudioLines, Plus, RefreshCw, Search } from "lucide-react";
+import { useState } from "react";
+import { AudioLines, Plus, RefreshCw } from "lucide-react";
 
 import { SavedNote, sentenceCase } from "@/components/admin/kit";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FilterToolbar, type ActiveFilter } from "@/components/arc/filter-toolbar";
+import { SearchField } from "@/components/arc/search-field";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import {
-  FIELD,
-  FilterChip,
   NoticeBox,
   PRIMARY_BUTTON,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
   SECONDARY_BUTTON,
-  SECONDARY_BUTTON_SM,
   formatCount,
 } from "@/components/ui";
 import { BAND_LABEL, type HostedVoices } from "@/lib/api/opsHostedVoices";
@@ -23,7 +23,7 @@ import { lookup } from "@/lib/lookup";
 
 import { AddVoicesDrawer } from "./AddVoicesDrawer";
 import { CloneVoiceDrawer } from "./CloneVoiceDrawer";
-import { FILTER_SELECT, HostedVoiceList } from "./HostedVoiceList";
+import { FILTER_SELECT, HostedVoiceList, TierChips } from "./HostedVoiceList";
 import { OwnModelCard } from "./OwnModelCard";
 import { StudioVoicesCard } from "./StudioVoicesCard";
 import { VoiceDrawer } from "./VoiceDrawer";
@@ -70,7 +70,7 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
   const [deleted, setDeleted] = useState<string | null>(null);
   const [filters, setFilters] = useState<VoiceFilters>(NO_FILTERS);
   const refresh = useRefreshVoiceCatalogue();
-  const searchId = useId();
+  const refreshFeedback = useActionFeedback(refresh, { errorDisplay: "inline" });
 
   const soldBand = (added.clear_band && lookup(BAND_LABEL, added.clear_band)) ?? "ThinnestAI Studio band";
   const voices = added.voices;
@@ -90,15 +90,16 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
         actions={
           <>
             <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                className={SECONDARY_BUTTON}
-                disabled={refresh.isPending}
-                onClick={() => void refresh.mutateAsync().catch(() => undefined)}
+              <ActionButton
+                variant="secondary"
+                status={refreshFeedback.status}
+                pendingLabel="Reading the voice platform…"
+                successLabel="Refreshed"
+                onClick={() => refreshFeedback.run()}
               >
                 <RefreshCw aria-hidden className="h-4 w-4" />
-                {refresh.isPending ? <span className="text-shimmer">Reading the voice platform…</span> : "Refresh"}
-              </button>
+                Refresh
+              </ActionButton>
               <InfoTip label="Refresh">
                 Re-reads every voice ThinnestAI lists and, once a client workspace runs Studio, the
                 Cartesia voices of our key. A newly seen voice arrives not added; nothing here changes
@@ -151,35 +152,23 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
         {deleted && <SavedNote>{deleted}</SavedNote>}
 
         {voices.length > 0 && (
-          <div className="space-y-3">
-            <div className="relative max-w-md">
-              <label htmlFor={searchId} className="sr-only">
-                Search offered voices by name
-              </label>
-              <Search
-                aria-hidden
-                className="pointer-events-none absolute left-3 top-1/2 mt-0.5 h-4 w-4 -translate-y-1/2 text-ink-faint"
-              />
-              <input
-                id={searchId}
-                type="search"
-                className={`${FIELD} pl-9`}
+          <FilterToolbar
+            search={
+              <SearchField
+                label="Search offered voices by name"
+                hideLabel
                 placeholder="Search by name"
                 value={filters.query}
-                onChange={(event) => set({ query: event.target.value })}
+                onValueChange={(query) => set({ query })}
+                className="sm:w-72"
               />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div role="group" aria-label="Tier" className="flex flex-wrap gap-2">
-                {(["all", "clear", "studio"] as const).map((tier) => (
-                  <FilterChip
-                    key={tier}
-                    label={`${tier === "all" ? "All" : tier === "clear" ? "Clear" : "Studio"} ${formatCount(tierCount(tier))}`}
-                    active={filters.tier === tier}
-                    onClick={() => set({ tier })}
-                  />
-                ))}
-              </div>
+            }
+            active={activeFilters(filters, set)}
+            onClearAll={() => setFilters(NO_FILTERS)}
+            count={{ shown: filtered.length, total: voices.length, noun: "voice" }}
+            filters={
+              <>
+              <TierChips value={filters.tier} onChange={(tier) => set({ tier })} countOf={tierCount} />
               <FilterSelect
                 label="State"
                 value={filters.state}
@@ -208,13 +197,9 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
                   onChange={(gender) => set({ gender })}
                 />
               )}
-              {isFiltered(filters) && (
-                <button type="button" className="text-meta font-medium text-brand-strong hover:underline touch:min-h-11" onClick={() => setFilters(NO_FILTERS)}>
-                  Clear filters
-                </button>
-              )}
-            </div>
-          </div>
+              </>
+            }
+          />
         )}
 
         <HostedVoiceList
@@ -226,17 +211,14 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
               ? `No voice is added yet. Add ${soldBand} voices or Studio voices from the platform's list.`
               : "No voice matches these filters."
           }
+          onClearFilters={isFiltered(filters) ? () => setFilters(NO_FILTERS) : undefined}
           emptyAction={
             voices.length === 0 ? (
               <button type="button" className={PRIMARY_BUTTON_SM} onClick={openAdd}>
                 <Plus aria-hidden className="h-4 w-4" />
                 Add voices
               </button>
-            ) : (
-              <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setFilters(NO_FILTERS)}>
-                Clear filters
-              </button>
-            )
+            ) : undefined
           }
         />
       </section>
@@ -259,6 +241,24 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
       )}
     </div>
   );
+}
+
+/** Each filter that differs from the default, as a removable chip under the toolbar. */
+function activeFilters(filters: VoiceFilters, set: (patch: Partial<VoiceFilters>) => void): ActiveFilter[] {
+  const optionLabel = <T extends string>(options: { value: T; label: string }[], value: T) =>
+    options.find((option) => option.value === value)?.label ?? value;
+  const active: ActiveFilter[] = [];
+  if (filters.query.trim())
+    active.push({ id: "query", label: `“${filters.query.trim()}”`, onRemove: () => set({ query: "" }) });
+  if (filters.tier !== NO_FILTERS.tier)
+    active.push({ id: "tier", label: filters.tier === "clear" ? "Clear" : "Studio", onRemove: () => set({ tier: NO_FILTERS.tier }) });
+  if (filters.state !== NO_FILTERS.state)
+    active.push({ id: "state", label: optionLabel(STATE_OPTIONS, filters.state), onRemove: () => set({ state: NO_FILTERS.state }) });
+  if (filters.preview !== NO_FILTERS.preview)
+    active.push({ id: "preview", label: optionLabel(PREVIEW_OPTIONS, filters.preview), onRemove: () => set({ preview: NO_FILTERS.preview }) });
+  if (filters.accent) active.push({ id: "accent", label: filters.accent, onRemove: () => set({ accent: "" }) });
+  if (filters.gender) active.push({ id: "gender", label: sentenceCase(filters.gender), onRemove: () => set({ gender: "" }) });
+  return active;
 }
 
 function FilterSelect<T extends string>({

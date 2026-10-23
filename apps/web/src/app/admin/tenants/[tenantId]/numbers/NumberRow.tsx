@@ -25,13 +25,13 @@
 import { useState } from "react";
 import { FileX, PhoneOff } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { RowMenu } from "@/components/arc/menu";
 import {
   FIELD_INLINE,
   FIELD_LABEL,
   ProblemNotice,
-  SECONDARY_BUTTON,
   formatPhone,
 } from "@/components/ui";
 import type { components } from "@/lib/api/schema";
@@ -70,6 +70,12 @@ export function NumberRow({
   const attach = useSetNumberAgent(tenantId);
   const link = useSetNumberEngineRef(tenantId);
   const forget = useWorkspaceForget(tenantId);
+  // Inline throughout: each write's refusal and the server's outcome sentence sit on the
+  // row, beside the control that sent it. The select has no face of its own, so its
+  // pending state is the "Saving…" beside it.
+  useActionFeedback(attach, { errorDisplay: "inline" });
+  const linkFeedback = useActionFeedback(link, { errorDisplay: "inline" });
+  const forgetFeedback = useActionFeedback(forget, { errorDisplay: "inline" });
   const [ref, setRef] = useState("");
   const [forgetting, setForgetting] = useState(false);
 
@@ -142,7 +148,7 @@ export function NumberRow({
           title={`Release our record of ${formatPhone(number.e164)}`}
           confirmLabel="Release our record"
           pendingLabel="Releasing…"
-          pending={forget.isPending}
+          status={forgetFeedback.status}
           error={forget.error}
           onCancel={() => setForgetting(false)}
           onConfirm={() => forget.mutate(number.id, { onSuccess: () => setForgetting(false) })}
@@ -226,14 +232,16 @@ export function NumberRow({
               onChange={(ev) => setRef(ev.target.value.trim())}
               placeholder="3c90c3cc0d444b5088888dd25736052a"
             />
-            <button
-              type="button"
-              className={SECONDARY_BUTTON}
-              disabled={!canWrite || !ref || link.isPending}
+            <ActionButton
+              variant="secondary"
+              status={linkFeedback.status}
+              pendingLabel="Linking…"
+              successLabel="Linked"
+              disabled={!canWrite || !ref}
               onClick={() => link.mutate({ numberId: number.id, ref })}
             >
-              {link.isPending ? "Linking…" : "Link and route"}
-            </button>
+              Link and route
+            </ActionButton>
           </div>
           {link.data && (
             <p className="text-meta text-ink-muted">

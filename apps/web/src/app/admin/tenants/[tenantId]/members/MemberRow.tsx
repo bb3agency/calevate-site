@@ -56,7 +56,15 @@ export function MemberRow({
   owners: number;
   write: ReturnType<typeof useAdminAccess>;
 }) {
+  const who = member.name ?? member.email;
   const setRole = useSetTenantMemberRole(tenantId);
+  // A select has no face to carry a tick, so the change is confirmed in a toast; the
+  // refusal stays inline under the row.
+  useActionFeedback(setRole, {
+    errorDisplay: "inline",
+    successToast: (_data, vars) =>
+      `${who} is now ${lookup(ROLE_COPY, vars.role)?.label.toLowerCase() ?? vars.role}`,
+  });
   const remove = useRemoveTenantMember(tenantId);
   const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline" });
   const [removing, setRemoving] = useState(false);
@@ -65,7 +73,6 @@ export function MemberRow({
   const busy = setRole.isPending || remove.isPending;
   const lastOwner = member.role === "owner" && owners === 1;
   const wordMissing = !confirmationMatches(typed, "REMOVE");
-  const who = member.name ?? member.email;
 
   return (
     <li className="space-y-2 py-3.5 sm:px-2">

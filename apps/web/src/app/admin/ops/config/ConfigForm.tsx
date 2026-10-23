@@ -4,13 +4,13 @@ import { useId, useState } from "react";
 import { ArrowRight, Check, CheckCircle2, Clock, RotateCcw } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
 } from "@/components/ui";
@@ -26,7 +26,7 @@ import {
 } from "@/lib/api/opsConfig";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
-import { ConfigInput } from "./ConfigInput";
+import { ConfigInput, drawsOwnError } from "./ConfigInput";
 import {
   REASON_PRESETS,
   appliesCopy,
@@ -80,6 +80,8 @@ export function ConfigForm({
 }) {
   const save = useSetConfig();
   const revert = useRevertConfig();
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
+  const revertFeedback = useActionFeedback(revert, { errorDisplay: "inline" });
   const ids = useId();
   const inputId = `${ids}-value`;
   const errorId = `${ids}-error`;
@@ -119,12 +121,14 @@ export function ConfigForm({
   const valueProblem = typedProblem ?? serverProblem;
   const reasonProblem = reason.trim().length >= REASON_MIN ? null : "Say why, in a few words.";
   const pending = save.isPending || revert.isPending;
-  const ready =
+  /** Everything the operator owes is in place; `ready` adds that nothing is in flight. */
+  const armed =
     !conflicted &&
-    !pending &&
     changed &&
     confirmed &&
     (reverting || (typedProblem === null && reasonProblem === null));
+  const ready = armed && !pending;
+  const status = reverting ? revertFeedback.status : saveFeedback.status;
   // `null` for every other failure, which keeps `WriteFailure` the ONE renderer for those.
   const cardRefusals = cardRefusalSentences(save.error);
   const unavailable =
@@ -238,8 +242,9 @@ export function ConfigForm({
             inputId={inputId}
             describedBy={showValueProblem ? errorId : undefined}
             invalid={showValueProblem}
+            error={showValueProblem ? valueProblem : null}
           />
-          {showValueProblem && (
+          {showValueProblem && !drawsOwnError(field) && (
             <p id={errorId} role="alert" className="mt-1.5 text-meta font-medium text-danger">
               {valueProblem}
             </p>
@@ -354,10 +359,16 @@ export function ConfigForm({
       </div>
 
       <div className="sticky -bottom-4 z-sticky -mx-4 -mb-4 flex flex-wrap items-center gap-2 border-t border-line bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:-mx-5 sm:px-5 sm:pb-3 lg:-bottom-8">
-        <button type="submit" disabled={!ready} className={PRIMARY_BUTTON}>
+        <ActionButton
+          type="submit"
+          disabled={!armed}
+          status={status}
+          pendingLabel="Saving…"
+          successLabel={reverting ? "Reverted" : "Saved"}
+        >
           {reverting ? <RotateCcw aria-hidden className="h-4 w-4" /> : <CheckCircle2 aria-hidden className="h-4 w-4" />}
-          {pending ? "Saving…" : reverting ? "Revert to default" : "Save change"}
-        </button>
+          {reverting ? "Revert to default" : "Save change"}
+        </ActionButton>
         {canRevert && !reverting && (
           <button
             type="button"

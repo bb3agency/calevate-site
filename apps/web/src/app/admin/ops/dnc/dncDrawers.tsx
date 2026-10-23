@@ -4,12 +4,9 @@ import { useState } from "react";
 import { ListPlus, Lock, TriangleAlert, Undo2 } from "lucide-react";
 
 import type { useAdminAccess } from "@/app/admin/access";
-import {
-  DANGER_BUTTON,
-  MonoValue,
-  dncSourceCopy,
-} from "@/app/admin/ops/opsLanguage";
+import { MonoValue, dncSourceCopy } from "@/app/admin/ops/opsLanguage";
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { useFormValidation } from "@/components/formValidation";
 import { InfoTip } from "@/components/console/infoTip";
 import { Metric } from "@/components/console/metric";
@@ -17,7 +14,6 @@ import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
-  PRIMARY_BUTTON,
   SECONDARY_BUTTON,
   formatCount,
   formatPhone,
@@ -53,9 +49,12 @@ const PINNED_ACTIONS =
 export function SuppressForm({
   access,
   mutation,
+  status,
 }: {
   access: Access;
   mutation: ReturnType<typeof useSuppressGlobally>;
+  /** The suppression's state from the screen's `useActionFeedback`. */
+  status: FeedbackStatus;
 }) {
   const [paste, setPaste] = useState("");
   const [source, setSource] = useState<GlobalDncSource>("regulator");
@@ -208,19 +207,20 @@ export function SuppressForm({
         )}
 
         <div className={PINNED_ACTIONS}>
-          <button
+          <ActionButton
             type="submit"
+            status={status}
             title={access.reason ?? undefined}
-            disabled={!access.allowed || !ready || mutation.isPending}
-            className={`${PRIMARY_BUTTON} max-sm:w-full max-sm:justify-center`}
+            disabled={!access.allowed || !ready}
+            pendingLabel="Sending…"
+            successLabel="Suppressed"
+            className="max-sm:w-full"
           >
             <ListPlus aria-hidden className="h-4 w-4" />
-            {mutation.isPending
-              ? "Sending…"
-              : parsed.length === 1
-                ? "Suppress 1 number platform-wide"
-                : `Suppress ${formatCount(parsed.length)} numbers platform-wide`}
-          </button>
+            {parsed.length === 1
+              ? "Suppress 1 number platform-wide"
+              : `Suppress ${formatCount(parsed.length)} numbers platform-wide`}
+          </ActionButton>
         </div>
       </form>
 
@@ -253,14 +253,17 @@ export function SuppressForm({
 export function ReleaseConfirm({
   entry,
   mutation,
+  status,
   onDone,
 }: {
   entry: GlobalDncEntry;
   mutation: ReturnType<typeof useReleaseGlobally>;
+  /** The release's state from the screen's `useActionFeedback`. */
+  status: FeedbackStatus;
   onDone: () => void;
 }) {
   const [confirm, setConfirm] = useState("");
-  const releasing = mutation.isPending && mutation.variables === entry.id;
+  const releasing = status === "pending";
   const number = formatPhone(entry.phone_e164);
 
   return (
@@ -306,25 +309,17 @@ export function ReleaseConfirm({
         <button type="button" disabled={releasing} onClick={onDone} className={SECONDARY_BUTTON}>
           Cancel
         </button>
-        <button
-          type="button"
-          disabled={!confirmationMatches(confirm, "RELEASE", "exact") || releasing}
-          onClick={() =>
-            mutation.mutate(entry.id, {
-              onSuccess: () => onDone(),
-            })
-          }
-          className={`${DANGER_BUTTON} max-sm:flex-1 max-sm:justify-center`}
+        <ActionButton
+          variant="danger"
+          status={status}
+          disabled={!confirmationMatches(confirm, "RELEASE", "exact")}
+          pendingLabel="Releasing…"
+          onClick={() => mutation.mutate(entry.id, { onSuccess: () => onDone() })}
+          className="max-sm:flex-1"
         >
           <Undo2 aria-hidden className="h-4 w-4" />
-          {releasing ? (
-            "Releasing…"
-          ) : (
-            <>
-              Release <MonoValue>{number}</MonoValue>
-            </>
-          )}
-        </button>
+          Release <MonoValue>{number}</MonoValue>
+        </ActionButton>
       </div>
     </div>
   );

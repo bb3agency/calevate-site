@@ -6,13 +6,13 @@ import { CheckCircle2, Lock } from "lucide-react";
 
 import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withheld";
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { useFormValidation } from "@/components/formValidation";
 import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
@@ -93,6 +93,7 @@ function rowId(row: EngineMinutePrice): string {
 export function EngineMinutePricePanel({ access }: { access: Access }) {
   const prices = useEngineMinutePrices();
   const attest = useAttestEngineMinutePrice();
+  const attestFeedback = useActionFeedback(attest, { errorDisplay: "inline" });
   const valid = useFormValidation();
   const [editing, setEditing] = useState<EngineMinutePrice | null>(null);
   const [amount, setAmount] = useState("");
@@ -210,6 +211,7 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
             className="space-y-3 border-t border-line pt-4"
             noValidate
             onSubmit={valid.onSubmit(() => {
+              if (attest.isPending) return;
               attest.mutate(
                 {
                   engine: editing.engine,
@@ -265,13 +267,15 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
               </label>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button
+              <ActionButton
                 type="submit"
-                disabled={!access.allowed || attest.isPending}
-                className={PRIMARY_BUTTON}
+                disabled={!access.allowed}
+                status={attestFeedback.status}
+                pendingLabel="Recording…"
+                successLabel="Recorded"
               >
-                {attest.isPending ? "Recording…" : "Record the rate"}
-              </button>
+                Record the rate
+              </ActionButton>
               <button
                 type="button"
                 disabled={attest.isPending}
@@ -304,6 +308,10 @@ const PERCENT = "^(?:\\d{1,2}(?:\\.\\d{1,4})?)$";
  */
 function CostInputs({ costs, access }: { costs: CostAttestation[]; access: Access }) {
   const attest = useAttestCost();
+  const attestFeedback = useActionFeedback(attest, {
+    errorDisplay: "inline",
+    successToast: "Figure recorded",
+  });
   const valid = useFormValidation();
   const [editing, setEditing] = useState<CostAttestation | null>(null);
   const [value, setValue] = useState("");
@@ -351,6 +359,7 @@ function CostInputs({ costs, access }: { costs: CostAttestation[]; access: Acces
           className="space-y-3"
           noValidate
           onSubmit={valid.onSubmit(() => {
+            if (attest.isPending) return;
             attest.mutate(
               { subject: editing.subject, value: value.trim(), sourceNote: source.trim() },
               { onSuccess: () => setEditing(null) },
@@ -397,13 +406,15 @@ function CostInputs({ costs, access }: { costs: CostAttestation[]; access: Acces
             </label>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button
+            <ActionButton
               type="submit"
-              disabled={!access.allowed || attest.isPending}
-              className={PRIMARY_BUTTON}
+              disabled={!access.allowed}
+              status={attestFeedback.status}
+              pendingLabel="Recording…"
+              successLabel="Recorded"
             >
-              {attest.isPending ? "Recording…" : "Record the figure"}
-            </button>
+              Record the figure
+            </ActionButton>
             <button
               type="button"
               disabled={attest.isPending}

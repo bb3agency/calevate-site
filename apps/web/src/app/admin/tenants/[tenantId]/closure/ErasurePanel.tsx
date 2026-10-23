@@ -3,8 +3,8 @@
 import { Section } from "@/components/console/section";
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
-  DANGER_BUTTON,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -43,6 +43,8 @@ export function ErasurePanel({
   const session = adminSession();
   const filed = useTenantErasures(session, tenantId);
   const erase = useEraseTenant(session, tenantId);
+  // `WriteFailure` below owns the refusal (it handles the step-up and re-sign-in answers).
+  const eraseFeedback = useActionFeedback(erase, { errorDisplay: "inline" });
   const [reason, setReason] = useState("");
   const [typed, setTyped] = useState("");
   const confirmation = erasureConfirmation(tenantId);
@@ -176,15 +178,19 @@ export function ErasurePanel({
           </span>
         </div>
 
-        {/* DANGER_BUTTON: the rose fill is reserved for exactly this, the most
-            irreversible control in the product (ux-audit F-2). */}
-        <button
+        {/* The danger fill is reserved for exactly this, the most irreversible control in
+            the product (ux-audit F-2). */}
+        <ActionButton
           type="submit"
-          disabled={erase.isPending || blocked || !access.allowed}
-          className={`${DANGER_BUTTON} max-sm:w-full max-sm:justify-center`}
+          variant="danger"
+          status={eraseFeedback.status}
+          pendingLabel="Erasing…"
+          successLabel="Started"
+          disabled={blocked || !access.allowed}
+          className="max-sm:w-full"
         >
-          {erase.isPending ? "Erasing…" : "Erase this client's data"}
-        </button>
+          Erase this client&apos;s data
+        </ActionButton>
       </form>
       {erase.error != null && (
         <WriteFailure error={erase.error} actionLabel="Erase this client’s data" />

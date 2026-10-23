@@ -2,7 +2,7 @@
 
 import { RowLink } from "@/components/console/checklist";
 import { Section } from "@/components/console/section";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useAdminAccess } from "@/app/admin/access";
 import { configHref } from "@/app/admin/ops/config/configSections";
@@ -10,6 +10,7 @@ import { lookup } from "@/lib/lookup";
 import { StatusPill } from "@/components/admin/kit";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { PipMark } from "@/components/illustration/pip";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
@@ -21,7 +22,6 @@ import {
   MonoValue,
   NOTICE_BAR,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -209,14 +209,25 @@ function Overview({ data }: { data: HealerOverview }) {
 function Incidents() {
   const incidents = useHealerIncidents();
   const retry = useRetryIncident();
+  const retryFeedback = useActionFeedback(retry, {
+    errorTitle: "Could not ask for a fresh check",
+    successToast: "Checking again on the next minute's run",
+  });
   const resolve = useResolveIncident();
+  const resolveFeedback = useActionFeedback(resolve, {
+    errorDisplay: "inline",
+    successToast: "Marked as handled",
+  });
   const [resolving, setResolving] = useState<HealerIncident | null>(null);
+  // A success closes the dialog; the toast above says what happened.
+  useEffect(() => {
+    if (resolveFeedback.status === "success") setResolving(null);
+  }, [resolveFeedback.status]);
   return (
     <Section title="Problems">
       {incidents.error != null && (
         <ProblemNotice error={incidents.error} onRetry={() => incidents.refetch()} />
       )}
-      {retry.error != null && <ProblemNotice error={retry.error} />}
       {incidents.isLoading ? (
         <Skeleton rows={3} label="Loading problems" />
       ) : !incidents.data ? null : incidents.data.items.length === 0 ? (
@@ -227,8 +238,9 @@ function Incidents() {
             <IncidentRow
               key={incident.id}
               incident={incident}
-              retrying={retry.isPending}
-              onRetry={() => retry.mutate(incident.id)}
+              // One mutation serves every row, so only the row it was pressed on shows it.
+              retryStatus={retry.variables === incident.id ? retryFeedback.status : "idle"}
+              onRetry={() => retryFeedback.run(incident.id)}
               onResolve={() => setResolving(incident)}
             />
           ))}
@@ -239,12 +251,13 @@ function Incidents() {
           title="Mark this as handled?"
           confirmLabel="Mark as handled"
           pendingLabel="Marking…"
-          pending={resolve.isPending}
+          status={resolveFeedback.status}
           error={resolve.error}
-          onCancel={() => setResolving(null)}
-          onConfirm={() =>
-            resolve.mutate(resolving.id, { onSuccess: () => setResolving(null) })
-          }
+          onCancel={() => {
+            resolve.reset();
+            setResolving(null);
+          }}
+          onConfirm={() => resolveFeedback.run(resolving.id)}
         >
           Any line it is holding is given back and any campaign it paused is resumed. Do this
           only once the cause is fixed.
@@ -256,12 +269,12 @@ function Incidents() {
 
 function IncidentRow({
   incident,
-  retrying,
+  retryStatus,
   onRetry,
   onResolve,
 }: {
   incident: HealerIncident;
-  retrying: boolean;
+  retryStatus: FeedbackStatus;
   onRetry: () => void;
   onResolve: () => void;
 }) {
@@ -312,14 +325,14 @@ function IncidentRow({
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <AskAssistant label={`Ask ${ASSISTANT_NAME} to fix this`} prompt={fixPrompt(incident)} />
           {incident.automatic && (
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              disabled={retrying}
+            <ActionButton
+              variant="secondary-sm"
+              status={retryStatus}
+              successLabel="Asked"
               onClick={onRetry}
             >
               Check again now
-            </button>
+            </ActionButton>
           )}
           <button type="button" className={SECONDARY_BUTTON_SM} onClick={onResolve}>
             Mark as handled
@@ -358,6 +371,7 @@ export function fixPrompt(incident: HealerIncident): string {
 
 function StatusPost() {
   const post = usePostStatus();
+  const postFeedback = useActionFeedback(post, { errorDisplay: "inline" });
   const [title, setTitle] = useState("");
   const [component, setComponent] = useState<StatusComponentKey>("calls");
   return (
@@ -402,13 +416,15 @@ function StatusPost() {
           </select>
         </label>
         {post.error != null && <ProblemNotice error={post.error} />}
-        <button
+        <ActionButton
           type="submit"
-          className={PRIMARY_BUTTON}
-          disabled={post.isPending || title.trim().length < 3}
+          status={postFeedback.status}
+          disabled={title.trim().length < 3}
+          pendingLabel="Posting…"
+          successLabel="Posted"
         >
-          {post.isPending ? "Posting…" : "Post"}
-        </button>
+          Post
+        </ActionButton>
       </form>
     </Section>
   );

@@ -2,11 +2,10 @@
 
 import { useState } from "react";
 
-import { FieldMessage, useFormValidation } from "@/components/formValidation";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { NumberField } from "@/components/arc/number-field";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
-  FIELD_INLINE,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
@@ -28,9 +27,9 @@ import { useSetCallCap, useTenantLanes, type PendingState } from "@/lib/api/publ
  * round a 330s cap set by anyone else. The minute reading is shown beside it, which
  * is the half an operator actually thinks in.
  *
- * No client-side range check beyond the input's own min/max: `call_cap_out_of_range`
- * is the server's refusal, with its own message, and a second copy of the rule here
- * is a rule that drifts.
+ * The box holds typing to the bounds `/v1/agents/lanes` publishes and nothing more:
+ * `call_cap_out_of_range` is the server's refusal, with its own message, and a second
+ * copy of the rule here is a rule that drifts.
  */
 export function CallCapPanel({
   tenantId,
@@ -47,18 +46,18 @@ export function CallCapPanel({
 }) {
   const lanes = useTenantLanes(slug);
   const save = useSetCallCap({ tenantId, agentId, slug });
-  // `null` means "not edited yet" — the field shows the server's effective cap. An
-  // empty string is a real instruction (clear the override, fall back to the platform
-  // default) and must not be confused with "unchanged".
-  const [seconds, setSeconds] = useState<string | null>(null);
-  const capValid = useFormValidation();
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
+  // `undefined` means "not edited yet" — the field shows the server's effective cap. A
+  // `null` is a real instruction (clear the override, fall back to the platform default)
+  // and must not be confused with "unchanged".
+  const [seconds, setSeconds] = useState<number | null | undefined>(undefined);
 
-  const field =
-    seconds ??
-    (pending && !pending.call_cap_is_platform_default
-      ? String(pending.effective_call_cap_s)
-      : "");
-  const parsed = field.trim() === "" ? null : Number(field);
+  const parsed =
+    seconds !== undefined
+      ? seconds
+      : pending && !pending.call_cap_is_platform_default
+        ? pending.effective_call_cap_s
+        : null;
   const worstCase = save.data?.worst_case_call_cost_inr ?? pending?.worst_case_call_cost_inr;
   const hasWorstCase = worstCase !== undefined && worstCase !== null;
 
@@ -105,42 +104,33 @@ export function CallCapPanel({
         <form
           className="flex flex-wrap items-end gap-3"
           noValidate
-          onSubmit={capValid.onSubmit(() => {
-            save.mutate({ max_call_duration_s: parsed });
-          })}
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveFeedback.run({ max_call_duration_s: parsed });
+          }}
         >
-          <div className="flex flex-col gap-1">
-            <label htmlFor="call-cap" className="text-meta text-ink-muted">
-              Seconds
-            </label>
-            <input
-              id="call-cap"
-              {...capValid.track("seconds", "Enter how many seconds a call may run.")}
-              type="number"
-              inputMode="numeric"
-              value={field}
-              min={lanes.data?.call_cap_min_s}
-              max={lanes.data?.call_cap_max_s}
-              disabled={!write.allowed}
-              onChange={(ev) => setSeconds(ev.target.value)}
-              placeholder={
-                lanes.data ? String(lanes.data.call_cap_default_s) : "platform default"
-              }
-              className={`w-32 tabular-nums ${FIELD_INLINE}`}
-              aria-invalid={capValid.message("seconds") ? true : undefined}
-              aria-describedby={capValid.message("seconds") ? "call-cap-error" : undefined}
-            />
-            {capValid.message("seconds") ? (
-              <FieldMessage id="call-cap-error">{capValid.message("seconds")}</FieldMessage>
-            ) : null}
-          </div>
-          <button
+          <NumberField
+            label="Seconds"
+            value={parsed}
+            onChange={setSeconds}
+            optional
+            unit="seconds"
+            min={lanes.data?.call_cap_min_s ?? 1}
+            max={lanes.data?.call_cap_max_s}
+            step={1}
+            largeStep={60}
+            disabled={!write.allowed}
+            className="w-56"
+          />
+          <ActionButton
             type="submit"
-            disabled={save.isPending || !write.allowed}
-            className={PRIMARY_BUTTON}
+            status={saveFeedback.status}
+            pendingLabel="Saving…"
+            successLabel="Set"
+            disabled={!write.allowed}
           >
-            {save.isPending ? "Saving…" : "Set cap"}
-          </button>
+            Set cap
+          </ActionButton>
           <span className="text-meta text-ink-muted">
             {parsed === null
               ? "Empty — restores the platform default."

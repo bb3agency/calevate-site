@@ -3,13 +3,8 @@
 import { useState } from "react";
 import { CircleAlert } from "lucide-react";
 
-import {
-  FIELD,
-  NoticeBox,
-  RestrictionNote,
-  SECONDARY_BUTTON,
-  formatIST,
-} from "@/components/ui";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { FIELD, NoticeBox, RestrictionNote, formatIST } from "@/components/ui";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { useAdminAccess } from "@/app/admin/access";
 import { useEndTrial, type TrialOutcome } from "@/lib/api/trials";
@@ -44,10 +39,13 @@ const NO_END: EndDraft = { outcome: "", reason: "" };
 export function EndTrialForm({
   clientName,
   end,
+  status,
   write,
 }: {
   clientName: string;
   end: ReturnType<typeof useEndTrial>;
+  /** The write's state, from the feedback made beside the mutation in `TrialPanel`. */
+  status: FeedbackStatus;
   write: ReturnType<typeof useAdminAccess>;
 }) {
   const [draft, setDraft] = useState<EndDraft>(NO_END);
@@ -56,7 +54,7 @@ export function EndTrialForm({
     end.reset();
   };
   const reason = draft.reason.trim();
-  const ready = write.allowed && draft.outcome !== "" && reason.length >= 3 && !end.isPending;
+  const ready = write.allowed && draft.outcome !== "" && reason.length >= 3;
 
   return (
     <form
@@ -148,9 +146,17 @@ export function EndTrialForm({
         </NoticeBox>
       )}
 
-      <button type="submit" title={write.reason ?? undefined} disabled={!ready} className={SECONDARY_BUTTON}>
-        {end.isPending ? "Ending…" : "End this trial"}
-      </button>
+      <ActionButton
+        type="submit"
+        variant="secondary"
+        title={write.reason ?? undefined}
+        status={status}
+        pendingLabel="Ending…"
+        successLabel="Ended"
+        disabled={!ready}
+      >
+        End this trial
+      </ActionButton>
 
       <RestrictionNote reason={write.reason} />
     </form>

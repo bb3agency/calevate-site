@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { IstDateTimeField } from "@/components/admin/istDateTimeField";
 import { Section } from "@/components/console/section";
 import { useState } from "react";
 
@@ -8,7 +10,6 @@ import {
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   RestrictionNote,
   formatISTInput,
   formatWholeCount,
@@ -39,10 +40,13 @@ import type { CampaignSummary } from "@/lib/api/campaigns";
 export function ScrubForm({
   campaign,
   record,
+  status,
   write,
 }: {
   campaign: CampaignSummary;
   record: ReturnType<typeof useRecordPreferenceScrub>;
+  /** The record mutation's state from `useActionFeedback`, created where the mutation is. */
+  status: FeedbackStatus;
   write: ReturnType<typeof useAdminAccess>;
 }) {
   const [draft, setDraft] = useState<ScrubDraft>(() => ({
@@ -72,7 +76,7 @@ export function ScrubForm({
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
-          if (blocked || !confirmed || instant === null) return;
+          if (blocked || !confirmed || instant === null || record.isPending) return;
           record.mutate({ draft, instant });
         }}
       >
@@ -130,25 +134,13 @@ export function ScrubForm({
           </span>
         </div>
 
-        <div>
-          <label htmlFor="scrub-at" className={FIELD_LABEL}>
-            When the provider ran it (IST)
-          </label>
-          <input
-            id="scrub-at"
-            type="datetime-local"
-            value={draft.scrubbedAtInput}
-            disabled={!write.allowed}
-            onChange={(e) => set("scrubbedAtInput", e.target.value)}
-            aria-describedby="scrub-at-hint"
-            className={FIELD}
-          />
-          <span id="scrub-at-hint" className={FIELD_HINT}>
-            As their report states it, in Indian time — this field is IST, not your
-            machine&apos;s clock. The validity window ends at midnight IST on THIS date, so
-            recording yesterday&apos;s run does not open the gate today.
-          </span>
-        </div>
+        <IstDateTimeField
+          label="When the provider ran it"
+          value={draft.scrubbedAtInput}
+          disabled={!write.allowed}
+          onChange={(next) => set("scrubbedAtInput", next)}
+          hint="As their report states it, in Indian time, not your machine’s clock. The validity window ends at midnight IST on this date, so recording yesterday’s run does not open the gate today."
+        />
 
         <div>
           <label htmlFor="scrub-blocked" className={FIELD_LABEL}>
@@ -199,13 +191,15 @@ export function ScrubForm({
           </NoticeBox>
         )}
 
-        <button
+        <ActionButton
           type="submit"
-          className={`${PRIMARY_BUTTON} max-sm:w-full max-sm:justify-center`}
-          disabled={!write.allowed || blocked !== null || !confirmed || record.isPending}
+          status={status}
+          successLabel="Recorded"
+          className="max-sm:w-full max-sm:justify-center"
+          disabled={!write.allowed || blocked !== null || !confirmed}
         >
-          {record.isPending ? "Recording…" : "Record this scrub"}
-        </button>
+          Record this scrub
+        </ActionButton>
       </form>
     </Section>
   );

@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { StatusPill } from "@/components/admin/kit";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
@@ -51,6 +52,8 @@ export function CommercialsScreen({ tenantId }: { tenantId: string }) {
   // Hoisted: a successful write invalidates the read, and a mutation held in a form that
   // the re-read remounts would lose its own receipt.
   const save = useRecordTerms(adminSession(), tenantId);
+  // `WriteFailure` in the form owns the refusal, which may be a step-up answer.
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const write = useAdminAccess("admin:tenants", "record commercial terms");
   const [open, setOpen] = useState(false);
   const inEffect = terms.data?.in_effect ?? null;
@@ -106,6 +109,7 @@ export function CommercialsScreen({ tenantId }: { tenantId: string }) {
             <TermsForm
               key={inEffect?.id ?? "none"}
               save={save}
+              status={saveFeedback.status}
               inEffect={inEffect}
               confirmation={terms.data.loosening_confirmation}
               write={write}

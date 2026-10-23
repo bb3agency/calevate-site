@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 
-import { ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { TEXT_ACTION } from "@/components/console/section";
+import { ProblemNotice } from "@/components/ui";
 import { useAdminReplaceLeadFields } from "@/lib/api/leadFields";
 import { businessTypeLabel, type BusinessType } from "@/lib/businessTypes";
 
@@ -20,6 +22,7 @@ export function BusinessTypeMoved({
   vertical: BusinessType;
 }) {
   const replace = useAdminReplaceLeadFields(tenantId);
+  const replaceFeedback = useActionFeedback(replace, { errorDisplay: "inline" });
   const label = businessTypeLabel(vertical).toLowerCase();
   const leadDetails = `/admin/tenants/${tenantId}/lead-details`;
 
@@ -51,15 +54,15 @@ export function BusinessTypeMoved({
       </p>
       {replace.error && <ProblemNotice error={replace.error} />}
       <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          className={SECONDARY_BUTTON}
-          disabled={replace.isPending}
+        <ActionButton
+          variant="secondary"
+          status={replaceFeedback.status}
+          pendingLabel="Replacing…"
           onClick={() => replace.mutate({ business_type: vertical, agent_ids: null })}
         >
-          {replace.isPending ? "Replacing…" : `Use the ${label} details`}
-        </button>
-        <Link href={leadDetails} className="text-sm font-medium text-brand-strong hover:underline">
+          Use the {label} details
+        </ActionButton>
+        <Link href={leadDetails} className={TEXT_ACTION}>
           Review on Lead details
         </Link>
       </div>

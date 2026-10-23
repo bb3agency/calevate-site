@@ -118,6 +118,23 @@ beforeEach(() => {
  * seam.
  */
 
+/**
+ * The visible receipt. Every `ActionButton` also carries a screen-reader-only status line,
+ * so a bare `getByRole("status")` would find those too.
+ */
+function visibleStatuses(): HTMLElement[] {
+  return screen.queryAllByRole("status").filter((node) => !node.classList.contains("sr-only"));
+}
+
+async function findReceipt(): Promise<HTMLElement> {
+  return waitFor(() => {
+    // Not a loading skeleton, which is also a status.
+    const receipt = visibleStatuses().find((node) => !/^Loading/.test(node.textContent ?? ""));
+    expect(receipt).toBeTruthy();
+    return receipt as HTMLElement;
+  });
+}
+
 function me(permissions: string[]): AdminMe {
   return {
     realm: "admin",
@@ -1002,14 +1019,15 @@ describe("the receipt is the server's answer", () => {
 
     await screen.findByText("self_serve_inr_per_min");
     fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
+    // The money field canonicalises as it is typed, so the phrase asked for is "7.25".
     fillConfigForm({
       value: "07.25",
       reason: "Q3 self-serve price change",
-      confirm: "07.25",
+      confirm: "7.25",
     });
     fireEvent.click(saveButton());
 
-    const receipt = await screen.findByRole("status");
+    const receipt = await findReceipt();
     expect(receipt.textContent).toContain(
       "changed from ₹6.00 per minute to ₹7.25 per minute",
     );
@@ -1078,7 +1096,7 @@ describe("the receipt is the server's answer", () => {
     // the first one to speak. A test that waits on the error text asserts the receipt only
     // if the error text is still there, which a sabotage that fakes success removes.
     await waitFor(() => expect(writeCount(calls, "PUT")).toBe(1));
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(visibleStatuses()).toEqual([]);
     // The form stayed open with the value in it, so the operator can correct it — and the
     // API's own words are on screen.
     expect(saveButton()).toBeTruthy();
@@ -1117,7 +1135,7 @@ describe("a write the server did not perform", () => {
     });
     fireEvent.click(saveButton());
 
-    const receipt = await screen.findByRole("status");
+    const receipt = await findReceipt();
     expect(receipt.textContent).toContain("No change");
     expect(receipt.textContent).toContain("nothing was saved or recorded");
     // The word that would be a lie: nothing was stored by this request.
@@ -1474,7 +1492,7 @@ describe("installing a credential", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /^Rotate$/ }));
 
-    const receipt = await screen.findByRole("status");
+    const receipt = await findReceipt();
     expect(receipt.textContent).toContain("…0001");
     expect(receipt.textContent).toContain("version 3");
   });
@@ -1512,7 +1530,7 @@ describe("installing a credential", () => {
 
     // The write SUCCEEDED and the credential is still not in force. A receipt that only
     // said "stored" would be true and useless.
-    const receipt = await screen.findByRole("status");
+    const receipt = await findReceipt();
     expect(receipt.textContent).toContain("It is not in force");
     expect(receipt.textContent).toContain("CARTESIA_API_KEY");
   });

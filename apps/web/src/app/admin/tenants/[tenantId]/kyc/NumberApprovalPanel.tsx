@@ -3,9 +3,10 @@
 import Link from "next/link";
 
 import { StatusPill } from "@/components/admin/kit";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
-import { NoticeBox, ProblemNotice, SECONDARY_BUTTON_SM, formatIST } from "@/components/ui";
+import { NoticeBox, ProblemNotice, formatIST } from "@/components/ui";
 import {
   BUSINESS_DETAILS_STATUS_COPY,
   useRefreshWorkspaceBusinessDetails,
@@ -34,6 +35,7 @@ export function NumberApprovalPanel({
   canWrite: boolean;
 }) {
   const refresh = useRefreshWorkspaceBusinessDetails(tenantId);
+  const refreshFeedback = useActionFeedback(refresh, { errorDisplay: "inline" });
   const details = workspace.business_details;
   const status = details?.status ?? "none";
 
@@ -81,14 +83,16 @@ export function NumberApprovalPanel({
           </NoticeBox>
         )}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={!canWrite || refresh.isPending || workspace.status !== "active"}
+          <ActionButton
+            variant="secondary-sm"
+            status={refreshFeedback.status}
+            pendingLabel="Checking…"
+            successLabel="Checked"
+            disabled={!canWrite || workspace.status !== "active"}
             onClick={() => refresh.mutate()}
           >
-            {refresh.isPending ? "Checking…" : "Check again now"}
-          </button>
+            Check again now
+          </ActionButton>
           <Link href={`/admin/tenants/${tenantId}/numbers`} className={TEXT_ACTION}>
             Send the details or buy a number
           </Link>

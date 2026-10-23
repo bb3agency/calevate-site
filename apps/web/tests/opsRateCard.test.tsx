@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import { formatWholeCount } from "@/components/ui";
+import { addMonths, formatDateLong, startOfMonth, todayIST } from "@/components/arc/ist-dates";
 import OpsConfigPage from "@/app/admin/ops/config/page";
 import { OPS_CONFIG_SECTIONS, SELF_SERVE_PRICE_META } from "./fixtures/opsConfig";
 import {
@@ -64,6 +65,18 @@ vi.mock("next/navigation", () => ({
 }));
 function openSection(id: string) {
   nav.params = new URLSearchParams(`section=${id}`);
+}
+
+/**
+ * Picks the first of next month on a kit `DatePicker` (its calendar is portalled) and
+ * returns that day, so a test never depends on which month it runs in.
+ */
+async function pickFirstOfNextMonth(trigger: HTMLElement): Promise<string> {
+  const day = startOfMonth(addMonths(todayIST(), 1));
+  fireEvent.click(trigger);
+  fireEvent.click(await screen.findByRole("button", { name: "Next month" }));
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(formatDateLong(day)) }));
+  return day;
 }
 beforeEach(() => {
   nav.params = new URLSearchParams();
@@ -1032,9 +1045,9 @@ describe("the rupee price of the standby model (Sarvam 105B)", () => {
     const row = screen.getByText("Sarvam 105B").closest("li") as HTMLElement;
     fireEvent.click(within(row).getByRole("button", { name: "Confirm price" }));
     fireEvent.change(within(row).getByLabelText(/^Cached input/), { target: { value: "" } });
-    fireEvent.change(within(row).getByLabelText(/Starts on/), {
-      target: { value: "2099-11-01" },
-    });
+    const firstOfNext = await pickFirstOfNextMonth(
+      within(row).getByRole("button", { name: /Starts on/ }),
+    );
     fireEvent.change(within(row).getByPlaceholderText(/Sarvam invoice Oct 2026/), {
       target: { value: "Sarvam price notice" },
     });
@@ -1046,7 +1059,7 @@ describe("the rupee price of the standby model (Sarvam 105B)", () => {
     const write = await waitForCall(calls, path);
     const body = JSON.parse(write.body ?? "null") as Record<string, unknown>;
     expect(body).not.toHaveProperty("cached_in_inr_per_mtok");
-    expect(body.effective_from).toBe("2099-10-31T18:30:00.000Z");
+    expect(body.effective_from).toBe(new Date(`${firstOfNext}T00:00:00+05:30`).toISOString());
   });
 
   it("keeps the dollar list when the rupee read fails", async () => {
@@ -1309,9 +1322,9 @@ describe("recording the next rate card", () => {
         target: { value: "5.5000" },
       },
     );
-    fireEvent.change(screen.getByLabelText(/The day the new rates start/), {
-      target: { value: "2026-10-20" },
-    });
+    const day = await pickFirstOfNextMonth(
+      screen.getByRole("button", { name: /The day the new rates start/ }),
+    );
     fireEvent.change(screen.getByPlaceholderText(/Cartesia raised/), {
       target: { value: "Cartesia raised its per-character price" },
     });
@@ -1327,12 +1340,8 @@ describe("recording the next rate card", () => {
     expect(write.body).toContain('"pack_id":"starter"');
     // MIDNIGHT IST WITH THE OFFSET WRITTEN IN, not `toISOString()`. Both halves are
     // asserted because only their EQUALITY makes the save possible.
-    expect(write.body).toContain(
-      '"effective_from":"2026-10-20T00:00:00+05:30"',
-    );
-    expect(write.headers["X-Confirm-Action"]).toBe(
-      "record_rate_card:2026-10-20T00:00:00+05:30",
-    );
+    expect(write.body).toContain(`"effective_from":"${day}T00:00:00+05:30"`);
+    expect(write.headers["X-Confirm-Action"]).toBe(`record_rate_card:${day}T00:00:00+05:30`);
   });
 
   it("shows what each rate moved by, against the card in force", async () => {
@@ -1371,9 +1380,9 @@ describe("recording the next rate card", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Record a new card/ }),
     );
-    fireEvent.change(screen.getByLabelText(/The day the new rates start/), {
-      target: { value: "2026-10-20" },
-    });
+    await pickFirstOfNextMonth(
+      screen.getByRole("button", { name: /The day the new rates start/ }),
+    );
     fireEvent.change(screen.getByPlaceholderText(/Cartesia raised/), {
       target: { value: "moving the entry rung" },
     });
@@ -1393,18 +1402,14 @@ describe("recording the next rate card", () => {
     expect(container.textContent).toContain("that instant is 4 days away");
   });
 
-  it("offers the earliest permitted day as the picker's own floor", async () => {
+  it("names the earliest permitted day under the picker", async () => {
     renderOps(routes({ [OPS_RATE_CARD_PATH]: fullCard() }));
 
     fireEvent.click(
       await screen.findByRole("button", { name: /Record a new card/ }),
     );
-    const picker = screen.getByLabelText(
-      /The day the new rates start/,
-    ) as HTMLInputElement;
     // The client-side floor and the sentence under it are one answer, and the server is
     // still the real gate — see `earliestPickableDate`.
-    expect(picker.min).toBe("2026-10-09");
     expect(
       screen.getByText(/earliest day this deployment accepts is 2026-10-09/),
     ).toBeTruthy();

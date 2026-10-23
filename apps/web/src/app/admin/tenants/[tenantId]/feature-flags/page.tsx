@@ -18,6 +18,7 @@ import {
   formatIST,
 } from "@/components/ui";
 import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
+import { RadioGroup } from "@/components/arc/radio-group";
 import { useTenant } from "@/lib/api/admin";
 import {
   REASON_MAX,
@@ -339,39 +340,22 @@ function FlagRow({
       >
         <RestrictionNote reason={write.reason} />
 
-        <fieldset>
-          <legend className="sr-only">This client&apos;s position</legend>
-          <div className="grid grid-cols-1 gap-1 rounded-lg border border-line bg-app p-1 sm:inline-grid sm:grid-cols-3">
-            {POSITIONS.map((option) => {
-              const on = position === option.value;
-              return (
-                <label
-                  key={String(option.value)}
-                  title={option.effect}
-                  className={`press flex cursor-pointer items-center justify-center gap-2 rounded-md px-3 py-1.5 text-meta font-medium touch:min-h-11 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand ${
-                    on ? "bg-surface text-ink" : "text-ink-muted hover:text-ink"
-                  } ${!write.allowed ? "cursor-not-allowed opacity-60" : ""}`}
-                >
-                  <input
-                    type="radio"
-                    name={`${flag.flag}-position`}
-                    checked={on}
-                    disabled={!write.allowed}
-                    onChange={() => {
-                      setPosition(option.value);
-                      set.reset();
-                    }}
-                    className="sr-only"
-                  />
-                  {option.label}
-                </label>
-              );
-            })}
-          </div>
-          <p className="mt-1.5 text-meta text-ink-muted">
-            {POSITIONS.find((option) => option.value === position)?.effect}
-          </p>
-        </fieldset>
+        <RadioGroup
+          label="This client's position"
+          name={`${flag.flag}-position`}
+          value={positionKey(position)}
+          onChange={(next) => {
+            setPosition(POSITIONS.find((option) => positionKey(option.value) === next)?.value ?? null);
+            set.reset();
+          }}
+          options={POSITIONS.map((option) => ({
+            value: positionKey(option.value),
+            label: option.label,
+            hint: option.effect,
+            disabled: !write.allowed,
+          }))}
+          disabled={!write.allowed}
+        />
 
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-0 flex-1 basis-64">
@@ -452,6 +436,11 @@ function FlagRow({
  * client. Presenting only on/off would make that choice unreachable from the console and
  * would leave a client silently pinned to a value nobody meant to pin them to.
  */
+/** A position as the string a radio carries: on, off, or no override. */
+function positionKey(value: boolean | null): string {
+  return value === null ? "default" : value ? "on" : "off";
+}
+
 const POSITIONS: { value: boolean | null; label: string; effect: string }[] = [
   {
     value: true,

@@ -357,9 +357,10 @@ describe("reply length", () => {
     });
 
     await screen.findByText("Replies are held to 300 tokens, the platform setting.");
-    fireEvent.change(screen.getByLabelText("Longest reply, in tokens"), {
-      target: { value: "500" },
-    });
+    const tokens = screen.getByLabelText("Longest reply, in tokens");
+    fireEvent.change(tokens, { target: { value: "500" } });
+    // The kit's number box applies typing when it is left, as a person tabbing on does.
+    fireEvent.blur(tokens);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await screen.findByText(/set for this agent\. The platform setting is 300\./);

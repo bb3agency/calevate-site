@@ -4,6 +4,7 @@ import { useState } from "react";
 import { BadgeCheck, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import { AttestForm } from "@/app/admin/ops/DashboardDataUsePanel";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { MonoValue } from "@/app/admin/ops/opsLanguage";
 import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withheld";
 import { Section } from "@/components/console/section";
@@ -63,6 +64,10 @@ export function InCallDataUsePanel({ access }: { access: Access }) {
 function InCallRow({ row, statement, access }: { row: InCallDataUse; statement: string; access: Access }) {
   const [open, setOpen] = useState(false);
   const save = useAttestInCallDataUse();
+  const saveFeedback = useActionFeedback(save, {
+    errorDisplay: "inline",
+    successToast: "Attestation recorded",
+  });
   const attested = row.attested_at !== null;
 
   return (
@@ -125,7 +130,13 @@ function InCallRow({ row, statement, access }: { row: InCallDataUse; statement: 
       {access.allowed ? (
         <div className="mt-3">
           {open ? (
-            <AttestForm leg={row} statement={statement} onDone={() => setOpen(false)} save={save} />
+            <AttestForm
+              leg={row}
+              statement={statement}
+              onDone={() => setOpen(false)}
+              save={save}
+              status={saveFeedback.status}
+            />
           ) : (
             <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setOpen(true)}>
               <ShieldCheck aria-hidden className="h-3.5 w-3.5" />

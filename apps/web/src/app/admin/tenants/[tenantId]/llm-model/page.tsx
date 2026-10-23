@@ -1,13 +1,13 @@
 "use client";
 
 import { SavedNote } from "@/components/admin/kit";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import { use, useState } from "react";
 
 import {
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
@@ -127,6 +127,7 @@ export default function LlmModelPage({
   // remounted by its key to pick up the new state, and a mutation held inside it would be
   // remounted with it — taking the confirmation down at the moment the write landed.
   const set = useSetAdminLlmDefault(tenantId);
+  const setFeedback = useActionFeedback(set, { errorDisplay: "inline" });
   const write = useAdminAccess("admin:tenants", "change which model a client's agents use");
 
   // The layout resolves the tenant before this page mounts; a render without it (a test
@@ -184,6 +185,7 @@ export default function LlmModelPage({
             defaults={defaults.data}
             tenantName={tenant.name}
             set={set}
+            status={setFeedback.status}
             write={write}
           />
           {set.error != null && <WriteFailure error={set.error} actionLabel="Save this model" />}
@@ -369,11 +371,13 @@ function ChoiceForm({
   defaults,
   tenantName,
   set,
+  status,
   write,
 }: {
   defaults: OrganizationLlmDefaults;
   tenantName: string;
   set: ReturnType<typeof useSetAdminLlmDefault>;
+  status: FeedbackStatus;
   write: ReturnType<typeof useAdminAccess>;
 }) {
   // `null` here is the CLIENT'S CHOICE being absent, not "unknown" — the two-way choice
@@ -515,7 +519,7 @@ function ChoiceForm({
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          if (blocked === null) set.mutate(draft);
+          if (blocked === null && !set.isPending) set.mutate(draft);
         }}
       >
         {/* The permission the route requires, answered before the click. */}
@@ -646,13 +650,14 @@ function ChoiceForm({
         />
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
+          <ActionButton
             type="submit"
-            disabled={set.isPending || blocked !== null || !write.allowed}
-            className={PRIMARY_BUTTON}
+            status={status}
+            successLabel="Saved"
+            disabled={blocked !== null || !write.allowed}
           >
-            {set.isPending ? "Saving…" : "Save this model"}
-          </button>
+            Save this model
+          </ActionButton>
           {blocked && <span className="text-meta text-warn">{blocked}</span>}
         </div>
       </form>

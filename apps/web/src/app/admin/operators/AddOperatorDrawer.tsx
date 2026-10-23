@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ShieldCheck, TriangleAlert, UserPlus } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Drawer } from "@/components/console/drawer";
 import { useFormValidation } from "@/components/formValidation";
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
@@ -11,7 +12,6 @@ import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
-  PRIMARY_BUTTON,
 } from "@/components/ui";
 import {
   ADMIN_ROLES,
@@ -40,6 +40,7 @@ export function AddOperatorDrawer({
   onAdded: (created: Operator) => void;
 }) {
   const add = useAddOperator();
+  const addFeedback = useActionFeedback(add, { errorDisplay: "inline" });
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<AdminRole>("operator");
@@ -187,10 +188,16 @@ export function AddOperatorDrawer({
 
         {add.error != null && <WriteFailure error={add.error} actionLabel="Add" />}
 
-        <button type="submit" disabled={!ready || add.isPending} className={PRIMARY_BUTTON}>
+        <ActionButton
+          type="submit"
+          status={addFeedback.status}
+          disabled={!ready}
+          pendingLabel="Adding…"
+          successLabel="Added"
+        >
           <UserPlus aria-hidden className="h-4 w-4" />
-          {add.isPending ? "Adding…" : `Add ${copy?.label.toLowerCase() ?? role}`}
-        </button>
+          {`Add ${copy?.label.toLowerCase() ?? role}`}
+        </ActionButton>
       </form>
     </Drawer>
   );

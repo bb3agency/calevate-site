@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 
+import { DatePicker } from "@/components/arc/calendar";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { todayIST } from "@/components/arc/ist-dates";
 import { Section } from "@/components/console/section";
 import {
   FIELD,
@@ -9,7 +12,6 @@ import {
   FIELD_LABEL,
   MonoValue,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   istDateToInstant,
 } from "@/components/ui";
@@ -59,6 +61,7 @@ const TM_LINK_STATUSES: { value: TmLinkStatus; label: string }[] = [
  */
 export function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: ReturnType<typeof useAdminAccess> }) {
   const record = useRecordDltRegistration(tenantId);
+  const recordFeedback = useActionFeedback(record, { errorDisplay: "inline" });
   const [status, setStatus] = useState<PeStatus>("not_started");
   const [tmLink, setTmLink] = useState<TmLinkStatus>("not_linked");
   const [peId, setPeId] = useState("");
@@ -179,31 +182,28 @@ export function DltRegistrationPanel({ tenantId, write }: { tenantId: string; wr
               className={FIELD}
             />
           </div>
-          <div>
-            {/* The zone is in the label: a `type="date"` carries none, and this is the
-                date on an Indian registrar's letter wherever the operator sits. */}
-            <label htmlFor="dlt-registered-at" className={FIELD_LABEL}>
-              Registered on (IST)
-            </label>
-            <input
-              id="dlt-registered-at"
-              type="date"
-              value={registeredAt}
-              disabled={!write.allowed}
-              onChange={(e) => setRegisteredAt(e.target.value)}
-              className={FIELD}
-            />
-          </div>
+          {/* The date on an Indian registrar's letter, so an IST day; it cannot be later
+              than today, which the server also refuses. */}
+          <DatePicker
+            label="Registered on (IST, optional)"
+            value={registeredAt || null}
+            max={todayIST()}
+            clearable
+            disabled={!write.allowed}
+            onChange={(day) => setRegisteredAt(day ?? "")}
+          />
         </div>
         <span className={FIELD_HINT}>Re-recording is normal — it updates what is on file.</span>
         <div className="flex justify-end">
-          <button
+          <ActionButton
             type="submit"
-            className={PRIMARY_BUTTON}
-            disabled={record.isPending || !write.allowed}
+            status={recordFeedback.status}
+            pendingLabel="Recording…"
+            successLabel="Recorded"
+            disabled={!write.allowed}
           >
-            {record.isPending ? "Recording…" : "Record registration"}
-          </button>
+            Record registration
+          </ActionButton>
         </div>
       </form>
     </Section>

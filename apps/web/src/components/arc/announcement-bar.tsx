@@ -24,10 +24,11 @@ import { SHELL_RAIL_CLASS } from "@/components/ui";
 
 import type { FeedbackStatus } from "./feedback";
 
-export type AnnouncementTone = "info" | "warn" | "critical";
+export type AnnouncementTone = "info" | "success" | "warn" | "critical";
 
 const TONE_DOT: Record<AnnouncementTone, string> = {
   info: NOTICE_DOT.neutral,
+  success: NOTICE_DOT.ok,
   warn: NOTICE_DOT.warn,
   critical: NOTICE_DOT.stop,
 };
@@ -50,6 +51,34 @@ export type AnnouncementBarProps = {
   /** The region's name when `role="region"`. */
   label?: string;
 };
+
+/** A platform announcement as the server sends it (`AnnouncementOut`, D-869). */
+export type PlatformAnnouncement = {
+  message: string;
+  tone: "info" | "success" | "warning" | "critical";
+  link_url: string | null;
+  link_label: string | null;
+};
+
+/**
+ * The one mapping from a platform announcement to this bar, shared by the client shell
+ * that shows it and the admin composer that previews it, so the preview cannot drift from
+ * what clients see. A link with no label reads "Learn more"; a critical one is an alert.
+ */
+export function platformAnnouncementProps(
+  announcement: PlatformAnnouncement,
+  linkFallbackLabel = "Learn more",
+): Pick<AnnouncementBarProps, "title" | "tone" | "action" | "role"> {
+  const tone: AnnouncementTone = announcement.tone === "warning" ? "warn" : announcement.tone;
+  return {
+    title: announcement.message,
+    tone,
+    action: announcement.link_url
+      ? { href: announcement.link_url, label: announcement.link_label || linkFallbackLabel }
+      : undefined,
+    role: tone === "critical" ? "alert" : "status",
+  };
+}
 
 export function AnnouncementBar({
   title,

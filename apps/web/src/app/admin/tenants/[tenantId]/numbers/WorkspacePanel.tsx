@@ -15,6 +15,7 @@
 import { useState } from "react";
 
 import { HAIRLINE_LIST } from "@/components/admin/kit";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Section, TEXT_ACTION_DANGER } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
@@ -113,6 +114,11 @@ function WorkspaceBody({
   const offboard = useOffboardWorkspace(tenantId);
   const send = useSendWorkspaceBusinessDetails(tenantId);
   const refresh = useRefreshWorkspaceBusinessDetails(tenantId);
+  // Inline: every refusal is drawn under the buttons it answers, or inside the dialog.
+  const provisionFeedback = useActionFeedback(provision, { errorDisplay: "inline" });
+  const offboardFeedback = useActionFeedback(offboard, { errorDisplay: "inline" });
+  const sendFeedback = useActionFeedback(send, { errorDisplay: "inline" });
+  const refreshFeedback = useActionFeedback(refresh, { errorDisplay: "inline" });
   const [offboarding, setOffboarding] = useState(false);
 
   const status = data.status ?? "not_provisioned";
@@ -201,18 +207,15 @@ function WorkspaceBody({
       )}
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          disabled={!canWrite || !retryable || provision.isPending}
+        <ActionButton
+          variant="secondary-sm"
+          status={provisionFeedback.status}
+          pendingLabel="Working…"
+          disabled={!canWrite || !retryable}
           onClick={() => provision.mutate()}
         >
-          {provision.isPending
-            ? "Working…"
-            : status === "not_provisioned"
-              ? "Create workspace now"
-              : "Retry provisioning"}
-        </button>
+          {status === "not_provisioned" ? "Create workspace now" : "Retry provisioning"}
+        </ActionButton>
         <button
           type="button"
           className={TEXT_ACTION_DANGER}
@@ -253,22 +256,26 @@ function WorkspaceBody({
           </NoticeBox>
         )}
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={!canWrite || send.isPending}
+          <ActionButton
+            variant="secondary-sm"
+            status={sendFeedback.status}
+            pendingLabel="Sending…"
+            successLabel="Sent"
+            disabled={!canWrite}
             onClick={() => send.mutate()}
           >
-            {send.isPending ? "Sending…" : "Send business details"}
-          </button>
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={!canWrite || refresh.isPending}
+            Send business details
+          </ActionButton>
+          <ActionButton
+            variant="secondary-sm"
+            status={refreshFeedback.status}
+            pendingLabel="Reading…"
+            successLabel="Read"
+            disabled={!canWrite}
             onClick={() => refresh.mutate()}
           >
-            {refresh.isPending ? "Reading…" : "Refresh status"}
-          </button>
+            Refresh status
+          </ActionButton>
         </div>
         <ProblemNotice error={send.error ?? refresh.error} />
       </div>
@@ -298,7 +305,7 @@ function WorkspaceBody({
           title="Offboard this client's workspace"
           confirmLabel="Offboard"
           pendingLabel="Offboarding…"
-          pending={offboard.isPending}
+          status={offboardFeedback.status}
           error={offboard.error}
           onCancel={() => setOffboarding(false)}
           onConfirm={() => offboard.mutate(undefined, { onSuccess: () => setOffboarding(false) })}
@@ -328,6 +335,7 @@ function AdminBuyNumber({
 }) {
   const cities = useWorkspaceCities(tenantId, true);
   const purchase = useWorkspacePurchase(tenantId);
+  const purchaseFeedback = useActionFeedback(purchase, { errorDisplay: "inline" });
   const [city, setCity] = useState("");
   const [pattern, setPattern] = useState("");
   const [search, setSearch] = useState<{ city: string; pattern: string } | null>(null);
@@ -443,7 +451,7 @@ function AdminBuyNumber({
           title={`Buy ${formatPhone(chosen.e164)} for this client`}
           confirmLabel="Buy for the client"
           pendingLabel="Buying…"
-          pending={purchase.isPending}
+          status={purchaseFeedback.status}
           error={purchase.error}
           onCancel={() => setChosen(null)}
           onConfirm={() =>

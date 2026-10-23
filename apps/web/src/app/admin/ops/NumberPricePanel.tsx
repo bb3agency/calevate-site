@@ -7,13 +7,13 @@ import { CheckCircle2, Lock, Phone } from "lucide-react";
 import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withheld";
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { useFormValidation } from "@/components/formValidation";
 import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
@@ -50,6 +50,7 @@ export function exceedsCeiling(amount: string): boolean {
 export function NumberPricePanel() {
   const price = useNumberPrice();
   const attest = useAttestNumberPrice();
+  const attestFeedback = useActionFeedback(attest, { errorDisplay: "inline" });
   const me = useAdminMe();
   const access = adminAccess(me, "admin:tenants", "record what a phone number costs a client");
   const valid = useFormValidation();
@@ -152,7 +153,7 @@ export function NumberPricePanel() {
             onSubmit={valid.onSubmit(() => {
               const tooLarge = exceedsCeiling(amount);
               setOverCeiling(tooLarge);
-              if (tooLarge) return;
+              if (tooLarge || attest.isPending) return;
               attest.mutate(
                 { inr_per_month: amount.trim(), source: source.trim() },
                 {
@@ -220,14 +221,16 @@ export function NumberPricePanel() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <button
+              <ActionButton
                 type="submit"
                 title={access.reason ?? undefined}
-                disabled={!access.allowed || attest.isPending}
-                className={PRIMARY_BUTTON}
+                disabled={!access.allowed}
+                status={attestFeedback.status}
+                pendingLabel="Recording…"
+                successLabel="Recorded"
               >
-                {attest.isPending ? "Recording…" : actionLabel}
-              </button>
+                {actionLabel}
+              </ActionButton>
               <button
                 type="button"
                 disabled={attest.isPending}

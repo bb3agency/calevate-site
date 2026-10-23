@@ -366,7 +366,7 @@ function UndecidableCard({ board }: { board: FleetSpend }) {
           <li key={row.tenant_id} className="py-3 sm:px-2">
             <Link
               href={`/admin/tenants/${row.tenant_id}/spend`}
-              className="rounded-sm text-body font-medium text-ink underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+              className="inline-flex max-w-full items-center rounded-sm text-body font-medium text-ink underline-offset-2 [overflow-wrap:anywhere] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
             >
               {row.name}
             </Link>

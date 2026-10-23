@@ -1,6 +1,6 @@
 "use client";
 
-import { FIELD, FIELD_HINT, FIELD_LABEL } from "@/components/ui";
+import { Combobox } from "@/components/arc/combobox";
 import type { components } from "@/lib/api/schema";
 
 export type ClientOption = components["schemas"]["ClientOptionOut"];
@@ -8,10 +8,11 @@ export type ClientOption = components["schemas"]["ClientOptionOut"];
 /**
  * A client with its own voice workspace, chosen by name: our keys are installed per client
  * workspace, and an operator should never have to copy an account id to name one. The list
- * is served with the card (`clients`), so it holds only clients an install can name.
+ * is served with the card (`clients`), so it holds only clients an install can name. A
+ * combobox rather than a select because the list grows with paying clients (up to the
+ * plan's 100 workspaces) and is found by typing a name.
  */
 export function ClientPicker({
-  id,
   label,
   clients,
   value,
@@ -20,12 +21,11 @@ export function ClientPicker({
   hint,
   note,
 }: {
-  id: string;
   label: string;
   clients: ClientOption[];
   value: string;
   onChange: (tenantId: string) => void;
-  /** The blank choice's words; it says what happens when no client is chosen. */
+  /** Shown while no client is chosen; it says what happens when none is. */
   emptyLabel: string;
   hint: string;
   /** A few words after a client's name, such as "on our key"; nothing when undefined. */
@@ -33,22 +33,23 @@ export function ClientPicker({
 }) {
   return (
     <div className="mt-3">
-      <label htmlFor={id} className={FIELD_LABEL}>
-        {label}
-      </label>
-      <select id={id} className={`mt-1 ${FIELD}`} value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="">{emptyLabel}</option>
-        {clients.map((client) => {
-          const extra = note?.(client.tenant_id);
-          return (
-            <option key={client.tenant_id} value={client.tenant_id}>
-              {client.tenant_name ?? `Unnamed client (${client.tenant_id.slice(0, 8)})`}
-              {extra ? ` · ${extra}` : ""}
-            </option>
-          );
-        })}
-      </select>
-      <p className={FIELD_HINT}>{hint}</p>
+      <Combobox
+        label={label}
+        hint={hint}
+        placeholder={emptyLabel}
+        value={value || null}
+        onChange={(next) => onChange(next ?? "")}
+        options={clients.map((client) => ({
+          value: client.tenant_id,
+          label: client.tenant_name ?? `Unnamed client (${client.tenant_id.slice(0, 8)})`,
+          hint: note?.(client.tenant_id),
+        }))}
+        emptyText={(query) =>
+          clients.length === 0
+            ? "No client has a voice workspace of its own yet."
+            : `No client with a voice workspace matches “${query}”`
+        }
+      />
       {clients.length === 0 && (
         <p className="mt-1 text-meta text-ink-muted">No client has a voice workspace of its own yet.</p>
       )}

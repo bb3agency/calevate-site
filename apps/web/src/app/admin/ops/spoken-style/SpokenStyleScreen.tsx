@@ -5,6 +5,7 @@ import { CheckCircle2, CircleAlert } from "lucide-react";
 
 import { useAdminAccess } from "@/app/admin/access";
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Section } from "@/components/console/section";
 import {
@@ -12,7 +13,6 @@ import {
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON,
@@ -30,6 +30,7 @@ import {
   usePublishSpokenStyle,
   useSpokenStyle,
   useSpokenStyles,
+  type EntryAction,
   type EntryKind,
   type LanguageStyle,
   type StyleEntry,
@@ -55,6 +56,16 @@ const STATUS_LABELS: Record<StyleEntry["status"], string> = {
   approved: "Approved",
   needs_review: "Needs review",
   retired: "Retired",
+};
+
+type ChangeAction = EntryAction;
+
+/** The toast after an entry write. */
+const CHANGE_DONE: Record<ChangeAction, string> = {
+  approve: "Approved",
+  edit: "Saved and approved",
+  add: "Added and approved",
+  retire: "Retired",
 };
 
 const STATUS_TONES: Record<StyleEntry["status"], NoticeTone> = {
@@ -132,12 +143,15 @@ function EntryForm({
   kind,
   entry,
   busy,
+  saveStatus,
   onSave,
   onCancel,
 }: {
   kind: EntryKind;
   entry: StyleEntry | null;
   busy: boolean;
+  /** This form's save, from the screen's one `useActionFeedback` over the entry writes. */
+  saveStatus: FeedbackStatus;
   onSave: (key: string | null, value: StyleValue) => void;
   onCancel: () => void;
 }) {
@@ -245,9 +259,14 @@ function EntryForm({
         </>
       )}
       <div className="flex flex-wrap gap-2">
-        <button type="submit" disabled={busy || !complete(kind, adding, draft)} className={PRIMARY_BUTTON}>
+        <ActionButton
+          type="submit"
+          status={saveStatus}
+          disabled={(busy && saveStatus !== "pending") || !complete(kind, adding, draft)}
+          pendingLabel={adding ? "Adding…" : "Saving…"}
+        >
           {adding ? "Add and approve" : "Save and approve"}
-        </button>
+        </ActionButton>
         <button type="button" disabled={busy} onClick={onCancel} className={SECONDARY_BUTTON}>
           Cancel
         </button>
@@ -259,6 +278,7 @@ function EntryForm({
 function EntryRow({
   entry,
   busy,
+  statusOf,
   editing,
   onEdit,
   onAction,
@@ -267,6 +287,8 @@ function EntryRow({
 }: {
   entry: StyleEntry;
   busy: boolean;
+  /** The state of one of this row's writes, `idle` unless it is the one in flight. */
+  statusOf: (action: "approve" | "edit" | "retire") => FeedbackStatus;
   editing: boolean;
   onEdit: () => void;
   onAction: (action: "approve" | "retire") => void;
@@ -304,15 +326,15 @@ function EntryRow({
       {entry.status !== "retired" && !editing && (
         <div className="flex flex-wrap gap-2">
           {entry.status === "needs_review" && (
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              disabled={busy}
+            <ActionButton
+              variant="secondary-sm"
+              status={statusOf("approve")}
+              disabled={busy && statusOf("approve") !== "pending"}
               onClick={() => onAction("approve")}
               aria-label={`Approve: ${summary.slice(0, 60)}`}
             >
               Approve
-            </button>
+            </ActionButton>
           )}
           <button
             type="button"
@@ -324,20 +346,27 @@ function EntryRow({
             Edit
           </button>
           {entry.kind !== "register" && (
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              disabled={busy}
+            <ActionButton
+              variant="secondary-sm"
+              status={statusOf("retire")}
+              disabled={busy && statusOf("retire") !== "pending"}
               onClick={() => onAction("retire")}
               aria-label={`Retire: ${summary.slice(0, 60)}`}
             >
               Retire
-            </button>
+            </ActionButton>
           )}
         </div>
       )}
       {editing && (
-        <EntryForm kind={entry.kind} entry={entry} busy={busy} onSave={onSave} onCancel={onCancel} />
+        <EntryForm
+          kind={entry.kind}
+          entry={entry}
+          busy={busy}
+          saveStatus={statusOf("edit")}
+          onSave={onSave}
+          onCancel={onCancel}
+        />
       )}
     </li>
   );
@@ -345,6 +374,7 @@ function EntryRow({
 
 function PublishForm({ view }: { view: LanguageStyle }) {
   const publish = usePublishSpokenStyle(view.language);
+  const publishFeedback = useActionFeedback(publish, { errorDisplay: "inline" });
   const [reviewer, setReviewer] = useState("");
   const [note, setNote] = useState("");
   const nothing = view.unpublished_changes === 0;
@@ -391,13 +421,15 @@ function PublishForm({ view }: { view: LanguageStyle }) {
           />
         </label>
       </div>
-      <button
+      <ActionButton
         type="submit"
-        disabled={nothing || publish.isPending || reviewer.trim().length < 2}
-        className={PRIMARY_BUTTON}
+        status={publishFeedback.status}
+        disabled={nothing || reviewer.trim().length < 2}
+        pendingLabel="Publishing…"
+        successLabel="Published"
       >
-        {publish.isPending ? <span className="text-shimmer">Publishing…</span> : "Publish to live agents"}
-      </button>
+        Publish to live agents
+      </ActionButton>
       {publish.error ? <WriteFailure error={publish.error} actionLabel="Publish to live agents" /> : null}
       {publish.isSuccess ? (
         <p className="flex items-start gap-2 text-body text-ink-muted">
@@ -411,12 +443,24 @@ function PublishForm({ view }: { view: LanguageStyle }) {
 
 function LanguageReview({ view }: { view: LanguageStyle }) {
   const change = useChangeEntry(view.language);
+  // A toast for every outcome: an approved or retired entry loses the button that was
+  // pressed, and a saved form closes, so the button cannot carry the result.
+  const changeFeedback = useActionFeedback(change, {
+    errorDisplay: "inline",
+    successToast: (_data, vars) => CHANGE_DONE[vars.action],
+  });
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState<EntryKind | null>(null);
   const busy = change.isPending;
   const stamp = reviewStamp(view);
+  const statusOf = (kind: EntryKind, action: ChangeAction, key: string | null): FeedbackStatus => {
+    const pressed = change.variables;
+    return pressed && pressed.kind === kind && pressed.action === action && pressed.key === key
+      ? changeFeedback.status
+      : "idle";
+  };
 
-  const send = (kind: EntryKind, action: "approve" | "edit" | "add" | "retire", key: string | null, value?: StyleValue) =>
+  const send = (kind: EntryKind, action: ChangeAction, key: string | null, value?: StyleValue) =>
     change.mutate(
       { kind, action, key, value: value ?? null },
       {
@@ -479,6 +523,12 @@ function LanguageReview({ view }: { view: LanguageStyle }) {
                 kind={kind}
                 entry={null}
                 busy={busy}
+                // An addition's key is what was typed, so it is matched on kind and action.
+                saveStatus={
+                  change.variables?.kind === kind && change.variables.action === "add"
+                    ? changeFeedback.status
+                    : "idle"
+                }
                 onSave={(key, value) => send(kind, "add", key, value)}
                 onCancel={() => setAdding(null)}
               />
@@ -491,6 +541,7 @@ function LanguageReview({ view }: { view: LanguageStyle }) {
                     key={id}
                     entry={entry}
                     busy={busy}
+                    statusOf={(action) => statusOf(entry.kind, action, entry.key)}
                     editing={editing === id}
                     onEdit={() => {
                       setEditing(id);

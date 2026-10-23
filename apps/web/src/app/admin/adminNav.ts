@@ -15,6 +15,7 @@ import {
   CirclePause,
   KeyRound,
   Languages,
+  Megaphone,
   MessageCircle,
   PhoneOff,
   ShieldUser,
@@ -140,6 +141,15 @@ export const ADMIN_NAV: NavGroup[] = [
         icon: ClipboardCheck,
         permission: "org:read",
         action: "open the call quality checks",
+      },
+      {
+        // The strip above every client console (D-869). `admin:tenants` is what each of its
+        // routes carries (`apps/api/announcements/routes.py`): it speaks to clients.
+        href: "/admin/announcements",
+        label: "Announcements",
+        icon: Megaphone,
+        permission: "admin:tenants",
+        action: "publish announcements to clients",
       },
       {
         href: "/admin/assistant",

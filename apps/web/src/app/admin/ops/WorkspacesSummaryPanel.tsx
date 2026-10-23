@@ -111,7 +111,7 @@ function SummaryCard({ data }: { data: WorkspacesSummary }) {
               <li key={failure.tenant_id} className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-body">
                 <Link
                   href={`/admin/tenants/${failure.tenant_id}/numbers`}
-                  className="font-medium text-ink underline"
+                  className="min-w-0 break-words font-medium text-ink underline touch:inline-flex touch:min-h-11 touch:items-center"
                 >
                   {failure.tenant_name}
                 </Link>

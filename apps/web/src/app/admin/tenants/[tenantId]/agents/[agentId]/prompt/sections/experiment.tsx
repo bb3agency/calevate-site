@@ -4,15 +4,14 @@ import { useState } from "react";
 
 import { useFormValidation } from "@/components/formValidation";
 import { StatusPill } from "@/components/admin/kit";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import {
   FIELD,
   FIELD_INLINE,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON_SM,
   ScrollRegion,
   Skeleton,
   formatIST,
@@ -71,6 +70,15 @@ export function ExperimentPanel({
   const state = useTenantExperiment(slug, agentId);
   const start = useStartExperiment(target);
   const conclude = useConcludeExperiment(target);
+  const startFeedback = useActionFeedback(start, { errorDisplay: "inline" });
+  const concludeFeedback = useActionFeedback(conclude, { errorDisplay: "inline" });
+  // The state belongs on the ending that was pressed, not on all of them.
+  const concludeStatus = (promote: string | null) =>
+    conclude.variables !== undefined && conclude.variables.promote === promote
+      ? concludeFeedback.status
+      : "idle";
+  const concludeBusy = (promote: string | null) =>
+    conclude.isPending && conclude.variables?.promote !== promote;
 
   const experiment = state.data?.experiment ?? null;
   const running = experiment?.status === "running";
@@ -110,31 +118,33 @@ export function ExperimentPanel({
                     started the next one, an unnamed conclude would promote an arm of a
                     test this operator has not read a single number of. */}
                 {experiment.variants.map((variant) => (
-                  <button
+                  <ActionButton
                     key={variant.label}
-                    type="button"
-                    disabled={conclude.isPending || !write.allowed}
+                    variant="secondary-sm"
+                    status={concludeStatus(variant.label)}
+                    successLabel="Promoted"
+                    disabled={concludeBusy(variant.label) || !write.allowed}
                     onClick={() =>
-                      conclude.mutate({
+                      concludeFeedback.run({
                         experiment_id: experiment.experiment_id,
                         promote: variant.label,
                       })
                     }
-                    className={SECONDARY_BUTTON_SM}
                   >
                     Promote {variant.label} (v{variant.prompt_version})
-                  </button>
+                  </ActionButton>
                 ))}
-                <button
-                  type="button"
-                  disabled={conclude.isPending || !write.allowed}
+                <ActionButton
+                  variant="secondary-sm"
+                  status={concludeStatus(null)}
+                  successLabel="Stopped"
+                  disabled={concludeBusy(null) || !write.allowed}
                   onClick={() =>
-                    conclude.mutate({ experiment_id: experiment.experiment_id, promote: null })
+                    concludeFeedback.run({ experiment_id: experiment.experiment_id, promote: null })
                   }
-                  className={SECONDARY_BUTTON_SM}
                 >
                   Stop, keep the control
-                </button>
+                </ActionButton>
                 <span className="text-meta text-ink-muted">
                   Promoting saves the winning script as a new version and applies it — the
                   same Apply to live calls as the Live section.
@@ -145,8 +155,8 @@ export function ExperimentPanel({
                 rules={state.data.rules}
                 versions={versions}
                 write={write}
-                pending={start.isPending}
-                onStart={(payload) => start.mutate(payload)}
+                status={startFeedback.status}
+                onStart={(payload) => startFeedback.run(payload)}
               />
             )}
             {conclude.data && (
@@ -264,13 +274,13 @@ function StartExperimentForm({
   rules,
   versions,
   write,
-  pending,
+  status,
   onStart,
 }: {
   rules: NonNullable<ReturnType<typeof useTenantExperiment>["data"]>["rules"];
   versions: PromptVersion[] | undefined;
   write: ReturnType<typeof useAdminAccess>;
-  pending: boolean;
+  status: FeedbackStatus;
   onStart: (payload: {
     name: string;
     control_version: number;
@@ -363,9 +373,15 @@ function StartExperimentForm({
           </select>
         </label>
       </div>
-      <button type="submit" disabled={pending || !ready || !write.allowed} className={PRIMARY_BUTTON}>
-        {pending ? "Starting…" : "Start test (50/50)"}
-      </button>
+      <ActionButton
+        type="submit"
+        status={status}
+        pendingLabel="Starting…"
+        successLabel="Started"
+        disabled={!ready || !write.allowed}
+      >
+        Start test (50/50)
+      </ActionButton>
       <p className="text-meta text-ink-muted">
         Each arm is published to the voice platform with its own disclosure line. Outbound
         calls only. No comparison is reported until each arm has{" "}

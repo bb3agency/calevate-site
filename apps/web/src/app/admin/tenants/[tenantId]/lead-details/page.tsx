@@ -3,6 +3,7 @@
 import { use, useState } from "react";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Section } from "@/components/console/section";
@@ -35,11 +36,14 @@ export default function TenantLeadDetailsPage({
   const { tenantId } = use(params);
   const fields = useAdminLeadFields(tenantId);
   const write = useAdminAccess("admin:tenants", "change a client's lead details");
-  const writes = {
-    save: useAdminSaveAgentLeadFields(tenantId),
-    draft: useAdminDraftLeadFields(tenantId),
-    replace: useAdminReplaceLeadFields(tenantId),
-  };
+  const save = useAdminSaveAgentLeadFields(tenantId);
+  const draft = useAdminDraftLeadFields(tenantId);
+  const replace = useAdminReplaceLeadFields(tenantId);
+  // Inline: `LeadDetailsView` draws each write's refusal beside its own button.
+  useActionFeedback(save, { errorDisplay: "inline" });
+  useActionFeedback(draft, { errorDisplay: "inline" });
+  const replaceFeedback = useActionFeedback(replace, { errorDisplay: "inline" });
+  const writes = { save, draft, replace };
 
   useCopilotSurface({
     route: "/admin/tenants/{id}/lead-details",
@@ -85,7 +89,7 @@ export default function TenantLeadDetailsPage({
             eg={examplesFor(fields.data.business_type)}
           />
           {write.allowed && fields.data.agents.length > 0 && (
-            <ReplaceAll data={fields.data} replace={writes.replace} />
+            <ReplaceAll data={fields.data} replace={replace} status={replaceFeedback.status} />
           )}
         </>
       )}
@@ -96,9 +100,11 @@ export default function TenantLeadDetailsPage({
 function ReplaceAll({
   data,
   replace,
+  status,
 }: {
   data: LeadFields;
   replace: ReturnType<typeof useAdminReplaceLeadFields>;
+  status: FeedbackStatus;
 }) {
   const offered = BUSINESS_TYPES.filter((option) => option.value !== "custom");
   const current = offered.find((option) => option.value === data.business_type)?.value;
@@ -152,7 +158,8 @@ function ReplaceAll({
           title={`Replace every agent's details with the ${businessTypeLabel(type).toLowerCase()} set?`}
           confirmLabel="Replace details"
           pendingLabel="Replacing…"
-          pending={replace.isPending}
+          status={status}
+          successLabel="Replaced"
           error={replace.error}
           onCancel={() => setConfirming(false)}
           onConfirm={() =>

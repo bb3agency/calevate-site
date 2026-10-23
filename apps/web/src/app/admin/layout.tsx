@@ -402,7 +402,12 @@ function AttentionBell() {
       : []),
   ];
   const failed = queues.some((q) => q.failed);
+  const allFailed = queues.every((q) => q.failed);
+  // A badge is a claim about every queue, so it waits until each one has answered (or
+  // failed, which the warn dot says) rather than showing a partial sum as the total.
+  const settled = queues.every((q) => q.failed || q.count !== undefined);
   const total = queues.reduce((sum, q) => sum + (q.count ?? 0), 0);
+  const answered = queues.some((q) => q.count !== undefined);
 
   return (
     <NotificationCenter
@@ -410,13 +415,18 @@ function AttentionBell() {
       label={
         failed
           ? "Waiting on us: we could not read every queue"
-          : total > 0
+          : settled && total > 0
             ? `Waiting on us: ${total}`
             : "Waiting on us"
       }
-      state="ready"
-      partial={failed}
-      count={total}
+      state={allFailed ? "error" : answered || failed ? "ready" : "loading"}
+      errorText="We could not read the queues."
+      onRetry={() => {
+        void held.refetch();
+        if (mayReview) void reviews.refetch();
+      }}
+      partial={failed && !allFailed}
+      count={settled ? total : undefined}
       items={queues.map((queue) => ({
         id: queue.href,
         title: queue.label,

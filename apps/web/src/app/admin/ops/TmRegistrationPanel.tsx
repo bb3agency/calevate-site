@@ -5,13 +5,13 @@ import { useState } from "react";
 import { CheckCircle2, Lock, TriangleAlert } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { IstDateTimeField } from "@/components/admin/istDateTimeField";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
-  DANGER_BUTTON,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   formatIST,
@@ -71,6 +71,7 @@ export function TmRegistrationPanel({
   access: OpsAccess;
 }) {
   const record = useSetTmRegistration();
+  const recordFeedback = useActionFeedback(record, { errorDisplay: "inline" });
   // Seeded from the current registration so re-recording after a re-verification is an
   // edit, not a retype — a blank `tm_id` posted by habit would erase the one we hold.
   // Deliberately NOT re-synced on the 30s refetch: clobbering a half-typed form with a
@@ -185,6 +186,7 @@ export function TmRegistrationPanel({
           className="space-y-3 border-t border-line pt-4"
           noValidate
           onSubmit={valid.onSubmit(() => {
+            if (record.isPending) return;
             record.mutate(
               {
                 status,
@@ -196,7 +198,7 @@ export function TmRegistrationPanel({
             );
           })}
         >
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block">
               <span className={FIELD_LABEL}>Registration status</span>
               <select
@@ -226,27 +228,18 @@ export function TmRegistrationPanel({
                 className={`${FIELD} font-mono`}
               />
             </label>
-            <label className="block">
-              {/* THE ZONE IS ON SCREEN, and it is not decoration. A `datetime-local`
-                  carries no zone, so an unlabelled one means "this machine's clock" to
-                  every reader — and this field does not: it holds the moment printed on
-                  the registrar's letter, which is IST wherever the operator is sitting.
-                  Saying so is what lets someone in another zone type the letter's digits
-                  rather than converting them, which is the whole correction here. */}
-              <span className={FIELD_LABEL}>Registered on (IST)</span>
-              <input
-                type="datetime-local"
-                value={registeredAt}
-                onChange={(e) => setRegisteredAt(e.target.value)}
-                disabled={!access.allowed}
-                className={FIELD}
-              />
-              <span className={FIELD_HINT}>
-                The date and time on the registrar&apos;s letter, in IST — type it as
-                printed, wherever you are.
-              </span>
-            </label>
           </div>
+
+          {/* The moment printed on the registrar's letter, which is IST wherever the
+              operator is sitting; the field says so, so nobody converts the digits. */}
+          <IstDateTimeField
+            label="Registered on"
+            hint="The date and time on the registrar's letter, as printed, wherever you are."
+            value={registeredAt}
+            onChange={setRegisteredAt}
+            clearable
+            disabled={!access.allowed}
+          />
 
           <label className="block">
             <span className={FIELD_LABEL}>Reason</span>
@@ -282,18 +275,19 @@ export function TmRegistrationPanel({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button
+            <ActionButton
               type="submit"
               title={access.reason ?? undefined}
-              disabled={!access.allowed || !ready || record.isPending}
-              className={makingLive ? PRIMARY_BUTTON : DANGER_BUTTON}
+              disabled={!access.allowed || !ready}
+              variant={makingLive ? "primary" : "danger"}
+              status={recordFeedback.status}
+              pendingLabel="Recording…"
+              successLabel="Recorded"
             >
-              {record.isPending
-                ? "Recording…"
-                : makingLive
-                  ? "Record registration as active"
-                  : `Record as “${tmStatusCopy(status).label}”`}
-            </button>
+              {makingLive
+                ? "Record registration as active"
+                : `Record as “${tmStatusCopy(status).label}”`}
+            </ActionButton>
             <button
               type="button"
               disabled={record.isPending}

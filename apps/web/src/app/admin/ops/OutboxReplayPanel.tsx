@@ -6,8 +6,8 @@ import { useState } from "react";
 import { Lock, RefreshCw, TriangleAlert } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
-  DANGER_BUTTON,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -79,6 +79,7 @@ export function OutboxReplayPanel({
   queue: DeadLetterState;
 }) {
   const replay = useReplayOutbox();
+  const replayFeedback = useActionFeedback(replay, { errorDisplay: "inline" });
   const [confirm, setConfirm] = useState("");
   // Opens on NO CHOICE, for the load-shed panel's reason applied to a bigger blast
   // radius: a select preloaded with "every job" would make "click the obvious button" a
@@ -279,6 +280,7 @@ export function OutboxReplayPanel({
           noValidate
           onSubmit={(e) => {
             e.preventDefault();
+            if (replay.isPending) return;
             replay.mutate(job, { onSuccess: () => setConfirm("") });
           }}
         >
@@ -363,15 +365,18 @@ export function OutboxReplayPanel({
             disabled={!access.allowed}
           />
 
-          <button
+          <ActionButton
             type="submit"
+            variant="danger"
             title={deadReason ?? undefined}
-            disabled={!ready || replay.isPending}
-            className={DANGER_BUTTON}
+            disabled={!ready}
+            status={replayFeedback.status}
+            pendingLabel="Resending…"
+            successLabel="Queued"
           >
             <RefreshCw aria-hidden className="h-4 w-4" />
-            {replay.isPending ? "Resending…" : "Resend stuck messages"}
-          </button>
+            Resend stuck messages
+          </ActionButton>
 
           {deadReason && !ready && (
             <p className="flex items-start gap-2 text-meta text-ink-muted">

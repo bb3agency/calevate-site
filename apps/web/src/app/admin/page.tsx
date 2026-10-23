@@ -2,8 +2,8 @@
 
 import { EmptySketch } from "@/components/console/emptySketch";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
+import { useState } from "react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 
 import { useAdminAccess, type AdminAccess } from "@/app/admin/access";
 import { CreditLeft } from "@/components/admin/credit";
@@ -11,9 +11,9 @@ import { ADMIN_PAGE_WIDE, HAIRLINE_LIST, LIST_HEAD, ROW_HOVER, StatusPill, sente
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
 import { RowMenu } from "@/components/arc/menu";
+import { SearchField } from "@/components/arc/search-field";
 import {
   FIELD_INLINE,
-  FIELD_INLINE_ICON,
   FilterChip,
   PRIMARY_BUTTON,
   type NoticeTone,
@@ -161,19 +161,14 @@ export default function AdminClientsPage() {
    *
    * The search box drives the query key, so an undebounced value is one request — and one
    * server-side scan that opens a tenant session per matching account — per keystroke.
-   * The same 300ms the leads screen uses, and deliberately the same mechanism rather than
-   * a second one: the input itself stays instant, and only the request waits.
+   * `SearchField`'s `onSearch` settles it (300ms, at once on Enter and on clear): the input
+   * itself stays instant, and only the request waits.
    */
   const [term, setTerm] = useState("");
   const [status, setStatus] = useState("");
   const [planTier, setPlanTier] = useState("");
   const [sort, setSort] = useState<DirectorySort>("recent");
   const [offset, setOffset] = useState(0);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setTerm(q.trim()), 300);
-    return () => clearTimeout(timer);
-  }, [q]);
 
   const query: TenantDirectoryQuery = { q: term, status, planTier, sort, offset };
   const tenants = useTenants(query);
@@ -306,20 +301,16 @@ export default function AdminClientsPage() {
           the loaded page would narrow 25 accounts and claim to have searched the platform. */}
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <label className="relative min-w-0 flex-1 basis-60">
-            <span className="sr-only">Search clients by name or slug</span>
-            <Search
-              aria-hidden
-              className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
-            />
-            <input
-              type="search"
-              value={q}
-              onChange={(event) => narrow(() => setQ(event.target.value))}
-              placeholder="Search by name or slug"
-              className={`${FIELD_INLINE_ICON} w-full`}
-            />
-          </label>
+          <SearchField
+            label="Search clients by name or slug"
+            hideLabel
+            slashToFocus
+            value={q}
+            onValueChange={setQ}
+            onSearch={(settled) => narrow(() => setTerm(settled.trim()))}
+            placeholder="Search by name or slug"
+            className="min-w-0 flex-1 basis-60"
+          />
           <label className="min-w-0">
             <span className="sr-only">Sort</span>
             <select
@@ -377,7 +368,19 @@ export default function AdminClientsPage() {
           /* Two empty states, two facts: "nothing matched" is about the search; "no
              clients yet" is about the platform. */
           narrowed ? (
-            <EmptyState message="No account matches this search. Clear the search or the filters." />
+            <EmptyState
+              variant="filtered"
+              message="No account matches this search."
+              clearLabel="Clear the search and filters"
+              onClear={() =>
+                narrow(() => {
+                  setQ("");
+                  setTerm("");
+                  setStatus("");
+                  setPlanTier("");
+                })
+              }
+            />
           ) : (
             <EmptyState
               message="No clients yet."
@@ -465,7 +468,7 @@ function ClientRow({ tenant }: { tenant: TenantSummary }) {
       <div className="min-w-0">
         <Link
           href={`/admin/tenants/${tenant.id}`}
-          className="block truncate rounded-sm text-body font-medium text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+          className="block truncate rounded-sm text-body font-medium text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:flex touch:min-h-11 touch:items-center"
         >
           {tenant.name}
         </Link>
@@ -506,7 +509,7 @@ function ClientRow({ tenant }: { tenant: TenantSummary }) {
             key={rule}
             href="/admin/holds"
             title="Held for a human decision — see the work list"
-            className="rounded-full hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+            className="rounded-full hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:inline-flex touch:min-h-11 touch:items-center"
           >
             <StatusPill tone="warn">{holdRule(rule)?.label ?? rule}</StatusPill>
           </Link>

@@ -1,14 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { IstDateTimeField } from "@/components/admin/istDateTimeField";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { NumberField } from "@/components/arc/number-field";
+import { todayIST } from "@/components/arc/ist-dates";
 import { Drawer } from "@/components/console/drawer";
 import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
   istInputToInstant,
@@ -22,45 +25,25 @@ import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { amendmentOf, draftOf, hasChanges, type WindowDraft } from "./windowDraft";
 
-function TimeField({
-  label,
-  value,
-  onChange,
-  hint,
-}: {
-  label: string;
-  value: string;
-  onChange: (next: string) => void;
-  hint: string;
-}) {
-  return (
-    <label className="block">
-      <span className={FIELD_LABEL}>{label}</span>
-      <input
-        type="datetime-local"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className={FIELD}
-      />
-      <span className={FIELD_HINT}>{hint}</span>
-    </label>
-  );
-}
+/** The drain bound the API accepts, in minutes. */
+const DRAIN_MIN = 1;
+const DRAIN_MAX = 240;
 
+/** The draft keeps the drain as text (what `windowDraft` compares); the field works in numbers. */
 function DrainField({ value, onChange, hint }: { value: string; onChange: (next: string) => void; hint: string }) {
   return (
-    <label className="block max-w-xs">
-      <span className={FIELD_LABEL}>Drain bound (minutes)</span>
-      <input
-        type="number"
-        min={1}
-        max={240}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className={FIELD}
-      />
-      <span className={FIELD_HINT}>{hint}</span>
-    </label>
+    <NumberField
+      label="Drain bound"
+      unit="minutes"
+      min={DRAIN_MIN}
+      max={DRAIN_MAX}
+      step={1}
+      largeStep={15}
+      value={value === "" ? null : Number(value)}
+      onChange={(next) => onChange(next === null ? "" : String(next))}
+      hint={hint}
+      className="max-w-xs"
+    />
   );
 }
 
@@ -77,12 +60,21 @@ export function AmendWindowDrawer({
   onClose: () => void;
 }) {
   const amend = useAmendMaintenance();
+  const amendFeedback = useActionFeedback(amend, {
+    errorDisplay: "inline",
+    successToast: "Window changed",
+  });
   const [draft, setDraft] = useState<WindowDraft>(() => draftOf(current));
   const set = (patch: Partial<WindowDraft>) => setDraft((held) => ({ ...held, ...patch }));
   const amendment = amendmentOf(current, draft);
   const dirty = hasChanges(amendment);
   const movable = current.state === "scheduled";
   useUnsavedGuard(dirty);
+  // Closed from an effect, after the feedback hook has raised its toast, rather than from
+  // `onSuccess`, which would unmount the drawer before the hook saw the success.
+  useEffect(() => {
+    if (amendFeedback.status === "success") onClose();
+  }, [amendFeedback.status, onClose]);
 
   return (
     <Drawer
@@ -96,16 +88,14 @@ export function AmendWindowDrawer({
           <button type="button" className={SECONDARY_BUTTON} onClick={onClose} disabled={amend.isPending}>
             Cancel
           </button>
-          <button
-            type="button"
-            className={PRIMARY_BUTTON}
-            disabled={!dirty || amend.isPending}
-            onClick={() =>
-              amend.mutate({ windowId: current.id, ...amendment }, { onSuccess: onClose })
-            }
+          <ActionButton
+            status={amendFeedback.status}
+            disabled={!dirty}
+            pendingLabel="Saving…"
+            onClick={() => amendFeedback.run({ windowId: current.id, ...amendment })}
           >
-            {amend.isPending ? "Saving…" : "Save changes"}
-          </button>
+            Save changes
+          </ActionButton>
         </>
       }
     >
@@ -124,15 +114,15 @@ export function AmendWindowDrawer({
           </span>
         </label>
         {movable && (
-          <TimeField
-            label="Opens at (IST)"
+          <IstDateTimeField
+            label="Opens at"
             value={draft.startsAt}
             onChange={(startsAt) => set({ startsAt })}
             hint="Movable until the window opens. After that it is history — end it instead."
           />
         )}
-        <TimeField
-          label="Ends at (IST)"
+        <IstDateTimeField
+          label="Ends at"
           value={draft.endsAt}
           onChange={(endsAt) => set({ endsAt })}
           hint="Every refused client request is told to come back at this time."
@@ -170,6 +160,13 @@ export function ScheduleWindowDrawer({
   onClose: () => void;
 }) {
   const schedule = useScheduleMaintenance();
+  const scheduleFeedback = useActionFeedback(schedule, {
+    errorDisplay: "inline",
+    successToast: "Window scheduled",
+  });
+  useEffect(() => {
+    if (scheduleFeedback.status === "success") onClose();
+  }, [scheduleFeedback.status, onClose]);
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
   const [reason, setReason] = useState("");
@@ -192,27 +189,31 @@ export function ScheduleWindowDrawer({
           <button type="button" className={SECONDARY_BUTTON} onClick={onClose} disabled={schedule.isPending}>
             Cancel
           </button>
-          <button
-            type="button"
-            className={PRIMARY_BUTTON}
-            disabled={!ready || schedule.isPending}
+          <ActionButton
+            status={scheduleFeedback.status}
+            disabled={!ready}
+            pendingLabel="Scheduling…"
+            successLabel="Scheduled"
             onClick={() => {
               if (start === null || finish === null) return;
-              schedule.mutate(
-                { startsAt: start, endsAt: finish, reason: reason.trim(), maxDrainMinutes: Number(drain) },
-                { onSuccess: onClose },
-              );
+              scheduleFeedback.run({
+                startsAt: start,
+                endsAt: finish,
+                reason: reason.trim(),
+                maxDrainMinutes: Number(drain),
+              });
             }}
           >
-            {schedule.isPending ? "Scheduling…" : "Schedule it"}
-          </button>
+            Schedule it
+          </ActionButton>
         </>
       }
     >
       <div className="space-y-4">
         {/* The lead comes from the server: it is a dial an operator sets, not a constant. */}
-        <TimeField
-          label="Opens at (IST)"
+        <IstDateTimeField
+          label="Opens at"
+          min={todayIST()}
           value={startsAt}
           onChange={setStartsAt}
           hint={
@@ -221,8 +222,9 @@ export function ScheduleWindowDrawer({
             "simply get less notice."
           }
         />
-        <TimeField
-          label="Ends at (IST)"
+        <IstDateTimeField
+          label="Ends at"
+          min={startsAt.split("T")[0] || todayIST()}
           value={endsAt}
           onChange={setEndsAt}
           hint="Over-run it and clients retry into a closed door."

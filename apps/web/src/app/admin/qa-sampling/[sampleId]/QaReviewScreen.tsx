@@ -5,8 +5,9 @@ import { useSearchParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { Check, ChevronRight } from "lucide-react";
 
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
+import { RadioGroup } from "@/components/arc/radio-group";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
-import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -59,6 +60,8 @@ import { calls, directionLabel, reviewHref, weekLabel } from "../queueWords";
 export function QaReviewScreen({ sampleId }: { sampleId: string }) {
   const detail = useQaSample(sampleId);
   const review = useReviewQaSample(sampleId);
+  // The refusal is printed above the verdicts; the success replaces the form with the record.
+  const reviewFeedback = useActionFeedback(review, { errorDisplay: "inline" });
   // The queue's filters ride along in the URL: the back link returns to the same view and
   // "Next call to review" stays inside the same client and week.
   const params = useSearchParams();
@@ -174,9 +177,9 @@ export function QaReviewScreen({ sampleId }: { sampleId: string }) {
              now stands, so a race resolves to the verdict the server stored, never the one
              this browser sent. */
           verdict={review.data?.verdict ?? detail.data.sample.verdict}
-          pending={review.isPending}
+          status={reviewFeedback.status}
           error={review.error}
-          onRecord={(verdict) => review.mutate(verdict)}
+          onRecord={(verdict) => reviewFeedback.run(verdict)}
           next={<NextCall sampleId={sampleId} filters={filters} search={search} queueHref={queueHref} />}
         />
       )}
@@ -187,14 +190,14 @@ export function QaReviewScreen({ sampleId }: { sampleId: string }) {
 function Review({
   data,
   verdict,
-  pending,
+  status,
   error,
   onRecord,
   next,
 }: {
   data: QaSampleDetail;
   verdict: QaVerdict | null;
-  pending: boolean;
+  status: FeedbackStatus;
   error: unknown;
   onRecord: (verdict: QaVerdict) => void;
   next: ReactNode;
@@ -272,7 +275,7 @@ function Review({
         {verdict ? (
           <Recorded data={data} verdict={verdict} next={next} />
         ) : (
-          <VerdictForm pending={pending} error={error} onRecord={onRecord} />
+          <VerdictForm status={status} error={error} onRecord={onRecord} />
         )}
       </aside>
     </div>
@@ -312,15 +315,15 @@ function WhatToCheck() {
 }
 
 /**
- * Choose, then record. The cards are a native radio group — the browser gives it arrow
- * keys and one tab stop — and nothing is written until "Record verdict".
+ * Choose, then record. The verdicts are the kit's native radio group — the browser gives it
+ * arrow keys and one tab stop — and nothing is written until "Record verdict".
  */
 function VerdictForm({
-  pending,
+  status,
   error,
   onRecord,
 }: {
-  pending: boolean;
+  status: FeedbackStatus;
   error: unknown;
   onRecord: (verdict: QaVerdict) => void;
 }) {
@@ -333,60 +336,35 @@ function VerdictForm({
         if (choice) onRecord(choice);
       }}
     >
-      <h3 id="qa-verdict-heading" className="text-body font-semibold text-ink">
-        What did this call show?
-      </h3>
       {/* Above the choices rather than replacing them: a 409 means somebody else reviewed
           this call first, and the reviewer needs that sentence, not a panel gone quiet. */}
       {error !== null && error !== undefined && (
-        <div className="mt-3">
+        <div className="mb-3">
           <ProblemNotice error={error} />
         </div>
       )}
-      <fieldset disabled={pending} className="mt-3">
-        <legend className="sr-only">Verdict</legend>
-        <div role="radiogroup" aria-labelledby="qa-verdict-heading" className="space-y-2">
-          {(Object.keys(VERDICTS) as QaVerdict[]).map((verdict) => {
-            const on = choice === verdict;
-            return (
-              <label
-                key={verdict}
-                className={`${CHOICE_CARD} ${on ? CHOICE_ON : CHOICE_OFF} flex gap-3 px-3.5 py-3 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60`}
-              >
-                <input
-                  type="radio"
-                  name="qa-verdict"
-                  value={verdict}
-                  checked={on}
-                  onChange={() => setChoice(verdict)}
-                  className="sr-only"
-                />
-                {/* The radio's own mark, drawn: the input is sr-only so the card is the
-                    target, and a visible ring says "pick one" before anything is hovered. */}
-                <span
-                  aria-hidden
-                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                    on ? "border-brand-strong" : "border-ink-faint"
-                  }`}
-                >
-                  {on && <span className="h-2 w-2 rounded-full bg-brand-strong" />}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-body font-medium text-ink">{VERDICTS[verdict].label}</span>
-                  <span className="mt-0.5 block text-meta text-ink-muted">{VERDICTS[verdict].meaning}</span>
-                </span>
-              </label>
-            );
-          })}
-        </div>
-      </fieldset>
-      <button
+      <RadioGroup
+        label={<span className="text-body font-semibold text-ink">What did this call show?</span>}
+        name="qa-verdict"
+        disabled={status === "pending"}
+        value={choice}
+        onChange={(next) => setChoice(next as QaVerdict)}
+        options={(Object.keys(VERDICTS) as QaVerdict[]).map((verdict) => ({
+          value: verdict,
+          label: VERDICTS[verdict].label,
+          hint: VERDICTS[verdict].meaning,
+        }))}
+      />
+      <ActionButton
         type="submit"
-        disabled={choice === null || pending}
-        className={`${PRIMARY_BUTTON} mt-4 w-full justify-center`}
+        status={status}
+        disabled={choice === null}
+        pendingLabel="Recording…"
+        successLabel="Recorded"
+        className="mt-4 w-full"
       >
-        {pending ? "Recording…" : "Record verdict"}
-      </button>
+        Record verdict
+      </ActionButton>
       <p className="mt-2 text-meta text-ink-muted">
         {choice === null ? "Pick one to record it." : "A verdict can't be changed once it is recorded."}
       </p>

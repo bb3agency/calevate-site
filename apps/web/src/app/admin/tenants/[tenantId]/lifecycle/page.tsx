@@ -5,6 +5,7 @@ import Link from "next/link";
 import { use } from "react";
 
 import { NoticeBox, ProblemNotice } from "@/components/ui";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { PageHeader } from "@/components/console/pageHeader";
 import { adminSession, useTenant } from "@/lib/api/admin";
 import { useClosure } from "@/lib/api/closure";
@@ -36,6 +37,7 @@ export default function LifecyclePage({
   const { tenantId } = use(params);
   const tenantQuery = useTenant(tenantId);
   const move = useSetTenantStatus(adminSession(), tenantId);
+  const moveFeedback = useActionFeedback(move, { errorDisplay: "inline" });
   const write = useAdminAccess("admin:tenants", "change an account's state");
 
   /*
@@ -92,6 +94,7 @@ export default function LifecyclePage({
         <>
           <MovePanel
             move={move}
+            moveStatus={moveFeedback.status}
             currentStatus={tenant.status}
             tenantName={tenant.name}
             write={write}

@@ -17,6 +17,7 @@
 import { formatPhone } from "@/components/ui";
 import { useState } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import {
@@ -42,6 +43,10 @@ export function EngineNumberActions({
   const release = useWorkspaceRelease(tenantId);
   const forget = useWorkspaceForget(tenantId);
   const move = useWorkspaceMove(tenantId);
+  // Inline: each dialog shows its refusal inside, where the decision is being made.
+  const releaseFeedback = useActionFeedback(release, { errorDisplay: "inline" });
+  const forgetFeedback = useActionFeedback(forget, { errorDisplay: "inline" });
+  const moveFeedback = useActionFeedback(move, { errorDisplay: "inline" });
   const [confirming, setConfirming] = useState<"release" | "forget" | "move" | null>(null);
 
   if (release.data?.released) return <p className="text-meta text-ink-muted">Released. The monthly charge has stopped.</p>;
@@ -92,7 +97,7 @@ export function EngineNumberActions({
           title={`Release ${formatPhone(e164)}`}
           confirmLabel="Release for good"
           pendingLabel="Releasing…"
-          pending={release.isPending}
+          status={releaseFeedback.status}
           error={release.error}
           onCancel={() => setConfirming(null)}
           onConfirm={() => release.mutate(numberId, { onSuccess: () => setConfirming(null) })}
@@ -108,7 +113,7 @@ export function EngineNumberActions({
           title={`Move ${formatPhone(e164)} to the client's workspace`}
           confirmLabel="Move it"
           pendingLabel="Moving…"
-          pending={move.isPending}
+          status={moveFeedback.status}
           error={move.error}
           onCancel={() => setConfirming(null)}
           onConfirm={() => move.mutate(numberId, { onSuccess: () => setConfirming(null) })}
@@ -125,7 +130,7 @@ export function EngineNumberActions({
           title={`Release our record of ${formatPhone(e164)}`}
           confirmLabel="Release our record"
           pendingLabel="Releasing…"
-          pending={forget.isPending}
+          status={forgetFeedback.status}
           error={forget.error}
           onCancel={() => setConfirming(null)}
           onConfirm={() => forget.mutate(numberId, { onSuccess: () => setConfirming(null) })}
