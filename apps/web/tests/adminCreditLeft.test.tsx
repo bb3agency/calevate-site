@@ -23,6 +23,14 @@ describe("credit left", () => {
     expect(text.indexOf("240 min")).toBeLessThan(text.indexOf("₹"));
   });
 
+  it("keeps each figure whole but lets the line break between figures", () => {
+    const { container } = render(
+      <CreditLeft compact credit={{ plan_tier: "prepaid", credit_inr: "3400.00", minutes_left: TIERS }} />,
+    );
+    const unbreakable = [...container.querySelectorAll(".whitespace-nowrap")].map((el) => el.textContent);
+    expect(unbreakable).toEqual(["Clear 240 min", "Studio 80 min"]);
+  });
+
   it("says Moving to credits for an account still on the retired invoiced motion, never ₹0", () => {
     const { container } = render(
       <CreditLeft credit={{ plan_tier: "managed", credit_inr: null, minutes_left: null }} />,

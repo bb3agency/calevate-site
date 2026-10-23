@@ -308,7 +308,7 @@ export function CallDetailScreen({
           width; captured details, key moments and the second reading sit beside it. In
           the DOM the captured details come first, so a phone reads them before the
           transcript, and the rest after it. */}
-      <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="lg:col-start-2 lg:row-start-1">
           <CapturedDetails detail={detail} />
         </div>

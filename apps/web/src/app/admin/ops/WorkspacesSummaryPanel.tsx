@@ -63,7 +63,7 @@ function SummaryCard({ data }: { data: WorkspacesSummary }) {
         </p>
       }
     >
-      <dl className="grid gap-x-6 gap-y-2 text-body sm:grid-cols-[max-content_1fr]">
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-body sm:grid-cols-[max-content_1fr]">
         <dt className="text-ink-muted">Provisioned</dt>
         <dd className="font-medium text-ink">
           {data.provisioned} of {data.tenants} clients

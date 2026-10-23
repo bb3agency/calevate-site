@@ -291,7 +291,7 @@ function Certificate({ proof, requestId }: { proof: ErasureProof; requestId: str
         Executed {formatIST(proof.executed_at)} · notice version {proof.limitations_version}
       </p>
 
-      <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+      <dl className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
         <Fact label="Calls covered" value={formatCount(proof.scope.calls.length)} />
         <Fact label="CRM records covered" value={formatCount(proof.scope.leads.length)} />
         <Fact

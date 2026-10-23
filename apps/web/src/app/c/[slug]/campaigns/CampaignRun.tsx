@@ -39,7 +39,7 @@ export function CampaignRun({ progress }: { progress: CampaignProgress }) {
       ];
 
   return (
-    <section aria-labelledby="campaign-run" className="grid gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_15rem]">
+    <section aria-labelledby="campaign-run" className="grid grid-cols-1 gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_15rem]">
       <div className="min-w-0 space-y-5">
         <div>
           <h2 id="campaign-run" className="text-heading text-ink">

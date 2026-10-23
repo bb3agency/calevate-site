@@ -58,7 +58,7 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
 
   return (
     <Section title="Verification review">
-      <dl className="grid gap-2 text-body sm:grid-cols-2">
+      <dl className="grid grid-cols-1 gap-2 text-body sm:grid-cols-2">
         <Fact label="Status" value={record.status ?? "nothing on file"} />
         <Fact label="Path" value={record.kyc_path === "digilocker" ? "DigiLocker" : record.kyc_path === "manual" ? "Document review" : "—"} />
         <Fact label="Legal name" value={record.legal_business_name ?? "—"} />

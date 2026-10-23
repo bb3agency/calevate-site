@@ -21,7 +21,7 @@ export function LeadCaptured({ session, leadId }: { session: Session; leadId: st
   const fields = captured.data?.fields;
   if (!fields?.length) return null;
   return (
-    <dl className="grid gap-x-8 border-t border-line pt-1 sm:grid-cols-2">
+    <dl className="grid grid-cols-1 gap-x-8 border-t border-line pt-1 sm:grid-cols-2">
       {fields.map((field) => {
         const shown = capturedValue(field);
         return (

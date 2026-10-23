@@ -599,7 +599,7 @@ function PackChooser({
 
       {/* A LIST, because that is what it is: a screen reader announces how many packs
           there are before the reader commits to walking them. */}
-      <ul aria-label="Prepaid credit packs" className="grid gap-3 sm:grid-cols-2">
+      <ul aria-label="Prepaid credit packs" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {packs.map((pack) => {
           const covers = match !== null && match.pack.pack_id === pack.pack_id;
           return (

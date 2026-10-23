@@ -203,7 +203,7 @@ function Review({
   return (
     // Read before judging: the transcript leads, and on a wide screen the review panel
     // stays beside it as the reader scrolls. On a phone the panel follows the transcript.
-    <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+    <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
       <div className="min-w-0 space-y-8">
         <WhatToCheck />
 
@@ -298,7 +298,7 @@ function WhatToCheck() {
       <h3 id="qa-what-to-check" className="text-body font-semibold text-ink">
         What to check
       </h3>
-      <ul className="mt-2 grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+      <ul className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2">
         {CHECKS.map((check) => (
           // A plain bullet, not a tick: these are questions still to answer.
           <li key={check} className="flex gap-2 text-body text-ink">

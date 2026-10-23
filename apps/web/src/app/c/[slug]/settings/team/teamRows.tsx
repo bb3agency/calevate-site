@@ -225,7 +225,7 @@ function ActionsCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
           disabled={sending || revoking}
           onClick={() => ctx.onResend(row.invitation)}
           aria-label={`Send the invitation to ${who} again`}
-          className={SECONDARY_BUTTON_SM}
+          className={`${SECONDARY_BUTTON_SM} whitespace-nowrap`}
         >
           {sending ? "Sending…" : "Send again"}
         </button>

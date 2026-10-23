@@ -225,7 +225,7 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
               {providerLabel(editing.engine)} ·{" "}
               {lookup(KEY_LABELS, editing.rate_key) ?? editing.rate_key}
             </p>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <label className="block">
                 <span className={FIELD_LABEL}>Rupees per billed minute</span>
                 <input
@@ -358,7 +358,7 @@ function CostInputs({ costs, access }: { costs: CostAttestation[]; access: Acces
           })}
         >
           <p className="text-body font-medium text-ink">{editing.label}</p>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label className="block">
               <span className={FIELD_LABEL}>
                 {editing.unit === "percent" ? "Percent" : "Rupees a month"}

@@ -155,7 +155,7 @@ function EntryForm({
       }}
     >
       {kind === "swap" ? (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block" htmlFor={`${id}-formal`}>
             <span className={FIELD_LABEL}>Formal word</span>
             <input
@@ -366,7 +366,7 @@ function PublishForm({ view }: { view: LanguageStyle }) {
           ? "Nothing changed since the last publish."
           : `${view.unpublished_changes} change${view.unpublished_changes === 1 ? "" : "s"} not published yet. Publishing puts them in every live agent in this language, within minutes, without switching anything off.`}
       </p>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block" htmlFor="style-reviewer">
           <span className={FIELD_LABEL}>Reviewed by</span>
           <input

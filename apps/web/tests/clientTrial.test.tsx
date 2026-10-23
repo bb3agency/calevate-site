@@ -136,6 +136,8 @@ describe("the trial chip in the top bar", () => {
     const chip = screen.getByRole("button", { name: /Free trial/ });
     expect(chip.textContent).toContain("Trial · 4 days · 997 min");
     expect(chip.textContent).toContain("Trial · 4d");
+    // A phone draws the meter and "4d" only; "Trial · " is for the screen reader.
+    expect(screen.getByText("Trial ·", { exact: false, selector: ".sr-only" })).toBeTruthy();
     expect(chip.getAttribute("aria-expanded")).toBe("true");
     const panel = screen.getByRole("dialog", { name: "Your free trial" });
     const text = panel.textContent ?? "";

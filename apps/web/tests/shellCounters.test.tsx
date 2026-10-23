@@ -276,6 +276,10 @@ describe("the client shell's live-calls pill", () => {
     // The number is the count, never a caller's digits.
     expect(pill.getAttribute("href")).not.toMatch(/\d{10}/);
     expect(pill.textContent).toBe("Live: 2 calls");
+    // On a phone only the dot and the count are drawn, so the page title keeps its room;
+    // the words stay for a screen reader.
+    const words = [...pill.querySelectorAll("span")].filter((s) => /^ ?(Live:|calls)/.test(s.textContent?.trim() ?? "") && s.children.length === 0);
+    expect(words.map((s) => s.className)).toEqual([expect.stringContaining("max-sm:sr-only"), expect.stringContaining("max-sm:sr-only")]);
   });
 
   it("opens the one live call itself, where the live panel shows who is speaking", async () => {

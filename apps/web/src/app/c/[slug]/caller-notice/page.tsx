@@ -135,7 +135,7 @@ function Draft({ notice }: { notice: CallerNotice }) {
         {notice.disclaimer}
       </p>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-start">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-start">
         <aside aria-label="Your blanks and announcements" className="lg:sticky lg:top-0 lg:col-start-2 lg:row-start-1">
           <FillPanel notice={notice} keys={keys} values={values} onClear={clear} />
         </aside>

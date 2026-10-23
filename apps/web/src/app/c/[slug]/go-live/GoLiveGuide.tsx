@@ -125,7 +125,7 @@ export function GoLiveGuide({ slug }: { slug: string }) {
       </div>
       {dismiss.error ? <ProblemNotice error={dismiss.error} /> : null}
 
-      <div className="grid gap-5 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-8">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-8">
         <aside className="min-w-0" aria-label="Your progress">
           <StepRail steps={GO_LIVE_STEPS} current={step} onGo={(to) => to < step && go(GO_LIVE_STEPS[to].id)} />
         </aside>

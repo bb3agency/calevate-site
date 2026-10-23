@@ -141,7 +141,7 @@ function PlanFeeSlot({
       )}
 
       {current && (
-        <dl className="grid gap-3 sm:grid-cols-3">
+        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <dt className="text-meta font-medium text-ink-muted">Billed for {current.month}</dt>
             <dd className="mt-0.5 text-body font-semibold text-ink">{formatINR(current.plan_inr)}</dd>
@@ -190,7 +190,7 @@ function PlanFeeSlot({
             );
           })}
         >
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label className="block">
               <span className={FIELD_LABEL}>Rupees for the whole month</span>
               <input

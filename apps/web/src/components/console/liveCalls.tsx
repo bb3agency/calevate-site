@@ -53,8 +53,13 @@ export function LiveCallsPill({ slug }: { slug: string }) {
         className={`${BAR_STATUS} text-ink-muted`}
       >
         <span aria-hidden className="h-2 w-2 rounded-full bg-ink-faint" />
-        <span>
+        {/* On a phone a grey dot and a dash stand where the count would be, as the live
+            pill does: the sentence took the whole bar from the page title. */}
+        <span className="max-sm:sr-only">
           <span className="text-ink-muted">Live calls:</span> {"couldn't check"}
+        </span>
+        <span aria-hidden className="sm:hidden">
+          —
         </span>
       </Link>
     );
@@ -73,12 +78,15 @@ export function LiveCallsPill({ slug }: { slug: string }) {
     <Link
       href={href(target)}
       aria-label={`${label} ${noun} in progress now`}
-      className={`${BAR_STATUS} text-ink`}
+      className={`${BAR_STATUS} text-ink max-sm:min-w-11 max-sm:justify-center max-sm:px-1.5`}
     >
       <LiveDot />
+      {/* On a phone the words go to the reader only: beside the bell and Pip they left the
+          page title no room at all, and the dot and the count still say it. */}
       <span>
-        <span className="text-ink-muted">Live:</span>{" "}
-        <span className="tabular-nums">{label}</span> {noun}
+        <span className="text-ink-muted max-sm:sr-only">Live: </span>
+        <span className="tabular-nums">{label}</span>
+        <span className="max-sm:sr-only"> {noun}</span>
       </span>
     </Link>
   );

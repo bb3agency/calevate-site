@@ -239,7 +239,7 @@ function OutcomesEditor({
                     </button>
                   </div>
                 </div>
-                <div className="mt-2 grid gap-3 sm:grid-cols-[minmax(0,1fr)_11rem]">
+                <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_11rem]">
                   <div>
                     <label className="block">
                       <span className={FIELD_LABEL}>Outcome name</span>

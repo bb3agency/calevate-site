@@ -61,7 +61,7 @@ function BusinessDetailsCard({ data }: { data: EngineBusinessDetails }) {
         </p>
       }
     >
-      <dl className="grid gap-x-6 gap-y-2 text-body sm:grid-cols-[max-content_1fr]">
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-body sm:grid-cols-[max-content_1fr]">
         <dt className="text-ink-muted">Status</dt>
         <dd className="font-medium text-ink">{lookup(STATUS_COPY, status) ?? STATUS_COPY.unknown}</dd>
         <dt className="text-ink-muted">Can rent a number</dt>

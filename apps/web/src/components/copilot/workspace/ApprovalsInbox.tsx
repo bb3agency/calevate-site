@@ -124,7 +124,7 @@ function ApprovalRow({
             <>
               <p className="text-sm font-medium text-ink">{preview.data.title}</p>
               {preview.data.still_applies ? (
-                <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_minmax(0,1fr)]">
+                <dl className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_minmax(0,1fr)]">
                   <dt className="text-ink-faint">What changes</dt>
                   <dd className="min-w-0 break-words text-ink [overflow-wrap:anywhere]">
                     {preview.data.summary}

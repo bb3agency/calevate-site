@@ -219,17 +219,17 @@ function History({ rows, inEffectId }: { rows: PlanRow[]; inEffectId: string | n
         </span>
       ),
     },
-    { id: "until", header: "Until", cell: (row) => (row.effective_to ? formatIST(row.effective_to) : "—") },
-    { id: "retainer", header: "Retainer (retired)", align: "right", cell: (row) => money(row.monthly_fee_inr) ?? "—" },
+    { id: "until", header: "Until", className: "whitespace-nowrap", cell: (row) => (row.effective_to ? formatIST(row.effective_to) : "—") },
+    { id: "retainer", className: "whitespace-nowrap", header: "Retainer (retired)", align: "right", cell: (row) => money(row.monthly_fee_inr) ?? "—" },
     {
       id: "included",
       header: "Included",
       align: "right",
       cell: (row) => (row.included_minutes === null ? "—" : row.included_minutes),
     },
-    { id: "base", header: "Base overage / min", align: "right", cell: (row) => rate(row.overage_rate_inr) ?? "—" },
-    { id: "second", header: "Second overage / min", align: "right", cell: (row) => rate(secondOverageRate(row)) ?? "—" },
-    { id: "surcharge", header: "Model surcharge / min", align: "right", cell: (row) => rate(row.llm_model_surcharge_inr) ?? "—" },
+    { id: "base", className: "whitespace-nowrap", header: "Base overage / min", align: "right", cell: (row) => rate(row.overage_rate_inr) ?? "—" },
+    { id: "second", className: "whitespace-nowrap", header: "Second overage / min", align: "right", cell: (row) => rate(secondOverageRate(row)) ?? "—" },
+    { id: "surcharge", className: "whitespace-nowrap", header: "Model surcharge / min", align: "right", cell: (row) => rate(row.llm_model_surcharge_inr) ?? "—" },
     { id: "recorded", header: "Recorded", cell: (row) => <span className="whitespace-nowrap">{formatIST(row.created_at)}</span> },
   ];
   return (

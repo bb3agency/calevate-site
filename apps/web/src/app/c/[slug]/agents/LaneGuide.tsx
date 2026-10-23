@@ -78,7 +78,7 @@ function LaneBody({ lanes }: { lanes: ReturnType<typeof useLanes> }) {
         {lanes.data.precedence_rule}
       </p>
 
-      <div className="mt-5 grid gap-6 sm:grid-cols-2">
+      <div className="mt-5 grid grid-cols-1 gap-6 sm:grid-cols-2">
         {/* No hint under the first two headings any more: "Waits to be applied" and
             "Applies straight away" were each followed by a line restating them, on the
             screen whose whole complaint was how much there is to read. The third keeps its

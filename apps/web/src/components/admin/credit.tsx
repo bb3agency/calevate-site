@@ -1,3 +1,5 @@
+import { Fragment } from "react";
+
 import { formatCount, formatINR } from "@/components/ui";
 import type { TenantSummary } from "@/lib/api/admin";
 
@@ -39,10 +41,12 @@ export function CreditLeft({ credit, compact = false }: { credit: Credit; compac
           ? tiers.map((tier, index) => (
               // One quality's figure never breaks across a line: "Studio 80 / min" read as
               // two facts in the narrow column of the roster.
-              <span key={tier.voice_tier} className="whitespace-nowrap">
+              <Fragment key={tier.voice_tier}>
                 {index > 0 ? " · " : ""}
-                {tier.label} {formatCount(tier.minutes)} min
-              </span>
+                <span className="whitespace-nowrap">
+                  {tier.label} {formatCount(tier.minutes)} min
+                </span>
+              </Fragment>
             ))
           : "On trial"}
       </span>

@@ -167,7 +167,7 @@ function SpeakingRate({ rate }: { rate: TtsSpeakingRate }) {
           {rate.clients === 1 ? "client" : "clients"}, priced at{" "}
           {formatRupeeRate(rate.tts_inr_per_10k_chars)} per 10,000 characters.
         </p>
-        <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-3">
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-3">
           <div>
             <dt className="text-meta font-medium">Pooled (Σ chars ÷ Σ minutes)</dt>
             <dd>

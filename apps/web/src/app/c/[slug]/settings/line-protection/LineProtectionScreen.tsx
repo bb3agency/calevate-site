@@ -188,7 +188,7 @@ function Problems({
                       <li key={call.call_id}>
                         <Link
                           href={href(`/c/${slug}/calls/${call.call_id}`)}
-                          className="inline-flex items-center gap-1.5 text-body text-brand-strong underline underline-offset-2"
+                          className="inline-flex items-center gap-1.5 text-body text-brand-strong underline underline-offset-2 touch:min-h-11"
                         >
                           <PhoneCall aria-hidden className="h-3.5 w-3.5" />
                           Call at {formatIST(call.at)}

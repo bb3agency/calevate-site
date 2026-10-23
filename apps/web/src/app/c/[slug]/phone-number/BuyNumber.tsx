@@ -218,7 +218,7 @@ function HolderBlock() {
         </div>
       </fieldset>
 
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className={FIELD_LABEL} htmlFor="holder-name">
             Full name, as it appears on the registration

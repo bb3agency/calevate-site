@@ -154,7 +154,7 @@ function TierSplit({ tiers }: { tiers: Margin["tiers"] }) {
   // above, not before. `h3` because it sits under the card's `h2`; the rows stay in the DOM.
   return (
     <Disclosure title="Cost by overage rung" variant="inline" headingLevel={3} className="mt-3 border-t border-line pt-1">
-      <dl className="grid gap-x-6 gap-y-2 pb-2 sm:grid-cols-3">
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-2 pb-2 sm:grid-cols-3">
         {rungs.map((rung) => (
           <div key={rung.label}>
             <dt className="text-meta text-ink-muted">{rung.label}</dt>

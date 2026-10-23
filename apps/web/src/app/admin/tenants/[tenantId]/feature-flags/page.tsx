@@ -283,7 +283,7 @@ function FlagRow({
         </div>
       </div>
 
-      <dl className="grid gap-x-6 gap-y-2 text-meta sm:grid-cols-3">
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-meta sm:grid-cols-3">
         <div>
           <dt className="text-ink-muted">Platform default</dt>
           <dd className="mt-0.5 font-medium text-ink">
@@ -336,7 +336,7 @@ function FlagRow({
 
         <fieldset>
           <legend className="sr-only">This client&apos;s position</legend>
-          <div className="grid gap-1 rounded-lg border border-line bg-app p-1 sm:inline-grid sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-1 rounded-lg border border-line bg-app p-1 sm:inline-grid sm:grid-cols-3">
             {POSITIONS.map((option) => {
               const on = position === option.value;
               return (

@@ -211,7 +211,7 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
 
   return (
     <Section title="Where this client stands">
-      <dl className="grid gap-3 text-meta sm:grid-cols-3">
+      <dl className="grid grid-cols-1 gap-3 text-meta sm:grid-cols-3">
         <div>
           <dt className="text-ink-muted">Platform default</dt>
           <dd className="mt-0.5 font-medium text-ink">

@@ -307,7 +307,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
         href={(path) => href(`/c/${slug}${path}`)}
       />
 
-      <div className="grid items-start gap-10 lg:grid-cols-12 lg:gap-12">
+      <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-12">
         <div className="space-y-10 lg:col-span-8">
           <AgentsAtAGlance
             agents={agents}

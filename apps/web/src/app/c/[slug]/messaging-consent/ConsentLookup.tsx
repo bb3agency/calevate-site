@@ -47,8 +47,8 @@ export function ConsentLookup({
         })}
       >
         {/* `min-w-0`: this wrapper is a flex item, and a flex item defaults to
-            `min-width: auto` — so it took the search input's intrinsic ~256px width
-            and would not shrink into the 254px row at 320px. The input's own
+            `min-width: auto` — so it took the search input's intrinsic width
+            and would not shrink into a 320px phone's row. The input's own
             `max-w-full` can only cap it once the wrapper is allowed to give. */}
         <div className="relative min-w-0">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
@@ -69,7 +69,7 @@ export function ConsentLookup({
             autoComplete="off"
             placeholder="9876543210 or +919876543210"
             aria-label="Phone number to check"
-            className={`${FIELD_INLINE_ICON} w-64 font-mono`}
+            className={`${FIELD_INLINE_ICON} w-80 font-mono`}
           />
           {valid.error("lookupPhone")}
         </div>

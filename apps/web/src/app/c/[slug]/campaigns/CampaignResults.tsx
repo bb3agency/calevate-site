@@ -104,7 +104,7 @@ export function CampaignResults({
         />
       </MetricRow>
 
-      <div className="grid gap-10 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-10 md:grid-cols-2">
         <Section title="How the calls went" headingLevel={3}>
           <OutcomeBreakdown outcomes={r.outcomes} />
           {r.opt_outs > 0 && (
@@ -156,10 +156,10 @@ export function CampaignResults({
         >
           <ul className="max-w-xl divide-y divide-line border-y border-line">
             {r.recent_leads.map((lead) => (
-              <li key={lead.id} className="flex items-center justify-between gap-3 py-2.5">
+              <li key={lead.id} className="relative flex items-center justify-between gap-3 py-2.5 touch:py-3">
                 <Link
                   href={href(`/c/${slug}/leads/${lead.id}`)}
-                  className="min-w-0 truncate text-body font-medium text-ink hover:underline"
+                  className="min-w-0 truncate text-body font-medium text-ink after:absolute after:inset-0 hover:underline focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
                 >
                   {lead.name?.trim() || "Unnamed lead"}
                 </Link>

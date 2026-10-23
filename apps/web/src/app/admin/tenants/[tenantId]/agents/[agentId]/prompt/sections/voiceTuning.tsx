@@ -169,7 +169,7 @@ export function VoiceTuningPanel({
         guidance, so listen before relying on a value.
       </p>
       <form
-        className="grid max-w-xl gap-3 sm:grid-cols-2"
+        className="grid grid-cols-1 max-w-xl gap-3 sm:grid-cols-2"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();

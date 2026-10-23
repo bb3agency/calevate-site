@@ -227,7 +227,7 @@ export function MeetYourAgent({ slug }: { slug: string }) {
 
       {/* Two columns from `lg`: the step, as wide as its cards need, and the agent taking
           shape beside it. The rail sits above both, so the step is not squeezed by it. */}
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,20rem)] lg:gap-8 xl:gap-12">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,20rem)] lg:gap-8 xl:gap-12">
         <div className="min-w-0 lg:hidden">{card(true)}</div>
         <section className="min-w-0 max-w-2xl" aria-label="This step">
           {body}

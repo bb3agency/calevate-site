@@ -522,10 +522,7 @@ describe("the second mobile pass", () => {
    * `MODAL_PANEL` / `MODAL_ACTIONS` in components/ui.tsx). A hand-rolled centred card
    * with no max-height runs off a short or landscape screen with its buttons out of reach.
    */
-  const MODAL_NOT_YET_ON_KIT: Record<string, string> = {
-    "components/authn/adminIdleTimeoutModal.tsx": "owned by the auth work in flight; migrate with it",
-    "components/authn/stepUpPrompt.tsx": "owned by the auth work in flight; migrate with it",
-  };
+  const MODAL_NOT_YET_ON_KIT: Record<string, string> = {};
 
   it("every modal scrim is the kit's", () => {
     const handRolled: string[] = [];
@@ -617,5 +614,34 @@ describe("console pages sit on the rail's left edge", () => {
       });
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("a grid names its phone column", () => {
+  /**
+   * A `grid` that only declares columns from a breakpoint up has ONE implicit `auto` column on
+   * a phone, and an auto track is as wide as its widest child's min-content. A `truncate`
+   * line's min-content is its whole text, so one long agent name widened the dashboard's
+   * column to 711px on a 375px phone and the page scrolled sideways inside <main>.
+   * `grid-cols-1` is `minmax(0, 1fr)`: the column is the screen's width and truncation
+   * works. A form grid that switches at `sm` is no exception: a select is as wide as its
+   * longest option, so one long agent or team-member name did the same on the lead page.
+   */
+  it("every console grid with responsive columns declares a base column", () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles()) {
+      const key = relPosix(SRC, file);
+      const inConsole =
+        key.startsWith("app/c/") || key.startsWith("app/admin/") || key.startsWith("app/(auth)/") ||
+        (key.startsWith("components/") && !key.startsWith("components/marketing/"));
+      if (!inConsole) continue;
+      blankComments(readFileSync(file, "utf8").split("\n")).forEach((line, i) => {
+        const cls = /className=["{`]+([^"`]*)/.exec(line)?.[1];
+        if (!cls || !/(?:^|\s)grid(?:\s|$)/.test(cls)) return;
+        if (!/(?:^|\s)(?:sm|md|lg|xl|2xl):grid-cols-/.test(cls)) return;
+        if (!/(?:^|\s)grid-cols-/.test(cls)) offenders.push(`${key}:${i + 1}`);
+      });
+    }
+    expect(offenders, "add grid-cols-1 so the phone column can shrink").toEqual([]);
   });
 });

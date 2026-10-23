@@ -246,7 +246,7 @@ function StyleEditor({
         return (
           <div key={i}>
             <div className="flex items-start gap-2">
-              <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 min-w-0 flex-1 gap-2 sm:grid-cols-2">
                 <Text id={id(`word-${i}`)} label={`Name ${i + 1}`} maxLength={80} value={p.word} onChange={(v) => words({ word: v })} />
                 <Text id={id(`say-${i}`)} label="Say it as" maxLength={120} value={p.say_as} onChange={(v) => words({ say_as: v })} />
               </div>
