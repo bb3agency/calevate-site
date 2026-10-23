@@ -15,8 +15,9 @@ import { ChipChoice, ChoiceCard, StepScreen } from "./shell";
 /**
  * STEP 1, ITS JOB (D-855): what the agent does, then the language it speaks.
  *
- * Three jobs, each with a three-step picture of what happens, all open on a free trial: a
- * test call rings the owner from any ready agent (D-853). Once the agent is built its job is
+ * Three jobs, each a name and one line on what the agent does, all open on a free trial: a
+ * test call rings the owner from any ready agent (D-853). A card holds no more than that, so
+ * all three sit above the fold on a phone and compare at a glance. Once the agent is built its job is
  * fixed (the server refuses `first_run_job_locked`), so the choice is shown, not offered.
  */
 export function JobStep({
@@ -74,19 +75,6 @@ export function JobStep({
           >
             <span className="block text-heading text-ink">{card.title}</span>
             <span className="mt-0.5 block text-meta text-ink-muted">{card.line}</span>
-            <span className="mt-3 grid gap-1 rounded-md bg-ink/[0.03] px-3 py-2 text-meta text-ink-muted">
-              {card.chips.map((chip, index) => (
-                <span key={chip} className="flex items-center gap-2">
-                  <span
-                    aria-hidden
-                    className="grid h-4 w-4 shrink-0 place-items-center rounded-full border border-ink/20 text-[10px] tabular-nums text-ink-muted"
-                  >
-                    {index + 1}
-                  </span>
-                  {chip}
-                </span>
-              ))}
-            </span>
           </ChoiceCard>
         ))}
         {locked ? (

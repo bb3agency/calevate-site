@@ -33,8 +33,9 @@ import { useBusinessSuggestions, useVerticalExamples } from "@/lib/useVerticalEx
  * visits and never somebody else's trade (D-827).
  *
  * Two shapes. Beside the steps on a wide screen it is the whole card. On a phone it is one
- * line (initial, name, job, pieces done) that opens into the card, so the step stays the
- * first thing under the thumb.
+ * line (initial, name, job) that opens into the card, so the step stays the first thing
+ * under the thumb. Neither shape counts pieces: the step rail is the one counter on the
+ * screen, and the card's progress is its rows ticking as they fill in.
  */
 export function AgentTakingShape({
   agent,
@@ -58,7 +59,6 @@ export function AgentTakingShape({
   voiceNote?: string | null;
 }) {
   const fresh = useFreshlyDone(pieces, loaded);
-  const done = pieces.filter((piece) => piece.done).length;
   const title = agent?.name ?? null;
   const subtitle = jobCard(job)?.title ?? (agent ? jobOf(agent) : null);
 
@@ -100,9 +100,6 @@ export function AgentTakingShape({
       <details className="group rounded-card border border-line bg-surface shadow-card">
         <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
           <div className="min-w-0 flex-1">{header}</div>
-          <span className="shrink-0 text-meta tabular-nums text-ink-muted">
-            {done} of {pieces.length}
-          </span>
           <ChevronDown
             aria-hidden
             className="h-4 w-4 shrink-0 text-ink-muted transition-transform duration-(--duration-fast) group-open:rotate-180 motion-reduce:transition-none"
@@ -307,10 +304,9 @@ function useFreshlyDone(pieces: readonly Piece[], loaded: boolean): ReadonlySet<
 function Announcer({ pieces, fresh }: { pieces: readonly Piece[]; fresh: ReadonlySet<PieceId> }) {
   const last = [...fresh].at(-1);
   const piece = pieces.find((entry) => entry.id === last);
-  const done = pieces.filter((entry) => entry.done).length;
   return (
     <p aria-live="polite" className="sr-only">
-      {piece ? `${piece.label} is done. ${done} of ${pieces.length}.` : ""}
+      {piece ? `${piece.label} is done.` : ""}
     </p>
   );
 }
