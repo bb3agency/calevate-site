@@ -1789,4 +1789,13 @@ minutes per client; ESTIMATE, confirmed by the founder by sending it.
    list-knowledge-documents.md, read live 24 Oct 2026). Ask: is the console's file upload
    available to developers (endpoint, size limit, types), and does a `url` pointing at a PDF
    get read as a file. `scripts/probe_thinnest_pdf_knowledge.py` tests the second part on a
-   throwaway agent; record its result here.
+   throwaway agent.
+
+   **Probe result, 23 Oct 2026 19:18 UTC (run by the founder on production):** a `url` that
+   serves a PDF is refused, every time: `422 {"error": "Unsupported content type:
+   application/pdf.", "code": "unprocessable"}` with a `failed` document left behind, for our
+   R2 presigned link served `inline`, the same served `attachment`, an image-only (scanned)
+   PDF, and W3C's public test PDF ("application/pdf; qs=0.001"). So through the API a PDF
+   reaches an agent only as `text` we extract. Test Chat on the throwaway agent answered
+   `{"reply": "", "error": "An error occurred."}` (a bare agent with no knowledge; not a
+   knowledge finding). Cleanup: all four documents and the agent deleted, 204.
