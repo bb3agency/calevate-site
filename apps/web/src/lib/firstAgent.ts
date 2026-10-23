@@ -69,13 +69,11 @@ export const STEP_OF_STAGE: Readonly<Record<Stage, StepId>> = {
   team: "yours",
 };
 
-/** What each job does, in the owner's words, with the three-chip picture of it. */
+/** What each job does, in the owner's words. */
 export interface JobCard {
   job: FirstRunJob;
   title: string;
   line: string;
-  /** Three short steps: what happens, in order. */
-  chips: readonly [string, string, string];
   /** How the test call is introduced, with the business's name. */
   callIntro: (business: string) => string;
 }
@@ -85,21 +83,18 @@ export const JOBS: readonly JobCard[] = [
     job: "answer_calls",
     title: "Answer my calls",
     line: "Picks up when customers ring your number, day or night.",
-    chips: ["A customer rings", "It answers and helps", "You get the details"],
     callIntro: (business) => `It rings you and answers as if you had called ${business}.`,
   },
   {
     job: "call_new_leads",
     title: "Call new leads instantly",
     line: "Rings each new enquiry within minutes, while they are still interested.",
-    chips: ["Someone enquires", "It calls in minutes", "You get the details"],
     callIntro: () => "It rings you as if you had just sent an enquiry.",
   },
   {
     job: "call_leads",
     title: "Call my list",
     line: "Works through a list of people who showed interest earlier.",
-    chips: ["You add your list", "It calls each one", "You get the details"],
     callIntro: () => "It rings you as if you were the first person on your list.",
   },
 ];
