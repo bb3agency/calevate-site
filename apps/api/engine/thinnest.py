@@ -1095,6 +1095,14 @@ def _dial_refusal(exc: EngineRejectedError) -> ProblemError:
             vendor_reason=exc.vendor_reason,
         )
     refusal.setup_refused = setup
+    if code == "outside_calling_hours":
+        # The vendor holds every call to 09:00-21:00 in the callee's own time whatever our
+        # gate allows (place-call.md:7, 19 Oct 2026 snapshot), so the owner's own-number
+        # tick (D-866) cannot ring a phone at night. Said plainly rather than as a generic
+        # platform failure, which reads as something broken.
+        refusal.title = "Calls can only ring between 9am and 9pm"
+        refusal.detail = "Phones can be rung only between 9am and 9pm IST, test calls included."
+        refusal.remediation = "Try again after 9am IST."
     return refusal
 
 

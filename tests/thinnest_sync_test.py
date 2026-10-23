@@ -185,6 +185,15 @@ async def test_the_sentence_is_logged_from_error_and_never_carried(
     assert "9876543210" not in str(logged.vendor_message)
 
 
+async def test_a_call_outside_the_platforms_hours_says_so_in_plain_words() -> None:
+    from apps.api.agents.service import dial_was_not_placed
+
+    refused = await _dial(409, {"error": "Outside hours", "code": "outside_calling_hours"})
+    assert refused.title == "Calls can only ring between 9am and 9pm"
+    assert "9am and 9pm IST" in refused.detail
+    assert dial_was_not_placed(refused) is True
+
+
 # --- (2), (17) built-in tools and live transfer ------------------------------------------
 
 
