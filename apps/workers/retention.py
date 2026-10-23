@@ -3270,8 +3270,12 @@ ORDER BY created_at, id LIMIT :batch
 # it with a CHECK); the second makes the write single-shot, so a concurrent second
 # erasure cannot restamp the instant on a certificate that has already been issued. A
 # zero rowcount here is an invariant violation, not a no-op, and the caller raises.
+#
+# `erase_after = NULL` discharges the closure's deadline in the same write:
+# `ck_organizations_deleted_implies_no_deadline` refuses an erased account that still has
+# one, so a closed account erased before or on its date failed here and rolled back.
 _MARK_ERASED_SQL = """
-UPDATE organizations SET deleted_at = now(), updated_at = now()
+UPDATE organizations SET deleted_at = now(), erase_after = NULL, updated_at = now()
 WHERE id = :tid AND deleted_at IS NULL AND status = 'churned'
 """
 

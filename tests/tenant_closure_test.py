@@ -39,6 +39,7 @@ from apps.api.admin import service as admin_service
 from apps.api.admin.closure_routes import close_account_confirmation
 from apps.api.admin.routes import notice_address_confirmation
 from apps.api.billing.plans import IST
+from apps.api.compliance import tenant_erasure
 from apps.api.compliance.service import account_stopped_blocker
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
@@ -46,6 +47,7 @@ from apps.api.main import app
 from apps.api.tenancy import closure
 from apps.api.tenancy.lifecycle import assert_account_open
 from apps.workers.account_closure import NOTICE_JOB, sweep_due_erasures
+from apps.workers.retention import execute_tenant_erasure
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -392,6 +394,37 @@ async def test_the_database_refuses_a_pending_deadline_on_an_erased_account() ->
                 text("UPDATE organizations SET deleted_at = now() WHERE id = :t"),
                 {"t": tenant_id},
             )
+
+
+@pytest.mark.asyncio
+async def test_a_closed_account_erased_before_its_date_is_erased() -> None:
+    """23 Oct 2026: the erasure worker set `deleted_at` and left the closure's
+    `erase_after`, the CHECK above refused it, and every closed account's erasure rolled
+    back. This runs the real worker, not a stand-in UPDATE."""
+    token, tenant_id = await _admin(), await _tenant()
+    await _close(token, tenant_id, confirm=close_account_confirmation(tenant_id))
+    async with tenant_session(tenant_id) as session:
+        record = await tenant_erasure.request_tenant_erasure(
+            session, tenant_id=tenant_id, reason="Client asked us to stop"
+        )
+    await execute_tenant_erasure({}, {"tenant_id": str(tenant_id), "request_id": str(record.id)})
+
+    async with tenant_session(tenant_id) as session:
+        deleted_at, erase_after = (
+            await session.execute(
+                text("SELECT deleted_at, erase_after FROM organizations WHERE id = :t"),
+                {"t": tenant_id},
+            )
+        ).one()
+        completed_at = (
+            await session.execute(
+                text("SELECT completed_at FROM tenant_erasure_requests WHERE id = :r"),
+                {"r": record.id},
+            )
+        ).scalar_one()
+    assert deleted_at is not None
+    assert erase_after is None
+    assert completed_at is not None
 
 
 # --- the sweep ---------------------------------------------------------------------
@@ -1077,3 +1110,34 @@ async def test_a_refusal_other_than_a_restore_counts_as_failed_and_alarms(
 
     assert totals == {"due": 2, "filed": 0, "failed": 1}
     assert alarms == ["closure_sweep_incomplete"]
+
+
+@pytest.mark.asyncio
+async def test_the_repair_script_re_queues_an_erasure_that_never_completed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Filing again only answers "already open", so a failed erasure needs this to run."""
+    from scripts import redrive_tenant_erasures
+
+    token, tenant_id = await _admin(), await _tenant()
+    await _close(token, tenant_id, confirm=close_account_confirmation(tenant_id))
+    async with tenant_session(tenant_id) as session:
+        record = await tenant_erasure.request_tenant_erasure(
+            session, tenant_id=tenant_id, reason="Client asked us to stop"
+        )
+    queued: list[dict[str, Any]] = []
+
+    async def _enqueue(job: str, payload: dict[str, Any], **_: Any) -> str:
+        assert job == "execute_tenant_erasure"
+        queued.append(payload)
+        return "job"
+
+    monkeypatch.setattr(redrive_tenant_erasures, "enqueue", _enqueue)
+    found = await redrive_tenant_erasures.open_erasures()
+    assert redrive_tenant_erasures.OpenErasure(tenant_id, record.id) in found
+    assert await redrive_tenant_erasures.run(apply=False, only_tenant=tenant_id) == 1
+    assert queued == []
+    assert await redrive_tenant_erasures.run(apply=True, only_tenant=tenant_id) == 1
+
+    await execute_tenant_erasure({}, queued[0])
+    assert await redrive_tenant_erasures.open_erasures(only_tenant=tenant_id) == []
