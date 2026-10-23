@@ -319,6 +319,29 @@ async def test_a_due_hold_releases_the_number_and_then_lets_the_offboarding_fini
     assert len(await _outbox(jobs.NOTICE_JOB, tenant_id)) == 2
 
 
+async def test_a_held_number_released_by_hand_still_lets_the_offboarding_finish(
+    account: FakeAccount,
+) -> None:
+    """FAILS IF: only a release by the hold job resumes the offboarding, so a closed account
+    whose held number an operator released keeps its workspace and agents at the platform."""
+    tenant_id, agent_id = await _tenant()
+    number_id, _number, _workspace = await _rented(account, tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        await closure.close_account(session, tenant_id=tenant_id, reason="test", closed_by=None)
+    await jobs.settle_tenant(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE phone_numbers SET released_at = now() WHERE id = :id"), {"id": number_id}
+        )
+    before = len(await _outbox(resolver.OFFBOARD_JOB, tenant_id))
+
+    tally, failed = await jobs.settle_tenant(tenant_id)
+
+    assert failed == 0 and tally["closed_elsewhere"] == 1
+    assert tally["offboarding_resumed"] == 1
+    assert len(await _outbox(resolver.OFFBOARD_JOB, tenant_id)) == before + 1
+
+
 async def _overdrawn(tenant_id: UUID, *, days: int) -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(
