@@ -8,20 +8,21 @@
  * the agent is, what a good call achieves, how it opens, how it speaks, how it handles
  * push-back, what it may do, how it ends, how closely it follows the sections, and an
  * example call. Most of them are set once and rarely changed, so `ScriptParts` shows them
- * as a summary list whose rows open these bodies in place; the opening line and the
+ * as a summary list whose rows open these bodies in place; how the call opens and the
  * strictness choice stay on the page. Each part's element id is its anchor (`#policies`),
  * which Knowledge's "Fix in script" links to. They mirror `calevate_shared.call_script` section for section;
  * the platform's own rules (how to speak on a phone, where facts are, call backs and
  * hand-over, the truthful answers) are composed around them and are not edited here.
  *
  * None of these reads the network: each takes a value and hands back the next one, so the
- * builder shell owns every write. Every text control takes `trackFocus`, which records the
- * last field the author touched so a merge field lands at their cursor.
+ * builder shell owns every write. Every text box keeps the script plain text
+ * (`usePlainText`), by the same rule as the kit's `ScriptEditor`.
  */
 
 import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 
+import { ScriptEditor, type ScriptVariableOption } from "@/components/arc/script-editor";
 import {
   FIELD,
   FIELD_HINT,
@@ -44,7 +45,7 @@ import type {
 } from "@/lib/api/script";
 import type { VerticalExamples } from "@/lib/verticalExamples";
 
-import { RoomCounter, roomLabel } from "../../panels/openingLineFix";
+import { CleanedNote, usePlainText } from "./plainText";
 
 /** The account's own examples these parts show as placeholders (`useVerticalExamples`, D-827). */
 export type ScriptExamples = Pick<
@@ -57,10 +58,6 @@ export type ScriptExamples = Pick<
   | "pronounceWord"
   | "pronounceSayAs"
 >;
-
-/** The two text controls a merge field can be inserted into. */
-export type Focusable = HTMLInputElement | HTMLTextAreaElement;
-type Track = (el: Focusable | null) => void;
 
 /**
  * The body of one part. Its heading is the row that opens it (`ScriptParts`), so the body
@@ -80,50 +77,28 @@ function TextBox({
   id,
   label,
   hint,
-  info,
   value,
   rows = 2,
   maxLength,
   placeholder,
   onChange,
-  trackFocus,
-  describedBy,
-  invalid,
-  children,
 }: {
   id: string;
   label: string;
   hint?: string;
-  /** The reasoning behind an ⓘ beside the label, so the hint stays one line. */
-  info?: ReactNode;
   value: string;
   rows?: number;
   maxLength?: number;
   placeholder?: string;
   onChange: (v: string) => void;
-  trackFocus: Track;
-  /** The id of a line under the box that describes it, such as a counter. */
-  describedBy?: string;
-  invalid?: boolean;
-  /** Shown under the box. */
-  children?: ReactNode;
 }) {
+  const plain = usePlainText();
+  const change = (raw: string) => onChange(plain.take(raw));
   return (
     <div>
-      {info ? (
-        <div className="flex items-center gap-1">
-          <label className={FIELD_LABEL} htmlFor={id}>
-            {label}
-          </label>
-          <InfoTip label={label} align="start">
-            {info}
-          </InfoTip>
-        </div>
-      ) : (
-        <label className={FIELD_LABEL} htmlFor={id}>
-          {label}
-        </label>
-      )}
+      <label className={FIELD_LABEL} htmlFor={id}>
+        {label}
+      </label>
       {hint && <span className={FIELD_HINT}>{hint}</span>}
       {rows === 1 ? (
         <input
@@ -132,10 +107,7 @@ function TextBox({
           value={value}
           maxLength={maxLength}
           placeholder={placeholder}
-          aria-describedby={describedBy}
-          aria-invalid={invalid}
-          onFocus={(e) => trackFocus(e.currentTarget)}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => change(e.target.value)}
         />
       ) : (
         <textarea
@@ -145,13 +117,10 @@ function TextBox({
           value={value}
           maxLength={maxLength}
           placeholder={placeholder}
-          aria-describedby={describedBy}
-          aria-invalid={invalid}
-          onFocus={(e) => trackFocus(e.currentTarget)}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => change(e.target.value)}
         />
       )}
-      {children}
+      <CleanedNote shown={plain.cleaned} />
     </div>
   );
 }
@@ -223,12 +192,10 @@ export function IdentitySection({
   script,
   set,
   eg,
-  trackFocus,
 }: {
   script: CallScript;
   set: SetField;
   eg: ScriptExamples;
-  trackFocus: Track;
 }) {
   return (
     <Section id="identity">
@@ -241,7 +208,6 @@ export function IdentitySection({
         maxLength={200}
         value={script.business_line}
         onChange={(v) => set("business_line", v)}
-        trackFocus={trackFocus}
       />
       <TextBox
         id="identity-text"
@@ -249,7 +215,6 @@ export function IdentitySection({
         value={script.identity}
         placeholder={`For example: ${eg.agentRole}`}
         onChange={(v) => set("identity", v)}
-        trackFocus={trackFocus}
       />
     </Section>
   );
@@ -258,17 +223,12 @@ export function IdentitySection({
 export function GoalSection({
   script,
   set,
-  direction,
   eg,
-  trackFocus,
 }: {
   script: CallScript;
   set: SetField;
-  direction: string;
   eg: ScriptExamples;
-  trackFocus: Track;
 }) {
-  const calls = direction === "outbound" || direction === "both";
   return (
     <Section id="goal">
       <TextBox
@@ -277,65 +237,118 @@ export function GoalSection({
         value={script.goal}
         placeholder={`For example: ${eg.callGoal}`}
         onChange={(v) => set("goal", v)}
-        trackFocus={trackFocus}
       />
-      {calls && (
-        <TextBox
-          id="outbound-purpose"
-          label="Why you are calling"
-          hint="Said early on calls it places. Up to 300 letters."
-          rows={1}
-          maxLength={300}
-          value={script.outbound_purpose}
-          placeholder={`For example: ${eg.outboundPurpose}`}
-          onChange={(v) => set("outbound_purpose", v)}
-          trackFocus={trackFocus}
-        />
-      )}
     </Section>
   );
 }
 
-export function OpeningSection({
-  value,
-  onChange,
-  trackFocus,
+/** Server limit on `outbound_purpose` (`call_script.py`; `scriptModel.validate` holds the autosave over it). */
+export const OUTBOUND_PURPOSE_MAX = 300;
+
+/** The caller details a script may name: the platform's standard ones and the client's own. */
+export function scriptVariables(
+  standard: { key: string; label: string }[],
+  custom: { key: string; label: string; example?: string }[],
+): ScriptVariableOption[] {
+  // The preview says the client's own example value where they gave one, and otherwise
+  // names the detail where the caller's value will be said.
+  const own = custom.filter((c) => !standard.some((s) => s.key === c.key));
+  return [
+    ...standard.map((v) => ({ key: v.key, label: v.label, sample: v.label })),
+    ...own.map((v) => ({ key: v.key, label: v.label, sample: v.example?.trim() || v.label })),
+  ];
+}
+
+/** When a caller detail has a value on a call, which depends on who places the call. */
+export function variablesNote(direction?: string): string {
+  const places = direction !== "inbound";
+  const answers = direction === "inbound" || direction === "both";
+  return [
+    places ? "On a call this agent places, a caller detail is filled from the lead." : "",
+    answers ? "On a call it answers, it is filled only when the caller has called before." : "",
+    "When there is no value, it is left out and the sentence still reads.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * HOW THE CALL OPENS: the words said verbatim at the start of a call, in the kit's
+ * `ScriptEditor` — the opening line and, on an agent that places calls, why it is calling.
+ * Each has its budget: the opening line the room the server measured after the notices
+ * switched on (D-846, `greeting_budget.opening_room`), the reason its 300 characters. Over
+ * budget is marked and holds nothing back here: the autosave keeps it, and the server's
+ * own checks decide at "Put it live".
+ *
+ * The parts that are instructions to the agent rather than words it says (the goal, the
+ * ending, each step) stay where they are; a "how it will sound" preview of an instruction
+ * would show words no caller hears.
+ */
+export function OpeningEditor({
+  script,
+  set,
+  direction,
   room,
+  standardVariables,
+  eg,
+  previewAction,
 }: {
-  value: string;
-  onChange: (v: string) => void;
-  trackFocus: Track;
-  /** How many characters the line may have after the notices switched on (D-846);
-   *  undefined where nothing limits it. */
+  script: CallScript;
+  set: SetField;
+  direction?: string;
+  /** Characters the opening line may have after the notices switched on; undefined while unknown. */
   room?: number;
+  standardVariables: { key: string; label: string }[];
+  eg: ScriptExamples;
+  previewAction?: ReactNode;
 }) {
-  const over = room !== undefined && roomLabel(value, room).over;
+  const calls = direction === "outbound" || direction === "both";
+  const sections = [
+    {
+      id: "opening_line",
+      title: "Opening line",
+      hint: "The first thing it says on every call, straight after any notices you switched on, so it has to fit the room they leave.",
+      value: script.opening_line,
+      maxChars: room,
+      placeholder: "For example: Namaskaram andi, cheppandi, em kavali?",
+      rows: 2,
+    },
+    ...(calls
+      ? [
+          {
+            id: "outbound_purpose",
+            title: "Why you are calling",
+            hint: "Said early on calls it places.",
+            value: script.outbound_purpose,
+            maxChars: OUTBOUND_PURPOSE_MAX,
+            placeholder: `For example: ${eg.outboundPurpose}`,
+            rows: 2,
+          },
+        ]
+      : []),
+  ];
   return (
-    <Section id="opening">
-      <TextBox
-        id="opening-line"
-        label="Opening line"
-        hint="The first thing it says on every call."
-        info="Any notices you have switched on are said just before this line, and together they have to be short enough to be said first."
-        value={value}
-        placeholder="For example: Namaskaram andi, cheppandi, em kavali?"
-        onChange={onChange}
-        trackFocus={trackFocus}
-        describedBy={room !== undefined ? "opening-line-room" : undefined}
-        invalid={over || undefined}
-      >
-        {room !== undefined && (
-          <>
-            <RoomCounter id="opening-line-room" text={value} room={room} />
-            {over && (
-              <p className="mt-1 text-xs text-ink-muted">
-                Shorten it before you put it live, or it cannot be said first.
-              </p>
-            )}
-          </>
-        )}
-      </TextBox>
-    </Section>
+    <section id="opening" aria-labelledby="opening-heading" className="scroll-mt-24 space-y-3">
+      <div className="flex items-center gap-1">
+        <h3 id="opening-heading" className="text-heading text-ink">
+          How the call opens
+        </h3>
+        <InfoTip label="caller details" align="start">
+          {variablesNote(direction)}
+        </InfoTip>
+      </div>
+      <ScriptEditor
+        sections={sections}
+        onChange={(id, value) => set(id === "outbound_purpose" ? "outbound_purpose" : "opening_line", value)}
+        variables={scriptVariables(standardVariables, script.variables)}
+        previewAction={previewAction}
+        strings={{
+          left: (n) => `${n} ${n === "1" ? "character" : "characters"} left`,
+          over: (n) => `${n} ${n === "1" ? "character" : "characters"} too long`,
+          previewEmpty: "Write the opening line to see how the call starts.",
+        }}
+      />
+    </section>
   );
 }
 
@@ -350,13 +363,11 @@ export function StyleSection({
   onChange,
   context,
   eg,
-  trackFocus,
 }: {
   style: SpeakingStyle;
   onChange: (style: SpeakingStyle) => void;
   context: ScriptContext | null;
   eg: ScriptExamples;
-  trackFocus: Track;
 }) {
   const patch = (next: Partial<SpeakingStyle>) => onChange({ ...style, ...next });
   const setWords = (words: Pronunciation[]) => patch({ pronunciations: words });
@@ -377,7 +388,6 @@ export function StyleSection({
         value={style.tone}
         placeholder="For example: warm, calm and quick"
         onChange={(v) => patch({ tone: v })}
-        trackFocus={trackFocus}
       />
       <TextBox
         id="address-form"
@@ -387,7 +397,6 @@ export function StyleSection({
         value={style.address_form}
         placeholder="For example: andi and garu, never by first name"
         onChange={(v) => patch({ address_form: v })}
-        trackFocus={trackFocus}
       />
       <fieldset>
         <legend className={FIELD_LABEL}>English words in its speech</legend>
@@ -421,7 +430,6 @@ export function StyleSection({
         rows={3}
         value={style.sample_phrases.join("\n")}
         onChange={(v) => patch({ sample_phrases: v.split("\n") })}
-        trackFocus={trackFocus}
       />
       <div>
         <span className={FIELD_LABEL}>Names and how to say them</span>
@@ -438,7 +446,6 @@ export function StyleSection({
                   aria-label={`Word ${i + 1}`}
                   value={word.word}
                   placeholder={eg.pronounceWord}
-                  onFocus={(e) => trackFocus(e.currentTarget)}
                   onChange={(e) =>
                     setWords(style.pronunciations.map((w, j) => (j === i ? { ...w, word: e.target.value } : w)))
                   }
@@ -448,7 +455,6 @@ export function StyleSection({
                   aria-label={`Say word ${i + 1} as`}
                   value={word.say_as}
                   placeholder={eg.pronounceSayAs}
-                  onFocus={(e) => trackFocus(e.currentTarget)}
                   onChange={(e) =>
                     setWords(style.pronunciations.map((w, j) => (j === i ? { ...w, say_as: e.target.value } : w)))
                   }
@@ -474,12 +480,11 @@ export function StyleSection({
 export function ObjectionsSection({
   objections,
   onChange,
-  trackFocus,
 }: {
   objections: Objection[];
   onChange: (objections: Objection[]) => void;
-  trackFocus: Track;
 }) {
+  const plain = usePlainText();
   const update = (i: number, next: Partial<Objection>) =>
     onChange(objections.map((o, j) => (j === i ? { ...o, ...next } : o)));
   return (
@@ -495,8 +500,7 @@ export function ObjectionsSection({
                   value={o.objection}
                   maxLength={300}
                   placeholder="It is too expensive."
-                  onFocus={(e) => trackFocus(e.currentTarget)}
-                  onChange={(e) => update(i, { objection: e.target.value })}
+                  onChange={(e) => update(i, { objection: plain.take(e.target.value) })}
                 />
                 <textarea
                   className={`${FIELD} mt-0`}
@@ -504,8 +508,7 @@ export function ObjectionsSection({
                   aria-label={`Objection ${i + 1}: how to answer`}
                   value={o.response}
                   placeholder="Say what makes it worth the price. If they still say no, accept it."
-                  onFocus={(e) => trackFocus(e.currentTarget)}
-                  onChange={(e) => update(i, { response: e.target.value })}
+                  onChange={(e) => update(i, { response: plain.take(e.target.value) })}
                 />
               </div>
               <RowControls
@@ -518,6 +521,7 @@ export function ObjectionsSection({
           ))}
         </ul>
       )}
+      <CleanedNote shown={plain.cleaned} />
       <AddButton
         label="Add a push-back"
         onClick={() => onChange([...objections, { objection: "", response: "" }])}
@@ -577,12 +581,10 @@ export function EndingSection({
   value,
   onChange,
   eg,
-  trackFocus,
 }: {
   value: string;
   onChange: (v: string) => void;
   eg: ScriptExamples;
-  trackFocus: Track;
 }) {
   return (
     <Section id="ending">
@@ -592,7 +594,6 @@ export function EndingSection({
         value={value}
         placeholder={`For example: ${eg.callEnding}`}
         onChange={onChange}
-        trackFocus={trackFocus}
       />
     </Section>
   );
@@ -602,15 +603,14 @@ export function ExampleSection({
   lines,
   needsReview,
   onChange,
-  trackFocus,
 }: {
   lines: ExampleLine[];
   needsReview: boolean;
   onChange: (lines: ExampleLine[], stillNeedsReview: boolean) => void;
-  trackFocus: Track;
 }) {
   // Any edit by the owner is their own reading of it, so the review flag clears.
   const edit = (next: ExampleLine[]) => onChange(next, false);
+  const plain = usePlainText();
   return (
     <Section id="example" hint="A few lines in your callers' language. It copies the style, never the facts.">
       {needsReview && lines.length > 0 && (
@@ -640,8 +640,7 @@ export function ExampleSection({
                 aria-label={`Line ${i + 1}`}
                 value={line.text}
                 maxLength={500}
-                onFocus={(e) => trackFocus(e.currentTarget)}
-                onChange={(e) => edit(lines.map((l, j) => (j === i ? { ...l, text: e.target.value } : l)))}
+                onChange={(e) => edit(lines.map((l, j) => (j === i ? { ...l, text: plain.take(e.target.value) } : l)))}
               />
               <RowControls
                 what="line"
@@ -653,6 +652,7 @@ export function ExampleSection({
           ))}
         </ul>
       )}
+      <CleanedNote shown={plain.cleaned} />
       <AddButton
         label="Add a line"
         onClick={() =>
@@ -662,51 +662,6 @@ export function ExampleSection({
     </Section>
   );
 }
-
-export function VariableBar({
-  standard,
-  custom,
-  direction,
-  onInsert,
-}: {
-  standard: { key: string; label: string }[];
-  custom: { key: string; label: string }[];
-  /** The agent's calls: what fills a field differs, so the hint says which applies. */
-  direction?: string;
-  onInsert: (key: string) => void;
-}) {
-  const all = [...standard, ...custom.filter((c) => !standard.some((s) => s.key === c.key))];
-  if (all.length === 0) return null;
-  const answers = direction === "inbound" || direction === "both";
-  const places = direction !== "inbound";
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="flex items-center gap-1">
-        <span className="text-meta text-ink-muted">Add a caller detail</span>
-        <InfoTip label="these fields" align="start">
-          It goes where your cursor was in the last box you typed in.
-          {places && " On a call this agent places, it is filled from the lead."}
-          {answers && " On a call it answers, it is filled only when the caller has called before."}
-          {" "}When there is no value, it is left out and the sentence still reads.
-        </InfoTip>
-      </span>
-      <div className="flex flex-wrap gap-2">
-        {all.map((v) => (
-          <button
-            key={v.key}
-            type="button"
-            className="press inline-flex min-h-7 items-center gap-1 rounded-full border border-line px-2.5 text-meta text-ink hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
-            onClick={() => onInsert(v.key)}
-          >
-            <Plus aria-hidden className="h-3 w-3" />
-            {v.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 
 export function StrictnessSection({
   value,

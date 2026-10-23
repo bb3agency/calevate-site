@@ -165,7 +165,7 @@ describe("a part that needs finishing says so while it is closed", () => {
       routes(out(FULL, { ...FULL, objections: [{ objection: "Too far.", response: "" }] })),
     );
     expect(await screen.findByText(/1 part to finish/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Opening line"), { target: { value: "Namaskaram!" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Opening line" }), { target: { value: "Namaskaram!" } });
     expect(await screen.findByText(/Not saved yet: one part needs finishing/)).toBeTruthy();
     await new Promise((r) => setTimeout(r, 1500));
     expect(calls.some((c) => c.method === "PUT")).toBe(false);
@@ -299,7 +299,7 @@ describe("asking Pip to change the script (D-820)", () => {
     expect(screen.getByRole("heading", { name: "1 suggested change" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add it to my draft" }));
     await waitFor(() =>
-      expect((screen.getByLabelText("Opening line") as HTMLTextAreaElement).value).toBe(
+      expect((screen.getByRole("textbox", { name: "Opening line" }) as HTMLTextAreaElement).value).toBe(
         "Namaskaram andi, Raghava Organics!",
       ),
     );

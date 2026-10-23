@@ -10,6 +10,7 @@ import type { ScriptContext } from "@/lib/api/script";
 import { sameLanguage, useBusinessSuggestions } from "@/lib/useVerticalExamples";
 
 import { chars, issuesFor, sectionDetail, type Issue, type Limits, type Section } from "./scriptModel";
+import { CleanedNote, usePlainText } from "./plainText";
 import { languageName, targetOptions, thenLabel } from "./sectionParts";
 
 /**
@@ -48,6 +49,7 @@ export function SectionEditor({
   onDelete: () => void;
 }) {
   const uid = useId();
+  const plain = usePlainText();
   const field = (name: string) => `${uid}-${name}`;
   const errors = (name: string) => issuesFor(issues, section.id, name);
   const used = chars(sectionDetail(section));
@@ -108,7 +110,7 @@ export function SectionEditor({
           }
           aria-invalid={errors("instruction").length > 0 || undefined}
           aria-describedby={describedBy || undefined}
-          onChange={(e) => onChange({ instruction: e.target.value })}
+          onChange={(e) => onChange({ instruction: plain.take(e.target.value) })}
         />
         {nearLimit && (
           <p id={field("count")} className={`mt-1 text-meta tabular-nums ${over ? "text-danger" : "text-ink-muted"}`}>
@@ -133,9 +135,10 @@ export function SectionEditor({
           placeholder={ideaLine ? `For example: ${ideaLine}` : undefined}
           aria-invalid={errors("sounds_like").length > 0 || undefined}
           aria-describedby={errors("sounds_like").length ? field("sounds-err") : undefined}
-          onChange={(e) => onChange({ sounds_like: e.target.value })}
+          onChange={(e) => onChange({ sounds_like: plain.take(e.target.value) })}
         />
         <FieldErrors id={field("sounds-err")} issues={errors("sounds_like")} />
+        <CleanedNote shown={plain.cleaned} />
       </div>
 
       <Disclosure

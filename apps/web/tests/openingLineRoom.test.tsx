@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { CallerContinuity } from "@/app/c/[slug]/agents/panels/callerContinuity";
 import { roomLabel } from "@/app/c/[slug]/agents/panels/openingLineFix";
 import { OpeningNotices } from "@/app/c/[slug]/agents/panels/openingNotices";
-import { OpeningSection } from "@/app/c/[slug]/agents/[agentId]/script/ScriptSections";
+import { OpeningEditor, type ScriptExamples } from "@/app/c/[slug]/agents/[agentId]/script/ScriptSections";
+import { EMPTY_SCRIPT } from "@/lib/api/script";
 import type { Agent } from "@/lib/api/agents";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
@@ -86,21 +87,29 @@ describe("the opening line's room (D-846)", () => {
     expect(roomLabel("🙂", 1).over).toBe(false);
   });
 
-  it("shows the room under the opening line in the script, and warns when it is over", () => {
-    const { rerender } = render(
-      <OpeningSection value="Namaskaram" onChange={() => {}} trackFocus={() => {}} room={20} />,
+  it("shows the room under the opening line in the script, and marks it when it is over", () => {
+    const eg = { outboundPurpose: "" } as ScriptExamples;
+    const opening = (line: string) => (
+      <OpeningEditor
+        script={{ ...EMPTY_SCRIPT, opening_line: line }}
+        set={() => {}}
+        direction="inbound"
+        room={20}
+        standardVariables={[]}
+        eg={eg}
+      />
     );
+    const { rerender } = render(opening("Namaskaram"));
     expect(screen.getByText("10 characters left")).toBeTruthy();
-    const box = screen.getByLabelText("Opening line");
-    expect(box.getAttribute("aria-describedby")).toBe("opening-line-room");
+    const box = screen.getByRole("textbox", { name: /Opening line/ });
     expect(box.getAttribute("aria-invalid")).toBeNull();
 
-    rerender(
-      <OpeningSection value={"a".repeat(25)} onChange={() => {}} trackFocus={() => {}} room={20} />,
-    );
+    rerender(opening("a".repeat(25)));
     expect(screen.getByText("5 characters too long")).toBeTruthy();
-    expect(screen.getByText(/Shorten it before you put it live/)).toBeTruthy();
     expect(box.getAttribute("aria-invalid")).toBe("true");
+    // The meter is part of the box's description, so the count is read with it.
+    const meter = screen.getByRole("meter", { name: "Opening line length" });
+    expect(box.getAttribute("aria-describedby")).toContain(meter.parentElement?.id ?? "missing");
   });
 
   it("refused for want of room, the memory switch offers the line to shorten, saves it, and switches on", async () => {

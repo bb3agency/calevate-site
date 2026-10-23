@@ -84,7 +84,7 @@ describe("changing the call script", () => {
     const live = screen.getByRole("button", { name: "Put it live" });
     expect(live.matches(":disabled")).toBe(true);
     expect(screen.getByText(/View only/)).toBeTruthy();
-    expect(screen.getByLabelText("Opening line").matches(":disabled")).toBe(true);
+    expect(screen.getByRole("textbox", { name: "Opening line" }).matches(":disabled")).toBe(true);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 1500));
     });
