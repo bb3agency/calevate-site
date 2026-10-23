@@ -1656,6 +1656,25 @@ Two columns elsewhere: `agents.inbound_silence_reason` accepts `healer` (the CHE
 a pause the healer must undo, cleared by any person's pause or resume
 (`campaigns/service.set_campaign_status`).
 
+## 9c. Announcements, the bell's read mark, a call's follow-up mark (D-869, migration `b9e4d2a7c513`)
+
+```
+platform_announcements(id, message 1..280, link_url NULL, link_label NULL (needs a link),
+  tone IN (info, success, warning, critical), audience IN (all, trial, paid, tenant),
+  target_tenant_id NULL FK organizations CASCADE (set exactly when audience = tenant),
+  starts_at, ends_at NULL (> starts_at), ended_at NULL, created_by/updated_by NULL
+  FK admin_users SET NULL, created_at, updated_at)
+  -- Platform-scoped, RLS-exempt with its reason in RLS_EXEMPT_TENANT_COLUMNS. A client
+  -- reads it only through announcements/service.active_for, which applies the audience
+  -- (trial = organizations.first_paid_at IS NULL).
+announcement_dismissals(id, tenant_id, announcement_id FK CASCADE, created_at, updated_at,
+  UNIQUE(tenant_id, announcement_id))          -- FORCE-RLS; who pressed it is the audit row
+notification_reads(id, tenant_id, user_id FK users CASCADE, seen_through, created_at,
+  updated_at, UNIQUE(tenant_id, user_id))      -- FORCE-RLS; one high-water mark per person
+calls.follow_up_state NULL IN (resolved, needs_you), follow_up_set_at, follow_up_set_by
+  NULL FK users SET NULL  -- a person's mark, never rewritten by the pipeline
+```
+
 ## 10. Migration & Integrity Rules
 
 - Alembic; every migration reversible; RLS policies live in migrations (not ad-hoc).
