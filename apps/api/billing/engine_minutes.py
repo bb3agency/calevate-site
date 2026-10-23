@@ -46,7 +46,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from types import MappingProxyType
 from typing import Final, Literal, get_args
@@ -72,12 +72,28 @@ BASE_RATE_KEY: Final[EngineRateKey] = "platform"
 #: attests it here; until then such a minute is metered unpriced and alarmed. A forwarded
 #: call is not carrier-only (:1249-1254, D-835): see `engine_minute_cost`.
 CARRIER_RATE_KEY: Final = "carrier"
-#: The voice plan a forwarded call is billed at when no agent is attached to the number
-#: (snapshots/2026-10-19/pages/api-reference/calls/get-call.md:1249-1253); in a workspace on
-#: our own keys it is that key setting's price instead (§21.0 of `docs/vendor/
+#: The voice plan a forwarded call is billed at when no agent is attached to the number: the
+#: Premium plan (docs.thinnest.ai api-reference/calls/get-call.md, read 24 Oct 2026), Standard
+#: before standard voices were retired on 23 Oct 2026 ("`standard` appears only on calls
+#: before 23 October 2026"; snapshots/2026-10-19 get-call.md:1249-1253 said Standard). The
+#: vendor names no hour or zone for the switch, so the cut-off is the earliest reading of the
+#: day, which can only cost a call of that day above what was billed, never below. In a
+#: workspace on our own keys it is that key setting's price instead (§21.0 of `docs/vendor/
 #: thinnest-replies-2026-10-12.md`). Our calls always carry an agent, so it is reached only for
 #: a call whose agent has no route row, where which key set ran is not known to us.
-FORWARD_WITHOUT_AGENT_RATE_KEY: Final[EngineRateKey] = "standard"
+FORWARD_WITHOUT_AGENT_RATE_KEY: Final[EngineRateKey] = "premium"
+FORWARD_WITHOUT_AGENT_BEFORE_RETIREMENT: Final[EngineRateKey] = "standard"
+#: 00:00 IST on 23 Oct 2026, the earliest instant the vendor's "23 October" can mean.
+STANDARD_VOICES_RETIRED_AT: Final = datetime(2026, 10, 22, 18, 30, tzinfo=UTC)
+
+
+def forward_without_agent_rate_key(at: datetime) -> EngineRateKey:
+    """The plan an agentless forward at `at` was billed at."""
+    if at < STANDARD_VOICES_RETIRED_AT:
+        return FORWARD_WITHOUT_AGENT_BEFORE_RETIREMENT
+    return FORWARD_WITHOUT_AGENT_RATE_KEY
+
+
 #: Every key a per-minute price may be attested for: the route keys and the carrier's fee.
 PRICED_RATE_KEYS: Final[tuple[str, ...]] = (*ENGINE_RATE_KEYS, CARRIER_RATE_KEY)
 
@@ -467,9 +483,9 @@ async def engine_minute_cost(
     for the carrier's fee when it ended before the agent spoke (`carrier_only`).
 
     A `forwarded` call (a number forward put it through to a phone) is billed every
-    connected second at the plan it was admitted at: the attached agent's, or Standard when
-    no agent is attached; on a number the client brought nothing is charged
-    (snapshots/2026-10-19/pages/api-reference/calls/get-call.md:1249-1254,
+    connected second at the plan it was admitted at: the attached agent's, or Premium when
+    no agent is attached (`forward_without_agent_rate_key`); on a number the client brought
+    nothing is charged (snapshots/2026-10-19/pages/api-reference/calls/get-call.md:1249-1254,
     api-reference/phone-numbers/update-phone-number.md:654-657; D-835, replacing D-813's
     carrier fee for a forward). On an agent of our own key sets (`byok_voice`,
     `byok_llm_voice`) a rented-number forward bills that set's flat price although no key
@@ -503,7 +519,7 @@ async def engine_minute_cost(
     if carrier_only:
         rate_key = CARRIER_RATE_KEY
     elif forwarded and (stamped is None or not stamped[0]):
-        rate_key = FORWARD_WITHOUT_AGENT_RATE_KEY
+        rate_key = forward_without_agent_rate_key(at)
     else:
         rate_key = route_key
     pulse = CARRIER_BLOCK_SECONDS[engine] if carrier_only else PULSE_SECONDS[engine]
@@ -560,10 +576,12 @@ __all__ = [
     "ENGINE_RATE_KEYS",
     "FEE_CORRECTION_META_KIND",
     "FEE_RESTATEMENT_META_KIND",
+    "FORWARD_WITHOUT_AGENT_BEFORE_RETIREMENT",
     "FORWARD_WITHOUT_AGENT_RATE_KEY",
     "OWN_VOICE_RATE_KEYS",
     "PRICED_RATE_KEYS",
     "PULSE_SECONDS",
+    "STANDARD_VOICES_RETIRED_AT",
     "TOPUP_FEE_META_KEY",
     "WALLET_TOPUP_ENGINES",
     "EngineMinutePrice",
@@ -579,6 +597,7 @@ __all__ = [
     "cost_with_fee",
     "engine_minute_cost",
     "engine_minute_is_billable",
+    "forward_without_agent_rate_key",
     "minute_cost_rows",
     "record_engine_rate_key",
     "required_wallet_fee",
