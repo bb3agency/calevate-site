@@ -225,7 +225,7 @@ class MoneyEvidence:
                 f"{ist(self.since)}."
             )
         else:
-            head = f"No charged call since {ist(self.since)}."
+            head = f"None of our calls in the window checked (from {ist(self.since)}) is charged."
         parts = [head]
         found = self.findings()
         if found:
@@ -266,7 +266,11 @@ class MoneyEvidence:
 
     def _counts(self) -> str:
         if not self.calls:
-            return f"No call since {ist(self.since)} has a charge recorded, so nothing compares."
+            return (
+                f"The check reads back to {ist(self.since)}; none of our calls in "
+                "that window has a charge recorded, so nothing compares. That time is where "
+                "the window starts, not when charges stopped."
+            )
         return (
             f"Since {ist(self.since)}: {len(self.calls)} charged call(s), "
             f"{len(self.matching)} match what we metered, {len(self.differing)} differ."

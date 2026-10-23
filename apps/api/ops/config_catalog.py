@@ -419,9 +419,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "calling-limits",
         "trial",
         "Days a paid account's test copy may sit unused",
-        "Before a paying client has its own number, its test calls ring from the shared trial "
-        "number through a copy of the agent in our own account. A copy unused this many days "
-        "is removed; the next test call makes it again.",
+        "A paying client's test calls ride a copy of its agent until it has a number. A copy "
+        "unused this long is removed; the next test call makes it again.",
         _THINNEST,
     ),
     "staged_agent_languages_enabled": _m(

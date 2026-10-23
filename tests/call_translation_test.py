@@ -10,6 +10,7 @@ that never carries the caller's number.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
@@ -539,3 +540,29 @@ async def test_a_single_line_cut_off_at_the_token_cap_still_says_failed(
     )
     assert done.failed is True
     assert done.turns_en == {}
+
+
+async def test_a_pass_over_its_time_budget_keeps_what_it_has_and_says_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: a provider that answers the first chunk and then hangs runs the pass past
+    its budget, which inside the post-call job is arq's cancellation of the whole call."""
+    turns = [(i, f"పంక్తి {i}") for i in range(call_language.TURNS_PER_REQUEST + 1)]
+    answered = 0
+
+    async def _complete(leg: chat.ChatLeg, messages: Any, **kw: Any) -> chat.ChatOutcome:
+        nonlocal answered
+        if answered:
+            await asyncio.sleep(3600)
+        answered += 1
+        body = {"turns": [{"i": 0, "en": "Line zero."}], "summary_local": "సారాంశం"}
+        return chat.ChatOutcome(content=json.dumps(body), finish_reason="stop", usage=None)
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    monkeypatch.setattr(call_language, "LANGUAGE_PASS_BUDGET_S", 0.05)
+    done = await call_language.run_language_pass(
+        api_key="k", language="te-IN", turns=turns, summary_en="Summary.", summary_local=""
+    )
+    assert done.failed is True
+    assert done.turns_en == {0: "Line zero."}
+    assert done.summary_local == "సారాంశం"

@@ -204,9 +204,12 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '3s'")
+    # Lifted for the owner only, so the rewrite sees every tenant's rows (d3b71c9a5e08).
+    op.execute("ALTER TABLE business_copies NO FORCE ROW LEVEL SECURITY")
     op.execute(
         "UPDATE business_copies SET last_trigger = 'refresh' WHERE last_trigger = 'first_run'"
     )
+    op.execute("ALTER TABLE business_copies FORCE ROW LEVEL SECURITY")
     op.drop_constraint(
         op.f("ck_business_copies_last_trigger_enum"), "business_copies", type_="check"
     )

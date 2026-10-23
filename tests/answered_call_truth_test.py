@@ -473,3 +473,21 @@ async def test_a_stored_no_words_reading_over_a_conversation_is_read_again(
     await _ingest(ref, execution_id, None)
     await pipeline.run_post_call_pipeline({"job_try": 1}, _queued(vendor))
     assert len(vendor["spy"].inputs) > reads, "the no-words reading was reused"
+
+
+async def test_the_repair_script_re_drives_a_call_whose_reading_never_settled(
+    vendor: dict[str, Any],
+) -> None:
+    """23 Oct 2026: the post-call job was cancelled at its time limit inside the reading, so
+    the call kept its turns but its summary stayed `pending` and it was never metered."""
+    from scripts import redrive_empty_calls
+
+    tenant_id, call_id, _ref, _execution_id = await _settle_with_turns(vendor)
+    window = timedelta(hours=2)
+    assert await redrive_empty_calls.candidates(window=window, cap=10, only_tenant=tenant_id) == []
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET summary_state = 'pending' WHERE id = :c"), {"c": call_id}
+        )
+    found = await redrive_empty_calls.candidates(window=window, cap=10, only_tenant=tenant_id)
+    assert [c.call_id for c in found] == [call_id]

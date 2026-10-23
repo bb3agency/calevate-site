@@ -16,6 +16,7 @@ so whichever of the two summaries it did not write is produced here.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -55,6 +56,11 @@ _SCRIPT_BLOCKS: Final[tuple[tuple[int, int, str], ...]] = (
 #: translations stay well inside `MAX_TOKENS` while a long call costs a few requests.
 TURNS_PER_REQUEST: Final = 40
 MAX_TOKENS: Final = 4096
+#: Seconds the whole pass may take, all chunks and splits together. It runs inside the
+#: post-call job (`WorkerSettings.job_timeout`, 300 s) after extraction; a slow provider
+#: answering chunk after chunk once ran past that limit, and arq's cancellation then cost
+#: the call its summary, outcome, lead and metering, on every retry.
+LANGUAGE_PASS_BUDGET_S: Final = 120.0
 #: The longest English summary or call-language summary kept.
 SUMMARY_MAX: Final = 2000
 
@@ -194,56 +200,63 @@ async def run_language_pass(
     work: list[tuple[Sequence[tuple[int, str]], bool]] = [
         (chunk, number == 0 and not is_english(language)) for number, chunk in enumerate(chunks)
     ]
-    while work:
-        chunk, want_summaries = work.pop(0)
-        if not chunk and not want_summaries:
-            continue
-        prompt = _prompt(
-            language=name,
-            turns=chunk,
-            summary_en=summary_en,
-            summary_local=summary_local,
-            want_summaries=want_summaries,
-        )
-        try:
-            outcome = await chat.complete(
-                leg,
-                [{"role": "user", "content": prompt}],
-                timeout_s=EXTRACTION_TIMEOUT_S,
-                temperature=0,
-                response_format={"type": "json_object"},
-                max_tokens=MAX_TOKENS,
-            )
-        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
-            log.warning("call_language_pass_failed", extra={"error": type(exc).__name__})
-            result.failed = True
-            return result
-        # Every answered chunk counts; one with no usage block marks the total incomplete
-        # rather than vanishing from it (`chat.sum_usage`).
-        answered.append(outcome.usage)
-        result.usage = chat.sum_usage(answered)
-        if outcome.finish_reason == "length":
-            log.warning(
-                "call_language_pass_truncated",
-                extra={"turns": len(chunk), "summaries": want_summaries},
-            )
-            if len(chunk) > 1:
-                half = len(chunk) // 2
-                work[:0] = [(chunk[:half], want_summaries), (chunk[half:], False)]
-                continue
-            result.failed = True
-        body = _first_json_object(outcome.content)
-        rows = body.get("turns")
-        for row in rows if isinstance(rows, list) else []:
-            if not isinstance(row, dict):
-                continue
-            idx = row.get("i")
-            english = _clean(row.get("en"))
-            if isinstance(idx, int) and idx in wanted and english:
-                result.turns_en[idx] = english
-        if want_summaries:
-            result.summary_local = _clean(body.get("summary_local"))
-            result.summary_en = _clean(body.get("summary_en"))
+    try:
+        async with asyncio.timeout(LANGUAGE_PASS_BUDGET_S):
+            while work:
+                chunk, want_summaries = work.pop(0)
+                if not chunk and not want_summaries:
+                    continue
+                prompt = _prompt(
+                    language=name,
+                    turns=chunk,
+                    summary_en=summary_en,
+                    summary_local=summary_local,
+                    want_summaries=want_summaries,
+                )
+                try:
+                    outcome = await chat.complete(
+                        leg,
+                        [{"role": "user", "content": prompt}],
+                        timeout_s=EXTRACTION_TIMEOUT_S,
+                        temperature=0,
+                        response_format={"type": "json_object"},
+                        max_tokens=MAX_TOKENS,
+                    )
+                except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+                    log.warning("call_language_pass_failed", extra={"error": type(exc).__name__})
+                    result.failed = True
+                    return result
+                # Every answered chunk counts; one with no usage block marks the total incomplete
+                # rather than vanishing from it (`chat.sum_usage`).
+                answered.append(outcome.usage)
+                result.usage = chat.sum_usage(answered)
+                if outcome.finish_reason == "length":
+                    log.warning(
+                        "call_language_pass_truncated",
+                        extra={"turns": len(chunk), "summaries": want_summaries},
+                    )
+                    if len(chunk) > 1:
+                        half = len(chunk) // 2
+                        work[:0] = [(chunk[:half], want_summaries), (chunk[half:], False)]
+                        continue
+                    result.failed = True
+                body = _first_json_object(outcome.content)
+                rows = body.get("turns")
+                for row in rows if isinstance(rows, list) else []:
+                    if not isinstance(row, dict):
+                        continue
+                    idx = row.get("i")
+                    english = _clean(row.get("en"))
+                    if isinstance(idx, int) and idx in wanted and english:
+                        result.turns_en[idx] = english
+                if want_summaries:
+                    result.summary_local = _clean(body.get("summary_local"))
+                    result.summary_en = _clean(body.get("summary_en"))
+    except TimeoutError:
+        # Over budget: what the answered chunks gave is kept, and the call is left `failed`
+        # for `call_translation`'s retry sweep rather than costing the rest of the pipeline.
+        log.warning("call_language_pass_over_budget", extra={"turns": len(turns)})
+        result.failed = True
     return result
 
 

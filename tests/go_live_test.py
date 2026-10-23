@@ -39,7 +39,8 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.thinnest import AGENT_ALLOWANCE_USED
 from apps.api.go_live import moves
 from apps.api.main import app
-from apps.workers import agent_moves
+from apps.api.tenancy.engine_workspace import WorkspaceRow, active_workspaces
+from apps.workers import agent_moves, workspace_walk
 from apps.workers import engine_workspaces as workspace_jobs
 from arq import Retry
 from calevate_shared.engine import AgentConfig
@@ -161,6 +162,18 @@ async def _jobs(job: str, tenant_id: UUID) -> list[dict[str, Any]]:
             )
         ).scalars()
         return [dict(r) for r in rows]
+
+
+async def _sweep(tenant_id: UUID) -> None:
+    """One hourly sweep tick that visits only this test's tenant, however many workspaces the
+    shared database holds (the walk's budget would otherwise decide whether it is reached)."""
+
+    async def _ours(**kw: Any) -> list[WorkspaceRow]:
+        return [row for row in await active_workspaces(**kw) if row.tenant_id == tenant_id]
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(workspace_walk, "active_workspaces", _ours)
+        await agent_moves.sweep_agent_moves({})
 
 
 async def _run(tenant_id: UUID, *, attempt: int = 1) -> str:
@@ -305,7 +318,7 @@ async def test_the_sweep_retires_test_copies_once_a_number_is_owned_or_they_sit_
         await _run(tenant_id)
     assert await _copies(tenant_id) == {agent_id: old}
 
-    await agent_moves.sweep_agent_moves({})
+    await _sweep(tenant_id)
     assert await _jobs("retire_moved_engine_agent", tenant_id) == [], "fresh and no number"
 
     # Unused past the console's idle days: retired.
@@ -314,7 +327,7 @@ async def test_the_sweep_retires_test_copies_once_a_number_is_owned_or_they_sit_
         await session.execute(
             text("UPDATE agent_test_copies SET created_at = now() - interval '2 days'")
         )
-    await agent_moves.sweep_agent_moves({})
+    await _sweep(tenant_id)
     [job] = await _jobs("retire_moved_engine_agent", tenant_id)
     assert job["old_ref"] == old
 
@@ -332,7 +345,7 @@ async def test_owning_a_number_retires_the_test_copy(
     with selected(engine):
         await _run(tenant_id)
     await _own_number(tenant_id, None)
-    await agent_moves.sweep_agent_moves({})
+    await _sweep(tenant_id)
     [job] = await _jobs("retire_moved_engine_agent", tenant_id)
     assert job["old_ref"] == old
     # The retirement deletes the vendor agent and forgets the copy.
@@ -467,9 +480,9 @@ async def test_the_plan_allowance_holds_one_agent_and_the_others_still_move(
         assert await moves.agents_to_move(
             session, tenant_id=tenant_id, workspace=workspace_of(tenant_id)
         ) == [held_id]
-    await agent_moves.sweep_agent_moves({})
+    await _sweep(tenant_id)
     assert len(await _jobs(moves.MOVE_JOB, tenant_id)) == 1
-    await agent_moves.sweep_agent_moves({})
+    await _sweep(tenant_id)
     assert len(await _jobs(moves.MOVE_JOB, tenant_id)) == 1, "once per tenant per hour"
     with selected(engine):
         assert await _run(tenant_id) == "moved=1"

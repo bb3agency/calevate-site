@@ -25,19 +25,17 @@ from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.go_live.moves import agents_to_move, move_agent, queue_agent_move
-from apps.api.tenancy.engine_workspace import (
-    active_workspaces,
-    engine_has_workspaces,
-    read_workspace_state,
-)
+from apps.api.tenancy.engine_workspace import engine_has_workspaces, read_workspace_state
+from apps.workers.workspace_walk import WalkReport, walk_workspaces
 
 log = get_logger(__name__)
 
 #: Seconds before the job's next attempt after an agent met something that may pass.
 _RETRY_AFTER_S: Final = (60.0, 600.0)
 
-#: Workspaces looked at per sweep tick. The plan's customer cap bounds the estate (PAYG 3,
-#: Pro 100, Scale 1,000), and each costs one tenant session.
+#: Workspaces looked at per sweep tick, each costing one tenant session. The walk resumes
+#: after the last one visited, so an estate larger than this (Scale allows 1,000) is covered
+#: over several ticks rather than the same head of the list every hour.
 SWEEP_BUDGET: Final = 200
 
 
@@ -116,33 +114,39 @@ async def sweep_agent_moves(ctx: dict[str, Any]) -> str:
         return "not_applicable"
     tick = datetime.now(UTC).strftime("%Y%m%d%H")
     queued = behind = copies_retired = 0
-    rows = await active_workspaces(limit=SWEEP_BUDGET)
-    for row in rows:
-        if row.workspace_id is None:
+    report = WalkReport()
+    async for visit in walk_workspaces(
+        "agent_moves", budget=SWEEP_BUDGET, include_developer=False, report=report
+    ):
+        if visit.tenant_id is None or visit.workspace is None:
             continue
-        async with tenant_session(row.tenant_id) as session:
+        async with tenant_session(visit.tenant_id) as session:
             copies_retired += await _retire_test_copies(
-                session, tenant_id=row.tenant_id, workspace=row.workspace_id
+                session, tenant_id=visit.tenant_id, workspace=visit.workspace
             )
             owed = await agents_to_move(
-                session, tenant_id=row.tenant_id, workspace=row.workspace_id
+                session, tenant_id=visit.tenant_id, workspace=visit.workspace
             )
             if not owed:
                 continue
             behind += 1
             queued += await queue_agent_move(
-                session, tenant_id=row.tenant_id, workspace=row.workspace_id, tick=tick
+                session, tenant_id=visit.tenant_id, workspace=visit.workspace, tick=tick
             )
     log.info(
         "agent_move_sweep",
         extra={
-            "workspaces": len(rows),
+            "workspaces": report.visited,
+            "deferred": report.deferred,
             "behind": behind,
             "queued": queued,
             "copies_retired": copies_retired,
         },
     )
-    return f"workspaces={len(rows)} behind={behind} queued={queued} copies_retired={copies_retired}"
+    return (
+        f"workspaces={report.visited} behind={behind} queued={queued} "
+        f"copies_retired={copies_retired}"
+    )
 
 
 __all__ = ["SWEEP_BUDGET", "move_agents_to_workspace", "sweep_agent_moves"]

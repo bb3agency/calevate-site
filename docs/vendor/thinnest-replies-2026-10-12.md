@@ -1702,3 +1702,32 @@ use and starting when?" Unanswered; it needs the founder's own figures (§28.4).
 - Carrier test dates; per-turn timing logs; the cache rate on our Gemini key.
 - Volume price against a minimum monthly commitment: founder decision on what to commit to.
 - His follow-up: Studio-band minutes we plan to use, and from when. Founder's figures needed.
+
+## 29. Reply to his §28 follow-up on Studio minutes (drafted 23 Oct 2026; the founder sends)
+
+His question (23 Oct 2026, 12:50): how many minutes of Studio voices we plan to use, and from
+when. "Studio voices" is ThinnestAI's Studio band (₹3/min), which is what our **Clear** tier
+speaks on (D-792); our own Studio tier (own Cartesia key, `llm_voice`) is not in it.
+
+Founder's figures (23 Oct 2026): start mid-November 2026; about 3 clients at about 1,000
+minutes each in the first month. Month 3 (about 10 clients, about 10,000 minutes) is an
+extrapolation from the founder's plan to move to Scale at 10 active clients, at the same
+minutes per client; ESTIMATE, confirmed by the founder by sending it.
+
+> Subject: Re: Studio voice minutes
+>
+> Hi Ashutosh,
+>
+> Thank you for turning these on.
+>
+> We expect to start using Studio voices from mid-November, once our first paying clients go live.
+>
+> - **First month (mid-November to mid-December):** about 3,000 minutes, from around 3 clients
+>   at roughly 1,000 minutes each, plus a small number of free-trial test calls.
+> - **By month 3 (around mid-February):** about 10,000 minutes a month, from around 10 clients.
+>   That's the point where we plan to move to Scale, as we discussed.
+>
+> These are estimates. We'll update you as clients come on board.
+>
+> Thanks,
+> Umesh
