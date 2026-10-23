@@ -910,11 +910,20 @@ def test_the_migration_goes_down_and_comes_back_up() -> None:
     assert revision.AI_TEMPLATES.keys() == AI_DISCLOSURE_TEMPLATES.keys() - staged
     # D-745 then wrote the Telugu and Hindi sentences in their own script, rewriting exactly
     # these outputs; carried through that rewrite, the old copy is today's table.
+    # D-861 then wrote every word in the language's letters, rewriting exactly those.
     script = _load_revision("e9b4c2a7d136_notices_in_their_own_script")
     rewrite = {row[2]: row[3] for row in script._LINES}
-    assert {
-        lang: rewrite.get(line, line) for lang, line in revision.RECORDING_TEMPLATES.items()
-    } == {tag: line for tag, line in RECORDING_NOTICE_TEMPLATES.items() if tag not in staged}
+    letters = dict(
+        _load_revision("c3e8a1f5d702_notices_in_own_letters")._EXACT["recording_notice_line"]
+    )
+
+    def today(line: str) -> str:
+        line = rewrite.get(line, line)
+        return letters.get(line, line)
+
+    assert {lang: today(line) for lang, line in revision.RECORDING_TEMPLATES.items()} == {
+        tag: line for tag, line in RECORDING_NOTICE_TEMPLATES.items() if tag not in staged
+    }
 
     url = (get_settings().alembic_database_url or get_settings().database_url).replace(
         "+asyncpg", "+psycopg"

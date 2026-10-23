@@ -139,25 +139,24 @@ NO_BAN_BULLET: Final = '- Match the caller\'s language; never "uhm".'
 #: The `not "X" but "Y"` sentence `spoken_style.register_guidance` writes into each language's
 #: register line, up to the fillers sentence that follows it or the end of the line.
 _SWAP_SENTENCE: Final = re.compile(r" ?Spoken words: .*?\.(?= Fillers, lightly:|$)", re.M)
-_LATIN: Final = re.compile(r"[A-Za-z]+(?: [A-Za-z]+)*")
 
 #: The two example calls of D, every line copied from `spoken_style.json`'s Telugu
 #: `language_pack.exchanges` (tests/register_chat_eval_test.py proves each is there), none
 #: of them a line the practice callers say.
 EXAMPLE_CALLS: Final[tuple[tuple[tuple[str, str], ...], ...]] = (
     (
-        ("caller", "మీ products గురించి details చెప్తారా?"),
-        ("agent", "తప్పకుండా అండి, ఏ product గురించి కావాలి?"),
-        ("caller", "దీని rate ఎంత అండి?"),
-        ("agent", "ఒక్క సెకండ్ అండి, price చూసి చెప్తాను."),
-        ("caller", "ఓకే, thanks అండి."),
-        ("agent", "సరే అండి, ఇంకేమైనా కావాలంటే call చేయండి."),
+        ("caller", "మీ ప్రొడక్ట్స్ గురించి డీటెయిల్స్ చెప్తారా?"),
+        ("agent", "తప్పకుండా అండి, ఏ ప్రొడక్ట్ గురించి కావాలి?"),
+        ("caller", "దీని రేట్ ఎంత అండి?"),
+        ("agent", "ఒక్క సెకండ్ అండి, ప్రైస్ చూసి చెప్తాను."),
+        ("caller", "ఓకే, థాంక్స్ అండి."),
+        ("agent", "సరే అండి, ఇంకేమైనా కావాలంటే కాల్ చేయండి."),
     ),
     (
-        ("caller", "quality ఎలా ఉంటుంది?"),
-        ("agent", "ఏ item గురించి అడుగుతున్నారు అండి? దాని details చూసి చెప్తాను."),
-        ("caller", "నాకు delivery కావాలి."),
-        ("agent", "సరే అండి, మీది ఏ area?"),
+        ("caller", "క్వాలిటీ ఎలా ఉంటుంది?"),
+        ("agent", "ఏ ఐటమ్ గురించి అడుగుతున్నారు అండి? దాని డీటెయిల్స్ చూసి చెప్తాను."),
+        ("caller", "నాకు డెలివరీ కావాలి."),
+        ("agent", "సరే అండి, మీది ఏ ఏరియా?"),
     ),
 )
 #: The compiler's own lead for the section (`call_script._compile_v2`).
@@ -174,28 +173,22 @@ def parse_variants(spec: str) -> list[Variant]:
     return [VARIANTS[k] for k in dict.fromkeys([BASELINE, *keys])]
 
 
-def allow_words(tag: str = LANGUAGE) -> tuple[list[str], list[str]]:
-    """The spoken side of the language's `word_swaps`: the English words in it (in English
-    letters, each once, in list order) and the forms written wholly in Telugu. An entry in
-    brackets is an instruction ("(leave it out)"), not a word, and is skipped."""
+def allow_words(tag: str = LANGUAGE) -> list[str]:
+    """The spoken side of the language's `word_swaps`, each once, in list order: the English
+    words people use and the everyday Telugu forms, all in Telugu letters since D-861. An
+    entry in brackets is an instruction ("(leave it out)"), not a word, and is skipped."""
     style = style_for(tag)
-    english: list[str] = []
-    native: list[str] = []
+    spoken_words: list[str] = []
     for _formal, spoken in style.word_swaps if style is not None else ():
-        if spoken.startswith("("):
-            continue
-        latin = _LATIN.findall(spoken)
-        targets, words = (english, latin) if latin else (native, [spoken])
-        targets.extend(w for w in words if w not in targets)
-    return english, native
+        if not spoken.startswith("(") and spoken not in spoken_words:
+            spoken_words.append(spoken)
+    return spoken_words
 
 
 def allow_line(tag: str = LANGUAGE) -> str:
-    english, native = allow_words(tag)
     return (
-        "Telugu: talk the way callers do, mixing in the English words they use, written in "
-        f"English letters inside Telugu sentences: {', '.join(english)}. Use the everyday "
-        f"spoken forms: {', '.join(native)}."
+        "Telugu: talk the way callers do, with the English words they use, every word in "
+        f"Telugu letters. Use the everyday spoken forms: {', '.join(allow_words(tag))}."
     )
 
 
@@ -276,8 +269,8 @@ def variant_diff(base: str, changed: str) -> list[str]:
 SKIPPED_PROBES: Final = frozenset({"stop_calling", "person"})
 #: Ordering and delivery turns, each line copied from `spoken_style.json`'s Telugu data.
 EXTRA_CONVERSATIONS: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
-    ("ordering", ("order ఇవ్వాలి.", "Powder. ఒక kg ఎంత?")),
-    ("delivery", ("సరే. Home delivery ఉంటుందా?", "నా order ఇంకా రాలేదు.")),
+    ("ordering", ("ఆర్డర్ ఇవ్వాలి.", "పౌడర్. ఒక కేజీ ఎంత?")),
+    ("delivery", ("సరే. హోమ్ డెలివరీ ఉంటుందా?", "నా ఆర్డర్ ఇంకా రాలేదు.")),
 )
 
 

@@ -37,7 +37,6 @@ from calevate_shared.events import (
 from calevate_shared.languages import find_language
 from calevate_shared.spoken_style import (
     PackChoice,
-    english_letters_rule,
     language_pack,
     pack_facts_rule,
     pack_lines,
@@ -2735,9 +2734,10 @@ def platform_rules_preamble(cfg: AgentConfig) -> str:
 #: turn asked the same question three times, spoke the caller's line and read out "[It is
 #: 11:03 am now.]"; the platform's own rules now cover the question count and the brackets.
 #: The test loop checks the same shapes on every reply (`agents/test_conversations.
-#: speech_problems`). The voice rules (punctuation for a voice, prices in words, English
-#: words kept in English) are the founder's of the same day for Cartesia, which reads
-#: symbols and punctuation literally; what is particular to one language (its fillers, its
+#: speech_problems`). The voice rules (punctuation for a voice, prices in words) are the
+#: founder's of the same day for Cartesia, which reads symbols and punctuation literally;
+#: which letters English words are written in is each language's register line (every word
+#: in the language's own letters since D-861); what is particular to one language (its fillers, its
 #: polite words, its textbook words) is that language's line in `spoken_style.json`, not
 #: here.
 #:
@@ -2785,9 +2785,10 @@ _REGISTER_BULLET: Final = (
 #: - The close says what happens next once, so the caller is not left with "noted, thanks".
 #: The turn timer stays at 0.25 s (founder, 21 Oct 2026); the read-back says what was heard,
 #: never "noted", because the echo once became "two kg noted" with nothing noted.
-#: The numbers bullet names "in English letters" and a crore and a time because "in English
-#: words" alone let a Telugu agent say "రెండు కోట్ల" and "రెండు గంటలకి" (trial call of 23 Oct
-#: 2026, D-861; the founder's 11 Oct rule is "two crores", "two PM").
+#: Amounts are said the English way and written in the call language's own letters, never as
+#: digits; times as people say them (founder, 23 Oct 2026, D-861). The examples are Telugu
+#: because a Telugu agent said "రెండు కోట్ల" where the founder's rule is the English amount,
+#: and its call writes every word in Telugu letters.
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
     "- One or two short sentences, then wait; more only if asked.\n"
@@ -2802,8 +2803,8 @@ VOICE_STYLE_GUIDANCE: Final = (
     '- Write for a voice: a comma where you breathe, "?" on every question. No markdown, '
     "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
     "time.\n"
-    '- Prices, amounts, times in English letters ("one twenty rupees", "two crores", '
-    '"two PM"), never ₹ or digits.\n'
+    '- Amounts the English way in the call\'s letters ("వన్ ట్వంటీ రూపీస్", "టూ క్రోర్స్"), '
+    "never ₹ or digits.\n"
     "- Read back what you heard and wait for a yes; numbers a few digits at a time, a mobile "
     "has ten.\n"
     f"{_REGISTER_BULLET}"
@@ -2872,8 +2873,6 @@ def _pack_section(cfg: AgentConfig, pack: PackChoice) -> str:
     compact one, then once the keep-English-nouns rule. An extra language whose own pack is
     not approved keeps its register line when the pack is the shipped one."""
     lines = pack_lines(cfg.language_primary, pack)
-    letters = english_letters_rule(cfg.language_primary)
-    lines += [letters] if letters else []
     shipped = shipped_pack_choice(cfg.language_primary) == pack
     for tag in cfg.languages_extra:
         if shipped and shipped_pack_choice(tag) is None:
@@ -2905,11 +2904,10 @@ def _register_section(cfg: AgentConfig, pack: PackChoice | None = None) -> str:
         guidance = register_guidance(tag)
         if guidance:
             lines.append(f"{_language_name(tag)}: {guidance}")
-        # Straight after the primary's own line, so they read as that language's.
-        if tag == cfg.language_primary:
-            lines += [
-                line for line in (english_letters_rule(tag), prompt_example_line(tag)) if line
-            ]
+        # Straight after the primary's own line, so it reads as that language's.
+        example = prompt_example_line(tag) if tag == cfg.language_primary else None
+        if example:
+            lines.append(example)
     if not lines:
         return ""
     return "--- SPOKEN REGISTER ---\n" + "\n".join(lines)

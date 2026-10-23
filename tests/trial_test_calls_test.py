@@ -933,8 +933,7 @@ async def test_an_answer_only_agent_opens_its_test_call_saying_who_is_calling_an
     ctx = await _trial_dial_context(monkeypatch, tenant_id, agent_id)
     assert ctx.opening is not None
     assert ctx.opening.startswith(
-        "నమస్కారం అండి, నేను Test caller, Trial Tea House నుంచి, ఇది మీ కొత్త receptionist "
-        "test call. ఇప్పుడు మాట్లాడొచ్చా?"
+        "నమస్కారం అండి, నేను Test caller, Trial Tea House నుంచి, ఇది మీ కొత్త రిసెప్షనిస్ట్ టెస్ట్ కాల్. ఇప్పుడు మాట్లాడొచ్చా?"
     )
     assert ctx.opening.endswith(ai_line.strip())
 

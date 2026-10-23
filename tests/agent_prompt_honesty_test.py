@@ -81,12 +81,14 @@ def test_the_notices_are_quoted_as_already_said_and_never_repeated() -> None:
     assert prompt.rindex(TRUTHFUL_ANSWER_MARKER) > prompt.index(START_OF_CALL_HEADER)
 
 
-def test_english_words_and_numbers_are_said_in_english_letters() -> None:
-    """D-861: from the caller's "టూ క్రోర్స్ బడ్జెట్" on, the agent wrote బడ్జెట్ and said
-    "రెండు కోట్ల" and "రెండు గంటలకి". The rule quotes the language's own pairs."""
+def test_every_word_and_amount_is_written_in_the_languages_letters() -> None:
+    """D-861 (founder, 23 Oct 2026): a Telugu agent writes English words and amounts in
+    Telugu letters, amounts the English way, and learns where to breathe from the examples."""
     register = _layer(_cfg(), "spoken_register")
-    assert "never the caller's spelling: budget not బడ్జెట్, site visit not సైట్ విజిట్." in register
-    assert '"two crores", "two PM"' in VOICE_STYLE_GUIDANCE
+    assert "every word in Telugu letters, English words too" in register
+    assert "English letters" not in register
+    assert "ఓకే అండి, డెలివరీ. మీది ఏ ఏరియా?" in register
+    assert '"వన్ ట్వంటీ రూపీస్", "టూ క్రోర్స్"' in VOICE_STYLE_GUIDANCE
 
 
 def test_an_answering_agent_is_told_its_test_call_opens_another_way() -> None:

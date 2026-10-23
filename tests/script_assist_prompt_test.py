@@ -110,8 +110,8 @@ def test_every_writer_follows_the_spoken_style_guide() -> None:
         assert "spoken-style guide" in instruction
     message = ScriptBrief(language="te-IN", business_type="retail").user_message()
     assert "Spoken-style guide for te-IN" in message
-    assert "ధన్యవాదాలు -> thanks అండి" in message
-    assert "one twenty rupees" in message
+    assert "ధన్యవాదాలు -> థాంక్స్ అండి" in message
+    assert "వన్ ట్వంటీ రూపీస్" in message
     assert "(retail)" in message and "Agent:" in message
     # A language with no style row falls back to the register text it was given.
     other = ScriptBrief(language="xx-XX", register="Plain").user_message()

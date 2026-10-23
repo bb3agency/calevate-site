@@ -8,6 +8,7 @@ real rate comes only from an operator run.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from importlib import resources
@@ -113,15 +114,16 @@ def test_no_ban_variants_name_no_word_to_avoid(key: str) -> None:
 def test_the_allow_list_is_the_spoken_side_of_the_word_list() -> None:
     style = style_for("te-IN")
     assert style is not None
-    english, native = chat_eval.allow_words("te-IN")
+    words = chat_eval.allow_words("te-IN")
     spoken = [s for _f, s in style.word_swaps if not s.startswith("(")]
-    assert english and native
-    assert all(any(word in s for s in spoken) for word in english)
-    assert all(word in spoken for word in native)
-    assert "details" in english and "price" in english and "thanks" in english
-    assert not any(word.startswith("(") or "leave it out" in word for word in english + native)
+    assert words and all(word in spoken for word in words)
+    assert len(words) == len(set(words))
+    # Every word in Telugu letters, the English ones too (D-861).
+    assert "డీటెయిల్స్" in words and "ప్రైస్" in words and "థాంక్స్ అండి" in words
+    assert not any(re.search("[A-Za-z]", word) for word in words)
+    assert not any(word.startswith("(") or "leave it out" in word for word in words)
     formal = {f for f, _s in style.word_swaps}
-    assert not formal & set(native)
+    assert not formal & set(words)
 
 
 @pytest.mark.parametrize("key", ["C", "E"])

@@ -111,14 +111,14 @@ def _said(te: str, hi: str, en: str) -> Said:
 #: The honest answer when the facts do not have it: what the "answer" step sounds like at its
 #: hardest moment, since saying a fact needs the business's own words.
 _NOT_IN_FACTS: Final = _said(
-    "ఆ detail నా దగ్గర లేదు అండి, team confirm చేస్తారు.",
-    "वो detail अभी मेरे पास नहीं है जी, team confirm करेगी।",
+    "ఆ డీటెయిల్ నా దగ్గర లేదు అండి, టీమ్ కన్ఫర్మ్ చేస్తారు.",
+    "वो डिटेल अभी मेरे पास नहीं है जी, टीम कन्फर्म करेगी।",
     "I don't have that detail with me, the team will confirm it.",
 )
 #: The close: what happens next in one line, then one chance to ask more.
 _CLOSE: Final = _said(
-    "సరే అండి, మీరు చెప్పింది team కి చెప్తాను, వాళ్ళు confirm చేస్తారు. ఇంకేమైనా కావాలా?",
-    "ठीक है जी, आपकी बात team तक पहुँचा देते हैं, वो confirm करेंगे। और कुछ चाहिए?",
+    "సరే అండి, మీరు చెప్పింది టీమ్ కి చెప్తాను, వాళ్ళు కన్ఫర్మ్ చేస్తారు. ఇంకేమైనా కావాలా?",
+    "ठीक है जी, आपकी बात टीम तक पहुँचा देते हैं, वो कन्फर्म करेंगे। और कुछ चाहिए?",
     "Alright, I'll pass this to the team and they'll confirm it. Anything else?",
 )
 #: Not a good time: ask when, with choices, and let them go.
@@ -293,33 +293,33 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "clinic": TradeWords(
         reason="they asked about an appointment earlier",
         first_ask=_said(
-            "సరే అండి, doctor ని ఎప్పుడు చూపించుకోవాలి, ఈ రోజా రేపా?",
-            "ठीक है जी, doctor को कब दिखाना है, आज या कल?",
+            "సరే అండి, డాక్టర్ ని ఎప్పుడు చూపించుకోవాలి, ఈ రోజా రేపా?",
+            "ठीक है जी, डॉक्टर को कब दिखाना है, आज या कल?",
             "Sure, when would you like to see the doctor, today or tomorrow?",
         ),
         details_ask=_said(
-            "ఏ problem కోసం చూపించుకోవాలి అండి?",
-            "किस problem के लिए दिखाना है जी?",
+            "ఏ ప్రాబ్లం కోసం చూపించుకోవాలి అండి?",
+            "किस प्रॉब्लम के लिए दिखाना है जी?",
             "What is the visit for?",
         ),
         offer=_said(
-            "Morning slot కావాలా, evening slot కావాలా అండి?",
-            "Morning का slot चाहिए या evening का?",
+            "మార్నింగ్ స్లాట్ కావాలా, ఈవెనింగ్ స్లాట్ కావాలా అండి?",
+            "मॉर्निंग का स्लॉट चाहिए या ईवनिंग का?",
             "Would a morning or an evening slot suit you?",
         ),
         reason_line=_said(
-            "మీరు ఇంతకు ముందు appointment గురించి అడిగారు కదా, ఇంకా కావాలా అండి?",
-            "आपने पहले appointment के बारे में पूछा था, अभी भी चाहिए?",
+            "మీరు ఇంతకు ముందు అపాయింట్మెంట్ గురించి అడిగారు కదా, ఇంకా కావాలా అండి?",
+            "आपने पहले अपॉइंटमेंट के बारे में पूछा था, अभी भी चाहिए?",
             "You asked about an appointment earlier, would you still like one?",
         ),
         qualify_ask=_said(
-            "ఏ doctor ని చూపించుకోవాలి అనుకుంటున్నారు అండి?",
-            "किस doctor को दिखाना चाहते हैं जी?",
+            "ఏ డాక్టర్ ని చూపించుకోవాలి అనుకుంటున్నారు అండి?",
+            "किस डॉक्टर को दिखाना चाहते हैं जी?",
             "Is there a doctor you would like to see?",
         ),
         lead_offer=_said(
-            "ఈ వారంలో morning కుదురుతుందా, evening కుదురుతుందా అండి?",
-            "इस हफ़्ते morning ठीक रहेगा या evening?",
+            "ఈ వారంలో మార్నింగ్ కుదురుతుందా, ఈవెనింగ్ కుదురుతుందా అండి?",
+            "इस हफ़्ते मॉर्निंग ठीक रहेगा या ईवनिंग?",
             "Would a morning or an evening this week work for you?",
         ),
         objection=(
@@ -331,33 +331,33 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "real_estate": TradeWords(
         reason="their enquiry about a property",
         first_ask=_said(
-            "సరే అండి, ఏ area లో చూస్తున్నారు?",
-            "ठीक है जी, किस area में देख रहे हैं?",
+            "సరే అండి, ఏ ఏరియా లో చూస్తున్నారు?",
+            "ठीक है जी, किस एरिया में देख रहे हैं?",
             "Sure, which area are you looking in?",
         ),
         details_ask=_said(
-            "Two BHK కావాలా, three BHK కావాలా అండి?",
-            "Two BHK चाहिए या three BHK?",
+            "టూ బీహెచ్కే కావాలా, త్రీ బీహెచ్కే కావాలా అండి?",
+            "टू बीएचके चाहिए या थ्री बीएचके?",
             "Are you looking at a two or a three BHK?",
         ),
         offer=_said(
-            "ఒకసారి site visit కి రండి అండి, ఈ weekend కుదురుతుందా?",
-            "एक बार site visit कर लीजिए जी, इस weekend ठीक रहेगा?",
+            "ఒకసారి సైట్ విజిట్ కి రండి అండి, ఈ వీకెండ్ కుదురుతుందా?",
+            "एक बार साइट विज़िट कर लीजिए जी, इस वीकेंड ठीक रहेगा?",
             "Would you like to see the site, maybe this weekend?",
         ),
         reason_line=_said(
-            "మీరు ఇంతకు ముందు property గురించి enquiry చేశారు కదా, ఇంకా చూస్తున్నారా అండి?",
-            "आपने पहले property के बारे में enquiry की थी, अभी भी देख रहे हैं?",
+            "మీరు ఇంతకు ముందు ప్రాపర్టీ గురించి ఎంక్వైరీ చేశారు కదా, ఇంకా చూస్తున్నారా అండి?",
+            "आपने पहले प्रॉपर्टी के बारे में इन्क्वायरी की थी, अभी भी देख रहे हैं?",
             "You had enquired about a property earlier, are you still looking?",
         ),
         qualify_ask=_said(
-            "Budget ఎంత వరకు అనుకుంటున్నారు అండి?",
-            "Budget कितने तक सोच रहे हैं जी?",
+            "బడ్జెట్ ఎంత వరకు అనుకుంటున్నారు అండి?",
+            "बजट कितने तक सोच रहे हैं जी?",
             "Roughly what budget do you have in mind?",
         ),
         lead_offer=_said(
-            "Site visit కి Saturday కుదురుతుందా, Sunday కుదురుతుందా అండి?",
-            "Site visit के लिए Saturday ठीक रहेगा या Sunday?",
+            "సైట్ విజిట్ కి సాటర్డే కుదురుతుందా, సండే కుదురుతుందా అండి?",
+            "साइट विज़िट के लिए सैटरडे ठीक रहेगा या संडे?",
             "For a site visit, would Saturday or Sunday suit you?",
         ),
         objection=(
@@ -369,33 +369,33 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "insurance": TradeWords(
         reason="their question about a policy",
         first_ask=_said(
-            "సరే అండి, health policy కావాలా, life policy కావాలా?",
-            "ठीक है जी, health policy चाहिए या life policy?",
+            "సరే అండి, హెల్త్ పాలసీ కావాలా, లైఫ్ పాలసీ కావాలా?",
+            "ठीक है जी, हेल्थ पॉलिसी चाहिए या लाइफ पॉलिसी?",
             "Sure, is this about a health policy or a life policy?",
         ),
         details_ask=_said(
-            "మీ renewal ఎప్పుడు ఉంది అండి?",
-            "आपका renewal कब है जी?",
+            "మీ రెన్యూవల్ ఎప్పుడు ఉంది అండి?",
+            "आपका रिन्यूअल कब है जी?",
             "When is your renewal due?",
         ),
         offer=_said(
-            "Advisor తో మాట్లాడటానికి ఈ రోజు కుదురుతుందా, రేపు కుదురుతుందా అండి?",
-            "Advisor से बात करने के लिए आज ठीक रहेगा या कल?",
+            "అడ్వైజర్ తో మాట్లాడటానికి ఈ రోజు కుదురుతుందా, రేపు కుదురుతుందా అండి?",
+            "एडवाइज़र से बात करने के लिए आज ठीक रहेगा या कल?",
             "Would today or tomorrow suit you for a talk with an advisor?",
         ),
         reason_line=_said(
-            "మీరు ఇంతకు ముందు policy గురించి అడిగారు కదా, ఇంకా చూస్తున్నారా అండి?",
-            "आपने पहले policy के बारे में पूछा था, अभी भी देख रहे हैं?",
+            "మీరు ఇంతకు ముందు పాలసీ గురించి అడిగారు కదా, ఇంకా చూస్తున్నారా అండి?",
+            "आपने पहले पॉलिसी के बारे में पूछा था, अभी भी देख रहे हैं?",
             "You had asked about a policy earlier, are you still looking?",
         ),
         qualify_ask=_said(
-            "ఇప్పుడు ఏ company policy ఉంది అండి?",
-            "अभी किस company की policy है जी?",
+            "ఇప్పుడు ఏ కంపెనీ పాలసీ ఉంది అండి?",
+            "अभी किस कंपनी की पॉलिसी है जी?",
             "Who are you insured with at the moment?",
         ),
         lead_offer=_said(
-            "Advisor తో మాట్లాడటానికి ఏ రోజు కుదురుతుంది అండి, ఈ రోజా రేపా?",
-            "Advisor से बात करने के लिए कौन सा दिन ठीक रहेगा, आज या कल?",
+            "అడ్వైజర్ తో మాట్లాడటానికి ఏ రోజు కుదురుతుంది అండి, ఈ రోజా రేపా?",
+            "एडवाइज़र से बात करने के लिए कौन सा दिन ठीक रहेगा, आज या कल?",
             "Which day suits you to talk to an advisor, today or tomorrow?",
         ),
         objection=(
@@ -407,33 +407,33 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "education": TradeWords(
         reason="their enquiry about admission",
         first_ask=_said(
-            "సరే అండి, ఏ course గురించి అడుగుతున్నారు?",
-            "ठीक है जी, किस course के बारे में पूछ रहे हैं?",
+            "సరే అండి, ఏ కోర్స్ గురించి అడుగుతున్నారు?",
+            "ठीक है जी, किस कोर्स के बारे में पूछ रहे हैं?",
             "Sure, which course are you asking about?",
         ),
         details_ask=_said(
-            "Student ఏ class చదువుతున్నారు అండి?",
-            "Student किस class में है जी?",
+            "స్టూడెంట్ ఏ క్లాస్ చదువుతున్నారు అండి?",
+            "स्टूडेंट किस क्लास में है जी?",
             "Which class or year is the student in?",
         ),
         offer=_said(
-            "Demo class కి weekday కుదురుతుందా, weekend కుదురుతుందా అండి?",
-            "Demo class के लिए weekday ठीक रहेगा या weekend?",
+            "డెమో క్లాస్ కి వీక్ డే కుదురుతుందా, వీకెండ్ కుదురుతుందా అండి?",
+            "डेमो क्लास के लिए वीकडे ठीक रहेगा या वीकेंड?",
             "Would a weekday or a weekend suit you for a demo class?",
         ),
         reason_line=_said(
-            "మీరు ఇంతకు ముందు admission గురించి enquiry చేశారు కదా, ఇంకా ఆలోచిస్తున్నారా అండి?",
-            "आपने पहले admission के बारे में enquiry की थी, अभी भी सोच रहे हैं?",
+            "మీరు ఇంతకు ముందు అడ్మిషన్ గురించి ఎంక్వైరీ చేశారు కదా, ఇంకా ఆలోచిస్తున్నారా అండి?",
+            "आपने पहले एडमिशन के बारे में इन्क्वायरी की थी, अभी भी सोच रहे हैं?",
             "You had enquired about admission earlier, are you still considering it?",
         ),
         qualify_ask=_said(
-            "ఏ course చూస్తున్నారు అండి?",
-            "कौन सा course देख रहे हैं जी?",
+            "ఏ కోర్స్ చూస్తున్నారు అండి?",
+            "कौन सा कोर्स देख रहे हैं जी?",
             "Which course are you looking at?",
         ),
         lead_offer=_said(
-            "Counselling session కి ఈ వారం ఏ రోజు కుదురుతుంది అండి?",
-            "Counselling session के लिए इस हफ़्ते कौन सा दिन ठीक रहेगा?",
+            "కౌన్సెలింగ్ సెషన్ కి ఈ వారం ఏ రోజు కుదురుతుంది అండి?",
+            "काउंसलिंग सेशन के लिए इस हफ़्ते कौन सा दिन ठीक रहेगा?",
             "Which day this week suits you for a counselling session?",
         ),
         objection=(
@@ -445,33 +445,33 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "retail": TradeWords(
         reason="their interest in the shop's products",
         first_ask=_said(
-            "సరే అండి, ఏ item కావాలి?",
-            "ठीक है जी, कौन सा item चाहिए?",
+            "సరే అండి, ఏ ఐటమ్ కావాలి?",
+            "ठीक है जी, कौन सा आइटम चाहिए?",
             "Sure, which item would you like?",
         ),
         details_ask=_said(
-            "One kg కావాలా, half kg కావాలా అండి?",
-            "One kg चाहिए या half kg?",
+            "వన్ కేజీ కావాలా, హాఫ్ కేజీ కావాలా అండి?",
+            "वन केजी चाहिए या हाफ केजी?",
             "How much would you like, one kg or half a kg?",
         ),
         offer=_said(
-            "Delivery కావాలా, మీరే వచ్చి తీసుకుంటారా అండి?",
-            "Delivery चाहिए या आप खुद आकर ले लेंगे?",
+            "డెలివరీ కావాలా, మీరే వచ్చి తీసుకుంటారా అండి?",
+            "डिलीवरी चाहिए या आप खुद आकर ले लेंगे?",
             "Shall we deliver it, or would you pick it up?",
         ),
         reason_line=_said(
-            "మీరు ఇంతకు ముందు మా products గురించి అడిగారు కదా, ఇంకా కావాలా అండి?",
-            "आपने पहले हमारे products के बारे में पूछा था, अभी भी चाहिए?",
+            "మీరు ఇంతకు ముందు మా ప్రొడక్ట్స్ గురించి అడిగారు కదా, ఇంకా కావాలా అండి?",
+            "आपने पहले हमारे प्रोडक्ट्स के बारे में पूछा था, अभी भी चाहिए?",
             "You had asked about our products earlier, are you still interested?",
         ),
         qualify_ask=_said(
-            "ఏ item కావాలి అండి?",
-            "कौन सा item चाहिए जी?",
+            "ఏ ఐటమ్ కావాలి అండి?",
+            "कौन सा आइटम चाहिए जी?",
             "Which item would you like?",
         ),
         lead_offer=_said(
-            "Delivery ఏ area కి చేయాలి అండి?",
-            "Delivery किस area में करनी है जी?",
+            "డెలివరీ ఏ ఏరియా కి చేయాలి అండి?",
+            "डिलीवरी किस एरिया में करनी है जी?",
             "Which area should it be delivered to?",
         ),
         objection=(
@@ -483,8 +483,8 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "local_services": TradeWords(
         reason="their interest in the service",
         first_ask=_said(
-            "సరే అండి, ఏ service కావాలి?",
-            "ठीक है जी, कौन सी service चाहिए?",
+            "సరే అండి, ఏ సర్వీస్ కావాలి?",
+            "ठीक है जी, कौन सी सर्विस चाहिए?",
             "Sure, which service do you need?",
         ),
         details_ask=_said(
@@ -493,23 +493,23 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
             "Will you come in, or should someone come to you?",
         ),
         offer=_said(
-            "ఏ రోజు కుదురుతుంది అండి, morning కావాలా evening కావాలా?",
-            "कौन सा दिन ठीक रहेगा जी, morning या evening?",
+            "ఏ రోజు కుదురుతుంది అండి, మార్నింగ్ కావాలా ఈవెనింగ్ కావాలా?",
+            "कौन सा दिन ठीक रहेगा जी, मॉर्निंग या ईवनिंग?",
             "Which day suits you, morning or evening?",
         ),
         reason_line=_said(
-            "మీరు ఇంతకు ముందు మా service గురించి అడిగారు కదా, ఇంకా కావాలా అండి?",
-            "आपने पहले हमारी service के बारे में पूछा था, अभी भी चाहिए?",
+            "మీరు ఇంతకు ముందు మా సర్వీస్ గురించి అడిగారు కదా, ఇంకా కావాలా అండి?",
+            "आपने पहले हमारी सर्विस के बारे में पूछा था, अभी भी चाहिए?",
             "You had asked about our service earlier, do you still need it?",
         ),
         qualify_ask=_said(
-            "ఏ service కావాలి అండి?",
-            "कौन सी service चाहिए जी?",
+            "ఏ సర్వీస్ కావాలి అండి?",
+            "कौन सी सर्विस चाहिए जी?",
             "Which service would you like?",
         ),
         lead_offer=_said(
-            "ఈ వారం ఏ రోజు slot కావాలి అండి?",
-            "इस हफ़्ते किस दिन का slot चाहिए जी?",
+            "ఈ వారం ఏ రోజు స్లాట్ కావాలి అండి?",
+            "इस हफ़्ते किस दिन का स्लॉट चाहिए जी?",
             "Which day this week would you like a slot?",
         ),
         objection=(
@@ -520,33 +520,33 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
     "automobile": TradeWords(
         reason="their question about a service",
         first_ask=_said(
-            "సరే అండి, మీ vehicle ఏ model?",
-            "ठीक है जी, आपकी गाड़ी कौन से model की है?",
+            "సరే అండి, మీ వెహికల్ ఏ మోడల్?",
+            "ठीक है जी, आपकी गाड़ी कौन से मॉडल की है?",
             "Sure, which vehicle and model is it?",
         ),
         details_ask=_said(
-            "Service కావాలా, repair కావాలా అండి?",
-            "Service करानी है या repair?",
+            "సర్వీస్ కావాలా, రిపేర్ కావాలా అండి?",
+            "सर्विस करानी है या रिपेयर?",
             "Is it a regular service or a repair?",
         ),
         offer=_said(
-            "Vehicle pickup కావాలా, మీరే తీసుకొస్తారా అండి?",
-            "गाड़ी pickup करवानी है या आप खुद लाएँगे?",
+            "వెహికల్ పికప్ కావాలా, మీరే తీసుకొస్తారా అండి?",
+            "गाड़ी पिकअप करवानी है या आप खुद लाएँगे?",
             "Shall we pick the vehicle up, or will you bring it in?",
         ),
         reason_line=_said(
-            "మీరు ఇంతకు ముందు service గురించి అడిగారు కదా, ఇంకా చేయించాలా అండి?",
-            "आपने पहले service के बारे में पूछा था, अभी भी करानी है?",
+            "మీరు ఇంతకు ముందు సర్వీస్ గురించి అడిగారు కదా, ఇంకా చేయించాలా అండి?",
+            "आपने पहले सर्विस के बारे में पूछा था, अभी भी करानी है?",
             "You had asked about a service earlier, does the vehicle still need one?",
         ),
         qualify_ask=_said(
-            "మీ vehicle ఏ model అండి?",
-            "आपकी गाड़ी कौन से model की है जी?",
+            "మీ వెహికల్ ఏ మోడల్ అండి?",
+            "आपकी गाड़ी कौन से मॉडल की है जी?",
             "Which model is your vehicle?",
         ),
         lead_offer=_said(
-            "Service కి ఏ రోజు కుదురుతుంది అండి, ఈ రోజా రేపా?",
-            "Service के लिए कौन सा दिन ठीक रहेगा, आज या कल?",
+            "సర్వీస్ కి ఏ రోజు కుదురుతుంది అండి, ఈ రోజా రేపా?",
+            "सर्विस के लिए कौन सा दिन ठीक रहेगा, आज या कल?",
             "Which day suits you for the service, today or tomorrow?",
         ),
         objection=(
@@ -567,13 +567,13 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
             "Which day suits you?",
         ),
         offer=_said(
-            "Morning కుదురుతుందా, evening కుదురుతుందా అండి?",
-            "Morning ठीक रहेगा या evening?",
+            "మార్నింగ్ కుదురుతుందా, ఈవెనింగ్ కుదురుతుందా అండి?",
+            "मॉर्निंग ठीक रहेगा या ईवनिंग?",
             "Would a morning or an evening suit you?",
         ),
         reason_line=_said(
-            "మీరు ఇంతకు ముందు మా దగ్గర enquiry చేశారు కదా, ఇంకా కావాలా అండి?",
-            "आपने पहले हमसे enquiry की थी, अभी भी चाहिए?",
+            "మీరు ఇంతకు ముందు మా దగ్గర ఎంక్వైరీ చేశారు కదా, ఇంకా కావాలా అండి?",
+            "आपने पहले हमसे इन्क्वायरी की थी, अभी भी चाहिए?",
             "You had enquired with us earlier, are you still interested?",
         ),
         qualify_ask=_said(

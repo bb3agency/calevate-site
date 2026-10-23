@@ -19,6 +19,7 @@ from apps.api.agents.test_conversations import (
     standard_scenarios,
 )
 from apps.api.agents.turn_checks import (
+    BREATH_MAX_WORDS,
     JOB_KINDS,
     SOUND_KINDS,
     Kind,
@@ -35,13 +36,7 @@ from calevate_shared.call_script import (
     native_steps,
 )
 from calevate_shared.engine import VOICE_STYLE_GUIDANCE
-from calevate_shared.spoken_guard import english_in_own_letters
-from calevate_shared.spoken_style import (
-    english_letters_rule,
-    languages,
-    register_guidance,
-    style_for,
-)
+from calevate_shared.spoken_style import languages, register_guidance, style_for
 
 RAGHAVA_TURN = (
     "మీకు whole chilli కావాలా, chilli powder కావాలా? Whole chilli or chilli powder? "
@@ -212,12 +207,12 @@ def test_the_prompt_says_the_turn_and_voice_rules() -> None:
     assert "offer once, then close politely" in block
     assert '"?" on every question' in block
     assert "dashes, slashes, ellipses" in block
-    assert '"one twenty rupees"' in block and "never ₹ or digits" in block
+    assert '"వన్ ట్వంటీ రూపీస్"' in block and "never ₹ or digits" in block
     assert 'never "uhm"' in block
-    # English words stay in English letters: Telugu says it in its own line (D-861), Hindi in
-    # its register line (D-749).
-    assert "English letters" in (english_letters_rule("te-IN") or "")
-    assert "English letters" in register_guidance("hi-IN")
+    # Every word in the language's own letters, English words too, in each register line
+    # (founder, 23 Oct 2026, D-861).
+    assert "every word in Telugu letters" in (register_guidance("te-IN") or "")
+    assert "every word in Devanagari" in (register_guidance("hi-IN") or "")
 
 
 def test_a_step_that_collects_several_details_asks_for_one_per_turn() -> None:
@@ -287,40 +282,43 @@ def test_booking_a_visit_without_an_action_is_a_done_claim() -> None:
     assert claims_done("సరే అండి, శనివారం మధ్యాహ్నం రెండు గంటలకి సైట్ విజిట్ బుక్ చేశాను.")
 
 
-def test_english_words_in_the_callers_letters_are_noted_with_their_spelling() -> None:
-    reply = "సరే అండి, two crores బడ్జెట్ లో మూడు ఆప్షన్స్ ఉన్నాయి. సైట్ విజిట్ ఎప్పుడు కుదురుతుంది?"
-    problems = [
-        p for p in turn_problems(reply, language="te-IN") if p.kind == "english_in_own_letters"
-    ]
-    assert len(problems) == 1
-    note = problems[0].reason
-    assert "“బడ్జెట్” (write “budget”)" in note
-    assert "“సైట్ విజిట్” (write “site visit”)" in note
-    # Named once, as the longer phrase, not again as its two words.
-    assert "“సైట్” (" not in note
-    assert "english_in_own_letters" in SOUND_KINDS
-    # A suffixed form counts; the same words in English letters do not.
-    assert "english_in_own_letters" in _kinds("వాట్సాప్లో పంపిస్తారా?", language="te-IN")
-    clean = "సరే అండి, budget లో మూడు options ఉన్నాయి. Site visit ఎప్పుడు కుదురుతుంది?"
-    assert "english_in_own_letters" not in _kinds(clean, language="te-IN")
+def test_english_words_in_telugu_letters_are_never_a_problem() -> None:
+    """Every word in the language's letters is the rule (D-861), so a reply written that way
+    carries no script or number note."""
+    reply = "ఓకే అండి, టూ క్రోర్స్ బడ్జెట్. సైట్ విజిట్ కి సాటర్డే వీలవుతుందా, సండే నా?"
+    kinds = _kinds(reply, language="te-IN")
+    assert "spoken_number" not in kinds and "foreign_script" not in kinds, kinds
 
 
-def test_no_approved_spoken_line_writes_a_listed_word_in_the_languages_letters() -> None:
-    """The list is checked against the language's own approved lines, so a word people say
-    in the language's letters (the filler "ఒక్క సెకండ్") cannot be on it."""
-    for tag in languages():
-        style = style_for(tag)
-        assert style is not None
-        lines = [f.text for f in style.fillers]
-        lines += list((style.openings or {}).values())
-        exchanges = [*style.examples.values(), *style.prompt_examples]
-        lines += [t.text for turns in exchanges for t in turns if t.speaker == "agent"]
-        for line in lines:
-            assert english_in_own_letters(line, tag) == [], (tag, line)
-
-
-def test_a_crore_or_a_clock_time_in_telugu_number_words_is_noted() -> None:
-    for said in ("రెండు కోట్ల budget అండి.", "శనివారం రెండు గంటలకి కుదురుతుందా?"):
-        assert "spoken_number" in _kinds(said, language="te-IN"), said
-    for said in ("two crores budget అండి.", "శనివారం two PM కి కుదురుతుందా?", "రెండు గంటలు పడుతుంది."):
+def test_an_amount_is_the_english_way_and_a_time_is_as_people_say_it() -> None:
+    assert "spoken_number" in _kinds("రెండు కోట్ల బడ్జెట్ అండి.", language="te-IN")
+    for said in (
+        "టూ క్రోర్స్ బడ్జెట్ అండి.",
+        "వన్ ట్వంటీ రూపీస్ అండి.",
+        "శనివారం మధ్యాహ్నం రెండు గంటలకు కుదురుతుందా?",
+        "రెండు గంటలు పడుతుంది.",
+    ):
         assert "spoken_number" not in _kinds(said, language="te-IN"), said
+    # Digits stay a problem whatever the letters around them.
+    assert "spoken_number" in _kinds("ఒక 1 కిలో ప్యాక్ ఉంది.", language="te-IN")
+
+
+def test_a_long_run_without_a_breath_is_noted_and_never_fails_the_test() -> None:
+    run = " ".join(["సరే"] * (BREATH_MAX_WORDS + 1)) + "."
+    assert "no_breath" in _kinds(run, language="te-IN")
+    assert "no_breath" in SOUND_KINDS and "no_breath" not in JOB_KINDS
+    breathing = "ఓకే అండి, డెలివరీ. మీది ఏ ఏరియా? పొద్దున వీలవుతుందా, సాయంత్రమా?"
+    assert "no_breath" not in _kinds(breathing, language="te-IN")
+
+
+def test_the_prompt_examples_breathe() -> None:
+    """The examples every Telugu, Hindi and English agent reads (D-861) carry no problem of
+    their own: a comma after the opener, short sentences and a question mark."""
+    for tag in ("te-IN", "hi-IN", "en-IN"):
+        style = style_for(tag)
+        assert style is not None and len(style.prompt_examples) == 3, tag
+        for exchange in style.prompt_examples:
+            agent = next(t.text for t in exchange if t.speaker == "agent")
+            # An opener with a comma or a "!" for warmth, and a question to end the turn.
+            assert ("," in agent or "!" in agent) and agent.endswith("?"), (tag, agent)
+            assert _kinds(agent, language=tag) == [], (tag, agent)

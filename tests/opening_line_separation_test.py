@@ -108,7 +108,7 @@ def test_the_notice_templates_carry_no_greeting_word() -> None:
     for template in AI_DISCLOSURE_TEMPLATES.values():
         lowered = template.lower()
         assert not lowered.startswith(("namaskaram", "namaste", "hello")), template
-        assert "AI assistant" in template
+        assert any(ai in template for ai in ("AI assistant", "ఏఐ అసిస్టెంట్", "एआई असिस्टेंट")), template
 
 
 # --- ThinnestAI: one greeting field holds the whole first words -----------------------

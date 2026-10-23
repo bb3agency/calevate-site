@@ -406,9 +406,9 @@ def test_the_platform_filler_lines_follow_the_agents_languages_and_the_clients_w
         row = {"call_settings": CallSettings(filler_lines=own)}
         return _call_settings_fields(row, languages=languages)["filler_lines"]  # type: ignore[arg-type]
 
-    assert lines(None, ("te-IN", "hi-IN")) == ("ఒక్క సెకండ్ అండి", "एक minute जी")
+    assert lines(None, ("te-IN", "hi-IN")) == ("ఒక్క సెకండ్ అండి", "एक मिनट जी")
     # The client's "the standard lines" ([]) is ours too; their own lines win.
-    assert lines((), ("hi-IN",)) == ("एक minute जी",)
+    assert lines((), ("hi-IN",)) == ("एक मिनट जी",)
     assert lines(("One moment",), ("te-IN",)) == ("One moment",)
     # English has no line of ours: the engine keeps its own English filler.
     assert lines(None, ("en-IN",)) == ()

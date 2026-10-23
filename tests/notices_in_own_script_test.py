@@ -39,14 +39,13 @@ def _revision() -> ModuleType:
 
 
 def test_new_agents_get_the_sentences_in_their_own_script() -> None:
-    assert ai_disclosure_for(language="te-IN", business="Raghava") == "ఇది Raghava AI assistant."
-    assert recording_notice_for(language="te-IN") == "ఈ call record అవుతుంది."
-    assert ai_disclosure_for(language="hi-IN", business="Raghava") == (
-        "मैं Raghava का AI assistant हूँ।"
-    )
-    assert recording_notice_for(language="hi-IN") == "यह call record हो रही है।"
+    # Every word in the language's own letters since D-861 (23 Oct 2026).
+    assert ai_disclosure_for(language="te-IN", business="Raghava") == "ఇది Raghava ఏఐ అసిస్టెంట్."
+    assert recording_notice_for(language="te-IN") == "ఈ కాల్ రికార్డ్ అవుతుంది."
+    assert ai_disclosure_for(language="hi-IN", business="Raghava") == ("मैं Raghava का एआई असिस्टेंट हूँ।")
+    assert recording_notice_for(language="hi-IN") == "यह कॉल रिकॉर्ड हो रही है।"
     assert caller_memory_notice_for(language="hi-IN") == (
-        "आप दोबारा call करें तो याद रहे, इसलिए हम इस call का एक छोटा note रखते हैं।"
+        "आप दोबारा कॉल करें तो याद रहे, इसलिए हम इस कॉल का एक छोटा नोट रखते हैं।"
     )
     # The migration's "new" column is the table, so the two cannot drift apart.
     for _, new_ai, _, new_rec, _, new_mem in _revision()._LINES:

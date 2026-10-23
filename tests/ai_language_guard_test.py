@@ -177,7 +177,7 @@ def test_a_spoken_textbook_word_is_named_with_what_people_say() -> None:
     said = refused.value.problems
     assert "opening_line: uses textbook words callers do not say: “మరియు”" in said
     assert (
-        "style.sample_phrases.0: uses textbook words callers do not say: “వివరాలు” (say “details”)"
+        "style.sample_phrases.0: uses textbook words callers do not say: “వివరాలు” (say “డీటెయిల్స్”)"
         in said
     )
 

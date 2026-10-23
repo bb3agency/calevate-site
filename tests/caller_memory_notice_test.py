@@ -33,6 +33,7 @@ SCOPING (this suite shares a database with every other): every tenant is minted 
 from __future__ import annotations
 
 import ast
+import importlib.util
 import uuid
 from pathlib import Path
 
@@ -316,21 +317,17 @@ def _script_rewrite() -> dict[str, str]:
 SCRIPT_REWRITE = _script_rewrite()
 
 
-def _reworded() -> dict[str, tuple[str, str]]:
-    """D-861's (tag -> previous, new) sentences, read from its migration's `_LINES` as source."""
-    path = MIGRATION.parent / "c3e8a1f5d702_memory_sentence_reworded.py"
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if isinstance(node, ast.AnnAssign | ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == "_LINES"
-            for t in (node.targets if isinstance(node, ast.Assign) else [node.target])
-        ):
-            assert node.value is not None
-            return {tag: (old, new) for tag, old, new in ast.literal_eval(node.value)}
-    raise AssertionError(f"no `_LINES` in {path}")
+def _reword() -> dict[str, str]:
+    """D-861's exact (previous default -> new) memory sentences, from its migration."""
+    path = MIGRATION.parent / "c3e8a1f5d702_notices_in_own_letters.py"
+    spec = importlib.util.spec_from_file_location("_revision_c3e8a1f5d702", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return dict(module._EXACT["caller_memory_notice_line"])
 
 
-REWORDED = _reworded()
-REWORD = dict(REWORDED.values())
+REWORD = _reword()
 
 
 def _migration_notices() -> dict[str, str]:
@@ -360,7 +357,7 @@ def test_the_migrations_copy_of_the_sentences_is_byte_identical() -> None:
     the change and after it would open with different sentences in the same language.
 
     D-745 moved the Telugu and Hindi sentences into their own script, and its migration
-    rewrites exactly the old outputs, and D-861's rewords them again; so the old copy, carried
+    rewrites exactly the old outputs, and D-861 rewrites them again; so the old copy, carried
     through both rewrites, is today's table. The staged languages (D-855) came later, with no
     agent holding one, so the copy is compared over the languages it knew."""
     rewritten = {
@@ -371,13 +368,6 @@ def test_the_migrations_copy_of_the_sentences_is_byte_identical() -> None:
     assert rewritten == {
         tag: line for tag, line in CALLER_MEMORY_NOTICE_TEMPLATES.items() if tag not in staged
     }
-
-
-def test_the_reword_migration_writes_todays_sentence_for_every_language() -> None:
-    """D-861's migration rewrites only an exact previous default, and writes today's: its copy
-    of the new sentences must be the templates, every language, staged ones included."""
-    assert {tag: new for tag, (_old, new) in REWORDED.items()} == CALLER_MEMORY_NOTICE_TEMPLATES
-    assert all(old != new for old, new in REWORDED.values())
 
 
 def _backfill_case(languages: list[str]) -> str:

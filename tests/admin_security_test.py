@@ -114,7 +114,7 @@ async def test_onboarding_creates_retention_policies_and_a_schema() -> None:
     assert categories, "retention defaults must exist from creation"
     assert categories["recording"] >= 90, "TRAI's 90-day recording floor (SEC-COMP §1)"
     assert agent is not None
-    assert "AI assistant" in agent[0], "the disclosure line is inserted by us, always"
+    assert "ఏఐ అసిస్టెంట్" in agent[0], "the disclosure line is inserted by us, always"
     assert agent[1] == "draft", "nothing is client-visible until publish"
     assert agent[2] == "inbound", "D-38: the receptionist is the default agent"
     assert fields, "the vertical template must seed the extraction schema"

@@ -148,18 +148,20 @@ DEFAULT_LANGUAGE = get_language("english_india").bcp47
 #: §2 states separately can only be switched separately if they are separate strings
 #: (D-163).
 #:
-#: IN THE LANGUAGE'S OWN SCRIPT (D-745): a Telugu or Hindi sentence in Latin letters is
-#: read by the voice as if it were English. The English words people use (AI assistant,
-#: call, record, note) stay in English letters, as in every spoken line
-#: (`calevate_shared.spoken_style`). The Hindi memory sentence says "we" so it assumes no
-#: gender.
+#: IN THE LANGUAGE'S OWN LETTERS, EVERY WORD (D-745, then D-861): a Telugu or Hindi sentence
+#: in Latin letters is read by the voice as if it were English, and since 23 Oct 2026 the
+#: English words people use (ఏఐ అసిస్టెంట్, కాల్, రికార్డ్, నోట్) are written in Telugu or
+#: Devanagari letters too, as every spoken line is (`calevate_shared.spoken_style`). The
+#: Telugu and Hindi lines NEED NATIVE-SPEAKER REVIEW; the staged languages keep the English
+#: words in Latin letters until the founder rules on them. The Hindi memory sentence says
+#: "we" so it assumes no gender.
 #:
 #: NO GREETING WORD IN IT (D-708). The greeting is the agent's own opening line, in its
 #: script, and comes before this sentence when it is switched on (D-861); a "Namaskaram,"
 #: here made the notice read as the greeting and made the agent say hello twice.
 AI_DISCLOSURE_TEMPLATES: dict[str, str] = {
-    "te-IN": "ఇది {business} AI assistant.",
-    "hi-IN": "मैं {business} का AI assistant हूँ।",
+    "te-IN": "ఇది {business} ఏఐ అసిస్టెంట్.",
+    "hi-IN": "मैं {business} का एआई असिस्टेंट हूँ।",
     "en-IN": "This is the AI assistant for {business}.",
     # Staged (D-855), drafted 23 Oct 2026: NEEDS NATIVE-SPEAKER REVIEW. No caller hears
     # these until `agents/languages.STAGED_LANGUAGE_READINESS` records the review.
@@ -174,8 +176,8 @@ AI_DISCLOSURE_TEMPLATES: dict[str, str] = {
 #: `{business}` placeholder, because the AI sentence has already named the caller's
 #: counterparty and a second naming reads as a script that lost its place.
 RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
-    "te-IN": "ఈ call record అవుతుంది.",
-    "hi-IN": "यह call record हो रही है।",
+    "te-IN": "ఈ కాల్ రికార్డ్ అవుతుంది.",
+    "hi-IN": "यह कॉल रिकॉर्ड हो रही है।",
     "en-IN": "This call is being recorded.",
     # Staged (D-855), drafted 23 Oct 2026: NEEDS NATIVE-SPEAKER REVIEW. No caller hears
     # these until `agents/languages.STAGED_LANGUAGE_READINESS` records the review.
@@ -217,8 +219,8 @@ RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
 #: the same meaning), and the staged ones are heard by no caller until
 #: `agents/languages.STAGED_LANGUAGE_READINESS` records the review.
 CALLER_MEMORY_NOTICE_TEMPLATES: dict[str, str] = {
-    "te-IN": "మీరు మళ్ళీ call చేసినప్పుడు గుర్తుండేలా, ఈ call గురించి ఒక చిన్న note ఉంచుకుంటాను.",
-    "hi-IN": "आप दोबारा call करें तो याद रहे, इसलिए हम इस call का एक छोटा note रखते हैं।",
+    "te-IN": "మీరు మళ్ళీ కాల్ చేసినప్పుడు గుర్తుండేలా, ఈ కాల్ గురించి ఒక చిన్న నోట్ ఉంచుకుంటాను.",
+    "hi-IN": "आप दोबारा कॉल करें तो याद रहे, इसलिए हम इस कॉल का एक छोटा नोट रखते हैं।",
     "en-IN": "So I remember it when you call again, I keep a short note about this call.",
     "ta-IN": (
         "நீங்கள் மீண்டும் call செய்யும்போது நினைவில் இருக்க, இந்த call பற்றி ஒரு சின்ன note வைத்துக்கொள்கிறேன்."

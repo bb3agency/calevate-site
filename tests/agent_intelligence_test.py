@@ -165,7 +165,7 @@ def test_the_floor_and_confidentiality_keep_their_content_and_position() -> None
 def test_the_spoken_register_is_concrete_for_telugu() -> None:
     prompt = compose_engine_prompt(_cfg(compile_call_script(V2)))
     assert "--- SPOKEN REGISTER ---" in prompt
-    assert 'not "క్షమించండి" but "sorry అండి"' in prompt
+    assert 'not "క్షమించండి" but "సారీ అండి"' in prompt
     assert "never formal or written-style words" in prompt
 
 
@@ -208,9 +208,9 @@ def test_the_founder_approved_examples_follow_the_primary_language_register() ->
     never as words to copy; an extra language's are left out for the size budget."""
     body = compile_call_script(V2)
     for tag, agent_says in (
-        ("te-IN", "సరే అండి, మీది ఏ area?"),
-        ("hi-IN", "ठीक है जी, आपका area कौन सा है?"),
-        ("en-IN", "Okay, which area are you in?"),
+        ("te-IN", "ఓకే అండి, డెలివరీ. మీది ఏ ఏరియా?"),
+        ("hi-IN", "ठीक है जी, डिलीवरी। आपका एरिया कौन सा है?"),
+        ("en-IN", "Okay, delivery. Which area are you in?"),
     ):
         prompt = compose_engine_prompt(_cfg(body).model_copy(update={"language_primary": tag}))
         line = prompt_example_line(tag)

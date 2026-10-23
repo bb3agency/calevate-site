@@ -118,11 +118,6 @@ class LanguageStyle:
     #: Short exchanges the in-call prompt quotes as how a turn sounds (D-778); only the
     #: founder-approved ones in the file, never the published layer (see `_prompt_examples`).
     prompt_examples: tuple[tuple[ExampleTurn, ...], ...] = ()
-    #: (an English word in this language's letters, its English spelling), as speech
-    #: recognition hands a caller's English words to the model ("బడ్జెట్", "budget"). Read from
-    #: the file alone, like `native_price_words`: the prompt quotes the first few
-    #: (`english_letters_rule`) and the reply checks flag every one (`english_in_own_letters`).
-    english_in_own_letters: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -339,9 +334,6 @@ def _build(tag: str, row: Mapping[str, Any]) -> LanguageStyle:
         punctuation=tuple(e.value["text"] for e in by_kind["punctuation"]),
         reviewed_on=reviewed_on,
         prompt_examples=_prompt_examples(tag, row),
-        english_in_own_letters=tuple(
-            (str(native), str(english)) for native, english in row.get("english_in_own_letters", ())
-        ),
     )
 
 
@@ -463,7 +455,7 @@ class LanguagePack:
     review: str
     #: The form the founder approved from the eval; None until then.
     ship: PackChoice | None
-    #: Concepts said as the English word, in English letters.
+    #: Concepts said as the English word, written in the language's own letters (D-861).
     say_english: tuple[str, ...]
     #: (what to say, its English meaning): the language's own spoken forms.
     say_spoken: tuple[tuple[str, str], ...]
@@ -476,7 +468,7 @@ class LanguagePack:
 
 
 #: The English form's sentences. The native form's are the pack's `NativeLeads`.
-_EN_SAY: Final = "Say in English letters, as callers do: "
+_EN_SAY: Final = "Say as the English word, as callers do, in this language's letters: "
 _EN_SAY_SPOKEN: Final = "and say "
 _EN_AVOID: Final = "Never say: "
 _EN_PAIRS: Final = "Never say these; say what follows each instead: "
@@ -657,32 +649,6 @@ def register_guidance(tag: str | None) -> str | None:
     return " ".join(parts)
 
 
-#: Pairs `english_letters_rule` quotes; the reply checks read the whole list.
-ENGLISH_LETTERS_EXAMPLES: Final = 2
-
-
-def english_letters_rule(tag: str | None) -> str | None:
-    """The in-call sentence that keeps English words in English letters when the caller's
-    arrive in this language's letters, with the first pairs of its list, or None without one.
-
-    Its own sentence rather than a clause of the register line, because the register line is
-    the founder's to edit on the Ops screen and this rule must survive an edit. It names "the
-    caller's spelling" because the model copies what it reads: on the trial call of 23 Oct
-    2026 the caller's "టూ క్రోర్స్ బడ్జెట్" came back from speech recognition in Telugu letters
-    and from then on the agent wrote బడ్జెట్, సైట్, వాట్సాప్ (D-861). Cartesia's docs show Indic
-    text with English words in Latin letters as a supported mix (docs.cartesia.ai
-    capability-guides/advanced-capabilities, read 23 Oct 2026, VENDOR-PUBLISHED; Telugu is not
-    named there, so for Telugu it is the founder's ear test of 11 Oct 2026)."""
-    style = style_for(tag)
-    if style is None or not style.english_in_own_letters:
-        return None
-    pairs = ", ".join(
-        f"{english} not {native}"
-        for native, english in style.english_in_own_letters[:ENGLISH_LETTERS_EXAMPLES]
-    )
-    return f"English words in English letters, never the caller's spelling: {pairs}."
-
-
 #: How the example line names each side: the agent reading it is "you".
 _WHO: Final[dict[str, str]] = {"caller": "caller", "agent": "you"}
 
@@ -781,9 +747,6 @@ def writer_guidance(tag: str | None, business_type: str | None = None, *, exampl
     if style is None:
         return ""
     lines = [f"How people speak it on the phone ({style.register_name}): {style.register}"]
-    letters = english_letters_rule(tag)
-    if letters:
-        lines.append(letters)
     if style.word_swaps:
         lines.append(
             "Formal words to avoid, with what people say instead: "
@@ -836,7 +799,6 @@ __all__ = [
     "COMPACT_EXCHANGES",
     "COMPACT_SAY",
     "DEFAULT_EXAMPLES",
-    "ENGLISH_LETTERS_EXAMPLES",
     "ENTRY_KINDS",
     "OPENING_KEYS",
     "PACK_APPROVED",
@@ -862,7 +824,6 @@ __all__ = [
     "caller_guidance",
     "candidate_prompt_examples",
     "default_entries",
-    "english_letters_rule",
     "example_exchange",
     "example_sentence",
     "install_published",
