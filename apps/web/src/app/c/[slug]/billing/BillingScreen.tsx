@@ -389,15 +389,17 @@ export function BillingScreen({ slug }: { slug: string }) {
           }
         />
         <UnfinishedPayments session={session} />
+        {!billingRefused && <AutoRechargePanel session={session} />}
         {/* D-707: the monthly platform fee, a separate payment from calling credit. */}
         {!billingRefused && <PlatformFeeCard session={session} />}
-        {!billingRefused && (
-          <AutoRechargePanel session={session} />
-        )}
-        {lots && <LotsPanel lots={lots} />}
       </div>
     );
   };
+
+  /* The credit lots are the detail behind the balance (which purchase is spent next, at what
+     rate), so they open the Usage view rather than sitting between the balance and the
+     history. Only for a prepaid wallet that loaded, as when they were in the header. */
+  const showLots = lots !== undefined && wallet.data !== undefined && walletState(wallet.data) !== "not-prepaid";
 
   const view_ = () => {
     switch (view) {
@@ -407,16 +409,19 @@ export function BillingScreen({ slug }: { slug: string }) {
         return <StatementsView session={session} allowed={billingAllowed} />;
       default:
         return (
-          <UsageView
-            session={session}
-            slug={slug}
-            month={month}
-            onMonthChange={setMonth}
-            billingAllowed={billingAllowed}
-            wallet={wallet.data}
-            card={packs.data}
-            labels={labels}
-          />
+          <div className="space-y-10">
+            {showLots && <LotsPanel lots={lots} />}
+            <UsageView
+              session={session}
+              slug={slug}
+              month={month}
+              onMonthChange={setMonth}
+              billingAllowed={billingAllowed}
+              wallet={wallet.data}
+              card={packs.data}
+              labels={labels}
+            />
+          </div>
         );
     }
   };

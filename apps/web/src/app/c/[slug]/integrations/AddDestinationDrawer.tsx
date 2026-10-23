@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { CheckCircle2, Webhook } from "lucide-react";
+import { Webhook } from "lucide-react";
 
 import { Drawer } from "@/components/console/drawer";
 import { IconTile } from "@/components/console/iconTile";
@@ -11,7 +11,7 @@ import type { Session } from "@/lib/api/client";
 import type { WriteAccess } from "@/lib/api/hooks";
 import type { EndpointOptions } from "@/lib/api/integrations";
 
-import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
+import { ChoiceCards } from "@/components/console/choiceCards";
 import { CopyRow } from "../lead-sources/IssuedSecretNotice";
 import { SheetsForm, SheetsUnavailable } from "./SheetsForm";
 import { WebhookForm } from "./WebhookForm";
@@ -81,32 +81,18 @@ export function AddDestinationDrawer({
         </div>
       ) : (
         <div className="space-y-5">
-          <fieldset>
-            <legend className="sr-only">Where to send events</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {KINDS.map((option) => (
-                <label key={option.value} className={`${CHOICE_CARD} ${kind === option.value ? CHOICE_ON : CHOICE_OFF}`}>
-                  <input
-                    type="radio"
-                    name={name}
-                    className="sr-only"
-                    checked={kind === option.value}
-                    onChange={() => setKind(option.value)}
-                  />
-                  {kind === option.value && (
-                    <CheckCircle2 aria-hidden className="absolute right-2 top-2 h-4 w-4 text-brand-strong" />
-                  )}
-                  <IconTile
-                    service={option.value === "sheet" ? "google_sheets" : null}
-                    icon={Webhook}
-                    className="mb-3"
-                  />
-                  <span className="block pr-6 text-body font-semibold text-ink">{option.label}</span>
-                  <span className="mt-0.5 block text-meta text-ink-faint">{option.hint}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
+          <ChoiceCards
+            legend="Where to send events"
+            legendClassName="sr-only"
+            name={name}
+            value={kind}
+            options={KINDS.map((option) => ({
+              ...option,
+              icon: <IconTile service={option.value === "sheet" ? "google_sheets" : null} icon={Webhook} />,
+            }))}
+            onChange={setKind}
+            columns="sm:grid-cols-2"
+          />
           {kind === "webhook" ? (
             <WebhookForm session={session} catalogue={options.events} write={write} onSecret={setSecret} />
           ) : options.sheets_delivery_available ? (

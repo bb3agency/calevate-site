@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
+import { SegmentedControl } from "@/components/interior/segmented-control";
 import { Section } from "@/components/console/section";
 import { StepFlow } from "@/components/console/stepFlow";
 import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice, formatPhone } from "@/components/ui";
@@ -16,7 +16,7 @@ import {
   type LineKind,
 } from "@/lib/api/forwarding";
 
-import { CARRIER_LABEL, LINE_KIND_LABEL, modeSummary } from "./copy";
+import { CARRIER_LABEL, LINE_KIND_CHOICE, modeSummary } from "./copy";
 import { ForwardingCodes } from "./ForwardingCodes";
 import { ModeChoice } from "./ModeChoice";
 import { TestPanel } from "./TestPanel";
@@ -140,24 +140,22 @@ export function ExistingNumberGuide({
                   {numberInvalid ? "Enter 10 digits, or 0 and the area code for a landline." : "The number on your board, card or website."}
                 </span>
               </div>
-              <fieldset className="space-y-2">
-                <legend className={FIELD_LABEL}>What kind of line is it?</legend>
-                <div className="grid gap-2 sm:grid-cols-3">
-                  {(Object.keys(LINE_KIND_LABEL) as LineKind[]).map((option) => (
-                    <label key={option} className={`${CHOICE_CARD} ${kind === option ? CHOICE_ON : CHOICE_OFF}`}>
-                      <input
-                        type="radio"
-                        name="line-kind"
-                        value={option}
-                        checked={kind === option}
-                        onChange={() => setKind(option)}
-                        className="sr-only"
-                      />
-                      <span className="text-body text-ink">{LINE_KIND_LABEL[option]}</span>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
+              <div>
+                <p className={FIELD_LABEL} aria-hidden>
+                  What kind of line is it?
+                </p>
+                <SegmentedControl
+                  label="What kind of line is it?"
+                  className="mt-1.5"
+                  value={kind}
+                  options={(Object.keys(LINE_KIND_CHOICE) as LineKind[]).map((option) => ({
+                    value: option,
+                    label: LINE_KIND_CHOICE[option].label,
+                  }))}
+                  onValueChange={(next) => setKind(next as LineKind)}
+                />
+                <p className={FIELD_HINT}>{LINE_KIND_CHOICE[kind].hint}</p>
+              </div>
               {kind === "mobile" && (
                 <div>
                   <label htmlFor="existing-carrier" className={FIELD_LABEL}>

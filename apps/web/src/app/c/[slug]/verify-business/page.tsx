@@ -19,6 +19,7 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
+  formatISTDay,
 } from "@/components/ui";
 import { useActAccess, useWriteAccess, type WriteAccess } from "@/lib/api/hooks";
 import { ENTITY_TYPES, useKycRecord, type KycRecord } from "@/lib/api/kyc";
@@ -160,18 +161,18 @@ function PledgeCard({
 }) {
   const accept = useAcceptPledge(session);
   const [read, setRead] = useState(false);
+  const acceptedOn = formatISTDay(pledge.accepted_at);
   return (
     <Card title="No-cold-calls pledge and calling disclosure">
-      {/* The server separates the pledge and the disclosure with a blank line (D-762). */}
-      <blockquote className="whitespace-pre-line rounded-md bg-surface-muted p-4 text-sm text-ink">
+      {/* The server separates the pledge and the disclosure with a blank line (D-762). A rule
+          on the left, not a grey box: a box inside the card is a second container that adds
+          no level to the hierarchy. */}
+      <blockquote className="whitespace-pre-line border-l-2 border-line pl-4 text-sm text-ink">
         {pledge.pledge_text}
       </blockquote>
       {pledge.is_current ? (
         <p className="mt-3 text-sm text-ink">
-          Accepted
-          {pledge.accepted_at
-            ? ` on ${new Date(pledge.accepted_at).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}`
-            : ""}.
+          {acceptedOn ? `Accepted on ${acceptedOn}.` : "Accepted."}
         </p>
       ) : (
         <div className="mt-3 space-y-3">

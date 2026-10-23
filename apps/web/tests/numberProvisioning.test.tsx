@@ -385,12 +385,17 @@ describe("buying", () => {
 });
 
 describe("choosing what a number is used for", () => {
+  // The direction is a segmented control in the agent page's words, one per number.
+  const directionOf = async () =>
+    within(await screen.findByRole("radiogroup", { name: /^what it does/i }));
+
   it("offers answering, calling out, and both", async () => {
     await renderClientPage(<PhoneNumberPage />, routes());
 
-    expect(await screen.findByLabelText(/answer calls to this number/i)).toBeTruthy();
-    expect(screen.getByLabelText(/call out from this number/i)).toBeTruthy();
-    expect(screen.getByLabelText(/^both/i)).toBeTruthy();
+    const group = await directionOf();
+    expect(group.getByRole("radio", { name: /^answer calls$/i })).toBeTruthy();
+    expect(group.getByRole("radio", { name: /^make calls$/i })).toBeTruthy();
+    expect(group.getByRole("radio", { name: /^both$/i })).toBeTruthy();
   });
 
   it("tells the voice platform which agent and which legs", async () => {
@@ -411,7 +416,7 @@ describe("choosing what a number is used for", () => {
     fireEvent.change(await screen.findByLabelText(/the agent that uses it/i), {
       target: { value: "agent-1" },
     });
-    fireEvent.click(screen.getByLabelText(/^both/i));
+    fireEvent.click((await directionOf()).getByRole("radio", { name: /^both$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
     await waitFor(() => {
@@ -457,7 +462,9 @@ describe("choosing what a number is used for", () => {
 
     const select = (await screen.findByLabelText(/the agent that uses it/i)) as HTMLSelectElement;
     expect(select.value).toBe("agent-1");
-    expect((screen.getByLabelText(/^both/i) as HTMLInputElement).checked).toBe(true);
+    expect(
+      (await directionOf()).getByRole("radio", { name: /^both$/i }).getAttribute("aria-checked"),
+    ).toBe("true");
 
     // The page reads the agent list too, so the form can render from the cache before the
     // write-access read lands; Save is enabled only once it has.

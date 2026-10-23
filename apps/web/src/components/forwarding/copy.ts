@@ -25,6 +25,13 @@ export const LINE_KIND_LABEL: Record<LineKind, string> = {
   office_system: "Office phone system",
 };
 
+/** The same three as segments, short enough that all three fit side by side at 375 px. */
+export const LINE_KIND_CHOICE: Record<LineKind, { label: string; hint: string }> = {
+  mobile: { label: "Mobile", hint: "A SIM in a mobile phone." },
+  landline: { label: "Landline", hint: "A fixed line from the phone company." },
+  office_system: { label: "Office system", hint: "A switchboard or desk phones behind one number." },
+};
+
 export const MODE_COPY: Record<ForwardingMode, { title: string; line: string }> = {
   conditional: {
     title: "Your phone rings first",

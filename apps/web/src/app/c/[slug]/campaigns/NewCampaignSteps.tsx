@@ -1,10 +1,10 @@
 "use client";
 
-import { CheckCircle2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { TEXT_ACTION } from "@/components/console/section";
+import { SegmentedControl } from "@/components/interior/segmented-control";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { FIELD, FIELD_HINT, FIELD_LABEL, formatPhone } from "@/components/ui";
 import { canDialOut } from "@/lib/agentState";
@@ -118,44 +118,37 @@ export function RetryChoice({
   );
 }
 
-/** One choice-card radio group, the shape every choice on this flow uses. */
-function ChoiceCards<T extends string>({
-  legend,
-  name,
+/**
+ * A short choice: its question, a segmented control, and one line on the option picked.
+ * Each option here is a word or three, so cards would only add height; the line under the
+ * control carries what a card's second line used to.
+ */
+function ShortChoice<T extends string>({
+  label,
   value,
   options,
   onChange,
-  columns = "sm:grid-cols-3",
 }: {
-  legend: string;
-  name: string;
+  label: string;
   value: T;
   options: { value: T; label: string; hint: ReactNode }[];
   onChange: (value: T) => void;
-  columns?: string;
 }) {
+  const picked = options.find((option) => option.value === value);
   return (
-    <fieldset>
-      <legend className={FIELD_LABEL}>{legend}</legend>
-      <div className={`mt-2 grid gap-2 ${columns}`}>
-        {options.map((option) => (
-          <label key={option.value} className={`${CHOICE_CARD} ${value === option.value ? CHOICE_ON : CHOICE_OFF}`}>
-            <input
-              type="radio"
-              name={name}
-              className="sr-only"
-              checked={value === option.value}
-              onChange={() => onChange(option.value)}
-            />
-            {value === option.value && (
-              <CheckCircle2 aria-hidden className="absolute right-2 top-2 h-4 w-4 text-brand-strong" />
-            )}
-            <span className="block pr-6 text-sm font-semibold text-ink">{option.label}</span>
-            <span className="mt-0.5 block text-xs text-ink-faint">{option.hint}</span>
-          </label>
-        ))}
-      </div>
-    </fieldset>
+    <div>
+      <p className={FIELD_LABEL} aria-hidden>
+        {label}
+      </p>
+      <SegmentedControl
+        label={label}
+        className="mt-1.5"
+        value={value}
+        options={options.map((option) => ({ value: option.value, label: option.label }))}
+        onValueChange={(next) => onChange(next as T)}
+      />
+      {picked && <p className={FIELD_HINT}>{picked.hint}</p>}
+    </div>
   );
 }
 
@@ -233,9 +226,8 @@ export function BasicsStep({
       )}
 
       {/* The category decides which number series may dial (DATA-MODEL §6). */}
-      <ChoiceCards
-        legend="What kind of calls are these?"
-        name="classification"
+      <ShortChoice
+        label="What kind of calls are these?"
         value={form.classification}
         options={classifications}
         onChange={form.setClassification}
@@ -300,9 +292,8 @@ const START_MODES: { value: StartMode; label: string; hint: string }[] = [
 export function StartChoice({ schedule }: { schedule: ScheduleFormState }) {
   return (
     <div className="space-y-4">
-      <ChoiceCards
-        legend="How should it start?"
-        name="start-mode"
+      <ShortChoice
+        label="How should it start?"
         value={schedule.startMode}
         options={START_MODES}
         onChange={schedule.setStartMode}
