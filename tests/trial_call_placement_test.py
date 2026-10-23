@@ -24,9 +24,12 @@ from apps.api.compliance.trial_access import TrialAccess
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
-from apps.api.db.session import tenant_session
+from apps.api.db.session import long_running_statements, tenant_session
 from apps.api.engine.vendor_http import EngineRejectedError
+from apps.api.main import app
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.first_run_test import _owner
 from tests.trial_test_calls_test import TRIAL_NUMBER, _trial_call_row, _trial_tenant
 
 pytestmark = [pytest.mark.rls]
@@ -290,3 +293,39 @@ def test_the_call_limit_is_the_console_limit_or_what_is_left(
         at=None,  # type: ignore[arg-type]
     )
     assert access.call_seconds == expected
+
+
+async def test_the_own_number_tick_lets_the_placed_call_be_recorded(line: Line) -> None:
+    """D-863. "Call me now" on the first run sends `number_is_mine`, whose audit row takes the
+    audit chain's advisory lock (`compliance.audit.lock_chain`). Written on the request's
+    own transaction, that lock was held until the response, so the call's own audit row,
+    written in a separate transaction after the dial, waited on it until `statement_timeout`
+    cancelled it: a rung phone answered 503 `database_busy`. A short budget reproduces the
+    cancel in seconds rather than ten."""
+    tenant_id, agent_id, _principal = await _account(line)
+    headers = await _owner(tenant_id)
+    with long_running_statements(timeout_ms=2_000):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+            placed = await http.post(
+                "/v1/trial/calls",
+                headers={
+                    **headers,
+                    "Idempotency-Key": uuid.uuid4().hex,
+                },
+                json={"agent_id": str(agent_id), "number": "98765 43210", "number_is_mine": True},
+            )
+    assert placed.status_code == 200, placed.text
+    assert placed.json()["status"] == "queued"
+    async with tenant_session(tenant_id) as session:
+        actions = sorted(
+            (
+                await session.execute(
+                    text(
+                        "SELECT action FROM audit_log WHERE tenant_id = :t "
+                        "AND action LIKE 'trial.%'"
+                    ),
+                    {"t": tenant_id},
+                )
+            ).scalars()
+        )
+    assert actions == ["trial.number_attested", "trial.test_call_placed"]
