@@ -163,6 +163,9 @@ import {
   VOICE_OWN_NONE,
   VOICE_SOURCES_PLATFORM,
   clientVoiceTuning,
+  agentReadiness,
+  NO_ACCOUNT_READINESS,
+  ROSTER_READINESS_PATH,
 } from "./fixtures/sharedReads";
 import { operatorEngineCatalogue } from "./fixtures/engineCatalogue";
 
@@ -2403,6 +2406,8 @@ const CLIENT_SCREENS: Screen[] = [
       // otherwise see.
       "/v1/agents?status=archived": [ARCHIVED_AGENT],
       "/v1/agents/stats": AGENT_STATS,
+      // A scored row, so the sweep covers the readiness pill.
+      [ROSTER_READINESS_PATH]: { ...NO_ACCOUNT_READINESS, score: 85, agents: [agentReadiness(AGENT.id, AGENT.name)] },
       "/v1/agents/lanes": {
         precedence_rule: "Script decides content.",
         lanes: [
@@ -2437,6 +2442,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/business-profile": businessProfileFixture(),
       "/v1/organization/llm-defaults": clientLlmTiers(),
       "/v1/agents/lanes": LANES,
+      "/v1/agents/agent-1/readiness": agentReadiness(),
       // The header's "₹X this month" line, with this agent charged, so its markup is swept.
       [AGENT_SPEND_PATH]: SPEND,
       "/v1/me": ME,

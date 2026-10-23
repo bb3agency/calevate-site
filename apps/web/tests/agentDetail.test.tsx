@@ -21,6 +21,7 @@ import {
   AGENT_SPEND_PATH,
   LANES,
   agentCallHandling,
+  agentReadiness,
   clientVoiceTuning,
   LEGAL_READY,
   clientLlmTiers,
@@ -296,6 +297,7 @@ function routes(over: Record<string, unknown> = {}) {
     // `findByRole("alert")` here becomes a race it loses whenever that one paints first.
     // Overview's last calls for this agent (REDESIGN-2).
     "/v1/calls?agent_id=agent-1&limit=5": [],
+    "/v1/agents/agent-1/readiness": agentReadiness(),
     "/v1/agents/agent-1/handoff": {
       agent_id: "agent-1",
       enabled: false,
@@ -2179,7 +2181,7 @@ describe("the header holds the one primary, and Overview keeps the guarantee fir
     openSection("script");
     await renderClientPage(page, routes(SCRIPT_TAB_READS));
 
-    const opening = await screen.findByLabelText("Opening line");
+    const opening = await screen.findByRole("textbox", { name: "Opening line" });
     expect((opening as HTMLInputElement).value).toBe("Namaskaram.");
     expect(screen.getByRole("heading", { level: 3, name: "Tell Pip what to change" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Script" }).getAttribute("aria-selected")).toBe("true");

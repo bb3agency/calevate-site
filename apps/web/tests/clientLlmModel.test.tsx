@@ -18,6 +18,7 @@ import {
   spendThisMonth,
   agentCallHandling,
   clientVoiceTuning,
+  agentReadiness,
 } from "./fixtures/sharedReads";
 import { ENGINE_CATALOGUE_PATH } from "@/lib/api/engineCatalogue";
 import { businessProfileFixture } from "./businessProfileFixture";
@@ -690,6 +691,7 @@ describe("a client's screens never name a model", () => {
           "/v1/billing/wallet": prepaidWallet(),
           "/v1/calls?agent_id=agent-1&limit=5": [],
           "/v1/agents/agent-1/voice-tuning": clientVoiceTuning(),
+          "/v1/agents/agent-1/readiness": agentReadiness(),
         }),
       );
       await screen.findAllByText("Reception");

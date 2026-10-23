@@ -24,7 +24,7 @@ export type ReadinessFix = Schemas["ReadinessFixOut"];
 export const readinessKeys = {
   all: (org: string) => ["readiness", org] as const,
   agent: (org: string, agentId: string) => ["readiness", org, "agent", agentId] as const,
-  account: (org: string) => ["readiness", org, "account"] as const,
+  account: (org: string, limit?: number) => ["readiness", org, "account", limit ?? null] as const,
 };
 
 export function useAgentReadiness(
@@ -38,9 +38,14 @@ export function useAgentReadiness(
   });
 }
 
-export function useAccountReadiness(session: Session): UseQueryResult<AccountReadiness> {
+/**
+ * `limit`: how many agents the read scores (server default 50, at most the roster limit of
+ * 200). A screen listing every agent passes the roster limit so no row goes unscored.
+ */
+export function useAccountReadiness(session: Session, limit?: number): UseQueryResult<AccountReadiness> {
   return useQuery({
-    queryKey: readinessKeys.account(session.orgSlug),
-    queryFn: () => apiRequest<AccountReadiness>(session, "/v1/readiness"),
+    queryKey: readinessKeys.account(session.orgSlug, limit),
+    queryFn: () =>
+      apiRequest<AccountReadiness>(session, limit === undefined ? "/v1/readiness" : `/v1/readiness?limit=${limit}`),
   });
 }

@@ -19,6 +19,7 @@ import type { Spend } from "@/lib/api/spend";
 import type { Wallet } from "@/lib/api/wallet";
 import type { AlertOptIn } from "@/lib/api/whatsappAlerts";
 import type { ClientVoiceTuning } from "@/lib/api/voiceTuning";
+import type { AccountReadiness, AgentReadiness } from "@/lib/api/readiness";
 
 /**
  * Reads that many screens make and few tests are about, answered in their ordinary state.
@@ -709,5 +710,39 @@ export function clientVoiceTuning(agentId = "agent-1", over: Partial<ClientVoice
     },
     previews_left_today: 20,
     ...over,
+  };
+}
+
+/** The roster's read of every agent's score (`Roster` asks for the whole roster). */
+export const ROSTER_READINESS_PATH = "/v1/readiness?limit=200";
+
+/** `GET /v1/readiness` before any agent has a score. */
+export const NO_ACCOUNT_READINESS = {
+  score: null,
+  agents: [],
+  top_fixes: [],
+  computed_at: "2026-10-24T05:00:00Z",
+} satisfies AccountReadiness;
+
+/** `GET /v1/agents/{id}/readiness` for an agent with one thing left to do. */
+export function agentReadiness(agentId = "agent-1", name = "Reception"): AgentReadiness {
+  return {
+    agent_id: agentId,
+    agent_name: name,
+    score: 85,
+    max_score: 100,
+    components: [
+      { key: "tests", label: "Practice tests", points: 30, max_points: 30, state: "full", detail: "All 4 tests passed." },
+      { key: "opening", label: "Opening line", points: 0, max_points: 15, state: "none", detail: "No opening line yet." },
+    ],
+    fixes: [
+      {
+        component: "opening",
+        action: "Write the opening line callers hear first.",
+        href: `/agents/${agentId}?section=script`,
+        points: 15,
+      },
+    ],
+    computed_at: "2026-10-24T05:00:00Z",
   };
 }
