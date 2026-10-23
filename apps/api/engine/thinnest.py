@@ -299,10 +299,10 @@ RING_SECONDS: Final = 30
 SURFACE_NAMES: Final[dict[str, str]] = {"web": "website call button", "whatsapp": "WhatsApp"}
 #: How an agent takes turns and fills pauses, the same on every agent (founder decisions F3,
 #: F4, F10, 12 Oct 2026; greeting, filler delay and re-ask, founder 20 Oct 2026, D-835): sent
-#: on every publish, so a console change reads as drift and is repaired. A caller interrupts
-#: after 3 words, short words over the agent are kept and answered, no acknowledgement before
-#: every reply, and no end phrases, because the vendor matches them anywhere in what the
-#: caller says and a short one could end a call mid-sentence.
+#: on every publish, so a console change reads as drift and is repaired. Short words over the
+#: agent are kept and answered, no acknowledgement before every reply, and no end phrases,
+#: because the vendor matches them anywhere in what the caller says and a short one could end
+#: a call mid-sentence. How many words interrupt is the console's (`interrupt_words`).
 #: The greeting plays to the end on a phone call (`greetingUninterruptible`, replacing F3's
 #: interruptible greeting): on the production call of 20 Oct 2026 the caller's pickup "hello"
 #: cut it off, so the AI notice it carries was never heard; what the caller said is answered
@@ -316,7 +316,6 @@ SURFACE_NAMES: Final[dict[str, str]] = {"web": "website call button", "whatsapp"
 #: `reaskAfterSeconds` 0, 1.5-10 or null (snapshots/2026-10-19/pages/api-reference/agents/
 #: update-agent.md:1390-1399, :1452-1460).
 PLATFORM_VOICE_VALUES: Final[dict[str, Any]] = {
-    "interruptWords": 3,
     "holdShortSpeech": True,
     "neverInterrupt": False,
     "greetingUninterruptible": True,
@@ -1995,6 +1994,9 @@ class ThinnestEngine:
             # the caller has finished (`AgentVoiceInput.earlyAnswers`, live openapi.json, 21
             # Oct 2026).
             "earlyAnswers": cfg.early_answers,
+            # The console's count (`thinnest_interrupt_words`), always stated so a console
+            # change reads as drift (`interruptions`).
+            "interruptWords": cfg.interrupt_words,
             # The platform's own do-not-call tool stays on beside our opt-out action (founder
             # decision, 13 Oct 2026): a missed opt-out costs more than a false one. Stated,
             # because it is a boolean defaulting to true (update-agent.md:1168-1175) and a

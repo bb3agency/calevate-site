@@ -600,6 +600,9 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "thinnest_early_answers": AppliesRule(
         LIVE_AGENTS, f"saving it moves every live agent onto it{_NOW}"
     ),
+    "thinnest_interrupt_words": AppliesRule(
+        LIVE_AGENTS, f"saving it moves every live agent onto it{_NOW}"
+    ),
     # Read inside every ThinnestAI dial's intent transaction (`agents/service.dispatch_call`)
     # and once per dispatch tick for the outbound pool, like `carrier_concurrency`.
     "thinnest_max_concurrent_calls": AppliesRule(LIVE),

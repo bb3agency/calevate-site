@@ -353,6 +353,14 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "billed to our Google key, outside usage. Off: replies wait till they finish.",
         _THINNEST,
     ),
+    "thinnest_interrupt_words": _m(
+        "voice-engine",
+        "thinnest",
+        "Words a caller must say to stop the agent",
+        'Fewer stops it on a short answer like "Saturday". Under Ear, "haan ji" and '
+        '"okay" never stop it.',
+        _THINNEST,
+    ),
     "reply_time_target_ms": _m(
         "voice-engine",
         "thinnest",
@@ -1272,6 +1280,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "whatsapp_message_inr": ControlHint(unit="rupees"),
     "thinnest_max_concurrent_calls": ControlHint(unit="calls at once"),
     "thinnest_reply_length": ControlHint(unit="tokens"),
+    "thinnest_interrupt_words": ControlHint(unit="words"),
     "thinnest_turn_detection": ControlHint(
         options=(
             OptionLabel("timer", "Silence", "The pause set in Call handling ends the turn."),

@@ -3711,6 +3711,9 @@ class AgentConfig(BaseModel):
     #: console's `thinnest_early_answers`. Excluded from every dump for `detect_machines`'
     #: reason.
     early_answers: bool = Field(default=True, exclude=True)
+    #: Words a caller must say over the agent to stop it: the console's
+    #: `thinnest_interrupt_words`. Excluded from every dump for `detect_machines`' reason.
+    interrupt_words: int = Field(default=2, ge=1, le=6, exclude=True)
     #: The reply ceiling in tokens (D-769): the agent's own, else the console's
     #: `thinnest_reply_length`, resolved by `apps/api/agents/reply_length`. Excluded from
     #: every dump for `detect_machines`' reason.

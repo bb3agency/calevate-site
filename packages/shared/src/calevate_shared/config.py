@@ -526,6 +526,13 @@ class Settings(BaseSettings):
     #: later (live openapi.json and §25.0, 21 Oct 2026). Saving it republishes every live
     #: agent.
     thinnest_early_answers: bool = True
+    #: Words a caller must say over the agent to stop it (`voice.interruptWords`, 1 to 6;
+    #: vendor default 3). At 3 a one- or two-word answer ("Saturday", "afternoon") never
+    #: stops it, so the agent talked over a Telugu caller giving short answers (founder,
+    #: 23 Oct 2026). Under `ear`, "haan ji" and "okay" are told apart from an interruption
+    #: by the engine, which is what makes 2 safe (channels/voice.md:845-885, 19 Oct 2026
+    #: snapshot). Saving it republishes every live agent.
+    thinnest_interrupt_words: int = Field(default=2, ge=1, le=6)
     #: How long a caller may wait for a reply, in milliseconds: from the moment they stop
     #: speaking to the agent's first audio, as the voice platform measures it per call
     #: (`CallQuality.reply_ms_*`). A call is over target when its p90 reply exceeds this: more

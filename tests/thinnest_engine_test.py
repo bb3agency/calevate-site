@@ -163,6 +163,8 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         "turnDetection": "timer",
         # Early answers stated at the vendor's default (D-852).
         "earlyAnswers": True,
+        # The console's count (`thinnest_interrupt_words`, 2).
+        "interruptWords": 2,
         # The platform's own do-not-call tool stays on (13 Oct 2026).
         "recordDoNotCall": True,
         # No number attached yet: nowhere, never the website button or WhatsApp (F1).
@@ -179,7 +181,6 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         # The engine's default call rules while our switch is off (D-850).
         "callInstructions": None,
         # The same on every agent (F3, F4, F10).
-        "interruptWords": 3,
         "holdShortSpeech": True,
         "neverInterrupt": False,
         "greetingUninterruptible": True,

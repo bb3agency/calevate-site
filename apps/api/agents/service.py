@@ -891,6 +891,7 @@ def _to_config(
         turn_detection=settings.thinnest_turn_detection,
         acknowledgements=settings.thinnest_acknowledgements,
         early_answers=settings.thinnest_early_answers,
+        interrupt_words=settings.thinnest_interrupt_words,
         has_phone_number=bool(agent.get("has_phone_number", False)),
         forwarded_line=bool(agent.get("forwarded_line", False)),
         # THE NOTICES THE AGENT VOLUNTEERS BEFORE ITS OPENING LINE, composed from this
