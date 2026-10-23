@@ -1731,3 +1731,32 @@ minutes per client; ESTIMATE, confirmed by the founder by sending it.
 >
 > Thanks,
 > Umesh
+
+## 30. Questions for the next email (from the Sri Estates call of 23 Oct 2026, D-864)
+
+1. **Does the call model see the spoken opening in its history?** On a call our agent answers,
+   the engine speaks the agent's `greeting`; on a call we place, it speaks the call's `purpose`.
+   Is that line given to the model as the first assistant turn of the conversation, before the
+   customer's first words, on both kinds of call, and is it in the history the model reads on
+   every later turn? The Voice page says the opening line "is also the first message in the
+   chat" (`channels/voice.md`, Opening line; mirror 19 Oct 2026 and live page, 23 Oct 2026)
+   and says nothing about a call's model; the answer of 18 Oct (§16.0) says a nudge "is
+   recorded as an agent turn" the model sees later, and nothing says the same of the greeting
+   or `purpose`. On the call, after our opening asked "can we talk now?", the customer said
+   "Hello" and the agent greeted again, which is what a model that never saw its own opening
+   would do.
+
+   Until this is answered, our instructions quote the exact opening already spoken and tell the
+   model not to greet again (`calevate_shared.engine._start_of_call_section`), which works
+   whichever way the answer goes.
+2. **Can an outbound opening wait for the person's "Hello"?** As asked (founder, 23 Oct 2026):
+   "On an outbound call, can the agent's opening line wait until the person who picked up has
+   spoken (their 'Hello'), then play at once, instead of playing the moment the call connects?
+   Other platforms call this 'assistant waits for user' (Vapi firstMessageMode). If yes, which
+   field; if not, could you add it? And does the in-call model see the spoken opening line as
+   its own first turn in the conversation history?" The Vapi name comes from a third-party
+   community forum thread, not Vapi's docs, and was not readable from here (HTTP 429, 23 Oct
+   2026): support.vapi.ai/t/23072142/first-message-and-first-message-mode-api-parameters.
+   UNVERIFIED that the mode behaves as named. The opening itself stays a line our model
+   writes once per agent, at build or edit, validated (own letters, length, notices after it)
+   and spoken by the engine; no per-call generation.

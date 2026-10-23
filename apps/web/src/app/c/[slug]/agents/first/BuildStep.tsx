@@ -58,14 +58,18 @@ export function metaOf(step: FirstRunBuildStep): string | undefined {
       : "Written from what you said";
   if (step.step === "greeting" && step.state === "ready_made") return "The tried and tested greeting for its language";
   if (step.step === "greeting") return "Short, and ends on a question";
-  if (step.step === "notice" && step.state === "done") return "It always says it is an AI when asked";
+  if (step.step === "notice") {
+    if (step.state === "done") return "Said right after its greeting on every call";
+    if (step.state === "off") return "Kept off, as you set it";
+    if (step.state === "no_room") return "No room after its greeting. Shorten the greeting to add it.";
+  }
   return undefined;
 }
 
 /** A step's state on the stage. The worker works on one step at a time, in order, so the
  *  first one still waiting while the build runs is the one being worked on. */
 export function rowStateOf(step: FirstRunBuildStep, working: boolean, failed: boolean): RowState {
-  if (step.state === "none") return "warn";
+  if (step.state === "none" || step.state === "no_room") return "warn";
   if (step.state !== "waiting") return "done";
   if (working) return failed ? "failed" : "working";
   return "waiting";

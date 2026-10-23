@@ -265,8 +265,10 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # 6,239 + 1,112 to 6,802 + 149 (`tests/agent_prompt_budget_test.PER_CALL_MAX`). D-861 told
     # an answering agent its test call opens with another line and to answer the caller's
     # reply rather than greet again (6,802 before); the per-call platform text it measures
-    # without an opening stayed within `PER_CALL_MAX`.
-    assert len(prompt) <= 6_908
+    # without an opening stayed within `PER_CALL_MAX`. D-864 quotes the whole opening already
+    # spoken and says to go on after a bare hello (6,908 before; the quote is the agent's own
+    # opening, so it grows with that line, not with the platform text).
+    assert len(prompt) <= 7_032
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

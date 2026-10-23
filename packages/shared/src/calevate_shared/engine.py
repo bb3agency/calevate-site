@@ -3882,9 +3882,20 @@ START_OF_CALL_HEADER: Final = "--- START OF THE CALL ---"
 #: composition ThinnestAI described, `docs/vendor/thinnest-replies-2026-10-12.md` §18.0), and a
 #: per-call value saying so would have to sit after the truthful-answer block or end the
 #: cached prefix early, so the rule keys on what the caller asks instead.
+#: It ends on "carry on" rather than asking whether now suits: the opening already asks that,
+#: and asking it twice is what the call of 23 Oct 2026 did (D-864).
 WHO_IS_CALLING_RULE: Final = (
-    " Asked who is calling or why? Say who you are and why in one line, then ask if now is a "
-    "good time."
+    " Asked who is calling or why? Say who you are and why in one line, then carry on."
+)
+
+#: What the model does with the caller's first words after the opening (D-864, founder,
+#: 23 Oct 2026). On that call the caller's "Hello" after a greeting that asked "can we talk
+#: now?" drew a second "నమస్కారం అండి", and "who is it?" drew the "can you talk now?" question
+#: again. A bare hello answers the opening, so the model moves to its next step.
+OPENING_CONTINUES_RULE: Final = (
+    " Never greet again, repeat it or ask again if now is a good time. A reply of a word or "
+    'two ("hello", "yes", in any language) means go on with your next step: why you are '
+    "calling or your first question."
 )
 
 
@@ -3904,25 +3915,27 @@ def _start_of_call_section(cfg: AgentConfig) -> str:
     opening line is the first thing a caller hears and also the first message in a chat
     (`channels/voice.md:209-214`, 19 Oct 2026 snapshot). Left as bare text in the
     instructions, the notices read as something to say, and a model repeated them in later
-    replies and greeted again. So the notices are quoted verbatim, which keeps the publish
-    read-back's containment check on `cfg.opening_line` (`agents/verification`), and the
-    opening line is named by its script section rather than quoted twice. The model is told
-    what to do with the caller's first words as well as what not to do, because "never greet
-    again" alone still let it greet a second time after the caller's "Hello" (D-861). A
-    caller who asks still gets both answers: the truthful-answer block binds last.
+    replies and greeted again.
+
+    The whole first utterance is quoted, exactly as the engine's greeting field holds it,
+    rather than naming the [OPENING] section (D-864): whether ThinnestAI puts the spoken
+    greeting into the call model's history is not documented (`channels/voice.md:209-214`
+    says only "the first message in the chat"; question queued in
+    `docs/vendor/thinnest-replies-2026-10-12.md` §30), and a quote works either way. It still
+    contains the notices verbatim, which the publish read-back's containment check on
+    `cfg.opening_line` needs (`agents/verification`). The model is told what to do with the
+    caller's first words as well as what not to do, because "never greet again" alone still
+    let it greet a second time after the caller's "Hello" (D-861, D-864). A caller who asks
+    still gets both answers: the truthful-answer block binds last.
     """
-    notices = cfg.opening_line.strip()
-    opening = bool(opening_line_of(cfg.system_prompt))
-    if not notices and not opening:
+    first_words = compose_first_utterance(cfg)
+    if not first_words:
         return ""
-    if notices and opening:
-        said = f'your [OPENING] line, then "{notices}"'
-    else:
-        said = f'"{notices}"' if notices else "your [OPENING] line"
-    test_call = TEST_CALL_OPENING_RULE if cfg.direction == "inbound" and opening else ""
+    has_opening = bool(opening_line_of(cfg.system_prompt))
+    test_call = TEST_CALL_OPENING_RULE if cfg.direction == "inbound" and has_opening else ""
     return (
-        f"{START_OF_CALL_HEADER}\nSaid for you as your first turn: {said}.{test_call} Never "
-        "say it again or greet again: answer the caller's reply."
+        f'{START_OF_CALL_HEADER}\nAlready said for you as your first turn: "{first_words}".'
+        f"{test_call}{OPENING_CONTINUES_RULE}"
         f"{'' if cfg.direction == 'outbound' else WHO_IS_CALLING_RULE}"
     )
 
@@ -5911,6 +5924,7 @@ __all__ = [
     "FORWARDED_LINE_RULE",
     "LAYER_SEPARATOR",
     "MAX_CALLER_MEMORY_CHARS",
+    "OPENING_CONTINUES_RULE",
     "OWN_RULES_HANDOVER_RULE",
     "PIPECAT_REF_PREFIX",
     "PLATFORM_RULES_HEADER",

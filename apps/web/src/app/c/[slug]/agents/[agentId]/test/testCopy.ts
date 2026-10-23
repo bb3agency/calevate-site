@@ -169,6 +169,7 @@ export const SOUND: Record<SoundKind, string> = {
   third_person: "talked about the caller instead of to them",
   foreign_script: "wrote letters the voice cannot say",
   repeated_turn: "repeated itself word for word",
+  opened_again: "greeted again or asked again if now suits, after its opening",
 };
 
 /** Who fixes a result stored before D-823, which carries only the kind of fix. */

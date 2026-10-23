@@ -72,8 +72,9 @@ def test_the_notices_are_quoted_as_already_said_and_never_repeated() -> None:
     cfg = _cfg()
     start = _layer(cfg, "notices")
     assert start.startswith(f"{START_OF_CALL_HEADER}\n")
-    assert f'your [OPENING] line, then "{NOTICES}"' in start
-    assert "Never say it again or greet again: answer the caller's reply." in start
+    # The whole opening, quoted as spoken: greeting, then the notices (D-861, D-864).
+    assert f'first turn: "{OPENING} {NOTICES}".' in start
+    assert "Never greet again, repeat it or ask again if now is a good time." in start
     prompt = compose_engine_prompt(cfg)
     # The publish read-back scores containment of the notices (`agents/verification`), and a
     # caller who asks is still answered by the block that binds last.
@@ -103,10 +104,10 @@ def test_an_answering_agent_is_told_its_test_call_opens_another_way() -> None:
 
 
 def test_an_agent_with_only_one_of_them_is_told_about_that_one() -> None:
-    assert "your [OPENING] line" in _layer(_cfg(notices=""), "notices")
+    assert f'"{OPENING}".' in _layer(_cfg(notices=""), "notices")
     assert NOTICES not in _layer(_cfg(notices=""), "notices")
     alone = _layer(_cfg(opening=""), "notices")
-    assert f'"{NOTICES}".' in alone and "[OPENING]" not in alone
+    assert f'"{NOTICES}".' in alone and OPENING not in alone
     assert _layer(_cfg(notices="", opening=""), "notices") == ""
 
 

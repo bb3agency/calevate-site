@@ -280,7 +280,7 @@ async def brief_for(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> S
     row = (
         await session.execute(
             text(
-                "SELECT a.direction, a.language_primary, o.vertical_template, o.name "
+                "SELECT a.direction, a.language_primary, o.vertical_template, o.name, a.name "
                 "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL AND o.id = :tid"
             ),
@@ -299,6 +299,7 @@ async def brief_for(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> S
     )
     return ScriptBrief(
         business_name=str(row[3] or ""),
+        agent_name=str(row[4] or ""),
         business_type=str(row[2] or "custom"),
         direction=str(row[0]),
         language=language,

@@ -43553,7 +43553,8 @@
               "wrong_language",
               "third_person",
               "foreign_script",
-              "repeated_turn"
+              "repeated_turn",
+              "opened_again"
             ],
             "title": "Kind",
             "type": "string"
@@ -43589,7 +43590,8 @@
               "wrong_language",
               "third_person",
               "foreign_script",
-              "repeated_turn"
+              "repeated_turn",
+              "opened_again"
             ],
             "title": "Kind",
             "type": "string"

@@ -295,6 +295,20 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
             "asks one question; no pitch of products and no recording notice nobody asked for."
         ),
     ),
+    # The Sri Estates call of 23 Oct 2026 (D-864): "Hello" after the opening drew a second
+    # greeting, and the next reply asked again whether now was a good time.
+    SpecimenClass(
+        key="specimen_hello_after_opening",
+        title="Answers the opening with only hello",
+        turns={
+            _DEFAULT: _turns({"te-IN": "హలో.", "hi-IN": "हैलो।", "en-IN": "Hello."}),
+        },
+        expect=(
+            "Treats its opening as already said: goes straight on to why it is calling or its "
+            "first question, in the language it opened in. Never greets again, never repeats "
+            "the opening and never asks again whether now is a good time."
+        ),
+    ),
     SpecimenClass(
         key="specimen_just_whatsapp",
         title="Asks for the details on WhatsApp",

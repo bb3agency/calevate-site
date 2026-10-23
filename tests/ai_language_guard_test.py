@@ -48,7 +48,7 @@ GOAL_TE = "ఎండు మిర్చి గురించి వివరా
 PURPOSE_TE = "మా కొత్త కారం పొడి గురించి సమాచారం ఇవ్వడానికి."
 ADDRESS_TE = "కస్టమర్లను అండి అని పిలవాలి."
 #: Clean spoken Telugu: no word of the spoken-style list.
-OPENING = "నమస్తే అండి, Raghava Organics నుంచి, చెప్పండి?"
+OPENING = "నమస్తే అండి, రాఘవ ఆర్గానిక్స్ నుంచి, చెప్పండి?"
 SOUNDS = "ఏ item కావాలి అండి?"
 
 
