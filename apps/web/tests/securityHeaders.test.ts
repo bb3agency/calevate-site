@@ -130,3 +130,16 @@ describe("the edge security headers", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+/**
+ * The app-tier half: Next adds `X-Powered-By: Next.js` unless told not to
+ * (https://nextjs.org/docs/app/api-reference/config/next-config-js/poweredByHeader), and
+ * the edge passes an upstream's headers through. OWASP ASVS 4.0.3 14.3.3: no response
+ * names the components behind it.
+ */
+describe("next.config.ts", () => {
+  it("does not announce the framework in X-Powered-By", async () => {
+    const { default: config } = await import("../next.config");
+    expect(config.poweredByHeader).toBe(false);
+  });
+});

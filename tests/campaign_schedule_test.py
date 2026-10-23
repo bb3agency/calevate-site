@@ -518,6 +518,27 @@ async def test_a_start_beyond_the_horizon_is_refused_as_the_typo_it_almost_alway
     assert excinfo.value.code == "campaign_schedule_too_far"
 
 
+@pytest.mark.parametrize(
+    ("start_at", "code"),
+    [
+        # The last and first days `datetime` can hold, at offsets that push them past its
+        # range when moved to UTC: this was an OverflowError and a 500.
+        (datetime(9999, 12, 31, 23, 59, 59, tzinfo=timezone(-timedelta(hours=12))), "too_far"),
+        (datetime(1, 1, 1, 0, 0, tzinfo=timezone(timedelta(hours=14))), "in_past"),
+    ],
+)
+async def test_a_start_at_the_edge_of_the_calendar_is_refused_not_a_crash(
+    start_at: datetime, code: str
+) -> None:
+    tenant_id, _, campaign_id = await _ready_campaign()
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as excinfo:
+            await schedule_campaign(
+                session, tenant_id=tenant_id, campaign_id=campaign_id, start_at=start_at
+            )
+    assert excinfo.value.code == f"campaign_schedule_{code}"
+
+
 async def test_a_running_campaign_cannot_be_given_a_start_time() -> None:
     tenant_id, _, campaign_id = await _ready_campaign()
     async with tenant_session(tenant_id) as session:

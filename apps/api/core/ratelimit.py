@@ -328,6 +328,10 @@ RULES: tuple[Rule, ...] = (
     # instead.
     Rule("/v1/copilot/ask", "costly", _m("POST")),
     Rule("/v1/copilot/uploads", "upload", _m("POST")),
+    # The other routes whose body may pass 2 MiB (`middleware.ROUTE_BODY_LIMITS`): up to
+    # 20 MB spooled to disk and stored per request is not a `client_api` rate.
+    Rule("/v1/kb/uploads", "upload", _m("POST")),
+    Rule("/v1/compliance/kyc/documents", "upload", _m("POST")),
     # The other LLM and engine round trips a client starts with one click. Each is gated on
     # the AI allowance, which bounds the money but not the rate: at `client_api` (240/min)
     # one session could queue a model call every quarter second.
@@ -366,6 +370,19 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/agents/*/script/publish", "costly", _m("POST")),
     Rule("/v1/agents/*/script/apply", "costly", _m("POST")),
     Rule("/v1/agents/*/script/undo", "costly", _m("POST")),
+    # The same vendor writes behind other doors: activating and preparing are a publish with
+    # its read-back (`lifecycle.activate_agent`), switching off tells the voice platform to
+    # stop answering the agent's numbers, and the opening-line edit puts the script live.
+    Rule("/v1/agents/*/activate", "costly", _m("POST")),
+    Rule("/v1/agents/*/prepare", "costly", _m("POST")),
+    Rule("/v1/agents/*/deactivate", "costly", _m("POST")),
+    Rule("/v1/agents/*/script/opening-line", "costly", _m("PUT")),
+    # A number bought or released in the client's own workspace on the voice platform.
+    Rule("/v1/numbers/own/purchase", "costly", _m("POST")),
+    Rule("/v1/numbers/own/*/release", "costly", _m("POST")),
+    # `/v1/kb/sources`' sibling: each link is resolved through the egress guard and queued
+    # for a fetch of a host the client names.
+    Rule("/v1/kb/links", "costly", _m("POST")),
     Rule("/v1/lead-sources/*/meta/**", "costly", _m("POST")),
     Rule("/v1/integrations/endpoints/**", "costly", _m("POST")),
     # The ADMIN copilot (`copilot/admin_routes.py`). `/v1/copilot/ask` is weighted for the

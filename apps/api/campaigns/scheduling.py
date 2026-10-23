@@ -328,7 +328,15 @@ def _require_aware(start_at: datetime) -> datetime:
                 }
             ],
         )
-    return start_at.astimezone(UTC)
+    try:
+        return start_at.astimezone(UTC)
+    except OverflowError:
+        # Only a moment on the first or last day `datetime` can hold has no UTC twin. The
+        # nearest representable instant keeps the caller's own past / too-far refusal the
+        # one that answers, rather than a 500.
+        return (datetime.max if start_at.year == datetime.max.year else datetime.min).replace(
+            tzinfo=UTC
+        )
 
 
 def _window_for(calling_hours: dict[str, Any] | None) -> tuple[time, time]:
