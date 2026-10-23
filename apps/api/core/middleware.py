@@ -1,7 +1,7 @@
 """Middleware, in BACKEND-PATTERNS §2 step 5's order with TWO recorded departures:
 
     correlation id → security headers → CORS → unhandled-exception net → body limit
-                   → rate limit → load shed → cookie CSRF
+                   → rate limit → load shed → cookie CSRF → NUL character refusal
                    → [auth, as a route dependency] → tracing → routes
 
 Starlette makes the LAST-added middleware outermost, so `install_middleware` adds them in
@@ -336,6 +336,117 @@ class BodyLimitMiddleware:
         if over_limit and not responded:
             log.warning("payload_too_large", extra={"route": path, "bytes": seen})
             await _problem_response(_payload_too_large(max_bytes), path)(scope, receive, send)
+
+
+#: A `\u0000` escape in JSON text, counted only when the backslash that opens it is not
+#: itself escaped: `\\u0000` is a literal backslash followed by the letters "u0000".
+_JSON_NUL_ESCAPE = re.compile(rb"(?<!\\)(?:\\\\)*\\u0000")
+#: Vendor-to-us channels, left as they were: each verifies a signature over the exact bytes
+#: and answers with the status its sender's retry policy expects, and a 422 here would turn
+#: a delivery that is retried into one that is dropped.
+NUL_UNCHECKED_PREFIXES: tuple[str, ...] = ("/hooks", "/v1/worker/")
+
+
+def _nul_character() -> ProblemError:
+    return ProblemError(
+        kind="validation",
+        code="nul_character",
+        title="Text we cannot save",
+        detail="Part of this request contains a hidden null character, which cannot be saved.",
+        status=422,
+        remediation=(
+            "Remove the hidden character (it often comes with text copied from another "
+            "program) and try again."
+        ),
+    )
+
+
+def _is_json_body(content_type: str | None) -> bool:
+    """The bodies FastAPI decodes as JSON: no content type at all, `application/json`, or
+    `application/<anything>+json` (`fastapi.routing.get_request_handler`)."""
+    if not content_type:
+        return True
+    media = content_type.split(";", 1)[0].strip().lower()
+    main, _, sub = media.partition("/")
+    return main == "application" and (sub == "json" or sub.endswith("+json"))
+
+
+class NulCharacterMiddleware:
+    """Refuse a NUL character in the path, the query string or a JSON body, with a 422.
+
+    PostgreSQL cannot store one: `text` refuses it and `jsonb` refuses the `\\u0000` escape
+    (https://www.postgresql.org/docs/current/datatype-json.html, table 8.23). Pydantic's
+    `str` admits it, so any signed-in person could send one in a lead-view name, a fact or
+    an agent name and get a 500 that raised an `attention` alarm — a pager anybody with an
+    account could ring at will, from at least eight routes found by driving every client
+    route with one (OWASP ASVS 4.0.3 5.1.3/5.1.4: input is validated at the boundary).
+
+    REJECTED: mapping psycopg's `DataError` to a 422 in the error handler. By the time the
+    write fails the handler may already have pushed the same text to the voice platform or
+    a client's webhook, and `DataError` also covers our own bugs, which must stay 500s.
+    REJECTED: a validator on every request model. There are hundreds, path and query
+    parameters are not models, and the one that forgets is the one that matters.
+
+    Innermost, so a refused request has already been counted by the rate limiter and judged
+    by the CSRF check, and the body it buffers has already passed the body limit. The JSON
+    body is read whole before the route sees it, which FastAPI does anyway to decode it.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = str(scope.get("path", ""))
+        if path.startswith(NUL_UNCHECKED_PREFIXES):
+            await self.app(scope, receive, send)
+            return
+        if "\x00" in path or b"%00" in bytes(scope.get("query_string", b"")):
+            await self._refuse(scope, receive, send, path, "url")
+            return
+        method = str(scope.get("method", ""))
+        if method not in CookieCsrfMiddleware.UNSAFE_METHODS or not _is_json_body(
+            _headers(scope).get("content-type")
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        parts: list[bytes] = []
+        while True:
+            message = await receive()
+            if message["type"] != "http.request":
+                # The client went away, or the body limit outside cut the body off: let the
+                # route see the disconnect exactly as it would have.
+                await self.app(scope, _replay(message, receive), send)
+                return
+            parts.append(message.get("body", b""))
+            if not message.get("more_body", False):
+                break
+        body = b"".join(parts)
+        if _JSON_NUL_ESCAPE.search(body):
+            await self._refuse(scope, receive, send, path, "body")
+            return
+        replayed: Message = {"type": "http.request", "body": body, "more_body": False}
+        await self.app(scope, _replay(replayed, receive), send)
+
+    @staticmethod
+    async def _refuse(scope: Scope, receive: Receive, send: Send, path: str, where: str) -> None:
+        log.warning("nul_character_refused", extra={"route": path, "where": where})
+        await _problem_response(_nul_character(), path)(scope, receive, send)
+
+
+def _replay(first: Message, receive: Receive) -> Receive:
+    """`receive`, answering `first` once before handing over to the real one."""
+    pending: list[Message] = [first]
+
+    async def replay() -> Message:
+        if pending:
+            return pending.pop()
+        return await receive()
+
+    return replay
 
 
 class LoadShedMiddleware:
@@ -915,6 +1026,7 @@ def install_middleware(
     # INNERMOST, so a request that is refused here has already passed the body limit, the
     # rate limiter and the load-shed gate — a cross-site probe must not be a cheaper way to
     # reach the process than an honest request.
+    app.add_middleware(NulCharacterMiddleware)
     app.add_middleware(CookieCsrfMiddleware)
     app.add_middleware(LoadShedMiddleware)
     app.add_middleware(RateLimitMiddleware)
@@ -988,6 +1100,7 @@ __all__ = [
     "CookieCsrfMiddleware",
     "CorrelationIdMiddleware",
     "LoadShedMiddleware",
+    "NulCharacterMiddleware",
     "RateLimitMiddleware",
     "RealmCorsMiddleware",
     "SecurityHeadersMiddleware",
