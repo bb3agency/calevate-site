@@ -322,7 +322,11 @@ describe("the voice settings", () => {
     await act(async () => {
       fireEvent.click(changes[4]);
     });
-    expect(screen.getByRole("radio", { name: "Calevate default (Off)" })).toBeTruthy();
+    const followDefault = screen.getByRole("checkbox", { name: "Use the Calevate default: Off" });
+    expect((followDefault as HTMLInputElement).checked).toBe(true);
+    await act(async () => {
+      fireEvent.click(followDefault);
+    });
     await pick("Office");
     await act(async () => {
       fireEvent.change(screen.getByLabelText(/^Volume/), { target: { value: "30" } });

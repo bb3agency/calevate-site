@@ -21,7 +21,15 @@ import { SaveBar } from "@/components/console/saveBar";
 import { TEXT_ACTION } from "@/components/console/section";
 import { SettingRow } from "@/components/console/settingRow";
 import { FieldMessage } from "@/components/formValidation";
-import { FIELD, FIELD_INLINE, ProblemNotice } from "@/components/ui";
+import { SegmentedControl } from "@/components/interior/segmented-control";
+import {
+  FIELD,
+  FIELD_HINT,
+  FIELD_INLINE,
+  FIELD_LABEL,
+  ProblemNotice,
+  RANGE_INPUT,
+} from "@/components/ui";
 import {
   AMBIENCE_LABELS,
   ambienceSummary,
@@ -509,6 +517,15 @@ export interface SoundValues {
 
 type SoundChoice = "inherit" | Ambience;
 
+/** Quietest first, so the control reads as a scale. */
+const SOUND_ORDER: readonly Ambience[] = ["off", "office-quiet", "office"];
+
+const SOUND_HINTS: Record<Ambience, string> = {
+  off: "Silence behind the agent's voice, so the line goes quiet between replies.",
+  "office-quiet": "A soft office sound behind the voice, so the line never drops to dead silence.",
+  office: "A fuller office sound behind the voice.",
+};
+
 export function BackgroundSoundRow({
   idPrefix,
   hint,
@@ -581,50 +598,64 @@ export function BackgroundSoundRow({
             onSave(next, () => setEditing(false));
           }}
         >
-          <fieldset>
-            <legend className="sr-only">Background sound</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <CallHandlingCard
-                name={id}
-                checked={form.choice === "inherit"}
-                onSelect={() => setForm((f) => ({ ...f, choice: "inherit" }))}
-                label={`${inherited.from.ambience} (${ambienceSummary(inherited.ambience, inherited.ambience_volume_pct)})`}
-              />
-              {bounds.ambiences.map((ambience) => (
-                <CallHandlingCard
-                  key={ambience}
-                  name={id}
-                  checked={form.choice === ambience}
-                  onSelect={() => setForm((f) => ({ ...f, choice: ambience }))}
-                  label={AMBIENCE_LABELS[ambience]}
-                />
-              ))}
-            </div>
-          </fieldset>
-          {audible && (
-            <div className="flex flex-col gap-1">
-              <label htmlFor={`${id}-volume`} className="text-xs text-ink-muted">
-                {`Volume, ${bounds.ambience_volume_min_pct} to ${bounds.ambience_volume_max_pct}%`}
-              </label>
+          <div className="max-w-md space-y-4">
+            <label className="flex items-center gap-2 text-sm text-ink">
               <input
-                id={`${id}-volume`}
-                type="number"
-                inputMode="numeric"
-                min={bounds.ambience_volume_min_pct}
-                max={bounds.ambience_volume_max_pct}
-                value={form.volume}
-                onChange={(event) => setForm((f) => ({ ...f, volume: event.target.value }))}
-                className={`w-28 tabular-nums ${FIELD_INLINE}`}
-                aria-invalid={volume === null ? true : undefined}
-                aria-describedby={volume === null ? `${id}-volume-error` : undefined}
+                type="checkbox"
+                checked={form.choice === "inherit"}
+                onChange={(event) =>
+                  setForm((f) => ({
+                    ...f,
+                    choice: event.target.checked ? "inherit" : inherited.ambience,
+                  }))
+                }
+                className="h-4 w-4 rounded border-line accent-brand-strong touch:h-5 touch:w-5"
               />
-              {volume === null && (
-                <FieldMessage id={`${id}-volume-error`}>
-                  {`Enter ${bounds.ambience_volume_min_pct} to ${bounds.ambience_volume_max_pct}.`}
-                </FieldMessage>
-              )}
-            </div>
-          )}
+              {`Use the ${inherited.from.ambience}: ${ambienceSummary(inherited.ambience, inherited.ambience_volume_pct)}`}
+            </label>
+            {form.choice !== "inherit" && (
+              <div>
+                <SegmentedControl
+                  label="Background sound"
+                  options={SOUND_ORDER.filter((a) => bounds.ambiences.includes(a)).map((a) => ({
+                    value: a,
+                    label: AMBIENCE_LABELS[a],
+                  }))}
+                  value={form.choice}
+                  onValueChange={(value) => setForm((f) => ({ ...f, choice: value as Ambience }))}
+                />
+                <p className={FIELD_HINT}>{SOUND_HINTS[form.choice]}</p>
+              </div>
+            )}
+            {audible && (
+              <div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <label htmlFor={`${id}-volume`} className={FIELD_LABEL}>
+                    Volume
+                  </label>
+                  <span className="text-meta tabular-nums text-ink" aria-hidden>
+                    {`${volume ?? effective.ambience_volume_pct}%`}
+                  </span>
+                </div>
+                <input
+                  id={`${id}-volume`}
+                  type="range"
+                  min={bounds.ambience_volume_min_pct}
+                  max={bounds.ambience_volume_max_pct}
+                  step={1}
+                  value={volume ?? effective.ambience_volume_pct}
+                  onChange={(event) => setForm((f) => ({ ...f, volume: event.target.value }))}
+                  aria-valuetext={`${volume ?? effective.ambience_volume_pct} percent`}
+                  aria-describedby={`${id}-volume-scale`}
+                  className={`mt-2 ${RANGE_INPUT}`}
+                />
+                <div id={`${id}-volume-scale`} className={`${FIELD_HINT} flex justify-between`}>
+                  <span>Faint</span>
+                  <span>As loud as the voice</span>
+                </div>
+              </div>
+            )}
+          </div>
           <Footer changed={changed} saving={saving} label="Save sound" disabled={!valid} onClose={close} />
         </form>
       )}
