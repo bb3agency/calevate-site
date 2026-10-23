@@ -1,114 +1,82 @@
 "use client";
 
-import { Section } from "@/components/console/section";
-import { formatINR, hasNonZeroDigit } from "@/components/ui";
+import { useState } from "react";
+
+import { DonutChart } from "@/components/arc/donut-chart";
+import { PeriodToggle, type Period } from "@/components/arc/period-toggle";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
-import type { Drawdown } from "@/lib/api/wallet";
+import { Section } from "@/components/console/section";
+import { ProblemNotice, Skeleton, formatINR, hasNonZeroDigit } from "@/components/ui";
+import type { Session } from "@/lib/api/client";
+import { formatBillingMonth } from "@/lib/billingMonth";
+import { useCreditUsage, type CreditUsagePeriod } from "@/lib/api/voiceTiers";
 
 /**
- * Where the money went — so a spike is explained on the same screen it appears on.
+ * Where the credit went, this IST month or over the wallet's whole life
+ * (`/v1/billing/credit-usage`, owner-only like every spend figure).
  *
- * **THERE ARE EXACTLY FOUR OUTGOING ROWS AND MESSAGING IS NOT ONE.** Calls, phone number
- * rental (D-665), extra AI help and corrections are what debit the wallet. Nothing on this
- * platform debits the wallet for a WhatsApp message or an SMS, so a "Messaging ₹0.00" row
- * would be a category invented to look complete — and a client who saw it would reasonably
- * conclude they are being charged for messages. The screen says which things draw the
- * wallet down instead of listing one that does not.
+ * **THERE ARE EXACTLY FOUR OUTGOING PARTS AND MESSAGING IS NOT ONE.** Calls, phone number
+ * rental (D-665), extra AI help and corrections are what debit the wallet; nothing debits
+ * it for a WhatsApp message or an SMS, so a "Messaging" part would be a category invented
+ * to look complete. A zero part is left out; the total always shows, because "nothing
+ * spent" is itself an answer.
  *
- * **A ZERO ROW IS HIDDEN, and the total is not.** An "AI help ₹0.00" line invites a
- * question about nothing; the same rule the usage panel's overage rows follow. The total
- * always shows, because "you spent nothing in the last 30 days" is itself an answer.
- *
- * **NO ARITHMETIC HAPPENS HERE.** `spent_inr` is summed in SQL over `NUMERIC` from the same
- * pass that produced the buckets (`billing/wallet.py`), so the total is by construction the
- * sum of the rows beneath it. A browser subtracting rupee strings to find it would be a
- * second implementation of a bill, in the one language with no exact decimal type
- * (hard rule 7).
+ * **NO ARITHMETIC ON MONEY HAPPENS HERE.** `spent_inr` is the server's sum of the four
+ * parts; every figure a reader sees is its string through `formatINR`. `Number()` is used
+ * only to size the arcs.
  */
-export function WhereItWent({
-  drawdown,
-  windowDays,
-}: {
-  drawdown: Drawdown;
-  windowDays: number;
-}) {
-  const rows: { key: string; label: string; value: string; hint: string }[] = [
-    {
-      key: "calls",
-      label: "Calls",
-      value: drawdown.calls_inr,
-      hint: "Outgoing and incoming calls your agents handled",
-    },
-    {
-      key: "number_rental",
-      label: "Phone number rental",
-      value: drawdown.number_rental_inr,
-      hint: "The monthly rent for your phone numbers",
-    },
-    {
-      key: "ai",
-      label: "Extra AI help",
-      value: drawdown.ai_assist_inr,
-      hint: "Extra dashboard AI you chose to buy",
-    },
-    {
-      key: "adjustments",
-      label: "Corrections",
-      value: drawdown.adjustments_inr,
-      hint: "Credit we took back to correct an earlier mistake",
-    },
-  ].filter((row) => hasNonZeroDigit(row.value));
+const PARTS: { key: keyof CreditUsagePeriod; label: string }[] = [
+  { key: "calls_inr", label: "Calls" },
+  { key: "number_rental_inr", label: "Phone number rental" },
+  { key: "ai_assist_inr", label: "Extra AI help" },
+  { key: "adjustments_inr", label: "Corrections" },
+];
 
-  const added = hasNonZeroDigit(drawdown.added_inr);
-  const refunded = hasNonZeroDigit(drawdown.refunded_inr);
+export function WhereItWent({ session }: { session: Session }) {
+  const usage = useCreditUsage(session);
+  const [period, setPeriod] = useState<Period>("month");
+  const data = usage.data;
+  const figures = data ? (period === "month" ? data.this_month : data.all_time) : undefined;
+  const scope = data && period === "month" ? `in ${formatBillingMonth(data.month)}` : "since you started";
 
   return (
-    <Section title={`Where your credit went in the last ${windowDays} days`}>
-      {rows.length === 0 && !added && !refunded ? (
-        <EmptyState illustration={<EmptySketch kind="deliveries" />}
-          message="Nothing has moved on your credit yet"
+    <Section
+      title="Where your credit went"
+      action={<PeriodToggle value={period} onChange={setPeriod} />}
+    >
+      {usage.error ? (
+        <ProblemNotice error={usage.error} onRetry={() => void usage.refetch()} />
+      ) : !figures ? (
+        <Skeleton rows={4} label="Loading where your credit went" />
+      ) : !hasNonZeroDigit(figures.spent_inr) && !hasNonZeroDigit(figures.added_inr) ? (
+        <EmptyState
+          illustration={<EmptySketch kind="deliveries" />}
+          message={period === "month" ? "Nothing has moved on your credit this month" : "Nothing has moved on your credit yet"}
           hint="Once your agents start taking and making calls, this is where you will see what each part costs."
         />
       ) : (
-        <dl className="space-y-3 text-body">
-          {rows.map((row) => (
-            <div key={row.key} className="flex items-start justify-between gap-4">
-              <dt className="min-w-0">
-                <span className="block text-ink">{row.label}</span>
-                <span className="block text-meta text-ink-faint">{row.hint}</span>
-              </dt>
-              <dd className="shrink-0 tabular-nums text-ink">{formatINR(row.value)}</dd>
-            </div>
-          ))}
-          <div className="flex items-start justify-between gap-4 border-t border-line pt-3">
-            <dt className="font-semibold text-ink">
-              Spent in total
-            </dt>
-            <dd className="shrink-0 font-semibold tabular-nums text-ink">
-              {formatINR(drawdown.spent_inr)}
-            </dd>
-          </div>
-          {/* Money that came IN, kept below the line and named for its direction. A
-              positive correction lands in "added" rather than in "corrections", because
-              that is where a client looks for money appearing. */}
-          {added && (
-            <div className="flex items-start justify-between gap-4">
-              <dt className="text-ink-muted">Credit added</dt>
-              <dd className="shrink-0 tabular-nums text-ink-muted">
-                {formatINR(drawdown.added_inr)}
-              </dd>
-            </div>
-          )}
-          {refunded && (
-            <div className="flex items-start justify-between gap-4">
-              <dt className="text-ink-muted">Refunded to you</dt>
-              <dd className="shrink-0 tabular-nums text-ink-muted">
-                {formatINR(drawdown.refunded_inr)}
-              </dd>
-            </div>
-          )}
-        </dl>
+        <div className="space-y-4">
+          <DonutChart
+            title={`Where your credit went ${scope}`}
+            hideTitle
+            description={`Spent ${scope}`}
+            labelColumn="Part"
+            segments={PARTS.filter((part) => hasNonZeroDigit(String(figures[part.key]))).map((part) => {
+              const value = String(figures[part.key]);
+              return { label: part.label, value: Math.max(0, Number(value)), display: formatINR(value) };
+            })}
+            centerValue={formatINR(figures.spent_inr)}
+            centerLabel="spent"
+            empty={`Nothing spent ${scope}.`}
+          />
+          {hasNonZeroDigit(figures.added_inr) ? (
+            <p className="text-body text-ink-muted">
+              Credit added {scope}:{" "}
+              <span className="font-semibold tabular-nums text-ink">{formatINR(figures.added_inr)}</span>
+            </p>
+          ) : null}
+        </div>
       )}
     </Section>
   );

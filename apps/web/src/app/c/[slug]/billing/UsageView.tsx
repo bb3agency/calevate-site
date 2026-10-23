@@ -2,17 +2,19 @@
 
 import type { CreditPacks } from "@/lib/api/billing";
 import type { Session } from "@/lib/api/client";
+import { useClientRealm } from "@/lib/api/session";
 import type { Wallet } from "@/lib/api/wallet";
 
 import { SpendOverTime } from "./SpendChart";
 import { UsageTab } from "./UsageTab";
+import { VoiceTiers } from "./VoiceTiers";
 import { WhatCallsCost } from "./WhatCallsCost";
 import { WhereItWent } from "./WhereItWent";
 import type { TierLabels } from "./lots";
 
 /**
  * The Usage view: spending over time, this month's charges and limit, then — for a
- * prepaid wallet — where the credit went and what calls cost.
+ * prepaid wallet — where the credit went, Clear against Studio, and how calls are charged.
  *
  * The wallet panels render only for a PREPAID account: an invoiced one has no credit to
  * draw down and no packs to price, and a rate card on its screen would be a price for
@@ -38,6 +40,7 @@ export function UsageView({
   card: CreditPacks | undefined;
   labels: TierLabels | undefined;
 }) {
+  const { href } = useClientRealm();
   return (
     <div className="space-y-6">
       {/* Owner-only. A refused session gets one sentence, from `UsageTab` below, not two. */}
@@ -53,7 +56,13 @@ export function UsageView({
       />
       {wallet?.prepaid && (
         <>
-          <WhereItWent drawdown={wallet.drawdown} windowDays={wallet.runway.window_days} />
+          {/* Owner figures: sent only once `/v1/me` says this session may read them. */}
+          {billingAllowed === true && (
+            <>
+              <WhereItWent session={session} />
+              <VoiceTiers session={session} agentsHref={href(`/c/${slug}/agents`)} />
+            </>
+          )}
           <WhatCallsCost card={card} labels={labels} />
         </>
       )}

@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useState } from "react";
 
-import { Metric } from "@/components/console/metric";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { MoneyInput } from "@/components/arc/money-input";
+import { NumberField } from "@/components/arc/number-field";
+import { StatsBand } from "@/components/arc/stats-band";
+import { UsageMeter } from "@/components/arc/usage-meter";
 import { Section } from "@/components/console/section";
 import {
   Disclosure,
@@ -12,14 +16,12 @@ import {
   NOTICE_BASE,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON,
   Skeleton,
   formatCount,
   formatINR,
   formatRupeeRate,
   hasNonZeroDigit,
 } from "@/components/ui";
-import { FieldMessage, wholeNumberProblem } from "@/components/formValidation";
 import { isPrepaid } from "@/lib/api/billing";
 import { useCaps, useSetCaps } from "@/lib/api/caps";
 import { useClientRealm } from "@/lib/api/session";
@@ -143,49 +145,62 @@ export function UsageTab({
             </p>
           )}
 
-          <div className="grid grid-cols-2 gap-x-6 gap-y-5 border-b border-line pb-6 xl:grid-cols-4">
-            {/* The server's decimal string, printed as sent — minutes are metered to the
-                same precision the invoice bills. */}
-            <Metric
-              label="Minutes used"
-              value={data.minutes_used}
-              hint={
-                data.included_minutes > 0
-                  ? `${formatCount(data.included_minutes)} included`
-                  : "Pay as you go"
-              }
-            />
-            <Metric
-              label="Calls"
-              value={formatCount(data.calls)}
-              hint="Billed calls this month"
-            />
-            <Metric
-              label="Extra minutes"
-              value={data.overage_minutes}
-              hint={
-                hasNonZeroDigit(data.overage_minutes)
-                  ? "Beyond your plan"
-                  : "None — you are within your plan"
-              }
-            />
-            {/* The rate, not just the total. Until the server published
-                `overage_rate_inr` this tile showed a rupee figure with nothing to check
-                it against — an owner could not tell how it was arrived at, nor what the
-                next minute will cost them.
+          {/* Minutes are the server's decimal strings, printed as sent — metered to the
+              same precision the invoice bills. The extra-charges figure carries its rate,
+              so an owner can check how it was arrived at and what the next minute costs. */}
+          <StatsBand
+            label="This month so far"
+            items={[
+              {
+                label: "Minutes used",
+                value: data.minutes_used,
+                hint: data.included_minutes > 0 ? `${formatCount(data.included_minutes)} included` : "Pay as you go",
+              },
+              { label: "Calls", value: formatCount(data.calls), hint: "Billed calls this month" },
+              {
+                label: "Extra minutes",
+                value: data.overage_minutes,
+                hint: hasNonZeroDigit(data.overage_minutes) ? "Beyond your plan" : "None — you are within your plan",
+              },
+              {
+                label: "Extra charges",
+                value: formatINR(data.overage_cost_inr),
+                hint: `${formatRupeeRate(data.overage_rate_inr)} per extra minute`,
+              },
+            ]}
+          />
 
-                ONE RATE ON THIS TILE, AND THE SECOND RUNG IS GONE FROM THE SCREEN. It used
-                to branch on `overage_rate_second_inr` — a plan's "reduced" overage rate,
-                NULL on every plan that has ever existed — and print a two-rate hint nobody
-                could ever see. What a client's minutes actually cost at two different
-                prices is now a real fact and a different one: the two VOICE QUALITIES
-                (D-547), which are below, from the lot splits, and named by the server. */}
-            <Metric
-              label="Extra charges"
-              value={formatINR(data.overage_cost_inr)}
-              hint={`${formatRupeeRate(data.overage_rate_inr)} per extra minute`}
-            />
-          </div>
+          {/* `Number()` sizes the bars only; every figure read is the server's string. */}
+          {data.included_minutes > 0 || data.cap_minutes !== null ? (
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              {data.included_minutes > 0 ? (
+                <UsageMeter
+                  label="Minutes in your plan"
+                  used={Number(data.minutes_used)}
+                  limit={data.included_minutes}
+                  usedText={`${data.minutes_used} min`}
+                  limitText={`${formatCount(data.included_minutes)} min`}
+                  overTone="warn"
+                  hint={
+                    hasNonZeroDigit(data.overage_minutes)
+                      ? `Minutes past your plan are charged at ${formatRupeeRate(data.overage_rate_inr)} each.`
+                      : undefined
+                  }
+                />
+              ) : null}
+              {data.cap_minutes !== null ? (
+                <UsageMeter
+                  label="Monthly cap"
+                  used={Number(data.minutes_used)}
+                  limit={data.cap_minutes}
+                  usedText={`${data.minutes_used} min`}
+                  limitText={`${formatCount(data.cap_minutes)} min`}
+                  overTone="danger"
+                  hint="Outgoing calls pause at the cap. People calling you still get through."
+                />
+              ) : null}
+            </div>
+          ) : null}
 
           {/* The breakdown behind the four figures above, closed: the closed state states the
               total, and the rows are the working (UX-DOCTRINE §3 — a disclosure carries the
@@ -272,9 +287,6 @@ export function UsageTab({
                 value={formatINR(data.month_charges_inr)}
                 emphasis
               />
-              {data.cap_minutes !== null && (
-                <Row label="Monthly cap" value={`${formatCount(data.cap_minutes)} minutes`} />
-              )}
             </dl>
             {/* THE CONTROL THAT CAUSED THE CHARGE, FROM THE CHARGE. An owner reading a
                 line they did not expect needs the setting that produced it, not a support
@@ -362,24 +374,23 @@ function ModelUpgradeLink({ slug }: { slug: string }) {
 function SpendLimit({ session }: { session: Session }) {
   const caps = useCaps(session);
   const save = useSetCaps(session);
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   // `PUT /v1/billing/caps` requires `org:manage` — a MUTATING permission, so `staff` does
   // not hold it and an impersonating operator is refused it (D-22). Disabled with the
   // reason beside it, rather than a 403 after the click.
   const write = useWriteAccess(session, "org:manage", "change your spending limit");
-  const [minutes, setMinutes] = useState<string | null>(null);
-  const [spend, setSpend] = useState<string | null>(null);
-  const [minutesProblem, setMinutesProblem] = useState<string | null>(null);
+  // `undefined` = not edited, so the box shows the server's value; `null` / `""` = the
+  // owner cleared it, which is a real instruction (fall back to the plan's limit).
+  const [minutes, setMinutes] = useState<number | null | undefined>(undefined);
+  const [spend, setSpend] = useState<string | undefined>(undefined);
 
   if (caps.isLoading) return <Skeleton rows={3} />;
   if (caps.error) return <ProblemNotice error={caps.error} onRetry={() => void caps.refetch()} />;
   if (!caps.data) return null;
 
   const current = caps.data;
-  // `null` state means "not edited yet" — the input shows the server's value. Empty
-  // string means the client cleared it, which is a real instruction (fall back to the
-  // plan's limit) and must not be confused with "unchanged".
-  const minutesField = minutes ?? (current.client_cap_minutes?.toString() ?? "");
-  const spendField = spend ?? (current.client_cap_spend_inr ?? "");
+  const minutesField = minutes === undefined ? current.client_cap_minutes : minutes;
+  const spendField = spend ?? current.client_cap_spend_inr ?? "";
 
   return (
     <Section
@@ -408,54 +419,46 @@ function SpendLimit({ session }: { session: Session }) {
 
       <div className="mt-6 space-y-3">
         <RestrictionNote reason={write.reason} />
-        {save.error && <ProblemNotice error={save.error} />}
+        {saveFeedback.error ? <ProblemNotice error={saveFeedback.error} /> : null}
 
         <form
-          className="flex flex-wrap items-end gap-3"
+          className="grid grid-cols-1 items-end gap-x-4 gap-y-3 sm:grid-cols-[minmax(0,12rem)_minmax(0,14rem)_auto]"
           noValidate
           onSubmit={(e) => {
             e.preventDefault();
-            const typedMinutes = minutesField.trim();
-            // A parse check, not the ceiling rule (that stays the server's): an unreadable
-            // box would otherwise be sent as `null`, the instruction to REMOVE the limit.
-            const problem = wholeNumberProblem(typedMinutes);
-            setMinutesProblem(problem);
-            if (problem !== null) return;
-            save.mutate({
-              capMinutes: typedMinutes === "" ? null : Number(typedMinutes),
-              // A STRING all the way to the server (hard rule 7): `Number()` here would
-              // put a rupee amount through a binary float on the way out.
-              capSpendInr: spendField.trim() === "" ? null : spendField.trim(),
+            if (!write.allowed) return;
+            saveFeedback.run({
+              capMinutes: minutesField,
+              // A STRING all the way to the server (hard rule 7).
+              capSpendInr: spendField === "" ? null : spendField,
             });
           }}
         >
-          <Field
-            id="cap-minutes"
+          <NumberField
             label="Minutes"
             value={minutesField}
+            onChange={(next) => setMinutes(next)}
+            optional
+            unit="minutes"
             disabled={!write.allowed}
-            onChange={(value) => {
-              setMinutes(value);
-              setMinutesProblem(null);
-            }}
-            placeholder="no limit"
-            problem={minutesProblem}
           />
-          <Field
-            id="cap-spend"
-            label="Spend (₹)"
+          <MoneyInput
+            label="Spend"
             value={spendField}
-            disabled={!write.allowed}
             onChange={setSpend}
-            placeholder="no limit"
+            disabled={!write.allowed}
           />
-          <button
+          <ActionButton
             type="submit"
-            disabled={!write.allowed || save.isPending}
-            className={SECONDARY_BUTTON}
+            variant="secondary"
+            status={saveFeedback.status}
+            pendingLabel="Saving"
+            successLabel="Saved"
+            disabled={!write.allowed}
+            className="sm:mb-0.5"
           >
-            {save.isPending ? "Saving…" : "Save limit"}
-          </button>
+            Save limit
+          </ActionButton>
         </form>
 
         <p className="text-meta text-ink-muted">
@@ -465,14 +468,16 @@ function SpendLimit({ session }: { session: Session }) {
           at any time.
         </p>
 
+        {/* What the save put in force, which can be stricter than what was typed (the plan's
+            limit wins) — said once, beside the form, after a save. */}
         {save.data && (
           <div
             role="status"
             className={`${NOTICE_BASE} ${NOTICE_BAR[save.data.capped ? "warn" : "ok"]}`}
           >
             {save.data.capped
-              ? "Saved. Outgoing calls are stopped for the rest of this month. Incoming calls still get through."
-              : `Saved. In force this month: ${describeLimit(save.data.effective_cap_minutes, save.data.effective_cap_spend_inr)}.`}
+              ? "Outgoing calls are stopped for the rest of this month. Incoming calls still get through."
+              : `In force this month: ${describeLimit(save.data.effective_cap_minutes, save.data.effective_cap_spend_inr)}.`}
           </div>
         )}
       </div>
@@ -488,45 +493,6 @@ function describeLimit(minutes: number | null, spend: string | null): string {
   // server sent and keeps the paise it sent them with.
   if (spend !== null) parts.push(formatINR(spend));
   return parts.length > 0 ? parts.join(" or ") : "no limit";
-}
-
-function Field({
-  id,
-  label,
-  value,
-  disabled,
-  onChange,
-  placeholder,
-  problem = null,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  disabled: boolean;
-  onChange: (value: string) => void;
-  placeholder: string;
-  problem?: string | null;
-}) {
-  const problemId = `${id}-problem`;
-  return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-meta font-medium text-ink-muted">
-        {label}
-      </label>
-      <input
-        id={id}
-        inputMode="decimal"
-        value={value}
-        disabled={disabled}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        aria-invalid={problem ? true : undefined}
-        aria-describedby={problem ? problemId : undefined}
-        className={`${FIELD} mt-0 w-32 tabular-nums`}
-      />
-      {problem && <FieldMessage id={problemId}>{problem}</FieldMessage>}
-    </div>
-  );
 }
 
 

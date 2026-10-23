@@ -27,7 +27,7 @@
  *
  * Its three admin-side siblings did, once their validators collapsed: what was left of each
  * was a hook and a wire alias. This module is not that. Beside the lot query it holds
- * `formatWhole`, `packForAmount`, `dearestRate` and the two pack accessors — presentation
+ * `formatWhole`, `packForAmount` and the two pack accessors — presentation
  * and buying-decision logic that nine components in this one directory import, and that no
  * other realm has any use for. Moving it would either drag that into `lib/api/`, where
  * nothing else like it lives, or split one module into two and touch all nine importers to
@@ -375,53 +375,6 @@ export function packForAmount(
       best = pack;
   }
   return best ?? smallest;
-}
-
-/**
- * The DEAREST ₹/min any pack quotes on a quality — the entry rung of the ladder.
- *
- * Its partner, the cheapest, is a field the server publishes (`from_clear_inr_per_min`);
- * this end is not, and the explainer needs both to say "between X and Y". A comparison
- * between two figures the catalogue sent, computing no price of its own.
- */
-export function dearestRate(
-  card: CreditPacks,
-  tier: VoiceTier,
-): string | undefined {
-  let dearest: string | undefined;
-  for (const pack of card.packs) {
-    const rate = packRate(pack, tier);
-    if (!isMoneyString(rate)) continue;
-    if (
-      dearest === undefined ||
-      rateToTenThousandths(rate) > rateToTenThousandths(dearest)
-    ) {
-      dearest = rate;
-    }
-  }
-  return dearest;
-}
-
-/** The cheapest ₹/min the card delivers on a quality — the server's own "from" figure. */
-export function cheapestRate(
-  card: CreditPacks,
-  tier: VoiceTier,
-): string | undefined {
-  // THE FOURTH ACCESSOR, and it kept the ternary when the other three lost it on
-  // 19 Sep 2026 — it reads `from_*` rather than a per-lot rate, so a scan for
-  // `lot.`/`pack.` did not find it. Same defect, same direction: any rung that was not
-  // the value one resolved to the dearer "from" figure.
-  const from = ((): string | null | undefined => {
-    switch (tier) {
-      case "clear":
-        return card.from_clear_inr_per_min;
-      case "studio":
-        return card.from_studio_inr_per_min;
-      default:
-        return unpricedTier(tier);
-    }
-  })();
-  return isMoneyString(from) ? from : undefined;
 }
 
 /**
