@@ -8,7 +8,7 @@ import { FilterChip, ScrollRegion, formatINR, formatIST } from "@/components/ui"
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
-import { RowMenu } from "@/components/console/rowMenu";
+import { RowMenu } from "@/components/arc/menu";
 import {
   CREDIT_REASON_LABEL,
   LEDGER_LIMIT,

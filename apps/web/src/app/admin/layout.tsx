@@ -36,7 +36,7 @@ import {
 } from "@/components/ui";
 import { useHeldTenants, useTenant } from "@/lib/api/admin";
 import { useKycReviewQueue } from "@/lib/api/kycReview";
-import { Popover } from "@/components/interior/popover";
+import { Popover } from "@/components/arc/popover";
 import { ApiProblem } from "@/lib/api/client";
 import { currentNavItem } from "@/lib/nav";
 import { AdminIdleTimeoutModal } from "@/components/authn/adminIdleTimeoutModal";
@@ -409,10 +409,9 @@ function AttentionBell() {
       label="Waiting on us"
       align="end"
       className="w-72 max-w-[calc(100vw-1rem)]"
-      renderTrigger={(props) => (
+      trigger={
         <button
           type="button"
-          {...props}
           aria-label={
             failed
               ? "Waiting on us: we could not read every queue"
@@ -435,7 +434,7 @@ function AttentionBell() {
             )
           )}
         </button>
-      )}
+      }
     >
       <p className="mb-2 text-meta font-semibold text-ink">Waiting on us</p>
       <ul className="divide-y divide-line">

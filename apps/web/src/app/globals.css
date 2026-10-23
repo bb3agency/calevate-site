@@ -266,10 +266,11 @@
   --z-raised: 1;
   --z-sticky: 10; /* sticky page bars, table headers, the player over a transcript */
   --z-header: 20; /* the shells' top bars and the nav rail */
-  --z-dropdown: 30; /* menus, popovers, tooltips */
+  --z-dropdown: 30; /* in-flow dropdowns that open inside their own component (a combobox list) */
   --z-drawer: 40; /* side drawers and sheets */
   --z-assistant: 50; /* the assistant panel and its launcher */
   --z-modal: 60; /* dialogs and their scrim: above the assistant, which can open one */
+  --z-popover: 65; /* portalled popovers, menus and tooltips: above a dialog or drawer they open from */
   --z-toast: 70;
 }
 @utility z-below {
@@ -298,6 +299,9 @@
 }
 @utility z-modal {
   z-index: var(--z-modal);
+}
+@utility z-popover {
+  z-index: var(--z-popover);
 }
 @utility z-toast {
   z-index: var(--z-toast);
@@ -871,6 +875,29 @@
       no-repeat scroll,
     radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 0.12), transparent) right center / 0.75rem
       100% no-repeat scroll;
+}
+
+/*
+ * A POPOVER, MENU OR TOOLTIP's entry (components/arc/popover.tsx, menu.tsx, tooltip.tsx):
+ * it grows from the edge of its trigger (Radix sets `--radix-popper-transform-origin` to
+ * that point), never from its own centre. No exit, as for modals. Reduced motion fades.
+ */
+@utility popover-enter {
+  transform-origin: var(--radix-popper-transform-origin);
+  transition-property: opacity, transform;
+  transition-duration: var(--duration-fast);
+  transition-timing-function: var(--ease-out-strong);
+
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    @starting-style {
+      transform: none;
+    }
+  }
 }
 
 @utility scrim-enter {

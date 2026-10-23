@@ -7,7 +7,7 @@ import { X } from "lucide-react";
 import { TEXT_ACTION } from "@/components/console/section";
 import { BAR_STATUS } from "@/components/console/statusPill";
 import { TrialMeter, trialShareLeft } from "@/components/illustration/trialMeter";
-import { Popover } from "@/components/interior/popover";
+import { Popover } from "@/components/arc/popover";
 import {
   FIELD_LABEL,
   NOTICE_DOT,
@@ -263,10 +263,9 @@ export function TrialChipView({
       open={open}
       onOpenChange={onOpenChange}
       className="w-80 max-w-[calc(100vw-1rem)]"
-      renderTrigger={(props) => (
+      trigger={
         <button
           type="button"
-          {...props}
           aria-label={`Free trial: ${long}. Show details`}
           className={`${BAR_STATUS} text-ink-muted hover:text-ink max-sm:px-1.5`}
         >
@@ -277,7 +276,7 @@ export function TrialChipView({
           </span>
           <span className="hidden sm:inline">{long}</span>
         </button>
-      )}
+      }
     >
       <div className="space-y-3 text-sm">
         <p className="font-semibold text-ink">Your free trial</p>

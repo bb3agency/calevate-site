@@ -134,7 +134,8 @@ describe("InfoTip", () => {
     await waitFor(() => expect(panel.contains(document.activeElement)).toBe(true));
     fireEvent.keyDown(document, { key: "Escape" });
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(document.activeElement).toBe(trigger);
+    // Radix's focus scope hands focus back on the next task, not synchronously.
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 });
 

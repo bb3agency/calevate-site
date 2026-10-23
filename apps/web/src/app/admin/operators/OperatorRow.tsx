@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { Lock } from "lucide-react";
 
-import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
+import { RowMenu, type RowMenuItem } from "@/components/arc/menu";
 import { formatIST } from "@/components/ui";
 import {
   ROLE_COPY,

@@ -9,7 +9,7 @@ import { Checklist } from "@/components/console/checklist";
 import { Drawer, DrawerSubmit } from "@/components/console/drawer";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
-import { RowMenu } from "@/components/console/rowMenu";
+import { RowMenu } from "@/components/arc/menu";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { SettingsLayout } from "@/components/console/settingsLayout";
 import { StepFlow } from "@/components/console/stepFlow";
@@ -323,17 +323,17 @@ describe("RowMenu", () => {
     const trigger = screen.getByRole("button", { name: "More actions for Reception" });
     expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
-    const menu = await screen.findByRole("menu", { name: "Actions for Reception" });
+    await screen.findByRole("menu", { name: "Actions for Reception" });
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Open" })));
-    fireEvent.keyDown(menu, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Archive" }));
-    fireEvent.keyDown(menu, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Open" }));
-    fireEvent.keyDown(menu, { key: "a" });
-    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Archive" }));
-    fireEvent.keyDown(menu, { key: "Escape" });
+    fireEvent.keyDown(document.activeElement as Element, { key: "ArrowDown" });
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Archive" })));
+    fireEvent.keyDown(document.activeElement as Element, { key: "ArrowDown" });
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Open" })));
+    fireEvent.keyDown(document.activeElement as Element, { key: "a" });
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Archive" })));
+    fireEvent.keyDown(document.activeElement as Element, { key: "Escape" });
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(document.activeElement).toBe(trigger);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
   it("names an item by its label and describes it by its hint, not one run-on name", async () => {

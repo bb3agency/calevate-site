@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Pause, Play, RotateCcw } from "lucide-react";
 
-import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
+import { RowMenu, type RowMenuItem } from "@/components/arc/menu";
 import {
   DANGER_BUTTON,
   NOTICE_BAR,

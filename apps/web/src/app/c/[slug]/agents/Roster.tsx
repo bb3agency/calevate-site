@@ -30,7 +30,7 @@ import {
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
-import { RowMenu } from "@/components/console/rowMenu";
+import { RowMenu } from "@/components/arc/menu";
 import {
   useAgentLifecycle,
   useAgentStats,

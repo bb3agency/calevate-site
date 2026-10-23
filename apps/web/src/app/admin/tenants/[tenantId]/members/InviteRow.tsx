@@ -5,7 +5,7 @@ import { Send } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Drawer } from "@/components/console/drawer";
-import { RowMenu } from "@/components/console/rowMenu";
+import { RowMenu } from "@/components/arc/menu";
 import { FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, ProblemNotice, formatIST } from "@/components/ui";
 import type { useAdminAccess } from "@/app/admin/access";
 import {

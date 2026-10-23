@@ -32,7 +32,7 @@ function files(): string[] {
 
 /** `z-10`, `-z-10`, `z-[70]`, `sm:z-20`, `z-(--x)`: anything but a named layer or `z-auto`. */
 const RAW_CLASS = /(?<![\w-])-?z-(?:\d+|\[[^\]]*\]|\([^)]*\))(?![\w-])/g;
-const LAYERS = ["below", "base", "raised", "sticky", "header", "dropdown", "drawer", "assistant", "modal", "toast"];
+const LAYERS = ["below", "base", "raised", "sticky", "header", "dropdown", "drawer", "assistant", "modal", "popover", "toast"];
 
 describe("the layer scale", () => {
   it("has no raw z-index class anywhere in src", () => {
@@ -76,14 +76,20 @@ describe("the layer scale", () => {
   it("puts the overlays that must beat the page in a portal", () => {
     const portalled = [
       "src/components/modalDialog.tsx",
-      "src/components/interior/popover.tsx",
-      "src/components/console/rowMenu.tsx",
       "src/components/console/drawer.tsx",
       "src/components/interior/command-palette.tsx",
       "src/components/copilot/CopilotDock.tsx",
+      "src/components/arc/toast.tsx",
     ];
     for (const path of portalled) {
       expect(readFileSync(join(process.cwd(), path), "utf8"), path).toMatch(/createPortal\([\s\S]*document\.body/);
+    }
+    // The Radix-built overlays portal through the primitive's own `Portal` (into <body>),
+    // on the `z-popover` layer.
+    for (const path of ["src/components/arc/popover.tsx", "src/components/arc/menu.tsx", "src/components/arc/tooltip.tsx"]) {
+      const text = readFileSync(join(process.cwd(), path), "utf8");
+      expect(text, path).toMatch(/\.Portal>/);
+      expect(text, path).toMatch(/z-popover|FLOATING_PANEL/);
     }
   });
 });

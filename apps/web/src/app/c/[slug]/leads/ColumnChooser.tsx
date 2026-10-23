@@ -2,7 +2,7 @@
 
 import { Columns3 } from "lucide-react";
 
-import { Popover } from "@/components/interior/popover";
+import { Popover } from "@/components/arc/popover";
 import { SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { LeadColumn } from "@/lib/api/leads";
 
@@ -73,10 +73,9 @@ export function ColumnChooser({
       label="Columns shown here and in the CSV"
       align="end"
       className="w-64 max-w-[calc(100vw-1rem)]"
-      renderTrigger={(props) => (
+      trigger={
         <button
           type="button"
-          {...props}
           className={SECONDARY_BUTTON_SM}
           aria-label={`Choose columns — ${selected.length} of ${available.length} shown`}
         >
@@ -86,7 +85,7 @@ export function ColumnChooser({
             {selected.length}/{available.length}
           </span>
         </button>
-      )}
+      }
     >
       <fieldset>
         <legend className="mb-2 text-meta font-semibold text-ink">Columns shown here and in the CSV</legend>

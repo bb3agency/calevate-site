@@ -26,7 +26,7 @@ import { useState } from "react";
 import { FileX, PhoneOff } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { RowMenu } from "@/components/console/rowMenu";
+import { RowMenu } from "@/components/arc/menu";
 import {
   FIELD_INLINE,
   FIELD_LABEL,

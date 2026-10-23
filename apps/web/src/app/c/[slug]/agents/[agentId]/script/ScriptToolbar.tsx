@@ -16,7 +16,7 @@
 
 import { PRIMARY_BUTTON, formatCount, formatIST, type NoticeTone } from "@/components/ui";
 import { Drawer } from "@/components/console/drawer";
-import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
+import { RowMenu, type RowMenuItem } from "@/components/arc/menu";
 import { StatusPill } from "@/components/console/statusPill";
 import { StickyPageBar } from "@/components/console/stickyPageBar";
 
