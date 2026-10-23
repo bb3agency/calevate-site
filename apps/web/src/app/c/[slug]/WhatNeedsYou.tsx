@@ -9,6 +9,7 @@ import { useEnterClass } from "@/components/live/arrivals";
 import { formatCount } from "@/components/ui";
 import type { Dashboard } from "@/lib/api/client";
 import type { useAttention } from "@/lib/api/attention";
+import type { useKnowledgeGaps } from "@/lib/api/knowledgeGaps";
 import { activeTrial, minutesLeftPhrase, walletState, type useWallet } from "@/lib/api/wallet";
 
 import { AttentionBanner } from "./AttentionBanner";
@@ -17,11 +18,13 @@ import { AttentionBanner } from "./AttentionBanner";
  * WHAT NEEDS YOU TODAY — the first thing on the dashboard (founder, REDESIGN-2): the few
  * things an owner should act on before reading any figure, each one sentence and one
  * action. Built only from reads the dashboard already makes (attention queue, dashboard
- * figures, wallet); nothing here is inferred beyond what those say.
+ * figures, wallet, open knowledge gaps); nothing here is inferred beyond what those say.
  *
  * - The attention queue keeps `AttentionBanner`'s own sentences and failure arm.
  * - Hot leads: interested and not yet won or lost, from `hot_leads_open`.
  * - Calls that did not connect today: today's row of `daily_7d` (the last day, IST).
+ * - Questions the agents could not answer on real calls: the server's open-gap count and
+ *   the way to teach them. The gaps themselves are listed on Training and Knowledge.
  * - Credit: only when the wallet itself says low or stopped, and never during a trial,
  *   when an empty wallet stops nothing (D-536).
  */
@@ -29,11 +32,13 @@ export function WhatNeedsYou({
   data,
   attention,
   wallet,
+  gaps,
   href,
 }: {
   data: Dashboard;
   attention: ReturnType<typeof useAttention>;
   wallet: ReturnType<typeof useWallet>;
+  gaps: ReturnType<typeof useKnowledgeGaps>;
   href: (path: string) => string;
 }) {
   const rows: { key: string; text: ReactNode; action: ReactNode }[] = [];
@@ -74,8 +79,45 @@ export function WhatNeedsYou({
       ),
       action: (
         <Link href={href(missedHref)} className={TEXT_ACTION}>
-          See calls
+          See missed calls
         </Link>
+      ),
+    });
+  }
+
+  const unanswered = gaps.data?.open_count ?? 0;
+  if (unanswered > 0) {
+    // One agent's gaps open on its Training tab, which leads with them while any are open
+    // (D-826); several agents' open on Knowledge, whose "Where it struggled" lists them all.
+    const agentIds = new Set(gaps.data?.items.map((gap) => gap.agent_id));
+    const [only] = agentIds;
+    const teachHref =
+      only !== undefined && agentIds.size === 1 && gaps.data?.items.length === unanswered
+        ? `/agents/${only}?section=training`
+        : "/knowledge";
+    rows.push({
+      key: "gaps",
+      text: (
+        <>
+          <span className="font-semibold tabular-nums">{formatCount(unanswered)}</span>{" "}
+          {unanswered === 1 ? "question" : "questions"} your agents could not answer
+        </>
+      ),
+      action: (
+        <Link href={href(teachHref)} className={TEXT_ACTION}>
+          {unanswered === 1 ? "Teach the answer" : "Teach the answers"}
+        </Link>
+      ),
+    });
+  } else if (gaps.error) {
+    // A failed read is not an all-clear (§52): say so, with the retry.
+    rows.push({
+      key: "gaps",
+      text: "We could not check for questions your agents could not answer",
+      action: (
+        <button type="button" onClick={() => void gaps.refetch()} className={TEXT_ACTION}>
+          Try again
+        </button>
       ),
     });
   }
@@ -103,7 +145,7 @@ export function WhatNeedsYou({
   // enters softly (D-774); the rows present on load do not.
   const enter = useEnterClass(rows.map((row) => row.key));
   const queueWaiting = attention.data !== undefined && attention.data.total > 0;
-  const allClear = rows.length === 0 && attention.data !== undefined && !queueWaiting;
+  const allClear = rows.length === 0 && attention.data !== undefined && !queueWaiting && gaps.data !== undefined;
 
   return (
     <Section title="What needs you today">

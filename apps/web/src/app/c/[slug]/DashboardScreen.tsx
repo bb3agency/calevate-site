@@ -1,10 +1,8 @@
 "use client";
 
-import Link from "next/link";
-
-import { ProblemNotice, Skeleton, formatCount, formatDuration } from "@/components/ui";
+import { ProblemNotice, Skeleton, formatCount } from "@/components/ui";
 import { Section } from "@/components/console/section";
-import { Metric, MetricRow } from "@/components/console/metric";
+import { Metric } from "@/components/console/metric";
 import { useAgentStats, useAgents } from "@/lib/api/agents";
 import { useAttention } from "@/lib/api/attention";
 import { useBusinessProfile } from "@/lib/api/businessProfile";
@@ -17,14 +15,12 @@ import { useClientRealm } from "@/lib/api/session";
 import { activeTrial, trialEndsAt, useWallet } from "@/lib/api/wallet";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
-import { weekOnWeek } from "@/lib/weekOnWeek";
 
 import { AgentsAtAGlance } from "./AgentsAtAGlance";
 import { CallingCreditTile } from "./CallingCreditTile";
 import { DailyCalls } from "./DailyCalls";
 import { FirstAgentInvite } from "./FirstAgentInvite";
 import { HeldNumberNotice } from "./HeldNumberNotice";
-import { KnowledgeGaps } from "./KnowledgeGaps";
 import { LatestCalls } from "./LatestCalls";
 import { LineNotice } from "./LineNotice";
 import { OutcomeSplit } from "./OutcomeSplit";
@@ -95,19 +91,15 @@ export function DashboardScreen({ slug }: { slug: string }) {
   const campaignAccess = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
   /*
    * THE NOTICES' READS START WITH THE DASHBOARD'S, not after it. The line notice, the setup
-   * checklist, the existing-number prompt and "where your agents struggled" each read their
+   * checklist, the existing-number prompt and the unanswered-questions row each read their
    * own query, and each mounts only once the dashboard has answered; left to themselves,
    * their requests would leave a round trip late and each card would push the page down.
    * Calling the same hooks here (same keys, so no second request) starts them in parallel,
    * and the skeleton below waits for them, so the page arrives in one paint. A failed
    * notice read does not hold the page: only a read still in flight does.
    */
-  const notices = [
-    useLineIncidents(session),
-    useBusinessProfile(session),
-    useForwarding(session),
-    useKnowledgeGaps(session, { status: "open", limit: 20 }),
-  ];
+  const gaps = useKnowledgeGaps(session, { status: "open", limit: 20 });
+  const notices = [useLineIncidents(session), useBusinessProfile(session), useForwarding(session), gaps];
 
   /*
    * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
@@ -247,7 +239,6 @@ export function DashboardScreen({ slug }: { slug: string }) {
   }
 
   const data = dashboard.data;
-  const leadsTrend = weekOnWeek(data.leads_new_7d, data.leads_new_prev_7d);
 
   return (
     <div className="space-y-10 pb-12">
@@ -272,15 +263,18 @@ export function DashboardScreen({ slug }: { slug: string }) {
       </div>
 
       {/* FIRST, WHAT TO ACT ON (founder, REDESIGN-2): the queue, hot leads, calls that
-          did not connect, and credit — before any figure. */}
+          did not connect, unanswered questions and credit — before any figure. Each fact
+          on this page is said once: hot leads and the struggled count live here, the
+          figures in "This week", each agent's state in "Your agents". */}
       <WhatNeedsYou
         data={data}
         attention={attention}
         wallet={wallet}
+        gaps={gaps}
         href={(path) => href(`/c/${slug}${path}`)}
       />
 
-      {/* The week in three figures, whether the agents are on, and what to do next. */}
+      {/* The page's one block of figures, and what to do next. */}
       <WeekRecap
         data={data}
         agents={agents.data}
@@ -294,52 +288,14 @@ export function DashboardScreen({ slug }: { slug: string }) {
         href={(path) => href(`/c/${slug}${path}`)}
       />
 
-      {/* THEN TODAY AND THIS WEEK — four figures on the page itself, no boxes: the numbers
-          are the content, and a hairline under the strip is all the grouping they need.
-          Each marks itself when a poll changes it. */}
-      <MetricRow label="Today at a glance">
-        <Metric
-          label="Calls today"
-          value={formatCount(data.calls_today)}
-          flashValue={String(data.calls_today)}
-          hint="Since midnight, India time"
-        />
-        {/* The window is part of the number: a seven-day average of COMPLETED calls
-            (D-215), said in the hint so it is not read as an all-time figure. */}
-        <Metric
-          label="Average call length"
-          value={formatDuration(data.avg_duration_s_7d)}
-          flashValue={data.avg_duration_s_7d == null ? null : String(data.avg_duration_s_7d)}
-          hint="Completed calls, last 7 days"
-        />
-        <Metric
-          label="New leads (7 days)"
-          value={formatCount(data.leads_new_7d)}
-          flashValue={String(data.leads_new_7d)}
-          hint={
-            <>
-              {leadsTrend ? <span className="block first-letter:uppercase">{leadsTrend}</span> : null}
-              <Link href={href(`/c/${slug}/leads`)} className="underline decoration-ink/30 underline-offset-2 hover:text-ink">
-                Open leads
-              </Link>
-            </>
-          }
-        />
-        <Metric
-          label="Hot leads waiting"
-          value={formatCount(data.hot_leads_open)}
-          flashValue={String(data.hot_leads_open)}
-          hint="Interested and not yet won or lost"
-        />
-      </MetricRow>
-
-      {/* An unanswered question recurs on every future call until it is taught, so it
-          sits high, across ALL the org's agents — and only when there is one to teach. */}
-      <KnowledgeGaps hideWhenClear />
-
       <div className="grid items-start gap-10 lg:grid-cols-12 lg:gap-12">
         <div className="space-y-10 lg:col-span-8">
-          <AgentsAtAGlance agents={agents} stats={agentStats} href={(path) => href(`/c/${slug}${path}`)} />
+          <AgentsAtAGlance
+            agents={agents}
+            stats={agentStats}
+            onTrial={data.trial?.on_trial === true}
+            href={(path) => href(`/c/${slug}${path}`)}
+          />
           <Section title="Calls each day">
             <DailyCalls days={data.daily_7d} />
           </Section>

@@ -1,9 +1,15 @@
 "use client";
 
-import { Download, Search } from "lucide-react";
+import { Download, Search, SlidersHorizontal } from "lucide-react";
 
 import { InfoTip } from "@/components/console/infoTip";
-import { FIELD_INLINE, FIELD_INLINE_ICON, SECONDARY_BUTTON } from "@/components/ui";
+import {
+  FIELD_INLINE,
+  FIELD_INLINE_ICON,
+  RestrictionNote,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_SM,
+} from "@/components/ui";
 
 import { type LeadLens, type LeadList, type useExportLeads } from "@/lib/api/leads";
 
@@ -17,6 +23,14 @@ import { ColumnChooser } from "./ColumnChooser";
  * button's gate and its three tooltip states are a compliance surface — `calls:read_raw`
  * is the permission `/v1/leads/export.csv` requires, the refusal is the server's own
  * sentence, and every download is audited — and none of it was reworded in the move.
+ *
+ * ON A PHONE ONLY SEARCH STAYS OUT. The question box, Columns and Export (with the
+ * export's refusal) fold behind one "Filters" button, together with the screen's
+ * "More filters" (`filtersPanelIds` names both regions), so the first lead row sits under
+ * the search and stage controls instead of under a screen of controls. The button counts
+ * the filters in force, so a closed panel never hides that rows are narrowed. From `sm`
+ * the panel is always open and the button is gone. It is CSS, not a width check, so the
+ * table and every control render at every width.
  */
 export function LeadsToolbar({
   search,
@@ -35,6 +49,10 @@ export function LeadsToolbar({
   exportNote,
   onExported,
   askExample,
+  filtersOpen,
+  onFiltersOpen,
+  filtersInUse,
+  filtersPanelIds,
 }: {
   search: string;
   onSearch: (value: string) => void;
@@ -61,7 +79,15 @@ export function LeadsToolbar({
   onExported: () => void;
   /** A request in this business's own words, for the search placeholder. */
   askExample: string;
+  /** Whether the phone's folded panel is open. Ignored from `sm`, where it always is. */
+  filtersOpen: boolean;
+  onFiltersOpen: (open: boolean) => void;
+  /** Filters narrowing the rows that live inside the panel (not stage, which stays out). */
+  filtersInUse: number;
+  /** Space-separated ids of every region the button shows, for `aria-controls`. */
+  filtersPanelIds: string;
 }) {
+  const [panelId] = filtersPanelIds.split(" ");
   return (
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1 sm:flex-none">
@@ -76,6 +102,23 @@ export function LeadsToolbar({
             className={`${FIELD_INLINE_ICON} w-full sm:w-56`}
           />
         </div>
+
+        <button
+          type="button"
+          aria-expanded={filtersOpen}
+          aria-controls={filtersPanelIds}
+          onClick={() => onFiltersOpen(!filtersOpen)}
+          className={`${SECONDARY_BUTTON} shrink-0 aria-expanded:bg-ink/[0.06] sm:hidden`}
+        >
+          <SlidersHorizontal aria-hidden className="h-3.5 w-3.5" />
+          Filters
+          {filtersInUse > 0 ? <span className="tabular-nums text-ink-muted">· {filtersInUse}</span> : null}
+        </button>
+
+        <div
+          id={panelId}
+          className={`${filtersOpen ? "flex" : "hidden"} w-full flex-wrap items-center gap-2 sm:flex sm:w-auto sm:flex-1`}
+        >
 
         {/* THE QUESTION BOX (D-504). A FORM, not a debounced input, and the difference is
             money: each submission buys one embedding against this account's AI ceiling,
@@ -105,7 +148,7 @@ export function LeadsToolbar({
           />
         </form>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
         {/* The COLUMN CHOOSER. It sits beside Export rather than above the table on
             purpose: it decides what the table shows AND what the file contains, and a
             control that changes the download belongs next to the download. */}
@@ -136,6 +179,8 @@ export function LeadsToolbar({
             for dispatch and for D-22 impersonation: an answer given before the click
             beats a refusal after it. The server still refuses either way — this is a
             preview of its answer, never a substitute for it. */}
+        {/* The button and its ⓘ wrap as one unit, so the ⓘ never sits alone on a line. */}
+        <span className="inline-flex items-center gap-1">
         <button
           type="button"
           disabled={exportLeads.isPending || !mayExport || Boolean(askTerm)}
@@ -161,7 +206,8 @@ export function LeadsToolbar({
               ? "Downloads these leads: name and full phone number first, then the columns shown here."
               : "Checking whether you can export these leads…")
           }
-          className={SECONDARY_BUTTON}
+          // The small size, as Columns beside it is: the two are one pair of controls.
+          className={SECONDARY_BUTTON_SM}
         >
           <Download aria-hidden className="h-3.5 w-3.5" />
           {exportLeads.isPending ? "Preparing…" : "Export this view as CSV"}
@@ -169,6 +215,16 @@ export function LeadsToolbar({
         <InfoTip label="the CSV export" align="end">
           <p>{exportNote}</p>
         </InfoTip>
+        </span>
+        </div>
+
+        {/* The refusal sits with the button it explains: a disabled button's `title` is
+            unreachable on touch, so the sentence has to be on screen beside it. */}
+        {exportRefusal ? (
+          <div className="basis-full">
+            <RestrictionNote reason={exportRefusal} />
+          </div>
+        ) : null}
         </div>
       </div>
   );
