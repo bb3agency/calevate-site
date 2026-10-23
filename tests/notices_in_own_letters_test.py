@@ -10,6 +10,7 @@ and goes down and back up.
 from __future__ import annotations
 
 import importlib.util
+import re
 import uuid
 from pathlib import Path
 from types import ModuleType
@@ -18,7 +19,6 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from apps.api.compliance.disclosure import (
     CALLER_MEMORY_NOTICE_TEMPLATES,
-    ai_disclosure_for,
     caller_memory_notice_for,
     recording_notice_for,
 )
@@ -39,19 +39,32 @@ def _revision() -> ModuleType:
     return module
 
 
+def _d865() -> ModuleType:
+    stem = "f2b7c4e9d815_ai_notice_introduces_agent"
+    path = Path(__file__).resolve().parent.parent / "alembic" / "versions" / f"{stem}.py"
+    spec = importlib.util.spec_from_file_location(f"_revision_{stem}", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _ai(language: str) -> str:
+    """D-861's AI sentence for BUSINESS, which D-865 replaced with the introduction."""
+    revision = _revision()
+    return (revision.TE_AI if language == "te-IN" else revision.HI_AI).replace(r"\2", BUSINESS)
+
+
 def test_the_migrations_copies_are_todays_defaults() -> None:
-    """The migration copies rather than imports; a copy nobody compares drifts."""
+    """The migration copies rather than imports; a copy nobody compares drifts. Its AI
+    sentence is the one D-865's migration takes as the previous default."""
     revision = _revision()
     assert recording_notice_for(language="te-IN") == revision.TE_RECORDING
     assert recording_notice_for(language="hi-IN") == revision.HI_RECORDING
     assert caller_memory_notice_for(language="te-IN") == revision.TE_MEMORY
     assert caller_memory_notice_for(language="hi-IN") == revision.HI_MEMORY
-    assert revision.TE_AI.replace(r"\2", BUSINESS) == ai_disclosure_for(
-        language="te-IN", business=BUSINESS
-    )
-    assert revision.HI_AI.replace(r"\2", BUSINESS) == ai_disclosure_for(
-        language="hi-IN", business=BUSINESS
-    )
+    assert re.fullmatch(_d865().TE_OLD, _ai("te-IN"))
+    assert re.fullmatch(_d865().HI_OLD, _ai("hi-IN"))
     new_memory = {new for _old, new in revision._EXACT["caller_memory_notice_line"]}
     assert new_memory == set(CALLER_MEMORY_NOTICE_TEMPLATES.values())
 
@@ -115,12 +128,12 @@ async def test_previous_defaults_are_rewritten_edits_kept_and_one_run_queued() -
         "+asyncpg", "+psycopg"
     )
     te_new = (
-        ai_disclosure_for(language="te-IN", business=BUSINESS),
+        _ai("te-IN"),
         recording_notice_for(language="te-IN"),
         caller_memory_notice_for(language="te-IN"),
     )
     hi_new = (
-        ai_disclosure_for(language="hi-IN", business=BUSINESS),
+        _ai("hi-IN"),
         recording_notice_for(language="hi-IN"),
         caller_memory_notice_for(language="hi-IN"),
     )

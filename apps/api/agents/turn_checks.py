@@ -31,8 +31,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final, Literal, Protocol
 
-from calevate_shared.spoken_guard import textbook_note, textbook_words
+from calevate_shared.spoken_guard import opens_with_greeting, textbook_note, textbook_words
 from calevate_shared.spoken_style import style_for
+
+from apps.api.compliance.optout import normalize_utterance
 
 Kind = Literal[
     "brackets",
@@ -66,6 +68,8 @@ Kind = Literal[
     # The Sri Estates call of 23 Oct 2026 (D-864): a second greeting, or "can you talk now?"
     # again, in the first reply after the opening.
     "opened_again",
+    # D-865: an agent that remembers callers closed a call without its memory sentence.
+    "memory_not_said",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -94,6 +98,8 @@ SOUND_KINDS: Final = frozenset(
         "no_breath",
         # The START OF THE CALL layer decides it, not the owner's script (D-864).
         "opened_again",
+        # The platform's goodbye rule decides it, not the owner's script (D-865).
+        "memory_not_said",
     }
 )
 #: What breaks the caller's task whatever the words: the caller's part said for them, a
@@ -908,13 +914,6 @@ _ASKS_REPEAT: Final = re.compile(
 )
 
 
-#: A reply that opens with a greeting. The opening the engine speaks already greeted, so in
-#: the first reply after it this is a second hello (D-864).
-_OPENS_WITH_GREETING: Final = re.compile(
-    r"^\W*(?:hello|hi|hey|namaste|namaskar(?:am)?|good (?:morning|afternoon|evening)|"
-    r"నమస్కారం|నమస్కారాలు|నమస్తే|హలో|హాయ్|नमस्ते|नमस्कार|हैलो|हेलो)(?=[\s,.!?।]|$)",
-    re.IGNORECASE,
-)
 #: Asking whether now suits, which an opening of ours asks itself ("ఇప్పుడు రెండు నిమిషాలు
 #: మాట్లాడొచ్చా?").
 _ASKS_IF_NOW_SUITS: Final = re.compile(
@@ -929,8 +928,11 @@ _ASKS_IF_NOW_SUITS: Final = re.compile(
 
 def opened_again(reply: str) -> str | None:
     """Why the first reply after the opening starts the call over, or None: a second greeting,
-    or asking again whether now is a good time (D-864)."""
-    if _OPENS_WITH_GREETING.search(reply):
+    or asking again whether now is a good time (D-864). The opening already greeted, so a
+    reply that opens with a greeting is a second hello. A reply that says who the agent is
+    ("నేను ... మాట్లాడుతున్నాను", the AI notice's introduction, D-865) is not a greeting: it is
+    the answer to "who is this?"."""
+    if opens_with_greeting(reply):
         return "It greeted the caller again, though its opening had already greeted them."
     if _ASKS_IF_NOW_SUITS.search(reply):
         return (
@@ -1012,13 +1014,35 @@ def _same_reply(a: str, b: str) -> bool:
     return shared >= 0.9 and abs(len(left) - len(right)) <= max(2, len(left) // 10)
 
 
+def memory_not_said(exchanges: Sequence[Exchange], memory_notice: str) -> str | None:
+    """Why a conversation that ended on the agent's goodbye is missing the memory sentence,
+    or None (D-865). Only a goodbye after the caller closed counts; the sentence is matched
+    after the same normalisation the disclosure evidence uses, so punctuation and spacing do
+    not decide it."""
+    sentence = normalize_utterance(memory_notice)
+    replied = [e for e in exchanges if e.reply.strip()]
+    if not sentence or not replied:
+        return None
+    last = replied[-1]
+    closes = _CALLER_CLOSES.search(last.said) and not _CALLER_ASKS.search(last.said)
+    if not _GOODBYE.search(last.reply) or not closes:
+        return None
+    if sentence in normalize_utterance(last.reply):
+        return None
+    return (
+        "It said goodbye without saying that it keeps a short note of the call. An agent that "
+        "remembers callers says its memory sentence once with its goodbye."
+    )
+
+
 def conversation_problems(
-    exchanges: Sequence[Exchange], *, number_known: bool = True
+    exchanges: Sequence[Exchange], *, number_known: bool = True, memory_notice: str = ""
 ) -> list[TurnProblem]:
     """The problems only a whole conversation shows, each kind once, in order.
 
     `number_known` is False only for a call whose number the network hid (D-746), where
-    asking for a number is right.
+    asking for a number is right. `memory_notice` is the sentence the closing goodbye must
+    carry, empty where none is owed (D-865).
     """
     found: dict[str, TurnProblem] = {}
     acted = False
@@ -1110,6 +1134,9 @@ def conversation_problems(
         ):
             awaiting = None
         previous_reply = reply
+    unsaid = memory_not_said(exchanges, memory_notice)
+    if unsaid:
+        found.setdefault("memory_not_said", TurnProblem("memory_not_said", unsaid))
     return list(found.values())
 
 
@@ -1124,6 +1151,7 @@ __all__ = [
     "claims_said_before",
     "conversation_problems",
     "formal_swaps",
+    "memory_not_said",
     "opened_again",
     "sentences",
     "turn_problems",

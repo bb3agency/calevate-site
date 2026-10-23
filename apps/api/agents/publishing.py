@@ -488,10 +488,8 @@ class CallerMemoryResult:
 
     agent_id: UUID
     enabled: bool
-    #: What callers actually hear first, recomposed. When memory goes ON this GAINS the
-    #: `caller_memory_notice_line` sentence and when it goes off it loses it — which is the
-    #: property D-507 made unconstructible to violate, surfaced here so the screen shows the
-    #: client the sentence their callers will now hear rather than describing it.
+    #: The notices said at the start of a call, recomposed. The memory sentence is not among
+    #: them: it is said with the goodbye (D-865), so this does not change with the switch.
     opening_line: str
     #: Did the change reach the voice platform? False for an agent that is not live — there
     #: is nothing to push to, and the next publish carries it.
@@ -1168,7 +1166,7 @@ def _drift_detail(verdict: PublishVerification) -> str:
             "Publish it again to apply it."
         )
     return (
-        "The voice platform is running a different script, opening line, "
+        "The voice platform is running a different script, opening line, memory notice, "
         "truthful-answer rule, confidentiality rule, voice or handover destination from "
         "the one this agent last published."
     )
@@ -1310,15 +1308,11 @@ _APPLIED_BODY_SQL: Final = (
 _NOTICE_ADDED: Final[dict[str, str]] = {
     "ai_disclosure_enabled": (
         "Saying that it is an AI assistant adds a sentence your agent says at the start of "
-        "every call, right after its opening line."
+        "every call, with its opening line."
     ),
     "recording_notice_enabled": (
         "Saying that the call is recorded adds a sentence your agent says at the start of "
         "every call, right after its opening line."
-    ),
-    "caller_memory_enabled": (
-        "Remembering callers adds a sentence your agent says at the start of every call, "
-        "right after its opening line, telling callers it keeps a short note."
     ),
 }
 
@@ -1329,6 +1323,7 @@ def _refuse_notices_without_room(
     direction: str,
     posture: DisclosurePosture,
     body: str | None,
+    language: str,
     turned_on: tuple[str, ...],
 ) -> None:
     """Refuse switching on a notice the first words have no room for, before anything is
@@ -1341,16 +1336,15 @@ def _refuse_notices_without_room(
         _NOTICE_ADDED[turned_on[0]]
         if len(turned_on) == 1
         else "These notices add sentences your agent says at the start of every call, "
-        "right after its opening line."
+        "with its opening line."
     )
     refuse_notice_without_room(
         engine,
         agent_id=str(agent_id),
         direction=direction,
-        notices=compose_opening_line(
-            posture, call_is_recorded=engine_capabilities(engine).records_audio
-        ),
+        posture=posture,
         opening=opening_line_of(body),
+        language=language,
         cause=cause,
     )
 
@@ -1407,7 +1401,7 @@ async def set_disclosure_posture(
                     # dropped the memory sentence would republish an agent that still
                     # remembers callers and has stopped saying so.
                     "caller_memory_notice_line, caller_memory_enabled, "
-                    f"a.direction, {_APPLIED_BODY_SQL} "
+                    f"a.direction, {_APPLIED_BODY_SQL}, a.language_primary "
                     "FROM agents a WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
                 ),
                 {"aid": agent_id},
@@ -1441,6 +1435,7 @@ async def set_disclosure_posture(
             direction=str(row[8]),
             posture=posture,
             body=row[9],
+            language=str(row[10]),
             turned_on=tuple(field for field in changed if wanted[field]),
         )
         is_live = str(row[4]) == "live" and bool(row[5])
@@ -1532,10 +1527,10 @@ async def set_caller_memory(
 
     **FAST LANE, AND THE REPUBLISH IS INSIDE THE TRANSACTION**, exactly as
     `set_disclosure_posture` and `set_call_cap`: a live agent whose column moved is
-    re-published before this returns, so the SPOKEN NOTICE and the prompt's memory section
-    land on the phone line at the same moment the screen changes. That ordering is the whole
-    compliance guarantee here — a column that said "remembers" while the engine still held a
-    greeting that did not mention it is precisely the state D-507 made unconstructible, and
+    re-published before this returns, so the goodbye's memory sentence and the prompt's memory
+    section land on the phone line at the same moment the screen changes. That ordering is the
+    whole compliance guarantee here — a column that said "remembers" while the engine still
+    held a prompt that did not say so is precisely the state D-507 made unconstructible, and
     an engine push after the commit would reintroduce it for the width of one vendor call.
 
     IDEMPOTENT. Re-asserting the state an agent is already in changes nothing, publishes
@@ -1555,7 +1550,7 @@ async def set_caller_memory(
                     # has attested yet, or the person who did has left and the FK went to
                     # NULL. An inner join would drop the whole agent row for either, which
                     # is a 404 on a switch because somebody was offboarded.
-                    f"u.name, a.direction, {_APPLIED_BODY_SQL} "
+                    "u.name "
                     "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
                     "LEFT JOIN users u ON u.id = o.caller_memory_attested_by "
                     "WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
@@ -1589,15 +1584,8 @@ async def set_caller_memory(
             caller_memory_notice_line=str(row[5]),
             caller_memory_enabled=enabled,
         )
-        # Before the attestation is asked for, so an owner shortens the opening line first
-        # and confirms once rather than confirming and then being refused.
-        _refuse_notices_without_room(
-            agent_id=agent_id,
-            direction=str(row[11]),
-            posture=posture,
-            body=row[12],
-            turned_on=("caller_memory_enabled",) if enabled and not current else (),
-        )
+        # No room check: the memory sentence is said with the goodbye, not in the greeting
+        # (D-865), so switching memory on adds nothing to the first turn.
         if enabled and attested_at is None and attested_by is None:
             raise ProblemError.business_rule(
                 "caller_memory_attestation_required",

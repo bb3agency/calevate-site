@@ -68,6 +68,7 @@ from calevate_shared.engine import (
 from calevate_shared.spoken_guard import (
     english_problem,
     generation_guidance,
+    introduced_opening_problem,
     latin_word_problem,
     textbook_problem,
 )
@@ -257,13 +258,15 @@ def language_problems(
     allowed: str = "",
     instructions: bool = True,
     names: Sequence[str] = (),
+    introduced: bool = False,
 ) -> list[str]:
     """What the model must fix in a script it wrote (D-831): an instruction in an Indic
     script, and a spoken line with a textbook word (`spoken_guard`), a provider's name
     (`business_copy.provider_problem`, D-679: callers hear these lines) or a break of the call
     rules the practice tests check (`call_rules.said_line_problem`, D-849). The opening line,
     which the engine speaks word for word, must also be in the language's own letters
-    (D-861, D-864), apart from `names` (the business's and the agent's).
+    (D-861, D-864), apart from `names` (the business's and the agent's), and, when the agent
+    is `introduced` by its AI notice first, must neither greet nor say those names (D-865).
 
     Only the model's own writing is judged: with `before` (an edit), a field whose text the
     script already held is the owner's and is skipped, and a textbook word that appears in
@@ -303,6 +306,9 @@ def language_problems(
                 latin_word_problem(path, text, language, names=names)
                 if path == "opening_line" and not owners
                 else None,
+                introduced_opening_problem(path, text, names=names)
+                if path == "opening_line" and introduced and not owners
+                else None,
             )
             if problem
         ]
@@ -316,12 +322,18 @@ def drafted_script(
     allowed: str = "",
     instructions: bool = True,
     names: Sequence[str] = (),
+    introduced: bool = False,
 ) -> CallScript:
     """A whole draft (or a conversion) as `_script_from_model_json` reads it, refused with
     the language problems for the one repair when it breaks the language rules."""
     script = _script_from_model_json(raw)
     problems = language_problems(
-        script, language, allowed=allowed, instructions=instructions, names=names
+        script,
+        language,
+        allowed=allowed,
+        instructions=instructions,
+        names=names,
+        introduced=introduced,
     )
     if problems:
         log.warning("script_assist_language_unusable", extra={"count": len(problems)})
@@ -336,6 +348,7 @@ def edited_script(
     language: str | None = None,
     allowed: str = "",
     names: Sequence[str] = (),
+    introduced: bool = False,
 ) -> CallScript | None:
     """The model's edited script, validated like any save; None when it is not a valid
     script (the edit is then reported as no draft rather than half applied). A field the
@@ -361,7 +374,9 @@ def edited_script(
         )
         log.warning("script_assist_edit_unusable", extra={"where": where, "count": len(errors)})
         raise UnusableAnswerError("; ".join(problems)) from invalid
-    problems = language_problems(edited, language, before=current, allowed=allowed, names=names)
+    problems = language_problems(
+        edited, language, before=current, allowed=allowed, names=names, introduced=introduced
+    )
     if problems:
         log.warning("script_assist_language_unusable", extra={"count": len(problems)})
         raise UnusableAnswerError("; ".join(problems[:12]))
@@ -430,6 +445,15 @@ OWNER_QUESTIONS: Final[dict[str, str]] = {
     "never_say": "Anything the agent must never say or promise?",
 }
 
+#: Told to every writer of a script whose agent introduces itself (D-865). The system
+#: instructions carry `OPENING_LINE_RULE`, which names this case; the brief says it applies.
+INTRODUCED_OPENING_NOTE: Final = (
+    "The agent introduces itself just before its opening line: a short greeting, its name, "
+    "the business and that it is an AI assistant. So the opening_line does NOT greet and "
+    "does NOT say the agent's or the business's name: it says why the call is made (an "
+    "agent that answers calls thanks the caller) and asks one short question."
+)
+
 _DIRECTION_SENTENCES: Final[dict[str, str]] = {
     "inbound": "The agent answers calls.",
     "outbound": "The agent places calls to leads.",
@@ -454,6 +478,9 @@ class ScriptBrief:
     collect: tuple[str, ...] = ()
     knowledge_titles: tuple[str, ...] = ()
     answers: tuple[tuple[str, str], ...] = ()
+    #: The agent's AI notice introduces it just before the opening line (D-865,
+    #: `engine.introduces_itself`): the opening line then neither greets nor says who calls.
+    introduced: bool = False
 
     def user_message(self) -> str:
         lines = [
@@ -462,6 +489,8 @@ class ScriptBrief:
             _DIRECTION_SENTENCES.get(self.direction, _DIRECTION_SENTENCES["inbound"]),
             f"Call language: {self.language}",
         ]
+        if self.introduced:
+            lines.append(INTRODUCED_OPENING_NOTE)
         # The spoken-style guide for the call language (D-744): every swap, the tags and
         # fillers, the number and punctuation rules and example exchanges, so draft,
         # convert and edit all write the founder's reviewed style.
@@ -1147,6 +1176,7 @@ async def draft_script(
             language=full.language,
             allowed=change,
             names=names,
+            introduced=full.introduced,
         )
     else:
         # A conversion keeps the owner's own sentences, in whatever language they wrote them,
@@ -1162,6 +1192,7 @@ async def draft_script(
             allowed=full.description if converting else "",
             instructions=not converting,
             names=names,
+            introduced=full.introduced,
         )
     answer = await ask_json(
         description,

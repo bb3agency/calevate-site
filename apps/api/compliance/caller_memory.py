@@ -26,7 +26,8 @@ a NOTICE question, and D-506 left it open because the two spoken sentences (SEC-
 D-507 answered it in three parts, and this module carries one of them:
 
 * **The agent SAYS it.** `agents.caller_memory_notice_line` is NOT NULL and non-blank, and
-  `calevate_shared.engine.compose_opening_line` appends it third — gated on
+  `calevate_shared.engine.memory_goodbye_rule` has the agent say it with its goodbye
+  (D-865; it was the opening's third sentence before) — gated on
   `caller_memory_enabled` and on NO switch of its own, so "remembers a caller without
   saying so" is not a constructible state. An inbound caller has visited no website and
   agreed to no page, which is why the written draft alone could not close this.

@@ -21,9 +21,12 @@
    - **greeting**: an opening line that fits the first-agent rule (under 120 characters,
      ending with a question, no textbook word, every word in the language's own letters but
      the business's and the agent's names) and the engine's ceiling, else the starter's
-     reviewed line for its language;
-   - **notice**: the AI notice switched on, said after the greeting on every call (D-864),
-     unless the owner switched it off for this agent or the greeting leaves no room.
+     reviewed line for its language. Where the AI notice will introduce the agent (D-865),
+     the script and the line are written for after the introduction: no greeting and no
+     names; when the notice then cannot be switched on, the greeting is chosen again without;
+   - **notice**: the AI notice switched on (D-864): in Telugu and Hindi it introduces the
+     agent before the opening line (D-865), elsewhere it follows it; unless the owner
+     switched it off for this agent or the greeting leaves no room.
 
 The model reads only the owner's own words about their business (the tenant-authored class
 `script_assist` serves), never a caller's, and none of it is logged (hard rule 6). Every model
@@ -40,7 +43,14 @@ from uuid import UUID
 
 import httpx
 from calevate_shared.call_script import CallScript
-from calevate_shared.spoken_guard import latin_words, textbook_problem
+from calevate_shared.engine import introduces_itself
+from calevate_shared.spoken_guard import (
+    introduced_opening_problem,
+    latin_words,
+    names_used,
+    opens_with_greeting,
+    textbook_problem,
+)
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import account_assist_leg
@@ -53,7 +63,12 @@ from apps.api.agents.script_builder import (
     save_agent_script,
 )
 from apps.api.agents.script_proposals import brief_for
-from apps.api.agents.starters import StarterJob, direction_of_jobs, starter_jobs, starter_script
+from apps.api.agents.starters import (
+    StarterJob,
+    direction_of_jobs,
+    starter_jobs,
+    starter_opening,
+)
 from apps.api.agents.voice_pick import pick_voice
 from apps.api.billing.ai_quota import new_assist_ref, platform_brake_tripped
 from apps.api.billing.models import ASSIST_FEATURE_FIRST_RUN
@@ -375,17 +390,27 @@ async def _finish_build(
         )
 
 
-def greeting_fits(line: str, language: str, *, names: Sequence[str] = ()) -> bool:
+def greeting_fits(
+    line: str, language: str, *, names: Sequence[str] = (), introduced: bool = False
+) -> bool:
     """The first-agent greeting rule: short, ending on a question that hands the turn over,
     with no textbook word callers do not say, and every word in the language's own letters
-    apart from `names` (D-861, D-864)."""
+    apart from `names` (D-861, D-864). Said after the agent's introduction (`introduced`),
+    it neither greets nor says `names`; without one, it greets or says who is calling, so a
+    line written for after an introduction is not kept once the introduction is off (D-865)."""
     clean = line.strip()
+    placed = (
+        introduced_opening_problem("opening_line", clean, names=names) is None
+        if introduced
+        else opens_with_greeting(clean) or bool(names_used(clean, names))
+    )
     return (
         bool(clean)
         and len(clean) <= GREETING_MAX_CHARS
         and clean.endswith("?")
         and textbook_problem("opening_line", clean, language) is None
         and not latin_words(clean, language, names=names)
+        and placed
     )
 
 
@@ -432,7 +457,13 @@ async def _create(
 
 
 async def _write_script(
-    tenant_id: UUID, agent_id: UUID, run: Any, *, name: str, created_by: UUID | None
+    tenant_id: UUID,
+    agent_id: UUID,
+    run: Any,
+    *,
+    name: str,
+    introduced: bool,
+    created_by: UUID | None,
 ) -> tuple[dict[str, Any], str | None]:
     """The script from the brief, applied as the agent's version; the ready-made one when
     the brief is too short or no model gives a usable answer. Returns (step state,
@@ -458,7 +489,7 @@ async def _write_script(
         )
         try:
             draft = await draft_script(
-                replace(context, description=description),
+                replace(context, description=description, introduced=introduced),
                 tenant_leg=tenant_leg,
                 quota_exhausted=braked,
             )
@@ -499,23 +530,32 @@ async def _write_script(
 
 
 async def _write_greeting(
-    tenant_id: UUID, agent_id: UUID, run: Any, *, name: str, created_by: UUID | None
+    tenant_id: UUID,
+    agent_id: UUID,
+    run: Any,
+    *,
+    name: str,
+    introduced: bool,
+    created_by: UUID | None,
 ) -> dict[str, Any]:
-    """Keep the written greeting when it fits the rule, else the starter's reviewed line."""
+    """Keep the written greeting when it fits the rule, else the starter's reviewed line;
+    with `introduced`, the forms said after the agent's introduction (D-865)."""
     language = str(run.language_primary)
     async with tenant_session(tenant_id) as session:
         current = (await load_agent_script(session, agent_id)).script.opening_line.strip()
         business = (
             await session.execute(text("SELECT name, vertical_template FROM organizations LIMIT 1"))
         ).one()
-    if greeting_fits(current, language, names=(str(business[0]), name)):
+    names = (str(business[0]), name)
+    if greeting_fits(current, language, names=names, introduced=introduced):
         return {"state": "done"}
-    starter_line = starter_script(
+    starter_line = starter_opening(
         None if business[1] is None else str(business[1]),
         _jobs(run),
         business=str(business[0]),
         language=language,
-    ).opening_line
+        introduced=introduced,
+    )
     if starter_line.strip() == current:
         return {"state": "kept"}
     try:
@@ -534,16 +574,8 @@ async def _write_greeting(
     return {"state": "ready_made"}
 
 
-async def _switch_on_ai_notice(tenant_id: UUID, agent_id: UUID) -> dict[str, Any]:
-    """Switch the AI notice on, so the first agent says it after its greeting (D-864).
-
-    Every agent is created with both notices off (D-669), and this step used to only read
-    back that the sentence was on file, so the first run's agent opened with no AI notice
-    while the build said "Adding its AI notice". The recording notice is left as created:
-    it is the owner's choice (D-669, D-163). An owner who has already switched the AI notice
-    off for this agent keeps that choice on a rebuild. Through `set_disclosure_posture`, the
-    one writer of the switch, so the greeting budget is checked (D-846) and a live agent is
-    republished; audited as the system, as the switch route audits the owner."""
+async def _ai_notice_on_file(tenant_id: UUID, agent_id: UUID) -> tuple[str, bool]:
+    """(the agent's AI sentence, whether its owner switched the notice off for this agent)."""
     async with tenant_session(tenant_id) as session:
         line = (
             await session.execute(
@@ -556,9 +588,30 @@ async def _switch_on_ai_notice(tenant_id: UUID, agent_id: UUID) -> dict[str, Any
                 {"a": audit_action_for(AI_NOTICE, enabled=False), "o": str(agent_id)},
             )
         ).first()
-    if not (line or "").strip():
+    return (line or "").strip(), owner_off is not None
+
+
+async def _will_introduce(tenant_id: UUID, agent_id: UUID, language: str) -> bool:
+    """Will the notice step leave this agent introducing itself (D-865)? Then the script and
+    the greeting are written for the line said after the introduction."""
+    line, owner_off = await _ai_notice_on_file(tenant_id, agent_id)
+    return not owner_off and introduces_itself(ai_notice=line, language=language)
+
+
+async def _switch_on_ai_notice(tenant_id: UUID, agent_id: UUID) -> dict[str, Any]:
+    """Switch the AI notice on, so the first agent says it after its greeting (D-864).
+
+    Every agent is created with both notices off (D-669), and this step used to only read
+    back that the sentence was on file, so the first run's agent opened with no AI notice
+    while the build said "Adding its AI notice". The recording notice is left as created:
+    it is the owner's choice (D-669, D-163). An owner who has already switched the AI notice
+    off for this agent keeps that choice on a rebuild. Through `set_disclosure_posture`, the
+    one writer of the switch, so the greeting budget is checked (D-846) and a live agent is
+    republished; audited as the system, as the switch route audits the owner."""
+    line, owner_off = await _ai_notice_on_file(tenant_id, agent_id)
+    if not line:
         return {"state": "missing"}
-    if owner_off is not None:
+    if owner_off:
         return {"state": "off"}
     try:
         result = await set_disclosure_posture(
@@ -644,19 +697,27 @@ async def build_first_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str
             )
         if not await _tick(tenant_id, run_id, build, "voice", voice_state):
             return "replaced"
+        introduced = await _will_introduce(tenant_id, agent_id, language)
         script_state, disclosure = await _write_script(
-            tenant_id, agent_id, run, name=name, created_by=created_by
+            tenant_id, agent_id, run, name=name, introduced=introduced, created_by=created_by
         )
         if not await _tick(tenant_id, run_id, build, "script", script_state):
             return "replaced"
         greeting_state = await _write_greeting(
-            tenant_id, agent_id, run, name=name, created_by=created_by
+            tenant_id, agent_id, run, name=name, introduced=introduced, created_by=created_by
         )
         if not await _tick(tenant_id, run_id, build, "greeting", greeting_state):
             return "replaced"
-        if not await _tick(
-            tenant_id, run_id, build, "notice", await _switch_on_ai_notice(tenant_id, agent_id)
-        ):
+        notice_state = await _switch_on_ai_notice(tenant_id, agent_id)
+        if introduced and notice_state["state"] != "done":
+            # Written for after an introduction that is not said (no room for it): the
+            # opening greets and says who calls again.
+            greeting_state = await _write_greeting(
+                tenant_id, agent_id, run, name=name, introduced=False, created_by=created_by
+            )
+            if not await _tick(tenant_id, run_id, build, "greeting", greeting_state):
+                return "replaced"
+        if not await _tick(tenant_id, run_id, build, "notice", notice_state):
             return "replaced"
         await _finish_build(tenant_id, run_id, build, "built", disclosure)
     except Exception:

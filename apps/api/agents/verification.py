@@ -73,6 +73,7 @@ from calevate_shared.engine import (
     HeldVoice,
     VoiceEngine,
     compose_first_utterance,
+    memory_goodbye_rule,
 )
 
 from apps.api.core.errors import ProblemError
@@ -369,8 +370,13 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     """
     prompt = snapshot.carries_prompt_marker(cfg.system_prompt)
     disclosure = _greeting_verdict(engine, cfg, snapshot)
+    # The whole first turn, which START OF THE CALL quotes verbatim: an introducing agent's
+    # notices are said on either side of its opening line (D-865), so `cfg.opening_line`
+    # alone is no longer one stretch of the quote.
     prompt_disclosure = (
-        snapshot.carries_prompt_marker(cfg.opening_line) if cfg.opening_line.strip() else None
+        snapshot.carries_prompt_marker(compose_first_utterance(cfg))
+        if cfg.opening_line.strip()
+        else None
     )
     # EVERY prompt the engine will run, not only the one we published. On Bolna a
     # console-added language carries its own `system_prompt` that the platform switches to
@@ -385,6 +391,10 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     # Every prompt, for the floor's reason: it is ours, a `Final`, and a console-added
     # per-language prompt that lacks it is a language in which the agent will recite.
     confidential = snapshot.every_prompt_carries(CONFIDENTIALITY_MARKER)
+    # The memory sentence is said with the goodbye, from the prompt (D-865), so it is checked
+    # there, word for word, as the greeting check did while it was in the first turn.
+    goodbye = memory_goodbye_rule(cfg)
+    memory = snapshot.carries_prompt_marker(goodbye) if goodbye else True
     handoff = _handoff_verdict(engine, cfg, snapshot)
     voice = _voice_verdict(engine, cfg, snapshot)
     own_voice = _own_voice_key_verdict(cfg, snapshot)
@@ -409,6 +419,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
         ("greeting disclosure", disclosure),
         ("truthful-answer rule", truthful),
         ("confidentiality rule", confidential),
+        ("memory notice", memory),
         ("script", prompt),
         ("voice", voice),
         ("voice key setting", own_voice),

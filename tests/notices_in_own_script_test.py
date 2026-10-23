@@ -39,10 +39,15 @@ def _revision() -> ModuleType:
 
 
 def test_new_agents_get_the_sentences_in_their_own_script() -> None:
-    # Every word in the language's own letters since D-861 (23 Oct 2026).
-    assert ai_disclosure_for(language="te-IN", business="Raghava") == "ఇది Raghava ఏఐ అసిస్టెంట్."
+    # Every word in the language's own letters since D-861; the AI sentence introduces the
+    # agent by name since D-865 (both 23 Oct 2026).
+    assert ai_disclosure_for(language="te-IN", business="Raghava", name="Anjali") == (
+        "నేను Raghava నుండి Anjaliని, ఏఐ అసిస్టెంట్‌ని మాట్లాడుతున్నాను అండి."
+    )
     assert recording_notice_for(language="te-IN") == "ఈ కాల్ రికార్డ్ అవుతుంది."
-    assert ai_disclosure_for(language="hi-IN", business="Raghava") == ("मैं Raghava का एआई असिस्टेंट हूँ।")
+    assert ai_disclosure_for(language="hi-IN", business="Raghava", name="Anjali") == (
+        "मैं Raghava से Anjali, एआई असिस्टेंट, बात कर रही हूँ।"
+    )
     assert recording_notice_for(language="hi-IN") == "यह कॉल रिकॉर्ड हो रही है।"
     assert caller_memory_notice_for(language="hi-IN") == (
         "आप दोबारा कॉल करें तो याद रहे, इसलिए हम इस कॉल का एक छोटा नोट रखते हैं।"

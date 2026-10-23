@@ -81,9 +81,10 @@ from calevate_shared.engine import (
     AgentConfig,
     DisclosurePosture,
     compose_first_utterance,
-    compose_opening_line,
     engine_prompt_layers,
     google_openai_compat_base_url,
+    introduction_salutation,
+    notice_fields,
 )
 from calevate_shared.languages import find_language
 from calevate_shared.spoken_style import (
@@ -203,13 +204,25 @@ def vendor_rules(path: Path = VENDOR_RULES) -> str:
 
 def reference_agent(language: str, fixture: Fixture, extra: Sequence[str] = ()) -> AgentConfig:
     """The retail inbound starter in `language`, as a shop would publish it on day one, with
-    its pinned facts, both notices on, and `extra` as its other languages."""
-    script: CallScript = starter_for("retail", "answer_calls").call_script(
-        business=fixture.business, language=language
+    its pinned facts, both notices on, and `extra` as its other languages. Its opening line is
+    the one said after the AI notice's introduction where the language has one (D-865)."""
+    starter = starter_for("retail", "answer_calls")
+    script: CallScript = starter.call_script(business=fixture.business, language=language)
+    script = script.model_copy(
+        update={
+            "opening_line": starter.opening_for(
+                fixture.business,
+                language,
+                introduced=introduction_salutation(language) is not None,
+            )
+        }
     )
     body = splice_quick_facts(compile_call_script(script, collect=fixture.collect), fixture.pinned)
+    name = f"{fixture.business} receptionist"
     posture = DisclosurePosture(
-        ai_disclosure_line=ai_disclosure_for(language=language, business=fixture.business),
+        ai_disclosure_line=ai_disclosure_for(
+            language=language, business=fixture.business, name=name
+        ),
         ai_disclosure_enabled=True,
         recording_notice_line=recording_notice_for(language=language),
         recording_notice_enabled=True,
@@ -217,13 +230,13 @@ def reference_agent(language: str, fixture: Fixture, extra: Sequence[str] = ()) 
     return AgentConfig(
         tenant_id="register-eval",
         agent_id=f"register-eval-{language}",
-        name=f"{fixture.business} receptionist",
+        name=name,
         business=fixture.business,
         direction="inbound",
         language_primary=language,
         languages_extra=list(extra),
         system_prompt=without_outline(body),
-        opening_line=compose_opening_line(posture, call_is_recorded=True),
+        **notice_fields(posture, call_is_recorded=True),
         call_is_recorded=True,
         facts_in_knowledge=True,
         knowledge_tool="search_knowledge",

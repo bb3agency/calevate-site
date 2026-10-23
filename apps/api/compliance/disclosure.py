@@ -81,6 +81,7 @@ HARD RULE 6. Nothing here logs or returns transcript text. The answer is one tri
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Final, Literal
 
 from calevate_shared.languages import get_language
 
@@ -89,11 +90,14 @@ from apps.api.compliance.optout import SpokenTurn, normalize_utterance
 __all__ = [
     "AI_DISCLOSURE_TEMPLATES",
     "DEFAULT_LANGUAGE",
+    "HINDI_PROGRESSIVE",
     "RECORDING_NOTICE_TEMPLATES",
     "TRUTHFUL_ANSWER_PROMISE",
+    "VoiceGender",
     "ai_disclosure_for",
     "bundled_disclosure_line",
     "disclosure_spoken",
+    "is_default_ai_disclosure",
     "recording_notice_for",
     "truthful_answer_promise",
 ]
@@ -156,12 +160,22 @@ DEFAULT_LANGUAGE = get_language("english_india").bcp47
 #: words in Latin letters until the founder rules on them. The Hindi memory sentence says
 #: "we" so it assumes no gender.
 #:
-#: NO GREETING WORD IN IT (D-708). The greeting is the agent's own opening line, in its
-#: script, and comes before this sentence when it is switched on (D-861); a "Namaskaram,"
-#: here made the notice read as the greeting and made the agent say hello twice.
+#: NO GREETING WORD IN IT (D-708): a "Namaskaram," here made the notice read as the greeting
+#: and the agent say hello twice. The salutation is the composer's
+#: (`calevate_shared.engine.INTRODUCTION_SALUTATIONS`).
+#:
+#: TELUGU AND HINDI INTRODUCE THE AGENT (D-865, founder, 23 Oct 2026, the founder's own
+#: wording): "I am {name} from {business}, an AI assistant, speaking". Said after the
+#: salutation and BEFORE the opening line, which then says only why the call is made
+#: (`engine.join_first_words`). `{name}` and `{business}` are the stored names, in English
+#: letters until spoken names exist (D-861's open item). Hindi's verb follows the voice's
+#: gender (`HINDI_PROGRESSIVE`). Both lines NEED NATIVE-SPEAKER REVIEW. The other languages
+#: keep a sentence without the agent's name and D-861's order (the opening line first); the
+#: founder has worded no introduction for them.
 AI_DISCLOSURE_TEMPLATES: dict[str, str] = {
-    "te-IN": "ఇది {business} ఏఐ అసిస్టెంట్.",
-    "hi-IN": "मैं {business} का एआई असिस्टेंट हूँ।",
+    # The ‌ (zero-width non-joiner) keeps "ట్" and "ని" apart as the founder wrote them.
+    "te-IN": "నేను {business} నుండి {name}ని, ఏఐ అసిస్టెంట్‌ని మాట్లాడుతున్నాను అండి.",
+    "hi-IN": "मैं {business} से {name}, एआई असिस्टेंट, बात कर {progressive} हूँ।",
     "en-IN": "This is the AI assistant for {business}.",
     # Staged (D-855), drafted 23 Oct 2026: NEEDS NATIVE-SPEAKER REVIEW. No caller hears
     # these until `agents/languages.STAGED_LANGUAGE_READINESS` records the review.
@@ -206,6 +220,11 @@ RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
 #: Business-agnostic like the recording sentence, and for its reason: the AI sentence has
 #: already named the caller's counterparty.
 #:
+#: SAID WITH THE GOODBYE, NOT IN THE OPENING (D-865, founder, 23 Oct 2026): the prompt tells
+#: the agent to say it once as it closes a call that ends normally
+#: (`calevate_shared.engine.memory_goodbye_rule`); the engine's 200-character first turn had
+#: no room for it beside a Telugu introduction and the recording notice.
+#:
 #: Deliberately says WHAT is kept and FOR ROUGHLY HOW LONG in the caller's own vocabulary
 #: — "a short note", not "a distilled fact", and never "an embedding". The period is not
 #: interpolated from `retention_policies`: a spoken sentence that changed when a client
@@ -231,14 +250,48 @@ CALLER_MEMORY_NOTICE_TEMPLATES: dict[str, str] = {
 }
 
 
-def _rendered(templates: dict[str, str], language: str, business: str) -> str:
+VoiceGender = Literal["female", "male"]
+
+#: Hindi's present continuous agrees with the speaker: "बात कर रही हूँ" said by a woman, "बात कर
+#: रहा हूँ" by a man. The voice is the speaker the caller hears, so its catalogue gender decides
+#: (`agents/voice_pick.voice_gender`); unknown takes the woman's form, the first run's default
+#: voice (`agents/voice_pick`, D-855).
+HINDI_PROGRESSIVE: Final[dict[VoiceGender, str]] = {"female": "रही", "male": "रहा"}
+
+
+def _rendered(
+    templates: dict[str, str],
+    language: str,
+    business: str,
+    *,
+    name: str = "",
+    gender: VoiceGender | None = None,
+) -> str:
     template = templates.get(language, templates[DEFAULT_LANGUAGE])
-    return template.format(business=business) if "{business}" in template else template
+    if "{" not in template:
+        return template
+    return template.format(
+        business=business, name=name, progressive=HINDI_PROGRESSIVE[gender or "female"]
+    )
 
 
-def ai_disclosure_for(*, language: str, business: str) -> str:
-    """The AI sentence a NEW agent starts with. Always non-empty."""
-    return _rendered(AI_DISCLOSURE_TEMPLATES, language, business)
+def ai_disclosure_for(
+    *, language: str, business: str, name: str, gender: VoiceGender | None = None
+) -> str:
+    """The AI sentence a NEW agent starts with, for an agent called `name` whose voice is of
+    `gender` (None: not known). Always non-empty."""
+    return _rendered(AI_DISCLOSURE_TEMPLATES, language, business, name=name, gender=gender)
+
+
+def is_default_ai_disclosure(line: str, *, language: str, business: str, name: str) -> bool:
+    """Is `line` the default AI sentence for this agent, in either voice gender? Such a line
+    is ours to re-render when the agent's name, voice or language changes; any other line was
+    written by a person and is left alone."""
+    clean = line.strip()
+    return any(
+        clean == ai_disclosure_for(language=language, business=business, name=name, gender=g)
+        for g in (None, "female", "male")
+    )
 
 
 def recording_notice_for(*, language: str) -> str:

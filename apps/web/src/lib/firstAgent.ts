@@ -28,7 +28,7 @@ import {
 
 import { formatCallCap } from "@/components/ui";
 import { LANGUAGE_CHOICES } from "@/lib/agentState";
-import type { Agent } from "@/lib/api/agents";
+import type { Agent, AgentLanguage } from "@/lib/api/agents";
 import type { CallSummary } from "@/lib/api/client";
 import type { FirstRun, FirstRunJob } from "@/lib/api/firstRun";
 import { lookup } from "@/lib/lookup";
@@ -168,8 +168,9 @@ export const LANGUAGES: readonly { tag: string; label: string }[] = LANGUAGE_CHO
   label,
 }));
 
-/** Each language's mark: a syllable in its own script, so an owner finds theirs by sight. */
-const LANGUAGE_GLYPHS: Readonly<Record<string, string>> = {
+/** Each language's mark: a syllable in its own script, so an owner finds theirs by sight.
+ *  Over the generated union, so a language added to the API without a mark fails typecheck. */
+const LANGUAGE_GLYPHS: Readonly<Record<AgentLanguage, string>> = {
   "te-IN": "తె",
   "hi-IN": "हि",
   "en-IN": "En",

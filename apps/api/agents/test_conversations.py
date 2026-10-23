@@ -536,10 +536,13 @@ class Turn:
     cut_short: bool = False
 
 
-def speech_problems(turns: list[Turn], *, language: str = "") -> list[TurnProblem]:
+def speech_problems(
+    turns: list[Turn], *, language: str = "", memory_notice: str = ""
+) -> list[TurnProblem]:
     """The shape problems in a conversation's replies (`agents/turn_checks`), each kind
     once, in the order they first appear. Each reply is judged against the caller line it
-    answered, which decides whether a longer reply was asked for."""
+    answered, which decides whether a longer reply was asked for. `memory_notice` is the
+    sentence a closing goodbye must carry (D-865), empty where none is owed."""
     seen: set[str] = set()
     out: list[TurnProblem] = []
     for turn in turns:
@@ -549,7 +552,9 @@ def speech_problems(turns: list[Turn], *, language: str = "") -> list[TurnProble
                 out.append(problem)
     # What only the whole conversation shows: "done" with no action, the call's own number
     # asked for, part of a number taken as all of it, goodbye mid-question (D-749).
-    out += [p for p in conversation_problems(turns) if p.kind not in seen]
+    out += [
+        p for p in conversation_problems(turns, memory_notice=memory_notice) if p.kind not in seen
+    ]
     return out
 
 
@@ -570,6 +575,9 @@ class RuleContext:
     call_backs: bool = True
     #: The account's agreements are outstanding, so platform changes cannot reach the agent.
     agreements_waiting: bool = False
+    #: The memory sentence the agent says with its goodbye, empty when it remembers no one
+    #: (D-865).
+    memory_notice: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -742,7 +750,9 @@ def hard_check(
             reason="It used the call-back step, which this account cannot use yet.",
             fix="platform",
         )
-    problems = speech_problems(turns, language=language)
+    # A caller who asks to stop gets no memory sentence with the goodbye (D-865).
+    memory = "" if scenario.probe == "stop_calling" else rules.memory_notice
+    problems = speech_problems(turns, language=language, memory_notice=memory)
     if scenario.probe == "person":
         # The test chat's sandbox switches off anything that would ring a person and "says
         # what it would have done instead" (vendor test-chat.md:7, 18 Oct 2026 snapshot), in
@@ -906,6 +916,8 @@ class AgentBrief:
     #: (knowledge gap id, topic, the caller's question, redacted) of open gaps on real calls,
     #: most frequent first: the questions a run asks again (`real_call_scenarios`).
     real_questions: tuple[tuple[str, str, str], ...] = ()
+    #: The memory sentence when the agent remembers callers, else empty (D-865).
+    memory_notice: str = ""
 
     def rules(self, *, agreements_waiting: bool = False) -> RuleContext:
         return RuleContext(
@@ -913,6 +925,7 @@ class AgentBrief:
             hand_over_reason=self.hand_over_reason,
             call_backs=self.call_backs,
             agreements_waiting=agreements_waiting,
+            memory_notice=self.memory_notice,
         )
 
 
@@ -1018,7 +1031,9 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
         await session.execute(
             text(
                 "SELECT a.direction, a.language_primary, a.handoff_enabled, a.business_hours, "
-                "a.tenant_id, o.name, o.vertical_template, a.handoff_trigger FROM agents a "
+                "a.tenant_id, o.name, o.vertical_template, a.handoff_trigger, "
+                "CASE WHEN a.caller_memory_enabled THEN a.caller_memory_notice_line "
+                "ELSE '' END FROM agents a "
                 "JOIN organizations o ON o.id = a.tenant_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
@@ -1082,6 +1097,7 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
         last_failures=failures[:6],
         hand_over_reason=duty.reason,
         real_calls=await count_real_calls(session, agent_id),
+        memory_notice=str(row[8] or "").strip(),
         real_questions=tuple(
             (str(s.gap_id), s.topic[:100], s.question)
             for s in gaps

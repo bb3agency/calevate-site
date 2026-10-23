@@ -939,8 +939,8 @@ async def test_an_answer_only_agent_opens_its_test_call_saying_who_is_calling_an
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Founder, 23 Oct 2026: a receptionist ringing its owner does not thank them for calling.
-    The notices its switches turn on follow in the same first turn, as in its greeting (hard
-    rule 5, D-861)."""
+    With its AI notice on, the notice introduces it and the line says only why it rings
+    (D-865); with it off, the line says who is calling itself."""
     tenant_id, agent_id = await _trial_tenant(direction="inbound")
     await _ready(tenant_id, agent_id)
     async with tenant_session(tenant_id) as session:
@@ -953,11 +953,15 @@ async def test_an_answer_only_agent_opens_its_test_call_saying_who_is_calling_an
             )
         ).scalar_one()
     ctx = await _trial_dial_context(monkeypatch, tenant_id, agent_id)
-    assert ctx.opening is not None
-    assert ctx.opening.startswith(
+    assert ctx.opening == (f"నమస్కారం అండి, {ai_line.strip()} ఇది మీ కొత్త రిసెప్షనిస్ట్ టెస్ట్ కాల్. ఇప్పుడు మాట్లాడొచ్చా?")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET ai_disclosure_enabled = false WHERE id = :a"), {"a": agent_id}
+        )
+    ctx = await _trial_dial_context(monkeypatch, tenant_id, agent_id)
+    assert ctx.opening == (
         "నమస్కారం అండి, నేను Test caller, Trial Tea House నుంచి, ఇది మీ కొత్త రిసెప్షనిస్ట్ టెస్ట్ కాల్. ఇప్పుడు మాట్లాడొచ్చా?"
     )
-    assert ctx.opening.endswith(ai_line.strip())
 
 
 async def test_a_calling_agent_keeps_its_own_greeting_on_a_test_call(

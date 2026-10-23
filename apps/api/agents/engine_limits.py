@@ -28,7 +28,9 @@ from calevate_shared.engine import (
     DisclosurePosture,
     VoiceEngine,
     compose_opening_line,
+    introduces_itself,
     join_first_words,
+    spoken_ai_notice,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,18 +72,35 @@ def greeting_limit(engine: VoiceEngine, direction: str) -> int | None:
     return min(known) if known else None
 
 
-def greeting_chars(engine: VoiceEngine, *, notices: str, opening: str) -> int:
+def greeting_chars(
+    engine: VoiceEngine, *, notices: str, opening: str, ai_notice: str, language: str
+) -> int:
     """The length of what `engine` holds as the greeting for these notices and opening line.
 
     `join_first_words` is `compose_first_utterance` taken apart, so a screen measuring an
-    agent's stored lines and the publish measuring its config count the same text."""
-    return len(
-        engine_greeting(engine, notices=notices, first_words=join_first_words(notices, opening))
+    agent's stored lines and the publish measuring its config count the same text, the
+    salutation an introducing agent opens with included (D-865)."""
+    first_words = join_first_words(notices, opening, ai_notice=ai_notice, language=language)
+    return len(engine_greeting(engine, notices=notices, first_words=first_words))
+
+
+def _posture_chars(
+    engine: VoiceEngine, posture: DisclosurePosture, *, opening: str, language: str
+) -> int:
+    recorded = engine_capabilities(engine).records_audio
+    return greeting_chars(
+        engine,
+        notices=compose_opening_line(posture, call_is_recorded=recorded),
+        opening=opening,
+        ai_notice=spoken_ai_notice(posture),
+        language=language,
     )
 
 
-def opening_room(engine: VoiceEngine, *, notices: str, direction: str) -> int | None:
-    """How many characters the opening line may have after `notices` and still be spoken.
+def opening_room(
+    engine: VoiceEngine, *, posture: DisclosurePosture, direction: str, language: str
+) -> int | None:
+    """How many characters the opening line may have with these notices and still be spoken.
 
     None where nothing limits it: no ceiling, or an engine whose greeting holds the notices
     alone. Negative when the notices by themselves are over."""
@@ -89,7 +108,7 @@ def opening_room(engine: VoiceEngine, *, notices: str, direction: str) -> int | 
     if limit is None or not hosted_agent_limits(engine).greeting_is_first_words:
         return None
     # Measured with a one-character line, so the separator between notices and line counts.
-    return limit - (greeting_chars(engine, notices=notices, opening="x") - 1)
+    return limit - (_posture_chars(engine, posture, opening="x", language=language) - 1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,16 +126,19 @@ class GreetingBudget:
 
 
 def greeting_budget(
-    engine: VoiceEngine, *, posture: DisclosurePosture, opening: str, direction: str
+    engine: VoiceEngine,
+    *,
+    posture: DisclosurePosture,
+    opening: str,
+    direction: str,
+    language: str,
 ) -> GreetingBudget | None:
     """The budget for an agent with this posture and opening line, or None where the engine
     sets no ceiling on what the opening line may be."""
-    recorded = engine_capabilities(engine).records_audio
 
     def room(switch: str | None = None) -> int | None:
         turned = posture if switch is None else posture.model_copy(update={switch: True})
-        notices = compose_opening_line(turned, call_is_recorded=recorded)
-        return opening_room(engine, notices=notices, direction=direction)
+        return opening_room(engine, posture=turned, direction=direction, language=language)
 
     limit = greeting_limit(engine, direction)
     now = room()
@@ -138,8 +160,9 @@ def refuse_notice_without_room(
     *,
     agent_id: str,
     direction: str,
-    notices: str,
+    posture: DisclosurePosture,
     opening: str,
+    language: str,
     cause: str,
 ) -> None:
     """Refuse a switch that adds a notice the greeting has no room for, before it is saved.
@@ -147,11 +170,11 @@ def refuse_notice_without_room(
     Without this the switch is saved and the refusal arrives from the publish as
     `engine_greeting_too_long`, which names neither the switch nor the way back. The publish
     check stays the final guard; this only says the same thing earlier, about its cause.
-    `cause` is the sentence naming what the switch adds."""
+    `cause` is the sentence naming what the switch adds; `posture` has the switch turned."""
     limit = greeting_limit(engine, direction)
     if limit is None:
         return
-    length = greeting_chars(engine, notices=notices, opening=opening)
+    length = _posture_chars(engine, posture, opening=opening, language=language)
     if length <= limit:
         return
     log.info(
@@ -174,13 +197,19 @@ def refuse_notice_without_room(
 
 
 def refuse_opening_over_limit(
-    engine: VoiceEngine, *, agent_id: str, direction: str, notices: str, opening: str
+    engine: VoiceEngine,
+    *,
+    agent_id: str,
+    direction: str,
+    posture: DisclosurePosture,
+    opening: str,
+    language: str,
 ) -> None:
-    """Refuse a new opening line that would not fit after `notices`, before it is saved."""
+    """Refuse a new opening line that would not fit with the notices, before it is saved."""
     limit = greeting_limit(engine, direction)
     if limit is None:
         return
-    length = greeting_chars(engine, notices=notices, opening=opening)
+    length = _posture_chars(engine, posture, opening=opening, language=language)
     if length <= limit:
         return
     log.info(
@@ -192,7 +221,7 @@ def refuse_opening_over_limit(
         code=OPENING_TOO_LONG,
         title="This opening line is too long",
         detail=(
-            f"With the notices said after it, what the agent says first would be "
+            f"With the notices said with it, what the agent says first would be "
             f"{length:,} characters, and at most {limit:,} can be spoken there. Nothing was "
             "saved."
         ),
@@ -206,10 +235,14 @@ def refuse_over_engine_limits(engine: VoiceEngine, cfg: AgentConfig) -> None:
     if limits.prompt_chars is not None:
         _check_prompt(engine, cfg, limits.prompt_chars)
     # The text the engine holds as the greeting on every direction: on ThinnestAI the
-    # opening line and then the notices switched on (D-861), so the ceiling and the
+    # opening line and the notices switched on (D-861, D-865), so the ceiling and the
     # outbound requirement apply to both together.
     length = greeting_chars(
-        engine, notices=cfg.opening_line, opening=opening_line_of(cfg.system_prompt)
+        engine,
+        notices=cfg.opening_line,
+        opening=opening_line_of(cfg.system_prompt),
+        ai_notice=cfg.ai_notice,
+        language=cfg.language_primary,
     )
     limit = greeting_limit(engine, cfg.direction)
     if limit is not None and length > limit:
@@ -294,18 +327,22 @@ def _opening_too_long(
         "agent_publish_refused_engine_limit",
         extra={"agent_id": cfg.agent_id, "engine": engine.name, "reason": OPENING_TOO_LONG},
     )
+    introduced = introduces_itself(ai_notice=cfg.ai_notice, language=cfg.language_primary)
     return ProblemError(
         kind="business_rule",
         code=OPENING_TOO_LONG,
         title="This agent's opening line is too long to publish",
         detail=(
-            f"What the agent says first (any notices switched on, then its opening line) is "
-            f"{length:,} characters, and at most {cap:,} can be spoken there. Nothing was "
-            "shortened and nothing was published."
+            "What the agent says first (its opening line and any notices switched on"
+            + (", its introduction with its own name among them" if introduced else "")
+            + f") is {length:,} characters, and at most {cap:,} can be spoken there. Nothing "
+            "was shortened and nothing was published."
         ),
         remediation=(
             f"Shorten the opening line in the agent's script by at least {length - cap:,} "
-            "characters, then publish again."
+            "characters"
+            + (", or give the agent a shorter name" if introduced else "")
+            + ", then publish again."
         ),
     )
 

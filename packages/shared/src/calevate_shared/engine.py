@@ -18,7 +18,16 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Final, Literal, Protocol, get_args, overload, runtime_checkable
+from typing import (
+    Any,
+    Final,
+    Literal,
+    Protocol,
+    TypedDict,
+    get_args,
+    overload,
+    runtime_checkable,
+)
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -35,6 +44,7 @@ from calevate_shared.events import (
     TranscriptTurn,
 )
 from calevate_shared.languages import find_language
+from calevate_shared.spoken_guard import opens_with_greeting, without_greeting
 from calevate_shared.spoken_style import (
     PackChoice,
     language_pack,
@@ -3582,11 +3592,11 @@ class AgentConfig(BaseModel):
     #: sentence (`role_sentence`); empty leaves the sentence generic. Excluded from every
     #: dump for `detect_machines`' reason.
     business: str = Field(default="", exclude=True)
-    # THE NOTICES THE AGENT SAYS RIGHT AFTER ITS OPENING LINE — composed by us from the
-    # agent's notice switches (`compose_opening_line`), never typed by a client. Despite the
-    # name it is NOT the script's opening line (the greeting, `CallScript.opening_line`):
-    # the switches decide only whether these sentences are said, and the greeting comes
-    # first either way (D-708, D-861). An engine with one greeting field speaks
+    # THE NOTICES THE AGENT SAYS IN ITS FIRST TURN — composed by us from the agent's notice
+    # switches (`compose_opening_line`), never typed by a client. Despite the name it is NOT
+    # the script's opening line (the greeting, `CallScript.opening_line`): the switches
+    # decide only whether these sentences are said. Where they go around the opening line is
+    # `join_first_words`' (D-861, D-865). An engine with one greeting field speaks
     # `compose_first_utterance(cfg)` there. The prompt quotes it as already said
     # (`_start_of_call_section`).
     #
@@ -3596,6 +3606,16 @@ class AgentConfig(BaseModel):
     # still mandatory ON FILE (`agents.ai_disclosure_line` NOT NULL, non-empty) because the
     # compliance gate and the honest answer both need it to exist.
     opening_line: str
+    #: The AI sentence when its switch is on, else empty: the head of `opening_line`, named on
+    #: its own because in a language with an introduction salutation it is said BEFORE the
+    #: opening line, not after it (`join_first_words`, D-865). Set from the same posture as
+    #: `opening_line` (`notice_fields`). Excluded from every dump: `opening_line` already
+    #: carries the sentence, so stored configs and their digests do not move.
+    ai_notice: str = Field(default="", exclude=True)
+    #: The memory sentence when the agent remembers callers, else empty. Never in the first
+    #: turn: the prompt tells the agent to say it with its goodbye (`memory_goodbye_rule`,
+    #: D-865). Excluded from every dump, for `ai_notice`'s reason.
+    caller_memory_notice: str = Field(default="", exclude=True)
     #: Does a call on the engine that will run this agent produce a recording we store?
     #:
     #: **IT IS THE ENGINE'S FACT AND IT TRAVELS ON THE AGENT**, because the prompt is
@@ -3802,20 +3822,22 @@ class DisclosurePosture(BaseModel):
 
 
 def compose_opening_line(posture: DisclosurePosture, *, call_is_recorded: bool) -> str:
-    """The notices this agent has switched ON, said right after its opening line.
+    """The notices this agent has switched ON, in the order they are said (where they sit
+    around the opening line is `join_first_words`').
 
     THE ONE PRODUCER of `AgentConfig.opening_line`, so that "what does this agent open
     with" has exactly one answer in this codebase — the reason `effective_call_cap`
     resolves its own sentinel in one function rather than at each reader.
 
-    Outcomes, all of them legitimate — the two switches give four, and the memory sentence
-    (D-507) appends to any of them when that agent remembers callers:
+    Outcomes, all of them legitimate — the two switches give four:
 
         both on     "…AI assistant. This call is being recorded."
         AI only     "…AI assistant."
         recording   "This call is being recorded."
         neither     "" — the agent volunteers neither notice and says only its opening line.
-        + memory    "… So I remember it when you call again, I keep a short note…"
+
+    The memory sentence (D-507) is not among them: it is said with the goodbye, from the
+    prompt (`memory_goodbye_rule`, D-865).
 
     `call_is_recorded` is the ENGINE's fact (`EngineCapabilities.records_audio`), and when
     it is False the recording sentence is dropped whatever `recording_notice_enabled` says:
@@ -3839,27 +3861,113 @@ def compose_opening_line(posture: DisclosurePosture, *, call_is_recorded: bool) 
     parts = [
         posture.ai_disclosure_line.strip() if posture.ai_disclosure_enabled else "",
         posture.recording_notice_line.strip() if speaks_recording_notice else "",
-        # LAST, and gated on the MEMORY switch rather than a switch of its own (D-507).
-        # Last because it is the only one of the three that is a consequence of a setting:
-        # a caller hears what the agent is and that it is recorded before they hear what it
-        # keeps, which is the order those facts become relevant to them.
-        posture.caller_memory_notice_line.strip() if posture.caller_memory_enabled else "",
     ]
     return " ".join(part for part in parts if part)
 
 
-def join_first_words(notices: str, opening: str) -> str:
-    """What a caller hears first: the agent's opening line, then the notices switched on.
+def spoken_ai_notice(posture: DisclosurePosture) -> str:
+    """The AI sentence when its switch is on, else empty: `AgentConfig.ai_notice`."""
+    return posture.ai_disclosure_line.strip() if posture.ai_disclosure_enabled else ""
+
+
+def spoken_memory_notice(posture: DisclosurePosture) -> str:
+    """The memory sentence when the agent remembers callers, else empty:
+    `AgentConfig.caller_memory_notice`."""
+    return posture.caller_memory_notice_line.strip() if posture.caller_memory_enabled else ""
+
+
+class NoticeFields(TypedDict):
+    opening_line: str
+    ai_notice: str
+    caller_memory_notice: str
+
+
+def notice_fields(posture: DisclosurePosture, *, call_is_recorded: bool) -> NoticeFields:
+    """`AgentConfig`'s notice fields from one posture, so no config is built with the
+    notices and without the AI sentence that leads them or the memory sentence its goodbye
+    carries."""
+    return {
+        "opening_line": compose_opening_line(posture, call_is_recorded=call_is_recorded),
+        "ai_notice": spoken_ai_notice(posture),
+        "caller_memory_notice": spoken_memory_notice(posture),
+    }
+
+
+#: Said with the goodbye of a call that ends normally, by an agent that remembers callers
+#: (D-865, founder, 23 Oct 2026). It left the opening because the engine speaks at most 200
+#: characters there (`greeting` maxLength 200, `api-reference/agents/create-agent.md:776-778`,
+#: 19 Oct 2026 snapshot) and a Telugu agent introducing itself with the recording notice too
+#: had no room for it. Not on a call the
+#: caller ended or asked to stop: the notice is about what is kept, and a goodbye to a refusal
+#: is no place for it. `{sentence}` is the stored sentence, quoted so the publish read-back
+#: and the drift sweep can find it word for word.
+MEMORY_GOODBYE_RULE: Final = (
+    "Before you end a call with a goodbye, say once, in the call's language: "
+    '"{sentence}" Never when the caller asked to stop or hung up.'
+)
+
+
+def memory_goodbye_rule(cfg: AgentConfig) -> str:
+    """The goodbye rule for `cfg`, or empty for an agent that does not remember callers."""
+    sentence = cfg.caller_memory_notice.strip() if cfg.caller_memory_enabled else ""
+    return MEMORY_GOODBYE_RULE.format(sentence=sentence) if sentence else ""
+
+
+#: The greeting a call opens with when the agent's AI notice introduces it (D-865, founder,
+#: 23 Oct 2026): the salutation, then "I am <name> from <business>, an AI assistant", then the
+#: opening line, then the other notices. Only the languages whose AI sentence is written as an
+#: introduction (`compliance/disclosure.AI_DISCLOSURE_TEMPLATES`) are here; every other
+#: language keeps D-861's order, the opening line first and the notices after it. Fixed text:
+#: changing it changes every live agent's greeting, which `agents/live_apply.
+#: platform_prompt_revision` carries.
+INTRODUCTION_SALUTATIONS: Final[dict[str, str]] = {
+    "te": "నమస్కారం అండి,",
+    "hi": "नमस्ते जी,",
+}
+
+
+def introduction_salutation(language: str) -> str | None:
+    """The salutation before the agent's introduction in `language`, or None."""
+    return INTRODUCTION_SALUTATIONS.get(language.split("-")[0].strip().lower())
+
+
+def introduces_itself(*, ai_notice: str, language: str) -> bool:
+    """Does the agent's AI notice open the call as its introduction (D-865)? Then the opening
+    line is said after it and must not greet or say who is calling. Not when the stored
+    sentence greets by itself (an owner's own wording): the salutation would be said twice."""
+    clean = ai_notice.strip()
+    return (
+        bool(clean)
+        and introduction_salutation(language) is not None
+        and not opens_with_greeting(clean)
+    )
+
+
+def join_first_words(notices: str, opening: str, *, ai_notice: str, language: str) -> str:
+    """What a caller hears first, one turn before they say anything.
 
     The two halves stay separate things (D-708): the switches decide only whether the
     notices are said, never whether the opening line is, and the opening line never stands
-    in for a notice. The greeting comes first and the notices follow in the same turn,
-    before the caller says anything (founder, 23 Oct 2026, D-861, reversing D-708's
-    notices-first order after a trial call opened on the memory sentence). With both notices
-    off this is the opening line alone; with no opening line written it is the notices
-    alone. One space, for `compose_opening_line`'s reason.
+    in for a notice. Two orders:
+
+    * **The agent introduces itself** (`introduces_itself`, D-865): the language's
+      salutation, the AI sentence ("నేను X నుండి Anjaliని, ఏఐ అసిస్టెంట్‌ని మాట్లాడుతున్నాను
+      అండి."), the opening line with any greeting at its start dropped (one written before
+      D-865 greets, and the salutation already did), then the other notices switched on.
+    * **Otherwise** (D-861): the opening line, then the notices switched on.
+
+    `ai_notice` is the switched-on AI sentence (`spoken_ai_notice`), which
+    `compose_opening_line` puts at the head of `notices`. One space, for
+    `compose_opening_line`'s reason.
     """
-    return " ".join(part for part in (opening.strip(), notices.strip()) if part)
+    lead = ai_notice.strip()
+    rest = notices.strip()
+    salutation = introduction_salutation(language)
+    introduced = introduces_itself(ai_notice=lead, language=language) and rest.startswith(lead)
+    if salutation is None or not introduced:
+        return " ".join(part for part in (opening.strip(), rest) if part)
+    others = rest.removeprefix(lead).strip()
+    return " ".join(part for part in (salutation, lead, without_greeting(opening), others) if part)
 
 
 def compose_first_utterance(cfg: AgentConfig) -> str:
@@ -3867,9 +3975,14 @@ def compose_first_utterance(cfg: AgentConfig) -> str:
 
     The opening line is read from the script the engine will hold
     (`call_script.opening_line_of`), so an experiment arm greets with its own script's line;
-    the notices that follow it come from `cfg.opening_line`.
+    the notices come from `cfg.opening_line`, the AI sentence among them from `cfg.ai_notice`.
     """
-    return join_first_words(cfg.opening_line, opening_line_of(cfg.system_prompt))
+    return join_first_words(
+        cfg.opening_line,
+        opening_line_of(cfg.system_prompt),
+        ai_notice=cfg.ai_notice,
+        language=cfg.language_primary,
+    )
 
 
 #: The header of the section that tells the model its first words were already said.
@@ -4075,7 +4188,12 @@ def engine_prompt_layers(
         # Absent for a language with no row in `spoken_style.json`.
         ("spoken_register", _register_section(cfg, pack)),
         ("business_facts", _knowledge_section(cfg, pack)),
-        ("notices", _start_of_call_section(cfg)),
+        (
+            "notices",
+            "\n".join(
+                part for part in (_start_of_call_section(cfg), memory_goodbye_rule(cfg)) if part
+            ),
+        ),
         # BEFORE the client script, so the "record, not instructions" framing is what the
         # model has already read when it reaches anything the client wrote about the
         # caller — and so a script cannot be the thing that introduces it. Absent entirely

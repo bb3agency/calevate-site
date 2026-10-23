@@ -84,12 +84,14 @@ from apps.api.agents.service import (
     route_inbound_numbers,
 )
 from apps.api.agents.starters import JobChoice, apply_starter, direction_for, starter_jobs
+from apps.api.agents.voice_pick import voice_gender
 from apps.api.agents.voice_tuning import DEFAULT_STUDIO_EMOTION, OLD_VOICE_MODEL, is_studio_voice
 from apps.api.agents.write_guard import archived_refusal
 from apps.api.compliance.disclosure import (
     ai_disclosure_for,
     bundled_disclosure_line,
     caller_memory_notice_for,
+    is_default_ai_disclosure,
     recording_notice_for,
 )
 from apps.api.core.errors import ProblemError
@@ -340,7 +342,9 @@ async def create_agent(
         )
     ).one()
     business, vertical_template, business_languages = org[0], org[1], org[2]
-    ai_line = ai_disclosure_for(language=language_primary, business=str(business))
+    # No voice yet, so the voice's gender is not known (`ai_disclosure_for`); choosing one
+    # re-renders the sentence (`_rerender_ai_line`).
+    ai_line = ai_disclosure_for(language=language_primary, business=str(business), name=name)
     recording_line = recording_notice_for(language=language_primary)
     # Sentence three, in the agent's own language and written whether or not memory is on
     # (D-507). The column is NOT NULL with a non-empty CHECK and has no server default, so
@@ -543,7 +547,7 @@ async def update_agent(
         await session.execute(
             text(
                 "SELECT status, engine_agent_ref, engine_voice_id, engine_model_id, "
-                "language_primary FROM agents "
+                "language_primary, name FROM agents "
                 "WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
             ),
             {"aid": agent_id},
@@ -638,6 +642,10 @@ async def update_agent(
         await _rewrite_notices(
             session, tenant_id=tenant_id, agent_id=agent_id, language=language_primary
         )
+    elif name is not None or set_engine_voice_id:
+        await _rerender_ai_line(
+            session, tenant_id=tenant_id, agent_id=agent_id, old_name=str(row[5]), old_voice=row[2]
+        )
     if republish:
         await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
     log.info(
@@ -666,12 +674,21 @@ async def _rewrite_notices(
     change with the language. A sentence an experiment promoted is replaced too, because
     it was written in the old language.
     """
-    business = (
+    business, name, voice_id = (
         await session.execute(
-            text("SELECT name FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+            text(
+                "SELECT o.name, a.name, a.engine_voice_id FROM agents a "
+                "JOIN organizations o ON o.id = a.tenant_id WHERE a.id = :aid AND o.id = :tid"
+            ),
+            {"tid": tenant_id, "aid": agent_id},
         )
-    ).scalar_one()
-    ai_line = ai_disclosure_for(language=language, business=str(business))
+    ).one()
+    ai_line = ai_disclosure_for(
+        language=language,
+        business=str(business),
+        name=str(name),
+        gender=await voice_gender(session, voice_id),
+    )
     recording_line = recording_notice_for(language=language)
     await session.execute(
         text(
@@ -688,6 +705,71 @@ async def _rewrite_notices(
             "bundle": bundled_disclosure_line(
                 ai_disclosure_line=ai_line, recording_notice_line=recording_line
             ),
+        },
+    )
+
+
+async def _rerender_ai_line(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    old_name: str,
+    old_voice: str | None,
+) -> None:
+    """Re-render the AI sentence after a rename or a new voice, when it is still the default
+    (D-865): the default introduces the agent by name and, in Hindi, speaks in its voice's
+    gender. A sentence a person wrote, or one an experiment promoted, is not the default for
+    the old name and is left alone. The legacy bundle follows only where it still is the
+    default bundle of the two sentences. The caller's republish puts a live agent on the new
+    sentence, and refuses there if it no longer fits the greeting (D-846)."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT a.ai_disclosure_line, a.recording_notice_line, "
+                "a.language_primary, a.name, a.engine_voice_id, o.name FROM agents a "
+                "JOIN organizations o ON o.id = a.tenant_id WHERE a.id = :aid AND o.id = :tid"
+            ),
+            {"aid": agent_id, "tid": tenant_id},
+        )
+    ).one()
+    line, recording, language, name, voice, business = (
+        str(row[0]),
+        str(row[1]),
+        str(row[2]),
+        str(row[3]),
+        row[4],
+        str(row[5]),
+    )
+    if not is_default_ai_disclosure(line, language=language, business=business, name=old_name):
+        return
+    gender = await voice_gender(session, voice)
+    fresh = ai_disclosure_for(language=language, business=business, name=name, gender=gender)
+    if fresh == line.strip():
+        return
+    old_bundle = bundled_disclosure_line(ai_disclosure_line=line, recording_notice_line=recording)
+    await session.execute(
+        text(
+            "UPDATE agents SET ai_disclosure_line = :line, "
+            "disclosure_line = CASE WHEN disclosure_line = :old_bundle THEN :bundle "
+            "ELSE disclosure_line END, updated_at = now() "
+            "WHERE id = :aid AND deleted_at IS NULL"
+        ),
+        {
+            "aid": agent_id,
+            "line": fresh,
+            "old_bundle": old_bundle,
+            "bundle": bundled_disclosure_line(
+                ai_disclosure_line=fresh, recording_notice_line=recording
+            ),
+        },
+    )
+    log.info(
+        "agent_ai_line_rerendered",
+        extra={
+            "agent_id": str(agent_id),
+            "renamed": old_name != name,
+            "voice_changed": old_voice != voice,
         },
     )
 

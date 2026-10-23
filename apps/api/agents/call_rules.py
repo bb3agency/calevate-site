@@ -158,7 +158,8 @@ def expect_rules() -> str:
 OPENING_LINE_RULE: Final = (
     "The opening_line greets, names the business and asks one short question, in at most "
     f"{OPENING_LINE_MAX_CHARS} characters: no list of products, no offer, and no AI or "
-    "recording notice (the platform adds those)."
+    "recording notice (the platform adds those). When the brief says the agent introduces "
+    "itself first, the opening_line neither greets nor names the agent or the business."
 )
 
 

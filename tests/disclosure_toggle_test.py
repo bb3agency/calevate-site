@@ -45,6 +45,7 @@ from apps.api.compliance.disclosure import (
     AI_DISCLOSURE_TEMPLATES,
     RECORDING_NOTICE_TEMPLATES,
     TRUTHFUL_ANSWER_PROMISE,
+    ai_disclosure_for,
     bundled_disclosure_line,
     disclosure_spoken,
     truthful_answer_promise,
@@ -436,7 +437,9 @@ async def test_a_new_agent_volunteers_nothing_and_has_both_sentences_on_file() -
     ai_on, rec_on, ai_line, rec_line = await _posture(tenant_id, agent_id)
 
     assert (ai_on, rec_on) == (False, False), "a new agent must volunteer neither notice"
-    assert ai_line == AI_DISCLOSURE_TEMPLATES["te-IN"].format(business="Sunrise Clinic")
+    assert ai_line == ai_disclosure_for(
+        language="te-IN", business="Sunrise Clinic", name="Sunrise Clinic receptionist"
+    )
     assert rec_line == RECORDING_NOTICE_TEMPLATES["te-IN"]
     async with tenant_session(tenant_id) as session:
         bundle = (
@@ -1122,15 +1125,16 @@ def _everything_on() -> DisclosurePosture:
 
 
 def test_an_engine_that_records_nothing_never_announces_a_recording() -> None:
-    """The recording switch is ON and the sentence is still dropped; the AI sentence and
-    the memory sentence are untouched, because neither depends on audio being kept."""
+    """The recording switch is ON and the sentence is still dropped; the AI sentence is
+    untouched, because it does not depend on audio being kept. The memory sentence is said
+    with the goodbye, never in the opening (D-865)."""
     opening = compose_opening_line(_everything_on(), call_is_recorded=False)
     assert _REC not in opening
-    assert opening == f"{_AI} {_MEM}"
+    assert opening == _AI
 
 
 def test_an_engine_that_records_keeps_the_opening_exactly_as_configured() -> None:
-    assert compose_opening_line(_everything_on(), call_is_recorded=True) == f"{_AI} {_REC} {_MEM}"
+    assert compose_opening_line(_everything_on(), call_is_recorded=True) == f"{_AI} {_REC}"
 
 
 @pytest.mark.parametrize(("ai", "rec"), [(True, True), (True, False), (False, True)])

@@ -1,5 +1,5 @@
-"""The first run's agent opens with its greeting and then its AI notice, on every job mix
-(D-864, founder 23 Oct 2026).
+"""The first run's agent says its AI notice on every job mix (D-864), as its introduction
+before its opening line (D-865), both founder 23 Oct 2026.
 
 The Sri Estates trial call opened with no AI notice although the build ticked "Adding its AI
 notice": every agent is created with both notices off (D-669) and the notice step only read
@@ -20,9 +20,11 @@ from apps.api.agents import roster
 from apps.api.agents.publishing import set_disclosure_posture
 from apps.api.agents.service import _load_agent, trial_call_first_words
 from apps.api.compliance.audit import write_audit
+from apps.api.compliance.disclosure import ai_disclosure_for
 from apps.api.db.session import tenant_session
 from apps.api.first_run import service as first_run
 from apps.workers import first_run as worker
+from calevate_shared.spoken_guard import opens_with_greeting
 from sqlalchemy import text
 
 JOBS = ("answer_calls", "call_new_leads", "call_leads")
@@ -69,7 +71,7 @@ async def _build(
 
 
 @pytest.mark.parametrize("jobs", JOB_MIXES, ids=["+".join(mix) for mix in JOB_MIXES])
-async def test_the_first_agent_speaks_its_greeting_then_its_ai_notice(
+async def test_the_first_agent_introduces_itself_then_says_its_opening_line(
     jobs: tuple[str, ...], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     tenant_id = await _tenant()
@@ -91,9 +93,14 @@ async def test_the_first_agent_speaks_its_greeting_then_its_ai_notice(
     assert agent.ai_disclosure_enabled
     assert not agent.recording_notice_enabled, "the recording notice stays the owner's choice"
     notice = agent.ai_disclosure_line.strip()
-    assert notice and notice in agent.opening_line
-    # Greeting first, then the notice, in the one opening turn (D-861).
-    assert agent.first_words == f"{agent.script_opening_line.strip()} {notice}"
+    assert notice == ai_disclosure_for(language="te-IN", business="Sri Estates", name="Anjali")
+    assert notice in agent.opening_line
+    # The salutation, the introduction, then the opening line, in one turn (D-865); the
+    # opening line neither greets again nor repeats who is calling.
+    opening = agent.script_opening_line.strip()
+    assert agent.first_words == f"నమస్కారం అండి, {notice} {opening}"
+    assert not opens_with_greeting(opening)
+    assert "Sri Estates" not in opening and "Anjali" not in opening
     assert agent.greeting_budget is None or len(agent.first_words) <= agent.greeting_budget.limit
     assert audited == ["system"]
 
@@ -106,7 +113,8 @@ async def test_an_answering_agents_test_call_carries_the_notice_too(
     async with tenant_session(tenant_id) as session:
         agent = await _load_agent(session, tenant_id, run.agent_id)
     words = trial_call_first_words(agent, call_is_recorded=True)
-    assert words is not None and words.endswith(str(agent["ai_disclosure_line"]).strip())
+    notice = str(agent["ai_disclosure_line"]).strip()
+    assert words == (f"నమస్కారం అండి, {notice} ఇది మీ కొత్త రిసెప్షనిస్ట్ టెస్ట్ కాల్. ఇప్పుడు మాట్లాడొచ్చా?")
 
 
 async def test_a_rebuild_keeps_the_ai_notice_off_when_the_owner_switched_it_off(
@@ -135,3 +143,6 @@ async def test_a_rebuild_keeps_the_ai_notice_off_when_the_owner_switched_it_off(
     async with tenant_session(tenant_id) as session:
         agent = await roster.agent_by_id(session, run.agent_id)
     assert agent is not None and not agent.ai_disclosure_enabled
+    # With no introduction, the opening line greets and says who is calling again.
+    assert agent.first_words == agent.script_opening_line.strip()
+    assert opens_with_greeting(agent.first_words) and "Sri Estates" in agent.first_words

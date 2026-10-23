@@ -617,7 +617,8 @@ export type SoundKind =
   | "third_person"
   | "foreign_script"
   | "repeated_turn"
-  | "opened_again";
+  | "opened_again"
+  | "memory_not_said";
 
 export interface TestSound {
   kind: SoundKind;

@@ -133,8 +133,8 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
           <p className="mt-3 flex items-start gap-2 text-xs text-ink-muted">
             <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
-              Your agents now say at the start of every call that a short note is kept.
-              That sentence cannot be switched off on its own — it appears with the opening notices on{" "}
+              Your agents now say, as they say goodbye, that a short note is kept.
+              That sentence cannot be switched off on its own — it appears with the call notices on{" "}
               <strong>Overview</strong>, and it goes away when this goes off.
             </span>
           </p>

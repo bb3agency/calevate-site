@@ -46,6 +46,9 @@ const OPENING_LABELS: Readonly<Record<string, string>> = {
   inbound: "Answering a call",
   outbound: "Calling someone",
   test_call: "A receptionist ringing its owner on a free-trial test call",
+  inbound_introduced: "Answering a call, after the agent has introduced itself",
+  outbound_introduced: "Calling someone, after the agent has introduced itself",
+  test_call_introduced: "The free-trial test call, after the agent has introduced itself",
 };
 
 const STATUS_LABELS: Record<StyleEntry["status"], string> = {

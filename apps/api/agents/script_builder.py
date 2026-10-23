@@ -47,7 +47,7 @@ from calevate_shared.engine import (
     AgentConfig,
     DisclosurePosture,
     compose_engine_prompt,
-    compose_opening_line,
+    notice_fields,
 )
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -409,7 +409,7 @@ async def compiled_preview(session: AsyncSession, agent_id: UUID, script: CallSc
         direction=row.direction,
         language_primary=str(row.language_primary),
         system_prompt=instructions,
-        opening_line=compose_opening_line(_posture(row), call_is_recorded=call_is_recorded),
+        **notice_fields(_posture(row), call_is_recorded=call_is_recorded),
         call_is_recorded=call_is_recorded,
         facts_in_knowledge=limits.facts_in_knowledge,
         knowledge_tool=limits.knowledge_tool,
@@ -709,7 +709,7 @@ async def replace_opening_line(
                 "AND a.system_prompt_id IS DISTINCT FROM a.live_prompt_id) AS staged, "
                 "a.ai_disclosure_line, a.ai_disclosure_enabled, "
                 "a.recording_notice_line, a.recording_notice_enabled, "
-                "a.caller_memory_notice_line, a.caller_memory_enabled "
+                "a.caller_memory_notice_line, a.caller_memory_enabled, a.language_primary "
                 "FROM agents a JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
             ),
@@ -742,10 +742,9 @@ async def replace_opening_line(
         engine,
         agent_id=str(agent_id),
         direction=str(row.direction),
-        notices=compose_opening_line(
-            _posture(row), call_is_recorded=engine_capabilities(engine).records_audio
-        ),
+        posture=_posture(row),
         opening=line,
+        language=str(row.language_primary),
     )
     script = CallScript.model_validate(row.structured_script)
     old_line = script.opening_line.strip()
