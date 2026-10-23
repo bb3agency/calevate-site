@@ -16,7 +16,8 @@ the tag `pre-pipecat-removal` keeps it one checkout away. D-687 and D-688 (8 Oct
 
 - **Clear** = ThinnestAI's speech-to-text and telephony, speaking the ThinnestAI voice band the
   console setting `thinnest_clear_voice_band` names: **Studio** (default, D-792; catalogue voices
-  with `tier: studio` plus voices our **admin** clones; needs ThinnestAI Pro, ₹3.00/min) or
+  with `tier: studio` plus voices our **admin** clones; ₹3.00/min, switched on for our
+  pay-as-you-go account with up to 25 clones, VENDOR-STATED 23 Oct 2026, replies §28) or
   **Premium** (pay-as-you-go, ₹2.50/min). VENDOR-STATED rates, operator-attested, never a constant.
   The model is our Gemini on our Google key (D-834), agent `byok: "llm"`, billed at the band's
   minute; while the `thinnest_own_model` switch is off it is ThinnestAI's own model, agent
@@ -57,7 +58,10 @@ the tag `pre-pipecat-removal` keeps it one checkout away. D-687 and D-688 (8 Oct
   their business details are approved. The developer workspace keeps our account, plan, the
   Cartesia key held with its switch off (D-717), the voice catalogue, and objects made before D-693 until
   their next publish recreates them. Never fall back to the developer workspace for a client
-  resource. Plan cap: 3 customers on pay-as-you-go (OPERATIONS T-8).
+  resource. Plan cap: 100 customer workspaces on our pay-as-you-go account, raised from 3; agents
+  are counted per workspace: 100 in the developer workspace, 2 in each customer workspace on
+  pay as you go, raised per workspace on request (VENDOR-STATED 23 Oct 2026, OPERATIONS T-8,
+  replies §28).
 - **Clients never clone**; they pick and preview voices the admin added and enabled.
 - **Client-facing text names no provider** (D-679).
 

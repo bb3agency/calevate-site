@@ -30,7 +30,7 @@ stated.
 | 21 Oct | 5 items (§22) | Default call rules verbatim; per-second billing only on our own telephony (replies §23) | D-850 |
 | 21 Oct | Latency (§24) | Built `earlyAnswers`; measured Google's ~1 s floor for us; offered per-turn logs (replies §25) | D-852 |
 | 21 Oct | §26 | Accepted the logs offer; declined the priority opt-in (rememory 0d9429bf) | — |
-| 23 Oct | §27 drafted, not recorded as sent | Trigger: production `409 "Pay as you go includes 2 agents"` (OBSERVED, rememory 4360ad72) | — |
+| 23 Oct | §27 sent: plan PAYG → Scale at 10 → Enterprise at 50, raised limits | Trigger: production `409 "Pay as you go includes 2 agents"` (OBSERVED, rememory 4360ad72). **Answered the same day (replies §28):** plan accepted; 100 agents on the developer workspace (counted per workspace; client workspaces 2 each on PAYG, raised on request); 100 customer workspaces; 20 concurrent calls; Studio band and cloning on PAYG at ₹3/min, 25 clones; raises carry to Scale; Scale discounts reach client workspaces; credit pays for own-key minutes and numbers, rolls over 3 months; training exclusion in writing; DPA "shortly". Follow-up: how many Studio minutes, from when | D-859 (per-workspace agent count) |
 
 ## 2. Goodwill ledger: what he has done for us
 
@@ -55,14 +55,16 @@ Pattern: requests with a concrete reason get built within a day; legal and comme
 
 | Item | First asked | Status |
 |---|---|---|
-| Signed DPA and sub-processor list | 6 Oct (eval §6 item 10) | Promised 7 Oct; unanswered in 5 emails. **Blocks any client call** (OPERATIONS T-5) |
-| Written training exclusion for every workspace | 6 Oct; in writing 9 Oct | Offered 7-8 Oct; letter never sent |
-| TRAI reg 4 notice and the access provider of our numbers | 12 Oct | Plivo's answer awaited since 13 Oct |
-| Volume price for own-key minutes | 21 Oct (§20 item 13) | Unanswered; band volume rate refused 18 Oct |
-| Live carrier tests (forwarded caller ID, F-1/F-4) | Offered by him 7 Oct; dates asked 21 Oct | Unanswered |
-| Per-turn timing logs for two calls | Offered 21 Oct; accepted §26 | Pending |
-| Why only 28-35% of input is cached on our Gemini key | 21 Oct | Cause UNKNOWN (rememory 84048b66); "90%+ on OpenAI models" |
-| §27: 100 agents, 100 customer workspaces, 100 concurrent calls, Studio voices on PAYG | 23 Oct | Drafted |
+| Signed DPA and sub-processor list | 6 Oct (eval §6 item 10) | Promised 7 Oct; 23 Oct "being worked on, shared shortly" (replies §28). **Blocks any client call** (OPERATIONS T-5) |
+| Written training exclusion for every workspace | 6 Oct; in writing 9 Oct | **Closed 23 Oct:** developer workspace and every customer workspace excluded, in his email (replies §28) |
+| TRAI reg 4 notice and the access provider of our numbers | 12 Oct | 23 Oct: "no update from the operator" |
+| Volume price for own-key minutes | 21 Oct (§20 item 13) | 23 Oct: needs a minimum monthly commitment, to be discussed. Founder decision |
+| Live carrier tests (forwarded caller ID, F-1/F-4) | Offered by him 7 Oct; dates asked 21 Oct | Unanswered (again 23 Oct) |
+| Per-turn timing logs for two calls | Offered 21 Oct; accepted §26 | Pending; not mentioned 23 Oct |
+| Why only 28-35% of input is cached on our Gemini key | 21 Oct | Cause UNKNOWN (rememory 84048b66); "90%+ on OpenAI models"; not mentioned 23 Oct |
+| §27 limits | 23 Oct | **Granted 23 Oct** (VENDOR-STATED, replies §28): 100 developer-workspace agents, 100 customer workspaces, 20 concurrent, Studio band + 25 clones on PAYG. Proof on our account: replies §28.3 |
+| Client workspace agent count (2 on PAYG each) | 23 Oct (his answer) | Raise per workspace by email when a client needs a third agent |
+| His question: Studio-band minutes we plan to use, from when | 23 Oct | Founder's figures needed |
 | Offers we have not taken: Prana [Voice] test (12 Oct), prompt-order A/B on Telugu calls (21 Oct), minimum-commitment negotiation (12 Oct) | — | Not recorded as taken up |
 
 ## 4. Their published plans (VENDOR-PUBLISHED, thinnest.ai/pricing, founder-relayed 23 Oct 2026)
@@ -95,11 +97,11 @@ minute".
 | Point | Finding |
 |---|---|
 | Customer workspaces | **Not on the page.** The API docs cap API customers at 3 (Free and PAYG), 100 (Pro), 1,000 (Scale), 10,000 (Enterprise), "Need more? Write to us" (`snapshots/2026-10-19/pages/api-reference/customers.md:221-226`). The page's "White label resell to clients 3/20/100" matches the **white-label console** product (`white-label/overview.md:46-47`), and a workspace with API customers cannot use white label (`customers.md:14-15`). So 3/20/100 should not bind us, but the page does not say so. **Confirm in writing.** |
-| "Organizations 1/1/2/100" | Meaning UNKNOWN (team workspaces, per the Scale card?). Ask. |
-| Max agents | PAYG 2 matches the production 409 (OBSERVED); Pro 5 matches `create-agent.md:668`. Whether the count is per workspace or per account is UNKNOWN. |
+| "Organizations 1/1/2/100" | **Answered 23 Oct (replies §28):** workspaces one owner can hold; does not limit API customers. White label 3/20/100 = white-label clients resold under our brand; also not a limit on API customers. |
+| Max agents | PAYG 2 matches the production 409 (OBSERVED); Pro 5 matches `create-agent.md:668`. **Counted per workspace** (VENDOR-STATED 23 Oct, replies §28); ours: developer 100, each client workspace 2 on PAYG. |
 | Studio voices on PAYG: none | Consistent with the docs and the 12 Oct email. **Conflicts with our product:** Clear is sold on the Studio band by default (D-792), and T-11 (Pro on our account) is not met. On PAYG no Studio-band voice and no clone can be listed ("What a red costs" in T-11). |
-| Scale 5% | Matches the 18 Oct email, which adds that **client workspaces do not get it** (replies §16.0). But `customers.md:217` says "A customer is always on your plan." The two conflict; ask. |
-| Usage credit | Whether the credit pays for own-key minutes (₹1.00 `llm_voice`) and number rent, and whether it carries over, is UNKNOWN. |
+| Scale 5% | **Resolved 23 Oct (replies §28):** client workspaces follow our plan and get the 5% and the ₹249 number, including `byok: llm` agents; the flat own-key rates (₹1.00, ₹1.50) do not. Replaces the 18 Oct answer. |
+| Usage credit | **Answered 23 Oct:** pays for everything the wallet is charged, own-key minutes and number rent included; rolls over up to 3 months while subscribed. PAYG has none. |
 | Data residency India | Covers their own stack only; a Studio call speaks on Cartesia (US) and both rungs think on our Google key (eval §10a, second email). Not a residency claim for us. |
 | Uptime | "No SLA on PAYG or Pro" (eval §10a item 16, VENDOR-STATED). |
 
@@ -133,6 +135,11 @@ has 1-3 agents and peaks at 1-2 simultaneous calls. T = trial accounts holding a
 4. **Enterprise at 50:** every figure is "Custom", so the price is UNKNOWN.
 
 So the plan needs leniency on PAYG now, and a written agent and concurrency allowance on Scale.
+**Granted 23 Oct 2026 (replies §28, VENDOR-STATED):** points 1-2 are lifted (developer workspace
+100 agents, 100 customer workspaces, Studio band and clones on PAYG, 20 concurrent calls), and the
+raises carry over to Scale, which answers point 3. What still binds: **2 agents per client
+workspace** on PAYG (raised per workspace on request) and 20 concurrent calls (about 19 client
+calls plus the trial line; ask for the next step before clients peak there).
 **Founder decision to weigh:** Pro (₹2,499, paid as usage credit) unlocks the Studio band,
 10 clones and 100 customer workspaces today. Agents (5) and concurrency (10) would still need a
 raise.

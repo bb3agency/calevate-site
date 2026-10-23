@@ -1542,7 +1542,7 @@ own-key forward on a brought number (§21 item 7), and the §20 items still unan
 Evidence for item 2: rememory 0d9429bf (founder's VPS test, 21 Oct 2026: standard 1167/973/1187 ms,
 priority 1166/1231/834 ms, `serviceTier=standard` on every request).
 
-## 27. The email of 23 Oct 2026 (drafted for the founder to send)
+## 27. The email of 23 Oct 2026 (sent by the founder; answered the same day, §28)
 
 Prompted by a production refusal on 23 Oct 2026: `POST /agents` → `409`, "Pay as you go includes
 2 agents. Upgrade to add more." (trace `2aeb14897b00481cba4f1270cff808bb`, rememory 4360ad72). Built
@@ -1627,3 +1627,78 @@ to Scale at 10 active clients, and to Enterprise at 50.
 | 8 | Breakeven depends on it | relationship doc §6 |
 | 9 | "LLM don't cost us much"; offer to negotiate against a minimum commitment (12 Oct) | relationship doc §6-7 |
 | 10–14 | Open since §20/§25/§26 | §20, §26 |
+
+## 28. Ashutosh's answer to the §27 email, received 23 Oct 2026
+
+VENDOR-STATED: Ashutosh's email, relayed by the founder on 23 Oct 2026. Nothing below has been
+observed on our account yet; §28.3 lists what proves each item.
+
+### 28.1 What he said (summary)
+
+He agreed to the plan: stay on pay as you go while we ramp up, move to Scale at 10 active
+clients, and to Enterprise at 50. He set these limits on our pay-as-you-go account:
+
+| # | We asked (§27) | He set | Notes |
+|---|---|---|---|
+| 1 | 100 agents | **100 agents on the developer workspace** | **The allowance is counted per workspace, not per account.** Each customer workspace has its own count, **2 on pay as you go**, raised per workspace on request. |
+| 2 | 100 customer workspaces | **100** (was 3) | |
+| 3 | 100 concurrent calls | **20** | He prefers raising it in steps; "let us know when you hit them again". |
+| 4 | Studio band and cloning on pay as you go | **On, billed at the Studio rate of ₹3/min, as on Pro; up to 25 cloned voices** | |
+| 5 | Limits carry over to Scale | **Yes:** a plan change never lowers a raised limit | |
+
+His written answers to our questions:
+
+| # | Question | Answer |
+|---|---|---|
+| 6 | Do "White label 3/20/100" or "Organizations 1/1/2/100" limit API customers? | **No.** White label = white-label clients resold under our own brand; Organizations = workspaces one owner can hold. Our limit is the customer cap: 3 PAYG / 100 Pro / 1,000 Scale, now 100 for us. |
+| 7 | Do Scale's discounts reach customer workspaces? | **Yes.** Each customer workspace follows our plan: on Scale the 5% off voice minutes and the ₹249 number apply there too, charged to our wallet. The 5% applies to minutes billed at their voice prices, **including agents on our own model** (`byok: llm`). The flat own-key rates (₹1.00, ₹1.50) do **not** get it. This replaces his 18 Oct answer that client workspaces do not get the discount (§16.0). |
+| 8 | Does plan credit pay for own-key minutes and number rent, and does it carry over? | **Yes to both:** the credit is a prepaid balance spent before our own money on everything the wallet is charged, own-key minutes and number rent included. Unused credit now rolls over for up to 3 months while the subscription is active; each month's credit expires at the end of its own 3-month window. Pay as you go has no credit. |
+| 9 | A lower band rate on `byok: llm`; a volume price on own-key minutes | Own-key minutes are flat today (₹1.00, ₹1.50); our account price is set per voice band. A volume discount **needs a minimum monthly commitment**, to be discussed. |
+| 10 | DPA and sub-processors | **Being worked on, to be shared shortly.** Still open; T-5 still blocks client calls. |
+| 11 | Training exclusion | **In writing: our developer workspace and every customer workspace under it are excluded from model training.** |
+| 12 | TRAI reg 4 | No update from the operator. |
+| 13 | Carrier test dates | **Not answered.** |
+| 14 | Per-turn timing logs; cache rate on our Gemini key | **Not answered.** |
+
+**Follow-up, same day, 12:50:** "Please let me know how many minutes of Studio voices you plan to
+use and starting when?" Unanswered; it needs the founder's own figures (§28.4).
+
+### 28.2 What it changes for us
+
+- **Trial test calls are unblocked**, once the developer-workspace raise is live: the 409 "Pay as
+  you go includes 2 agents" (§27) came from the developer workspace, which now allows 100.
+- **The per-workspace count matters for D-859** (moving a paying client's agents to its own
+  workspace): a client workspace holds **2 agents** on pay as you go. A client with three agents
+  (D-855 offers three starter jobs) needs that workspace raised by email first, or the third
+  agent's move is refused. The move must treat a refused create as "waiting on a raise", alert an
+  operator, and leave the agent ready in the developer workspace, never lose it.
+- **Clear on the Studio band (D-792) works on pay as you go**, so OPERATIONS T-11 no longer needs
+  Pro; it now passes on the same evidence (studio-band voices listed by `POST /v1/ops/voices/refresh`).
+- **The fourth paying client is no longer refused** (OPERATIONS T-8): the cap is 100.
+- **Concurrency:** `thinnest_max_concurrent_calls` may move to 20 now that it is granted (T-7's
+  pass rule: the setting follows the granted figure, never ahead of it).
+- **Costs (relationship doc §6):** Clear stays ₹3.00/min (₹3.071 with the 2.36% top-up fee); on
+  Scale it is ₹2.85 in client workspaces too, so the Scale case in §6 now holds without the
+  "if the discount reaches client workspaces" caveat; Studio (`llm_voice`, ₹1.00) gets no Scale
+  discount. Scale's ₹4,999 credit pays for our minutes and number rent and rolls over 3 months, so
+  Scale costs nothing extra once ThinnestAI spend is ₹4,999 a month or more.
+- **Legal:** the training exclusion now exists in writing (part of T-5). The DPA and the
+  sub-processor list are still missing, so T-5 still blocks client calls.
+
+### 28.3 How each item is proven on our account
+
+| Item | Proof (OBSERVED) |
+|---|---|
+| 100 developer-workspace agents | `prepare` on a third trial agent succeeds (the Sravani agent that hit 409 on 23 Oct, trace `2aeb14897b00481cba4f1270cff808bb`) |
+| Studio band and clones on PAYG | `POST /v1/ops/voices/refresh` lists studio-band voices; a clone can be made |
+| 100 customer workspaces | the fourth `POST /customers` answers 2xx, not 402 |
+| 20 concurrent calls | not testable without 6+ calls at once; held as VENDOR-STATED, the console setting follows it |
+| Scale terms | the next plan change; held as VENDOR-STATED until then |
+
+### 28.4 Still open after §28
+
+- The DPA and sub-processor list (T-5).
+- TRAI reg 4 and the access provider of our numbers.
+- Carrier test dates; per-turn timing logs; the cache rate on our Gemini key.
+- Volume price against a minimum monthly commitment: founder decision on what to commit to.
+- His follow-up: Studio-band minutes we plan to use, and from when. Founder's figures needed.

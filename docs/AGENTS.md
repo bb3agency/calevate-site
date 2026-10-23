@@ -14,7 +14,7 @@ release is rolled back by redeploying the previous image. D-687 and D-688 (8 Oct
 
 - **Clear** = ThinnestAI's speech-to-text and telephony, speaking the ThinnestAI voice band the
   console setting `thinnest_clear_voice_band` names: **Studio** (default, D-792; catalogue voices
-  with `tier: studio` plus voices our **admin** clones; needs ThinnestAI Pro, ₹3.00/min;
+  with `tier: studio` plus voices our **admin** clones; ₹3.00/min, on our pay-as-you-go account with up to 25 clones, VENDOR-STATED 23 Oct 2026, replies §28;
   `thinnest-findings/mirror/snapshots/2026-10-07b/pages/channels/voice-clone.md:9-12,81-89`)
   or **Premium** (pay-as-you-go, ₹2.50/min). VENDOR-STATED rates, operator-attested. The model is
   our Gemini (D-834), agent `byok: "llm"`; while `thinnest_own_model` is off, ThinnestAI's own,
@@ -39,7 +39,7 @@ release is rolled back by redeploying the previous image. D-687 and D-688 (8 Oct
   and sent only by `engine/thinnest_workspace.workspace_headers`; handles carry the workspace as
   `<id>@<org_…>`. Clients buy numbers in their own business name once KYC is verified and
   their business details are approved. Never fall back to the developer workspace for a
-  client resource. Plan cap: 3 customers on pay-as-you-go (OPERATIONS T-8).
+  client resource. Plan cap: 100 customer workspaces on our pay-as-you-go account (raised from 3); agents count per workspace: 100 developer, 2 per customer workspace on pay as you go, raised on request (VENDOR-STATED 23 Oct 2026, OPERATIONS T-8).
 - **Clients never clone**; they pick and preview voices the admin added and enabled.
 - **Client-facing text names no provider** (D-679).
 
