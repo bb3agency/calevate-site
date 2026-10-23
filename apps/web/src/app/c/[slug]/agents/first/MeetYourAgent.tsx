@@ -4,12 +4,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { ArrowLeft, X } from "lucide-react";
 
 import { TEXT_ACTION } from "@/components/console/section";
 import { CopilotPanel } from "@/components/copilot/CopilotPanel";
 import { focusMain } from "@/components/copilot/workspace/AssistantWorkspace";
 import { ProgressBar } from "@/components/interior/progress-bar";
-import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { ProblemNotice, RestrictionNote, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import { agentKeys, useAgents, type Agent } from "@/lib/api/agents";
 import { useBusinessProfile } from "@/lib/api/businessProfile";
 import type { CallSummary } from "@/lib/api/client";
@@ -29,6 +30,7 @@ import {
   defaultLanguage,
   firstAgentOf,
   introFor,
+  jobsOf,
   piecesOf,
   quickRepliesFor,
   resumeStage,
@@ -92,7 +94,10 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   const buildStatus = run.data?.build.status;
   const ticked = run.data?.build.steps.filter((entry) => entry.state !== "waiting").length ?? 0;
   useEffect(() => {
-    if (ticked > 0) void queries.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) });
+    if (ticked > 0)
+      void queries.invalidateQueries({
+        queryKey: agentKeys.all(session.orgSlug),
+      });
   }, [ticked, buildStatus, queries, session.orgSlug]);
 
   const pipOff = session.impersonateOrg
@@ -116,11 +121,23 @@ export function MeetYourAgent({ slug }: { slug: string }) {
     const data = run.data!;
     switch (stage) {
       case "job":
-        body = <JobStep run={data} defaultLanguage={defaultLanguage(profile.data?.languages)} onDone={() => setStage("brief")} />;
+        body = (
+          <JobStep
+            run={data}
+            defaultLanguage={defaultLanguage(profile.data?.languages)}
+            onDone={() => setStage("brief")}
+          />
+        );
         break;
       case "brief":
         body = (
-          <BriefStep run={data} onBack={() => setStage("job")} onDone={() => setStage("questions")} onPip={() => setPip(true)} pipOff={pipOff} />
+          <BriefStep
+            run={data}
+            onBack={() => setStage("job")}
+            onDone={() => setStage("questions")}
+            onPip={() => setPip(true)}
+            pipOff={pipOff}
+          />
         );
         break;
       case "questions":
@@ -133,7 +150,7 @@ export function MeetYourAgent({ slug }: { slug: string }) {
         body = agent ? (
           <HearItStep
             agent={agent}
-            job={data.job}
+            jobs={jobsOf(data)}
             calls={calls.data}
             onBack={() => setStage("build")}
             onEnded={(ended) => {
@@ -169,7 +186,7 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   const card = (compact: boolean) => (
     <AgentTakingShape
       agent={agent}
-      job={run.data?.job ?? null}
+      jobs={jobsOf(run.data)}
       language={run.data?.language_primary ?? null}
       brief={run.data?.brief ?? null}
       pieces={pieces}
@@ -181,34 +198,46 @@ export function MeetYourAgent({ slug }: { slug: string }) {
 
   return (
     <div className="pb-8">
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-title text-ink">Meet your agent</h1>
-          <p className="mt-0.5 hidden text-meta text-ink-muted sm:block">
-            A few minutes to build, then it rings your phone so you hear it.
-          </p>
+      {/* One row from `lg`: the screen's name, the four steps, and the way out, so the step
+          itself starts high enough to fit a laptop screen. */}
+      <div className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-x-8">
+        <h1 className="text-title text-ink">Meet your agent</h1>
+        <div
+          className="col-span-2 row-start-2 min-w-0 lg:col-span-1 lg:col-start-2 lg:row-start-1"
+          role="group"
+          aria-label="Your progress"
+        >
+          <StepRail
+            steps={STEPS}
+            current={step}
+            layout="row"
+            onGo={(to) => to < step && setStage(to === 0 ? "job" : to === 1 ? "brief" : "hear")}
+          />
         </div>
-        <button type="button" className={`${TEXT_ACTION} shrink-0`} onClick={skip} disabled={dismiss.isPending}>
+        <button
+          type="button"
+          className={`${SECONDARY_BUTTON_SM} shrink-0 justify-self-end`}
+          onClick={skip}
+          disabled={dismiss.isPending}
+        >
+          <X aria-hidden className="h-3.5 w-3.5" />
           Skip for now
         </button>
       </div>
       {dismiss.error ? <ProblemNotice error={dismiss.error} /> : null}
 
-      <div className="grid gap-5 lg:grid-cols-[13rem_minmax(0,1fr)_minmax(18rem,22rem)] lg:gap-8">
-        <aside className="min-w-0 space-y-4" aria-label="Your progress">
-          <StepRail
-            steps={STEPS}
-            current={step}
-            onGo={(to) => to < step && setStage(to === 0 ? "job" : to === 1 ? "brief" : "hear")}
-          />
-          <Meter pieces={pieces} loaded={loaded} />
-        </aside>
+      {/* Two columns from `lg`: the step, as wide as its cards need, and the agent taking
+          shape beside it. The rail sits above both, so the step is not squeezed by it. */}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,20rem)] lg:gap-8 xl:gap-12">
         <div className="min-w-0 lg:hidden">{card(true)}</div>
-        <section className="min-w-0 max-w-xl" aria-label="This step">
+        <section className="min-w-0 max-w-2xl" aria-label="This step">
           {body}
         </section>
         <aside className="hidden min-w-0 lg:block" aria-label="Your agent as it takes shape">
-          <div className="lg:sticky lg:top-4">{card(false)}</div>
+          <div className="space-y-3 lg:sticky lg:top-4">
+            <Meter pieces={pieces} loaded={loaded} />
+            {card(false)}
+          </div>
         </aside>
       </div>
     </div>
@@ -284,6 +313,7 @@ function PipPanel({
         {ASSISTANT_NAME}, building your first agent with you
       </span>
       <button type="button" className={TEXT_ACTION} onClick={onClose}>
+        <ArrowLeft aria-hidden className="h-4 w-4" />
         Back to the steps
       </button>
     </div>
@@ -306,8 +336,16 @@ function surfaceFacts(agent: Agent | null, pieces: readonly Piece[]) {
     ...facts,
     { key: "agent_id", label: "The agent's id", value: agent.id },
     { key: "agent_name", label: "Its name", value: agent.name },
-    { key: "agent_language", label: "Its main language", value: agent.language_primary },
-    { key: "agent_voice", label: "Its voice id", value: agent.engine_voice_id ?? "none chosen yet" },
+    {
+      key: "agent_language",
+      label: "Its main language",
+      value: agent.language_primary,
+    },
+    {
+      key: "agent_voice",
+      label: "Its voice id",
+      value: agent.engine_voice_id ?? "none chosen yet",
+    },
     {
       key: "opening_line",
       label: `Its opening line (${charCount(opening)} characters)`,

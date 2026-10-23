@@ -254,6 +254,13 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/dashboard": EMPTY_DASHBOARD,
     // An account that has not paid is owed no go-live guide (D-859).
     "/v1/go-live": NOT_OWED_GUIDE,
+    // A first run put aside: the dashboard neither sends the owner on nor hides the checklist.
+    "/v1/first-run": {
+      due: false,
+      job: null,
+      questions: { status: "idle", items: [], disclosure: null },
+      build: { status: "idle", steps: [], disclosure: null, builds_left: 3 },
+    },
     "/v1/usage": USAGE,
     "/v1/billing/wallet": wallet(),
     "/v1/calls?limit=6": [],
@@ -975,6 +982,23 @@ describe("this week", () => {
       "section",
     ) as HTMLElement;
     expect(within(invite).getByRole("link", { name: /Start/ }).getAttribute("href")).toBe("/c/acme/agents/first");
+  });
+
+  it("offers a first run already begun before any setup list", async () => {
+    await recap({
+      "/v1/agents": [],
+      "/v1/first-run": {
+        due: true,
+        job: "answer_calls",
+        questions: { status: "idle", items: [], disclosure: null },
+        build: { status: "idle", steps: [], disclosure: null, builds_left: 3 },
+      },
+    });
+    const invite = (await screen.findByRole("heading", { name: "Meet your agent", level: 2 })).closest(
+      "section",
+    ) as HTMLElement;
+    expect(await within(invite).findByRole("link", { name: /Continue/ })).toBeTruthy();
+    expect(screen.queryByText(/Set up your business/)).toBeNull();
   });
 
   it("leads with the agent when none is switched on", async () => {

@@ -11,6 +11,21 @@
  * progress, Nunes & Drèze 2006), because the account is real work the owner has finished.
  */
 
+import {
+  BadgeCheck,
+  ClipboardList,
+  Inbox,
+  ListChecks,
+  Megaphone,
+  MessagesSquare,
+  NotebookPen,
+  Phone,
+  PhoneIncoming,
+  PhoneOutgoing,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
+
 import { formatCallCap } from "@/components/ui";
 import { LANGUAGE_CHOICES } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
@@ -23,16 +38,7 @@ import { lookup } from "@/lib/lookup";
  *  `apps/workers/first_run.GREETING_MAX_CHARS`. */
 export const GREETING_MAX_CHARS = 120;
 
-export type PieceId =
-  | "account"
-  | "job"
-  | "about"
-  | "name"
-  | "voice"
-  | "greeting"
-  | "notes"
-  | "ready"
-  | "call";
+export type PieceId = "account" | "job" | "about" | "name" | "voice" | "greeting" | "notes" | "ready" | "call";
 
 export interface Piece {
   id: PieceId;
@@ -69,11 +75,20 @@ export const STEP_OF_STAGE: Readonly<Record<Stage, StepId>> = {
   team: "yours",
 };
 
+/** One link of a job's three-link flow: what happens, with the icon that names it. */
+export interface JobLink {
+  icon: LucideIcon;
+  label: string;
+}
+
 /** What each job does, in the owner's words. */
 export interface JobCard {
   job: FirstRunJob;
   title: string;
   line: string;
+  icon: LucideIcon;
+  /** The job as three things that happen, in order: what starts it, what it does, what you get. */
+  flow: readonly [JobLink, JobLink, JobLink];
   /** How the test call is introduced, with the business's name. */
   callIntro: (business: string) => string;
 }
@@ -83,18 +98,37 @@ export const JOBS: readonly JobCard[] = [
     job: "answer_calls",
     title: "Answer my calls",
     line: "Picks up when customers ring your number, day or night.",
+    icon: PhoneIncoming,
+    flow: [
+      { icon: Phone, label: "A customer rings" },
+      { icon: MessagesSquare, label: "It answers" },
+      { icon: NotebookPen, label: "Notes what they need" },
+    ],
     callIntro: (business) => `It rings you and answers as if you had called ${business}.`,
   },
   {
     job: "call_new_leads",
     title: "Call new leads instantly",
     line: "Rings each new enquiry within minutes, while they are still interested.",
+    icon: Zap,
+    flow: [
+      { icon: Inbox, label: "An enquiry comes in" },
+      { icon: PhoneOutgoing, label: "It rings them" },
+      { icon: BadgeCheck, label: "Finds the serious ones" },
+    ],
     callIntro: () => "It rings you as if you had just sent an enquiry.",
   },
   {
+    // `call_leads` is bulk calling: the agent works through a whole list as a campaign.
     job: "call_leads",
-    title: "Call my list",
-    line: "Works through a list of people who showed interest earlier.",
+    title: "Run calling campaigns",
+    line: "Calls a whole list for you, one person after another.",
+    icon: Megaphone,
+    flow: [
+      { icon: ListChecks, label: "Your contact list" },
+      { icon: PhoneOutgoing, label: "Calls each one" },
+      { icon: ClipboardList, label: "Records every answer" },
+    ],
     callIntro: () => "It rings you as if you were the first person on your list.",
   },
 ];
@@ -103,11 +137,71 @@ export function jobCard(job: FirstRunJob | null | undefined): JobCard | null {
   return JOBS.find((card) => card.job === job) ?? null;
 }
 
+/**
+ * THE JOBS SEAM. One agent does every job the owner picks (founder, 23 Oct 2026); the API is
+ * moving from `job` to `jobs: StarterJob[]`. Until it does, a run carries one job, and
+ * `jobPayload` sends the first chosen one in `JOBS` order. Both functions read and write
+ * the new field as soon as the server sends it, so wiring the change is the payload's shape
+ * here and nothing on the screens.
+ */
+export function jobsOf(run: { job: FirstRunJob | null; jobs?: FirstRunJob[] | null } | undefined): FirstRunJob[] {
+  const listed = run?.jobs;
+  if (listed && listed.length > 0) return sortJobs(listed);
+  return run?.job ? [run.job] : [];
+}
+
+export function sortJobs(jobs: readonly FirstRunJob[]): FirstRunJob[] {
+  return JOBS.map((card) => card.job).filter((job) => jobs.includes(job));
+}
+
+export function jobPayload(jobs: readonly FirstRunJob[], languagePrimary: string, languagesExtra: string[]) {
+  const ordered = sortJobs(jobs);
+  return {
+    job: ordered[0] as FirstRunJob,
+    language_primary: languagePrimary,
+    languages_extra: languagesExtra,
+  };
+}
+
+/** The agent's jobs as one line for its card: "Answer my calls + 1 more". */
+export function jobsTitle(jobs: readonly FirstRunJob[]): string | null {
+  const ordered = sortJobs(jobs);
+  const first = jobCard(ordered[0]);
+  if (!first) return null;
+  return ordered.length > 1 ? `${first.title} + ${ordered.length - 1} more` : first.title;
+}
+
+/** How the test call is introduced when the agent has several jobs: answering comes first,
+ *  because the test call plays the part of a customer ringing in. */
+export function callIntroFor(jobs: readonly FirstRunJob[], business: string): string {
+  return jobCard(sortJobs(jobs)[0])?.callIntro(business) ?? "It rings you and talks to you as it would to a caller.";
+}
+
 /** The languages a client may choose today, from the one table in `agentState`. */
 export const LANGUAGES: readonly { tag: string; label: string }[] = LANGUAGE_CHOICES.map(({ value, label }) => ({
   tag: value,
   label,
 }));
+
+/** Each language's mark: a syllable in its own script, so an owner finds theirs by sight. */
+const LANGUAGE_GLYPHS: Readonly<Record<string, string>> = {
+  "te-IN": "తె",
+  "hi-IN": "हि",
+  "en-IN": "En",
+  "ta-IN": "த",
+  "kn-IN": "ಕ",
+  "ml-IN": "മ",
+  "mr-IN": "म",
+};
+
+export function languageGlyph(tag: string): string {
+  return lookup(LANGUAGE_GLYPHS, tag) ?? tag.slice(0, 2);
+}
+
+/** The language's name without the region the picker does not need ("English (India)"). */
+export function languageShortLabel(tag: string): string {
+  return languageLabel(tag).replace(/\s*\(.*\)$/, "");
+}
 
 export function languageLabel(tag: string | null | undefined): string {
   return LANGUAGES.find((language) => language.tag === tag)?.label ?? "Telugu";
@@ -141,13 +235,33 @@ export function piecesOf({ run, agent, calls }: FirstAgentState): Piece[] {
   return [
     { id: "account", label: "Account created", done: true },
     { id: "job", label: "Its job", done: Boolean(run?.job) },
-    { id: "about", label: "What it knows about you", done: Boolean(run?.brief?.trim()) },
+    {
+      id: "about",
+      label: "What it knows about you",
+      done: Boolean(run?.brief?.trim()),
+    },
     { id: "name", label: "Its name", done: has && agent.name.trim() !== "" },
-    { id: "voice", label: "Its voice", done: has && Boolean(agent.engine_voice_id) },
-    { id: "greeting", label: "How it greets", done: has && greetingFits(agent.script_opening_line) },
-    { id: "notes", label: "What it notes down", done: has && agent.extraction_fields.length > 0 },
+    {
+      id: "voice",
+      label: "Its voice",
+      done: has && Boolean(agent.engine_voice_id),
+    },
+    {
+      id: "greeting",
+      label: "How it greets",
+      done: has && greetingFits(agent.script_opening_line),
+    },
+    {
+      id: "notes",
+      label: "What it notes down",
+      done: has && agent.extraction_fields.length > 0,
+    },
     { id: "ready", label: "Ready to try", done: has && agent.published },
-    { id: "call", label: "Its first call", done: has && (calls?.length ?? 0) > 0 },
+    {
+      id: "call",
+      label: "Its first call",
+      done: has && (calls?.length ?? 0) > 0,
+    },
   ];
 }
 
@@ -172,7 +286,10 @@ export function jobOf(agent: Agent): string {
  * (`max_call_seconds`), so the figure can only be an under-promise. Null when the trial has no
  * minutes cap or the longest call is unknown.
  */
-export function callsLeft(minutesLeft: number | null | undefined, maxCallSeconds: number | null | undefined): number | null {
+export function callsLeft(
+  minutesLeft: number | null | undefined,
+  maxCallSeconds: number | null | undefined,
+): number | null {
   if (minutesLeft === null || minutesLeft === undefined) return null;
   if (!maxCallSeconds || maxCallSeconds <= 0) return null;
   return Math.max(0, Math.floor((minutesLeft * 60) / maxCallSeconds));
@@ -198,7 +315,10 @@ export function studioFallbackLine(fallback: string | null | undefined): string 
 export const NOT_FEMALE_LINE = "No woman's voice speaks this language yet, so it has the closest voice we have.";
 
 /** The note under the chosen voice: why it is Clear, then why it is not a woman's. */
-export function voicePickNote(fallback: string | null | undefined, notFemale: boolean | null | undefined): string | null {
+export function voicePickNote(
+  fallback: string | null | undefined,
+  notFemale: boolean | null | undefined,
+): string | null {
   const lines = [studioFallbackLine(fallback), notFemale ? NOT_FEMALE_LINE : null].filter(Boolean);
   return lines.length ? lines.join(" ") : null;
 }
@@ -239,5 +359,5 @@ export function introFor(agentName: string | null): string {
 export function quickRepliesFor(hasAgent: boolean): readonly string[] {
   return hasAgent
     ? ["Make the greeting warmer", "What does it note down?"]
-    : ["Answer my calls", "Call new leads instantly", "Call my list"];
+    : ["Answer my calls", "Call new leads instantly", "Run calling campaigns"];
 }

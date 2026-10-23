@@ -54,7 +54,7 @@ const JOBS: { job: StarterJob; title: string; line: string; icon: typeof PhoneIn
   },
   {
     job: "call_leads",
-    title: "Call my list",
+    title: "Run calling campaigns",
     line: "It rings the people on your list, follows up on what they asked about and notes what they want.",
     icon: PhoneOutgoing,
   },

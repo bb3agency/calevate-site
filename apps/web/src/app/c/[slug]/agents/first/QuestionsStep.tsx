@@ -1,71 +1,49 @@
 "use client";
 
-import { useId, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { useId, useMemo, useState } from "react";
+import { ArrowRight, Clock, MapPin, Plus, SkipForward, Sparkles, X } from "lucide-react";
 
 import { TEXT_ACTION } from "@/components/console/section";
-import { FIELD, FIELD_LABEL, ProblemNotice, QUIET_ICON_BUTTON, Skeleton } from "@/components/ui";
 import {
-  useBuildAgent,
-  useSaveAnswers,
-  type FirstRun,
-  type FirstRunAnswers,
-  type FirstRunQuestion,
-} from "@/lib/api/firstRun";
+  FIELD,
+  FIELD_INLINE,
+  FIELD_GROUP,
+  FIELD_GROUP_AFFIX,
+  FIELD_GROUP_INPUT,
+  FIELD_LABEL,
+  ProblemNotice,
+  QUIET_ICON_BUTTON,
+  SECONDARY_BUTTON_SM,
+} from "@/components/ui";
+import { useBuildAgent, useSaveAnswers, type FirstRun } from "@/lib/api/firstRun";
 import { useClientSession } from "@/lib/api/session";
+import {
+  DAYS,
+  MAX_ADDRESS_CHARS,
+  MAX_SERVICES,
+  MAX_TEXT_CHARS,
+  askedOf,
+  currentAnswers,
+  emptyAnswer,
+  type AskedAnswer,
+  type AskedQuestion,
+  type Day,
+  type HoursAnswer,
+} from "@/lib/firstRunQuestions";
 
+import { ReadingStage } from "./LiveStage";
 import { ChipChoice, StepScreen } from "./shell";
 
-const DAYS = [
-  { id: "mon", label: "Mon" },
-  { id: "tue", label: "Tue" },
-  { id: "wed", label: "Wed" },
-  { id: "thu", label: "Thu" },
-  { id: "fri", label: "Fri" },
-  { id: "sat", label: "Sat" },
-  { id: "sun", label: "Sun" },
-] as const;
-type Day = (typeof DAYS)[number]["id"];
-
-interface Draft {
-  trade: string[];
-  location: string;
-  offer: { name: string; price: string }[];
-  hours: { opens: string; closes: string; closed: Day[] };
-  booking: string;
-}
-
-const EMPTY: Draft = {
-  trade: [],
-  location: "",
-  offer: [{ name: "", price: "" }],
-  hours: { opens: "09:00", closes: "18:00", closed: ["sun"] },
-  booking: "",
-};
-
-/** The answers to send: only the questions answered, each in the profile's shape. */
-export function answersOf(draft: Draft, answered: ReadonlySet<string>): FirstRunAnswers {
-  const out: FirstRunAnswers = {};
-  if (answered.has("trade") && draft.trade.length > 0) out.trade = draft.trade;
-  if (answered.has("location") && draft.location.trim()) out.location = draft.location.trim();
-  if (answered.has("offer")) {
-    const rows = draft.offer
-      .map((row) => ({ name: row.name.trim(), price: row.price.replace(/[^\d.]/g, "") }))
-      .filter((row) => row.name !== "");
-    if (rows.length > 0) out.offer = rows.map((row) => ({ name: row.name, price_inr: row.price || null }));
-  }
-  if (answered.has("hours")) out.hours = draft.hours;
-  if (answered.has("booking") && draft.booking.trim()) out.booking = draft.booking.trim();
-  return out;
-}
-
 /**
- * THE FOLLOW-UP QUESTIONS (D-855): at most three, one at a time, each one skippable.
+ * THE FOLLOW-UP QUESTIONS (D-855; founder, 23 Oct 2026): a few, one at a time, each one
+ * skippable, each answered the way its kind wants to be answered: chips for a choice, a price
+ * list for what is offered, open days and a time range for hours, a place for an address,
+ * a box for anything else.
  *
- * A worker chose them from a fixed set the brief had not answered (where you are, what you
- * offer and for how much, when you are open, how bookings work, and one multiple choice for
- * the trade); their answers go into the business profile, which every agent reads. While the
- * worker reads the brief the owner can already skip ahead and build.
+ * While a worker reads the description, the stage shows the owner's own words being read;
+ * the owner can skip ahead and build at any point. The answers go into the business profile,
+ * which every agent reads. The screen speaks `lib/firstRunQuestions`' contract; today's API is
+ * reached through its two adapters.
  */
 export function QuestionsStep({
   run,
@@ -79,84 +57,102 @@ export function QuestionsStep({
   const session = useClientSession();
   const answer = useSaveAnswers(session);
   const build = useBuildAgent(session);
+  const questions = useMemo(() => run.questions.items.map(askedOf), [run.questions.items]);
   const [at, setAt] = useState(0);
-  const [draft, setDraft] = useState<Draft>(EMPTY);
-  const [answered, setAnswered] = useState<Set<string>>(() => new Set());
-  const items = run.questions.items;
+  const [answers, setAnswers] = useState<Record<string, AskedAnswer>>({});
+  const [kept, setKept] = useState<Set<string>>(() => new Set());
   const writing = run.questions.status === "writing";
-  const question = items[at] ?? null;
+  const question = questions[at] ?? null;
   const pending = answer.isPending || build.isPending;
 
   const finish = async (keep: ReadonlySet<string>) => {
-    const answers = answersOf(draft, keep);
-    if (Object.keys(answers).length > 0) await answer.mutateAsync(answers);
+    const sent = currentAnswers(
+      questions.filter((entry) => keep.has(entry.id)),
+      Object.values(answers),
+    );
+    if (Object.keys(sent).length > 0) await answer.mutateAsync(sent);
     await build.mutateAsync(null);
     onBuilding();
   };
-
-  const skipAll = (
-    <button type="button" className={TEXT_ACTION} disabled={pending} onClick={() => void finish(answered).catch(() => undefined)}>
-      Skip {question && at < items.length - 1 ? "the rest" : "all"} and build
-    </button>
-  );
+  const go = (keep: ReadonlySet<string>) => void finish(keep).catch(() => undefined);
 
   if (writing || question === null) {
     return (
       <StepScreen
-        title={writing ? "Reading what you wrote" : "Your description covers it"}
+        title={writing ? "A few details next" : "Your description covers it"}
         hint={
           writing
-            ? "A few seconds. It is checking what your agent still needs to know."
+            ? "Your agent is reading what you wrote, to ask only what a caller would still need."
             : "Nothing else is needed before your agent is built."
         }
         onBack={onBack}
-        primary={pending ? "Starting…" : "Build my agent"}
+        primary={writing ? undefined : pending ? "Starting…" : "Build my agent"}
         pending={pending}
-        disabled={writing}
-        onSubmit={() => void finish(answered).catch(() => undefined)}
-        aside={writing ? skipAll : null}
+        onSubmit={() => go(kept)}
+        aside={
+          writing ? (
+            <button type="button" className={TEXT_ACTION} disabled={pending} onClick={() => go(kept)}>
+              <SkipForward aria-hidden className="h-4 w-4" />
+              {pending ? "Starting…" : "Skip the questions and build"}
+            </button>
+          ) : null
+        }
       >
-        {writing ? <Skeleton rows={3} label="Reading your description" /> : null}
+        {writing ? <ReadingStage brief={run.brief ?? ""} lang={run.language_primary ?? "en-IN"} /> : null}
         <Errors errors={[answer.error, build.error]} />
       </StepScreen>
     );
   }
 
-  const last = at === items.length - 1;
+  const last = at === questions.length - 1;
+  const current = answers[question.id] ?? emptyAnswer(question.id);
   const next = (keep: boolean) => {
-    const nextAnswered = new Set(answered);
-    if (keep) nextAnswered.add(question.key);
-    else nextAnswered.delete(question.key);
-    setAnswered(nextAnswered);
-    if (last) void finish(nextAnswered).catch(() => undefined);
+    const nextKept = new Set(kept);
+    if (keep) nextKept.add(question.id);
+    else nextKept.delete(question.id);
+    setKept(nextKept);
+    if (last) go(nextKept);
     else setAt(at + 1);
   };
 
   return (
     <StepScreen
+      key={question.id}
       title={question.prompt}
-      hint={
-        <span className="flex flex-col gap-1">
-          <span className="text-meta tabular-nums text-ink-faint">
-            Question {at + 1} of {items.length}
-          </span>
-          <span>{question.hint}</span>
-        </span>
-      }
+      eyebrow={<QuestionProgress at={at} total={questions.length} />}
+      hint={question.hint}
       onBack={at === 0 ? onBack : () => setAt(at - 1)}
-      primary={pending ? "Building…" : last ? "Build my agent" : "Next"}
+      primary={
+        <>
+          {pending ? "Building…" : last ? "Build my agent" : "Next"}
+          {pending ? null : last ? (
+            <Sparkles aria-hidden className="h-4 w-4" />
+          ) : (
+            <ArrowRight aria-hidden className="h-4 w-4" />
+          )}
+        </>
+      }
       pending={pending}
       onSubmit={() => next(true)}
       aside={
-        <span className="flex flex-wrap items-center justify-center gap-x-5">
+        <>
           <button type="button" className={TEXT_ACTION} disabled={pending} onClick={() => next(false)}>
+            <SkipForward aria-hidden className="h-4 w-4" />
             Skip this question
           </button>
-          {last ? null : skipAll}
-        </span>
+          {last ? null : (
+            <button type="button" className={TEXT_ACTION} disabled={pending} onClick={() => go(kept)}>
+              Skip the rest and build
+            </button>
+          )}
+        </>
       }
     >
-      <Answer question={question} draft={draft} onChange={setDraft} />
+      <QuestionAnswer
+        question={question}
+        answer={current}
+        onChange={(changed) => setAnswers((all) => ({ ...all, [question.id]: changed }))}
+      />
       {run.questions.disclosure ? <p className="text-meta text-ink-faint">{run.questions.disclosure}</p> : null}
       <Errors errors={[answer.error, build.error]} />
     </StepScreen>
@@ -168,195 +164,367 @@ function Errors({ errors }: { errors: readonly (Error | null)[] }) {
   return first ? <ProblemNotice error={first} /> : null;
 }
 
-function Answer({
-  question,
-  draft,
-  onChange,
-}: {
-  question: FirstRunQuestion;
-  draft: Draft;
-  onChange: (draft: Draft) => void;
-}) {
-  const id = useId();
-  switch (question.kind) {
-    case "choices":
-      return (
-        <fieldset>
-          <legend className="sr-only">{question.prompt}</legend>
-          <div className="flex flex-wrap gap-2">
-            {question.options.map((option) => (
-              <ChipChoice
-                key={option}
-                type="checkbox"
-                name="trade"
-                value={option}
-                checked={draft.trade.includes(option)}
-                onChange={(on) =>
-                  onChange({
-                    ...draft,
-                    trade: on ? [...draft.trade, option] : draft.trade.filter((chosen) => chosen !== option),
-                  })
-                }
-              >
-                {option}
-              </ChipChoice>
-            ))}
-          </div>
-        </fieldset>
-      );
-    case "address":
-      return (
-        <div>
-          <label htmlFor={id} className={FIELD_LABEL}>
-            Address
-          </label>
-          <textarea
-            id={id}
-            rows={3}
-            autoComplete="street-address"
-            maxLength={400}
-            value={draft.location}
-            onChange={(event) => onChange({ ...draft, location: event.target.value })}
-            className={`${FIELD} mt-1 w-full text-[16px]`}
-          />
-        </div>
-      );
-    case "services":
-      return <Services draft={draft} onChange={onChange} />;
-    case "hours":
-      return <Hours draft={draft} onChange={onChange} />;
-    default:
-      return (
-        <div>
-          <label htmlFor={id} className="sr-only">
-            {question.prompt}
-          </label>
-          <textarea
-            id={id}
-            rows={4}
-            maxLength={2000}
-            value={draft.booking}
-            onChange={(event) => onChange({ ...draft, booking: event.target.value })}
-            className={`${FIELD} w-full text-[16px]`}
-          />
-        </div>
-      );
-  }
-}
-
-/** The server's cap per answer (`first_run/schemas.AnswersIn.offer`). */
-const MAX_OFFER_ROWS = 20;
-
-function Services({ draft, onChange }: { draft: Draft; onChange: (draft: Draft) => void }) {
-  const base = useId();
-  const set = (index: number, row: { name: string; price: string }) =>
-    onChange({ ...draft, offer: draft.offer.map((existing, i) => (i === index ? row : existing)) });
+/** "Question 2 of 3" with a segment per question, filled up to this one. */
+function QuestionProgress({ at, total }: { at: number; total: number }) {
   return (
-    <div className="space-y-3">
-      {draft.offer.map((row, index) => (
-        <div key={index} className="flex items-end gap-2">
-          <label className="min-w-0 flex-1">
-            <span className={FIELD_LABEL}>What you offer</span>
-            <input
-              id={`${base}-name-${index}`}
-              value={row.name}
-              maxLength={120}
-              onChange={(event) => set(index, { ...row, name: event.target.value })}
-              className={`${FIELD} mt-1 w-full text-[16px]`}
-            />
-          </label>
-          <label className="w-28 shrink-0">
-            <span className={FIELD_LABEL}>Price (₹)</span>
-            <input
-              value={row.price}
-              inputMode="decimal"
-              maxLength={12}
-              onChange={(event) => set(index, { ...row, price: event.target.value })}
-              className={`${FIELD} mt-1 w-full text-[16px] tabular-nums`}
-            />
-          </label>
-          {draft.offer.length > 1 ? (
-            <button
-              type="button"
-              aria-label={`Remove ${row.name || "this row"}`}
-              className={QUIET_ICON_BUTTON}
-              onClick={() => onChange({ ...draft, offer: draft.offer.filter((_, i) => i !== index) })}
-            >
-              <X aria-hidden className="h-4 w-4" />
-            </button>
-          ) : null}
-        </div>
-      ))}
-      {draft.offer.length < MAX_OFFER_ROWS ? (
-        <button
-          type="button"
-          className={TEXT_ACTION}
-          onClick={() => onChange({ ...draft, offer: [...draft.offer, { name: "", price: "" }] })}
-        >
-          <Plus aria-hidden className="h-4 w-4" />
-          Add another
-        </button>
-      ) : null}
+    <div className="flex items-center gap-3">
+      <span className="text-meta font-medium tabular-nums text-brand-strong">
+        Question {at + 1} of {total}
+      </span>
+      <span aria-hidden className="flex gap-1">
+        {Array.from({ length: total }, (_, index) => (
+          <span
+            key={index}
+            className={`h-1 w-5 rounded-full transition-colors duration-(--duration-base) ${index <= at ? "bg-brand-strong" : "bg-line"}`}
+          />
+        ))}
+      </span>
     </div>
   );
 }
 
-function Hours({ draft, onChange }: { draft: Draft; onChange: (draft: Draft) => void }) {
+/** One question's answer, drawn for its kind. Props are the contract's question and answer,
+ *  so the components serve the AI-written questions unchanged. */
+export function QuestionAnswer({
+  question,
+  answer,
+  onChange,
+}: {
+  question: AskedQuestion;
+  answer: AskedAnswer;
+  onChange: (answer: AskedAnswer) => void;
+}) {
+  switch (question.kind) {
+    case "choices":
+    case "single_choice":
+      return <ChoicesAnswer question={question} answer={answer} onChange={onChange} />;
+    case "address":
+      return <AddressAnswer answer={answer} onChange={onChange} />;
+    case "services":
+      return <ServicesAnswer answer={answer} onChange={onChange} />;
+    case "hours":
+      return <HoursAnswerField answer={answer} onChange={onChange} />;
+    default:
+      return <TextAnswer question={question} answer={answer} onChange={onChange} />;
+  }
+}
+
+function ChoicesAnswer({
+  question,
+  answer,
+  onChange,
+}: {
+  question: AskedQuestion;
+  answer: AskedAnswer;
+  onChange: (answer: AskedAnswer) => void;
+}) {
+  const single = question.kind === "single_choice";
+  return (
+    <fieldset>
+      <legend className="sr-only">{question.prompt}</legend>
+      {question.hint.trim() === "" ? (
+        <p className="mb-2.5 text-meta text-ink-muted">{single ? "Pick one." : "Pick all that fit."}</p>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        {question.options.map((option) => (
+          <ChipChoice
+            key={option}
+            type={single ? "radio" : "checkbox"}
+            name={question.id}
+            value={option}
+            checked={answer.choices.includes(option)}
+            onChange={(on) =>
+              onChange({
+                ...answer,
+                choices: single
+                  ? [option]
+                  : on
+                    ? [...answer.choices, option]
+                    : answer.choices.filter((chosen) => chosen !== option),
+              })
+            }
+          >
+            {option}
+          </ChipChoice>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function TextAnswer({
+  question,
+  answer,
+  onChange,
+}: {
+  question: AskedQuestion;
+  answer: AskedAnswer;
+  onChange: (answer: AskedAnswer) => void;
+}) {
+  const id = useId();
+  return (
+    <div>
+      <label htmlFor={id} className="sr-only">
+        {question.prompt}
+      </label>
+      <textarea
+        id={id}
+        rows={4}
+        maxLength={MAX_TEXT_CHARS}
+        value={answer.text}
+        onChange={(event) => onChange({ ...answer, text: event.target.value })}
+        className={`${FIELD} resize-y text-[16px] leading-relaxed`}
+      />
+      <p className="mt-1 text-right text-meta tabular-nums text-ink-faint">
+        {Array.from(answer.text).length} of {MAX_TEXT_CHARS}
+      </p>
+    </div>
+  );
+}
+
+function AddressAnswer({ answer, onChange }: { answer: AskedAnswer; onChange: (answer: AskedAnswer) => void }) {
+  const id = useId();
+  return (
+    <div>
+      <label htmlFor={id} className={FIELD_LABEL}>
+        Address
+      </label>
+      <div className={`${FIELD_GROUP} mt-1`}>
+        <span aria-hidden className={`${FIELD_GROUP_AFFIX} items-start pt-2.5`}>
+          <MapPin className="h-4 w-4 text-brand-strong" />
+        </span>
+        <textarea
+          id={id}
+          rows={3}
+          autoComplete="street-address"
+          maxLength={MAX_ADDRESS_CHARS}
+          placeholder="Shop number, street, area, city"
+          aria-describedby={`${id}-hint`}
+          value={answer.text}
+          onChange={(event) => onChange({ ...answer, text: event.target.value })}
+          className={`${FIELD_GROUP_INPUT} resize-y py-2 pl-14 text-[16px] leading-relaxed`}
+        />
+      </div>
+      <p id={`${id}-hint`} className="mt-1 text-meta text-ink-faint">
+        Your agent says this when a caller asks where you are.
+      </p>
+    </div>
+  );
+}
+
+function ServicesAnswer({ answer, onChange }: { answer: AskedAnswer; onChange: (answer: AskedAnswer) => void }) {
+  const base = useId();
+  const rows = answer.services;
+  const set = (index: number, row: { name: string; price: string }) =>
+    onChange({
+      ...answer,
+      services: rows.map((existing, i) => (i === index ? row : existing)),
+    });
+  return (
+    <div>
+      <div className="overflow-hidden rounded-card border border-line bg-surface">
+        <div
+          aria-hidden
+          className="grid grid-cols-[minmax(0,1fr)_7.5rem_2.75rem] gap-2 border-b border-line bg-surface-muted px-3 py-1.5 sm:grid-cols-[minmax(0,1fr)_9rem_2.75rem]"
+        >
+          <span className={FIELD_LABEL}>What you offer</span>
+          <span className={FIELD_LABEL}>Price</span>
+        </div>
+        <ul className="divide-y divide-line">
+          {rows.map((row, index) => (
+            <li
+              key={index}
+              className="grid grid-cols-[minmax(0,1fr)_7.5rem_2.75rem] items-center gap-2 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_9rem_2.75rem]"
+            >
+              <label htmlFor={`${base}-name-${index}`} className="sr-only">
+                Service {index + 1}
+              </label>
+              <input
+                id={`${base}-name-${index}`}
+                value={row.name}
+                maxLength={120}
+                placeholder={index === 0 ? "e.g. Site visit" : "Another service"}
+                onChange={(event) => set(index, { ...row, name: event.target.value })}
+                className={`${FIELD_INLINE} w-full text-[16px]`}
+              />
+              <label htmlFor={`${base}-price-${index}`} className="sr-only">
+                Price of service {index + 1}, in rupees
+              </label>
+              <span className={FIELD_GROUP}>
+                <span aria-hidden className={`${FIELD_GROUP_AFFIX} px-2.5`}>
+                  ₹
+                </span>
+                <input
+                  id={`${base}-price-${index}`}
+                  value={row.price}
+                  inputMode="decimal"
+                  maxLength={12}
+                  placeholder="0"
+                  onChange={(event) => set(index, { ...row, price: event.target.value })}
+                  className={`${FIELD_GROUP_INPUT} pl-10 text-[16px] tabular-nums`}
+                />
+              </span>
+              {rows.length > 1 ? (
+                <button
+                  type="button"
+                  aria-label={`Remove ${row.name || `service ${index + 1}`}`}
+                  className={QUIET_ICON_BUTTON}
+                  onClick={() =>
+                    onChange({
+                      ...answer,
+                      services: rows.filter((_, i) => i !== index),
+                    })
+                  }
+                >
+                  <X aria-hidden className="h-4 w-4" />
+                </button>
+              ) : (
+                <span />
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+        {rows.length < MAX_SERVICES ? (
+          <button
+            type="button"
+            className={SECONDARY_BUTTON_SM}
+            onClick={() =>
+              onChange({
+                ...answer,
+                services: [...rows, { name: "", price: "" }],
+              })
+            }
+          >
+            <Plus aria-hidden className="h-3.5 w-3.5" />
+            Add another
+          </button>
+        ) : null}
+        <span className="text-meta text-ink-faint">Leave a price empty if it depends.</span>
+      </div>
+    </div>
+  );
+}
+
+/** "Mon to Sat, 9:00 am to 6:00 pm", from the open days and the two times. */
+export function hoursSummary(hours: HoursAnswer): string {
+  const open = DAYS.filter((day) => !hours.closed.includes(day.id));
+  if (open.length === 0) return "Closed every day";
+  const runs: (typeof DAYS)[number][][] = [];
+  for (const day of open) {
+    const last = runs.at(-1);
+    const previous = last?.at(-1);
+    if (last && previous && DAYS.indexOf(previous) === DAYS.indexOf(day) - 1) last.push(day);
+    else runs.push([day]);
+  }
+  const days =
+    open.length === DAYS.length
+      ? "Every day"
+      : runs
+          .map((run) =>
+            run.length > 2 ? `${run[0]!.label} to ${run.at(-1)!.label}` : run.map((day) => day.label).join(", "),
+          )
+          .join(", ");
+  return `${days}, ${clock(hours.opens)} to ${clock(hours.closes)}`;
+}
+
+function clock(value: string): string {
+  const [h, m] = value.split(":").map(Number);
+  if (h === undefined || Number.isNaN(h)) return value;
+  const suffix = h >= 12 ? "pm" : "am";
+  const hour = h % 12 === 0 ? 12 : h % 12;
+  return `${hour}:${String(m ?? 0).padStart(2, "0")} ${suffix}`;
+}
+
+function HoursAnswerField({ answer, onChange }: { answer: AskedAnswer; onChange: (answer: AskedAnswer) => void }) {
   const opens = useId();
   const closes = useId();
-  const hours = draft.hours;
+  const hours = answer.hours;
+  const setHours = (next: HoursAnswer) => onChange({ ...answer, hours: next });
+  const toggleDay = (day: Day, open: boolean) =>
+    setHours({
+      ...hours,
+      closed: open ? hours.closed.filter((closed) => closed !== day) : [...hours.closed, day],
+    });
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-3">
-        <label htmlFor={opens} className="block">
-          <span className={FIELD_LABEL}>Opens</span>
-          <input
-            id={opens}
-            type="time"
-            value={hours.opens}
-            onChange={(event) => onChange({ ...draft, hours: { ...hours, opens: event.target.value } })}
-            className={`${FIELD} mt-1 text-[16px]`}
-          />
-        </label>
-        <label htmlFor={closes} className="block">
-          <span className={FIELD_LABEL}>Closes</span>
-          <input
-            id={closes}
-            type="time"
-            value={hours.closes}
-            onChange={(event) => onChange({ ...draft, hours: { ...hours, closes: event.target.value } })}
-            className={`${FIELD} mt-1 text-[16px]`}
-          />
-        </label>
-      </div>
       <fieldset>
-        <legend className={FIELD_LABEL}>Closed on</legend>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {DAYS.map((day) => (
-            <ChipChoice
-              key={day.id}
-              type="checkbox"
-              name="closed"
-              value={day.id}
-              checked={hours.closed.includes(day.id)}
-              onChange={(on) =>
-                onChange({
-                  ...draft,
-                  hours: {
-                    ...hours,
-                    closed: on ? [...hours.closed, day.id] : hours.closed.filter((closed) => closed !== day.id),
-                  },
-                })
-              }
-            >
-              {day.label}
-            </ChipChoice>
-          ))}
+        <legend className={FIELD_LABEL}>Open on</legend>
+        <div className="mt-1.5 grid grid-cols-7 gap-1.5">
+          {DAYS.map((day) => {
+            const open = !hours.closed.includes(day.id);
+            return (
+              <label
+                key={day.id}
+                className={`press grid min-h-11 cursor-pointer select-none place-items-center rounded-md border text-meta font-medium transition-colors duration-(--duration-fast) has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand ${
+                  open
+                    ? "border-brand-strong bg-brand-soft text-brand-strong shadow-[inset_0_0_0_1px_var(--brand-strong)]"
+                    : "border-line bg-surface text-ink-faint line-through decoration-ink-faint/60 hover:border-ink/30"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="sr-only"
+                  checked={open}
+                  onChange={(event) => toggleDay(day.id, event.target.checked)}
+                />
+                <span aria-hidden>{day.label}</span>
+                <span className="sr-only">{day.name}</span>
+              </label>
+            );
+          })}
         </div>
       </fieldset>
-      <p className="text-meta text-ink-faint">
-        Different hours on some days? Change them later in Business setup.
+      <div className="grid grid-cols-2 gap-3 sm:max-w-sm">
+        <TimeField
+          id={opens}
+          label="Opens"
+          value={hours.opens}
+          onChange={(value) => setHours({ ...hours, opens: value })}
+        />
+        <TimeField
+          id={closes}
+          label="Closes"
+          value={hours.closes}
+          onChange={(value) => setHours({ ...hours, closes: value })}
+        />
+      </div>
+      <p
+        className="flex items-center gap-2 rounded-md bg-surface-muted px-3 py-2 text-meta text-ink"
+        aria-live="polite"
+      >
+        <Clock aria-hidden className="h-4 w-4 shrink-0 text-brand-strong" />
+        {hoursSummary(hours)}
       </p>
+      <p className="text-meta text-ink-faint">Different hours on some days? Change them later in Business setup.</p>
+    </div>
+  );
+}
+
+function TimeField({
+  id,
+  label,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="min-w-0">
+      <label htmlFor={id} className={FIELD_LABEL}>
+        {label}
+      </label>
+      <input
+        id={id}
+        type="time"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className={`${FIELD} text-[16px] tabular-nums`}
+      />
     </div>
   );
 }

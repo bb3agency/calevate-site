@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef } from "react";
-import { ArrowRight, Check, PhoneCall } from "lucide-react";
+import { ArrowRight, Check, Link2, PencilLine, PhoneCall } from "lucide-react";
 
 import type { CallAudioPlayerHandle } from "@/components/callAudioPlayer";
 import { TEXT_ACTION } from "@/components/console/section";
@@ -15,13 +15,14 @@ import { useFinishFirstRun } from "@/lib/api/firstRun";
 import { useCall } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { useTrialPanel } from "@/lib/api/trialCalls";
-import { callsLeft, jobCard } from "@/lib/firstAgent";
+import { callsLeft, jobsOf, jobsTitle } from "@/lib/firstAgent";
 import { lookup } from "@/lib/lookup";
 
 import { CapturedDetails } from "../../calls/[callId]/CapturedDetails";
 import { RecordingCard } from "../../calls/[callId]/RecordingCard";
 import { useRecordingLink } from "../../calls/[callId]/transcriptAccess";
 import { TestCallTranscript } from "../../TestCallTranscript";
+import { CallStage, STAGE_BUTTON } from "./LiveStage";
 import { StepScreen } from "./shell";
 
 /** A call that did not connect has nothing to show; it gets "Try again" instead. */
@@ -59,8 +60,18 @@ export function ResultStep({
 
   if (missed) {
     return (
-      <StepScreen title="The call didn't reach you" hint={missed} primary={<><PhoneCall aria-hidden className="h-4 w-4" />Call me again</>} onSubmit={onCallAgain}>
-        <p className="text-meta text-ink-muted">Check your phone is on and has signal, then try again.</p>
+      <StepScreen title="The call didn't reach you" hint="Check your phone is on and has signal, then try again.">
+        <CallStage
+          phase="missed"
+          name={agent.name}
+          detail={missed}
+          actions={
+            <button type="button" className={STAGE_BUTTON} onClick={onCallAgain}>
+              <PhoneCall aria-hidden className="h-4 w-4" />
+              Call me again
+            </button>
+          }
+        />
       </StepScreen>
     );
   }
@@ -70,7 +81,9 @@ export function ResultStep({
       title={`That was ${agent.name}'s first call`}
       hint={
         <span className="inline-flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-meta font-medium text-brand-strong">Version one</span>
+          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-meta font-medium text-brand-strong">
+            Version one
+          </span>
           <span>It lasted {formatDuration(call.duration_s)}. Here is what it caught.</span>
         </span>
       }
@@ -84,9 +97,11 @@ export function ResultStep({
       aside={
         <span className="flex flex-wrap items-center justify-center gap-x-5">
           <button type="button" className={TEXT_ACTION} onClick={onCallAgain}>
+            <PhoneCall aria-hidden className="h-4 w-4" />
             Call me again
           </button>
           <Link href={scriptHref} className={TEXT_ACTION}>
+            <PencilLine aria-hidden className="h-4 w-4" />
             Change its script
           </Link>
         </span>
@@ -107,11 +122,14 @@ export function ResultStep({
             </section>
           ) : detail.data.summary_state === "pending" ? (
             <p role="status" className="text-meta text-ink-muted">
-              <span className="text-shimmer">Reading your call…</span> The summary and what it caught appear here in a moment.
+              <span className="text-shimmer">Reading your call…</span> The summary and what it caught appear here in a
+              moment.
             </p>
           ) : null}
           <CapturedDetails detail={detail.data} />
-          {detail.data.has_recording ? <Recording callId={call.id} durationS={detail.data.duration_s ?? null} moments={detail.data.moments} /> : null}
+          {detail.data.has_recording ? (
+            <Recording callId={call.id} durationS={detail.data.duration_s ?? null} moments={detail.data.moments} />
+          ) : null}
           <ImproveIt callHref={href(`/c/${session.orgSlug}/calls/${call.id}`)} />
         </>
       )}
@@ -132,7 +150,15 @@ function Recording({
   const { session } = useClientRealm();
   const recording = useRecordingLink(session, callId);
   const player = useRef<CallAudioPlayerHandle>(null);
-  return <RecordingCard recording={recording} playerRef={player} onTimeUpdate={() => undefined} durationS={durationS} moments={moments} />;
+  return (
+    <RecordingCard
+      recording={recording}
+      playerRef={player}
+      onTimeUpdate={() => undefined}
+      durationS={durationS}
+      moments={moments}
+    />
+  );
 }
 
 /**
@@ -171,7 +197,7 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
   const trial = panel.data;
   const left = trial?.on_trial ? callsLeft(trial.minutes_left, trial.max_call_seconds) : null;
   const done = [
-    `${jobCard(run.job)?.title ?? "Its job"}, in your words`,
+    `${jobsTitle(jobsOf(run)) ?? "Its job"}, in your words`,
     "A voice, a greeting and its AI notice",
     "Its first call, to you",
   ];
@@ -179,11 +205,18 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
   const finishThen = (to: string) => finish.mutate(null, { onSettled: () => router.push(to) });
 
   return (
-    <StepScreen title={`${agent.name} is on your team`} hint="Version one is done. Here is what is next." onBack={onBack}>
+    <StepScreen
+      title={`${agent.name} is on your team`}
+      hint="Version one is done. Here is what is next."
+      onBack={onBack}
+    >
       <ul className="space-y-2">
         {done.map((line) => (
           <li key={line} className="flex items-center gap-2.5 text-body text-ink">
-            <span aria-hidden className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-strong text-white">
+            <span
+              aria-hidden
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-strong text-white"
+            >
               <Check className="h-3 w-3" strokeWidth={3} />
             </span>
             {line}
@@ -195,34 +228,56 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
         <p className="text-body text-ink-muted">
           {trial.minutes_left ?? 0} free trial minutes left
           {left !== null ? `, about ${left} more test ${left === 1 ? "call" : "calls"}` : ""}
-          {trial.days_remaining !== null && trial.days_remaining !== undefined ? `, for ${trial.days_remaining} more ${trial.days_remaining === 1 ? "day" : "days"}` : ""}.
+          {trial.days_remaining !== null && trial.days_remaining !== undefined
+            ? `, for ${trial.days_remaining} more ${trial.days_remaining === 1 ? "day" : "days"}`
+            : ""}
+          .
         </p>
       ) : null}
 
-      {run.job === "call_new_leads" ? (
-        <p className="text-body text-ink">
+      {jobsOf(run).includes("call_new_leads") ? (
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <p className="text-body text-ink-muted">
+            Connect your lead form so each new enquiry is called within minutes.
+          </p>
           <Link href={href(`/c/${session.orgSlug}/lead-sources`)} className={TEXT_ACTION}>
-            Connect your lead form later
-          </Link>{" "}
-          <span className="text-ink-muted">so each new enquiry is called within minutes.</span>
-        </p>
+            <Link2 aria-hidden className="h-4 w-4" />
+            Connect it later
+          </Link>
+        </div>
       ) : null}
 
       <div className="rounded-card border border-line p-4">
         <h3 className="text-heading text-ink">Go live</h3>
         <p className="mt-1 text-meta text-ink-muted">
-          Add credit, then verify your business and choose your number. Until then {agent.name} only makes test calls to you.
+          Add credit, then verify your business and choose your number. Until then {agent.name} only makes test calls to
+          you.
         </p>
-        <button type="button" className={`${PRIMARY_BUTTON} mt-3`} disabled={finish.isPending} onClick={() => finishThen(href(`/c/${session.orgSlug}/billing?tab=credits`))}>
+        <button
+          type="button"
+          className={`${PRIMARY_BUTTON} mt-3`}
+          disabled={finish.isPending}
+          onClick={() => finishThen(href(`/c/${session.orgSlug}/billing?tab=credits`))}
+        >
           Add credit
         </button>
       </div>
 
       <div className="flex flex-wrap gap-3">
-        <button type="button" className={SECONDARY_BUTTON} disabled={finish.isPending} onClick={() => finishThen(`${agentHref}?tour=1`)}>
+        <button
+          type="button"
+          className={SECONDARY_BUTTON}
+          disabled={finish.isPending}
+          onClick={() => finishThen(`${agentHref}?tour=1`)}
+        >
           Show me around {agent.name}
         </button>
-        <button type="button" className={SECONDARY_BUTTON} disabled={finish.isPending} onClick={() => finishThen(href(`/c/${session.orgSlug}`))}>
+        <button
+          type="button"
+          className={SECONDARY_BUTTON}
+          disabled={finish.isPending}
+          onClick={() => finishThen(href(`/c/${session.orgSlug}`))}
+        >
           Go to my dashboard
         </button>
       </div>
