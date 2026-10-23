@@ -3018,6 +3018,36 @@
         "title": "AgentLlmModelOut",
         "type": "object"
       },
+      "AgentMoveOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "moving",
+              "moved",
+              "finishing"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "name",
+          "state"
+        ],
+        "title": "AgentMoveOut",
+        "type": "object"
+      },
       "AgentOut": {
         "additionalProperties": false,
         "properties": {
@@ -20107,6 +20137,116 @@
         "title": "GlobalSuppressOut",
         "type": "object"
       },
+      "GoLiveOut": {
+        "additionalProperties": false,
+        "properties": {
+          "current": {
+            "enum": [
+              "move",
+              "verify",
+              "number",
+              "switch_on",
+              "done"
+            ],
+            "title": "Current",
+            "type": "string"
+          },
+          "dismissed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismissed At"
+          },
+          "due": {
+            "title": "Due",
+            "type": "boolean"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "live_agents": {
+            "title": "Live Agents",
+            "type": "integer"
+          },
+          "move": {
+            "$ref": "#/components/schemas/MoveOut"
+          },
+          "number": {
+            "enum": [
+              "locked",
+              "waiting_approval",
+              "todo",
+              "done"
+            ],
+            "title": "Number",
+            "type": "string"
+          },
+          "numbers": {
+            "title": "Numbers",
+            "type": "integer"
+          },
+          "owed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owed At"
+          },
+          "switch_on": {
+            "enum": [
+              "todo",
+              "done"
+            ],
+            "title": "Switch On",
+            "type": "string"
+          },
+          "verify": {
+            "enum": [
+              "todo",
+              "in_review",
+              "needs_attention",
+              "done"
+            ],
+            "title": "Verify",
+            "type": "string"
+          }
+        },
+        "required": [
+          "due",
+          "owed_at",
+          "finished_at",
+          "dismissed_at",
+          "current",
+          "move",
+          "verify",
+          "number",
+          "numbers",
+          "switch_on",
+          "live_agents"
+        ],
+        "title": "GoLiveOut",
+        "type": "object"
+      },
       "GoogleCompleteIn": {
         "additionalProperties": false,
         "properties": {
@@ -28411,6 +28551,39 @@
           "as_of"
         ],
         "title": "ModelPricesOut",
+        "type": "object"
+      },
+      "MoveOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentMoveOut"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "waiting_for_account",
+              "moving",
+              "finishing",
+              "done"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "state",
+          "agents",
+          "total"
+        ],
+        "title": "MoveOut",
         "type": "object"
       },
       "NameIn": {
@@ -44765,7 +44938,7 @@
       },
       "TrialPanelOut": {
         "additionalProperties": false,
-        "description": "The trial as its own client reads it. `on_trial` false means none of the rest\napplies: the account has paid, or was never given a trial.",
+        "description": "The trial as its own client reads it. `on_trial` false means the trial fields do not\napply: the account has paid (then `paid_test_calls` carries its own test calls), or was\nnever given a trial.",
         "properties": {
           "answering_locked_reason": {
             "anyOf": [
@@ -44861,6 +45034,11 @@
           },
           "on_trial": {
             "title": "On Trial",
+            "type": "boolean"
+          },
+          "paid_test_calls": {
+            "default": false,
+            "title": "Paid Test Calls",
             "type": "boolean"
           },
           "pledge_accepted": {
@@ -68619,6 +68797,90 @@
         "summary": "Switch the save-our-number WhatsApp on or off",
         "tags": [
           "forwarding"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/go-live": {
+      "get": {
+        "operationId": "read_go_live_v1_go_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoLiveOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The go-live guide after the first payment: the agents' move and the next steps",
+        "tags": [
+          "go-live"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/go-live/dismiss": {
+      "post": {
+        "operationId": "post_dismiss_v1_go_live_dismiss_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoLiveOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put the go-live guide aside for now; the dashboard still offers it",
+        "tags": [
+          "go-live"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/go-live/finish": {
+      "post": {
+        "operationId": "post_finish_v1_go_live_finish_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoLiveOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The owner has finished going live: stop sending them to the guide",
+        "tags": [
+          "go-live"
         ],
         "x-calevate-permission": "org:manage"
       }

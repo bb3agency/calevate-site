@@ -758,13 +758,12 @@ async def end_trial(
     await reset_client_counters(session, tenant_id=tenant_id)
     if outcome == TRIAL_CONVERTED:
         # A converted trial may keep call-backs, which its agents were told not to offer
-        # (`agents/service._load_agent` reads the restriction at publish time), so the
-        # client's live agents are brought up to date with this write (D-720).
-        from apps.api.agents.live_apply import queue_live_apply
+        # (`agents/service._load_agent` reads the restriction at publish time), and its
+        # agents belong in its own workspace (D-859): both are owed with this write, once
+        # that workspace is active (`go_live.moves.refresh_agents_after_payment`).
+        from apps.api.go_live.moves import refresh_agents_after_payment
 
-        await queue_live_apply(
-            session, scope="tenant", tenant_id=tenant_id, reason="trial_converted"
-        )
+        await refresh_agents_after_payment(session, tenant_id=tenant_id, reason="trial_converted")
         # A converted account is a paying one and is owed its own voice workspace, whether
         # the trial ended by a first payment or by an operator. Idempotent, and the plan's
         # customer cap is enforced where the workspace is created

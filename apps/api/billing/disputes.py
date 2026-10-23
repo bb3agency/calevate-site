@@ -35,6 +35,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.dispute_hold import DISPUTE_HOLD_REASON, OPEN_STATES, dispute_hold_active
+from apps.api.billing.first_payment import alert_payment_reversed
 from apps.api.billing.lots import split_meta
 from apps.api.billing.payments import PROVIDER, paise_to_inr
 from apps.api.billing.service import (
@@ -179,6 +180,14 @@ async def apply_dispute_event(
                 "account until the dispute is resolved: /admin/payments/disputes.",
                 tenant_id=str(tenant_id),
                 dispute_id=dispute.dispute_id,
+            )
+            # Nothing the payment unlocked is reversed; an operator decides (D-859).
+            await alert_payment_reversed(
+                session,
+                tenant_id=tenant_id,
+                kind="dispute",
+                payment_ref=dispute.payment_id,
+                reversal_ref=dispute.dispute_id,
             )
     elif dispute.status in ("won", "closed") and await _release(
         session, tenant_id=tenant_id, dispute=dispute

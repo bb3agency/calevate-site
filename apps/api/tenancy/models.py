@@ -84,7 +84,9 @@ RETIRED_PLAN_TIERS = ("managed",)
 DEFAULT_PLAN_TIER = "prepaid"
 #: How an account first paid (D-697): a gateway top-up, a bank transfer an operator credited
 #: to the wallet, or "it existed before the rule" (the backfill). A goodwill grant is not one.
-FIRST_PAID_VIA = ("wallet_topup", "manual_topup", "before_d697")
+#: `operator_conversion` (D-859): an operator converted the trial of an account invoiced
+#: outside the wallet, which is paying as surely as one that topped up.
+FIRST_PAID_VIA = ("wallet_topup", "manual_topup", "before_d697", "operator_conversion")
 MEMBER_ROLES = ("owner", "staff")
 #: RE-EXPORTED, NOT RESTATED. `core/rbac.ROLE_PERMISSIONS` is keyed by these two names and
 #: `authn/bootstrap` validates against them; a second literal here is how a role table and

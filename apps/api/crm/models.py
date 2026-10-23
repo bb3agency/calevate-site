@@ -246,6 +246,13 @@ class Call(PKMixin, TimestampMixin, Base):
             "created_at",
             postgresql_where=text("trial_call"),
         ),
+        # A paying account's daily cap on test calls to the owner's phone (D-859).
+        Index(
+            "ix_calls_paid_test_recent",
+            "tenant_id",
+            "created_at",
+            postgresql_where=text("paid_test_call"),
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -345,6 +352,9 @@ class Call(PKMixin, TimestampMixin, Base):
     #: A free-trial test call (D-697), placed from the shared trial number. What the trial's
     #: daily cap, its free minutes and the one-test-call-at-a-time line count.
     trial_call: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: A paying account's test call to the owner's own phone, from its own number (D-859).
+    #: Billed like any call; what that test call's daily cap counts.
+    paid_test_call: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     #: The forwarding test this inbound call was (D-746): its minutes are ours, it files no lead.
     forwarding_test_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("forwarding_tests.id", ondelete="SET NULL")

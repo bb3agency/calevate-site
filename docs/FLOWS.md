@@ -897,3 +897,36 @@ again.
 
 Owner surfaces: client — Pip's panel, `/c/<slug>/knowledge`, `/c/<slug>/settings/lead-details`,
 `/c/<slug>/calls/<id>`.
+
+## 14. After the First Payment: the Agents Move and the Owner Goes Live (D-859)
+
+1. **The first payment** (a top-up, a bank transfer credited or restated to at least
+   `MIN_TOPUP_INR`, or an operator converting an invoiced account's trial) stamps
+   `organizations.first_paid_at`, ends the trial as `converted`, owes the account its own
+   ThinnestAI customer workspace and owes the owner the go-live guide (`go_live_guides`).
+   Nothing about the agents is queued while the workspace is still being made.
+2. **The workspace becomes active** (`workers/engine_workspaces._activate`, at provisioning or
+   a later retry) and owes ONE `move_agents_to_workspace` job, through the outbox, keyed by
+   tenant and workspace.
+3. **The move.** Each live or ready agent (and running script-test arm) still in our developer
+   workspace is republished with "not taking calls", one transaction each: recreated in the
+   client workspace, knowledge, webhook, in-call actions and numbers re-attached, the old copy
+   deleted after the commit (waiting out a live call). A ready agent stays ready, a live one
+   stays live; drafts are made there when first got ready. Each outcome is an
+   `agent_workspace_moves` row.
+4. **When one cannot move**, the others still do. A plan or voice limit, or a refusal the
+   client must lift, is `held`: the agent keeps working where it is, an operator is alarmed
+   once (`agent_move_held`) and the hourly sweep retries. Unexpected errors retry with backoff,
+   then `failed` (`agent_move_failed`). Runbook: `runbooks/agent-workspace-move.md`.
+5. **The guide** (`/c/<slug>/go-live`, `GET /v1/go-live`): Moving your agents (the real rows,
+   ticking), Verify your business (the KYC flow), Get your number (the number purchase flow),
+   Switch it on (each agent's own switch and its gate reasons). Shown to the owner from the `/c`
+   junction until finished or put aside; offered on the dashboard until then.
+6. **Test calls after payment** ring from the client's own number only, from a moved agent that
+   holds it, billed like any call, capped per day (`trial_daily_call_cap`) and per call
+   (`trial_call_max_seconds`); the shared trial number cannot serve a client-workspace agent.
+7. **A refund or a dispute** on a paid account reverses nothing; an operator is alarmed
+   (`paid_account_payment_reversed`) and decides.
+
+Owner surfaces: client — `/c/<slug>/go-live`, the dashboard's test-call card; admin — the
+`agent_move_*` alarms and `agent_workspace_moves`.

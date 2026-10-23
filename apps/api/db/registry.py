@@ -21,6 +21,7 @@ from apps.api.db.base import Base
 from apps.api.first_run import models as first_run_models
 from apps.api.flags import models as flags_models
 from apps.api.forwarding import models as forwarding_models
+from apps.api.go_live import models as go_live_models
 from apps.api.healer import models as healer_models
 from apps.api.ingest import models as ingest_models
 from apps.api.insights import models as insights_models
@@ -54,6 +55,7 @@ __all__ = [
     "first_run_models",
     "flags_models",
     "forwarding_models",
+    "go_live_models",
     "healer_models",
     "ingest_models",
     "insights_models",
@@ -381,6 +383,11 @@ TENANT_TABLES = [
     # append-only: each is a small state machine the worker moves.
     "first_runs",
     "first_run_recordings",
+    # A paying client's agents moving into its own voice workspace, and its go-live guide
+    # (D-859, migration b5d8f2a9c741). Not append-only: each move row is a small state
+    # machine the worker moves, and the guide's marker is the owner's.
+    "agent_workspace_moves",
+    "go_live_guides",
     "handoff_attempts",
     "kb_retrieval_logs",
     # The stored monthly QA report (SURFACES §2) and the weekly 5% spot-check queue

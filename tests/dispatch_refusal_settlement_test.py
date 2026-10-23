@@ -112,8 +112,10 @@ TRANSIENT_REFUSALS: dict[str, str] = {
     "outbound_pledge_outdated": "the account owner accepts the current pledge version",
     # Only a test call can meet it, and the campaign dispatcher never places one, so it
     # does not reach `_refuse_contact` in practice; transient because it is a fact about
-    # the account (it is not on a free trial), never about the person being called.
-    "trial_call_not_on_trial": "the account starts a free trial",
+    # the account (no trial and no payment yet), never about the person being called.
+    "trial_call_not_on_trial": "the account starts a free trial or adds credit",
+    # D-853: a test call from an agent nobody has got ready; the owner presses Get it ready.
+    "agent_not_ready": "the agent is got ready (published)",
     # TRANSIENT, and it is the one entry here whose lifting fact is a MEASUREMENT rather
     # than something somebody sets (D-562/D-564). Two doors open it and both are real: the
     # client republishes the agent, whose read-back refuses unless the truthful-answer

@@ -3573,6 +3573,47 @@ class TrialDial:
     max_call_seconds: int
 
 
+@dataclass(frozen=True, slots=True)
+class OwnerTestDial:
+    """A paying account's test call to the owner's own phone (D-859): rung from the agent's
+    own number, billed like any call, cut off at `max_call_seconds`, at most `daily_cap` a
+    day (IST). Built only by `agents/trial_calls.place_trial_call`."""
+
+    max_call_seconds: int
+    daily_cap: int
+    day_start: datetime
+
+
+async def _hold_paid_test_slot(
+    session: AsyncSession, *, tenant_id: UUID, test: OwnerTestDial
+) -> None:
+    """Refuse the test call once today's cap is reached, counted with this call's own row in
+    the intent transaction under a per-tenant lock, so two at once cannot both pass."""
+    from apps.api.agents.paid_test_calls import (
+        DAILY_CAP_RULE,
+        PLACED_TODAY_SQL,
+        paid_daily_cap_reason,
+    )
+
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"paid-test-call:{tenant_id}"},
+    )
+    placed = int(
+        (
+            await session.execute(
+                text(PLACED_TODAY_SQL), {"tid": tenant_id, "since": test.day_start}
+            )
+        ).scalar_one()
+    )
+    if placed > test.daily_cap:
+        raise ProblemError.conflict(
+            DAILY_CAP_RULE,
+            paid_daily_cap_reason(test.daily_cap),
+            remediation="You can place more tomorrow.",
+        )
+
+
 async def dispatch_call(
     session: AsyncSession,
     *,
@@ -3585,6 +3626,7 @@ async def dispatch_call(
     on_reserved: Callable[[AsyncSession, UUID], Awaitable[None]] | None = None,
     trial: TrialDial | None = None,
     number_id: UUID | None = None,
+    owner_test: OwnerTestDial | None = None,
 ) -> str:
     """Place ONE outbound call. The caller has already passed the compliance gate.
 
@@ -3652,6 +3694,10 @@ async def dispatch_call(
 
     `number_id` is the number a campaign chose to call from (`campaigns.number_id`); see
     `resolve_caller_id` for how the caller id is decided with and without it.
+
+    An `owner_test` dial (D-859) rings from the agent's own number like any call, is marked
+    `paid_test_call`, holds the account's daily test-call cap in the intent transaction,
+    carries the per-call time limit, and takes part in no experiment.
     """
     await _assert_dialling_tenant_owns_the_session(session, tenant_id=tenant_id)
 
@@ -3678,7 +3724,7 @@ async def dispatch_call(
     # `agents/assignment.py` for why it is not the call id.
     arm = (
         None
-        if trial is not None
+        if trial is not None or owner_test is not None
         else await assignment.assign(
             session, agent_id=agent_id, unit_key=str(lead_id) if lead_id else phone_e164
         )
@@ -3719,8 +3765,8 @@ async def dispatch_call(
         await intent.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
-                "trial_call, status, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
-                "'outbound', :to_e, :trial, 'queued', now(), now())"
+                "trial_call, paid_test_call, status, created_at, updated_at) VALUES (:id, :tid, "
+                ":aid, :ecid, 'outbound', :to_e, :trial, :owner_test, 'queued', now(), now())"
             ),
             {
                 "id": call_id,
@@ -3729,8 +3775,11 @@ async def dispatch_call(
                 "ecid": intent_engine_call_id,
                 "to_e": phone_e164,
                 "trial": trial is not None,
+                "owner_test": owner_test is not None,
             },
         )
+        if owner_test is not None:
+            await _hold_paid_test_slot(intent, tenant_id=tenant_id, test=owner_test)
         # The arm rides the row it describes, in the row's own transaction. There is no
         # `ON CONFLICT` to lose any more: the id is ours and fresh, so this INSERT cannot
         # race the poller. The invariant that mattered — an assignment never MOVES — is
@@ -3788,7 +3837,13 @@ async def dispatch_call(
                 # Our intent row's id, for an engine whose carrier calls back into our
                 # routes with it in the path (`calevate_shared.carrier.answer_path`).
                 call_id=str(call_id),
-                max_call_seconds=trial.max_call_seconds if trial is not None else None,
+                max_call_seconds=(
+                    trial.max_call_seconds
+                    if trial is not None
+                    else owner_test.max_call_seconds
+                    if owner_test is not None
+                    else None
+                ),
             ),
         )
     except Exception as exc:

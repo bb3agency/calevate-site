@@ -1112,3 +1112,27 @@ async def test_an_actor_with_no_user_id_is_recorded_without_a_recorded_by() -> N
             )
         ).scalar_one()
     assert "recorded_by" not in meta, meta
+
+
+async def test_a_restatement_that_reaches_the_minimum_is_the_first_payment() -> None:
+    """A transfer first recorded under the minimum top-up is not a first payment; stated
+    correctly it is, once (D-859). The account is then paid and owed its own workspace."""
+    token = await _make_admin()
+    tenant_id = await _tenant()
+    await _credit(token, tenant_id, "50.00", "UTR-UNDER-MIN")
+
+    async def paid() -> tuple[Any, Any]:
+        async with tenant_session(tenant_id) as session:
+            row = (
+                await session.execute(
+                    text("SELECT first_paid_at, first_paid_via FROM organizations WHERE id = :i"),
+                    {"i": tenant_id},
+                )
+            ).one()
+        return row[0], row[1]
+
+    assert (await paid())[0] is None, "₹50 is under the minimum and is no first payment"
+    restated = await _restate(token, tenant_id, "UTR-UNDER-MIN", "500.00")
+    assert restated.status_code == 200, restated.text
+    at, via = await paid()
+    assert at is not None and via == "manual_topup"

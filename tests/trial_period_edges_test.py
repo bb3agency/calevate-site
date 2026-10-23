@@ -265,6 +265,34 @@ async def test_ending_a_trial_restarts_the_counters_and_records_the_erasure_date
     assert rows[0][0] == "tenant_trials"
 
 
+async def test_an_operator_conversion_stamps_the_account_paid() -> None:
+    """An invoiced or managed account an operator converts is paying (D-859): it is stamped
+    `operator_conversion`, so the workspace backfill and every paid gate agree with it, and
+    the owner is owed the go-live guide."""
+    token = await _make_admin()
+    tenant_id, _ = await _tenant()
+    await _open_through_the_route(token, tenant_id, days=14)
+
+    async with _client() as http:
+        ended = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/trial/end",
+            headers=_headers(token, f"end_trial:{tenant_id}:converted"),
+            json={"outcome": "converted", "reason": "Signed the invoiced plan."},
+        )
+
+    assert ended.status_code == 200, ended.text
+    async with tenant_session(tenant_id) as session:
+        via = (
+            await session.execute(
+                text("SELECT first_paid_via FROM organizations WHERE id = :i"), {"i": tenant_id}
+            )
+        ).scalar()
+        guides = (await session.execute(text("SELECT count(*) FROM go_live_guides"))).scalar()
+    assert via == "operator_conversion"
+    assert guides == 1
+    assert len(await _audit_rows(tenant_id, "account.first_payment")) == 1
+
+
 async def test_expired_is_the_clocks_verdict_and_a_person_may_not_claim_it() -> None:
     """Accepting it here would let a trial WE stopped be recorded as one that ran its
     course. An operator who wants `expired` can let the clock run."""

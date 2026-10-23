@@ -554,6 +554,17 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "POST /v1/first-run/dismiss",
         )
     },
+    # The go-live guide (D-859): the account's agents' move, sliced to
+    # `go_live/moves.MAX_LISTED_AGENTS` with the full count beside it.
+    **{
+        route: BoundedByConstruction(
+            by=(
+                "the ONE guide of the caller's account; its agents are sliced to "
+                "`go_live/moves.MAX_LISTED_AGENTS` (50) and `total` counts the rest."
+            )
+        )
+        for route in ("GET /v1/go-live", "POST /v1/go-live/finish", "POST /v1/go-live/dismiss")
+    },
     "GET /v1/agents/starters": BoundedByConstruction(
         by=(
             "`agents/starters.STARTER_JOBS` (three jobs), each with the constant steps of its "

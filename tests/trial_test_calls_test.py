@@ -196,7 +196,29 @@ async def test_a_trial_account_may_not_place_any_other_outbound_call(open_hours:
     assert decision.reason == TRIAL_REFUSALS["live_outbound"][1]
 
 
-async def test_only_a_trial_account_places_test_calls(open_hours: None) -> None:
+async def test_an_account_with_neither_a_trial_nor_a_payment_places_no_test_call(
+    open_hours: None,
+) -> None:
+    tenant_id, agent_id = await _trial_tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("DELETE FROM tenant_trials WHERE tenant_id = :t"), {"t": tenant_id}
+        )
+        decision = await check_dispatch(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            phone_e164="+919876543210",
+            trial_call=True,
+        )
+    assert decision.rule == "trial_call_not_on_trial"
+
+
+async def test_a_paid_account_passes_the_account_gate_for_its_own_test_call(
+    open_hours: None,
+) -> None:
+    """After payment the test call is the paid one (D-859); what it needs beyond the dial
+    gate (a moved agent with its own number) is `agents/paid_test_calls`'s."""
     tenant_id, agent_id = await _trial_tenant()
     await fund_wallet(tenant_id)
     async with tenant_session(tenant_id) as session:
@@ -207,7 +229,7 @@ async def test_only_a_trial_account_places_test_calls(open_hours: None) -> None:
             phone_e164="+919876543210",
             trial_call=True,
         )
-    assert decision.rule == "trial_call_not_on_trial"
+    assert decision.rule != "trial_call_not_on_trial"
 
 
 async def test_the_pledge_comes_before_the_first_test_call(open_hours: None) -> None:

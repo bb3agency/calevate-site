@@ -377,6 +377,14 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_workspace_offboarding_failed": "attention",
     "engine_business_details_submit_failed": "attention",
     "engine_agent_retire_failed": "attention",
+    # D-859. A paying client's agent left in our developer workspace keeps working there, so
+    # nothing a caller hears is broken: attention. The plan's agent allowance refusing a new
+    # agent stops a client getting an agent ready, which an operator lifts in the day.
+    "agent_move_held": "attention",
+    "agent_move_failed": "attention",
+    "engine_agent_allowance_used": "attention",
+    # Money taken back from an account that has paid: a human decision, made in the day.
+    "paid_account_payment_reversed": "attention",
     "engine_action_workspace_mismatch": "attention",
     "engine_number_rent_unfunded": "attention",
     # A number moving into a client's workspace that could not be moved after its retries:

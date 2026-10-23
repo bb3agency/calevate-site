@@ -3659,6 +3659,10 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # swept below).
         await session.execute(text("DELETE FROM first_run_recordings"))
         await session.execute(text("DELETE FROM first_runs"))
+        # The go-live guide and the agents' move records (D-859): ids and our codes only,
+        # but the account's own, so they go with it.
+        await session.execute(text("DELETE FROM agent_workspace_moves"))
+        await session.execute(text("DELETE FROM go_live_guides"))
         # THE UPLOADED FILES, WHICH TWO COMMENTS ASSERTED THIS ARM ALREADY SWEPT AND WHICH
         # IT DID NOT (18 Sep 2026). `kb/uploads.py` said an orphaned object sat in the
         # tenant's own prefix "so an offboarding still sweeps it up" and `storage.py` said

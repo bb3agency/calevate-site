@@ -106,7 +106,7 @@ from apps.api.billing.credit_packs import (
     CreditPack,
     pack_paid_for,
 )
-from apps.api.billing.first_payment import on_payment_credited
+from apps.api.billing.first_payment import alert_payment_reversed, on_payment_credited
 from apps.api.billing.lots import split_meta
 from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.billing.service import (
@@ -1900,6 +1900,14 @@ async def credit_refund(
     log.info(
         "razorpay_refund_recorded",
         extra={"tenant_id": str(refund.tenant_id), "entry_id": str(written.entry_id)},
+    )
+    # Money back on a paid account moves nothing back; an operator decides (D-859).
+    await alert_payment_reversed(
+        session,
+        tenant_id=refund.tenant_id,
+        kind="refund",
+        payment_ref=refund.payment_id,
+        reversal_ref=refund.refund_id,
     )
 
     # The bonus this refund reverses, in the SAME transaction as the refund itself, so a
