@@ -3,6 +3,10 @@
 import { Lock, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { DatePicker } from "@/components/arc/calendar";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { todayIST } from "@/components/arc/ist-dates";
+import { RadioGroup } from "@/components/arc/radio-group";
 import {
   Card,
   FIELD,
@@ -10,7 +14,6 @@ import {
   FIELD_INLINE,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -58,12 +61,17 @@ const WAITS: { seconds: number; label: string }[] = [
   { seconds: 3600, label: "After 1 hour" },
 ];
 
-const AFTER_HOURS: { key: AfterHours; label: string; hint: string }[] = [
-  { key: "next_open", label: "Call when you open", hint: "The first minute of your next calling hours." },
-  { key: "open_plus_3h", label: "Call 3 hours after you open", hint: "Leaves the morning for leads that arrive then." },
-  { key: "next_day", label: "Call the next day", hint: "At opening on your next calling day, even if you open later today." },
-  { key: "hold", label: "Hold them for me", hint: "They wait below until you choose to call or not." },
+const AFTER_HOURS: { value: AfterHours; label: string; hint: string }[] = [
+  { value: "next_open", label: "Call when you open", hint: "The first minute of your next calling hours." },
+  { value: "open_plus_3h", label: "Call 3 hours after you open", hint: "Leaves the morning for leads that arrive then." },
+  { value: "next_day", label: "Call the next day", hint: "At opening on your next calling day, even if you open later today." },
+  { value: "hold", label: "Hold them for me", hint: "They wait below until you choose to call or not." },
 ];
+
+const RETRIES = [0, 1, 2, 3].map((count) => ({
+  value: String(count),
+  label: count === 0 ? "Don't try again" : count === 1 ? "Try once more" : `Try ${count} more times`,
+}));
 
 const INTERVALS: { minutes: number; label: string }[] = [
   { minutes: 10, label: "10 minutes" },
@@ -126,7 +134,7 @@ export function CallingPlan({
   agents,
   canWrite,
   refusal,
-  saving,
+  saveStatus,
   saveError,
   savedAgents,
   onSave,
@@ -135,13 +143,14 @@ export function CallingPlan({
   agents: Agent[] | undefined;
   canWrite: boolean;
   refusal: string | null;
-  saving: boolean;
+  /** The save's state from the screen's `useActionFeedback`. */
+  saveStatus: FeedbackStatus;
   saveError: unknown;
   savedAgents: number | null;
   onSave: (next: Plan) => void;
 }) {
   const [draft, setDraft] = useState<Plan | null>(null);
-  const [holiday, setHoliday] = useState("");
+  const [holiday, setHoliday] = useState<string | null>(null);
 
   useEffect(() => {
     if (plan.data) setDraft(toInput(plan.data));
@@ -182,7 +191,7 @@ export function CallingPlan({
   const addHoliday = () => {
     if (!holiday || holidays.includes(holiday) || holidays.length >= 60) return;
     set({ holidays: [...holidays, holiday].sort() });
-    setHoliday("");
+    setHoliday(null);
   };
 
   return (
@@ -317,26 +326,25 @@ export function CallingPlan({
           </fieldset>
 
           <div>
-            <label className="block max-w-md">
-              <span className={FIELD_LABEL}>Holidays (no calls)</span>
-              <span className="mt-1 flex flex-wrap items-center gap-2">
-                <input
-                  type="date"
-                  className={FIELD_INLINE}
-                  value={holiday}
-                  disabled={!canWrite}
-                  onChange={(event) => setHoliday(event.target.value)}
-                />
-                <button
-                  type="button"
-                  className={SECONDARY_BUTTON_SM}
-                  disabled={!canWrite || !holiday}
-                  onClick={addHoliday}
-                >
-                  Add holiday
-                </button>
-              </span>
-            </label>
+            <div className="flex max-w-md flex-wrap items-end gap-2">
+              <DatePicker
+                label="Holidays (no calls)"
+                value={holiday}
+                onChange={setHoliday}
+                min={todayIST()}
+                isDisabled={(day) => holidays.includes(day)}
+                disabled={!canWrite}
+                className="min-w-0 flex-1"
+              />
+              <button
+                type="button"
+                className={SECONDARY_BUTTON_SM}
+                disabled={!canWrite || !holiday}
+                onClick={addHoliday}
+              >
+                Add holiday
+              </button>
+            </div>
             {holidays.length > 0 ? (
               <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Holidays">
                 {holidays.map((day) => (
@@ -364,47 +372,29 @@ export function CallingPlan({
         </Group>
 
         <Group title="Leads that arrive after hours">
-          <div className="space-y-2" role="radiogroup" aria-label="Leads that arrive after hours">
-            {AFTER_HOURS.map((choice) => (
-              <label key={choice.key} className="flex cursor-pointer items-start gap-2.5">
-                <input
-                  type="radio"
-                  name="after-hours"
-                  className="mt-1 accent-brand"
-                  checked={draft.after_hours === choice.key}
-                  disabled={!canWrite}
-                  onChange={() => set({ after_hours: choice.key })}
-                />
-                <span>
-                  <span className="block text-sm text-ink">{choice.label}</span>
-                  <span className="block text-xs text-ink-muted">{choice.hint}</span>
-                </span>
-              </label>
-            ))}
-          </div>
+          <RadioGroup
+            label={<span className="sr-only">Leads that arrive after hours</span>}
+            name="after-hours"
+            options={AFTER_HOURS}
+            value={draft.after_hours ?? null}
+            disabled={!canWrite}
+            onChange={(next) => {
+              const choice = AFTER_HOURS.find((option) => option.value === next);
+              if (choice) set({ after_hours: choice.value });
+            }}
+          />
         </Group>
 
         <Group title="If nobody answers">
-          <div role="radiogroup" aria-label="Try again" className="flex flex-wrap gap-1.5">
-            {[0, 1, 2, 3].map((count) => (
-              <label
-                key={count}
-                className={`press flex cursor-pointer items-center rounded-md border px-2.5 py-1 text-sm touch:min-h-11 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app ${
-                  retries === count ? "border-brand bg-brand-soft text-brand-strong" : "border-line text-ink-muted"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="retries"
-                  className="sr-only"
-                  checked={retries === count}
-                  disabled={!canWrite}
-                  onChange={() => set({ retry_attempts: count })}
-                />
-                {count === 0 ? "Don't try again" : count === 1 ? "Try once more" : `Try ${count} more times`}
-              </label>
-            ))}
-          </div>
+          <RadioGroup
+            label={<span className="sr-only">Try again</span>}
+            name="retries"
+            inline
+            options={RETRIES}
+            value={String(retries)}
+            disabled={!canWrite}
+            onChange={(next) => set({ retry_attempts: Number(next) })}
+          />
           {retries > 0 && (
             <label className="block max-w-md">
               <span className={FIELD_LABEL}>Between tries, wait</span>
@@ -452,15 +442,16 @@ export function CallingPlan({
 
         {saveError != null && <ProblemNotice error={saveError} />}
         <div className="flex flex-wrap items-center gap-3">
-          <button
+          <ActionButton
             type="submit"
-            className={PRIMARY_BUTTON}
-            disabled={!canWrite || !dirty || saving || problem !== null}
+            status={saveStatus}
+            successLabel="Saved"
+            disabled={!canWrite || (!dirty && saveStatus !== "success") || problem !== null}
             title={refusal ?? undefined}
           >
-            {saving ? "Saving…" : "Save"}
-          </button>
-          {dirty && !saving ? (
+            Save
+          </ActionButton>
+          {dirty && saveStatus !== "pending" ? (
             <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setDraft(toInput(plan.data!))}>
               Undo changes
             </button>

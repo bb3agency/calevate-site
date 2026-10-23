@@ -1,5 +1,7 @@
 "use client";
 
+import { useActionFeedback } from "@/components/arc/feedback";
+import { SavedTick } from "@/components/console/savedTick";
 import { ProblemNotice, RestrictionNote, Skeleton, ToggleSwitch } from "@/components/ui";
 import { type Session } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -20,6 +22,9 @@ const LABEL = "Only call people who have opted in";
 export function ConsentPosture({ session }: { session: Session }) {
   const policy = useOutboundConsentPolicy(session);
   const set = useSetOutboundConsentPolicy(session);
+  // The switch waits while it writes and a failure is said under it, so nothing is toasted;
+  // "Saved" appears beside the switch.
+  const setFeedback = useActionFeedback(set, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "change who this account may call");
   const enabled = policy.data?.outbound_requires_consent;
 
@@ -37,10 +42,11 @@ export function ConsentPosture({ session }: { session: Session }) {
             checked={enabled}
             // Disabled while the write is in flight too: a switch that moves back under
             // the reader's finger when the request fails is worse than one that waits.
-            disabled={!write.allowed || set.isPending}
-            onChange={(next) => set.mutate(next)}
+            disabled={!write.allowed || setFeedback.status === "pending"}
+            onChange={(next) => setFeedback.run(next)}
             className="py-3.5"
           />
+          <SavedTick at={set.isSuccess ? set.submittedAt : 0} />
           <div className="space-y-1 pb-2">
             <p className="text-meta text-ink-muted">
               {enabled

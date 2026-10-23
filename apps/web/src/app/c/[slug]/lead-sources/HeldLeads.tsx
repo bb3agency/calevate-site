@@ -1,6 +1,7 @@
 "use client";
 
-import { Card, ProblemNotice, SECONDARY_BUTTON_SM, PRIMARY_BUTTON_SM, Skeleton, formatIST } from "@/components/ui";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { Card, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import type { HeldLeads as HeldLeadsData } from "@/lib/api/leadCalling";
 
 import { sourceLabel } from "./sourceKinds";
@@ -14,7 +15,7 @@ export function HeldLeads({
   held,
   holding,
   canWrite,
-  busyId,
+  statusOf,
   actionError,
   onRelease,
   onDrop,
@@ -22,7 +23,8 @@ export function HeldLeads({
   held: { data?: HeldLeadsData; isLoading: boolean; error: unknown };
   holding: boolean;
   canWrite: boolean;
-  busyId: string | null;
+  /** One row's state for one of its two actions, from the screen's `useActionFeedback`. */
+  statusOf: (id: string, action: "release" | "drop") => FeedbackStatus;
   actionError: unknown;
   onRelease: (id: string) => void;
   onDrop: (id: string) => void;
@@ -52,22 +54,23 @@ export function HeldLeads({
                 </p>
               </div>
               <div className="flex gap-2">
-                <button
-                  type="button"
-                  className={PRIMARY_BUTTON_SM}
-                  disabled={!canWrite || busyId === item.id}
+                <ActionButton
+                  variant="primary-sm"
+                  status={statusOf(item.id, "release")}
+                  successLabel="Booked"
+                  disabled={!canWrite || statusOf(item.id, "drop") === "pending"}
                   onClick={() => onRelease(item.id)}
                 >
                   Call now
-                </button>
-                <button
-                  type="button"
-                  className={SECONDARY_BUTTON_SM}
-                  disabled={!canWrite || busyId === item.id}
+                </ActionButton>
+                <ActionButton
+                  variant="secondary-sm"
+                  status={statusOf(item.id, "drop")}
+                  disabled={!canWrite || statusOf(item.id, "release") === "pending"}
                   onClick={() => onDrop(item.id)}
                 >
                   Don&apos;t call
-                </button>
+                </ActionButton>
               </div>
             </li>
           ))}

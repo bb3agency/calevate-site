@@ -2,13 +2,13 @@
 
 import { CheckCircle2, XCircle } from "lucide-react";
 
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { Drawer } from "@/components/console/drawer";
 import {
   Disclosure,
   FIELD,
   NOTICE_BAR,
   NOTICE_BASE,
-  PRIMARY_BUTTON,
   ProblemNotice,
   Skeleton,
 } from "@/components/ui";
@@ -29,6 +29,7 @@ export function TestLeadDrawer({
   source,
   onClose,
   test,
+  testStatus,
   payloadText,
   onPayloadText,
   jsonError,
@@ -38,6 +39,8 @@ export function TestLeadDrawer({
   source: LeadSource | null;
   onClose: () => void;
   test: ReturnType<typeof useTestWebhook>;
+  /** The dry run's state from the screen's `useActionFeedback`. */
+  testStatus: FeedbackStatus;
   payloadText: string;
   onPayloadText: (text: string) => void;
   jsonError: string | null;
@@ -52,9 +55,9 @@ export function TestLeadDrawer({
       description={source ? `${rowName(source)} · nothing is saved and no call is placed` : undefined}
       initialFocus="container"
       footer={
-        <button type="button" onClick={onRun} disabled={test.isPending} className={PRIMARY_BUTTON}>
-          {test.isPending ? "Checking…" : "Run again"}
-        </button>
+        <ActionButton onClick={onRun} status={testStatus} successLabel="Checked">
+          Run again
+        </ActionButton>
       }
     >
       <div className="space-y-4">
