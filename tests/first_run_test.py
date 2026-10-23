@@ -23,7 +23,7 @@ from apps.api.agents.starters import (
     starter_for,
 )
 from apps.api.agents.trial_calls import own_number_ref
-from apps.api.agents.voice_pick import choose_voice, rank_voices
+from apps.api.agents.voice_pick import choose_voice, gender_of, rank_voices
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.first_run import names, questions
@@ -449,7 +449,7 @@ async def test_the_build_writes_the_script_from_the_brief_and_names_the_agent(
         "greeting": "done",
         "notice": "done",
     }
-    assert "Kondapur" in briefs[0] and "Kiran" in briefs[0]
+    assert "Kondapur" in briefs[0] and "Anjali" in briefs[0]
     async with tenant_session(tenant_id) as session:
         agent = (
             await session.execute(
@@ -460,8 +460,8 @@ async def test_the_build_writes_the_script_from_the_brief_and_names_the_agent(
         from apps.api.agents.script_builder import load_agent_script
 
         script = (await load_agent_script(session, after.agent_id)).script
-    assert tuple(agent) == ("Kiran", "inbound", "draft")
-    assert script.identity.startswith("Your name is Kiran. You answer the phone")
+    assert tuple(agent) == ("Anjali", "inbound", "draft")
+    assert script.identity.startswith("Your name is Anjali. You answer the phone")
     assert script.opening_line == "Hello, Madhav Homes. Are you looking for a flat or a villa?"
 
 
@@ -486,7 +486,7 @@ async def test_a_short_brief_keeps_the_ready_made_script_and_still_names_it(
         from apps.api.agents.script_builder import load_agent_script
 
         script = (await load_agent_script(session, after.agent_id)).script
-    assert script.identity.startswith("Your name is Kiran.")
+    assert script.identity.startswith("Your name is Anjali.")
 
 
 async def test_the_job_is_locked_once_the_agent_is_built(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -512,7 +512,7 @@ async def test_the_job_is_locked_once_the_agent_is_built(monkeypatch: pytest.Mon
 
         script = (await load_agent_script(session, (await _run(tenant_id)).agent_id)).script
     assert script.identity.startswith("Your name is Lakshmi.")
-    assert "Kiran" not in script.identity
+    assert "Anjali" not in script.identity
 
 
 async def test_building_without_a_job_is_refused() -> None:
@@ -561,11 +561,11 @@ def test_every_job_has_a_starter_and_the_outbound_pair_shares_its_line_set() -> 
     assert "enquiry you just made" in fresh.opening_line
 
 
-def test_the_name_suits_the_voice_and_the_identity_is_never_stacked() -> None:
-    assert names.suggested_name("te-IN", names.gender_of("Female")) == "Sravani"
-    assert names.suggested_name("hi-IN", names.gender_of("male")) == "Arjun"
-    assert names.suggested_name("en-IN", names.gender_of(None)) == "Kiran"
-    once = names.identity_with_name("You answer the phone.", "Kiran")
+def test_the_first_agent_is_anjali_and_the_identity_is_never_stacked() -> None:
+    assert names.FIRST_AGENT_NAME == "Anjali"
+    assert gender_of("Female") == "female" and gender_of("woman") == "female"
+    assert gender_of("male") == "male" and gender_of(None) is None
+    once = names.identity_with_name("You answer the phone.", "Anjali")
     twice = names.identity_with_name(once, "Priya")
     assert twice == "Your name is Priya. You answer the phone."
 
@@ -594,7 +594,12 @@ def test_questions_already_answered_are_not_asked() -> None:
 
 
 def _voice(
-    voice_id: str, *, accent: str | None, label: str, source: str = "engine"
+    voice_id: str,
+    *,
+    accent: str | None,
+    label: str,
+    source: str = "engine",
+    gender: str | None = "female",
 ) -> HostedVoiceRow:
     return HostedVoiceRow(
         voice_id=voice_id,
@@ -617,7 +622,7 @@ def _voice(
         preview_source=None,
         clone_id=None,
         band=sold_hosted_band() if source == "engine" else None,
-        gender="female",
+        gender=gender,
         languages=("te-IN", "hi-IN", "en-IN"),
         person_clone=False,
         consent=None,
@@ -670,6 +675,45 @@ def test_studio_is_picked_first_and_clear_stands_in_with_the_reason() -> None:
     none_listed = choose_voice([], clear, None)
     assert none_listed is not None and none_listed.fallback == "no_studio_voice"
     assert choose_voice([], [], None) is None
+
+
+def test_anjali_gets_a_womans_voice_studio_first_then_clear_then_the_best_flagged() -> None:
+    ravi = _voice("byok:r", accent="te-IN", label="Ravi", source="byok", gender="male")
+    sita = _voice("byok:s", accent="en-IN", label="Sita", source="byok")
+    gopal = _voice("engine:g", accent="te-IN", label="Gopal", gender="male")
+    bindu = _voice("engine:b", accent="te-IN", label="Bindu", gender="Female")
+    unsaid = _voice("engine:u", accent="te-IN", label="Uma", gender=None)
+
+    def picked(studio: list[HostedVoiceRow], clear: list[HostedVoiceRow], hindrance: Any) -> Any:
+        got = choose_voice(studio, clear, hindrance)
+        assert got is not None
+        return (got.row.label, got.rung, got.fallback, got.not_female)
+
+    # A woman's Studio voice wins over a better-ranked man's.
+    assert picked([ravi, sita], [bindu], None) == ("Sita", "studio", None, False)
+    # Studio has no woman's voice for the language: a woman's Clear voice, and why.
+    assert picked([ravi], [gopal, bindu], None) == (
+        "Bindu",
+        "clear",
+        "no_female_studio_voice",
+        False,
+    )
+    # Studio cannot be used here: the hindrance stays the reason.
+    assert picked([sita], [bindu], "studio_minutes_used") == (
+        "Bindu",
+        "clear",
+        "studio_minutes_used",
+        False,
+    )
+    # No woman's voice anywhere (an unstated gender is not counted as one): the best, flagged.
+    assert picked([ravi], [gopal, unsaid], None) == ("Ravi", "studio", None, True)
+    assert picked([], [gopal], None) == ("Gopal", "clear", "no_studio_voice", True)
+    assert picked([sita], [unsaid], "studio_unavailable") == (
+        "Uma",
+        "clear",
+        "studio_unavailable",
+        True,
+    )
 
 
 async def test_a_trial_whose_studio_minutes_are_used_gets_clear(

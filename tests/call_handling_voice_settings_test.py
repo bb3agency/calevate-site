@@ -300,7 +300,9 @@ async def test_the_published_config_carries_the_resolved_settings() -> None:
             cfg.has_phone_number,
         )
 
-    assert await config() == (8, 1, None, 20, (), None, 15, False)
+    # No lines of the client's own: ours in the agent's language (founder, 23 Oct 2026), so a
+    # Telugu call is never covered by the engine's English filler.
+    assert await config() == (8, 1, None, 20, ("ఒక్క సెకండ్ అండి",), None, 15, False)
     async with _client() as client:
         await client.put(
             "/v1/organization/call-handling",
@@ -394,3 +396,19 @@ async def test_an_attached_engine_number_is_reported_to_the_config(
             {"ref": f"ag_{agent_id.hex[:12]}@org_{uuid.uuid4().hex[:16]}", "aid": agent_id},
         )
     assert await attached() is False
+
+
+def test_the_platform_filler_lines_follow_the_agents_languages_and_the_clients_win() -> None:
+    from apps.api.agents.call_handling import CallSettings
+    from apps.api.agents.service import _call_settings_fields
+
+    def lines(own: tuple[str, ...] | None, languages: tuple[str, ...]) -> object:
+        row = {"call_settings": CallSettings(filler_lines=own)}
+        return _call_settings_fields(row, languages=languages)["filler_lines"]  # type: ignore[arg-type]
+
+    assert lines(None, ("te-IN", "hi-IN")) == ("ఒక్క సెకండ్ అండి", "एक minute जी")
+    # The client's "the standard lines" ([]) is ours too; their own lines win.
+    assert lines((), ("hi-IN",)) == ("एक minute जी",)
+    assert lines(("One moment",), ("te-IN",)) == ("One moment",)
+    # English has no line of ours: the engine keeps its own English filler.
+    assert lines(None, ("en-IN",)) == ()

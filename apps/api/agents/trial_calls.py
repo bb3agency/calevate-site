@@ -12,7 +12,8 @@ number held in our developer workspace (`Settings.trial_caller_number`). The ord
    calling out while the number's own line stays the never-answering trial line agent, gives
    the agent the phone surface (`campaigns.engine_numbers.lend_trial_line`), and places the
    call naming the agent, with `from` = the shared number and the per-call
-   `maxCallSeconds` override.
+   `maxCallSeconds` override. An agent that only answers calls opens with a "calling you"
+   line instead of its greeting (`service.trial_call_first_words`, founder 23 Oct 2026).
 
 The line is released by the call ending (its `calls` row leaving `queued`/`ringing`/
 `in_progress`), or by the row ageing out at `trial_access.trial_line_horizon()`.

@@ -13159,9 +13159,14 @@ export interface components {
         /** BuildStepOut */
         BuildStepOut: {
             /** Fallback */
-            fallback?: ("studio_unavailable" | "studio_minutes_used" | "no_studio_voice") | null;
+            fallback?: ("studio_unavailable" | "studio_minutes_used" | "no_studio_voice" | "no_female_studio_voice") | null;
             /** Label */
             label: string | null;
+            /**
+             * Not Female
+             * @default false
+             */
+            not_female: boolean;
             /** Rung */
             rung?: ("clear" | "studio") | null;
             /** State */
@@ -17907,8 +17912,8 @@ export interface components {
         /**
          * EntryValue
          * @description One entry's value; which fields are set depends on the kind (register, opening,
-         *     number_rule, punctuation: `text`; filler: `text` and `use`; swap: `formal`, `spoken`
-         *     and `in_prompt`; example: `turns`).
+         *     number_rule, punctuation: `text`; filler: `text`, `use` and `thinking`; swap: `formal`,
+         *     `spoken` and `in_prompt`; example: `turns`).
          */
         EntryValue: {
             /** Formal */
@@ -17919,6 +17924,8 @@ export interface components {
             spoken?: string | null;
             /** Text */
             text?: string | null;
+            /** Thinking */
+            thinking?: boolean | null;
             /** Turns */
             turns?: components["schemas"]["TurnBody"][] | null;
             /** Use */

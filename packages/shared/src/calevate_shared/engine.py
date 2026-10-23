@@ -4464,6 +4464,14 @@ class CallContext(BaseModel):
     #: ThinnestAI (`agents/trial_calls.py` refuses every other engine before dialling), whose
     #: adapter sends it as the per-call `maxCallSeconds` override.
     max_call_seconds: int | None = Field(default=None, ge=60, le=1200)
+    #: THE FIRST WORDS OF THIS ONE CALL in place of the agent's greeting, or None for the
+    #: greeting. Set only for a free-trial test call of an agent that only answers calls
+    #: (founder, 23 Oct 2026): its greeting thanks a caller for calling, which is wrong when it
+    #: rings its owner. `agents.service.dispatch_call` composes it from the same notices the
+    #: greeting carries (`compose_opening_line`, the agent's two switches) and the language's
+    #: `test_call` line, so hard rule 5 and D-163 hold as on any call. Only an engine whose dial
+    #: takes per-call first words reads it (ThinnestAI's `purpose`).
+    opening: str | None = None
 
 
 class NumberSearch(BaseModel):

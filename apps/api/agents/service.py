@@ -112,9 +112,11 @@ from calevate_shared.engine import (
     VoiceEngine,
     compose_engine_prompt,
     compose_opening_line,
+    join_first_words,
     truthful_answer_directive,
 )
 from calevate_shared.engine_scope import scope_of
+from calevate_shared.spoken_style import thinking_lines, trial_call_opening
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -143,6 +145,7 @@ from apps.api.agents.models import (
     CALL_CAP_DEFAULT_S,
     CALL_CAP_MAX_S,
     CALL_CAP_MIN_S,
+    FILLER_LINES_MAX,
     AgentDirection,
     series_for_e164,
 )
@@ -803,12 +806,14 @@ def _model_legs(agent: AgentRow, *, engine: VoiceEngine) -> dict[str, Any]:
     return legs
 
 
-def _call_settings_fields(agent: AgentRow) -> dict[str, Any]:
+def _call_settings_fields(agent: AgentRow, *, languages: Sequence[str]) -> dict[str, Any]:
     """The `AgentConfig` fields of the call settings, resolved agent -> account -> Calevate
     (`agents/call_handling`). The sentinels a client chooses become the config's own: never
     asking is no `nudge_after_seconds`, the platform's question is no `nudge_phrase`, and no
-    sound is no `ambience`. `.get`: test fixtures build partial rows, which hold only the
-    first two settings."""
+    sound is no `ambience`. The platform's filler lines are ours in the agent's `languages`
+    (`spoken_style.thinking_lines`, founder 23 Oct 2026), so a Telugu call is never covered by
+    the engine's English one; a language with none leaves the engine's own. `.get`: test
+    fixtures build partial rows, which hold only the first two settings."""
     own = agent.get("call_settings") or CallSettings(
         turn_silence_ms=agent.get("turn_silence_ms"),
         end_call_on_finish=agent.get("end_call_on_finish"),
@@ -826,7 +831,7 @@ def _call_settings_fields(agent: AgentRow) -> dict[str, Any]:
         "nudge_count": v.nudge_count,
         "nudge_phrase": v.nudge_phrase or None,
         "end_after_silence_seconds": v.end_after_silence_seconds,
-        "filler_lines": v.filler_lines,
+        "filler_lines": v.filler_lines or thinking_lines(languages)[:FILLER_LINES_MAX],
         "ambience": None if v.ambience == "off" else v.ambience,
         "ambience_volume_pct": v.ambience_volume_pct,
     }
@@ -872,7 +877,15 @@ def _to_config(
         # Our call rules in place of the engine's default call rules (D-850).
         engine_call_instructions=engine.name == "thinnest" and settings.thinnest_call_instructions,
         detect_machines=bool(agent.get("detect_machines", False)),
-        **_call_settings_fields(agent),
+        **_call_settings_fields(
+            agent,
+            languages=(
+                str(agent["language_primary"]),
+                *published_extra_languages(
+                    str(agent["language_primary"]), agent["languages_extra"], tenant_id=tenant_id
+                ),
+            ),
+        ),
         max_reply_tokens=resolve_max_reply_tokens(agent.get("max_reply_tokens")),
         turn_detection=settings.thinnest_turn_detection,
         acknowledgements=settings.thinnest_acknowledgements,
@@ -3573,6 +3586,25 @@ class TrialDial:
     max_call_seconds: int
 
 
+def trial_call_first_words(agent: AgentRow, *, call_is_recorded: bool) -> str | None:
+    """What an agent that only answers calls says first when it rings its owner on a test
+    call (founder, 23 Oct 2026): the notices its switches turn on, exactly as its greeting
+    carries them, then who it is, from which business, why it rings and whether now suits.
+    None for an agent that calls out (its greeting already does) or a language with no such
+    line (its greeting is spoken)."""
+    if agent["direction"] != "inbound":
+        return None
+    line = trial_call_opening(
+        str(agent["language_primary"]),
+        name=str(agent["name"]),
+        business=str(agent.get("business_name") or ""),
+    )
+    if line is None:
+        return None
+    notices = compose_opening_line(posture_of(agent), call_is_recorded=call_is_recorded)
+    return join_first_words(notices, line)
+
+
 async def dispatch_call(
     session: AsyncSession,
     *,
@@ -3789,6 +3821,11 @@ async def dispatch_call(
                 # routes with it in the path (`calevate_shared.carrier.answer_path`).
                 call_id=str(call_id),
                 max_call_seconds=trial.max_call_seconds if trial is not None else None,
+                opening=trial_call_first_words(
+                    agent, call_is_recorded=engine.capabilities.records_audio
+                )
+                if trial is not None
+                else None,
             ),
         )
     except Exception as exc:

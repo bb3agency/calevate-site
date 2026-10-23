@@ -196,3 +196,43 @@ async def test_review_then_publish_reaches_the_prompt_layer() -> None:
     assert style is not None
     assert style.word_swaps == (("ଧନ୍ୟବାଦ", "thanks"),)
     assert style.prompt_swaps == (("ଧନ୍ୟବାଦ", "thanks"),)
+
+
+async def test_editing_a_filler_keeps_its_slow_reply_mark_unless_it_is_unticked() -> None:
+    token, _ = await _make_admin()
+
+    def filler_of(body: dict[str, object]) -> dict[str, object]:
+        entries = body["entries"]
+        assert isinstance(entries, list)
+        return next(e for e in entries if e["kind"] == "filler")
+
+    async with _client() as http:
+        added = await http.post(
+            f"{BASE}/entries",
+            headers=_auth(token),
+            json={
+                "kind": "filler",
+                "action": "add",
+                "value": {"text": "ଟିକେ ରୁହନ୍ତୁ", "use": "Before checking.", "thinking": True},
+            },
+        )
+        assert added.status_code == 200, added.text
+        key = filler_of(added.json())["key"]
+        edited = await http.post(
+            f"{BASE}/entries",
+            headers=_auth(token),
+            json={"kind": "filler", "key": key, "action": "edit", "value": {"text": "ଟିକେ"}},
+        )
+        assert edited.status_code == 200, edited.text
+        assert filler_of(edited.json())["value"]["thinking"] is True  # type: ignore[index]
+        unticked = await http.post(
+            f"{BASE}/entries",
+            headers=_auth(token),
+            json={
+                "kind": "filler",
+                "key": key,
+                "action": "edit",
+                "value": {"text": "ଟିକେ", "thinking": False},
+            },
+        )
+        assert filler_of(unticked.json())["value"]["thinking"] is False  # type: ignore[index]

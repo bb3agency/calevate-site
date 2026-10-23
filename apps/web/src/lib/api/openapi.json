@@ -5291,7 +5291,8 @@
                 "enum": [
                   "studio_unavailable",
                   "studio_minutes_used",
-                  "no_studio_voice"
+                  "no_studio_voice",
+                  "no_female_studio_voice"
                 ],
                 "type": "string"
               },
@@ -5311,6 +5312,11 @@
               }
             ],
             "title": "Label"
+          },
+          "not_female": {
+            "default": false,
+            "title": "Not Female",
+            "type": "boolean"
           },
           "rung": {
             "anyOf": [
@@ -17727,7 +17733,7 @@
       },
       "EntryValue": {
         "additionalProperties": false,
-        "description": "One entry's value; which fields are set depends on the kind (register, opening,\nnumber_rule, punctuation: `text`; filler: `text` and `use`; swap: `formal`, `spoken`\nand `in_prompt`; example: `turns`).",
+        "description": "One entry's value; which fields are set depends on the kind (register, opening,\nnumber_rule, punctuation: `text`; filler: `text`, `use` and `thinking`; swap: `formal`,\n`spoken` and `in_prompt`; example: `turns`).",
         "properties": {
           "formal": {
             "anyOf": [
@@ -17775,6 +17781,17 @@
               }
             ],
             "title": "Text"
+          },
+          "thinking": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thinking"
           },
           "turns": {
             "anyOf": [

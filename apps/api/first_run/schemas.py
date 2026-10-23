@@ -51,8 +51,16 @@ class BuildStepOut(Strict):
     #: be used here (D-855).
     rung: Literal["clear", "studio"] | None = None
     #: Why a Clear voice stands in for Studio: `studio_unavailable`, `studio_minutes_used`
-    #: (the trial's Studio test minutes are used) or `no_studio_voice`. Null otherwise.
-    fallback: Literal["studio_unavailable", "studio_minutes_used", "no_studio_voice"] | None = None
+    #: (the trial's Studio test minutes are used), `no_studio_voice` or
+    #: `no_female_studio_voice` (Studio has no woman's voice for the language). Null otherwise.
+    fallback: (
+        Literal[
+            "studio_unavailable", "studio_minutes_used", "no_studio_voice", "no_female_studio_voice"
+        ]
+        | None
+    ) = None
+    #: No woman's voice could be chosen for "Anjali", so the voice step kept the best one.
+    not_female: bool = False
 
 
 class BuildOut(Strict):

@@ -9,7 +9,7 @@ import { FIELD, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { useBuildAgent, useRenameAgent, type FirstRun, type FirstRunBuildStep } from "@/lib/api/firstRun";
 import { useClientSession } from "@/lib/api/session";
-import { languageLabel, studioFallbackLine } from "@/lib/firstAgent";
+import { languageLabel, voicePickNote } from "@/lib/firstAgent";
 
 import { StepScreen } from "./shell";
 
@@ -34,7 +34,7 @@ export function metaOf(step: FirstRunBuildStep): string | undefined {
     if (step.state === "done") {
       const rung = step.rung === "studio" ? "Studio" : step.rung === "clear" ? "Clear" : null;
       const name = [step.label, rung].filter(Boolean).join(" · ");
-      return [name, studioFallbackLine(step.fallback)].filter(Boolean).join(". ") || undefined;
+      return [name, voicePickNote(step.fallback, step.not_female)].filter(Boolean).join(". ") || undefined;
     }
     if (step.state === "kept") return "Kept the voice it had";
     if (step.state === "none") return "None could be chosen yet. Pick one before the call.";

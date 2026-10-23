@@ -75,6 +75,7 @@ def _step_out(step: BuildStep, found: dict[str, Any]) -> BuildStepOut:
         label=found.get("label"),
         rung=found.get("rung"),
         fallback=found.get("fallback"),
+        not_female=bool(found.get("not_female", False)),
     )
 
 

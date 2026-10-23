@@ -222,3 +222,49 @@ def test_test_callers_are_written_in_the_caller_style() -> None:
     assert "Tags and fillers callers use" in text and "కదా" in text
     assert "How callers sound" in text and "ఎండు మిర్చి" in text
     assert "Follow the spoken style in the brief" in GENERATE_INSTRUCTION
+
+
+# --- the platform's own spoken lines (founder, 23 Oct 2026) --------------------------------
+
+
+def test_the_slow_reply_lines_are_the_marked_fillers_of_each_language_in_order() -> None:
+    from calevate_shared.spoken_style import thinking_lines
+
+    assert thinking_lines(["te-IN"]) == ("ఒక్క సెకండ్ అండి",)
+    assert thinking_lines(["hi-IN", "te-IN", "en-IN", "te-IN"]) == ("एक minute जी", "ఒక్క సెకండ్ అండి")
+    # A language with no marked filler adds none: the engine keeps its own there.
+    assert thinking_lines(["en-IN"]) == ()
+    for line in thinking_lines(["te-IN", "hi-IN"]):
+        # `voice.thinkingLines`: up to 8, each 60 characters or fewer (create-agent.md:1442-1449).
+        assert len(line) <= 60
+
+
+def test_a_filler_keeps_its_slow_reply_mark_through_the_published_layer() -> None:
+    value = normalize_value("filler", "okka-second", {"text": "ఒక్క నిమిషం అండి", "thinking": True})
+    assert value["thinking"] is True
+    assert normalize_value("filler", "ha", {"text": "హా"})["thinking"] is False
+    install_published(
+        {
+            TE: PublishedLanguage(
+                entries={("filler", "okka-second"): PublishedEntry(value=value, approved=True)}
+            )
+        }
+    )
+    from calevate_shared.spoken_style import thinking_lines
+
+    assert thinking_lines([TE]) == ("ఒక్క నిమిషం అండి",)
+
+
+@pytest.mark.parametrize("tag", [TE, "hi-IN", "en-IN"])
+def test_the_test_call_opening_is_spoken_and_says_who_why_and_asks(tag: str) -> None:
+    from apps.api.agents.turn_checks import turn_problems
+    from calevate_shared.spoken_guard import textbook_problem
+    from calevate_shared.spoken_style import trial_call_opening
+
+    line = trial_call_opening(tag, name="Anjali", business="Raghava Organics")
+    assert line is not None
+    assert "Anjali" in line and "Raghava Organics" in line and "{" not in line
+    assert "receptionist" in line and line.endswith("?")
+    assert textbook_problem("opening", line, tag) is None
+    assert not FORBIDDEN.search(line), line
+    assert turn_problems(line, language=tag) == [], line
