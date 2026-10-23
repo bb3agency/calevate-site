@@ -269,7 +269,7 @@ async def list_calls(
                 "c.to_e164, c.started_at, c.duration_s, c.outcome_tag, c.sentiment, "
                 "c.summary, c.lead_id, c.summary_state, c.headline, c.trial_call, "
                 f"{_CALLBACK_COLUMNS}, {_LEAD_NAME_COLUMN}, {credits_column}, "
-                "c.business_outcome, c.business_outcome_label "
+                "c.business_outcome, c.business_outcome_label, c.follow_up_state "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} {where} "
                 "ORDER BY c.started_at DESC NULLS LAST, c.id DESC LIMIT :limit OFFSET :offset"
             ),
@@ -308,6 +308,7 @@ async def list_calls(
             captured_preview=previews.get(r[0], []),
             business_outcome=r[23],
             business_outcome_label=r[24],
+            follow_up_state=r[25],
         )
         for r in rows
     ]
@@ -484,7 +485,8 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
                 "c.callback_requested, c.translation_state, "
                 f"{_LEAD_NAME_COLUMN}, a.language_primary, c.engine_quality, c.engine_call_id, "
                 "c.caller_id_hidden, c.forwarding_test_id IS NOT NULL, c.forwarded_to_phone, "
-                "c.business_outcome, c.business_outcome_label, c.not_placed_reason "
+                "c.business_outcome, c.business_outcome_label, c.not_placed_reason, "
+                "c.follow_up_state "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
                 "WHERE c.id = :cid"
             ),
@@ -567,6 +569,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         business_outcome=row[36],
         business_outcome_label=row[37],
         not_placed_reason=NOT_PLACED_WORDS.get(row[38]),
+        follow_up_state=row[39],
         summary_local=row[23] if raw else redacted_summary(row[23]),
         summary_language=row[24],
         summary_source=row[25],
@@ -1442,13 +1445,23 @@ def _lead_from_statuses(to_status: str) -> tuple[str, ...]:
     return tuple(s for s in LEAD_STATUSES if s != to_status)
 
 
-async def set_lead_status(session: AsyncSession, lead_id: UUID, *, status: str, actor: str) -> bool:
+async def set_lead_status(
+    session: AsyncSession,
+    lead_id: UUID,
+    *,
+    status: str,
+    actor: str,
+    expected_status: str | None = None,
+) -> bool:
     """Move one lead into `status`. True when THIS call moved it, False when it was there.
 
     404s an absent or soft-deleted lead (and, under RLS, a neighbour's — deliberately the
     same answer). The timeline row is written ONLY on a real move, which is the point of
     routing through `transition_status`: the lead timeline is evidence, and an event that
     records a button press rather than a change is evidence of the wrong thing.
+
+    `expected_status` narrows the move to a lead that holds exactly that status (the undo
+    of a swipe, D-869): any other status answers 409 rather than being overwritten.
     """
     moved = await transition_status(
         session,
@@ -1456,7 +1469,11 @@ async def set_lead_status(session: AsyncSession, lead_id: UUID, *, status: str, 
         entity="Lead",
         row_id=lead_id,
         to_status=status,
-        from_statuses=_lead_from_statuses(status),
+        from_statuses=(
+            (expected_status,)
+            if expected_status is not None and expected_status != status
+            else _lead_from_statuses(status)
+        ),
         # A PERSON chose this status, so the after-call rules leave it alone from now on
         # (founder decision 8, `workers/pipeline._advance_lead_status`).
         extra_set="status_set_by = 'person', status_set_at = now()",
@@ -1641,6 +1658,7 @@ async def update_lead(
     lead_id: UUID,
     *,
     status: str | None,
+    expected_status: str | None = None,
     name: str | None,
     assignee: AssigneeChange | None = None,
     actor: str,
@@ -1663,7 +1681,9 @@ async def update_lead(
 
     moved = False
     if status is not None:
-        moved |= await set_lead_status(session, lead_id, status=status, actor=actor)
+        moved |= await set_lead_status(
+            session, lead_id, status=status, actor=actor, expected_status=expected_status
+        )
     if name is not None:
         moved |= await set_lead_name(session, lead_id, name=name)
     if assignee is not None:

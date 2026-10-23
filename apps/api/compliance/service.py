@@ -821,6 +821,136 @@ async def account_dial_blockers(
     return found
 
 
+async def person_level_refusal(
+    session: AsyncSession, *, tenant_id: UUID, phone_e164: str
+) -> DispatchDecision | None:
+    """The gate's questions about the PERSON at this number, in the gate's order, or None
+    when none refuses. `check_dispatch` asks them after the account and agent questions;
+    a caller that books a dial for later (the swipe's call-back, D-869) asks them now,
+    because no wait lifts them (`PERSON_LEVEL_REFUSALS`)."""
+    # The India-only freeze, enforced at the destination. A non-+91 number is out of
+    # scope for this product (LEGAL-OPS-PLAYBOOK §14/§18) and must never be dialled, on
+    # any path — the campaign dispatch tick and the single-lead/callback paths all reach
+    # here. Cheap (no query) and per-number, so it sits with the other per-destination
+    # checks. `normalize_phone` deliberately stays country-agnostic — it also normalises
+    # numbers for DNC/consent suppression, where a foreign number is a valid thing to
+    # suppress — so the freeze is enforced HERE, at the dial decision, not in the shared
+    # normaliser.
+    if not phone_e164.startswith(INDIA_E164_PREFIX):
+        return DispatchDecision(
+            allowed=False,
+            rule="destination_not_india",
+            reason=DESTINATION_NOT_INDIA_REASON,
+        )
+    # The placeholder an erasure or a retention sweep writes over a number starts `+91`, so
+    # the freeze above lets it through. Every table that holds a dialable number is
+    # anonymised in place rather than deleted, which makes this the one check that holds
+    # whichever of them a future path reads a destination from.
+    if phone_e164.startswith(ANONYMIZED_PREFIX):
+        return DispatchDecision(
+            allowed=False,
+            rule=DESTINATION_ERASED_RULE,
+            reason=DESTINATION_ERASED_REASON,
+        )
+
+    # LIVE read, never cached: an opt-out captured mid-call must block the very next
+    # dispatch. Covers both the tenant's own list and global entries (RLS lets a tenant
+    # read global rows precisely so this query can see them).
+    blocked = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM dnc_list WHERE phone_e164 = :phone "
+                "AND (tenant_id = :tid OR tenant_id IS NULL) LIMIT 1"
+            ),
+            {"phone": phone_e164, "tid": tenant_id},
+        )
+    ).first()
+    if blocked:
+        return DispatchDecision(
+            allowed=False,
+            rule="dnc",
+            reason="This number is on the do-not-call list.",
+        )
+
+    # Beside the DNC list because it is the same KIND of fact — this person, not this
+    # account — and different in what it records: DNC is "stop calling me", this is
+    # "never agreed to be called at all" (D-117).
+    #
+    # ABSENCE IS NOT A REFUSAL, and that asymmetry is the whole design. Most dialable
+    # leads have no `consent_ledger` row: a number typed in by staff, a CSV import, a
+    # caller who rang US. Treating silence as `declined` would refuse every one of them
+    # and be met as an outage rather than a rule. So only an explicit latest `declined`
+    # or `withdrawn` blocks, which is also the ledger's own doctrine — the current state
+    # of a `(tenant, phone, purpose)` is the LATEST row for it, and a withdrawal is a new
+    # row rather than an edit of the grant.
+    #
+    # `callback` rather than `marketing`: this gate governs whether we may TELEPHONE this
+    # person, which is what a lead-ad opt-in question does or does not grant. The
+    # `messaging` purpose has its own gate on the WhatsApp path and must not be conflated
+    # — a person may accept a call and refuse a message, and both answers are theirs.
+    consent = await latest_call_consent(session, tenant_id=tenant_id, phone_e164=phone_e164)
+    # ⚠ **AND ON A SERVICE/TRANSACTIONAL ACCOUNT, ABSENCE *IS* A REFUSAL — D-624.** The
+    # asymmetry above is not weakened; it is made per-account, because what stood behind it
+    # was removed for some accounts and not others.
+    #
+    # The permissive default was right while the client's DLT Principal-Entity registration
+    # was the backstop: the REGISTRATION separated a relationship call from a cold list, and
+    # the ledger did not have to. An account sold on a SERVICE/TRANSACTIONAL footing has no
+    # such registration, and its entire position is that it calls the client's own existing
+    # consenting customers about those customers' own bookings — which is the classification
+    # TRAI's promotional-versus-transactional line turns on. Leave the permissive default on
+    # such an account and that position is an INTENTION: a client with a quiet month uploads
+    # a prospect list, nothing refuses, and the first anyone knows is a complaint under a
+    # rule that disconnects "all telecom resources of the sender" (TCCCPR Reg 25(6)).
+    #
+    # Checked HERE rather than beside the DLT block below, and the placement is the point: on
+    # these accounts consent REPLACES the registration, so it must be asked in the same
+    # breath as the rest of the person-level questions and not inside a DLT branch they may
+    # never enter.
+    if consent is None and await outbound_requires_consent(session, tenant_id=tenant_id):
+        return DispatchDecision(
+            allowed=False,
+            rule=NO_CONSENT_RECORD_RULE,
+            reason=(
+                "This account only calls people who have agreed to be contacted, and there "
+                "is no opt-in on file for this number. Capture consent — a form, a booking, "
+                "a reply, an inbound call — before dialling."
+            ),
+        )
+    if consent is not None:
+        status, expires_at = str(consent[0]), consent[1]
+        if status in DIAL_REFUSING_CONSENT_STATUSES:
+            return DispatchDecision(
+                allowed=False,
+                rule="no_consent",
+                reason=(
+                    "This person has not agreed to be called. The lead was captured without "
+                    "an opt-in, or the permission was withdrawn."
+                ),
+            )
+        # RESPECT AN EXPLICIT EXPIRY, INVENT NONE. The messaging leg goes stale on a DERIVED
+        # 365-day window (`consent.py`); this gate deliberately does not, because a default
+        # validity window for VOICE consent is a counsel decision, not code's
+        # (LEGAL-OPS-PLAYBOOK §10.7/§20, hard rule 11). What it does honour is an expiry the
+        # record itself set: a `granted` row whose `expires_at` has already passed no longer
+        # authorises a dial, mirroring `consent.py`'s own expiry check. An ABSENT `expires_at`
+        # is unchanged behaviour — allowed — with the per-tick DND/DLT re-scrub as the
+        # freshness control. PERSON-LEVEL: a lapsed permission is not undone by waiting, so
+        # a batch dialler SETTLES such a contact rather than re-claiming it every thirty
+        # minutes for ever — see `PERSON_LEVEL_REFUSALS`, which records why the opposite
+        # classification this line used to assert was the same livelock a third time.
+        if expires_at is not None and expires_at <= datetime.now(UTC):
+            return DispatchDecision(
+                allowed=False,
+                rule="consent_expired",
+                reason=(
+                    "This person's permission to be called has expired. Capture a fresh "
+                    "opt-in before dialling this number again."
+                ),
+            )
+    return None
+
+
 async def check_dispatch(
     session: AsyncSession,
     *,
@@ -983,126 +1113,9 @@ async def check_dispatch(
             reason="Outbound calls are only placed between 9:00 and 21:00 IST.",
         )
 
-    # The India-only freeze, enforced at the destination. A non-+91 number is out of
-    # scope for this product (LEGAL-OPS-PLAYBOOK §14/§18) and must never be dialled, on
-    # any path — the campaign dispatch tick and the single-lead/callback paths all reach
-    # here. Cheap (no query) and per-number, so it sits with the other per-destination
-    # checks. `normalize_phone` deliberately stays country-agnostic — it also normalises
-    # numbers for DNC/consent suppression, where a foreign number is a valid thing to
-    # suppress — so the freeze is enforced HERE, at the dial decision, not in the shared
-    # normaliser.
-    if not phone_e164.startswith(INDIA_E164_PREFIX):
-        return DispatchDecision(
-            allowed=False,
-            rule="destination_not_india",
-            reason=DESTINATION_NOT_INDIA_REASON,
-        )
-    # The placeholder an erasure or a retention sweep writes over a number starts `+91`, so
-    # the freeze above lets it through. Every table that holds a dialable number is
-    # anonymised in place rather than deleted, which makes this the one check that holds
-    # whichever of them a future path reads a destination from.
-    if phone_e164.startswith(ANONYMIZED_PREFIX):
-        return DispatchDecision(
-            allowed=False,
-            rule=DESTINATION_ERASED_RULE,
-            reason=DESTINATION_ERASED_REASON,
-        )
-
-    # LIVE read, never cached: an opt-out captured mid-call must block the very next
-    # dispatch. Covers both the tenant's own list and global entries (RLS lets a tenant
-    # read global rows precisely so this query can see them).
-    blocked = (
-        await session.execute(
-            text(
-                "SELECT 1 FROM dnc_list WHERE phone_e164 = :phone "
-                "AND (tenant_id = :tid OR tenant_id IS NULL) LIMIT 1"
-            ),
-            {"phone": phone_e164, "tid": tenant_id},
-        )
-    ).first()
-    if blocked:
-        return DispatchDecision(
-            allowed=False,
-            rule="dnc",
-            reason="This number is on the do-not-call list.",
-        )
-
-    # Beside the DNC list because it is the same KIND of fact — this person, not this
-    # account — and different in what it records: DNC is "stop calling me", this is
-    # "never agreed to be called at all" (D-117).
-    #
-    # ABSENCE IS NOT A REFUSAL, and that asymmetry is the whole design. Most dialable
-    # leads have no `consent_ledger` row: a number typed in by staff, a CSV import, a
-    # caller who rang US. Treating silence as `declined` would refuse every one of them
-    # and be met as an outage rather than a rule. So only an explicit latest `declined`
-    # or `withdrawn` blocks, which is also the ledger's own doctrine — the current state
-    # of a `(tenant, phone, purpose)` is the LATEST row for it, and a withdrawal is a new
-    # row rather than an edit of the grant.
-    #
-    # `callback` rather than `marketing`: this gate governs whether we may TELEPHONE this
-    # person, which is what a lead-ad opt-in question does or does not grant. The
-    # `messaging` purpose has its own gate on the WhatsApp path and must not be conflated
-    # — a person may accept a call and refuse a message, and both answers are theirs.
-    consent = await latest_call_consent(session, tenant_id=tenant_id, phone_e164=phone_e164)
-    # ⚠ **AND ON A SERVICE/TRANSACTIONAL ACCOUNT, ABSENCE *IS* A REFUSAL — D-624.** The
-    # asymmetry above is not weakened; it is made per-account, because what stood behind it
-    # was removed for some accounts and not others.
-    #
-    # The permissive default was right while the client's DLT Principal-Entity registration
-    # was the backstop: the REGISTRATION separated a relationship call from a cold list, and
-    # the ledger did not have to. An account sold on a SERVICE/TRANSACTIONAL footing has no
-    # such registration, and its entire position is that it calls the client's own existing
-    # consenting customers about those customers' own bookings — which is the classification
-    # TRAI's promotional-versus-transactional line turns on. Leave the permissive default on
-    # such an account and that position is an INTENTION: a client with a quiet month uploads
-    # a prospect list, nothing refuses, and the first anyone knows is a complaint under a
-    # rule that disconnects "all telecom resources of the sender" (TCCCPR Reg 25(6)).
-    #
-    # Checked HERE rather than beside the DLT block below, and the placement is the point: on
-    # these accounts consent REPLACES the registration, so it must be asked in the same
-    # breath as the rest of the person-level questions and not inside a DLT branch they may
-    # never enter.
-    if consent is None and await outbound_requires_consent(session, tenant_id=tenant_id):
-        return DispatchDecision(
-            allowed=False,
-            rule=NO_CONSENT_RECORD_RULE,
-            reason=(
-                "This account only calls people who have agreed to be contacted, and there "
-                "is no opt-in on file for this number. Capture consent — a form, a booking, "
-                "a reply, an inbound call — before dialling."
-            ),
-        )
-    if consent is not None:
-        status, expires_at = str(consent[0]), consent[1]
-        if status in DIAL_REFUSING_CONSENT_STATUSES:
-            return DispatchDecision(
-                allowed=False,
-                rule="no_consent",
-                reason=(
-                    "This person has not agreed to be called. The lead was captured without "
-                    "an opt-in, or the permission was withdrawn."
-                ),
-            )
-        # RESPECT AN EXPLICIT EXPIRY, INVENT NONE. The messaging leg goes stale on a DERIVED
-        # 365-day window (`consent.py`); this gate deliberately does not, because a default
-        # validity window for VOICE consent is a counsel decision, not code's
-        # (LEGAL-OPS-PLAYBOOK §10.7/§20, hard rule 11). What it does honour is an expiry the
-        # record itself set: a `granted` row whose `expires_at` has already passed no longer
-        # authorises a dial, mirroring `consent.py`'s own expiry check. An ABSENT `expires_at`
-        # is unchanged behaviour — allowed — with the per-tick DND/DLT re-scrub as the
-        # freshness control. PERSON-LEVEL: a lapsed permission is not undone by waiting, so
-        # a batch dialler SETTLES such a contact rather than re-claiming it every thirty
-        # minutes for ever — see `PERSON_LEVEL_REFUSALS`, which records why the opposite
-        # classification this line used to assert was the same livelock a third time.
-        if expires_at is not None and expires_at <= datetime.now(UTC):
-            return DispatchDecision(
-                allowed=False,
-                rule="consent_expired",
-                reason=(
-                    "This person's permission to be called has expired. Capture a fresh "
-                    "opt-in before dialling this number again."
-                ),
-            )
+    person = await person_level_refusal(session, tenant_id=tenant_id, phone_e164=phone_e164)
+    if person is not None:
+        return person
 
     # THE DLT LAYER IS INACTIVE UNDER D-692. This branch used to refuse on Calevate's TM
     # registration and the client's PE-TM chain (`registration.outbound_entity_blockers`)

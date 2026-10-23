@@ -141,7 +141,13 @@ class DueCallback:
     booked_at: datetime | None = None
 
 
-def context_note(requested_at: datetime, note: str | None) -> str:
+#: `source_execution_id` prefix of a call-back a PERSON in the account scheduled for a lead
+#: (the swipe's "Call back later", D-869). Its agent is told the business arranged the call,
+#: not that the person asked for it — they may not have.
+CLIENT_SCHEDULE_PREFIX: Final = "client-schedule:"
+
+
+def context_note(requested_at: datetime, note: str | None, *, source: str | None = None) -> str:
     """What the agent is told this call is FOR, as one sentence in the prompt.
 
     It rides `CallContext.context_note`, which is the field the D-21 "call this lead"
@@ -154,6 +160,9 @@ def context_note(requested_at: datetime, note: str | None) -> str:
     IST, because it is read out to a person in India.
     """
     when = (requested_at.astimezone(UTC) + IST).strftime("%d %b at %H:%M")
+    if source is not None and source.startswith(CLIENT_SCHEDULE_PREFIX):
+        opening = f"The business arranged this follow-up call for {when}."
+        return f"{opening} What it is about: {note}" if note else opening
     opening = f"This is the call-back they asked for on {when}."
     return f"{opening} They said: {note}" if note else opening
 
@@ -649,6 +658,7 @@ async def get_callback(session: AsyncSession, callback_id: UUID) -> dict[str, An
 
 
 __all__ = [
+    "CLIENT_SCHEDULE_PREFIX",
     "GRACE",
     "LIVE_STATUSES",
     "MAX_NOTE",

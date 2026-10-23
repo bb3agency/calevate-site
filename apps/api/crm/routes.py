@@ -1313,6 +1313,7 @@ async def patch_lead(
         session,
         lead_id,
         status=payload.status,
+        expected_status=payload.expected_status,
         name=payload.name,
         assignee=(
             service.AssigneeChange(user_id=payload.assigned_to)
