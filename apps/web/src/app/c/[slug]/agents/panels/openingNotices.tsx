@@ -50,9 +50,9 @@ import { NOTICE_NEEDS_ROOM, OpeningLineFix, problemCode } from "./openingLineFix
  * - **"Off" does not discharge the obligation.** It moves where the notice is given.
  *   Naming that plainly is the difference between a setting and a trap.
  *
- * `first_words` is the SERVER's composition of what callers now hear — the notices switched
- * on (`opening_line`), then the agent's own opening line from its script
- * (`script_opening_line`) — quoted back. This screen never joins them itself: that would be
+ * `first_words` is the SERVER's composition of what callers now hear — the agent's own
+ * opening line from its script (`script_opening_line`), then the notices switched on
+ * (`opening_line`, D-861) — quoted back. This screen never joins them itself: that would be
  * a second implementation of a compliance rule, and the second one is where the drift
  * starts. The opening line is NOT a notice and no switch here reaches it (D-708): with both
  * switches off the agent still greets callers with it.
@@ -133,7 +133,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
       <div className="mt-4 divide-y divide-line border-y border-line">
         <NoticeToggle
           label="Say it is an AI assistant"
-          hint="Said at the very start of the call, before the opening line."
+          hint="Said at the start of the call, right after the opening line."
           quote={agent.ai_disclosure_line}
           checked={agent.ai_disclosure_enabled}
           pending={locked}
@@ -142,7 +142,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
         />
         <NoticeToggle
           label="Say the call is being recorded"
-          hint="Said at the start of the call, after the AI notice if that is on, before the opening line."
+          hint="Said at the start of the call, after the opening line and the AI notice if that is on."
           quote={agent.recording_notice_line}
           checked={agent.recording_notice_enabled}
           pending={locked}
@@ -165,7 +165,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
           <div className="py-4 pl-12">
             <p className="text-sm font-medium text-ink">Say that it remembers callers</p>
             <p className="mt-0.5 text-xs text-ink-muted">
-              Said after the notices above, before the opening line.
+              Said at the start of the call, after the opening line and the notices above.
             </p>
             <blockquote className="mt-3 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
               “{agent.caller_memory_notice_line}”
@@ -183,8 +183,8 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
         )}
       </div>
 
-      {/* The server's composition, quoted: the notices switched on, then the opening line
-          from the script callers hear now. The switches never change the opening line
+      {/* The server's composition, quoted: the opening line from the script callers hear
+          now, then the notices switched on (D-861). The switches never change the opening line
           (D-708), so it is named separately rather than folded into a notice. */}
       <div className="mt-4">
         <p className="text-xs font-medium text-ink-muted">What callers hear first</p>

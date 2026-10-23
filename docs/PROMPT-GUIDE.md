@@ -6,11 +6,12 @@ change, promoted staging→live, rollbackable.
 
 ## 1. Non-negotiable prompt invariants (every agent, auto-inserted, non-removable)
 
-1. **Truthful when asked; notices when switched on (D-163, D-669, D-708)**: asked whether
-   it is an AI, or whether the call is recorded, the agent always answers truthfully
+1. **Truthful when asked; notices when switched on (D-163, D-669, D-708, D-861)**: asked
+   whether it is an AI, or whether the call is recorded, the agent always answers truthfully
    (`TRUTHFUL_ANSWER_DIRECTIVE`, appended by `compose_engine_prompt`, non-removable). The
    AI disclosure and the recording notice are separate per-agent switches, default OFF:
-   when one is on it is said at the very start of the call, before the opening line. The
+   when one is on it is said at the start of the call, in the first turn, right after the
+   opening line (then the memory sentence, when the agent remembers callers). The
    opening line (`[OPENING]`, the agent's greeting) is the client's and is separate from
    both notices; no switch adds, removes or replaces it, so do not write an AI or
    recording notice into it, and do not write a greeting word into a notice.
@@ -119,7 +120,8 @@ After the script, in WHAT YOU CAN DO, where a script cannot override them:
 In HOW TO SPEAK:
 - Never write actions or notes (no brackets is ThinnestAI's rule, D-814).
 - Take a number a few digits at a time; a mobile number has ten digits, never fewer.
-- Prices, quantities and times in English words ("six hundred rupees").
+- Amounts the English way, written in the call's own letters ("వన్ ట్వంటీ రూపీస్", "టూ
+  క్రోర్స్"), never ₹ or digits (D-861; times are said as people say them).
 - Asked to repeat, say it shorter.
 - If the caller talks over the agent, it stops, answers, then carries on where it was. It
   never asks for what the caller already said.
@@ -205,8 +207,10 @@ NOT re-author `[STYLE]`; the template shows it only so the order is legible.
   values back to confirm, no lists, no markdown, one question at a time.
 [T0 FACTS] compiled context block (auto-generated from intake/KB — do not hand-edit;
   regenerate): hours, address, services+prices, top FAQs, staff, booking rules.
-[OPENING] the agent's greeting, one or two short spoken sentences. Said after any
-  notice switched on; with both off, the first thing callers hear (D-708).
+[OPENING] the agent's greeting, one or two short spoken sentences. The first thing
+  callers hear; any notice switched on follows it in the same turn (D-708, D-861). The
+  prompt's START OF THE CALL section tells the model both were already said, so it answers
+  the caller's reply instead of greeting again.
 [TASK FLOW] the conversation goal as a loose state outline (greet → understand need →
   answer/qualify → capture <extraction hints> → book/next-step → wrap). Hints, not a
   rigid script — rigid scripts sound robotic and break on interruptions.
@@ -246,6 +250,19 @@ invitation to trim guardrails.
 
 - Primary language per agent; agent mirrors the caller's language and register, including
   mid-sentence Tenglish. Never force pure formal Telugu on a code-switching caller.
+- **Every spoken word in the language's own letters (D-861, founder 23 Oct 2026).** A Telugu
+  agent writes the English words people use and every amount in Telugu letters (ఆర్డర్,
+  డెలివరీ, సైట్ విజిట్, వన్ ట్వంటీ రూపీస్); a Hindi agent in Devanagari. This reverses the
+  11 Oct 2026 English-letters rule, after the founder heard a competitor's agent written
+  that way as very human-sounding on Cartesia. The register line says it, and
+  every fixed line we write (notices, fillers, openings, examples, per-trade lines) follows
+  it. Instructions to the model stay in English.
+- **Punctuation that breathes, taught by example (D-861).** The SPOKEN REGISTER section
+  quotes three short exchanges of ours per language: a comma after an opener ("ఓకే అండి,"),
+  one idea per sentence, "?" on every question, often two choices, an occasional "!", and
+  the caller's answer said back before the next question. The practice checks note a run of
+  more than 14 words with no comma or sentence end (`no_breath`) and a question without "?"
+  (`unmarked_question`); neither fails a test.
 - **A greeting is not a language switch (D-849).** "Hello", "OK" or a word or two keeps the
   language the agent greeted in; it switches when the caller says a sentence in another
   language or asks. On 21 Oct 2026 a Telugu agent answered a pickup "Hello" in English until
@@ -280,7 +297,7 @@ invitation to trim guardrails.
   gemini-3.1-flash-lite, founder's run) measured textbook words in 46% of Telugu and 22% of
   Hindi replies; four drafted examples cut Hindi to 10% and left Telugu unchanged. A pack is
   the one block for how the agent speaks a language: how people talk on the phone, the words
-  to say (the English loanwords, in English letters), the words not to say, eight example
+  to say (the English loanwords, in the language's own letters since D-861), the words not to say, eight example
   exchanges and "facts given in English keep their English nouns". The primary language
   gets the full pack, each extra language a compact one, and LANGUAGES one line for any
   other language, since every agent follows the caller (founder, 19 Oct 2026; ThinnestAI is

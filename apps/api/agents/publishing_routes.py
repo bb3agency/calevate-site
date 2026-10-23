@@ -271,8 +271,8 @@ class EngineStateOut(Strict):
     #: Tri-state per property: null means the adapter could not read it back, which is
     #: neither a match nor a mismatch (`AgentSnapshot`'s `*_readable` doctrine).
     prompt_applied: bool | None
-    #: The expected first words IN THE GREETING (the notices switched on, plus the opening
-    #: line where the engine speaks one greeting field, D-708) — the first-utterance field,
+    #: The expected first words IN THE GREETING (the opening line where the engine speaks
+    #: one greeting field, then the notices switched on, D-861) — the first-utterance field,
     #: which is what hard rule 5 is about and what OPERATIONS §7 escalates. It was computed
     #: from the PROMPT until P3.3, where our own adapter prepends the notices, so it read
     #: true by construction and could not fail for its own reason. It also answers in the

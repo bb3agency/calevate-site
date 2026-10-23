@@ -252,10 +252,10 @@ caller dials the client's number → ThinnestAI answers with the published agent
    `voice.callStartUrl`, which is our caller lookup (`POST /v1/worker/engine-lookups/thinnest`,
    `worker/engine_lookups.py`, D-716). It is verified with the v2 webhook signature and
    answered within 0.8 s with up to 20 short variables from our CRM for that tenant, or none.
-2. **Opening.** The agent's `greeting` is its first words, verbatim: the notices switched
-   on, then the script's opening line (`compose_first_utterance`, D-669, D-708). The
+2. **Opening.** The agent's `greeting` is its first words, verbatim: the script's opening
+   line, then the notices switched on (`compose_first_utterance`, D-669, D-708, D-861). The
    notices and the opening line are separate things: the two switches decide only whether
-   the AI disclosure and the recording notice are said before the opening line, never
+   the AI disclosure and the recording notice are said after the opening line, never
    whether the opening line is said. A new agent volunteers neither notice (both toggles
    default OFF since D-669); a client switches either on per agent (D-163). With both
    notices off the greeting is the opening line alone; an outbound call's `purpose` is the

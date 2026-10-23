@@ -3081,7 +3081,7 @@ export interface paths {
          *
          *     Send `starter` (`answer_calls`, `call_new_leads` or `call_leads`) to start from a ready-made agent for your business type: its script, opening line and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.
          *
-         *     Both opening notices — the AI disclosure and the recording notice — are written for you from the chosen language and start switched off, so a new agent opens with its own opening line (part of its script). They cannot be supplied here: every agent on this platform has an AI disclosure on file, and no field on this form can change that. Switching a notice on adds it before the opening line; it never replaces the opening line.
+         *     Both opening notices — the AI disclosure and the recording notice — are written for you from the chosen language and start switched off, so a new agent opens with its own opening line (part of its script). They cannot be supplied here: every agent on this platform has an AI disclosure on file, and no field on this form can change that. Switching a notice on adds it after the opening line; it never replaces the opening line.
          */
         post: operations["create_agent_route_v1_agents_post"];
         delete?: never;
@@ -3582,7 +3582,7 @@ export interface paths {
         head?: never;
         /**
          * Switch the AI disclosure and the recording notice on or off (D-163)
-         * @description Each opening notice is separately controllable, per agent, on inbound and outbound agents alike. A notice switched off means the agent does not VOLUNTEER that fact at the start of the call. Neither switch changes the agent's opening line, which is part of its script: a notice switched on is said before it, and with both off the opening line is the first thing callers hear.
+         * @description Each opening notice is separately controllable, per agent, on inbound and outbound agents alike. A notice switched off means the agent does not VOLUNTEER that fact at the start of the call. Neither switch changes the agent's opening line, which is part of its script: a notice switched on is said right after it, and with both off the opening line is the first thing callers hear.
          *
          *     It does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant. Asked whether the call is recorded, it answers according to whether the voice platform records audio: where it does, it says yes; where it does not (the platform's own voice runtime today), it says the audio is not recorded and that a written transcript is kept. That is composed server-side, appended to every agent's instructions after the script, and verified against the voice platform on every publish — no script can withdraw it. `truthful_answer_rule` in the response states the answer in force.
          *

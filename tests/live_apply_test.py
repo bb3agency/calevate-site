@@ -365,8 +365,14 @@ def test_no_notice_template_greets() -> None:
         assert template.strip(), "a notice may never be blank"
         assert not template.lower().startswith(greetings), template
     # The truthful content stays: who is calling, and that the call is recorded.
-    assert all("AI assistant" in t for t in AI_DISCLOSURE_TEMPLATES.values())
-    assert all("record" in t for t in RECORDING_NOTICE_TEMPLATES.values())
+    assert all(
+        any(ai in t for ai in ("AI assistant", "ఏఐ అసిస్టెంట్", "एआई असिस्टेंट"))
+        for t in AI_DISCLOSURE_TEMPLATES.values()
+    )
+    assert all(
+        any(word in t for word in ("record", "రికార్డ్", "रिकॉर्ड"))
+        for t in RECORDING_NOTICE_TEMPLATES.values()
+    )
 
 
 async def test_the_migration_rewrites_only_exact_old_outputs_and_queues_the_client() -> None:

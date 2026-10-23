@@ -939,7 +939,8 @@ async def test_an_answer_only_agent_opens_its_test_call_saying_who_is_calling_an
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Founder, 23 Oct 2026: a receptionist ringing its owner does not thank them for calling.
-    The notices its switches turn on still come first, as in its greeting (hard rule 5)."""
+    The notices its switches turn on follow in the same first turn, as in its greeting (hard
+    rule 5, D-861)."""
     tenant_id, agent_id = await _trial_tenant(direction="inbound")
     await _ready(tenant_id, agent_id)
     async with tenant_session(tenant_id) as session:
@@ -953,11 +954,10 @@ async def test_an_answer_only_agent_opens_its_test_call_saying_who_is_calling_an
         ).scalar_one()
     ctx = await _trial_dial_context(monkeypatch, tenant_id, agent_id)
     assert ctx.opening is not None
-    assert ctx.opening.startswith(ai_line.strip())
-    assert ctx.opening.endswith(
-        "నమస్కారం అండి, నేను Test caller, Trial Tea House నుంచి, ఇది మీ కొత్త receptionist "
-        "test call. ఇప్పుడు మాట్లాడొచ్చా?"
+    assert ctx.opening.startswith(
+        "నమస్కారం అండి, నేను Test caller, Trial Tea House నుంచి, ఇది మీ కొత్త రిసెప్షనిస్ట్ టెస్ట్ కాల్. ఇప్పుడు మాట్లాడొచ్చా?"
     )
+    assert ctx.opening.endswith(ai_line.strip())
 
 
 async def test_a_calling_agent_keeps_its_own_greeting_on_a_test_call(
@@ -968,7 +968,7 @@ async def test_a_calling_agent_keeps_its_own_greeting_on_a_test_call(
     assert ctx.opening is None
 
 
-def test_the_test_call_line_is_the_notices_then_the_language_line() -> None:
+def test_the_test_call_line_is_the_language_line_then_the_notices() -> None:
     row: dict[str, Any] = {
         "direction": "inbound",
         "language_primary": "en-IN",
@@ -983,8 +983,8 @@ def test_the_test_call_line_is_the_notices_then_the_language_line() -> None:
     }
     said = agents_service.trial_call_first_words(row, call_is_recorded=True)  # type: ignore[arg-type]
     assert said == (
-        "This call is recorded. Hello, this is Anjali, your new receptionist at Raghava Organics, "
-        "on a test call. Is now a good time to talk?"
+        "Hello, this is Anjali, your new receptionist at Raghava Organics, on a test call. Is "
+        "now a good time to talk? This call is recorded."
     )
     # A language with no such line keeps the greeting; so does an agent that calls out.
     assert (

@@ -53,8 +53,8 @@ class HostedAgentLimits:
     #: (founder's decision, 6 Oct 2026; `agents/engine_facts.py`).
     facts_in_knowledge: bool = False
     #: Does the engine speak one greeting field verbatim as the whole first utterance? Then
-    #: that field holds the notices AND the agent's opening line (`compose_first_utterance`,
-    #: D-708). False where the notices are spoken and the model then greets from the prompt.
+    #: that field holds the agent's opening line AND the notices (`compose_first_utterance`,
+    #: D-861). False where the notices are spoken and the model then greets from the prompt.
     greeting_is_first_words: bool = False
     #: The engine's own name for its knowledge-search tool, which the prompt names so the
     #: agent searches before saying it does not know. ThinnestAI's is `search_knowledge`, on

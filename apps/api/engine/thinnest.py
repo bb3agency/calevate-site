@@ -1918,8 +1918,8 @@ class ThinnestEngine:
             code="engine_prompt_too_long",
             what="agent's script, with the platform rules added",
         )
-        # The greeting field is the whole first utterance on this engine: the notices the
-        # agent's switches turn on, then its own opening line (D-708). With both notices off
+        # The greeting field is the whole first utterance on this engine: its own opening
+        # line, then the notices the agent's switches turn on (D-861). With both notices off
         # it is the opening line alone, never empty because a switch is off.
         greeting = self._within(
             compose_first_utterance(cfg),
@@ -2939,7 +2939,7 @@ class ThinnestEngine:
 
         `purpose` is required and spoken first on an outbound call (place-call.md:66-72), so
         it carries the same first words the agent greets inbound callers with: the notices
-        switched on, then the opening line (D-669, D-708). Read per dial: a cached copy would
+        then the notices switched on (D-669, D-861). Read per dial: a cached copy would
         speak a superseded disclosure after a republish. The `{{name}}` fields of the opening
         line are filled here from the dial's own variables, unfilled ones dropped, because
         the vendor documents its substitution for the agent's greeting and instructions

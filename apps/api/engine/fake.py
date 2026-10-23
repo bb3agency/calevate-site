@@ -649,8 +649,8 @@ class FakeEngine:
             # substitution finding P3.3 records. It follows the CURRENT config, so an
             # agent republished with both notices off reads back with no greeting — which
             # is what makes D-163's "the vendor actually cleared it" check testable. Under an
-            # engine name whose greeting is the whole first utterance it holds the notices and
-            # the opening line, as that adapter sends them (D-708).
+            # engine name whose greeting is the whole first utterance it holds the opening line
+            # and then the notices, as that adapter sends them (D-861).
             greeting=_held_greeting(self, cfg),
             greeting_readable=True,
             # The fake engine's agent really does reference its attached sources, so this

@@ -108,7 +108,7 @@ export function useAgent(session: Session, agentId: string): UseQueryResult<Agen
  * that resurrects the other's old value.
  *
  * The response is the server's own answer about the new posture — including
- * `opening_line`, the notices now said before the agent's own opening line (never the
+ * `opening_line`, the notices now said after the agent's own opening line (never the
  * opening line itself, D-708), and `engine_synced`, which says whether
  * the change reached the voice platform. Neither is recomputed here: joining the two
  * sentences in TypeScript would be a second implementation of a compliance rule, which

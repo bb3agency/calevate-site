@@ -455,7 +455,7 @@ class LanguagePack:
     review: str
     #: The form the founder approved from the eval; None until then.
     ship: PackChoice | None
-    #: Concepts said as the English word, in English letters.
+    #: Concepts said as the English word, written in the language's own letters (D-861).
     say_english: tuple[str, ...]
     #: (what to say, its English meaning): the language's own spoken forms.
     say_spoken: tuple[tuple[str, str], ...]
@@ -468,7 +468,7 @@ class LanguagePack:
 
 
 #: The English form's sentences. The native form's are the pack's `NativeLeads`.
-_EN_SAY: Final = "Say in English letters, as callers do: "
+_EN_SAY: Final = "Say as the English word, as callers do, in this language's letters: "
 _EN_SAY_SPOKEN: Final = "and say "
 _EN_AVOID: Final = "Never say: "
 _EN_PAIRS: Final = "Never say these; say what follows each instead: "

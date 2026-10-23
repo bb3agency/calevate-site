@@ -117,8 +117,8 @@ _SYSTEM_INSTRUCTION = (
     'for example "Answers calls for the shop: products, prices, orders and delivery", '
     "never just the business name. Write the words the agent will SAY (opening_line, "
     "sounds_like, sample_phrases, example_exchange) in the call language as people really "
-    "speak it on the phone, in the script that language is normally written in, with the "
-    "English words they use kept in English letters (order, delivery, booking, price), "
+    "speak it on the phone, every word in the script that language is normally written in, "
+    "the English words they use too (Telugu: ఆర్డర్, డెలివరీ, బుకింగ్; Hindi: ऑर्डर, डिलीवरी), "
     "never formal written language. Follow the spoken-style guide in the brief exactly: use "
     "the spoken word and never its formal form, use its tags and fillers lightly, say "
     "prices, quantities and times as its number rules say, and copy how its example "
@@ -158,7 +158,8 @@ CONVERT_INSTRUCTION = (
     "The words the agent will SAY (opening_line, sounds_like, sample_phrases, "
     "example_exchange) follow the spoken-style guide in the brief: where the owner's line "
     "uses a formal word the guide lists, use the spoken word instead and keep the meaning; "
-    "English words stay in English letters; numbers and punctuation as the guide says. "
+    "English words in the call language's letters too; numbers and punctuation as the guide "
+    "says. "
     "Return ONLY JSON matching the schema."
 )
 

@@ -85,13 +85,13 @@ def test_the_opening_section_ends_at_the_next_section_wherever_it_sits() -> None
 @pytest.mark.parametrize(
     ("notices", "opening", "expected"),
     [
-        (NOTICES, GREETING, f"{NOTICES} {GREETING}"),
+        (NOTICES, GREETING, f"{GREETING} {NOTICES}"),
         ("", GREETING, GREETING),  # both switches off: the greeting still opens the call
         (NOTICES, "", NOTICES),
         ("", "", ""),
     ],
 )
-def test_first_words_are_the_notices_then_the_opening_line(
+def test_first_words_are_the_opening_line_then_the_notices(
     notices: str, opening: str, expected: str
 ) -> None:
     assert join_first_words(notices, opening) == expected
@@ -108,7 +108,7 @@ def test_the_notice_templates_carry_no_greeting_word() -> None:
     for template in AI_DISCLOSURE_TEMPLATES.values():
         lowered = template.lower()
         assert not lowered.startswith(("namaskaram", "namaste", "hello")), template
-        assert "AI assistant" in template
+        assert any(ai in template for ai in ("AI assistant", "ఏఐ అసిస్టెంట్", "एआई असिस्टेंट")), template
 
 
 # --- ThinnestAI: one greeting field holds the whole first words -----------------------
@@ -125,9 +125,9 @@ async def _created_greeting(cfg: AgentConfig) -> str:
     return str(_body(_agent_write(seen))["greeting"])
 
 
-async def test_the_engine_greeting_is_the_notices_then_the_opening_line() -> None:
+async def test_the_engine_greeting_is_the_opening_line_then_the_notices() -> None:
     cfg = _cfg(system_prompt=_script(), opening_line=NOTICES)
-    assert await _created_greeting(cfg) == f"{NOTICES} {GREETING}"
+    assert await _created_greeting(cfg) == f"{GREETING} {NOTICES}"
 
 
 async def test_with_both_notices_off_the_engine_still_greets_with_the_opening_line() -> None:
@@ -188,7 +188,7 @@ def test_an_engine_whose_model_greets_holds_the_notices_alone() -> None:
     cfg = _config()
     words = {"notices": cfg.opening_line, "first_words": compose_first_utterance(cfg)}
     assert engine_greeting(FakeEngine(), **words) == NOTICES
-    assert engine_greeting(_thinnest(), **words) == f"{NOTICES} {GREETING}"
+    assert engine_greeting(_thinnest(), **words) == f"{GREETING} {NOTICES}"
 
 
 # --- the read-back compares against the same first words ------------------------------
@@ -207,7 +207,7 @@ def _snapshot(cfg: AgentConfig, greeting: str) -> AgentSnapshot:
 def test_an_engine_still_holding_only_the_notices_is_not_applied() -> None:
     cfg = _config()
     engine = _thinnest()
-    assert judge(engine, cfg, _snapshot(cfg, f"{NOTICES} {GREETING}")).disclosure_applied is True
+    assert judge(engine, cfg, _snapshot(cfg, f"{GREETING} {NOTICES}")).disclosure_applied is True
     assert judge(engine, cfg, _snapshot(cfg, NOTICES)).disclosure_applied is False
 
 

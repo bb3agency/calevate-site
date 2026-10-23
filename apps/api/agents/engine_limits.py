@@ -50,7 +50,7 @@ log = get_logger(__name__)
 PROMPT_TOO_LONG = "engine_prompt_too_long"
 OPENING_TOO_LONG = "engine_greeting_too_long"
 OPENING_REQUIRED = "engine_opening_required"
-#: A notice switch refused because the notice would not fit before the opening line (D-846).
+#: A notice switch refused because the notice would not fit after the opening line (D-846).
 NOTICE_NEEDS_ROOM = "opening_line_too_long_for_notice"
 MINUTE_UNPRICED = "engine_minute_unpriced"
 #: The alarm that tells the operator a client was refused for want of a minute rate.
@@ -192,7 +192,7 @@ def refuse_opening_over_limit(
         code=OPENING_TOO_LONG,
         title="This opening line is too long",
         detail=(
-            f"With the notices said before it, what the agent says first would be "
+            f"With the notices said after it, what the agent says first would be "
             f"{length:,} characters, and at most {limit:,} can be spoken there. Nothing was "
             "saved."
         ),
@@ -206,7 +206,7 @@ def refuse_over_engine_limits(engine: VoiceEngine, cfg: AgentConfig) -> None:
     if limits.prompt_chars is not None:
         _check_prompt(engine, cfg, limits.prompt_chars)
     # The text the engine holds as the greeting on every direction: on ThinnestAI the
-    # notices switched on and then the opening line (D-708), so the ceiling and the
+    # opening line and then the notices switched on (D-861), so the ceiling and the
     # outbound requirement apply to both together.
     length = greeting_chars(
         engine, notices=cfg.opening_line, opening=opening_line_of(cfg.system_prompt)

@@ -980,19 +980,19 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect(screen.getByRole("link", { name: "Edit the opening line" })).toBeTruthy();
   });
 
-  it("quotes the notices and then the opening line when the notices are on", async () => {
+  it("quotes the opening line and then the notices when the notices are on (D-861)", async () => {
     const GREETING = "How can I help you today?";
     await renderClientPage(
       page,
       routes({
         "/v1/agents/agent-1": agent({
           script_opening_line: GREETING,
-          first_words: `${OPENING} ${GREETING}`,
+          first_words: `${GREETING} ${OPENING}`,
         }),
       }),
     );
 
-    await screen.findByText(`“${OPENING} ${GREETING}”`);
+    await screen.findByText(`“${GREETING} ${OPENING}”`);
   });
 
   it("sends only the switch that moved", async () => {

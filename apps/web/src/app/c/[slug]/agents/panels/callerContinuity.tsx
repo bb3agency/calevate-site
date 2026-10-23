@@ -77,7 +77,7 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
 
   const needsAttestation = problemCode(setCallerMemory.error) === NEEDS_ATTESTATION;
   const statement = needsAttestation ? remediation(setCallerMemory.error) : null;
-  // The memory sentence is said before the opening line, and the line left it no room: the
+  // The memory sentence shares the greeting with the opening line, which left it no room: the
   // fix is offered here, where the switch was refused, rather than on the script page.
   const room = agent.greeting_budget?.opening_room_with_caller_memory;
   const needsRoom =

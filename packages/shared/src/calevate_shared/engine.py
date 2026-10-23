@@ -2734,9 +2734,10 @@ def platform_rules_preamble(cfg: AgentConfig) -> str:
 #: turn asked the same question three times, spoke the caller's line and read out "[It is
 #: 11:03 am now.]"; the platform's own rules now cover the question count and the brackets.
 #: The test loop checks the same shapes on every reply (`agents/test_conversations.
-#: speech_problems`). The voice rules (punctuation for a voice, prices in words, English
-#: words kept in English) are the founder's of the same day for Cartesia, which reads
-#: symbols and punctuation literally; what is particular to one language (its fillers, its
+#: speech_problems`). The voice rules (punctuation for a voice, prices in words) are the
+#: founder's of the same day for Cartesia, which reads symbols and punctuation literally;
+#: which letters English words are written in is each language's register line (every word
+#: in the language's own letters since D-861); what is particular to one language (its fillers, its
 #: polite words, its textbook words) is that language's line in `spoken_style.json`, not
 #: here.
 #:
@@ -2784,6 +2785,10 @@ _REGISTER_BULLET: Final = (
 #: - The close says what happens next once, so the caller is not left with "noted, thanks".
 #: The turn timer stays at 0.25 s (founder, 21 Oct 2026); the read-back says what was heard,
 #: never "noted", because the echo once became "two kg noted" with nothing noted.
+#: Amounts are said the English way and written in the call language's own letters, never as
+#: digits; times as people say them (founder, 23 Oct 2026, D-861). The examples are Telugu
+#: because a Telugu agent said "రెండు కోట్ల" where the founder's rule is the English amount,
+#: and its call writes every word in Telugu letters.
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
     "- One or two short sentences, then wait; more only if asked.\n"
@@ -2798,14 +2803,14 @@ VOICE_STYLE_GUIDANCE: Final = (
     '- Write for a voice: a comma where you breathe, "?" on every question. No markdown, '
     "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
     "time.\n"
-    '- Prices, quantities and times in English words ("one twenty rupees", "one kg"), never '
-    "₹ or digits.\n"
+    '- Amounts the English way in the call\'s letters ("వన్ ట్వంటీ రూపీస్", "టూ క్రోర్స్"), '
+    "never ₹ or digits.\n"
     "- Read back what you heard and wait for a yes; numbers a few digits at a time, a mobile "
     "has ten.\n"
     f"{_REGISTER_BULLET}"
     "- Could not hear? Ask them to repeat it. Asked to repeat? Say it shorter.\n"
     "- Never announce a search or a wait, or narrate one.\n"
-    "- Close with what happens next and anything else, then say goodbye once. End only after a "
+    "- Close with what happens next and anything else, then one goodbye. End only after a "
     "goodbye or when asked, never while they talk or ask."
 )
 #: With a language pack (D-830) the pack says how the language is spoken and LANGUAGES which
@@ -2929,10 +2934,13 @@ CANNOT_HELP_HEADER: Final = "--- PLATFORM RULES: WHAT YOU CAN DO ---"
 #: The offer clause is D-856's: on the call of 22 Oct 2026 the agent asked "shall I confirm
 #: the order?" with nothing able to confirm one, then could not keep the yes. The tool clauses
 #: came from the engine's default call rules when `CALL_INSTRUCTIONS` stopped repeating them.
+#: Phrased as "anything ... booked or done" rather than naming orders: under the wording that
+#: named "an order's placed or booked", a real-estate agent told a caller a site visit was
+#: booked with no action behind it (trial call of 23 Oct 2026, D-861).
 ACTION_CLAIM_RULE: Final = (
-    "- Never say an order's placed or booked, details saved or anything sent unless a tool "
-    "did it on this call, or offer what no tool of yours does; say the team will confirm. Say "
-    "a tool's figure exactly, a failed one plainly.\n"
+    "- Never say anything is booked or done unless a tool did it on this call: say it is "
+    "noted and the team will confirm, and offer nothing no tool does. Say a tool's figure "
+    "exactly, a failed one plainly.\n"
     '- Never say "as I said" about anything you did not say on this call.'
 )
 
@@ -3574,11 +3582,11 @@ class AgentConfig(BaseModel):
     #: sentence (`role_sentence`); empty leaves the sentence generic. Excluded from every
     #: dump for `detect_machines`' reason.
     business: str = Field(default="", exclude=True)
-    # THE NOTICES THE AGENT SAYS BEFORE ITS OPENING LINE — composed by us from the agent's
-    # two notice switches (`compose_opening_line`), never typed by a client. Despite the
+    # THE NOTICES THE AGENT SAYS RIGHT AFTER ITS OPENING LINE — composed by us from the
+    # agent's notice switches (`compose_opening_line`), never typed by a client. Despite the
     # name it is NOT the script's opening line (the greeting, `CallScript.opening_line`):
-    # the switches decide only whether these sentences are said, and the greeting follows
-    # them either way (D-708). An engine with one greeting field speaks
+    # the switches decide only whether these sentences are said, and the greeting comes
+    # first either way (D-708, D-861). An engine with one greeting field speaks
     # `compose_first_utterance(cfg)` there. The prompt quotes it as already said
     # (`_start_of_call_section`).
     #
@@ -3794,7 +3802,7 @@ class DisclosurePosture(BaseModel):
 
 
 def compose_opening_line(posture: DisclosurePosture, *, call_is_recorded: bool) -> str:
-    """The first utterance, from the notices this agent has switched ON.
+    """The notices this agent has switched ON, said right after its opening line.
 
     THE ONE PRODUCER of `AgentConfig.opening_line`, so that "what does this agent open
     with" has exactly one answer in this codebase — the reason `effective_call_cap`
@@ -3806,8 +3814,8 @@ def compose_opening_line(posture: DisclosurePosture, *, call_is_recorded: bool) 
         both on     "…AI assistant. This call is being recorded."
         AI only     "…AI assistant."
         recording   "This call is being recorded."
-        neither     "" — the agent volunteers neither notice and opens on its opening line.
-        + memory    "… I keep a short note of what you ask about…"
+        neither     "" — the agent volunteers neither notice and says only its opening line.
+        + memory    "… So I remember it when you call again, I keep a short note…"
 
     `call_is_recorded` is the ENGINE's fact (`EngineCapabilities.records_audio`), and when
     it is False the recording sentence is dropped whatever `recording_notice_enabled` says:
@@ -3819,7 +3827,7 @@ def compose_opening_line(posture: DisclosurePosture, *, call_is_recorded: bool) 
     does.
 
     THE EMPTY CASE IS A CHOICE, NOT A GAP (D-163). It does not reach the caller as
-    silence: the agent's own opening line is said first (`join_first_words`). What
+    silence: the agent's own opening line is still said (`join_first_words`). What
     it never means is that the agent will DENY being an AI or misstate the recording —
     that answer is `truthful_answer_directive`, which `compose_engine_prompt` appends to
     every prompt and which is composed from nothing on this posture.
@@ -3841,22 +3849,25 @@ def compose_opening_line(posture: DisclosurePosture, *, call_is_recorded: bool) 
 
 
 def join_first_words(notices: str, opening: str) -> str:
-    """What a caller hears first: the notices switched on, then the agent's opening line.
+    """What a caller hears first: the agent's opening line, then the notices switched on.
 
     The two halves stay separate things (D-708): the switches decide only whether the
     notices are said, never whether the opening line is, and the opening line never stands
-    in for a notice. With both notices off this is the opening line alone; with no opening
-    line written it is the notices alone. One space, for `compose_opening_line`'s reason.
+    in for a notice. The greeting comes first and the notices follow in the same turn,
+    before the caller says anything (founder, 23 Oct 2026, D-861, reversing D-708's
+    notices-first order after a trial call opened on the memory sentence). With both notices
+    off this is the opening line alone; with no opening line written it is the notices
+    alone. One space, for `compose_opening_line`'s reason.
     """
-    return " ".join(part for part in (notices.strip(), opening.strip()) if part)
+    return " ".join(part for part in (opening.strip(), notices.strip()) if part)
 
 
 def compose_first_utterance(cfg: AgentConfig) -> str:
     """`cfg`'s first words, for an engine that speaks one greeting field verbatim.
 
-    The notices come from `cfg.opening_line`; the opening line is read from the script the
-    engine will hold (`call_script.opening_line_of`), so an experiment arm greets with its
-    own script's line.
+    The opening line is read from the script the engine will hold
+    (`call_script.opening_line_of`), so an experiment arm greets with its own script's line;
+    the notices that follow it come from `cfg.opening_line`.
     """
     return join_first_words(cfg.opening_line, opening_line_of(cfg.system_prompt))
 
@@ -3877,6 +3888,15 @@ WHO_IS_CALLING_RULE: Final = (
 )
 
 
+#: For an agent that only answers calls: on a free-trial test call it rings its owner, and the
+#: engine speaks a calling-you line from the dial (`CallContext.opening`) in place of the
+#: [OPENING] line (D-858). Without this the model, told its [OPENING] line was said, greeted
+#: with it after the owner's "Hello" on the trial call of 23 Oct 2026 (D-861).
+TEST_CALL_OPENING_RULE: Final = (
+    " On a test call you place, a line on who is calling and why is said in its place."
+)
+
+
 def _start_of_call_section(cfg: AgentConfig) -> str:
     """What the caller heard before the model's first turn, framed as already said (D-845).
 
@@ -3886,20 +3906,24 @@ def _start_of_call_section(cfg: AgentConfig) -> str:
     instructions, the notices read as something to say, and a model repeated them in later
     replies and greeted again. So the notices are quoted verbatim, which keeps the publish
     read-back's containment check on `cfg.opening_line` (`agents/verification`), and the
-    opening line is named by its script section rather than quoted twice. A caller who asks
-    still gets both answers: the truthful-answer block binds last.
+    opening line is named by its script section rather than quoted twice. The model is told
+    what to do with the caller's first words as well as what not to do, because "never greet
+    again" alone still let it greet a second time after the caller's "Hello" (D-861). A
+    caller who asks still gets both answers: the truthful-answer block binds last.
     """
     notices = cfg.opening_line.strip()
     opening = bool(opening_line_of(cfg.system_prompt))
     if not notices and not opening:
         return ""
     if notices and opening:
-        said = f'"{notices}", then your [OPENING] line'
+        said = f'your [OPENING] line, then "{notices}"'
     else:
         said = f'"{notices}"' if notices else "your [OPENING] line"
+    test_call = TEST_CALL_OPENING_RULE if cfg.direction == "inbound" and opening else ""
     return (
-        f"{START_OF_CALL_HEADER}\nSaid for you before your first reply: {said}. Never repeat it "
-        f"or greet again.{'' if cfg.direction == 'outbound' else WHO_IS_CALLING_RULE}"
+        f"{START_OF_CALL_HEADER}\nSaid for you as your first turn: {said}.{test_call} Never "
+        "say it again or greet again: answer the caller's reply."
+        f"{'' if cfg.direction == 'outbound' else WHO_IS_CALLING_RULE}"
     )
 
 
@@ -5896,6 +5920,7 @@ __all__ = [
     "REPLY_TOKENS_MAX",
     "REPLY_TOKENS_MIN",
     "ROLE_BUSINESS_MAX_CHARS",
+    "TEST_CALL_OPENING_RULE",
     "THIS_CALL_HEADER",
     "VOICE_STYLE_GUIDANCE",
     "WEBHOOK_AUTH_BY_ENGINE",

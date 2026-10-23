@@ -99,7 +99,7 @@ class AgentOut(BaseModel):
     #: fact only the flag carries.
     caller_memory_notice_line: str
     caller_memory_enabled: bool
-    #: The NOTICES this agent says before its opening line, composed by the server from the
+    #: The NOTICES this agent says after its opening line, composed by the server from the
     #: two switches. Empty string = both off: the agent volunteers neither and opens on its
     #: opening line. Composed here rather than left to the screen because a UI that
     #: re-joined the sentences itself would be a second implementation of a compliance rule.
@@ -108,7 +108,7 @@ class AgentOut(BaseModel):
     #: switches above never add, remove or replace it (D-708). Empty when none is written,
     #: or when the script is free text without an `[OPENING]` section.
     script_opening_line: str = ""
-    #: What a caller hears first: `opening_line`, then `script_opening_line`.
+    #: What a caller hears first: `script_opening_line`, then `opening_line` (D-861).
     first_words: str = ""
     #: How much room the opening line has in what the agent says first. Null where the
     #: calling system sets no ceiling there.

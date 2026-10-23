@@ -99,7 +99,7 @@ def test_positive_names_the_spoken_words_and_quotes_no_textbook_one() -> None:
     assert style is not None
     formal = [f for f, _ in style.prompt_swaps] + list(FIXTURE.positive_extra["te-IN"])
     assert [word for word in formal if word in layer] == []
-    for spoken in ("thanks అండి", "help", "details", "product", "area", "quantity"):
+    for spoken in ("థాంక్స్ అండి", "హెల్ప్", "డీటెయిల్స్", "ప్రొడక్ట్", "ఏరియా", "క్వాంటిటీ"):
         assert spoken in layer
 
 

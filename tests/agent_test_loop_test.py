@@ -227,7 +227,7 @@ def test_textbook_words_are_a_note_ours_to_fix_and_the_judge_decides_the_task() 
     )
     assert result["verdict"] == "passed" and result["owner"] is None
     (note,) = result["sounds"]
-    assert note["kind"] == "formal_words" and "sorry అండి" in note["reason"]
+    assert note["kind"] == "formal_words" and "సారీ అండి" in note["reason"]
     assert {"క్షమించండి", "ధర", "ధన్యవాదాలు"} <= set(result["formal_words"])
 
 

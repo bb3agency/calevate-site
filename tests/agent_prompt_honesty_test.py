@@ -30,6 +30,7 @@ from calevate_shared.call_script import CallScript, compile_call_script
 from calevate_shared.engine import (
     ACTION_CLAIM_RULE,
     START_OF_CALL_HEADER,
+    TEST_CALL_OPENING_RULE,
     TRUTHFUL_ANSWER_MARKER,
     VOICE_STYLE_GUIDANCE,
     AgentConfig,
@@ -71,13 +72,34 @@ def test_the_notices_are_quoted_as_already_said_and_never_repeated() -> None:
     cfg = _cfg()
     start = _layer(cfg, "notices")
     assert start.startswith(f"{START_OF_CALL_HEADER}\n")
-    assert f'"{NOTICES}", then your [OPENING] line' in start
-    assert "Never repeat it or greet again." in start
+    assert f'your [OPENING] line, then "{NOTICES}"' in start
+    assert "Never say it again or greet again: answer the caller's reply." in start
     prompt = compose_engine_prompt(cfg)
     # The publish read-back scores containment of the notices (`agents/verification`), and a
     # caller who asks is still answered by the block that binds last.
     assert NOTICES in prompt
     assert prompt.rindex(TRUTHFUL_ANSWER_MARKER) > prompt.index(START_OF_CALL_HEADER)
+
+
+def test_every_word_and_amount_is_written_in_the_languages_letters() -> None:
+    """D-861 (founder, 23 Oct 2026): a Telugu agent writes English words and amounts in
+    Telugu letters, amounts the English way, and learns where to breathe from the examples."""
+    register = _layer(_cfg(), "spoken_register")
+    assert "every word in Telugu letters, English words too" in register
+    assert "English letters" not in register
+    assert "ఓకే అండి, డెలివరీ. మీది ఏ ఏరియా?" in register
+    assert '"వన్ ట్వంటీ రూపీస్", "టూ క్రోర్స్"' in VOICE_STYLE_GUIDANCE
+
+
+def test_an_answering_agent_is_told_its_test_call_opens_another_way() -> None:
+    """D-861: on a trial test call the engine speaks a calling-you line in place of the
+    [OPENING] line, and a model told only that its [OPENING] line was said greeted with it
+    after the owner's "Hello". An agent that calls out has no such call."""
+    inbound = _cfg()
+    assert TEST_CALL_OPENING_RULE in _layer(inbound, "notices")
+    outbound = inbound.model_copy(update={"direction": "outbound"})
+    assert TEST_CALL_OPENING_RULE not in _layer(outbound, "notices")
+    assert TEST_CALL_OPENING_RULE not in _layer(_cfg(opening=""), "notices")
 
 
 def test_an_agent_with_only_one_of_them_is_told_about_that_one() -> None:
@@ -90,8 +112,8 @@ def test_an_agent_with_only_one_of_them_is_told_about_that_one() -> None:
 
 def test_the_chat_hears_the_honesty_rules_the_call_rules_would_have_given() -> None:
     assert "Never re-ask what they said or repeat a sentence." in VOICE_STYLE_GUIDANCE
-    assert "Never say an order's placed or booked" in ACTION_CLAIM_RULE
-    assert "say the team will confirm." in ACTION_CLAIM_RULE
+    assert "Never say anything is booked or done unless a tool" in ACTION_CLAIM_RULE
+    assert "say it is noted and the team will confirm" in ACTION_CLAIM_RULE
     assert "what happens next" not in ACTION_CLAIM_RULE
     prompt = compose_engine_prompt(_cfg())
     assert "No answer after searching, or still unclear after two tries: say so, then" in prompt

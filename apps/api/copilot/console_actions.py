@@ -1897,7 +1897,7 @@ AGENT_EDIT: Final = ActionTool(
         "agent_edit",
         "Change a DRAFT or PAUSED agent's language, voice, opening line, or opening notices "
         "(saying it is an AI, saying the call is recorded). A notice switched on is said "
-        "before the opening line. For a LIVE agent use `agent_edit_live`." + DOES_IT,
+        "after the opening line. For a LIVE agent use `agent_edit_live`." + DOES_IT,
         _AGENT_EDIT_PROPERTIES,
     ),
     plan=_plan_agent_edit,

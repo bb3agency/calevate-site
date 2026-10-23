@@ -33,6 +33,7 @@ SCOPING (this suite shares a database with every other): every tenant is minted 
 from __future__ import annotations
 
 import ast
+import importlib.util
 import uuid
 from pathlib import Path
 
@@ -316,6 +317,19 @@ def _script_rewrite() -> dict[str, str]:
 SCRIPT_REWRITE = _script_rewrite()
 
 
+def _reword() -> dict[str, str]:
+    """D-861's exact (previous default -> new) memory sentences, from its migration."""
+    path = MIGRATION.parent / "c3e8a1f5d702_notices_in_own_letters.py"
+    spec = importlib.util.spec_from_file_location("_revision_c3e8a1f5d702", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return dict(module._EXACT["caller_memory_notice_line"])
+
+
+REWORD = _reword()
+
+
 def _migration_notices() -> dict[str, str]:
     """The migration's `_NOTICE`, read as SOURCE rather than imported.
 
@@ -343,11 +357,12 @@ def test_the_migrations_copy_of_the_sentences_is_byte_identical() -> None:
     the change and after it would open with different sentences in the same language.
 
     D-745 moved the Telugu and Hindi sentences into their own script, and its migration
-    rewrites exactly the old outputs; so the old copy, carried through that rewrite, is
-    today's table. The staged languages (D-855) came later, with no agent holding one, so
-    the copy is compared over the languages it knew."""
+    rewrites exactly the old outputs, and D-861 rewrites them again; so the old copy, carried
+    through both rewrites, is today's table. The staged languages (D-855) came later, with no
+    agent holding one, so the copy is compared over the languages it knew."""
     rewritten = {
-        lang: SCRIPT_REWRITE.get(line, line) for lang, line in _migration_notices().items()
+        lang: REWORD.get(SCRIPT_REWRITE.get(line, line), SCRIPT_REWRITE.get(line, line))
+        for lang, line in _migration_notices().items()
     }
     staged = set(staged_language_tags())
     assert rewritten == {

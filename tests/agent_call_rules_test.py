@@ -219,7 +219,7 @@ def test_the_prompt_carries_the_fabrication_rules() -> None:
     assert 'Never say "as I said" about anything' in prompt
     assert "Never guess or add to a fact: a price, an offer, stock" in prompt
     assert "Read back what you heard" in prompt and "Read back what you note" not in prompt
-    assert "say goodbye once" in prompt
+    assert "then one goodbye" in prompt
 
 
 # --- cost: our block is the same on every turn --------------------------------------------

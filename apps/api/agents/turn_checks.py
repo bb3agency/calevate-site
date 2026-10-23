@@ -61,6 +61,8 @@ Kind = Literal[
     "false_recall",
     # The calls of 20-22 Oct 2026 (D-856): "do you want to know the price?" instead of it.
     "asks_to_tell",
+    # The founder's comparison of 23 Oct 2026 (D-861): a long stretch with no breath mark.
+    "no_breath",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -86,6 +88,7 @@ SOUND_KINDS: Final = frozenset(
         "foreign_script",
         "repeated_turn",
         "asks_to_tell",
+        "no_breath",
     }
 )
 #: What breaks the caller's task whatever the words: the caller's part said for them, a
@@ -109,6 +112,14 @@ MAX_SENTENCES: Final = 2
 #: Words a sentence needs to count towards `MAX_SENTENCES`: "Sure." or "సరే అండి." is a
 #: courtesy, not a second point.
 MIN_COUNTED_WORDS: Final = 3
+#: The most words a reply may run without a comma or a sentence end (D-861). Cartesia paces
+#: speech by its punctuation (docs.cartesia.ai sonic-3 prompting tips, 23 Oct 2026, REPORTED),
+#: so a long unmarked run is said in one breath. Our own example turns run two to six words between
+#: marks; 14 is more than two such clauses back to back, so a turn written the way they are
+#: never reaches it. A choice of ours, not a measured threshold.
+BREATH_MAX_WORDS: Final = 14
+#: What counts as a place to breathe.
+_BREATH_MARK: Final = re.compile(r"[,.!?;:।]")
 _QUOTE_MAX: Final = 80
 
 
@@ -649,6 +660,16 @@ def turn_problems(reply: str, *, caller_said: str = "", language: str = "") -> l
                 )
             )
     found += _question_problems(parts)
+    run = max((len(piece.split()) for piece in _BREATH_MARK.split(reply)), default=0)
+    if run > BREATH_MAX_WORDS:
+        found.append(
+            TurnProblem(
+                "no_breath",
+                f"It ran {run} words without a comma or a full stop, so the voice says them in "
+                "one breath. A comma after an opener and one idea per sentence give it places "
+                "to pause.",
+            )
+        )
     meta = next((s for s in parts if _is_question(s) and _ASKS_TO_TELL.search(s)), None)
     if meta:
         found.append(
@@ -727,8 +748,11 @@ _HI_NUMBER: Final = (
 #: language's `prices` number rule says the English way (`LanguageStyle.native_price_words`):
 #: Telugu's does ("six hundred rupees", as shops in Hyderabad say it, D-744), Hindi's allows
 #: "एक सौ बीस रुपये".
+#: Telugu's also catches a big amount in Telugu number words ("రెండు కోట్ల"), which its
+#: `lakhs` rule says the English way, written in Telugu letters ("టూ క్రోర్స్", D-861). A
+#: time in Telugu number words ("రెండు గంటలకు") is how people say a time and is not flagged.
 _NATIVE_PRICE: Final[dict[str, re.Pattern[str]]] = {
-    "te": re.compile(rf"(?:(?:{_TE_NUMBER})\s+)*(?:{_TE_NUMBER})\s*రూపాయ"),
+    "te": re.compile(rf"(?:(?:{_TE_NUMBER})\s+)*(?:{_TE_NUMBER})\s*(?:రూపాయ|కోట|లక్ష)"),
     "hi": re.compile(rf"(?:(?:{_HI_NUMBER})\s+)*(?:{_HI_NUMBER})\s*(?:रुपय|रुपए|रुपये|रूपये)"),
 }
 #: Digits beside a unit written in an Indian script ("1 కిలో"), which `_MONEY_DIGITS` (Latin
@@ -772,7 +796,7 @@ def _script_and_number_problems(reply: str, language: str) -> list[TurnProblem]:
     said = in_words or _DIGIT_UNIT.search(reply)
     if said:
         how = (
-            'the English way, as shops do ("six hundred rupees", "one kg")'
+            'the English way, as shops do, in the call\'s letters ("సిక్స్ హండ్రెడ్ రూపీస్", "టూ క్రోర్స్")'
             if in_words
             else "in words, as shops do"
         )

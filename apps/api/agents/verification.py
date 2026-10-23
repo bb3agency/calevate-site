@@ -283,7 +283,7 @@ def _greeting_verdict(
     """Is the engine's greeting what this agent's switches and opening line say it should be?
 
     The expected greeting is `engine_greeting`: on an engine that speaks one field as the
-    whole first utterance, the notices switched on and then the opening line (D-708); on
+    whole first utterance, the opening line and then the notices switched on (D-861); on
     the owned runtime, the notices alone.
 
     * **A greeting is expected** — the ordinary case. Containment, per
