@@ -393,14 +393,9 @@ async def test_the_call_translation_meter_passes_the_cached_count(
     every input token at the full rate."""
     seen: dict[str, Any] = {}
 
-    @contextlib.asynccontextmanager
-    async def _session(tenant_id: Any) -> AsyncIterator[None]:
-        yield None
-
     async def _record(session: Any, **kwargs: Any) -> None:
         seen.update(kwargs)
 
-    monkeypatch.setattr(call_translation, "tenant_session", _session)
     monkeypatch.setattr(call_translation, "record_ai_assist_usage", _record)
     monkeypatch.setattr(call_translation, "llm_price_is_billable", lambda model: True)
     import uuid
@@ -409,7 +404,7 @@ async def test_the_call_translation_meter_passes_the_cached_count(
         prompt_tokens=100, output_tokens=10, cached_prompt_tokens=60, cached_reported=True
     )
     await call_translation.meter_language_pass(
-        uuid.uuid4(), uuid.uuid4(), usage, feature="call_translation"
+        None, uuid.uuid4(), uuid.uuid4(), usage, feature="call_translation"
     )
     assert seen["cached_tokens_in"] == 60
 

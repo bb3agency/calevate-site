@@ -260,6 +260,38 @@ async def test_the_job_translates_redacted_words_and_bills_the_client(
     assert billed == [ASSIST_FEATURE_CALL_TRANSLATION]
 
 
+async def test_the_charge_commits_with_the_english_or_not_at_all(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: the pass is metered in a transaction of its own. A result write that then
+    fails sends the job round again, the pass runs again under a fresh ref, and the owner
+    is charged twice for one translation."""
+    tenant_id, call_id, _slug, headers = await _telugu_call()
+    async with _client() as http:
+        await http.post(f"/v1/calls/{call_id}/translation", headers=headers)
+    _stub_pass(monkeypatch, {})
+    original = call_language.run_language_pass
+
+    async def _with_usage(**kwargs: Any) -> LanguagePass:
+        done = await original(**kwargs)
+        done.usage = SimpleNamespace(prompt_tokens=10, output_tokens=5, cached_prompt_tokens=0)  # type: ignore[assignment]
+        return done
+
+    monkeypatch.setattr(call_language, "run_language_pass", _with_usage)
+    seen: dict[str, Any] = {}
+
+    async def _meter(session: Any, *args: Any, feature: str, **kwargs: Any) -> None:
+        sql = "SELECT count(text_en) FROM transcript_turns WHERE call_id = :c"
+        seen["inside"] = (await session.execute(text(sql), {"c": call_id})).scalar()
+        async with tenant_session(tenant_id) as other:
+            seen["outside"] = (await other.execute(text(sql), {"c": call_id})).scalar()
+
+    monkeypatch.setattr(call_translation, "meter_language_pass", _meter)
+    payload = {"tenant_id": str(tenant_id), "call_id": str(call_id), "payer": "client"}
+    assert await call_translation.translate_call_job({"job_try": 1}, payload) == "ready"
+    assert seen == {"inside": 2, "outside": 0}, "metered in the transaction writing the English"
+
+
 async def test_a_provider_failure_leaves_try_again_on_screen(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
