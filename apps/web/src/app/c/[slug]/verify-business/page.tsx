@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
+import { RadioGroup } from "@/components/arc/radio-group";
 import { FileDrop, FileSummary } from "@/components/fileDrop";
 
 import { ChecklistRows, type ChecklistRow } from "@/components/console/checklist";
@@ -12,11 +14,8 @@ import {
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
   formatISTDay,
@@ -160,6 +159,7 @@ function PledgeCard({
   access: WriteAccess;
 }) {
   const accept = useAcceptPledge(session);
+  const acceptFeedback = useActionFeedback(accept, { errorDisplay: "inline" });
   const [read, setRead] = useState(false);
   const acceptedOn = formatISTDay(pledge.accepted_at);
   return (
@@ -191,14 +191,15 @@ function PledgeCard({
             />
             I have read the pledge and the disclosure, and accept them on behalf of the business.
           </label>
-          <button
-            type="button"
-            className={PRIMARY_BUTTON}
-            disabled={!access.allowed || !read || accept.isPending}
-            onClick={() => accept.mutate(pledge)}
+          <ActionButton
+            status={acceptFeedback.status}
+            disabled={!access.allowed || !read}
+            onClick={() => acceptFeedback.run(pledge)}
+            pendingLabel="Accepting…"
+            successLabel="Accepted"
           >
             Accept the pledge
-          </button>
+          </ActionButton>
           <ProblemNotice error={accept.error} />
         </div>
       )}
@@ -240,22 +241,17 @@ function VerifyCards({ session, record, access }: { session: Session; record: Ky
       {(!locked || record.digilocker_outstanding) && detailsDone && business && (
         <Card title="Verify the owner">
           {!record.digilocker_outstanding && (
-            <fieldset className="mb-4 flex flex-wrap gap-4 text-sm text-ink">
-              <legend className={FIELD_LABEL}>How would you like to verify?</legend>
-              <label className="flex items-center gap-2">
-                <input type="radio" name="kyc-path" checked={path === "manual"} onChange={() => setPath("manual")} />
-                Upload the owner&apos;s PAN card for our review
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="kyc-path"
-                  checked={path === "digilocker"}
-                  onChange={() => setPath("digilocker")}
-                />
-                Verify with DigiLocker
-              </label>
-            </fieldset>
+            <RadioGroup
+              className="mb-4"
+              label="How would you like to verify?"
+              name="kyc-path"
+              options={[
+                { value: "manual", label: "Upload the owner's PAN card for our review" },
+                { value: "digilocker", label: "Verify with DigiLocker" },
+              ]}
+              value={path}
+              onChange={(value) => setPath(value === "digilocker" ? "digilocker" : "manual")}
+            />
           )}
           {locked && <RestrictionNote reason={access.write.reason} />}
           {path === "manual" && !record.digilocker_outstanding ? (
@@ -271,6 +267,7 @@ function VerifyCards({ session, record, access }: { session: Session; record: Ky
 
 function DetailsCard({ session, record, access }: { session: Session; record: KycRecord; access: WriteAccess }) {
   const save = useSaveBusinessDetails(session);
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const [entityType, setEntityType] = useState(record.entity_type ?? "");
   const [name, setName] = useState(record.legal_business_name ?? "");
   const [gst, setGst] = useState<boolean | null>(record.gst_registered ?? null);
@@ -311,15 +308,17 @@ function DetailsCard({ session, record, access }: { session: Session; record: Ky
             ))}
           </select>
         </label>
-        <fieldset className="block text-sm text-ink">
-          <legend className={FIELD_LABEL}>Registered for GST?</legend>
-          <label className="mr-4 inline-flex items-center gap-2">
-            <input type="radio" name="gst" checked={gst === true} onChange={() => setGst(true)} /> Yes
-          </label>
-          <label className="inline-flex items-center gap-2">
-            <input type="radio" name="gst" checked={gst === false} onChange={() => setGst(false)} /> No
-          </label>
-        </fieldset>
+        <RadioGroup
+          label="Registered for GST?"
+          name="gst"
+          inline
+          options={[
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No" },
+          ]}
+          value={gst === null ? null : gst ? "yes" : "no"}
+          onChange={(value) => setGst(value === "yes")}
+        />
         {gst && (
           <label className="block">
             <span className={FIELD_LABEL}>GSTIN</span>
@@ -330,7 +329,9 @@ function DetailsCard({ session, record, access }: { session: Session; record: Ky
               maxLength={15}
               aria-invalid={gstinBad}
             />
-            {gstinBad && gstin && <span className={FIELD_HINT}>A GSTIN is 15 characters, like 36AABCT1234C1Z5.</span>}
+            {gstinBad && gstin && (
+              <span className="mt-1 block text-sm text-danger">A GSTIN is 15 characters, like 36AABCT1234C1Z5.</span>
+            )}
           </label>
         )}
         <label className="block">
@@ -338,15 +339,16 @@ function DetailsCard({ session, record, access }: { session: Session; record: Ky
           <input className={FIELD} value={owner} onChange={(event) => setOwner(event.target.value)} maxLength={120} />
         </label>
         <div className="sm:col-span-2">
-          <button
+          <ActionButton
             type="submit"
-            className={PRIMARY_BUTTON}
-            disabled={!access.allowed || !ready || save.isPending}
+            status={saveFeedback.status}
+            disabled={!access.allowed || !ready}
             title={access.reason ?? undefined}
+            pendingLabel="Saving…"
+            successLabel="Saved"
           >
             Save details
-          </button>
-          {save.isSuccess && <span className="ml-3 text-sm text-ink">Saved.</span>}
+          </ActionButton>
           <ProblemNotice error={save.error} />
         </div>
       </form>
@@ -410,13 +412,15 @@ function BusinessDocumentCard({
   access: WriteAccess;
 }) {
   const upload = useUploadKycDocument(session);
+  // The drop zone shows the upload's progress, and the notice under it any refusal.
+  useActionFeedback(upload, { errorDisplay: "inline" });
   const current = record.documents.find((document) => document.slot === "business");
   const options = record.gst_registered
     ? (["gst"] as const)
     : (["incorporation", "udyam"] as const);
   const [kind, setKind] = useState<string>(options[0]);
-  const [opening, setOpening] = useState(false);
-  const [openError, setOpenError] = useState<unknown>(null);
+  const view = useAsyncAction((id: string) => openOwnCertificate(session, id), { errorDisplay: "inline" });
+  const openError = view.status === "error" ? view.error : null;
   // The server's own lock: replaceable until the review starts, and never once verified.
   const inReview = record.status === "submitted" || record.status === "in_review";
   const replaceable = !record.is_verified && !inReview;
@@ -436,20 +440,15 @@ function BusinessDocumentCard({
           }
           action={
             current.held && (
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                disabled={opening}
-                onClick={() => {
-                  setOpenError(null);
-                  setOpening(true);
-                  openOwnCertificate(session, current.id)
-                    .catch(setOpenError)
-                    .finally(() => setOpening(false));
-                }}
+              <ActionButton
+                variant="secondary-sm"
+                status={view.status}
+                onClick={() => view.run(current.id)}
+                pendingLabel="Opening…"
+                successLabel="Opened"
               >
-                {opening ? "Opening…" : "View"}
-              </button>
+                View
+              </ActionButton>
             )
           }
         />
@@ -509,7 +508,9 @@ function BusinessDocumentCard({
 
 function ManualPath({ session, record, access }: { session: Session; record: KycRecord; access: Access }) {
   const upload = useUploadKycDocument(session);
+  useActionFeedback(upload, { errorDisplay: "inline" });
   const submit = useSubmitForReview(session);
+  const submitFeedback = useActionFeedback(submit, { errorDisplay: "inline" });
   const owner = record.documents.find((document) => document.slot === "owner_id" && document.held);
   const [number, setNumber] = useState("");
   const numberProblem = number ? panProblem(number) : null;
@@ -544,14 +545,15 @@ function ManualPath({ session, record, access }: { session: Session; record: Kyc
       <p className={FIELD_HINT}>
         The PAN card file is deleted as soon as our review is done, and after 30 days if it is not reviewed.
       </p>
-      <button
-        type="button"
-        className={PRIMARY_BUTTON}
-        disabled={!access.write.allowed || !owner || !number || Boolean(numberProblem) || submit.isPending}
-        onClick={() => submit.mutate({ owner_id_type: "pan", owner_id_number: number.trim().toUpperCase() })}
+      <ActionButton
+        status={submitFeedback.status}
+        disabled={!access.write.allowed || !owner || !number || Boolean(numberProblem)}
+        onClick={() => submitFeedback.run({ owner_id_type: "pan", owner_id_number: number.trim().toUpperCase() })}
+        pendingLabel="Sending…"
+        successLabel="Sent"
       >
         Send for review
-      </button>
+      </ActionButton>
       <ProblemNotice error={submit.error} />
     </div>
   );
@@ -559,6 +561,7 @@ function ManualPath({ session, record, access }: { session: Session; record: Kyc
 
 function DigiLockerPath({ session, record, access }: { session: Session; record: KycRecord; access: WriteAccess }) {
   const start = useStartDigiLocker(session);
+  const startFeedback = useActionFeedback(start, { errorDisplay: "inline" });
   const [document, setDocument] = useState<"aadhaar" | "pan">("aadhaar");
   if (!record.self_verification_available) {
     // We asked for DigiLocker on this account, and only a DigiLocker run clears that
@@ -582,22 +585,24 @@ function DigiLockerPath({ session, record, access }: { session: Session; record:
         You sign in to DigiLocker on its own page and share one record. We receive only whether it succeeded, the
         name on it and a masked number — never the document.
       </p>
-      <fieldset className="flex flex-wrap gap-4 text-sm text-ink">
-        <legend className={FIELD_LABEL}>Which record to share</legend>
-        <label className="flex items-center gap-2">
-          <input type="radio" name="id-doc" checked={document === "aadhaar"} onChange={() => setDocument("aadhaar")} />
-          Aadhaar
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="radio" name="id-doc" checked={document === "pan"} onChange={() => setDocument("pan")} />
-          PAN
-        </label>
-      </fieldset>
-      <button
-        type="button"
-        className={PRIMARY_BUTTON}
-        disabled={!access.allowed || start.isPending || !record.entity_type}
+      <RadioGroup
+        label="Which record to share"
+        name="id-doc"
+        inline
+        options={[
+          { value: "aadhaar", label: "Aadhaar" },
+          { value: "pan", label: "PAN" },
+        ]}
+        value={document}
+        onChange={(value) => setDocument(value === "pan" ? "pan" : "aadhaar")}
+      />
+      <ActionButton
+        // Success hands the page to DigiLocker, so the tick reads as the redirect starting.
+        status={startFeedback.status}
+        disabled={!access.allowed || !record.entity_type}
         title={access.reason ?? undefined}
+        pendingLabel="Opening DigiLocker…"
+        successLabel="Opening DigiLocker…"
         onClick={() =>
           start.mutate(
             { entity_type: record.entity_type ?? "", id_document: document },
@@ -611,7 +616,7 @@ function DigiLockerPath({ session, record, access }: { session: Session; record:
         }
       >
         Continue to DigiLocker
-      </button>
+      </ActionButton>
       <ProblemNotice error={start.error} />
     </div>
   );
@@ -620,6 +625,8 @@ function DigiLockerPath({ session, record, access }: { session: Session; record:
 /** Finishes a run when the client comes back from DigiLocker. */
 function DigiLockerReturn({ session }: { session: Session }) {
   const complete = useCompleteDigiLocker(session);
+  // Every outcome, a refusal included, renders as this component's own notice.
+  const completeFeedback = useActionFeedback(complete, { errorDisplay: "inline" });
   const asked = useRef(false);
   const [ref, setRef] = useState<string | null>(null);
 
@@ -652,9 +659,14 @@ function DigiLockerReturn({ session }: { session: Session }) {
         tone="warn"
         title="DigiLocker has not finished yet"
         action={
-          <button type="button" className={SECONDARY_BUTTON} onClick={() => complete.mutate(ref)}>
+          <ActionButton
+            variant="secondary"
+            status={completeFeedback.status}
+            onClick={() => completeFeedback.run(ref)}
+            successLabel="Checked"
+          >
             Check again
-          </button>
+          </ActionButton>
         }
       >
         If you completed it, wait a moment and check again.

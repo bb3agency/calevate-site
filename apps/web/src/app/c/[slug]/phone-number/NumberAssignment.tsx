@@ -30,12 +30,12 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -79,6 +79,7 @@ export function NumberAssignment({
   const { session, href } = useClientRealm();
   const agents = useAgents(session);
   const assign = useAssignNumber(session);
+  const assignFeedback = useActionFeedback(assign, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "choose which agent uses a number");
 
   const [agentId, setAgentId] = useState<string | null>(currentAgentId);
@@ -181,15 +182,20 @@ export function NumberAssignment({
         </div>
       )}
 
-      <button
-        type="button"
-        className={`mt-3 ${PRIMARY_BUTTON_SM}`}
-        disabled={!write.allowed || assign.isPending}
+      <ActionButton
+        variant="primary-sm"
+        className="mt-3"
+        // A 200 whose binding the voice platform refused is a failure to the owner, and the
+        // notice above says so; the button must not tick beside it.
+        status={assignFeedback.status === "success" && (result?.failed ?? 0) > 0 ? "error" : assignFeedback.status}
+        disabled={!write.allowed}
         title={write.reason ?? undefined}
-        onClick={() => assign.mutate({ numberId, agentId, direction })}
+        onClick={() => assignFeedback.run({ numberId, agentId, direction })}
+        pendingLabel="Saving…"
+        successLabel="Saved"
       >
-        {assign.isPending ? "Saving…" : "Save"}
-      </button>
+        Save
+      </ActionButton>
     </section>
   );
 }

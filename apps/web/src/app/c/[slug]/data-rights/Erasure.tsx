@@ -3,13 +3,12 @@
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
-  DANGER_BUTTON,
   FIELD,
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON_SM,
   formatCount,
 } from "@/components/ui";
 import { TypedConfirmation } from "@/components/typedConfirmation";
@@ -53,6 +52,7 @@ export function Erasure({
     "file an erasure request",
   );
   const file = useFileErasure(session);
+  const fileFeedback = useActionFeedback(file, { errorDisplay: "inline" });
   // The TARGET check (ux-audit DR-1 🔒): the typed ERASE confirms intent, but a
   // transposed digit in a ten-digit mobile passes every check on this form and erases a
   // different real customer, irreversibly. This reuses the subject-export read — the
@@ -61,6 +61,7 @@ export function Erasure({
   // permission; a session without it keeps the typed confirmation alone.
   const previewAccess = useSubjectExportAccess(session);
   const preview = useSubjectExport(session);
+  const previewFeedback = useActionFeedback(preview, { errorDisplay: "inline" });
 
   const [phone, setPhone] = useState("");
   const valid = useFormValidation();
@@ -141,14 +142,15 @@ export function Erasure({
         {previewAccess.allowed && phone.trim().length >= 8 && (
           <div>
             {preview.data === undefined && (
-              <button
-                type="button"
-                onClick={() => preview.mutate(phone.trim())}
-                disabled={preview.isPending}
-                className={SECONDARY_BUTTON_SM}
+              <ActionButton
+                variant="secondary-sm"
+                status={previewFeedback.status}
+                onClick={() => previewFeedback.run(phone.trim())}
+                pendingLabel="Checking…"
+                successLabel="Checked"
               >
-                {preview.isPending ? "Checking…" : "Check whose record this is first"}
-              </button>
+                Check whose record this is first
+              </ActionButton>
             )}
             {preview.error != null && <ProblemNotice error={preview.error} />}
             {preview.data !== undefined && preview.error == null && (
@@ -199,15 +201,18 @@ export function Erasure({
           disabled={!access.allowed}
         />
 
-        <button
+        <ActionButton
           type="submit"
+          variant="danger"
+          status={fileFeedback.status}
           title={access.reason ?? undefined}
-          disabled={!access.allowed || !armed || file.isPending}
-          className={DANGER_BUTTON}
+          disabled={!access.allowed || !armed}
+          pendingLabel="Filing…"
+          successLabel="Filed"
         >
           <Trash2 aria-hidden className="h-4 w-4" />
-          {file.isPending ? "Filing…" : "Erase this person's data"}
-        </button>
+          Erase this person&apos;s data
+        </ActionButton>
       </form>
 
       {file.error != null && (

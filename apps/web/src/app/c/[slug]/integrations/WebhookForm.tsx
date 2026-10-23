@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 
-import { FIELD_LABEL, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FIELD_LABEL, ProblemNotice } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
 import type { Session } from "@/lib/api/client";
 import type { WriteAccess } from "@/lib/api/hooks";
@@ -10,7 +11,6 @@ import { useCreateEndpoint, type OutboundEvent } from "@/lib/api/integrations";
 
 import { EventChoices, INPUT } from "./EventChoices";
 
-const SUBMIT = PRIMARY_BUTTON;
 
 
 /**
@@ -29,6 +29,7 @@ export function WebhookForm({
   onSecret: (secret: string) => void;
 }) {
   const create = useCreateEndpoint(session);
+  const createFeedback = useActionFeedback(create, { errorDisplay: "inline" });
   const [url, setUrl] = useState("");
   const valid = useFormValidation();
   const [events, setEvents] = useState<OutboundEvent[]>(["lead.created"]);
@@ -191,13 +192,15 @@ export function WebhookForm({
             )}
           </fieldset>
         )}
-        <button
+        <ActionButton
           type="submit"
-          disabled={!write.allowed || create.isPending || !url || events.length === 0}
-          className={SUBMIT}
+          status={createFeedback.status}
+          disabled={!write.allowed || !url || events.length === 0}
+          pendingLabel="Adding…"
+          successLabel="Added"
         >
-          {create.isPending ? "Adding…" : "Add endpoint"}
-        </button>
+          Add endpoint
+        </ActionButton>
       </form>
     </div>
   );

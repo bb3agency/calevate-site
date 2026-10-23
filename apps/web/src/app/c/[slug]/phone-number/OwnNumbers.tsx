@@ -21,6 +21,8 @@ import { Section } from "@/components/console/section";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { RadioGroup } from "@/components/arc/radio-group";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import {
   FIELD,
@@ -255,6 +257,7 @@ export function OwnNumbersJourney({ status }: { status: OwnNumbersStatus }) {
 function Journey({ status }: { status: OwnNumbersStatus }) {
   const { session, href } = useClientRealm();
   const send = useSendOwnBusinessDetails(session);
+  const sendFeedback = useActionFeedback(send, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "get a phone number");
   const verifyHref = href(`/c/${session.orgSlug}/verify-business`);
 
@@ -318,18 +321,18 @@ function Journey({ status }: { status: OwnNumbersStatus }) {
                   </p>
                 )}
                 {status.can_send_business_details && (
-                  <button
-                    type="button"
-                    className={PRIMARY_BUTTON_SM}
-                    disabled={!write.allowed || send.isPending}
-                    onClick={() => send.mutate()}
+                  <ActionButton
+                    variant="primary-sm"
+                    status={sendFeedback.status}
+                    disabled={!write.allowed}
+                    onClick={() => sendFeedback.run()}
+                    pendingLabel="Sending…"
+                    successLabel="Sent"
                   >
-                    {send.isPending
-                      ? "Sending…"
-                      : detailsStatus === "none" || detailsStatus === "draft"
-                        ? "Send business details"
-                        : "Send the details again"}
-                  </button>
+                    {detailsStatus === "none" || detailsStatus === "draft"
+                      ? "Send business details"
+                      : "Send the details again"}
+                  </ActionButton>
                 )}
                 <OwnNumberProblem error={send.error} />
               </>
@@ -363,6 +366,8 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
   const cities = useOwnNumberCities(session, true);
   const agents = useAgents(session);
   const purchase = usePurchaseOwnNumber(session);
+  // Refusals render inside the dialog in the words of what to do next.
+  const purchaseFeedback = useActionFeedback(purchase, { errorDisplay: "inline" });
   const [city, setCity] = useState("");
   const [pattern, setPattern] = useState("");
   const [search, setSearch] = useState<{ city: string; pattern: string } | null>(null);
@@ -518,7 +523,8 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
           title={`Buy ${formatPhone(chosen.e164)}`}
           confirmLabel="Buy this number"
           pendingLabel="Buying…"
-          pending={purchase.isPending}
+          successLabel="Bought"
+          status={purchaseFeedback.status}
           error={null}
           onCancel={() => setChosen(null)}
           onConfirm={() =>
@@ -563,30 +569,16 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
             </select>
           </label>
           {chosenAgent && <p>Calls to it reach {chosenAgent.name}.</p>}
-          <fieldset>
-            <legend className={FIELD_LABEL}>What this number is for</legend>
-            <div className="mt-2 space-y-2">
-              {DIRECTIONS.map((option) => (
-                <label key={option.value} className="flex items-start gap-2 text-body text-ink">
-                  <input
-                    type="radio"
-                    className="mt-1"
-                    name="own-number-direction"
-                    value={option.value}
-                    checked={direction === option.value}
-                    onChange={() => {
-                      setDirection(option.value);
-                      setRequestKey(newRequestKey());
-                    }}
-                  />
-                  <span>
-                    {option.label}
-                    <span className="block text-meta text-ink-muted">{option.hint}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
+          <RadioGroup
+            label="What this number is for"
+            name="own-number-direction"
+            options={DIRECTIONS}
+            value={direction}
+            onChange={(value) => {
+              setDirection(value as OwnNumberDirection);
+              setRequestKey(newRequestKey());
+            }}
+          />
           <OwnNumberProblem error={purchase.error} />
           {codeOf(purchase.error) === "number_insufficient_credit" && (
             <Link href={creditsHref} className={SECONDARY_BUTTON_SM}>
@@ -615,6 +607,7 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
 export function ReleaseOwnNumber({ numberId, e164 }: { numberId: string; e164: string }) {
   const { session } = useClientRealm();
   const release = useReleaseOwnNumber(session);
+  const releaseFeedback = useActionFeedback(release, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "give a phone number up");
   const [confirming, setConfirming] = useState(false);
 
@@ -644,7 +637,8 @@ export function ReleaseOwnNumber({ numberId, e164 }: { numberId: string; e164: s
           title={`Release ${formatPhone(e164)}`}
           confirmLabel="Release it for good"
           pendingLabel="Releasing…"
-          pending={release.isPending}
+          successLabel="Released"
+          status={releaseFeedback.status}
           error={null}
           onCancel={() => setConfirming(false)}
           onConfirm={() =>

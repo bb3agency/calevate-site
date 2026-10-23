@@ -12,13 +12,14 @@
 
 import { useId, useMemo, useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { RadioGroup } from "@/components/arc/radio-group";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -174,6 +175,9 @@ function TemplateForm({
   onDone: () => void;
 }) {
   const create = useCreateTemplate(session);
+  // On success the form closes and the refreshed list shows the new template with its review
+  // state, so success needs no toast.
+  const createFeedback = useActionFeedback(create, { errorDisplay: "inline" });
   const eg = useVerticalExamples();
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<"UTILITY" | "MARKETING">("UTILITY");
@@ -232,25 +236,24 @@ function TemplateForm({
         <span className={FIELD_HINT}>{name ? `Meta will know it as ${name}.` : "A few words you will recognise."}</span>
       </label>
 
-      <fieldset>
-        <legend className={FIELD_LABEL}>Kind of message</legend>
-        <div className="mt-1 space-y-1.5">
-          <label className="flex items-start gap-2 text-body text-ink">
-            <input type="radio" name="category" checked={category === "UTILITY"} onChange={() => setCategory("UTILITY")} className="mt-1" />
-            <span>
-              About something the customer asked for: an order, a booking, a payment.
-              <span className="block text-meta text-ink-muted">Meta calls this Utility. Use this for your agent.</span>
-            </span>
-          </label>
-          <label className="flex items-start gap-2 text-body text-ink">
-            <input type="radio" name="category" checked={category === "MARKETING"} onChange={() => setCategory("MARKETING")} className="mt-1" />
-            <span>
-              An offer or promotion.
-              <span className="block text-meta text-ink-muted">Meta calls this Marketing and charges more for it.</span>
-            </span>
-          </label>
-        </div>
-      </fieldset>
+      <RadioGroup
+        label="Kind of message"
+        name="category"
+        options={[
+          {
+            value: "UTILITY",
+            label: "About something the customer asked for: an order, a booking, a payment.",
+            hint: "Meta calls this Utility. Use this for your agent.",
+          },
+          {
+            value: "MARKETING",
+            label: "An offer or promotion.",
+            hint: "Meta calls this Marketing and charges more for it.",
+          },
+        ]}
+        value={category}
+        onChange={(value) => setCategory(value === "MARKETING" ? "MARKETING" : "UTILITY")}
+      />
 
       <label className="block">
         <span className={FIELD_LABEL}>Language</span>
@@ -324,9 +327,16 @@ function TemplateForm({
 
       {create.isError && <ProblemNotice error={create.error} />}
       <div className="flex flex-wrap gap-2">
-        <button type="submit" className={PRIMARY_BUTTON_SM} disabled={!ready || create.isPending}>
-          {create.isPending ? "Sending…" : "Send to Meta for review"}
-        </button>
+        <ActionButton
+          type="submit"
+          variant="primary-sm"
+          status={createFeedback.status}
+          disabled={!ready}
+          pendingLabel="Sending…"
+          successLabel="Sent"
+        >
+          Send to Meta for review
+        </ActionButton>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
           Cancel
         </button>

@@ -3,13 +3,12 @@
 import { useState } from "react";
 import { Download, FileDown } from "lucide-react";
 
+import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
 import {
   FIELD,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON_SM,
   formatCount,
   formatCountOf,
   formatIST,
@@ -43,6 +42,19 @@ import { Fact, Field } from "./fields";
 export function SubjectExport({ session }: { session: Session }) {
   const access = useSubjectExportAccess(session);
   const exportDocument = useSubjectExport(session);
+  const exportFeedback = useActionFeedback(exportDocument, { errorDisplay: "inline" });
+  const save = useAsyncAction(
+    () =>
+      downloadJson(
+        exportDocument.data,
+        // Named for the day, never for the number (hard rule 6): filenames end up in mail
+        // clients, chat threads and shared folders. The IST day — `toISOString()` is still
+        // on yesterday until 05:30 IST, and this is a statutory record whose date somebody
+        // may later have to place.
+        `subject-access-export-${istDateStamp()}.json`,
+      ),
+    { errorTitle: "Could not save the file" },
+  );
   const [phone, setPhone] = useState("");
   const valid = useFormValidation();
 
@@ -95,17 +107,19 @@ export function SubjectExport({ session }: { session: Session }) {
           {valid.error("phone")}
         </Field>
 
-        <button
+        {/* `ready` (eight digits) is not repeated in `disabled`: the field answers it in a
+            sentence, and a dead button said nothing. */}
+        <ActionButton
           type="submit"
+          status={exportFeedback.status}
           title={access.reason ?? undefined}
-          /* `ready` (eight digits) is not repeated here: the field answers it in a
-             sentence, and a dead button said nothing. */
-          disabled={!access.allowed || exportDocument.isPending}
-          className={PRIMARY_BUTTON}
+          disabled={!access.allowed}
+          pendingLabel="Building…"
+          successLabel="Built"
         >
           <FileDown aria-hidden className="h-4 w-4" />
-          {exportDocument.isPending ? "Building…" : "Build the export"}
-        </button>
+          Build the export
+        </ActionButton>
       </form>
 
       {exportDocument.error != null && (
@@ -160,23 +174,16 @@ export function SubjectExport({ session }: { session: Session }) {
                   ` ${formatCountOf(exportDocument.data.erasure.recordings_pending_destruction, "recording")} ${exportDocument.data.erasure.recordings_pending_destruction === 1 ? "is" : "are"} still held under the mandatory retention period and are destroyed by ${formatIST(exportDocument.data.erasure.recordings_destroyed_by)}.`}
               </p>
             )}
-            <button
-              type="button"
-              onClick={() =>
-                downloadJson(
-                  exportDocument.data,
-                  // Named for the day, never for the number (hard rule 6): filenames end
-                  // up in mail clients, chat threads and shared folders. The IST day —
-                  // `toISOString()` is still on yesterday until 05:30 IST, and this is a
-                  // statutory record whose date somebody may later have to place.
-                  `subject-access-export-${istDateStamp()}.json`,
-                )
-              }
-              className={`${SECONDARY_BUTTON_SM} mt-3`}
+            <ActionButton
+              variant="secondary-sm"
+              status={save.status}
+              onClick={() => save.run()}
+              successLabel="Saved"
+              className="mt-3"
             >
               <Download aria-hidden className="h-4 w-4" />
               Save the file
-            </button>
+            </ActionButton>
           </NoticeBox>
         </div>
       )}

@@ -21,6 +21,7 @@
 import { MessageCircle, Smartphone, Store } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { ChecklistRows, type ChecklistRow } from "@/components/console/checklist";
 import { Chooser, ChooserItem } from "@/components/console/chooser";
@@ -28,13 +29,7 @@ import { IconTile } from "@/components/console/iconTile";
 import { Section, TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { TaskSteps } from "@/components/interior/task-steps";
-import {
-  NoticeBox,
-  PRIMARY_BUTTON,
-  ProblemNotice,
-  SECONDARY_BUTTON_SM,
-  Skeleton,
-} from "@/components/ui";
+import { NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import {
   TEMPLATE_REVIEW_HOURS,
@@ -218,6 +213,9 @@ function ConnectFlow({
 }) {
   const begin = useBeginSignup(session);
   const connect = useConnectWhatsApp(session);
+  // Both failures render as ProblemNotice above the button.
+  const beginFeedback = useActionFeedback(begin, { errorDisplay: "inline" });
+  const connectFeedback = useActionFeedback(connect, { errorDisplay: "inline" });
   const [phase, setPhase] = useState<"ready" | "meta" | "saving">("ready");
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -343,9 +341,20 @@ function ConnectFlow({
       {phase === "saving" && <p className="text-body text-ink-muted" role="status">Getting your number ready…</p>}
 
       <div className="flex justify-end">
-        <button type="button" className={PRIMARY_BUTTON} disabled={phase !== "ready" || !prepared} onClick={() => void start()}>
+        <ActionButton
+          // Getting ready, Meta's window and the save after it are one action to the owner.
+          status={
+            phase !== "ready" || (!prepared && beginFeedback.status === "pending")
+              ? "pending"
+              : connectFeedback.status
+          }
+          disabled={!prepared && beginFeedback.status !== "pending"}
+          pendingLabel={phase === "saving" ? "Getting your number ready…" : beginFeedback.status === "pending" ? "Getting ready…" : undefined}
+          successLabel="Connected"
+          onClick={() => void start()}
+        >
           {isExisting ? "Give Calevate access through Meta" : "Connect WhatsApp"}
-        </button>
+        </ActionButton>
       </div>
     </div>
   );
@@ -364,6 +373,8 @@ function ConnectedAccount({
 }) {
   const finish = useFinishWhatsApp(session);
   const disconnect = useDisconnectWhatsApp(session);
+  const finishFeedback = useActionFeedback(finish, { errorDisplay: "inline" });
+  const disconnectFeedback = useActionFeedback(disconnect, { errorDisplay: "inline" });
   const [confirming, setConfirming] = useState(false);
   const state = accountState(account);
   const progress = setupProgress(account);
@@ -424,14 +435,16 @@ function ConnectedAccount({
                   ? "Meta reported a problem with this account. Check Meta Business Suite, then try again."
                   : "One step did not finish. Nothing was charged."}
               </p>
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                disabled={!canWrite || finish.isPending}
-                onClick={() => finish.mutate(account.id)}
+              <ActionButton
+                variant="secondary-sm"
+                status={finishFeedback.status}
+                disabled={!canWrite}
+                onClick={() => finishFeedback.run(account.id)}
+                pendingLabel="Trying again…"
+                successLabel="Finished"
               >
-                {finish.isPending ? "Trying again…" : "Finish set-up"}
-              </button>
+                Finish set-up
+              </ActionButton>
               {finish.isError && <ProblemNotice error={finish.error} />}
             </div>
           )}
@@ -447,7 +460,8 @@ function ConnectedAccount({
           title="Disconnect this WhatsApp number?"
           confirmLabel="Disconnect"
           pendingLabel="Disconnecting…"
-          pending={disconnect.isPending}
+          successLabel="Disconnected"
+          status={disconnectFeedback.status}
           error={disconnect.error}
           onCancel={() => setConfirming(false)}
           onConfirm={() => disconnect.mutate(account.id, { onSuccess: () => setConfirming(false) })}

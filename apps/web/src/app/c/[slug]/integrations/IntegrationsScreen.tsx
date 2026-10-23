@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Section } from "@/components/console/section";
@@ -43,6 +44,8 @@ export function IntegrationsScreen() {
   const endpoints = useEndpoints(session);
   const deliveries = useDeliveries(session);
   const deactivate = useDeactivateEndpoint(session);
+  // The dialog shows the refusal while open, the notice above the list after it closes.
+  const deactivateFeedback = useActionFeedback(deactivate, { errorDisplay: "inline" });
   const options = useEndpointOptions(session);
   const write = useWriteAccess(session, "org:manage", "change where events are sent");
   const [adding, setAdding] = useState(false);
@@ -57,6 +60,8 @@ export function IntegrationsScreen() {
   const mayReadPayload = payloadAccess.allowed;
   const [openPayload, setOpenPayload] = useState<string | null>(null);
   const payload = useDeliveryPayload(session);
+  // The body's own panel shows a refusal in place of the body, so nothing toasts.
+  const payloadFeedback = useActionFeedback(payload, { errorDisplay: "inline" });
 
   useIntegrationsCopilot({ endpoints, deliveries, options, write, mayReadPayload });
 
@@ -117,6 +122,7 @@ export function IntegrationsScreen() {
         openPayload={openPayload}
         onTogglePayload={togglePayload}
         payload={payload}
+        payloadStatus={payloadFeedback.status}
       />
 
       {options.data && (
@@ -137,8 +143,9 @@ export function IntegrationsScreen() {
           title="Stop sending events to this endpoint?"
           confirmLabel="Stop sending events"
           pendingLabel="Stopping…"
+          successLabel="Stopped"
           cancelLabel="Keep sending"
-          pending={deactivate.isPending}
+          status={deactivateFeedback.status}
           error={deactivate.error}
           onCancel={() => {
             deactivate.reset();

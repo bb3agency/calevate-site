@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import {
   ProblemNotice,
@@ -42,7 +43,6 @@ const STATUS_TONE: Record<string, NoticeTone> = {
   failed: "stop",
   skipped: "neutral",
 };
-
 export function DeliveryLog({
   deliveries,
   payloadAccess,
@@ -50,6 +50,7 @@ export function DeliveryLog({
   openPayload,
   onTogglePayload,
   payload,
+  payloadStatus,
 }: {
   deliveries: ReturnType<typeof useDeliveries>;
   payloadAccess: WriteAccess;
@@ -57,6 +58,8 @@ export function DeliveryLog({
   openPayload: string | null;
   onTogglePayload: (deliveryId: string) => void;
   payload: ReturnType<typeof useDeliveryPayload>;
+  /** The open request's state, shown on the row's View button. */
+  payloadStatus: FeedbackStatus;
 }) {
   return (
     <Section title="Recent deliveries" description="What we sent to your destinations, and whether it arrived.">
@@ -115,14 +118,15 @@ export function DeliveryLog({
                 {mayReadPayload && (
                   <td className="py-2 text-right">
                     {delivery.payload_stored ? (
-                      <button
-                        type="button"
+                      <ActionButton
+                        variant="secondary-sm"
+                        status={openPayload === delivery.id && payloadStatus !== "success" ? payloadStatus : "idle"}
                         onClick={() => onTogglePayload(delivery.id)}
                         title="Shows the exact data we sent, personal details included."
-                        className={SECONDARY_BUTTON_SM}
+                        pendingLabel="Opening…"
                       >
                         {openPayload === delivery.id ? "Hide" : "View"}
-                      </button>
+                      </ActionButton>
                     ) : (
                       // Not a blank cell and not a zero: a copy is kept only while the
                       // lead-retention policy allows, an erasure destroys it, and the
@@ -195,7 +199,10 @@ export function DeliveryLog({
                   there is no key that scrolls a non-focusable element, so a keyboard
                   reader could see the first 320px of a payload and no more. Not
                   `ScrollRegion` itself — that component is the sideways case and
-                  hardcodes `overflow-x-auto`; the waiver's argument is written there. */}
+                  hardcodes `overflow-x-auto`; the waiver's argument is written there.
+                  Plain text, not the kit's JSON tree: this is the forensic record of what
+                  the endpoint received, so it is shown byte for byte, and a tree would
+                  re-render escapes, spacing and a truncated tail. */}
               <pre
                 role="region"
                 aria-label="Delivered payload"

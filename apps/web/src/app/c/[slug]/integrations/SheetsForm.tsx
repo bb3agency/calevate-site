@@ -2,12 +2,8 @@
 
 import { useState } from "react";
 
-import {
-  FIELD_LABEL,
-  NoticeBox,
-  PRIMARY_BUTTON,
-  ProblemNotice,
-} from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FIELD_LABEL, NoticeBox, ProblemNotice } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
 import { type ChosenSheet, SheetChooser } from "@/components/sheetChooser";
 import { ApiProblem, type Session } from "@/lib/api/client";
@@ -20,8 +16,6 @@ import {
 } from "@/lib/api/integrations";
 
 import { EventChoices, INPUT } from "./EventChoices";
-
-const SUBMIT = PRIMARY_BUTTON;
 
 
 /**
@@ -102,6 +96,7 @@ export function SheetsForm({
   write: WriteAccess;
 }) {
   const create = useCreateSheetsEndpoint(session);
+  const createFeedback = useActionFeedback(create, { errorDisplay: "inline" });
   const [sheet, setSheet] = useState<ChosenSheet | null>(null);
   const valid = useFormValidation();
   const [worksheet, setWorksheet] = useState("");
@@ -202,13 +197,15 @@ export function SheetsForm({
             )
           }
         />
-        <button
+        <ActionButton
           type="submit"
-          disabled={!write.allowed || create.isPending || !sheet || events.length === 0}
-          className={SUBMIT}
+          status={createFeedback.status}
+          disabled={!write.allowed || (!sheet && createFeedback.status === "idle") || events.length === 0}
+          pendingLabel="Adding…"
+          successLabel="Added"
         >
-          {create.isPending ? "Adding…" : "Add sheet"}
-        </button>
+          Add sheet
+        </ActionButton>
       </form>
     </div>
   );
