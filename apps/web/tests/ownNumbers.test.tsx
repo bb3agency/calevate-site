@@ -525,6 +525,47 @@ describe("releasing a number", () => {
   });
 });
 
+describe("a held number (D-860)", () => {
+  const heldNumber = {
+    id: NUMBER_ID,
+    e164: "+918012345671",
+    series: "standard",
+    dlt_status: "pending",
+    supplied_by_us: true,
+    answerable: false,
+    agent_id: "agent-1",
+    direction: "both",
+    releasable: true,
+    held: true,
+    // 18:30 UTC on the 6th is the start of the 7th in India.
+    release_at: "2026-11-06T18:30:00Z",
+  };
+
+  it("says calls stopped and the IST day it is released, with credit the one action", async () => {
+    const { container } = await renderClientPage(
+      <PhoneNumberPage />,
+      routes(status(), { "/v1/campaigns/numbers": [heldNumber] }),
+    );
+    expect(
+      await screen.findByText("Calls stopped. Released on Saturday, 7 November unless you top up."),
+    ).toBeTruthy();
+    expect(screen.getByText("Calls stopped")).toBeTruthy();
+    const topUp = screen.getAllByRole("link", { name: "Add credit" });
+    expect(topUp.some((link) => link.getAttribute("href") === CREDITS_HREF)).toBe(true);
+    // Not the "still connecting it" sentence: nothing is being connected.
+    expect(screen.queryByText(/we are still\s+connecting it/)).toBeNull();
+    await expectNoA11yViolations(container, "phone-number: a held number");
+  });
+
+  it("says so without a date while the date is still being worked out", async () => {
+    await renderClientPage(
+      <PhoneNumberPage />,
+      routes(status(), { "/v1/campaigns/numbers": [{ ...heldNumber, release_at: null }] }),
+    );
+    expect(await screen.findByText("Calls stopped. Released soon unless you top up.")).toBeTruthy();
+  });
+});
+
 describe("white label", () => {
   it("names no vendor anywhere on the journey, the search or the confirmation", async () => {
     const { container } = await renderClientPage(

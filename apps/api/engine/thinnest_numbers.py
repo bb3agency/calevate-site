@@ -10,7 +10,12 @@ rent, is passed explicitly. VERIFIED-VENDOR-DOCS, all under
 * `GET /phone-numbers` (every number, not paged) is read by the adapter's
   `list_engine_numbers`; this module does not read it a second way.
 * `GET /phone-numbers/{number}` — one number, with `callingAgent`, the agent it is lent to for
-  calling out (`get-phone-number.md:7, :405-418`). A number in another workspace is a 404.
+  calling out (`get-phone-number.md:7, :405-418`), and `since`, when a rented number was
+  rented (snapshots/2026-10-19 `get-phone-number.md:702-707`). A number in another workspace
+  is a 404.
+* Detaching a number (`PATCH` with `agent` and `callingAgent` null) leaves it rented and
+  still charged, answered by nobody (snapshots/2026-10-19/pages/channels/phone-numbers.md:
+  787-791, "Disconnect"); only the release stops the rent.
 * `PATCH /phone-numbers/{number}` `{label, agent, callingAgent}` — applied in that order, and
   "a refusal stops there with the earlier changes kept"; a 409 when the agent already answers
   it or it is already that agent's line (`update-phone-number.md:7, :344-469, :401-405`).
@@ -102,6 +107,12 @@ class EngineNumber:
     calling_agent: str | None
     #: The phone every call to it is forwarded to (`forwardTo`), or None.
     forward_to: str | None = None
+    #: When a rented number was rented (`since`); None for a brought one or when it is not
+    #: sent. The platform charges rent again "every month on the same day" from it
+    #: (snapshots/2026-10-19/pages/api-reference/phone-numbers/rent-phone-number.md:449-451;
+    #: `since`, get-phone-number.md:702-707), which is what a held number's release date is
+    #: worked back from (D-860).
+    rented_since: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,7 +206,21 @@ def _number(row: dict[str, Any], workspace: str | None) -> EngineNumber | None:
         answering_agent=_scoped(_str(row.get("agent")), workspace),
         calling_agent=_scoped(_str(row.get("callingAgent")), workspace),
         forward_to=_str(row.get("forwardTo")),
+        rented_since=_instant(row.get("since")),
     )
+
+
+def _instant(value: Any) -> datetime | None:
+    """An ISO-8601 instant the vendor sends (`2026-09-02T07:15:40.118Z`), or None when it is
+    absent, unreadable or carries no zone: a naive instant is a date we cannot place."""
+    raw = _str(value)
+    if raw is None:
+        return None
+    try:
+        at = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return at if at.tzinfo is not None else None
 
 
 def _inr(price: Any) -> Decimal | None:

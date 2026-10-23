@@ -448,6 +448,13 @@ async def record_entry(
             job=INBOUND_CUTOVER_JOB,
             payload={"tenant_id": str(tenant_id)},
         )
+    # Back to zero or more ends a hold on the client's rented numbers (D-860), so the hold
+    # job is owed a pass now rather than at its next hourly tick. Imported here:
+    # `campaigns.number_holds` reads balances through this module.
+    if current < 0 <= new_balance:
+        from apps.api.campaigns.number_holds import queue_hold_settlement
+
+        await queue_hold_settlement(session, tenant_id=tenant_id)
     level = crossed_downwards(current, new_balance)
     if level is not None:
         await enqueue_outbox(

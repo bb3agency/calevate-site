@@ -21,7 +21,8 @@ Every job here is reached through the outbox or a cron, and every one is idempot
   pre-D-797 clone copies we recorded for it are still there.
 * `offboard_engine_workspace` runs when an account closes: numbers released
   (`?confirm=release`), agents deleted, the customer deleted (refused by the vendor while it
-  still holds a rented number, so the numbers go first).
+  still holds a rented number, so the numbers go first). While a rented number there is
+  held (D-860, `workers/number_holds.py`) it does nothing and waits to be queued again.
 * `retire_moved_engine_agent` deletes the vendor agent an agent was recreated FROM, after the
   publish that recreated it in the client's workspace committed: never before, so a live
   agent is never stranded.
@@ -49,6 +50,7 @@ from apps.api.campaigns.engine_numbers import (
     alarm_lapsed_business_details,
     engine_number_provider,
 )
+from apps.api.campaigns.number_holds import open_holds
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -556,6 +558,17 @@ async def offboard_engine_workspace(ctx: dict[str, Any], payload: dict[str, Any]
         ).first()
     if row is None or row[0] != "offboarding" or not row[1]:
         return "not_owed"
+    async with tenant_session(tenant_id) as session:
+        held = len(await open_holds(session))
+    if held:
+        # The closed account's rented numbers are held (D-860). Its agents stay so that a
+        # reopening inside the hold gives each number back to the agent it answered for, and
+        # the customer stays because the platform will not delete one that rents a number.
+        # The hold job queues this again when the last hold ends in a release.
+        log.info(
+            "engine_workspace_offboarding_waits", extra={"tenant_id": str(tenant_id), "held": held}
+        )
+        return f"waiting_for_holds={held}"
     workspace = str(row[1])
     engine = get_engine()
     released = deleted = 0

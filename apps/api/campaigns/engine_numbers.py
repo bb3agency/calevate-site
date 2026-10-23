@@ -49,7 +49,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import service as agents_service
-from apps.api.agents.models import series_for_e164
+from apps.api.agents.models import number_on_hold_sql, series_for_e164
 from apps.api.billing.number_rental import (
     RentalOutcome,
     collect_number_rental,
@@ -137,15 +137,17 @@ def answers_calls(
     agent_status: str | None,
     agent_direction: str | None,
     agent_deleted: bool,
+    held: bool = False,
 ) -> bool:
     """Does our record put an answering agent on this number? The vendor's `agent` is made
     to agree with exactly this (`wanted_attachment`, the crossed-workspace rule of
     `sync_number_attachment`), and the daily sweep repairs drift, so it stands in for the
-    routing record a voice platform would otherwise need."""
+    routing record a voice platform would otherwise need. A held number (D-860) answers
+    nothing."""
     if not engine_number_ref:
         return False
     agent, _calling = wanted_attachment(
-        released=False,
+        released=held,
         direction=agent_direction,
         status=agent_status,
         engine_agent_ref=agent_ref,
@@ -437,8 +439,8 @@ async def price_recorded_number(session: AsyncSession, *, number_id: UUID) -> bo
 
 _ATTACHMENT_SQL: Final = (
     "SELECT n.engine_number_ref, n.provider, n.released_at, a.direction, a.status, "
-    "a.engine_agent_ref, a.deleted_at, n.tenant_id FROM phone_numbers n "
-    "LEFT JOIN agents a ON a.id = n.agent_id WHERE n.id = :nid"
+    f"a.engine_agent_ref, a.deleted_at, n.tenant_id, {number_on_hold_sql('n')} "
+    "FROM phone_numbers n LEFT JOIN agents a ON a.id = n.agent_id WHERE n.id = :nid"
 )
 
 
@@ -450,7 +452,9 @@ def wanted_attachment(
     engine_agent_ref: str | None,
     archived: bool,
 ) -> tuple[str | None, str | None]:
-    """`(agent, callingAgent)` as our rows say they should be. See the module docstring."""
+    """`(agent, callingAgent)` as our rows say they should be. See the module docstring.
+    `released` is also passed for a held number (D-860): it is still ours, and nobody
+    answers it or calls out on it until the hold ends."""
     if released or archived or not engine_agent_ref or status != "live" or direction is None:
         return None, None
     if direction in ("inbound", "both"):
@@ -473,7 +477,7 @@ async def sync_number_attachment(session: AsyncSession, *, number_id: UUID) -> S
         return "not_applicable"
     number_ref = str(row[0])
     agent, calling = wanted_attachment(
-        released=row[2] is not None,
+        released=row[2] is not None or bool(row[8]),
         direction=row[3],
         status=row[4],
         engine_agent_ref=row[5],
@@ -527,8 +531,8 @@ def _attachment_failed(number_id: UUID, *, outcome: str, refusal: str | None) ->
 
 _DIRECTORY: Final = "SELECT id FROM organizations WHERE deleted_at IS NULL ORDER BY id"
 _ENGINE_ROWS: Final = (
-    "SELECT id, e164, engine_number_ref FROM phone_numbers "
-    "WHERE provider = :provider AND released_at IS NULL ORDER BY created_at, id"
+    f"SELECT n.id, n.e164, n.engine_number_ref, {number_on_hold_sql('n')} FROM phone_numbers n "
+    "WHERE n.provider = :provider AND n.released_at IS NULL ORDER BY n.created_at, n.id"
 )
 
 
@@ -580,7 +584,7 @@ async def reconcile_engine_number_attachments() -> NumberReconciliation:
     for tenant_id in await live_tenants():
         async with tenant_session(tenant_id) as scoped:
             rows = (await scoped.execute(text(_ENGINE_ROWS), {"provider": provider})).all()
-        for number_id, e164, ref in rows:
+        for number_id, e164, ref, held in rows:
             handle = str(ref or e164)
             key = _key(scope_of(handle), handle)
             if scope_of(handle) is None and is_trial_number(handle):
@@ -590,7 +594,9 @@ async def reconcile_engine_number_attachments() -> NumberReconciliation:
                 continue
             if key in listed:
                 ours[key] = (tenant_id, UUID(str(number_id)))
-            else:
+            elif not held:
+                # A held number of a closed account lives in a workspace that is no longer
+                # listed (it is being offboarded); the hold job owns it until its release.
                 missing.add(key)
     unrecorded = set(listed) - set(ours)
     trial = trial_number_ref()

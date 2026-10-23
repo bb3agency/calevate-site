@@ -73,6 +73,7 @@ from arq import Retry
 from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER
 from sqlalchemy import text
 
+from apps.api.agents.models import number_on_hold_sql
 from apps.api.billing.cost_attestations import ENGINE_NUMBER_RENT_SUBJECTS, attested_cost
 from apps.api.billing.engine_minutes import wallet_topup_fee
 from apps.api.billing.number_rental import (
@@ -337,12 +338,17 @@ async def _reconcile_console_numbers() -> str:
     return str({**asdict(summary), "business_details": status})
 
 
-#: A tenant's numbers that renew: priced for the client and not given back. Read inside
-#: the tenant's own session, so the policy answers it. `created_at` is the anchor the
+#: A tenant's numbers that renew: priced for the client, not given back, and not held. Read
+#: inside the tenant's own session, so the policy answers it. `created_at` is the anchor the
 #: purchase collected its first month on (`number_catalog.purchase_number`).
+#:
+#: A held number (D-860) is charged nothing: it is released before its next renewal unless
+#: the hold ends first. Skipping it writes nothing, so once a hold ends the next tick asks
+#: for the period containing that day like for any other number and collects it.
 _RENEWING = (
-    "SELECT id, created_at, client_inr_per_month, rental_charged_from FROM phone_numbers "
-    "WHERE client_inr_per_month IS NOT NULL AND released_at IS NULL ORDER BY created_at, id"
+    "SELECT n.id, n.created_at, n.client_inr_per_month, n.rental_charged_from "
+    "FROM phone_numbers n WHERE n.client_inr_per_month IS NOT NULL "
+    f"AND n.released_at IS NULL AND NOT {number_on_hold_sql('n')} ORDER BY n.created_at, n.id"
 )
 
 _RENEWAL_RETRY_AFTER_S = (60, 600)
@@ -359,9 +365,10 @@ async def renew_number_rentals(ctx: dict[str, Any]) -> str:
     `collect_number_rental` decides the route and the exemptions: a prepaid account is
     debited, an invoiced one gets a statement line, and a closed account, a period that
     began in a trial and a period before `rental_charged_from` are collected from nobody.
-    The directory excludes erased tenants (`_ALL_TENANTS`) and a released number drops out
-    of `_RENEWING`. Each number is collected in its own transaction, so one failure costs
-    nobody else theirs. Failures retry the whole tick (free, by the key), then alarm.
+    The directory excludes erased tenants (`_ALL_TENANTS`); a released or held number
+    (D-860) drops out of `_RENEWING`. Each number is collected in its own transaction, so
+    one failure costs nobody else theirs. Failures retry the whole tick (free, by the key),
+    then alarm.
     """
     attempt = int(ctx.get("job_try", 1))
     today = today_ist()

@@ -147,6 +147,7 @@ from apps.api.agents.models import (
     CALL_CAP_MIN_S,
     FILLER_LINES_MAX,
     AgentDirection,
+    number_on_hold_sql,
     series_for_e164,
 )
 from apps.api.agents.own_model import (
@@ -609,7 +610,7 @@ async def _load_agent(
                 # The engine numbers bound to the agent, for `holds_a_number` (F1).
                 "ARRAY(SELECT n.engine_number_ref FROM phone_numbers n WHERE n.agent_id = a.id "
                 "AND n.released_at IS NULL AND n.engine_number_ref IS NOT NULL "
-                "AND n.provider = :number_provider), "
+                f"AND n.provider = :number_provider AND NOT {number_on_hold_sql('n')}), "
                 # How a Studio voice sounds on this agent (`agents/voice_tuning`).
                 f"{TUNING_COLUMNS}, "
                 # The reply ceiling an operator set (`agents/reply_length`).

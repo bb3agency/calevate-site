@@ -221,6 +221,12 @@ from apps.workers.maintenance import (
     notify_maintenance,
 )
 from apps.workers.notifications import notify_hot_lead
+from apps.workers.number_holds import SWEEP_MINUTE as NUMBER_HOLD_SWEEP_MINUTE
+from apps.workers.number_holds import (
+    notify_number_hold,
+    settle_number_holds,
+    sweep_number_holds,
+)
 from apps.workers.number_moves import move_engine_number
 from apps.workers.number_rental import (
     meter_number_rentals,
@@ -386,6 +392,10 @@ FUNCTIONS: list[Any] = [
         # A paying client's agents moved into its own workspace once it is active (D-859),
         # from the outbox (`go_live/moves.queue_agent_move`).
         move_agents_to_workspace,
+        # A stopped client's rented numbers held, resumed or released, and the owner told
+        # (D-860), from the outbox (`campaigns/number_holds.queue_hold_settlement`).
+        settle_number_holds,
+        notify_number_hold,
         # A client's calls at once sent to its workspace (F7, `tenancy/call_lines`).
         sync_engine_call_lines,
         # A call's English, again: an owner's "Try again" from the outbox
@@ -1058,6 +1068,16 @@ CRON_JOBS = [
     # Daily so a missed tick costs a day, not a month; which period is due is computed in
     # IST from the number's own anchor, never from this host-local schedule. :46 shares
     # its minute with no other fleet walk.
+    # A STOPPED CLIENT'S RENTED NUMBERS (D-860): hourly, because a held number must be
+    # released inside the day before its renewal (`number_holds.RELEASE_MARGIN`) and each
+    # tick is a retry of the last. Each step is a CAS, so a tick meeting an outbox pass on
+    # the same tenant does nothing twice.
+    _cron(
+        traced_job(sweep_number_holds),
+        walk=fleet_wide("one tenant_session per organization, plus vendor calls per hold"),
+        minute={NUMBER_HOLD_SWEEP_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     _cron(
         traced_job(renew_number_rentals),
         walk=fleet_wide("one tenant_session per organization, then one per client-priced number"),

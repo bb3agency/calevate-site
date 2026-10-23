@@ -375,6 +375,11 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_workspace_plan_limit": "attention",
     "engine_workspace_provisioning_failed": "attention",
     "engine_workspace_offboarding_failed": "attention",
+    # D-860. A held number not released before its renewal costs us one month's rent; the
+    # margin is a day of hourly retries, so an operator acts in the day. A hold email not
+    # delivered leaves a date on the client's Phone numbers page unannounced.
+    "number_hold_unsettled": "attention",
+    "number_hold_notice_undelivered": "attention",
     "engine_business_details_submit_failed": "attention",
     "engine_agent_retire_failed": "attention",
     # D-859. A paying client's agent left in our developer workspace keeps working there, so

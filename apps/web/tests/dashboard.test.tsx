@@ -260,6 +260,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/agents": [],
     "/v1/agents/stats": [],
     "/v1/campaigns": [],
+    "/v1/campaigns/numbers": [],
     "/v1/attention": { counts: {}, items: [], total: 0 },
     "/v1/knowledge-gaps?status=open&limit=20": { items: [], open_count: 0, total: 0 },
     "/v1/business-profile": businessProfileFixture(),
@@ -588,6 +589,59 @@ describe("the dashboard renders what the server said, or says it could not", () 
  * yet" from "we could not read it". §52's first two clauses, on the tile that decides
  * whether somebody rings us about their bill.
  */
+describe("a held number (D-860)", () => {
+  const held = (release_at: string | null) => ({
+    id: "number-held",
+    e164: "+918012345671",
+    series: "standard",
+    dlt_status: "pending",
+    supplied_by_us: true,
+    answerable: false,
+    agent_id: null,
+    direction: "both",
+    held: true,
+    release_at,
+  });
+
+  it("leads with calls stopped and the IST release day, with credit the one action", async () => {
+    await renderClientPage(page, routes({ "/v1/campaigns/numbers": [held("2026-11-06T18:30:00Z")] }));
+    expect(
+      await screen.findByText("Calls stopped. Released on Saturday, 7 November unless you top up."),
+    ).toBeTruthy();
+    const links = screen.getAllByRole("link", { name: "Add credit" });
+    expect(links.some((link) => link.getAttribute("href")?.endsWith("/billing?tab=credits"))).toBe(true);
+  });
+
+  it("names the earliest day when several numbers are held", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/campaigns/numbers": [
+          { ...held("2026-11-09T18:30:00Z"), id: "n2" },
+          held("2026-11-06T18:30:00Z"),
+        ],
+      }),
+    );
+    expect(
+      await screen.findByText(
+        "Calls stopped. The first of your numbers is released on Saturday, 7 November unless you top up.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says it could not check, rather than nothing, when the numbers do not load", async () => {
+    await renderClientPage(page, routes({ "/v1/campaigns/numbers": problem(503) }));
+    expect(
+      await screen.findByText("We could not check whether your phone numbers are answering."),
+    ).toBeTruthy();
+  });
+
+  it("says nothing when no number is held", async () => {
+    await renderClientPage(page, routes());
+    expect(screen.queryByText(/^Calls stopped\./)).toBeNull();
+  });
+});
+
 describe("the money tile says which kind of nothing it is showing", () => {
   it("refuses, rather than sitting on a dash, when the usage read fails", async () => {
     const { container } = await renderClientPage(
@@ -943,6 +997,7 @@ describe("this week", () => {
     const card = await recap({
       "/v1/agents": [agentRow({ direction: "outbound" })],
       "/v1/campaigns": [],
+      "/v1/campaigns/numbers": [],
     });
     expect((await actions(card))[0]).toEqual({ name: "Start a campaign", primary: true });
   });

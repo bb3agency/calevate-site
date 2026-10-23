@@ -305,6 +305,13 @@ ERASURE_EXEMPT: dict[str, str] = {
         "that rang it. It is the business's own telephone number, held to route calls and "
         "to bill the rental, and it survives every caller's erasure by definition."
     ),
+    "phone_number_holds": (
+        "A stopped client's rented number held until it is released (D-860). `reason` and "
+        "`end_reason` are CHECK-constrained codes of ours (`account_closed`, `released`, ...), "
+        "never text anybody typed; the rest is ids and instants about the business's own "
+        "number, which outlives an erasure like `phone_numbers` does, and an open hold must "
+        "outlive a tenant erasure so the number is still released before its renewal."
+    ),
     "dnc_list": (
         "Suppression, and erasing it would make the person CALLABLE again — the opposite "
         "of what the entry is for. It records a number and a scope and nothing else about "

@@ -26,6 +26,7 @@ from apps.api.engine.thinnest_workspace import (
 from apps.api.tenancy import closure
 from apps.api.tenancy import engine_workspace as resolver
 from apps.workers import engine_workspaces as jobs
+from apps.workers import number_holds as number_hold_jobs
 from apps.workers import workspace_walk
 from calevate_shared.engine_scope import scoped_handle
 from sqlalchemy import text
@@ -372,9 +373,23 @@ async def test_closing_an_account_offboards_its_workspace(account: FakeAccount) 
     assert await resolver.workspace_for_tenant(tenant_id) is None
     assert await _outbox(resolver.OFFBOARD_JOB, tenant_id)
 
+    # The rented number is held first (D-860): the offboarding waits until its release.
+    assert await jobs.offboard_engine_workspace({}, {"tenant_id": str(tenant_id)}) == (
+        "waiting_for_holds=1"
+    )
+    await number_hold_jobs.settle_tenant(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE phone_number_holds SET held_at = now() - interval '1 day', "
+                "release_at = now() - interval '1 minute'"
+            )
+        )
+    await number_hold_jobs.settle_tenant(tenant_id)
+
     result = await jobs.offboard_engine_workspace({}, {"tenant_id": str(tenant_id)})
 
-    assert result == "released=1 agents_deleted=0"
+    assert result == "released=0 agents_deleted=0"
     release = next(s for s in account.sent if s.method == "DELETE" and "/phone-numbers/" in s.path)
     assert (release.workspace, release.query.get("confirm")) == (workspace, "release")
     assert account.customers[workspace]["archivedAt"] is not None

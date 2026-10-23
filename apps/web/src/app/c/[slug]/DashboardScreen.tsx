@@ -8,7 +8,7 @@ import { Metric, MetricRow } from "@/components/console/metric";
 import { useAgentStats, useAgents } from "@/lib/api/agents";
 import { useAttention } from "@/lib/api/attention";
 import { useBusinessProfile } from "@/lib/api/businessProfile";
-import { useCampaigns } from "@/lib/api/campaigns";
+import { useCampaignNumbers, useCampaigns } from "@/lib/api/campaigns";
 import { useForwarding } from "@/lib/api/forwarding";
 import { useLineIncidents } from "@/lib/api/healer";
 import { useCalls, useDashboard, useUsage, useWriteAccess } from "@/lib/api/hooks";
@@ -23,6 +23,7 @@ import { AgentsAtAGlance } from "./AgentsAtAGlance";
 import { CallingCreditTile } from "./CallingCreditTile";
 import { DailyCalls } from "./DailyCalls";
 import { FirstAgentInvite } from "./FirstAgentInvite";
+import { HeldNumberNotice } from "./HeldNumberNotice";
 import { KnowledgeGaps } from "./KnowledgeGaps";
 import { LatestCalls } from "./LatestCalls";
 import { LineNotice } from "./LineNotice";
@@ -59,6 +60,8 @@ export function DashboardScreen({ slug }: { slug: string }) {
   const { session, href } = useClientRealm();
   const dashboard = useDashboard(session);
   const usage = useUsage(session);
+  // A held number (D-860): calls to it have stopped and it is released on a date.
+  const numbers = useCampaignNumbers(session);
   /*
    * THE BALANCE, on the screen a client opens first.
    *
@@ -252,6 +255,13 @@ export function DashboardScreen({ slug }: { slug: string }) {
           when there is nothing to say. */}
       <div className="space-y-4 empty:hidden">
         <LineNotice session={session} href={href(`/c/${slug}/settings/line-protection`)} />
+        {numbers.isError ? (
+          <p className="rounded-md bg-surface-muted px-4 py-3 text-body text-ink-muted">
+            We could not check whether your phone numbers are answering.
+          </p>
+        ) : numbers.data ? (
+          <HeldNumberNotice numbers={numbers.data} topUpHref={href(`/c/${slug}/billing?tab=credits`)} />
+        ) : null}
         {agents.data?.length === 0 && agentAccess.allowed ? (
           <FirstAgentInvite href={(path) => href(`/c/${slug}${path}`)} />
         ) : null}

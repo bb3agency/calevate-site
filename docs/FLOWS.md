@@ -294,7 +294,9 @@ caller dials the client's number → ThinnestAI answers with the published agent
 After-hours: agent runs 24/7 by default; "after_hours" flag set from business_hours →
 dashboard "after-hours captured" metric; escalation rules can differ after hours.
 Closed account: closing an account detaches every number from its agent
-(`agents/lifecycle.release_account_numbers`) and the undo re-attaches them (D-671, §9).
+(`agents/lifecycle.release_account_numbers`) and the undo re-attaches them (D-671, §9). On
+ThinnestAI the numbers it rents are held (D-860, §9): detached, charged nothing, and
+released before their next renewal unless the account is reopened first.
 Repeat callers: what the agent knows about a caller reaches it at call start through the
 lookup in step 1, never mid-call.
 
@@ -550,6 +552,21 @@ Client churns: export bundle (leads CSV, transcripts redacted, recordings zip vi
 presigned) → retention countdown per policy → deletion_requests execution (our storage +
 engine records via adapter) → proof certificate → org status churned; number released or
 ported per client wish.
+
+- **A stopped client's rented numbers are held, then released (D-860).** Stopped = the
+  account closed, or the prepaid wallet below zero for `number_hold_after_negative_days`
+  (console, default 7, proposed and not confirmed by the founder). Each number we rent in
+  its own workspace is detached (nobody answers it, nobody calls out on it), charged no rent
+  (`workers/number_rental._RENEWING` skips it), and released with `?confirm=release`
+  24 hours before the earliest instant its next monthly rent could fall, never more than
+  30 days after the hold began (`campaigns/number_holds.release_instant`). The owner is
+  emailed at the hold, three days before the release when the hold is at least five days
+  long, and at the release. A top-up back to zero or more, or the account reopened, ends
+  the hold and the number answers on the agent it was on. On a closure the workspace's
+  offboarding (`workers/engine_workspaces.offboard_engine_workspace`) waits while a number
+  there is held — agents and customer stay — and the last release queues it again; there
+  is no cool-off after the release. The hold job is `workers/number_holds.py` (outbox per
+  tenant, hourly sweep); runbook `runbooks/number-holds.md`.
 
 - **The countdown really does keep running.** `apply_retention` is deliberately
   unfiltered on `organizations.status` AND on `deleted_at`, so an offboarded client's

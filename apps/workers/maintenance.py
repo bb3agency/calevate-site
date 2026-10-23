@@ -931,7 +931,7 @@ async def notify_maintenance(ctx: dict[str, Any], payload: dict[str, Any]) -> st
 async def _recipients(session: AsyncSession, *, tenant_id: UUID) -> list[str]:
     """The billing address plus every ACTIVE owner, de-duplicated, stably ordered.
 
-    Lifted verbatim in shape from `workers/account_closure._recipients` and for its
+    Lifted verbatim in shape from `workers/account_closure.account_recipients` and for its
     reason: the billing mailbox is often an accountant who does not read it daily, and the
     owner is the person who reschedules their morning around a maintenance window. A
     deactivated user is excluded — a removed owner must not keep receiving the business's

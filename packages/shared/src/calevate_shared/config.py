@@ -1778,6 +1778,10 @@ class Settings(BaseSettings):
     # send the pre-debit notification (`api/payments/recurring-payments/upi/
     # create-subsequent-payments.md`), so each of ours is already a retried attempt.
     auto_recharge_max_failures: int = Field(default=3, ge=1, le=10)
+    # D-860: days a prepaid wallet stays below zero before the client's rented numbers are
+    # held (calls stopped, no rent, released before the next renewal). 7 was proposed to the
+    # founder and not confirmed. Read on every hold sweep.
+    number_hold_after_negative_days: int = Field(default=7, ge=1, le=60)
     # How many days back the daily Razorpay reconciliation compares payments and refunds.
     razorpay_reconciliation_days: int = Field(default=3, ge=1, le=30)
 

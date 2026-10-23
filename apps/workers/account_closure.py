@@ -126,10 +126,10 @@ def _retry_after(attempt: int) -> float:
 def _compose(*, event: str, business: str, erase_on: str | None, reason: str | None) -> str:
     """The message body, in the client's terms and with nothing they cannot act on.
 
-    **The erasure date is stated, and so is what happens to the numbers.** The close
-    detaches them from the agents and does not release them (`tenancy/closure.py`), so the
-    client is told both halves and asked which they want: a number they still pay for and
-    never hear about is the surprise this paragraph exists to prevent.
+    **The erasure date is stated, and so is what happens to the numbers.** The close holds
+    the numbers the client rents through us and releases each before its next renewal
+    (D-860); the hold's own email gives each number's date, because the dates differ per
+    number and are known only once the hold job has read each rent day.
 
     The operator's `reason` is quoted verbatim when there is one. It is free text an
     operator typed, so it never reaches a log line (hard rule 6) — but it is the answer to
@@ -188,14 +188,14 @@ def _compose(*, event: str, business: str, erase_on: str | None, reason: str | N
     lines += [
         "",
         "Your telephone numbers have been disconnected from your agents, so callers are "
-        "no longer answered by them. The numbers themselves are still held for your "
-        "account: tell us whether you want them released or moved to another provider, "
-        "and we will arrange it.",
+        "no longer answered by them. A number you rent through us is kept for you for a "
+        "short time and no rent is charged for it. We will email you separately with the "
+        "date each one will be given up unless the account is reopened before then.",
     ]
     return "\n".join(lines)
 
 
-async def _recipients(session: AsyncSession, *, tenant_id: UUID) -> list[str]:
+async def account_recipients(session: AsyncSession, *, tenant_id: UUID) -> list[str]:
     """Every address that must hear about this, de-duplicated case-insensitively.
 
     Both the billing address on the organisation AND the account's live owners, and the
@@ -293,7 +293,9 @@ async def notify_account_closed(ctx: dict[str, Any], payload: dict[str, Any]) ->
         # the one place it has no value: the whole point is to reach the mailbox that is
         # losing the account's notices, while it still can object.
         explicit = str(payload.get("to") or "").strip()
-        recipients = [explicit] if explicit else await _recipients(session, tenant_id=tenant_id)
+        recipients = (
+            [explicit] if explicit else await account_recipients(session, tenant_id=tenant_id)
+        )
         if not recipients:
             alert(
                 "WORKER_TERMINAL",
@@ -631,6 +633,7 @@ __all__ = [
     "NOTICE_RESTORED",
     "SWEEP_BUDGET",
     "SWEEP_MINUTE",
+    "account_recipients",
     "enqueue_closure_notice",
     "enqueue_notice_address_changed",
     "notify_account_closed",

@@ -129,6 +129,10 @@ TENANT_TABLES = [
     "lead_call_policies",
     "lead_call_holds",
     "phone_numbers",
+    # A stopped client's rented number held until it resumes or is released (D-860,
+    # migration e8c4b1d7a352). Not append-only: each row is a small state machine the hold
+    # job moves.
+    "phone_number_holds",
     "outbound_sender_attestations",
     # Whose connection a bought number is: one identity per tenant, reused for every
     # number after the first (`campaigns/number_models.py`).
