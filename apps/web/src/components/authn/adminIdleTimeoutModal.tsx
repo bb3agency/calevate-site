@@ -38,7 +38,7 @@ import { useCallback, useRef, useState } from "react";
 
 import { LogOut, RefreshCw, Timer } from "lucide-react";
 
-import { DANGER_BUTTON, NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
+import { DANGER_BUTTON, MODAL_ACTIONS, MODAL_PANEL, MODAL_SCRIM, NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
 import { useFocusTrap } from "@/lib/focusTrap";
 import { ADMIN_SIGN_IN_PATH, adminAuthn } from "@/lib/authn/adminAuthn";
 import { isSessionGone, isUnreachable } from "@/lib/authn/problems";
@@ -190,7 +190,7 @@ export function AdminIdleTimeoutModal({ session }: { session: AuthnSession | nul
   const seconds = String(remaining % 60).padStart(2, "0");
 
   return (
-    <div className="scrim-enter fixed inset-0 z-modal flex items-center justify-center bg-black/40 p-4">
+    <div className={MODAL_SCRIM}>
       <div
         ref={panel}
         role="alertdialog"
@@ -198,7 +198,7 @@ export function AdminIdleTimeoutModal({ session }: { session: AuthnSession | nul
         aria-labelledby="admin-idle-title"
         aria-describedby="admin-idle-body"
         tabIndex={-1}
-        className="dialog-enter w-full max-w-md rounded-card border border-line bg-surface p-4 shadow-overlay outline-none sm:p-6"
+        className={MODAL_PANEL}
       >
         <h2 id="admin-idle-title" className="flex items-center gap-2 text-[17px] font-semibold text-ink">
           <Timer aria-hidden className="h-4 w-4" />
@@ -232,7 +232,7 @@ export function AdminIdleTimeoutModal({ session }: { session: AuthnSession | nul
             </NoticeBox>
           )}
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className={MODAL_ACTIONS}>
           <button type="button" className={PRIMARY_BUTTON} disabled={extending} onClick={extend}>
             <RefreshCw aria-hidden className="h-4 w-4" />
             {extending ? <span className="text-shimmer">Extending…</span> : "Stay signed in"}

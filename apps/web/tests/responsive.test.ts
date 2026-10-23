@@ -522,10 +522,7 @@ describe("the second mobile pass", () => {
    * `MODAL_PANEL` / `MODAL_ACTIONS` in components/ui.tsx). A hand-rolled centred card
    * with no max-height runs off a short or landscape screen with its buttons out of reach.
    */
-  const MODAL_NOT_YET_ON_KIT: Record<string, string> = {
-    "components/authn/adminIdleTimeoutModal.tsx": "owned by the auth work in flight; migrate with it",
-    "components/authn/stepUpPrompt.tsx": "owned by the auth work in flight; migrate with it",
-  };
+  const MODAL_NOT_YET_ON_KIT: Record<string, string> = {};
 
   it("every modal scrim is the kit's", () => {
     const handRolled: string[] = [];

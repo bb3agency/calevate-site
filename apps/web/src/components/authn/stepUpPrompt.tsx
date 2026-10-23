@@ -37,7 +37,7 @@ import { KeyRound, LogOut, Mail, ShieldCheck } from "lucide-react";
 
 import { AuthProblemNotice } from "@/components/authn/fields";
 import { OtpInput } from "@/components/interior/otp-input";
-import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
+import { MODAL_PANEL, MODAL_SCRIM, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
 import {
   ADMIN_SIGN_IN_PATH,
   adminAuthn,
@@ -235,7 +235,7 @@ export function StepUpPrompt({ realm = "admin" }: { realm?: "admin" | "client" }
   if (prompt === null) return null;
 
   return (
-    <div className="scrim-enter fixed inset-0 z-modal flex items-center justify-center bg-black/40 p-4">
+    <div className={MODAL_SCRIM}>
       <div
         ref={panel}
         role="alertdialog"
@@ -243,7 +243,7 @@ export function StepUpPrompt({ realm = "admin" }: { realm?: "admin" | "client" }
         aria-labelledby="step-up-title"
         aria-describedby="step-up-body"
         tabIndex={-1}
-        className="dialog-enter w-full max-w-md rounded-card border border-line bg-surface p-4 shadow-overlay outline-none sm:p-6"
+        className={MODAL_PANEL}
       >
         <div className="flex items-start justify-between gap-3">
           <h2
