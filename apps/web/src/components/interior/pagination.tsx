@@ -21,7 +21,7 @@ const range = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, i) => from + i);
 
 const arrow = (can: boolean) =>
-  `flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] outline-none transition-colors duration-150 focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_var(--brand)] dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_var(--brand-bright)] ${
+  `flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] outline-none touch:h-11 touch:w-11 transition-colors duration-150 focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_var(--brand)] dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_var(--brand-bright)] ${
     can
       ? "text-ink-muted hover:bg-ink/[0.04] hover:text-ink"
       : "text-ink-faint"
@@ -229,7 +229,7 @@ export function Pagination({
                     key={item}
                     aria-hidden
                     style={{ width: slot }}
-                    className="flex h-8 shrink-0 items-center justify-center text-[12.5px] text-ink-faint"
+                    className="flex h-8 shrink-0 items-center justify-center text-[12.5px] text-ink-faint touch:h-11"
                   >
                     &hellip;
                   </li>
@@ -244,7 +244,7 @@ export function Pagination({
                     aria-label={`Page ${item}`}
                     aria-current={selected ? "page" : undefined}
                     onClick={() => pagination.goTo(item)}
-                    className={`flex h-8 w-full items-center justify-center rounded-[9px] text-[12.5px] tabular-nums outline-none transition-colors duration-150 focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_var(--brand)] dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_var(--brand-bright)] ${
+                    className={`flex h-8 w-full items-center justify-center rounded-[9px] text-[12.5px] touch:h-11 tabular-nums outline-none transition-colors duration-150 focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_var(--brand)] dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_var(--brand-bright)] ${
                       selected
                         ? "font-medium text-white"
                         : "text-ink-muted hover:bg-ink/[0.04] hover:text-ink"

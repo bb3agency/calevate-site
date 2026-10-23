@@ -169,7 +169,7 @@ export function TrialCallCard({
             if (ready) call().catch(() => undefined);
           }}
         >
-          <label className="block">
+          <label className="block w-full min-w-0 sm:w-auto">
             <span className={FIELD_LABEL}>Agent</span>
             {agents.error ? (
               <span className="mt-1 block text-sm text-ink-muted">
@@ -190,7 +190,7 @@ export function TrialCallCard({
                   place.reset();
                   prepare.reset();
                 }}
-                className={`${FIELD_INLINE} mt-1 sm:min-w-48`}
+                className={`${FIELD_INLINE} mt-1 w-full sm:w-auto sm:min-w-48`}
               >
                 {dialers?.map((agent) => (
                   <option key={agent.id} value={agent.id}>
@@ -200,7 +200,7 @@ export function TrialCallCard({
               </select>
             )}
           </label>
-          <label className="block">
+          <label className="block w-full min-w-0 sm:w-auto">
             <span className={FIELD_LABEL}>Number to call</span>
             <input
               value={number}
@@ -213,7 +213,7 @@ export function TrialCallCard({
               inputMode="tel"
               autoComplete="off"
               placeholder="9876543210 or +919876543210"
-              className={`${FIELD_INLINE} mt-1 w-56 font-mono`}
+              className={`${FIELD_INLINE} mt-1 w-full font-mono sm:w-56`}
             />
           </label>
           <button type="submit" disabled={!ready} className={PRIMARY_BUTTON}>

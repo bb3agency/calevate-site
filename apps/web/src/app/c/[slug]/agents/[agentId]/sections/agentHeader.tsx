@@ -122,7 +122,7 @@ export function AgentHeader({
       onClick={() => move.mutate("restore")}
       disabled={!write.allowed || move.isPending}
       title={write.reason ?? undefined}
-      className={`${PRIMARY_BUTTON} flex-1 sm:flex-none`}
+      className={`${PRIMARY_BUTTON} flex-1 justify-center whitespace-nowrap sm:flex-none`}
     >
       {move.isPending ? MOVE_COPY.restore.busy : MOVE_COPY.restore.label}
     </button>
@@ -147,7 +147,7 @@ export function AgentHeader({
                     onClick={() => move.mutate("prepare")}
                     disabled={!write.allowed || move.isPending}
                     title={write.reason ?? MOVE_COPY.prepare.hint}
-                    className={`${SECONDARY_BUTTON} flex-1 sm:flex-none`}
+                    className={`${SECONDARY_BUTTON} flex-1 justify-center whitespace-nowrap sm:flex-none`}
                   >
                     {move.isPending && move.variables === "prepare" ? MOVE_COPY.prepare.busy : MOVE_COPY.prepare.label}
                   </button>
@@ -157,7 +157,7 @@ export function AgentHeader({
                   onClick={training?.onClick}
                   scroll={false}
                   data-tour={TRY_IT_ANCHOR}
-                  className={`${SECONDARY_BUTTON} flex-1 sm:flex-none`}
+                  className={`${SECONDARY_BUTTON} flex-1 justify-center whitespace-nowrap sm:flex-none`}
                 >
                   <MessageSquareText aria-hidden className="h-4 w-4" />
                   Try it
@@ -265,7 +265,7 @@ function PutLiveButton({
     <>
       <button
         type="button"
-        className={`${PRIMARY_BUTTON} flex-1 sm:flex-none`}
+        className={`${PRIMARY_BUTTON} flex-1 justify-center whitespace-nowrap sm:flex-none`}
         disabled={!canWrite || putLive.pending}
         title={reason ?? undefined}
         onClick={() => setAsking(true)}
