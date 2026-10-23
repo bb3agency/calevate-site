@@ -80,6 +80,26 @@ class BoundedByConstruction:
 
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    # --- the UI wave's backend lane (D-869, D-870) ------------------------------------------
+    "GET /v1/agents/{agent_id}/readiness": BoundedByConstruction(
+        by=(
+            "one component per key of `agents/readiness.MAX_POINTS` (six) and at most one fix "
+            "per component, so both lists are fixed by the formula, not by any row count."
+        )
+    ),
+    "GET /v1/billing/voice-tiers": BoundedByConstruction(
+        by=(
+            "one entry per `billing/rates.VOICE_TIERS` (two), each with the fixed copy lines "
+            "of `billing/tier_routes.TIER_INCLUDES`."
+        )
+    ),
+    "GET /v1/leads/{lead_id}/whatsapp": BoundedByConstruction(
+        by=(
+            "approved templates of ONE connected account, read with `LIMIT` "
+            "`whatsapp/templates.MAX_TEMPLATES_PER_ACCOUNT`; a template's blanks are at most "
+            "`templates.MAX_VARIABLES`."
+        )
+    ),
     # --- clients' WhatsApp (D-784) ---------------------------------------------------------
     "GET /v1/whatsapp": BoundedByConstruction(
         by=(
