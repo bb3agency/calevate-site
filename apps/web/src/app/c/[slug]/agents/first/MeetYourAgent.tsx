@@ -13,7 +13,7 @@ import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import { agentKeys, useAgents, type Agent } from "@/lib/api/agents";
 import { useBusinessProfile } from "@/lib/api/businessProfile";
 import type { CallSummary } from "@/lib/api/client";
-import { useDismissFirstRun, useFirstRun } from "@/lib/api/firstRun";
+import { primaryJob, useDismissFirstRun, useFirstRun } from "@/lib/api/firstRun";
 import { useCalls, useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
@@ -133,7 +133,7 @@ export function MeetYourAgent({ slug }: { slug: string }) {
         body = agent ? (
           <HearItStep
             agent={agent}
-            job={data.job}
+            job={primaryJob(data)}
             calls={calls.data}
             onBack={() => setStage("build")}
             onEnded={(ended) => {
@@ -169,7 +169,7 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   const card = (compact: boolean) => (
     <AgentTakingShape
       agent={agent}
-      job={run.data?.job ?? null}
+      job={primaryJob(run.data)}
       language={run.data?.language_primary ?? null}
       brief={run.data?.brief ?? null}
       pieces={pieces}

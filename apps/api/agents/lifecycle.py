@@ -83,7 +83,7 @@ from apps.api.agents.service import (
     retire_in_call_actions,
     route_inbound_numbers,
 )
-from apps.api.agents.starters import StarterJob, apply_starter, direction_for
+from apps.api.agents.starters import JobChoice, apply_starter, direction_for, starter_jobs
 from apps.api.agents.voice_tuning import DEFAULT_STUDIO_EMOTION, OLD_VOICE_MODEL, is_studio_voice
 from apps.api.agents.write_guard import archived_refusal
 from apps.api.compliance.disclosure import (
@@ -260,7 +260,7 @@ async def create_agent(
     language_primary: str,
     languages_extra: Sequence[str] | None = None,
     max_call_duration_s: int | None = None,
-    starter: StarterJob | None = None,
+    starter: JobChoice | None = None,
     created_by: UUID | None = None,
 ) -> UUID:
     """Mint a DRAFT agent with the compliance floor already satisfied, and return its id.
@@ -404,7 +404,7 @@ async def create_agent(
             "tenant_id": str(tenant_id),
             "direction": direction,
             "language_primary": language_primary,
-            "starter": starter,
+            "starter": None if starter is None else list(starter_jobs(starter)),
         },
     )
     return agent_id

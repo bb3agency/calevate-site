@@ -68,7 +68,7 @@ describe("new agent from a job", () => {
   it("offers the three jobs first, all open, and reads no preview until one is picked", async () => {
     const { calls } = await renderClientPage(page, routes());
     expect(await screen.findByRole("heading", { name: "What should your new agent do?" })).toBeTruthy();
-    for (const name of [/Answer my calls/, /Call new leads instantly/, /Call my list/]) {
+    for (const name of [/Answer my calls/, /Call new leads instantly/, /Run calling campaigns/]) {
       expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false);
     }
     expect(calls.some((c) => c.path.includes("/starters"))).toBe(false);

@@ -11,7 +11,7 @@ import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton, formatDurati
 import type { Agent } from "@/lib/api/agents";
 import type { CallSummary } from "@/lib/api/client";
 import type { FirstRun } from "@/lib/api/firstRun";
-import { useFinishFirstRun } from "@/lib/api/firstRun";
+import { primaryJob, useFinishFirstRun } from "@/lib/api/firstRun";
 import { useCall } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { useTrialPanel } from "@/lib/api/trialCalls";
@@ -171,7 +171,7 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
   const trial = panel.data;
   const left = trial?.on_trial ? callsLeft(trial.minutes_left, trial.max_call_seconds) : null;
   const done = [
-    `${jobCard(run.job)?.title ?? "Its job"}, in your words`,
+    `${jobCard(primaryJob(run))?.title ?? "Its job"}, in your words`,
     "A voice, a greeting and its AI notice",
     "Its first call, to you",
   ];
@@ -199,7 +199,7 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
         </p>
       ) : null}
 
-      {run.job === "call_new_leads" ? (
+      {run.jobs.includes("call_new_leads") ? (
         <p className="text-body text-ink">
           <Link href={href(`/c/${session.orgSlug}/lead-sources`)} className={TEXT_ACTION}>
             Connect your lead form later

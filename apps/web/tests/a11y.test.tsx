@@ -2740,7 +2740,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/first-run": {
         due: true,
-        job: "answer_calls",
+        jobs: ["answer_calls"],
         language_primary: "te-IN",
         languages_extra: ["en-IN"],
         brief: "We sell flats in Kondapur.",

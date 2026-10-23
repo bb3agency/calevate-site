@@ -9,7 +9,7 @@ import { metaOf } from "@/app/c/[slug]/agents/first/BuildStep";
 import { answersOf } from "@/app/c/[slug]/agents/first/QuestionsStep";
 import { recordingMimeType } from "@/components/voiceButton";
 import type { Agent } from "@/lib/api/agents";
-import type { FirstRun } from "@/lib/api/firstRun";
+import type { FirstRun, FirstRunQuestion } from "@/lib/api/firstRun";
 import {
   GREETING_MAX_CHARS,
   NOT_FEMALE_LINE,
@@ -60,7 +60,7 @@ const STEPS = ["voice", "script", "greeting", "notice"] as const;
 function run(over: Partial<FirstRun> = {}): FirstRun {
   return {
     due: true,
-    job: null,
+    jobs: [],
     language_primary: null,
     languages_extra: [],
     brief: null,
@@ -81,7 +81,7 @@ function run(over: Partial<FirstRun> = {}): FirstRun {
 
 function built(over: Partial<FirstRun> = {}): FirstRun {
   return run({
-    job: "answer_calls",
+    jobs: ["answer_calls"],
     language_primary: "te-IN",
     languages_extra: ["en-IN"],
     brief: "We sell flats in Kondapur.",
@@ -191,9 +191,9 @@ describe("the pieces and where an owner resumes", () => {
 
   it("resumes on the step the server's rows say", () => {
     expect(resumeStage({ run: run(), agent: null, calls: undefined })).toBe("job");
-    expect(resumeStage({ run: run({ job: "call_leads" }), agent: null, calls: undefined })).toBe("brief");
-    expect(resumeStage({ run: run({ job: "call_leads", brief: "x" }), agent: null, calls: undefined })).toBe("questions");
-    const building = run({ job: "call_leads", build: { ...run().build, status: "building" } });
+    expect(resumeStage({ run: run({ jobs: ["call_leads"] }), agent: null, calls: undefined })).toBe("brief");
+    expect(resumeStage({ run: run({ jobs: ["call_leads"], brief: "x" }), agent: null, calls: undefined })).toBe("questions");
+    const building = run({ jobs: ["call_leads"], build: { ...run().build, status: "building" } });
     expect(resumeStage({ run: building, agent: null, calls: undefined })).toBe("build");
     expect(resumeStage({ run: built(), agent: agent(), calls: [] })).toBe("hear");
     expect(resumeStage({ run: built({ finished_at: "2026-10-23T05:00:00Z" }), agent: agent(), calls: [] })).toBe("team");
@@ -240,23 +240,49 @@ describe("the pieces and where an owner resumes", () => {
     expect(recordingMimeType(() => false)).toBe("");
   });
 
-  it("sends only the questions answered, in the profile's shape", () => {
-    const draft = {
-      trade: ["Villas"],
-      location: " Kondapur ",
-      offer: [
-        { name: "Villa", price: "₹95,00,000" },
-        { name: "", price: "" },
-      ],
-      hours: { opens: "09:00", closes: "18:00", closed: ["sun" as const] },
-      booking: "",
-    };
-    expect(answersOf(draft, new Set(["trade", "location", "offer"]))).toEqual({
-      trade: ["Villas"],
-      location: "Kondapur",
-      offer: [{ name: "Villa", price_inr: "9500000" }],
+  it("sends only the questions answered, each in its kind's field", () => {
+    const question = (id: string, kind: FirstRunQuestion["kind"]): FirstRunQuestion => ({
+      id,
+      prompt: "?",
+      hint: "",
+      kind,
+      options: [],
+      maps_to: null,
     });
-    expect(answersOf(draft, new Set())).toEqual({});
+    const questions = [
+      question("q1", "choices"),
+      question("q2", "address"),
+      question("q3", "services"),
+      question("q4", "single_choice"),
+      question("q5", "text"),
+    ];
+    const entry = {
+      choices: [] as string[],
+      text: "",
+      offer: [{ name: "", price: "" }],
+      hours: { opens: "09:00", closes: "18:00", closed: ["sun" as const] },
+    };
+    const draft = {
+      q1: { ...entry, choices: ["Villas"] },
+      q2: { ...entry, text: " Kondapur " },
+      q3: {
+        ...entry,
+        offer: [
+          { name: "Villa", price: "₹95,00,000" },
+          { name: "", price: "" },
+        ],
+      },
+      q4: { ...entry, choices: ["Yes"] },
+    };
+    expect(answersOf(questions, draft, new Set(["q1", "q2", "q3", "q4", "q5"]))).toEqual({
+      answers: [
+        { id: "q1", choices: ["Villas"] },
+        { id: "q2", text: "Kondapur" },
+        { id: "q3", services: [{ name: "Villa", price_inr: "9500000" }] },
+        { id: "q4", choices: ["Yes"] },
+      ],
+    });
+    expect(answersOf(questions, draft, new Set())).toEqual({ answers: [] });
   });
 
   it("says what really happened at each build step, fallbacks included", () => {
@@ -284,11 +310,11 @@ describe("meet your agent", () => {
     const { calls } = await renderClientPage(
       page,
       routes({
-        "PUT /v1/first-run/job": run({ job: "call_new_leads", language_primary: "te-IN", languages_extra: ["en-IN"] }),
+        "PUT /v1/first-run/job": run({ jobs: ["call_new_leads"], language_primary: "te-IN", languages_extra: ["en-IN"] }),
       }),
     );
     expect(await screen.findByRole("heading", { name: "What should your agent do?" })).toBeTruthy();
-    for (const name of [/Answer my calls/, /Call new leads instantly/, /Call my list/]) {
+    for (const name of [/Answer my calls/, /Call new leads instantly/, /Run calling campaigns/]) {
       expect((screen.getByRole("radio", { name }) as HTMLInputElement).disabled).toBe(false);
     }
     expect(screen.getByText("1 of 9 ready")).toBeTruthy();
@@ -296,12 +322,12 @@ describe("meet your agent", () => {
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
     await waitFor(() => expect(calls.some((call) => call.method === "PUT" && call.path === "/v1/first-run/job")).toBe(true));
     const sent = calls.find((call) => call.method === "PUT" && call.path === "/v1/first-run/job");
-    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ job: "call_new_leads", language_primary: "te-IN", languages_extra: ["en-IN"] });
+    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ jobs: ["call_new_leads"], language_primary: "te-IN", languages_extra: ["en-IN"] });
     expect(await screen.findByRole("heading", { name: "Tell it about your business" })).toBeTruthy();
   });
 
   it("starts the brief from the trade's example and says the audio is not kept", async () => {
-    await renderClientPage(page, routes({ "/v1/first-run": run({ job: "answer_calls", language_primary: "te-IN" }) }));
+    await renderClientPage(page, routes({ "/v1/first-run": run({ jobs: ["answer_calls"], language_primary: "te-IN" }) }));
     const box = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
     expect(box.value.length).toBeGreaterThan(20);
     expect(screen.getByText("Your recording is turned into text. The audio is not kept.")).toBeTruthy();
