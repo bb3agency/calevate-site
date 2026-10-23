@@ -18,7 +18,12 @@ import { useState } from "react";
 import { ChartFrame, ChartTooltip, usePlotWidth, type ChartStateProps } from "./chart-core";
 import { formatCount, formatDuration } from "@/components/ui";
 
-export type RidgeSeries = { label: string; values: number[] };
+/**
+ * `values` draw the shape. When the server has measured the row exactly (a binned read),
+ * pass its `median`, `p90` and `count`: the tick, readout and table then say those figures
+ * rather than ones re-derived from the drawn sample.
+ */
+export type RidgeSeries = { label: string; values: number[]; median?: number; p90?: number; count?: number };
 
 export type RidgelineProps = ChartStateProps & {
   title: string;
@@ -33,6 +38,8 @@ export type RidgelineProps = ChartStateProps & {
   labelColumn?: string;
   medianColumn?: string;
   middleColumn?: string;
+  /** Heading of the 90th-percentile column, used when every row carries `p90`. */
+  p90Column?: string;
   countColumn?: string;
   className?: string;
 };
@@ -71,13 +78,23 @@ export function Ridgeline({
   labelColumn = "Row",
   medianColumn = "Median",
   middleColumn = "Middle half",
+  p90Column = "9 in 10 under",
   countColumn = "Calls",
   className,
   ...state
 }: RidgelineProps) {
   const { ref, width } = usePlotWidth();
   const [hover, setHover] = useState<number | null>(null);
-  const rows = series.map((s) => ({ ...s, sorted: s.values.filter((v) => Number.isFinite(v) && v >= 0).sort((a, b) => a - b) }));
+  const rows = series.map((s) => {
+    const sorted = s.values.filter((v) => Number.isFinite(v) && v >= 0).sort((a, b) => a - b);
+    return {
+      ...s,
+      sorted,
+      mid: s.median ?? (sorted.length ? quantile(sorted, 0.5) : null),
+      n: s.count ?? sorted.length,
+    };
+  });
+  const exact = rows.length > 0 && rows.every((r) => r.p90 !== undefined);
   const all = rows.flatMap((r) => r.sorted);
   const domainMax = maxValue ?? (all.length ? quantile([...all].sort((a, b) => a - b), 0.98) : 0);
   const labelW = Math.min(112, width * 0.3);
@@ -97,12 +114,18 @@ export function Ridgeline({
       height={height}
       isEmpty={all.length === 0}
       table={{
-        columns: [labelColumn, medianColumn, middleColumn, countColumn],
+        columns: [labelColumn, medianColumn, exact ? p90Column : middleColumn, countColumn],
         rows: rows.map((r) => [
           r.label,
-          r.sorted.length ? formatValue(quantile(r.sorted, 0.5)) : "—",
-          r.sorted.length ? `${formatValue(quantile(r.sorted, 0.25))} – ${formatValue(quantile(r.sorted, 0.75))}` : "—",
-          formatCount(r.sorted.length),
+          r.mid !== null && r.n > 0 ? formatValue(r.mid) : "—",
+          exact
+            ? r.n > 0 && r.p90 !== undefined
+              ? formatValue(r.p90)
+              : "—"
+            : r.sorted.length
+              ? `${formatValue(quantile(r.sorted, 0.25))} – ${formatValue(quantile(r.sorted, 0.75))}`
+              : "—",
+          formatCount(r.n),
         ]),
       }}
       className={className}
@@ -117,7 +140,7 @@ export function Ridgeline({
             const d = curve.length
               ? `M${sx(0)},${base} ` + curve.map((v, k) => `L${sx(xs[k]).toFixed(1)},${(base - v * scale).toFixed(1)}`).join(" ") + ` L${sx(domainMax)},${base} Z`
               : "";
-            const median = r.sorted.length ? quantile(r.sorted, 0.5) : null;
+            const median = r.sorted.length ? r.mid : null;
             const dim = hover !== null && hover !== i;
             return (
               <g key={r.label} opacity={dim ? 0.35 : 1} onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)}>
@@ -139,11 +162,13 @@ export function Ridgeline({
             </text>
           ))}
         </svg>
-        {hover !== null && rows[hover].sorted.length ? (
-          <ChartTooltip x={sx(quantile(rows[hover].sorted, 0.5))} y={rowHeight * hover + rowHeight} width={width}>
+        {hover !== null && rows[hover].sorted.length && rows[hover].mid !== null ? (
+          <ChartTooltip x={sx(rows[hover].mid ?? 0)} y={rowHeight * hover + rowHeight} width={width}>
             <p className="font-semibold text-ink">{rows[hover].label}</p>
             <p className="tabular-nums text-ink-muted">
-              {medianColumn} {formatValue(quantile(rows[hover].sorted, 0.5))} · {formatCount(rows[hover].sorted.length)} {countColumn.toLowerCase()}
+              {medianColumn} {formatValue(rows[hover].mid ?? 0)}
+              {rows[hover].p90 !== undefined ? ` · ${p90Column.toLowerCase()} ${formatValue(rows[hover].p90 ?? 0)}` : ""}
+              {` · ${formatCount(rows[hover].n)} ${countColumn.toLowerCase()}`}
             </p>
           </ChartTooltip>
         ) : null}
