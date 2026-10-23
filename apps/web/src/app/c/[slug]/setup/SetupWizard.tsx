@@ -154,7 +154,7 @@ function Wizard({
   };
 
   return (
-    <div className="grid max-w-5xl gap-6 lg:grid-cols-[14rem_1fr]">
+    <div className="grid grid-cols-1 max-w-5xl gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]">
       <nav aria-label="Setup steps" className="hidden lg:block">
         <ProgressBar value={done} max={STEPS.length} label={`${done} of ${STEPS.length} done`} />
         <ol className="mt-4 space-y-0.5">

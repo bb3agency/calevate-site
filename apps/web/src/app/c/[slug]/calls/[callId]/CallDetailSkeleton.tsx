@@ -21,7 +21,7 @@ export function CallDetailSkeleton() {
           <div className={`${bar} h-4 w-5/6 max-w-prose`} />
           <div className={`${bar} mt-4 h-10 w-56 max-w-full`} />
         </div>
-        <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-4">
             <div className={`${bar} h-12 w-full`} />
             {[0, 1, 2, 3].map((i) => (

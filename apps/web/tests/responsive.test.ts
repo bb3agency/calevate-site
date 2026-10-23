@@ -616,3 +616,29 @@ describe("console pages sit on the rail's left edge", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe("a layout grid names its phone column", () => {
+  /**
+   * A `grid` that only declares columns from `md`/`lg` up has ONE implicit `auto` column on
+   * a phone, and an auto track is as wide as its widest child's min-content. A `truncate`
+   * line's min-content is its whole text, so one long agent name widened the dashboard's
+   * column to 711px on a 375px phone and the page scrolled sideways inside <main>.
+   * `grid-cols-1` is `minmax(0, 1fr)`: the column is the screen's width and truncation
+   * works. Form grids that switch at `sm` hold full-width fields, not lists, and are
+   * left alone.
+   */
+  it("every console grid with md/lg columns declares a base column", () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles()) {
+      const key = relPosix(SRC, file);
+      if (!(key.startsWith("app/c/") || key.startsWith("app/admin/") || key.startsWith("components/console/"))) continue;
+      blankComments(readFileSync(file, "utf8").split("\n")).forEach((line, i) => {
+        const cls = /className=["{`]+([^"`]*)/.exec(line)?.[1];
+        if (!cls || !/(?:^|\s)grid(?:\s|$)/.test(cls)) return;
+        if (!/(?:^|\s)(?:md|lg|xl):grid-cols-/.test(cls) || /(?:^|\s)sm:grid-cols-/.test(cls)) return;
+        if (!/(?:^|\s)grid-cols-/.test(cls)) offenders.push(`${key}:${i + 1}`);
+      });
+    }
+    expect(offenders, "add grid-cols-1 so the phone column can shrink").toEqual([]);
+  });
+});

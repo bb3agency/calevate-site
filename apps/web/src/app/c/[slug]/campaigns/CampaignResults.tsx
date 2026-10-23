@@ -104,7 +104,7 @@ export function CampaignResults({
         />
       </MetricRow>
 
-      <div className="grid gap-10 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-10 md:grid-cols-2">
         <Section title="How the calls went" headingLevel={3}>
           <OutcomeBreakdown outcomes={r.outcomes} />
           {r.opt_outs > 0 && (

@@ -120,7 +120,7 @@ function Training({ agent, slug }: { agent: Agent; slug: string }) {
 
       <WhatItKnows slug={slug} />
 
-      <div className="grid gap-10 lg:grid-cols-2 lg:gap-8">
+      <div className="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-8">
         <TryChat agentId={agent.id} canWrite={tryAccess.allowed} headingLevel={3} />
         <TryIt agent={agent} slug={slug} onTrial={onTrial} number={testNumber} onNumber={setTestNumber} />
       </div>

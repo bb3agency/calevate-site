@@ -223,7 +223,7 @@ function HealthRow({ row }: { row: ClientHealth }) {
   const status = rowStatus(row.signals);
 
   return (
-    <li className="grid gap-x-5 gap-y-3 py-4 sm:px-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_9rem_minmax(0,0.9fr)]">
+    <li className="grid grid-cols-1 gap-x-5 gap-y-3 py-4 sm:px-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_9rem_minmax(0,0.9fr)]">
       <div className="min-w-0">
         <Link
           href={`/admin/tenants/${row.tenant_id}`}

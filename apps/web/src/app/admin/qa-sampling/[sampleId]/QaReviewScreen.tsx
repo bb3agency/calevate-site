@@ -203,7 +203,7 @@ function Review({
   return (
     // Read before judging: the transcript leads, and on a wide screen the review panel
     // stays beside it as the reader scrolls. On a phone the panel follows the transcript.
-    <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+    <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
       <div className="min-w-0 space-y-8">
         <WhatToCheck />
 
