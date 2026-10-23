@@ -1,17 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowDown, ArrowUp, Minus } from "lucide-react";
+import type { UseQueryResult } from "@tanstack/react-query";
 
-import { Metric } from "@/components/console/metric";
+import { StatsBand } from "@/components/arc/stats-band";
 import { Section } from "@/components/console/section";
-import { PRIMARY_BUTTON, SECONDARY_BUTTON, formatCount, formatDuration } from "@/components/ui";
+import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton, formatCount } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
+import type { Stats } from "@/lib/api/analytics";
 import type { CampaignSummary } from "@/lib/api/campaigns";
 import type { Dashboard } from "@/lib/api/client";
 import { activeTrial, walletState, type Wallet } from "@/lib/api/wallet";
 import { canDialOut, isAnsweringNow, isDeleted } from "@/lib/agentState";
 
+import { statItems } from "./analyticsFigures";
 import { trialUrgency, trialView } from "./TrialBanner";
 
 /** May this reader use the action? `useWriteAccess(...).allowed`, read by the screen. */
@@ -32,17 +34,18 @@ export interface RecapAction {
 /**
  * THE DASHBOARD'S ONE BLOCK OF FIGURES, AND WHAT TO DO NEXT.
  *
- * The week's calls (with the week-on-week reading), connected and missed, then today's
- * calls, the week's new leads and the average call length, followed by at most three
- * actions. Hot leads are not here: "What needs you today" says them with their action.
- * Whether each agent is on is said once, by "Your agents" in the roster's own words.
+ * Four figures for the last 7 days, each against the 7 days before (`/v1/analytics/stats`),
+ * then at most three actions. Hot leads are not here: "What needs you today" says them with
+ * their action. Whether each agent is on is said once, by "Your agents".
  *
  * The first action is the one this account most needs now (`recapActions`), filled; the
- * rest are secondary. A quiet week that needs nothing gets no filled button at all. An
+ * rest are secondary. It is the page's one filled button, so it is where the eye lands
+ * after the figures. A quiet week that needs nothing gets no filled button at all. An
  * action the reader's role cannot perform is not offered.
  */
 export function WeekRecap({
   data,
+  stats,
   agents,
   wallet,
   campaigns,
@@ -50,6 +53,7 @@ export function WeekRecap({
   href,
 }: {
   data: Dashboard;
+  stats: UseQueryResult<Stats>;
   agents: Agent[] | undefined;
   wallet: Wallet | undefined;
   campaigns: CampaignSummary[] | undefined;
@@ -64,8 +68,12 @@ export function WeekRecap({
 
   return (
     <Section title="This week">
-      <div className="space-y-5">
-        {data.calls_7d > 0 ? <WeekFigures data={data} /> : <QuietWeek data={data} noAgent={current?.length === 0} />}
+      <div className="space-y-6">
+        {data.calls_7d > 0 ? (
+          <WeekFigures data={data} stats={stats} />
+        ) : (
+          <QuietWeek data={data} noAgent={current?.length === 0} />
+        )}
         {actions.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {actions.map((action) => (
@@ -80,101 +88,37 @@ export function WeekRecap({
   );
 }
 
-/** Two columns on a phone, three from `sm`, so six figures are three short rows, not a strip. */
-const FIGURE_GRID = "grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3";
+const WEEK_KEYS = ["calls", "answer_rate_pct", "leads", "avg_duration_s"] as const;
 
-function WeekFigures({ data }: { data: Dashboard }) {
-  const connected = data.calls_connected_7d;
-  const notConnected = data.calls_not_connected_7d;
-  const share = Math.round((connected / data.calls_7d) * 100);
+function WeekFigures({ data, stats }: { data: Dashboard; stats: UseQueryResult<Stats> }) {
+  if (stats.error) {
+    return <ProblemNotice error={stats.error} onRetry={() => void stats.refetch()} />;
+  }
+  if (!stats.data) return <Skeleton rows={2} label="Loading this week's figures" />;
   return (
-    <div className={FIGURE_GRID}>
-      <Metric
-        label="Calls"
-        value={formatCount(data.calls_7d)}
-        flashValue={String(data.calls_7d)}
-        hint={<Trend current={data.calls_7d} previous={data.calls_prev_7d} />}
-      />
-      <Metric
-        label="Connected"
-        value={formatCount(connected)}
-        flashValue={String(connected)}
-        hint={connected === data.calls_7d ? "Every one of them" : `${share}% of calls`}
-      />
-      <Metric
-        label="Did not connect"
-        value={formatCount(notConnected)}
-        flashValue={String(notConnected)}
-        tone={notConnected > 0 ? "warn" : "default"}
-        hint={notConnected > 0 ? "No answer, busy or failed" : "None missed"}
-      />
-      <Metric
-        label="Calls today"
-        value={formatCount(data.calls_today)}
-        flashValue={String(data.calls_today)}
-        hint="Since midnight, India time"
-      />
-      <NewLeads data={data} />
-      {/* A seven-day average of COMPLETED calls (D-215), said in the hint so it is not
-          read as an all-time figure. */}
-      <Metric
-        label="Average call length"
-        value={formatDuration(data.avg_duration_s_7d)}
-        flashValue={data.avg_duration_s_7d == null ? null : String(data.avg_duration_s_7d)}
-        hint="Completed calls"
-      />
-    </div>
-  );
-}
-
-function NewLeads({ data }: { data: Dashboard }) {
-  return (
-    <Metric
-      label="New leads"
-      value={formatCount(data.leads_new_7d)}
-      flashValue={String(data.leads_new_7d)}
-      hint={<Trend current={data.leads_new_7d} previous={data.leads_new_prev_7d} />}
+    <StatsBand
+      label="The last 7 days"
+      items={statItems(stats.data, [...WEEK_KEYS], {
+        context: "vs the previous 7 days",
+        trends: { calls: data.daily_7d.map((day) => day.total) },
+      })}
     />
-  );
-}
-
-/**
- * The comparison with the week before, as an arrow and words. The arrow is neutral ink:
- * more calls is not good or bad in itself, and the words carry the reading (WCAG 1.4.1).
- */
-function Trend({ current, previous }: { current: number; previous: number }) {
-  if (previous === 0) return <>None the week before</>;
-  const diff = current - previous;
-  const Icon = diff > 0 ? ArrowUp : diff < 0 ? ArrowDown : Minus;
-  const words =
-    diff === 0
-      ? "Same as the week before"
-      : `${formatCount(Math.abs(diff))} ${diff > 0 ? "more" : "fewer"} than the week before`;
-  return (
-    <span className="inline-flex items-start gap-1">
-      <Icon aria-hidden className="mt-px h-3.5 w-3.5 shrink-0" />
-      {words}
-    </span>
   );
 }
 
 /** No calls: one sentence instead of a row of zeroes, and new leads only if there were some. */
 function QuietWeek({ data, noAgent }: { data: Dashboard; noAgent: boolean }) {
   return (
-    <>
-      <p className="max-w-prose text-body text-ink-muted [text-wrap:pretty]">
-        No calls in the last 7 days.
-        {data.calls_prev_7d > 0
-          ? ` The week before had ${formatCount(data.calls_prev_7d)} ${data.calls_prev_7d === 1 ? "call" : "calls"}.`
-          : ""}
-        {noAgent ? " You have no agent yet, so nobody is answering or making calls." : ""}
-      </p>
-      {data.leads_new_7d > 0 ? (
-        <div className={FIGURE_GRID}>
-          <NewLeads data={data} />
-        </div>
-      ) : null}
-    </>
+    <p className="max-w-prose text-body text-ink-muted [text-wrap:pretty]">
+      No calls in the last 7 days.
+      {data.calls_prev_7d > 0
+        ? ` The week before had ${formatCount(data.calls_prev_7d)} ${data.calls_prev_7d === 1 ? "call" : "calls"}.`
+        : ""}
+      {data.leads_new_7d > 0
+        ? ` ${formatCount(data.leads_new_7d)} new ${data.leads_new_7d === 1 ? "lead" : "leads"} came in.`
+        : ""}
+      {noAgent ? " You have no agent yet, so nobody is answering or making calls." : ""}
+    </p>
   );
 }
 

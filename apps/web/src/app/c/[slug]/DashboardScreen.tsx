@@ -7,6 +7,7 @@ import { ProblemNotice, Skeleton, formatCount } from "@/components/ui";
 import { Section } from "@/components/console/section";
 import { Metric } from "@/components/console/metric";
 import { useAgentStats, useAgents } from "@/lib/api/agents";
+import { useAnalyticsStats } from "@/lib/api/analytics";
 import { useAttention } from "@/lib/api/attention";
 import { useBusinessProfile } from "@/lib/api/businessProfile";
 import { useCampaignNumbers, useCampaigns } from "@/lib/api/campaigns";
@@ -15,6 +16,7 @@ import { useForwarding } from "@/lib/api/forwarding";
 import { useLineIncidents } from "@/lib/api/healer";
 import { useCalls, useDashboard, useUsage, useWriteAccess } from "@/lib/api/hooks";
 import { useKnowledgeGaps } from "@/lib/api/knowledgeGaps";
+import { useAccountReadiness } from "@/lib/api/readiness";
 import { useClientRealm } from "@/lib/api/session";
 import { activeTrial, trialEndsAt, useWallet } from "@/lib/api/wallet";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -28,6 +30,7 @@ import { HeldNumberNotice } from "./HeldNumberNotice";
 import { LatestCalls } from "./LatestCalls";
 import { LineNotice } from "./LineNotice";
 import { OutcomeSplit } from "./OutcomeSplit";
+import { ReadinessPanel } from "./ReadinessPanel";
 import { SentimentSplit } from "./SentimentSplit";
 import { SetupChecklist } from "./SetupChecklist";
 import { SpendThisMonth } from "./SpendThisMonth";
@@ -52,8 +55,7 @@ import { ExistingNumberPrompt } from "@/components/forwarding/ExistingNumberProm
  * The tiles the design asked for that the API cannot answer are ABSENT rather than
  * approximated — cost per call, active campaigns, booked appointments, conversion
  * rate. Each is a real question and each needs an endpoint; `docs/BUILD-LOG.md` records
- * which. The week-on-week comparison is real now (`calls_prev_7d`, `leads_new_prev_7d`)
- * and is said in words, once, rather than as a percentage under every figure.
+ * which. The week-on-week change under each figure is the server's (`/v1/analytics/stats`).
  */
 
 export function DashboardScreen({ slug }: { slug: string }) {
@@ -88,6 +90,9 @@ export function DashboardScreen({ slug }: { slug: string }) {
   const attention = useAttention(session);
   const agents = useAgents(session);
   const agentStats = useAgentStats(session);
+  // Last 7 IST days against the 7 before, the server's default window.
+  const stats = useAnalyticsStats(session);
+  const readiness = useAccountReadiness(session);
   // "This week" offers only the actions this reader may take; the endpoints still refuse.
   const campaigns = useCampaigns(session);
   const creditAccess = useWriteAccess(session, "org:manage", "add credit");
@@ -296,6 +301,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
       {/* The page's one block of figures, and what to do next. */}
       <WeekRecap
         data={data}
+        stats={stats}
         agents={agents.data}
         wallet={wallet.data}
         campaigns={campaigns.data}
@@ -327,6 +333,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
         </div>
 
         <div className="space-y-10 lg:col-span-4">
+          <ReadinessPanel readiness={readiness} href={(path) => href(`/c/${slug}${path}`)} />
           {/* MONEY — what is left to spend, then what this month has cost. Each read has
               its own loading and failure arm (§52); a failed read is never a dash. */}
           <Section title="Credit and spend">

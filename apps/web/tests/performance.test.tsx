@@ -1,7 +1,9 @@
-import { screen } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import PerformancePage from "@/app/c/[slug]/performance/page";
+import { todayIST } from "@/components/arc/ist-dates";
+import type { Durations, Heatmap, Stats, Timeline } from "@/lib/api/analytics";
 import type { Me } from "@/lib/api/client";
 import type { Performance } from "@/lib/api/performance";
 
@@ -13,22 +15,16 @@ import { problem, renderClientPage } from "./harness";
  *
  * Ranked by what a wrong render costs:
  *
- * 1. **A null rate rendered as 0%.** `connect_rate_pct` is null — never 0 — when there
- *    were no calls to measure, and the server goes out of its way to keep the two apart
- *    (`PerformanceOut`, crm/performance.py). "0% answered" tells a client who has not
- *    launched yet that their agent is failing; it is the one wrong number on this screen
- *    that would make someone cancel.
- * 2. **A 0% rendered as "no data".** The same distinction from the other side, and the
- *    reason a `?? "—"` is not good enough: calls that happened and never connected are
- *    the bad news this report exists to deliver.
- * 3. **Figures under a failed request.** A refusal, never a zero and never a blank —
- *    the previous screen answered a failed refetch with `return null`, i.e. nothing at
- *    all.
- * 4. **A silent hour dropped from the histogram.** The API guarantees 24 buckets for
- *    this reason; a chart missing 3am reads as data loss to the only person who would
- *    notice.
- * 5. **A caption naming a period the numbers are not for.** The chips say what was
- *    asked; every sentence says what the server measured.
+ * 1. **A rate with nothing to measure rendered as 0%.** The server sends null, never 0,
+ *    when there were no calls; "0% answered" tells a client who has not launched yet that
+ *    their agent is failing.
+ * 2. **A real 0% rendered as "no data".** Calls that happened and never connected are the
+ *    bad news this report exists to deliver.
+ * 3. **Figures under a failed request.** A refusal, never a zero.
+ * 4. **A weekday off by one.** The server numbers weekdays 1 (Monday) to 7; the chart
+ *    counts from 0, and a slip would move every call a day.
+ * 5. **A median re-derived from the drawing.** The ridgeline is drawn from bins; the
+ *    median and 90th percentile it states are the server's.
  */
 
 const ME: Me = {
@@ -38,18 +34,62 @@ const ME: Me = {
   permissions: ["calls:read", "leads:read"],
   impersonating: false,
   withheld_acts: [],
-  organization: {
-    id: "o1",
-    name: "Sri Clinic",
-    slug: "acme",
-    status: "active",
-  },
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
 };
 
-/** 24 IST buckets, as the API always sends them — silent hours are 0, not absent. */
-const HOURS = [
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 5, 3, 1, 0, 0, 4, 6, 9, 12, 7, 2, 0, 0, 0,
-];
+const TODAY = todayIST();
+const WINDOW = { days: 30, from_date: "2026-09-25", to_date: TODAY, timezone: "Asia/Kolkata" as const };
+
+/** The default range: the last 30 IST days ending today, test calls included. */
+const Q = `days=30&to=${TODAY}&test_calls=true`;
+const PATHS = {
+  stats: `/v1/analytics/stats?${Q}`,
+  heatmap: `/v1/analytics/heatmap?${Q}&metric=calls`,
+  durations: `/v1/analytics/durations?${Q}&group_by=agent&bin_s=30`,
+  timeline: `/v1/analytics/timeline?days=90&to=${TODAY}&test_calls=true`,
+  performance: "/v1/performance?days=30",
+};
+
+type MetricKey = Stats["metrics"][number]["key"];
+
+function stats(values: Partial<Record<MetricKey, [string | null, string | null, string | null]>> = {}): Stats {
+  const keys: MetricKey[] = ["calls", "answered", "answer_rate_pct", "leads", "hot_leads", "avg_duration_s", "talk_minutes"];
+  return {
+    window: WINDOW,
+    previous_window: { ...WINDOW, from_date: "2026-08-26", to_date: "2026-09-24" },
+    metrics: keys.map((key) => {
+      const [value, previous, change_pct] = values[key] ?? ["0", "0", null];
+      return { key, value, previous, change_pct, higher_is_better: true };
+    }),
+  };
+}
+
+/** 168 cells, Monday 00:00 first, with 5 calls on Monday 10:00 and 2 on Sunday 18:00. */
+function heatmap(): Heatmap {
+  const cells = [];
+  for (let weekday = 1; weekday <= 7; weekday += 1) {
+    for (let hour = 0; hour < 24; hour += 1) {
+      cells.push({ weekday, hour, count: weekday === 1 && hour === 10 ? 5 : weekday === 7 && hour === 18 ? 2 : 0 });
+    }
+  }
+  return { metric: "calls", cells, max_count: 5, total: 7, window: WINDOW };
+}
+
+function durations(): Durations {
+  const counts = Array.from({ length: 20 }, (_, i) => (i === 2 ? 6 : i === 4 ? 3 : i === 19 ? 1 : 0));
+  return {
+    group_by: "agent",
+    bin_s: 30,
+    bin_edges_s: Array.from({ length: 20 }, (_, i) => i * 30),
+    groups: [{ key: "a1", label: "Front desk", calls: 10, counts, median_s: 95, p90_s: 151 }],
+    other_calls: 0,
+    window: WINDOW,
+  };
+}
+
+function timeline(): Timeline {
+  return { calls: 0, answered: 0, leads: 0, days: [], window: { ...WINDOW, days: 90 } };
+}
 
 function performance(over: Partial<Performance> = {}): Performance {
   return {
@@ -61,188 +101,114 @@ function performance(over: Partial<Performance> = {}): Performance {
     outbound: 21,
     avg_duration_s: 154,
     outcomes: { appointment_booked: 14, no_answer: 8, enquiry: 29 },
-    busiest_hours_ist: HOURS,
+    busiest_hours_ist: Array.from({ length: 24 }, () => 0),
     ...over,
   };
 }
 
-/** Nothing has happened yet — the state most likely to be rendered as failure. */
-const NOTHING_YET = performance({
-  funnel: { calls: 0, connected: 0, qualified: 0 },
-  connect_rate_pct: null,
-  qualify_rate_pct: null,
-  inbound: 0,
-  outbound: 0,
-  avg_duration_s: null,
-  outcomes: {},
-  busiest_hours_ist: Array.from({ length: 24 }, () => 0),
-});
-
 const page = <PerformancePage />;
 
 function routes(over: Record<string, unknown> = {}) {
-  return { "/v1/me": ME, "/v1/performance?days=30": performance(), ...over };
+  return {
+    "/v1/me": ME,
+    [PATHS.stats]: stats(),
+    [PATHS.heatmap]: heatmap(),
+    [PATHS.durations]: durations(),
+    [PATHS.timeline]: timeline(),
+    [PATHS.performance]: performance(),
+    ...over,
+  };
+}
+
+/** A figure of the stats band: its label's parent holds the value, change and hint. */
+async function figure(label: string): Promise<string> {
+  const band = await screen.findByRole("region", { name: "This period at a glance" });
+  return (within(band).getByText(label).parentElement?.textContent ?? "").replace(/\s+/g, " ");
 }
 
 describe("the performance report", () => {
   it("says there is nothing to measure rather than reporting 0%", async () => {
-    const { container } = await renderClientPage(
-      page,
-      routes({ "/v1/performance?days=30": NOTHING_YET }),
-    );
-
-    await screen.findByText("Calls answered");
-    // THE assertion. A brand-new client has made no calls; "0% answered" would be a
-    // verdict on an agent that has never rung, and it is the number that gets us
-    // cancelled in week one.
-    expect(
-      container.textContent,
-      "a null rate must never render as a percentage",
-    ).not.toContain("0%");
-    expect(container.textContent).toContain(
-      "No calls yet — nothing to measure",
-    );
-    expect(container.textContent).toContain(
-      "No answered calls yet — nothing to measure",
-    );
-    // And the tile itself carries the em dash, not a fabricated figure.
-    expect(container.textContent).not.toContain("undefined");
-    expect(container.textContent).not.toContain("null%");
+    await renderClientPage(page, routes({ [PATHS.stats]: stats({ answer_rate_pct: [null, null, null] }) }));
+    const rate = await figure("Answer rate");
+    expect(rate).toContain("—");
+    expect(rate, "a null rate must never render as a percentage").not.toContain("0%");
   });
 
   it("reports a real 0% as 0%, because that is bad news the owner has to see", async () => {
-    // Twelve calls, none of which reached a conversation. This is the opposite fact from
-    // the test above and the screen must not collapse the two.
-    const { container } = await renderClientPage(
+    await renderClientPage(
       page,
-      routes({
-        "/v1/performance?days=30": performance({
-          funnel: { calls: 12, connected: 0, qualified: 0 },
-          connect_rate_pct: 0,
-          // The denominator for the second rate is `connected`, so it is genuinely null
-          // here even though calls happened — both states on one screen at once.
-          qualify_rate_pct: null,
-        }),
-      }),
+      routes({ [PATHS.stats]: stats({ calls: ["12", "0", null], answer_rate_pct: ["0.0", null, null] }) }),
     );
-
-    await screen.findByText("Calls answered");
-    expect(container.textContent).toContain("0%");
-    expect(container.textContent).toContain(
-      "0 of 12 reached a real conversation",
-    );
-    // The "nothing to measure" copy belongs to the OTHER state; printing it here would
-    // hide a failing agent behind a shrug.
-    expect(container.textContent).not.toContain(
-      "No calls yet — nothing to measure",
-    );
-    expect(container.textContent).toContain(
-      "No answered calls yet — nothing to measure",
-    );
+    expect(await figure("Answer rate")).toContain("0%");
   });
 
-  it("shows a refusal instead of figures when the request fails", async () => {
+  it("shows a refusal instead of figures when the figures fail", async () => {
     const { container } = await renderClientPage(
       page,
-      routes({
-        "/v1/performance?days=30": problem(503, {
-          title: "Service unavailable",
-          detail: "We could not read your call history.",
-        }),
-      }),
+      routes({ [PATHS.stats]: problem(503, { title: "Service unavailable", detail: "We could not read your call history." }) }),
     );
-
     expect(await screen.findByRole("alert")).toBeTruthy();
-    // Not a percentage, not a funnel, not an empty state that reads like a verdict on
-    // the business rather than on the request.
-    expect(container.textContent).not.toContain("%");
-    expect(container.textContent).not.toContain("No calls in this period");
-    expect(container.textContent).not.toContain("Nothing to show yet");
-    expect(container.textContent).not.toContain("Calls answered");
+    expect(screen.queryByRole("region", { name: "This period at a glance" })).toBeNull();
+    expect(container.textContent).not.toContain("Answer rate");
   });
 
-  it("draws all 24 IST hours, silent ones included and labelled with their zero", async () => {
-    const { container } = await renderClientPage(page, routes());
-    await screen.findByText("Busiest hours (IST)");
-
-    const bars = Array.from(container.querySelectorAll("[title]")).filter(
-      (el) => /\b\d+ calls?$/.test(el.getAttribute("title") ?? ""),
-    );
-    expect(bars, "one bar per IST hour, always 24").toHaveLength(24);
-
-    // A silent hour is a FACT about that hour: it keeps its column and prints its 0.
-    // Dropping it would slide every later bar an hour earlier and misdate the whole day.
-    const dead = screen.getByTitle("3 am: 0 calls");
-    expect(dead.textContent).toContain("0");
-    // And the busiest hour prints its own number, so the picture is checkable without
-    // hovering anything (the dashboard's chart doctrine).
-    expect(screen.getByTitle("6 pm: 12 calls").textContent).toContain("12");
-    expect(screen.getByTitle("12 midnight: 0 calls")).toBeTruthy();
+  it("puts the server's Monday on the chart's Monday", async () => {
+    await renderClientPage(page, routes());
+    const table = await screen.findByRole("table", { name: "Calls by day and hour" });
+    const monday = within(table).getByRole("rowheader", { name: "Mon" }).closest("tr") as HTMLElement;
+    const sunday = within(table).getByRole("rowheader", { name: "Sun" }).closest("tr") as HTMLElement;
+    // Column 0 is the day; 10:00 is column 11, 18:00 column 19.
+    expect(monday.children[11]?.textContent).toBe("5");
+    expect(sunday.children[19]?.textContent).toBe("2");
   });
 
-  it("names the period the SERVER measured, not the one the chip asked for", async () => {
-    // The chips default to 30 days; the server answers with 7. That mismatch is real —
-    // it is what a switch in flight looks like — and a caption reading "last 30 days"
-    // over 7 days of numbers is a lie the reader has no way to catch.
-    const { container } = await renderClientPage(
+  it("states the server's median and 90th percentile, not ones re-derived from the bins", async () => {
+    await renderClientPage(page, routes());
+    const table = await screen.findByRole("table", { name: "Call length by agent" });
+    const row = within(table).getByRole("rowheader", { name: "Front desk" }).closest("tr") as HTMLElement;
+    expect(row.textContent).toContain("1:35");
+    expect(row.textContent).toContain("2:31");
+    expect(row.textContent).toContain("10");
+  });
+
+  it("draws the funnel and the outcomes for a range that ends today", async () => {
+    await renderClientPage(page, routes());
+    const funnel = await screen.findByRole("table", { name: "From calls to customers" });
+    expect(funnel.textContent).toContain("51");
+    expect(funnel.textContent).toContain("14");
+    const outcomes = await screen.findByRole("table", { name: "How calls ended" });
+    expect(outcomes.textContent).toContain("Appointment booked");
+  });
+
+  it("asks again without test calls when the owner leaves them out", async () => {
+    const without = `days=30&to=${TODAY}&test_calls=false`;
+    const { calls } = await renderClientPage(
       page,
-      routes({ "/v1/performance?days=30": performance({ days: 7 }) }),
+      routes({
+        [`/v1/analytics/stats?${without}`]: stats(),
+        [`/v1/analytics/heatmap?${without}&metric=calls`]: heatmap(),
+        [`/v1/analytics/durations?${without}&group_by=agent&bin_s=30`]: durations(),
+        [`/v1/analytics/timeline?days=90&to=${TODAY}&test_calls=false`]: timeline(),
+      }),
     );
-
-    await screen.findByText("How your phone agent did over the last 7 days.");
-    expect(container.textContent).not.toContain("over the last 30 days");
+    const toggle = await screen.findByRole("switch", { name: "Include my test calls" });
+    await act(async () => fireEvent.click(toggle));
+    await waitFor(() => expect(calls.some((call) => call.path === `/v1/analytics/stats?${without}`)).toBe(true));
+    // The funnel's read cannot leave them out, and says so rather than implying it did.
+    await screen.findAllByText("Your test calls are counted here.");
   });
 
   it("explains a missing permission instead of answering with an error", async () => {
-    // `GET /v1/performance` requires `calls:read`. A session without it used to reach a
-    // red 403 alert, which reads like an outage rather than like a permission.
-    const { container } = await renderClientPage(
-      page,
-      // The report is requested alongside `/v1/me` — nothing is refused while that is in
-      // flight — so it goes out and the API refuses it, as it would this session.
-      {
-        "/v1/me": { ...ME, permissions: ["leads:read"] },
-        "/v1/performance?days=30": problem(403, { title: "Forbidden" }),
-      },
-    );
-
+    const { container } = await renderClientPage(page, {
+      "/v1/me": { ...ME, permissions: ["leads:read"] },
+      [PATHS.stats]: problem(403, { title: "Forbidden" }),
+      [PATHS.heatmap]: problem(403, { title: "Forbidden" }),
+      [PATHS.durations]: problem(403, { title: "Forbidden" }),
+      [PATHS.timeline]: problem(403, { title: "Forbidden" }),
+      [PATHS.performance]: problem(403, { title: "Forbidden" }),
+    });
     await screen.findByText(/permission to read call records/);
-    expect(
-      screen.queryByRole("alert"),
-      "a permission is not a fault",
-    ).toBeNull();
-    expect(container.textContent).not.toContain("Calls answered");
-    expect(container.textContent).not.toContain("%");
-  });
-
-  it("counts the calls the histogram cannot show rather than letting them go missing", async () => {
-    // The buckets count calls that HAVE a start time; the funnel counts every call made.
-    // A dial that never reached the network is in one and not the other, and an owner who
-    // adds up the bars and comes up short has no way to know which number to distrust.
-    const started = HOURS.reduce((sum, n) => sum + n, 0);
-    const { container } = await renderClientPage(
-      page,
-      routes({
-        "/v1/performance?days=30": performance({
-          funnel: { calls: started + 4, connected: 39, qualified: 14 },
-        }),
-      }),
-    );
-    await screen.findByText("Busiest hours (IST)");
-    expect(container.textContent).toContain(
-      `${started} of ${started + 4} calls in this period have a start time`,
-    );
-  });
-
-  it("says nothing about a shortfall when there is none", async () => {
-    // The default fixture's buckets add up to the funnel exactly. Printing "51 of 51"
-    // would invite a reader to look for a discrepancy that is not there.
-    const { container } = await renderClientPage(page, routes());
-    await screen.findByText("Busiest hours (IST)");
-
-    expect(HOURS.reduce((sum, n) => sum + n, 0)).toBe(51);
-    expect(container.textContent).not.toContain(
-      "calls in this period have a start time",
-    );
+    expect(screen.queryByRole("alert"), "a permission is not a fault").toBeNull();
+    expect(container.textContent).not.toContain("Answer rate");
   });
 });
