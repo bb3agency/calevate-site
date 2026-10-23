@@ -23,6 +23,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { PhoneOutgoing } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { DefaultCheckbox } from "@/components/callHandlingRows";
 import { Section } from "@/components/console/section";
 import { FIELD_INLINE, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
@@ -117,6 +118,8 @@ function TrialTestCall({
   const session = useClientSession();
   const panel = useTrialPanel(session);
   const place = usePlaceTrialCall(session);
+  // The outcome is said under the form (calling now, the server's refusal, or the problem).
+  const placeFeedback = useActionFeedback(place, { errorDisplay: "inline" });
   const [numberIsMine, setNumberIsMine] = useState(false);
 
   let body;
@@ -124,14 +127,17 @@ function TrialTestCall({
   else if (panel.isError) body = <ProblemNotice error={panel.error} onRetry={() => void panel.refetch()} />;
   else {
     const trial = panel.data;
-    const ready = trial.can_call && number.trim() !== "" && !place.isPending;
+    const ready = trial.can_call && number.trim() !== "";
+    // A refused call is an answer said below, not a tick on the button.
+    const callStatus =
+      placeFeedback.status === "success" && place.data?.status === "blocked" ? "idle" : placeFeedback.status;
     body = (
       <form
         className="space-y-3"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          if (ready) place.mutate({ agentId: agent.id, number: number.trim(), numberIsMine });
+          if (ready && callStatus !== "pending") placeFeedback.run({ agentId: agent.id, number: number.trim(), numberIsMine });
         }}
       >
         <div className="flex flex-wrap items-end gap-3">
@@ -151,10 +157,17 @@ function TrialTestCall({
               className={`${FIELD_INLINE} mt-1 w-56 max-w-full font-mono`}
             />
           </label>
-          <button type="submit" disabled={!ready} className={SECONDARY_BUTTON}>
+          <ActionButton
+            type="submit"
+            variant="secondary"
+            status={callStatus}
+            pendingLabel="Calling…"
+            successLabel="Calling"
+            disabled={!ready}
+          >
             <PhoneOutgoing aria-hidden className="h-4 w-4" />
-            {place.isPending ? "Calling…" : "Ring my phone"}
-          </button>
+            Ring my phone
+          </ActionButton>
         </div>
         <DefaultCheckbox
           label="This number is my own. Test calls to it can ring at any hour."

@@ -1725,8 +1725,11 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
       fireEvent.click(trigger);
     });
 
-    const announced = within(panel).getByRole("status");
-    expect(announced.textContent).toContain("stay in your call log");
+    // The confirm is a kit `ActionButton`, whose own (empty) outcome line is a status too.
+    const announced = within(panel)
+      .getAllByRole("status")
+      .find((el) => el.textContent?.includes("stay in your call log"));
+    expect(announced, "the delete consequences were not announced").toBeDefined();
 
     const armed = within(panel).getByRole("button", {
       name: /Delete this agent/,
@@ -1741,7 +1744,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     await act(async () => {
       fireEvent.click(within(panel).getByRole("button", { name: /Keep it/ }));
     });
-    expect(within(panel).queryByRole("status")).toBeNull();
+    expect(within(panel).queryByText(/stay in your call log/)).toBeNull();
     expect(
       within(panel).getByRole("button", { name: /^Delete…$/ }),
     ).toBeTruthy();

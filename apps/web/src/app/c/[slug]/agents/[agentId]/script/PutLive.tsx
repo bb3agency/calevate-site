@@ -12,12 +12,12 @@
 
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { ModalDialog } from "@/components/modalDialog";
 import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
-  PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
 } from "@/components/ui";
@@ -32,6 +32,9 @@ export type PutLiveResult = { live: boolean };
 export function usePutLive(session: Session, agentId: string) {
   const publish = usePublishScript(session, agentId);
   const apply = useApplyScript(session, agentId);
+  // The dialog shows a refusal beside its own button, and the screen says where it went live.
+  const publishFeedback = useActionFeedback(publish, { errorDisplay: "inline" });
+  const applyFeedback = useActionFeedback(apply, { errorDisplay: "inline" });
   const run = (out: ScriptOut, local: CallScript, summary: string, onDone: (r: PutLiveResult) => void) => {
     const onlyWaiting = out.version !== null && out.has_pending && sameScript(local, out.script);
     if (onlyWaiting) {
@@ -49,6 +52,8 @@ export function usePutLive(session: Session, agentId: string) {
   return {
     run,
     pending: publish.isPending || apply.isPending,
+    /** Whichever of the two ran last (a cancel resets both). */
+    status: (applyFeedback.status !== "idle" ? applyFeedback.status : publishFeedback.status) as FeedbackStatus,
     error: publish.error ?? apply.error,
     reset: () => {
       publish.reset();
@@ -63,6 +68,7 @@ export function PutLiveDialog({
   agentOn,
   voiceLine,
   pending,
+  status,
   error,
   onCancel,
   onConfirm,
@@ -75,11 +81,14 @@ export function PutLiveDialog({
   /** The voice tier callers hear it in ("Clear voice · ₹2.50 / min"), when known. */
   voiceLine?: string | null;
   pending: boolean;
+  /** The put-live action's state (`usePutLive().status`); `pending` alone is read as busy. */
+  status?: FeedbackStatus;
   error: unknown;
   onCancel: () => void;
   onConfirm: (summary: string) => void;
 }) {
   const [summary, setSummary] = useState(() => changeSummary(live, draft));
+  const shown: FeedbackStatus = status ?? (pending ? "pending" : "idle");
   return (
     <ModalDialog
       title="Put these changes live?"
@@ -97,14 +106,15 @@ export function PutLiveDialog({
           <button type="button" className={SECONDARY_BUTTON} onClick={onCancel} disabled={pending}>
             Not yet
           </button>
-          <button
-            type="button"
-            className={PRIMARY_BUTTON}
-            disabled={pending || summary.trim() === ""}
+          <ActionButton
+            status={shown}
+            pendingLabel="Putting it live…"
+            successLabel="Live"
+            disabled={summary.trim() === ""}
             onClick={() => onConfirm(summary)}
           >
-            {pending ? <span className="text-shimmer">Putting it live…</span> : "Put it live"}
-          </button>
+            Put it live
+          </ActionButton>
         </>
       }
     >

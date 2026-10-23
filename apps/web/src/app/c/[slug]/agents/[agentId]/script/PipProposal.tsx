@@ -15,8 +15,9 @@
 
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { PipMark } from "@/components/illustration/pip";
-import { NoticeBox, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { NoticeBox, ProblemNotice } from "@/components/ui";
 import { useClientSession } from "@/lib/api/session";
 import { EMPTY_SCRIPT, useClearProposal, useScriptProposal, type CallScript } from "@/lib/api/script";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
@@ -51,14 +52,23 @@ export function PipProposal({
   const session = useClientSession();
   const pending = useScriptProposal(session, agentId);
   const clear = useClearProposal(session, agentId);
+  // The suggestion leaves the screen when it is cleared; a refusal is drawn under it.
+  const clearFeedback = useActionFeedback(clear, { errorDisplay: "inline" });
   const [read, setRead] = useState(false);
   const proposal = pending.data;
   if (!proposal) return null;
 
   const dismiss = (
-    <button type="button" className={SECONDARY_BUTTON_SM} disabled={!canWrite || clear.isPending} onClick={() => clear.mutate(proposal.id)}>
+    <ActionButton
+      variant="secondary-sm"
+      status={clearFeedback.status}
+      pendingLabel="Dismissing…"
+      successLabel="Dismissed"
+      disabled={!canWrite}
+      onClick={() => clearFeedback.run(proposal.id)}
+    >
       Dismiss
-    </button>
+    </ActionButton>
   );
 
   if (proposal.status === "drafting") {

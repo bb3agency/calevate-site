@@ -9,6 +9,7 @@
 
 import { useState } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { TEXT_ACTION } from "@/components/console/section";
@@ -26,6 +27,11 @@ export function ScriptHistory({
   const session = useClientSession();
   const versions = useScriptVersions(session, agentId);
   const restore = useRestoreVersion(session, agentId);
+  // The dialog shows a refusal inside itself; the restored draft appears in the editor.
+  const restoreFeedback = useActionFeedback(restore, {
+    errorDisplay: "inline",
+    successToast: "Restored to your draft. Callers hear it once you put it live.",
+  });
   const write = useWriteAccess(session, "org:manage", "restore an earlier script");
   const [asking, setAsking] = useState<ScriptVersion | null>(null);
 
@@ -65,9 +71,13 @@ export function ScriptHistory({
           confirmLabel="Restore to draft"
           pendingLabel="Restoring…"
           cancelLabel="Keep my draft"
-          pending={restore.isPending}
+          status={restoreFeedback.status}
+          successLabel="Restored"
           error={restore.error}
-          onCancel={() => setAsking(null)}
+          onCancel={() => {
+            setAsking(null);
+            restore.reset();
+          }}
           onConfirm={() =>
             restore.mutate(asking.version, {
               onSuccess: (draft) => {
