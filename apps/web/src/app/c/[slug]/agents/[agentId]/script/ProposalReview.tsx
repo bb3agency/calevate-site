@@ -20,6 +20,7 @@
 
 import { useMemo, useRef, useState, type ReactNode } from "react";
 
+import { ExpandableText } from "@/components/arc/expandable-text";
 import { TEXT_ACTION } from "@/components/console/section";
 import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { CallScript } from "@/lib/api/script";
@@ -429,37 +430,26 @@ export function kindLabel(change: Change): string {
   }
 }
 
-/** Long texts open in full on request; four lines is enough to judge most changes. */
-const CLAMP_AT = 220;
-
 /**
  * One side of a change. A rule down the left marks the side, rather than two filled boxes
  * that made every row equally loud: the suggestion carries the brand rule and full ink, what
- * is there now stays muted.
+ * is there now stays muted. Four lines is enough to judge most changes; longer text opens
+ * in full on request.
  */
 function Quote({ tone, text }: { tone: "before" | "after"; text: string }) {
-  const [open, setOpen] = useState(false);
-  const long = text.length > CLAMP_AT;
   const after = tone === "after";
   return (
-    <span
-      className={`block border-l-2 pl-3 text-meta ${
+    <div
+      className={`border-l-2 pl-3 text-meta ${
         after ? "border-brand text-ink" : "border-line text-ink-muted"
       }`}
     >
       <span className="block font-medium text-ink-muted">
         {after ? "Suggested" : "Now"}
       </span>
-      <span className={`block whitespace-pre-wrap break-words ${long && !open ? "line-clamp-4" : ""}`}>{text}</span>
-      {long && (
-        <button
-          type="button"
-          className="mt-0.5 font-medium text-brand-strong hover:underline"
-          onClick={() => setOpen((o) => !o)}
-        >
-          {open ? "Show less" : "Show all"}
-        </button>
-      )}
-    </span>
+      <ExpandableText lines={4} moreLabel="Show all" textClassName="whitespace-pre-wrap">
+        {text}
+      </ExpandableText>
+    </div>
   );
 }

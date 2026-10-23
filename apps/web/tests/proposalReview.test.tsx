@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { ProposalReview } from "@/app/c/[slug]/agents/[agentId]/script/ProposalReview";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
@@ -62,6 +62,17 @@ describe("a suggestion's changes, kept one by one", () => {
   });
 
   it("opens a long suggestion in full without ticking or unticking it", () => {
+    // jsdom lays nothing out, so give the clamped text the overflow a browser would measure.
+    const scroll = vi
+      .spyOn(HTMLElement.prototype, "scrollHeight", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return (this.textContent?.length ?? 0) > 220 ? 200 : 0;
+      });
+    const client = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(80);
+    onTestFinished(() => {
+      scroll.mockRestore();
+      client.mockRestore();
+    });
     const long = "Explain where the chilli is grown and how it is dried. ".repeat(6).trim();
     render(
       <ProposalReview
