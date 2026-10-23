@@ -2,37 +2,36 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useRef } from "react";
 import { Menu } from "lucide-react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { NotificationCenter, type NotificationItem } from "@/components/arc/notification-center";
 import { ClientCopilotDock } from "@/components/copilot/CopilotDock";
 import { LiveCallsPill } from "@/components/console/liveCalls";
 import { BAR_STATUS } from "@/components/console/statusPill";
 import { NOTICE_DOT, SHELL_RAIL_CLASS, formatCount, formatCountOf } from "@/components/ui";
-import { useAttention, type AttentionKind } from "@/lib/api/attention";
+import { useAttention } from "@/lib/api/attention";
+import {
+  useMarkNotificationsSeen,
+  useNotifications,
+  type Notification,
+} from "@/lib/api/notifications";
 import { useClientRealm } from "@/lib/api/session";
 import { creditLeftPhrase, useWallet, walletState } from "@/lib/api/wallet";
 import { clientNavigation } from "@/lib/clientNav";
 import { useDesktopAlerts } from "@/lib/desktopAlerts";
 
+import { consoleHref } from "./ClientAnnouncements";
 import { currentItem } from "./ClientSidebar";
 import { TrialChip, trialView } from "./TrialBanner";
 
-/** Rows the bell shows; the attention screen has the rest. */
-const BELL_ROWS = 6;
-
-/** Failures read red, things slowing down read amber, good news (a hot lead) stays neutral. */
-const KIND_TONE: Record<AttentionKind, NotificationItem["tone"]> = {
-  lead_blocked: "warn",
-  delivery_failed: "danger",
-  campaign_stalled: "warn",
-  kb_rejected: "warn",
-  inbound_stopped: "danger",
-  action_broken: "danger",
-  lead_hot: "default",
-  call_failed: "danger",
-  credit_low: "warn",
-  forwarded_line_quiet: "warn",
+/** Failures read red, things slowing down read amber, news and good news stay neutral. */
+const TONE: Record<Notification["tone"], NotificationItem["tone"]> = {
+  info: "default",
+  success: "default",
+  warning: "warn",
+  critical: "danger",
 };
 
 export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuToggle: () => void }) {
@@ -41,18 +40,7 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
   const attention = useAttention(session);
   const title = currentItem(clientNavigation(slug), pathname)?.label ?? "Dashboard";
 
-  // The bell's count is the "needs attention" queue — the same number that screen
-  // shows, from the same query. The design shipped it as a hardcoded 3; a badge that
-  // always says 3 trains an owner to ignore the badge, which is the opposite of what
-  // an alert is for. No count renders until the query answers, and zero renders as no
-  // badge at all rather than a "0" that reads like an unread marker.
-  //
-  // `undefined`, never `?? 0`: the coalesce made a failed read indistinguishable from an
-  // all-clear, which is the same "nobody is waiting" claim §52 exists to stop the shell
-  // making. A bell that has lost the API says so.
-  const waiting = attention.data?.total;
-  const bellItems = (attention.data?.items ?? []).slice(0, BELL_ROWS);
-  // New items on the bell also become desktop notifications, once turned on in Alerts.
+  // New attention items also become desktop notifications, once turned on in Alerts.
   useDesktopAlerts(slug, attention.data, href);
 
   return (
@@ -83,39 +71,7 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
               stands in for the credit chip: the trial is what the balance means then. */}
           <TrialChip slug={slug} />
           <CreditChip slug={slug} />
-          <NotificationCenter
-            heading="Needs attention"
-            label={
-              attention.error != null
-                ? "Needs attention: we couldn't check for new items. Open to try again."
-                : waiting !== undefined && waiting > 0
-                  ? `Needs attention: ${formatCountOf(waiting, "item")}`
-                  : "Needs attention"
-            }
-            title={
-              attention.error != null
-                ? "We couldn't check for new items. Open to try again."
-                : undefined
-            }
-            state={attention.error != null ? "error" : attention.data ? "ready" : "loading"}
-            count={waiting}
-            onRetry={() => void attention.refetch()}
-            items={bellItems.map((item) => ({
-              id: `${item.kind}-${item.id}-${item.occurred_at}`,
-              title: item.title,
-              detail: item.detail,
-              at: item.occurred_at,
-              href: item.href ? href(`/c/${slug}${item.href}`) : null,
-              tone: KIND_TONE[item.kind],
-            }))}
-            shortfall={
-              // The rows actually shown, not the cap: the server may send fewer.
-              waiting !== undefined && waiting > bellItems.length
-                ? `The newest ${formatCount(bellItems.length)} of ${formatCount(waiting)}.`
-                : undefined
-            }
-            seeAll={{ href: href(`/c/${slug}/attention`), label: "Open everything that needs you" }}
-          />
+          <NotificationBell slug={slug} />
           {/* The screen assistant, in the bar rather than floating over the page: a floating
               button sat on top of whatever filled the bottom-right corner. Inside
               \`ClientRealmProvider\` (it reads the realm session, view-as included); its panel opens
@@ -126,6 +82,74 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
     </header>
   );
 }
+
+/**
+ * The bell: the account's one feed of what needs attention and what we announced, newest
+ * first (`/v1/notifications`), with this person's unread count as the badge.
+ *
+ * Closing it records what was shown as seen. A failed mark costs nothing but the badge staying up, so it is not
+ * raised as an error; a failed READ is said on the bell (warn dot, words in its name),
+ * never drawn as an all-clear.
+ */
+function NotificationBell({ slug }: { slug: string }) {
+  const { session, href } = useClientRealm();
+  const feed = useNotifications(session, BELL_ROWS);
+  const markSeen = useMarkNotificationsSeen(session);
+  const markFeedback = useActionFeedback(markSeen, { errorDisplay: "inline" });
+  const data = feed.data;
+  const unread = data?.unread;
+  const attentionShown = data?.items.filter((item) => item.source === "attention").length ?? 0;
+  const newest = data?.items[0]?.occurred_at;
+  // Marked on CLOSE, through the newest item that was on screen when it opened: the rows
+  // keep their "new" look while they are being read, and anything that arrived meanwhile
+  // stays unread.
+  const shownThrough = useRef<string | undefined>(undefined);
+
+  return (
+    <NotificationCenter
+      heading="Notifications"
+      label={
+        feed.error != null
+          ? "Notifications: we couldn't check for new items. Open to try again."
+          : unread !== undefined && unread > 0
+            ? `Notifications: ${formatCount(unread)} unread`
+            : "Notifications"
+      }
+      title={feed.error != null ? "We couldn't check for new items. Open to try again." : undefined}
+      state={feed.error != null && !data ? "error" : data ? "ready" : "loading"}
+      partial={feed.error != null && data !== undefined}
+      count={unread}
+      onRetry={() => void feed.refetch()}
+      onOpenChange={(open) => {
+        if (open) {
+          shownThrough.current = unread !== undefined && unread > 0 ? newest : undefined;
+          return;
+        }
+        if (shownThrough.current) markFeedback.run(shownThrough.current);
+        shownThrough.current = undefined;
+      }}
+      emptyText="Nothing new. We will put anything that needs you here."
+      items={(data?.items ?? []).map((item) => ({
+        id: `${item.source}-${item.id}`,
+        title: item.title,
+        detail: item.detail ?? undefined,
+        at: item.occurred_at,
+        href: item.href ? consoleHref(item.href, slug, href) : null,
+        tone: TONE[item.tone],
+        unread: item.unread,
+      }))}
+      shortfall={
+        data && data.attention_total > attentionShown
+          ? `${formatCountOf(data.attention_total, "thing")} need${data.attention_total === 1 ? "s" : ""} attention in all.`
+          : undefined
+      }
+      seeAll={{ href: href(`/c/${slug}/attention`), label: "Open everything that needs you" }}
+    />
+  );
+}
+
+/** Rows the bell asks for; the attention screen has the rest. */
+const BELL_ROWS = 20;
 
 /**
  * Credit in the bar, ONLY when it is about to stop calls or already has. A healthy balance

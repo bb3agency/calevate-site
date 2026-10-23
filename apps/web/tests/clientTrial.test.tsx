@@ -142,7 +142,7 @@ describe("the trial chip in the top bar", () => {
     const panel = screen.getByRole("dialog", { name: "Your free trial" });
     const text = panel.textContent ?? "";
     expect(text).toContain("10 Oct, 10:58 pm IST");
-    expect(text).toContain("997 of 1000");
+    expect(text).toContain("997 of 1,000 left");
     expect(text).toContain("2 of 10");
     expect(text).toContain("open once you add credit");
     expect(within(panel).getByRole("link", { name: "Add credit" }).getAttribute("href")).toBe(CREDITS);

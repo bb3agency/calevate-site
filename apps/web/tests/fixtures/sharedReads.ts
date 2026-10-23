@@ -82,6 +82,12 @@ export const LEGAL_READY = {
  */
 export const LIVE_CALLS_PATH = "/v1/calls?status=in_progress&limit=20";
 
+/** The path the top bar's bell reads — `useNotifications` with the bell's page size. */
+export const NOTIFICATIONS_PATH = "/v1/notifications?limit=20";
+
+/** The bell with nothing in it. */
+export const EMPTY_NOTIFICATIONS = { items: [], unread: 0, attention_total: 0, seen_through: null };
+
 /** The reads the client shell makes on every screen, in their ordinary state. */
 export const CLIENT_SHELL_ROUTES = {
   "/v1/maintenance": NO_MAINTENANCE,
@@ -90,6 +96,10 @@ export const CLIENT_SHELL_ROUTES = {
   [LIVE_CALLS_PATH]: [],
   // No trial running: the shell's trial strip renders nothing.
   "/v1/billing/wallet": prepaidWallet(),
+  // Nothing announced, an empty bell, and nothing waiting (the desktop alerts' read).
+  "/v1/announcements": { items: [] },
+  "/v1/attention": { total: 0, items: [] },
+  [NOTIFICATIONS_PATH]: EMPTY_NOTIFICATIONS,
 };
 
 /** The owner has never been asked about WhatsApp alerts, and there is no channel yet. */

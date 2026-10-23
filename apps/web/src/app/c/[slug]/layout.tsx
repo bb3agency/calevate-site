@@ -10,6 +10,7 @@ import { OfflineBanner } from "@/components/offline";
 import { MAIN_CONTENT_ID, SHELL_MAIN_CLASS, SHELL_RAIL_CLASS, Skeleton, SkipLink } from "@/components/ui";
 import { ClientRealmProvider } from "@/lib/api/session";
 
+import { ClientAnnouncements } from "./ClientAnnouncements";
 import { ClientSidebar } from "./ClientSidebar";
 import { ClientTopHeader } from "./ClientTopHeader";
 import { TrialBanner } from "./TrialBanner";
@@ -96,6 +97,9 @@ export default function ClientRealmLayout({
                   scheduled, which is every ordinary day. */}
               <MaintenanceBanner />
               <ViewAsBanner slug={slug} />
+              {/* What we have told every client (or this one): one strip, the most urgent,
+                  until it is dismissed or ends. Nothing renders when there is none. */}
+              <ClientAnnouncements slug={slug} />
               {/* The trial, only when it needs acting on (its last day, its free minutes
                   nearly gone, or ended unpaid); on an ordinary trial day the chip in the top
                   bar carries it. Renders nothing otherwise. */}
