@@ -87,7 +87,8 @@ if (DEPLOY_BUILD) {
 }
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // No `X-Powered-By: Next.js` on any response (OWASP ASVS 4.0.3 14.3.3).
+  poweredByHeader: false,
 };
 
 export default nextConfig;
