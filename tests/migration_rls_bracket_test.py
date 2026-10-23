@@ -71,6 +71,8 @@ ALREADY_RUN_AND_REPAIRED_ELSEWHERE = {
     "f4b1e9a2c7d0_extraction_field_description_to_reason.py": "b7e35c2f81da",
     # `calls.crm_notified_at`, so the CRM probe stops rescanning delivered calls.
     "e83b5d1a4c07_outbox_probes_stop_scanning.py": "b7e35c2f81da",
+    # D-863's `first_runs.jobs` backfill from `job`; an empty `jobs` reads as unstarted.
+    "a7d3e9c2f416_first_run_jobs_and_written_questions.py": "cdd375802099",
 }
 
 #: ⚠ EMPTY, AND KEPT AS A NAMED EMPTY RATHER THAN DELETED.
@@ -276,15 +278,17 @@ def test_the_exception_list_is_closed_and_names_who_pays_the_debt() -> None:
     """An entry is a migration that already ran, so it can only be repaired later.
 
     Pinned as an EQUALITY so a new migration cannot be waived in: the fix for anything
-    written from today is the bracket, and a fifth key would mean somebody chose the list
-    over the one-line change. It is also where a removal gets noticed — if a repair is
-    deleted, the entry pointing at it must go too, and this is what forces that pairing.
+    written from today is the bracket, and a key added here without a repair migration
+    would mean somebody chose the list over the one-line change. It is also where a removal
+    gets noticed — if a repair is deleted, the entry pointing at it must go too, and this is
+    what forces that pairing.
     """
     assert set(ALREADY_RUN_AND_REPAIRED_ELSEWHERE) == {
         "d4a9c17e6b02_copilot_memory.py",
         "f4a1d0b6e29c_two_notices_two_toggles.py",
         "f4b1e9a2c7d0_extraction_field_description_to_reason.py",
         "e83b5d1a4c07_outbox_probes_stop_scanning.py",
+        "a7d3e9c2f416_first_run_jobs_and_written_questions.py",
     }
     assert not UNAUDITED_PRE_EXISTING, (
         "an unaudited entry is a defect that has run in production with no repair written "

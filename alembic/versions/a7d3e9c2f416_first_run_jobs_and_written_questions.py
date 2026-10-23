@@ -80,12 +80,15 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '3s'")
+    # Lifted for the owner only, so the write-back sees every tenant's rows (d3b71c9a5e08).
+    op.execute("ALTER TABLE first_runs NO FORCE ROW LEVEL SECURITY")
     execute_data_statement(
         sa.text(
             "UPDATE first_runs SET job = jobs[1] WHERE job IS NULL AND cardinality(jobs) > 0"
         ),
         note="first_runs.job written back from jobs",
     )
+    op.execute("ALTER TABLE first_runs FORCE ROW LEVEL SECURITY")
     op.drop_constraint(op.f(f"ck_{RUNS}_answers_is_array"), RUNS, type_="check")
     op.drop_constraint(op.f(f"ck_{RUNS}_jobs_enum"), RUNS, type_="check")
     op.drop_column(RUNS, "answers")
