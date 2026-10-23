@@ -22,6 +22,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { TEXT_ACTION } from "@/components/console/section";
 import { NoticeBox, ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { ApiProblem } from "@/lib/api/client";
@@ -144,7 +145,7 @@ export function TestSection({
           tone="warn"
           title={data.waiting_update}
           action={
-            <Link href={links.agreements} className="text-meta font-medium text-ink underline underline-offset-2">
+            <Link href={links.agreements} className={TEXT_ACTION}>
               Open agreements
             </Link>
           }
