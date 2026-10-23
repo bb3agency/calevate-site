@@ -236,6 +236,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/announcements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Announcements, newest first (scheduled and showing; add past=true for history) */
+        get: operations["list_announcements_v1_admin_announcements_get"];
+        put?: never;
+        /** Write an announcement for all clients, trial clients, paid clients or one client */
+        post: operations["create_announcement_v1_admin_announcements_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/announcements/{announcement_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change an announcement that has not been ended */
+        patch: operations["update_announcement_v1_admin_announcements__announcement_id__patch"];
+        trace?: never;
+    };
+    "/v1/admin/announcements/{announcement_id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop showing an announcement now */
+        post: operations["end_announcement_v1_admin_announcements__announcement_id__end_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/client-health": {
         parameters: {
             query?: never;
@@ -3747,6 +3799,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How ready this agent is for callers (0-100), and what to fix */
+        get: operations["get_agent_readiness_v1_agents__agent_id__readiness_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/restore": {
         parameters: {
             query?: never;
@@ -4203,6 +4272,125 @@ export interface paths {
          * @description Speaks one fixed sample line in the agent's main language, in its Studio voice, with the speed, loudness and emotion sent (the saved ones are not read). 20 samples per account per day (India time); past that it is refused with `voice_preview_daily_cap`. Refused while the agent's voice is not a Studio one.
          */
         post: operations["preview_agent_voice_tuning_v1_agents__agent_id__voice_tuning_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/analytics/campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dials, connected calls and new leads per IST day for each campaign */
+        get: operations["get_campaign_timelines_v1_analytics_campaigns_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/analytics/durations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How long completed calls lasted, binned per agent or per outcome */
+        get: operations["get_durations_v1_analytics_durations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/analytics/heatmap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Calls or new leads per IST weekday and hour — always 168 cells */
+        get: operations["get_heatmap_v1_analytics_heatmap_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/analytics/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The stats band for a range, each figure beside the same length of time before */
+        get: operations["get_stats_v1_analytics_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/analytics/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Calls, answered calls and new leads per IST day, zero-filled */
+        get: operations["get_timeline_v1_analytics_timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/announcements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What Calevate is telling this account now, most urgent first, minus dismissed */
+        get: operations["my_announcements_v1_announcements_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/announcements/{announcement_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put an announcement away for this account */
+        post: operations["dismiss_announcement_v1_announcements__announcement_id__dismiss_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5172,6 +5360,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/billing/credit-usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Credit added and used: this IST month and all time */
+        get: operations["credit_usage_v1_billing_credit_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/billing/invoice": {
         parameters: {
             query?: never;
@@ -5361,6 +5566,23 @@ export interface paths {
          * @description The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: the credits, the Sarvam and Cartesia per-minute rates, and the talk time the credits buy on each voice. Selecting a pack starts a top-up intent with its `pack_id`. `bonus_credits`, `bonus_pct`, `effective_rate_inr_per_min` and `talk_time_minutes` are DEPRECATED (D-547) and go next release.
          */
         get: operations["read_credit_packs_v1_billing_topups_packs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/voice-tiers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Clear against Studio: ₹ per minute, your rate, your use, what each includes */
+        get: operations["voice_tiers_v1_billing_voice_tiers_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5659,6 +5881,23 @@ export interface paths {
          *     customer twice even from two browser tabs.
          */
         post: operations["call_back_v1_calls__call_id__callback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/calls/{call_id}/follow-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Mark a call resolved or needs-you, or clear the mark (undo with expected_state) */
+        put: operations["put_call_follow_up_v1_calls__call_id__follow_up_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -9109,6 +9348,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/leads/{lead_id}/callbacks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Call this lead back at a chosen time, 09:00-21:00 IST — gated, idempotent */
+        post: operations["schedule_callback_v1_leads__lead_id__callbacks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/leads/{lead_id}/captured": {
         parameters: {
             query?: never;
@@ -9156,6 +9412,24 @@ export interface paths {
         get: operations["lead_timeline_v1_leads__lead_id__timeline_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/leads/{lead_id}/whatsapp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Can this lead be sent a WhatsApp follow-up now, and with which approved messages */
+        get: operations["whatsapp_options_v1_leads__lead_id__whatsapp_get"];
+        put?: never;
+        /** Send an approved WhatsApp message to this lead — consent-gated, idempotent */
+        post: operations["send_whatsapp_v1_leads__lead_id__whatsapp_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9354,6 +9628,40 @@ export interface paths {
         head?: never;
         /** Change a colleague's role (owner only) */
         patch: operations["set_member_role_v1_members__user_id__patch"];
+        trace?: never;
+    };
+    "/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The bell: needs-attention items and announcements, newest first, with unread */
+        get: operations["get_feed_v1_notifications_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/notifications/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark the bell read up to an instant (now by default) */
+        post: operations["mark_seen_v1_notifications_seen_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/numbers/available": {
@@ -11229,6 +11537,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every working agent's readiness, the account's average and the biggest fixes */
+        get: operations["get_account_readiness_v1_readiness_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/team/members": {
         parameters: {
             query?: never;
@@ -11456,6 +11781,20 @@ export interface components {
             statement_version: string;
             /** Version */
             version: string;
+        };
+        /** AccountReadinessOut */
+        AccountReadinessOut: {
+            /** Agents */
+            agents: components["schemas"]["AgentReadinessOut"][];
+            /**
+             * Computed At
+             * Format: date-time
+             */
+            computed_at: string;
+            /** Score */
+            score: number | null;
+            /** Top Fixes */
+            top_fixes: components["schemas"]["ReadinessFixOut"][];
         };
         /** ActionOut */
         ActionOut: {
@@ -12477,6 +12816,32 @@ export interface components {
             /** Truthful Answer Rule */
             truthful_answer_rule: string;
         };
+        /** AgentReadinessOut */
+        AgentReadinessOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string;
+            /** Components */
+            components: components["schemas"]["ReadinessComponentOut"][];
+            /**
+             * Computed At
+             * Format: date-time
+             */
+            computed_at: string;
+            /** Fixes */
+            fixes: components["schemas"]["ReadinessFixOut"][];
+            /**
+             * Max Score
+             * @default 100
+             */
+            max_score: number;
+            /** Score */
+            score: number;
+        };
         /** AgentReplyTimes */
         AgentReplyTimes: {
             /** Agent Id */
@@ -12794,6 +13159,149 @@ export interface components {
             open_unmailed_pages: number;
             /** Window Days */
             window_days: number;
+        };
+        /** AnnouncementAdminListOut */
+        AnnouncementAdminListOut: {
+            /** Items */
+            items: components["schemas"]["AnnouncementAdminOut"][];
+            /** Total */
+            total: number;
+        };
+        /** AnnouncementAdminOut */
+        AnnouncementAdminOut: {
+            /**
+             * Audience
+             * @enum {string}
+             */
+            audience: "all" | "trial" | "paid" | "tenant";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Ended At */
+            ended_at: string | null;
+            /** Ends At */
+            ends_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Link Label */
+            link_label: string | null;
+            /** Link Url */
+            link_url: string | null;
+            /** Message */
+            message: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "scheduled" | "showing" | "finished" | "ended";
+            /** Target Tenant Id */
+            target_tenant_id: string | null;
+            /** Target Tenant Name */
+            target_tenant_name: string | null;
+            /**
+             * Tone
+             * @enum {string}
+             */
+            tone: "info" | "success" | "warning" | "critical";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** AnnouncementIn */
+        AnnouncementIn: {
+            /**
+             * Audience
+             * @default all
+             * @enum {string}
+             */
+            audience: "all" | "trial" | "paid" | "tenant";
+            /** Ends At */
+            ends_at?: string | null;
+            /** Link Label */
+            link_label?: string | null;
+            /** Link Url */
+            link_url?: string | null;
+            /** Message */
+            message: string;
+            /** Starts At */
+            starts_at?: string | null;
+            /** Target Tenant Id */
+            target_tenant_id?: string | null;
+            /**
+             * Tone
+             * @default info
+             * @enum {string}
+             */
+            tone: "info" | "success" | "warning" | "critical";
+        };
+        /** AnnouncementListOut */
+        AnnouncementListOut: {
+            /** Items */
+            items: components["schemas"]["AnnouncementOut"][];
+        };
+        /**
+         * AnnouncementOut
+         * @description What a client is shown. No audience, no author: only the message and its link.
+         */
+        AnnouncementOut: {
+            /** Ends At */
+            ends_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Link Label */
+            link_label: string | null;
+            /** Link Url */
+            link_url: string | null;
+            /** Message */
+            message: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /**
+             * Tone
+             * @enum {string}
+             */
+            tone: "info" | "success" | "warning" | "critical";
+        };
+        /**
+         * AnnouncementUpdateIn
+         * @description A PATCH: only the fields sent change. `link_url`, `link_label` and `ends_at` may be
+         *     sent as null to clear them.
+         */
+        AnnouncementUpdateIn: {
+            /** Audience */
+            audience?: ("all" | "trial" | "paid" | "tenant") | null;
+            /** Ends At */
+            ends_at?: string | null;
+            /** Link Label */
+            link_label?: string | null;
+            /** Link Url */
+            link_url?: string | null;
+            /** Message */
+            message?: string | null;
+            /** Starts At */
+            starts_at?: string | null;
+            /** Target Tenant Id */
+            target_tenant_id?: string | null;
+            /** Tone */
+            tone?: ("info" | "success" | "warning" | "critical") | null;
         };
         /**
          * AnswerIn
@@ -13644,6 +14152,8 @@ export interface components {
              * @default true
              */
             extraction_valid: boolean;
+            /** Follow Up State */
+            follow_up_state?: ("resolved" | "needs_you") | null;
             /** Forwarded To Phone */
             forwarded_to_phone: boolean;
             /** Forwarding Test */
@@ -13705,6 +14215,31 @@ export interface components {
              * @enum {string}
              */
             translation_state: "pending" | "ready" | "failed" | "not_needed" | "unavailable";
+        };
+        /** CallFollowUpIn */
+        CallFollowUpIn: {
+            /** Expected State */
+            expected_state?: ("resolved" | "needs_you") | null;
+            /** State */
+            state: ("resolved" | "needs_you") | null;
+        };
+        /** CallFollowUpOut */
+        CallFollowUpOut: {
+            /**
+             * Call Id
+             * Format: uuid
+             */
+            call_id: string;
+            /** Changed */
+            changed: boolean;
+            /** Previous State */
+            previous_state: ("resolved" | "needs_you") | null;
+            /** Set At */
+            set_at: string | null;
+            /** Set By */
+            set_by: string | null;
+            /** State */
+            state: ("resolved" | "needs_you") | null;
         };
         /**
          * CallHandlingBoundsOut
@@ -14130,6 +14665,8 @@ export interface components {
             direction: "inbound" | "outbound";
             /** Duration S */
             duration_s?: number | null;
+            /** Follow Up State */
+            follow_up_state?: ("resolved" | "needs_you") | null;
             /** Headline */
             headline?: string | null;
             /**
@@ -14302,6 +14839,20 @@ export interface components {
             /** Start */
             start: string;
         };
+        /** CampaignDayOut */
+        CampaignDayOut: {
+            /** Connected */
+            connected: number;
+            /** Dials */
+            dials: number;
+            /**
+             * Ist Date
+             * Format: date
+             */
+            ist_date: string;
+            /** Leads */
+            leads: number;
+        };
         /** CampaignLeadOut */
         CampaignLeadOut: {
             /**
@@ -14372,6 +14923,26 @@ export interface components {
             /** Tried */
             tried: number;
         };
+        /** CampaignSeriesOut */
+        CampaignSeriesOut: {
+            /**
+             * Campaign Id
+             * Format: uuid
+             */
+            campaign_id: string;
+            /** Connected */
+            connected: number;
+            /** Days */
+            days: components["schemas"]["CampaignDayOut"][];
+            /** Dials */
+            dials: number;
+            /** Leads */
+            leads: number;
+            /** Name */
+            name: string;
+            /** Status */
+            status: string;
+        };
         /**
          * CampaignSummaryOut
          * @description One row of the campaign list.
@@ -14415,6 +14986,12 @@ export interface components {
             pause_reason?: ("person" | "maintenance" | "healer" | "complaint_spike" | "out_of_credit" | "spend_cap") | null;
             /** Status */
             status: string;
+        };
+        /** CampaignTimelinesOut */
+        CampaignTimelinesOut: {
+            /** Campaigns */
+            campaigns: components["schemas"]["CampaignSeriesOut"][];
+            window: components["schemas"]["RangeOut"];
         };
         /**
          * CanvasPosition
@@ -16708,6 +17285,33 @@ export interface components {
             /** Voice Not Offered Notice */
             voice_not_offered_notice: string | null;
         };
+        /** CreditUsageOut */
+        CreditUsageOut: {
+            all_time: components["schemas"]["CreditUsagePeriodOut"];
+            /** Month */
+            month: string;
+            this_month: components["schemas"]["CreditUsagePeriodOut"];
+        };
+        /** CreditUsagePeriodOut */
+        CreditUsagePeriodOut: {
+            /** Added Inr */
+            added_inr: string;
+            /** Adjustments Inr */
+            adjustments_inr: string;
+            /** Ai Assist Inr */
+            ai_assist_inr: string;
+            /** Calls Inr */
+            calls_inr: string;
+            /** Number Rental Inr */
+            number_rental_inr: string;
+            /**
+             * Period
+             * @enum {string}
+             */
+            period: "this_month" | "all_time";
+            /** Spent Inr */
+            spent_inr: string;
+        };
         /** CreditsOut */
         CreditsOut: {
             /** Balance Inr */
@@ -17409,6 +18013,43 @@ export interface components {
             id: string;
             /** Status */
             status: string;
+        };
+        /** DurationGroupOut */
+        DurationGroupOut: {
+            /** Calls */
+            calls: number;
+            /** Counts */
+            counts: number[];
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Median S */
+            median_s: number;
+            /** P90 S */
+            p90_s: number;
+        };
+        /**
+         * DurationsOut
+         * @description Completed calls only (a ringing or failed dial has no conversation length). Bins are
+         *     fixed server-side so every group shares one x axis: `bin_edges_s[i]` is the bin's lower
+         *     edge in seconds, and the last bin is open-ended.
+         */
+        DurationsOut: {
+            /** Bin Edges S */
+            bin_edges_s: number[];
+            /** Bin S */
+            bin_s: number;
+            /**
+             * Group By
+             * @enum {string}
+             */
+            group_by: "agent" | "outcome";
+            /** Groups */
+            groups: components["schemas"]["DurationGroupOut"][];
+            /** Other Calls */
+            other_calls: number;
+            window: components["schemas"]["RangeOut"];
         };
         /**
          * EditTenantIn
@@ -19229,6 +19870,34 @@ export interface components {
              * @enum {string}
              */
             waiting_on: "calevate" | "client";
+        };
+        /** HeatmapCellOut */
+        HeatmapCellOut: {
+            /** Count */
+            count: number;
+            /** Hour */
+            hour: number;
+            /** Weekday */
+            weekday: number;
+        };
+        /**
+         * HeatmapOut
+         * @description Always 168 cells (7 weekdays * 24 hours), Monday 00:00 first; a quiet hour is a zero
+         *     cell, never a missing one.
+         */
+        HeatmapOut: {
+            /** Cells */
+            cells: components["schemas"]["HeatmapCellOut"][];
+            /** Max Count */
+            max_count: number;
+            /**
+             * Metric
+             * @enum {string}
+             */
+            metric: "calls" | "leads";
+            /** Total */
+            total: number;
+            window: components["schemas"]["RangeOut"];
         };
         /**
          * HeldBackOut
@@ -21216,6 +21885,8 @@ export interface components {
         LeadUpdateIn: {
             /** Assigned To */
             assigned_to?: string | null;
+            /** Expected Status */
+            expected_status?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost") | null;
             /** Name */
             name?: string | null;
             /** Status */
@@ -22211,6 +22882,49 @@ export interface components {
             component: "calls" | "dashboard" | "numbers" | "assistant";
             /** Title */
             title: string;
+        };
+        /** NotificationFeedOut */
+        NotificationFeedOut: {
+            /** Attention Total */
+            attention_total: number;
+            /** Items */
+            items: components["schemas"]["NotificationOut"][];
+            /** Seen Through */
+            seen_through: string | null;
+            /** Unread */
+            unread: number;
+        };
+        /** NotificationOut */
+        NotificationOut: {
+            /** Detail */
+            detail: string | null;
+            /** Href */
+            href: string | null;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Link Label */
+            link_label: string | null;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "attention" | "announcement";
+            /** Title */
+            title: string;
+            /**
+             * Tone
+             * @enum {string}
+             */
+            tone: "info" | "success" | "warning" | "critical";
+            /** Unread */
+            unread: boolean;
         };
         /**
          * NumberAgentIn
@@ -24148,6 +24862,31 @@ export interface components {
             /** Status */
             status: string;
         };
+        /**
+         * RangeOut
+         * @description The IST calendar days a response covers, both inclusive. Rendered verbatim: they are
+         *     dates, not instants, and re-parsing one as an instant in a browser's zone moves it.
+         */
+        RangeOut: {
+            /** Days */
+            days: number;
+            /**
+             * From Date
+             * Format: date
+             */
+            from_date: string;
+            /**
+             * Timezone
+             * @default Asia/Kolkata
+             * @constant
+             */
+            timezone: "Asia/Kolkata";
+            /**
+             * To Date
+             * Format: date
+             */
+            to_date: string;
+        };
         /** RateCardCancelIn */
         RateCardCancelIn: {
             /**
@@ -24289,6 +25028,41 @@ export interface components {
             clients_notified: boolean;
             /** Effective From */
             effective_from: string;
+        };
+        /** ReadinessComponentOut */
+        ReadinessComponentOut: {
+            /** Detail */
+            detail: string;
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "tests" | "knowledge" | "notices" | "opening" | "live" | "missed";
+            /** Label */
+            label: string;
+            /** Max Points */
+            max_points: number;
+            /** Points */
+            points: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "full" | "partial" | "none";
+        };
+        /** ReadinessFixOut */
+        ReadinessFixOut: {
+            /** Action */
+            action: string;
+            /**
+             * Component
+             * @enum {string}
+             */
+            component: "tests" | "knowledge" | "notices" | "opening" | "live" | "missed";
+            /** Href */
+            href: string;
+            /** Points */
+            points: number;
         };
         /**
          * ReadinessRowOut
@@ -25341,6 +26115,39 @@ export interface components {
             /** Scenario */
             scenario: number;
         };
+        /** ScheduleCallbackIn */
+        ScheduleCallbackIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Note */
+            note?: string | null;
+        };
+        /** ScheduleCallbackOut */
+        ScheduleCallbackOut: {
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            /** Blocked Rule */
+            blocked_rule?: string | null;
+            /** Callback Id */
+            callback_id?: string | null;
+            /** Requested At */
+            requested_at?: string | null;
+            /**
+             * Rescheduled
+             * @default false
+             */
+            rescheduled: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "scheduled" | "blocked";
+        };
         /**
          * ScheduleCancelledOut
          * @description What was stopped, and what the campaign is NOW.
@@ -25716,6 +26523,16 @@ export interface components {
         SecretsOut: {
             /** Secrets */
             secrets: components["schemas"]["SecretOut"][];
+        };
+        /** SeenIn */
+        SeenIn: {
+            /** Through */
+            through?: string | null;
+        };
+        /** SeenOut */
+        SeenOut: {
+            /** Seen Through */
+            seen_through: string | null;
         };
         /**
          * ServiceItem
@@ -26385,6 +27202,29 @@ export interface components {
             total_inr: string;
             /** Wallet Spent Inr */
             wallet_spent_inr: string;
+        };
+        /** StatsMetricOut */
+        StatsMetricOut: {
+            /** Change Pct */
+            change_pct: string | null;
+            /** Higher Is Better */
+            higher_is_better: boolean;
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "calls" | "answered" | "answer_rate_pct" | "leads" | "hot_leads" | "avg_duration_s" | "talk_minutes";
+            /** Previous */
+            previous: string | null;
+            /** Value */
+            value: string | null;
+        };
+        /** StatsOut */
+        StatsOut: {
+            /** Metrics */
+            metrics: components["schemas"]["StatsMetricOut"][];
+            previous_window: components["schemas"]["RangeOut"];
+            window: components["schemas"]["RangeOut"];
         };
         /** StatusComponentOut */
         StatusComponentOut: {
@@ -28037,6 +28877,35 @@ export interface components {
              */
             minutes_value: string;
         };
+        /** TimelineDayOut */
+        TimelineDayOut: {
+            /** Answered */
+            answered: number;
+            /** Calls */
+            calls: number;
+            /**
+             * Ist Date
+             * Format: date
+             */
+            ist_date: string;
+            /** Leads */
+            leads: number;
+        };
+        /**
+         * TimelineOut
+         * @description One entry per IST day, oldest first, zero-filled — a brush chart's full extent.
+         */
+        TimelineOut: {
+            /** Answered */
+            answered: number;
+            /** Calls */
+            calls: number;
+            /** Days */
+            days: components["schemas"]["TimelineDayOut"][];
+            /** Leads */
+            leads: number;
+            window: components["schemas"]["RangeOut"];
+        };
         /** TmRegistrationIn */
         TmRegistrationIn: {
             /** Reason */
@@ -29308,6 +30177,48 @@ export interface components {
             /** Unnamed Note */
             unnamed_note: string | null;
         };
+        /** VoiceTierCompareOut */
+        VoiceTierCompareOut: {
+            /** Best For */
+            best_for: string;
+            /** Charged This Month Inr */
+            charged_this_month_inr: string;
+            /** From Inr Per Min */
+            from_inr_per_min: string;
+            /** Includes */
+            includes: string[];
+            /** Label */
+            label: string;
+            /** Minutes Left */
+            minutes_left: number | null;
+            /** Minutes This Month */
+            minutes_this_month: string;
+            /** Offered */
+            offered: boolean;
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "clear" | "studio";
+            /** To Inr Per Min */
+            to_inr_per_min: string;
+            /** Your Inr Per Min */
+            your_inr_per_min: string | null;
+        };
+        /** VoiceTierComparisonOut */
+        VoiceTierComparisonOut: {
+            /** Not Offered Notice */
+            not_offered_notice: string | null;
+            /** Recommendation Reason */
+            recommendation_reason: string;
+            /**
+             * Recommended
+             * @enum {string}
+             */
+            recommended: "clear" | "studio";
+            /** Tiers */
+            tiers: components["schemas"]["VoiceTierCompareOut"][];
+        };
         /**
          * VoiceTierRateOut
          * @description What ONE voice tier costs this client's NEXT minute, for the voice picker.
@@ -29710,11 +30621,46 @@ export interface components {
             /** Received */
             received: number;
         };
+        /** WhatsAppOptionsOut */
+        WhatsAppOptionsOut: {
+            /** Available */
+            available: boolean;
+            /** Reason */
+            reason: string | null;
+            /** Rule */
+            rule: string | null;
+            /** Templates */
+            templates: components["schemas"]["WhatsAppTemplateChoiceOut"][];
+        };
         /** WhatsAppOverviewOut */
         WhatsAppOverviewOut: {
             /** Accounts */
             accounts: components["schemas"]["WhatsAppAccountOut"][];
             setup: components["schemas"]["WhatsAppSetupOut"];
+        };
+        /** WhatsAppSendIn */
+        WhatsAppSendIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /**
+             * Template Id
+             * Format: uuid
+             */
+            template_id: string;
+            /** Values */
+            values?: string[];
+        };
+        /** WhatsAppSendOut */
+        WhatsAppSendOut: {
+            /** Reason */
+            reason?: string | null;
+            /** Rule */
+            rule?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "sent" | "blocked" | "failed";
         };
         /** WhatsAppSetupOut */
         WhatsAppSetupOut: {
@@ -29751,6 +30697,26 @@ export interface components {
             graph_version: string;
             /** State */
             state: string;
+        };
+        /** WhatsAppTemplateChoiceOut */
+        WhatsAppTemplateChoiceOut: {
+            /** Body */
+            body: string;
+            /** Category */
+            category: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Language */
+            language: string;
+            /** Name */
+            name: string;
+            /** Variables */
+            variables: {
+                [key: string]: string;
+            }[];
         };
         /** WhatsAppTemplateIn */
         WhatsAppTemplateIn: {
@@ -30393,6 +31359,138 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CalendarConnectOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_announcements_v1_admin_announcements_get: {
+        parameters: {
+            query?: {
+                /** @description Include ended and finished ones. */
+                past?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnouncementAdminListOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_announcement_v1_admin_announcements_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnnouncementIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnouncementAdminOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    update_announcement_v1_admin_announcements__announcement_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                announcement_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnnouncementUpdateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnouncementAdminOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    end_announcement_v1_admin_announcements__announcement_id__end_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                announcement_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnouncementAdminOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -36699,6 +37797,37 @@ export interface operations {
             };
         };
     };
+    get_agent_readiness_v1_agents__agent_id__readiness_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentReadinessOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     restore_agent_route_v1_agents__agent_id__restore_post: {
         parameters: {
             query?: never;
@@ -37647,6 +38776,260 @@ export interface operations {
                     "audio/mpeg": string;
                     "audio/wav": string;
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_campaign_timelines_v1_analytics_campaigns_get: {
+        parameters: {
+            query?: {
+                /** @description How many IST calendar days, 1-366, ending on `to`. */
+                days?: number;
+                /** @description The last IST day of the range (YYYY-MM-DD). Today when left out. */
+                to?: string | null;
+                /** @description One campaign; otherwise the busiest in the range. */
+                campaign_id?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignTimelinesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_durations_v1_analytics_durations_get: {
+        parameters: {
+            query?: {
+                /** @description How many IST calendar days, 1-366, ending on `to`. */
+                days?: number;
+                /** @description The last IST day of the range (YYYY-MM-DD). Today when left out. */
+                to?: string | null;
+                group_by?: "agent" | "outcome";
+                /** @description Bin width in seconds: 15, 30, 60 or 120. */
+                bin_s?: number;
+                limit?: number;
+                /** @description Only this agent's calls and leads. */
+                agent_id?: string | null;
+                /** @description False leaves out the owner's own test calls (D-697, D-859). */
+                test_calls?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DurationsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_heatmap_v1_analytics_heatmap_get: {
+        parameters: {
+            query?: {
+                /** @description How many IST calendar days, 1-366, ending on `to`. */
+                days?: number;
+                /** @description The last IST day of the range (YYYY-MM-DD). Today when left out. */
+                to?: string | null;
+                metric?: "calls" | "leads";
+                /** @description Only this agent's calls and leads. */
+                agent_id?: string | null;
+                /** @description False leaves out the owner's own test calls (D-697, D-859). */
+                test_calls?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeatmapOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_stats_v1_analytics_stats_get: {
+        parameters: {
+            query?: {
+                /** @description How many IST calendar days, 1-366, ending on `to`. */
+                days?: number;
+                /** @description The last IST day of the range (YYYY-MM-DD). Today when left out. */
+                to?: string | null;
+                /** @description Only this agent's calls and leads. */
+                agent_id?: string | null;
+                /** @description False leaves out the owner's own test calls (D-697, D-859). */
+                test_calls?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_timeline_v1_analytics_timeline_get: {
+        parameters: {
+            query?: {
+                /** @description How many IST calendar days, 1-366, ending on `to`. */
+                days?: number;
+                /** @description The last IST day of the range (YYYY-MM-DD). Today when left out. */
+                to?: string | null;
+                /** @description Only this agent's calls and leads. */
+                agent_id?: string | null;
+                /** @description False leaves out the owner's own test calls (D-697, D-859). */
+                test_calls?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimelineOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    my_announcements_v1_announcements_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnouncementListOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    dismiss_announcement_v1_announcements__announcement_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                announcement_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -39145,6 +40528,35 @@ export interface operations {
             };
         };
     };
+    credit_usage_v1_billing_credit_usage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreditUsageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     my_invoice_v1_billing_invoice_get: {
         parameters: {
             query?: {
@@ -39445,6 +40857,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreditPacksOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    voice_tiers_v1_billing_voice_tiers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceTierComparisonOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -40018,6 +41459,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallbackOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_call_follow_up_v1_calls__call_id__follow_up_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallFollowUpIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallFollowUpOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -46262,6 +47738,41 @@ export interface operations {
             };
         };
     };
+    schedule_callback_v1_leads__lead_id__callbacks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleCallbackIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleCallbackOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_lead_captured_v1_leads__lead_id__captured_get: {
         parameters: {
             query?: never;
@@ -46314,6 +47825,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadTimelineOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    whatsapp_options_v1_leads__lead_id__whatsapp_get: {
+        parameters: {
+            query?: {
+                /** @description The agent the gate asks as; see `contact_agent`. */
+                agent_id?: string | null;
+            };
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppOptionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    send_whatsapp_v1_leads__lead_id__whatsapp_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WhatsAppSendIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppSendOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -46560,6 +48140,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemberOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_feed_v1_notifications_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationFeedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    mark_seen_v1_notifications_seen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SeenIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeenOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -49881,6 +51525,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QaReport"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_account_readiness_v1_readiness_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountReadinessOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

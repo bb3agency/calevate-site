@@ -62,6 +62,49 @@
         "title": "AcceptIn",
         "type": "object"
       },
+      "AccountReadinessOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentReadinessOut"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "computed_at": {
+            "format": "date-time",
+            "title": "Computed At",
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "top_fixes": {
+            "items": {
+              "$ref": "#/components/schemas/ReadinessFixOut"
+            },
+            "title": "Top Fixes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "score",
+          "agents",
+          "top_fixes",
+          "computed_at"
+        ],
+        "title": "AccountReadinessOut",
+        "type": "object"
+      },
       "ActionOut": {
         "additionalProperties": false,
         "properties": {
@@ -3290,6 +3333,58 @@
         "title": "AgentOut",
         "type": "object"
       },
+      "AgentReadinessOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/ReadinessComponentOut"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "computed_at": {
+            "format": "date-time",
+            "title": "Computed At",
+            "type": "string"
+          },
+          "fixes": {
+            "items": {
+              "$ref": "#/components/schemas/ReadinessFixOut"
+            },
+            "title": "Fixes",
+            "type": "array"
+          },
+          "max_score": {
+            "default": 100,
+            "title": "Max Score",
+            "type": "integer"
+          },
+          "score": {
+            "title": "Score",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agent_id",
+          "agent_name",
+          "score",
+          "components",
+          "fixes",
+          "computed_at"
+        ],
+        "title": "AgentReadinessOut",
+        "type": "object"
+      },
       "AgentReplyTimes": {
         "properties": {
           "agent_id": {
@@ -4117,6 +4212,479 @@
           "complete"
         ],
         "title": "AlertReport",
+        "type": "object"
+      },
+      "AnnouncementAdminListOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnnouncementAdminOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "AnnouncementAdminListOut",
+        "type": "object"
+      },
+      "AnnouncementAdminOut": {
+        "additionalProperties": false,
+        "properties": {
+          "audience": {
+            "enum": [
+              "all",
+              "trial",
+              "paid",
+              "tenant"
+            ],
+            "title": "Audience",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "link_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Label"
+          },
+          "link_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Url"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "scheduled",
+              "showing",
+              "finished",
+              "ended"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "target_tenant_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Tenant Id"
+          },
+          "target_tenant_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Tenant Name"
+          },
+          "tone": {
+            "enum": [
+              "info",
+              "success",
+              "warning",
+              "critical"
+            ],
+            "title": "Tone",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "message",
+          "link_url",
+          "link_label",
+          "tone",
+          "audience",
+          "target_tenant_id",
+          "target_tenant_name",
+          "starts_at",
+          "ends_at",
+          "ended_at",
+          "state",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AnnouncementAdminOut",
+        "type": "object"
+      },
+      "AnnouncementIn": {
+        "additionalProperties": false,
+        "properties": {
+          "audience": {
+            "default": "all",
+            "enum": [
+              "all",
+              "trial",
+              "paid",
+              "tenant"
+            ],
+            "title": "Audience",
+            "type": "string"
+          },
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At"
+          },
+          "link_label": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Label"
+          },
+          "link_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Url"
+          },
+          "message": {
+            "maxLength": 280,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "target_tenant_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Tenant Id"
+          },
+          "tone": {
+            "default": "info",
+            "enum": [
+              "info",
+              "success",
+              "warning",
+              "critical"
+            ],
+            "title": "Tone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "AnnouncementIn",
+        "type": "object"
+      },
+      "AnnouncementListOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnnouncementOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "AnnouncementListOut",
+        "type": "object"
+      },
+      "AnnouncementOut": {
+        "additionalProperties": false,
+        "description": "What a client is shown. No audience, no author: only the message and its link.",
+        "properties": {
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "link_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Label"
+          },
+          "link_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Url"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "tone": {
+            "enum": [
+              "info",
+              "success",
+              "warning",
+              "critical"
+            ],
+            "title": "Tone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "message",
+          "link_url",
+          "link_label",
+          "tone",
+          "starts_at",
+          "ends_at"
+        ],
+        "title": "AnnouncementOut",
+        "type": "object"
+      },
+      "AnnouncementUpdateIn": {
+        "additionalProperties": false,
+        "description": "A PATCH: only the fields sent change. `link_url`, `link_label` and `ends_at` may be\nsent as null to clear them.",
+        "properties": {
+          "audience": {
+            "anyOf": [
+              {
+                "enum": [
+                  "all",
+                  "trial",
+                  "paid",
+                  "tenant"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audience"
+          },
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At"
+          },
+          "link_label": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Label"
+          },
+          "link_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Url"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "maxLength": 280,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "target_tenant_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Tenant Id"
+          },
+          "tone": {
+            "anyOf": [
+              {
+                "enum": [
+                  "info",
+                  "success",
+                  "warning",
+                  "critical"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tone"
+          }
+        },
+        "title": "AnnouncementUpdateIn",
         "type": "object"
       },
       "AnswerIn": {
@@ -6682,6 +7250,21 @@
             "title": "Extraction Valid",
             "type": "boolean"
           },
+          "follow_up_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "resolved",
+                  "needs_you"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up State"
+          },
           "forwarded_to_phone": {
             "title": "Forwarded To Phone",
             "type": "boolean"
@@ -6930,6 +7513,124 @@
           "signals"
         ],
         "title": "CallDetailOut",
+        "type": "object"
+      },
+      "CallFollowUpIn": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "resolved",
+                  "needs_you"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected State"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "resolved",
+                  "needs_you"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "CallFollowUpIn",
+        "type": "object"
+      },
+      "CallFollowUpOut": {
+        "additionalProperties": false,
+        "properties": {
+          "call_id": {
+            "format": "uuid",
+            "title": "Call Id",
+            "type": "string"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "previous_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "resolved",
+                  "needs_you"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous State"
+          },
+          "set_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set At"
+          },
+          "set_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set By"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "resolved",
+                  "needs_you"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          }
+        },
+        "required": [
+          "call_id",
+          "state",
+          "previous_state",
+          "set_at",
+          "set_by",
+          "changed"
+        ],
+        "title": "CallFollowUpOut",
         "type": "object"
       },
       "CallHandlingBoundsOut": {
@@ -8063,6 +8764,21 @@
             ],
             "title": "Duration S"
           },
+          "follow_up_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "resolved",
+                  "needs_you"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up State"
+          },
           "headline": {
             "anyOf": [
               {
@@ -8507,6 +9223,36 @@
         "title": "CallingHoursIn",
         "type": "object"
       },
+      "CampaignDayOut": {
+        "additionalProperties": false,
+        "properties": {
+          "connected": {
+            "title": "Connected",
+            "type": "integer"
+          },
+          "dials": {
+            "title": "Dials",
+            "type": "integer"
+          },
+          "ist_date": {
+            "format": "date",
+            "title": "Ist Date",
+            "type": "string"
+          },
+          "leads": {
+            "title": "Leads",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ist_date",
+          "dials",
+          "connected",
+          "leads"
+        ],
+        "title": "CampaignDayOut",
+        "type": "object"
+      },
       "CampaignLeadOut": {
         "additionalProperties": false,
         "properties": {
@@ -8694,6 +9440,54 @@
         "title": "CampaignResultsOut",
         "type": "object"
       },
+      "CampaignSeriesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "format": "uuid",
+            "title": "Campaign Id",
+            "type": "string"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "integer"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/CampaignDayOut"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "dials": {
+            "title": "Dials",
+            "type": "integer"
+          },
+          "leads": {
+            "title": "Leads",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "name",
+          "status",
+          "dials",
+          "connected",
+          "leads",
+          "days"
+        ],
+        "title": "CampaignSeriesOut",
+        "type": "object"
+      },
       "CampaignSummaryOut": {
         "additionalProperties": false,
         "description": "One row of the campaign list.\n\n`consent_provenance_blocker` is the only DERIVED field here, and it is derived on\npurpose (see `service.list_campaigns` for the full argument): it answers \"what does\nthis row need\" rather than \"what did they answer\", so the list cannot mistake a\npurchased list \u2014 recorded, refused, unfixable \u2014 for an answered one. It is a named\nrule rather than a boolean because the two values have different remedies: the\nclient can clear `consent_provenance_missing` in the provenance form, and nobody can\nclear `consent_source_refused`. The names are the launch gate's own, so the list and\n`/launch-check` explain the same fact with the same words.\n\nNULL means \"nothing to do here\", which covers both an answered draft and every\ncampaign past the point where provenance can still be recorded.",
@@ -8786,6 +9580,27 @@
           "created_at"
         ],
         "title": "CampaignSummaryOut",
+        "type": "object"
+      },
+      "CampaignTimelinesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "campaigns": {
+            "items": {
+              "$ref": "#/components/schemas/CampaignSeriesOut"
+            },
+            "title": "Campaigns",
+            "type": "array"
+          },
+          "window": {
+            "$ref": "#/components/schemas/RangeOut"
+          }
+        },
+        "required": [
+          "window",
+          "campaigns"
+        ],
+        "title": "CampaignTimelinesOut",
         "type": "object"
       },
       "CanvasPosition": {
@@ -14616,6 +15431,82 @@
         "title": "CreditPacksOut",
         "type": "object"
       },
+      "CreditUsageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "all_time": {
+            "$ref": "#/components/schemas/CreditUsagePeriodOut"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "this_month": {
+            "$ref": "#/components/schemas/CreditUsagePeriodOut"
+          }
+        },
+        "required": [
+          "month",
+          "this_month",
+          "all_time"
+        ],
+        "title": "CreditUsageOut",
+        "type": "object"
+      },
+      "CreditUsagePeriodOut": {
+        "additionalProperties": false,
+        "properties": {
+          "added_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Added Inr",
+            "type": "string"
+          },
+          "adjustments_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Adjustments Inr",
+            "type": "string"
+          },
+          "ai_assist_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Ai Assist Inr",
+            "type": "string"
+          },
+          "calls_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Calls Inr",
+            "type": "string"
+          },
+          "number_rental_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Number Rental Inr",
+            "type": "string"
+          },
+          "period": {
+            "enum": [
+              "this_month",
+              "all_time"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "spent_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Spent Inr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "period",
+          "added_inr",
+          "spent_inr",
+          "calls_inr",
+          "ai_assist_inr",
+          "number_rental_inr",
+          "adjustments_inr"
+        ],
+        "title": "CreditUsagePeriodOut",
+        "type": "object"
+      },
       "CreditsOut": {
         "additionalProperties": false,
         "properties": {
@@ -16213,6 +17104,97 @@
           "contacts_added"
         ],
         "title": "DuplicateCampaignOut",
+        "type": "object"
+      },
+      "DurationGroupOut": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "counts": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "array"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "median_s": {
+            "title": "Median S",
+            "type": "integer"
+          },
+          "p90_s": {
+            "title": "P90 S",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "calls",
+          "counts",
+          "median_s",
+          "p90_s"
+        ],
+        "title": "DurationGroupOut",
+        "type": "object"
+      },
+      "DurationsOut": {
+        "additionalProperties": false,
+        "description": "Completed calls only (a ringing or failed dial has no conversation length). Bins are\nfixed server-side so every group shares one x axis: `bin_edges_s[i]` is the bin's lower\nedge in seconds, and the last bin is open-ended.",
+        "properties": {
+          "bin_edges_s": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Bin Edges S",
+            "type": "array"
+          },
+          "bin_s": {
+            "title": "Bin S",
+            "type": "integer"
+          },
+          "group_by": {
+            "enum": [
+              "agent",
+              "outcome"
+            ],
+            "title": "Group By",
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/DurationGroupOut"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "other_calls": {
+            "title": "Other Calls",
+            "type": "integer"
+          },
+          "window": {
+            "$ref": "#/components/schemas/RangeOut"
+          }
+        },
+        "required": [
+          "window",
+          "group_by",
+          "bin_s",
+          "bin_edges_s",
+          "groups",
+          "other_calls"
+        ],
+        "title": "DurationsOut",
         "type": "object"
       },
       "EditTenantIn": {
@@ -21011,6 +21993,71 @@
           "severity"
         ],
         "title": "HealthSignalOut",
+        "type": "object"
+      },
+      "HeatmapCellOut": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "hour": {
+            "title": "Hour",
+            "type": "integer"
+          },
+          "weekday": {
+            "title": "Weekday",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "weekday",
+          "hour",
+          "count"
+        ],
+        "title": "HeatmapCellOut",
+        "type": "object"
+      },
+      "HeatmapOut": {
+        "additionalProperties": false,
+        "description": "Always 168 cells (7 weekdays * 24 hours), Monday 00:00 first; a quiet hour is a zero\ncell, never a missing one.",
+        "properties": {
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/HeatmapCellOut"
+            },
+            "title": "Cells",
+            "type": "array"
+          },
+          "max_count": {
+            "title": "Max Count",
+            "type": "integer"
+          },
+          "metric": {
+            "enum": [
+              "calls",
+              "leads"
+            ],
+            "title": "Metric",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "window": {
+            "$ref": "#/components/schemas/RangeOut"
+          }
+        },
+        "required": [
+          "window",
+          "metric",
+          "total",
+          "max_count",
+          "cells"
+        ],
+        "title": "HeatmapOut",
         "type": "object"
       },
       "HeldBackOut": {
@@ -26117,6 +27164,25 @@
             ],
             "title": "Assigned To"
           },
+          "expected_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "new",
+                  "contacted",
+                  "interested",
+                  "hot",
+                  "won",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Status"
+          },
           "name": {
             "anyOf": [
               {
@@ -28734,6 +29800,137 @@
           "component"
         ],
         "title": "NewStatusPostIn",
+        "type": "object"
+      },
+      "NotificationFeedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "attention_total": {
+            "title": "Attention Total",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "seen_through": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seen Through"
+          },
+          "unread": {
+            "title": "Unread",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "unread",
+          "attention_total",
+          "seen_through"
+        ],
+        "title": "NotificationFeedOut",
+        "type": "object"
+      },
+      "NotificationOut": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "href": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Href"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "link_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Label"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "attention",
+              "announcement"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tone": {
+            "enum": [
+              "info",
+              "success",
+              "warning",
+              "critical"
+            ],
+            "title": "Tone",
+            "type": "string"
+          },
+          "unread": {
+            "title": "Unread",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "kind",
+          "tone",
+          "title",
+          "detail",
+          "href",
+          "link_label",
+          "occurred_at",
+          "unread"
+        ],
+        "title": "NotificationOut",
         "type": "object"
       },
       "NumberAgentIn": {
@@ -34243,6 +35440,39 @@
         "title": "QuestionsOut",
         "type": "object"
       },
+      "RangeOut": {
+        "additionalProperties": false,
+        "description": "The IST calendar days a response covers, both inclusive. Rendered verbatim: they are\ndates, not instants, and re-parsing one as an instant in a browser's zone moves it.",
+        "properties": {
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "from_date": {
+            "format": "date",
+            "title": "From Date",
+            "type": "string"
+          },
+          "timezone": {
+            "const": "Asia/Kolkata",
+            "default": "Asia/Kolkata",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "to_date": {
+            "format": "date",
+            "title": "To Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_date",
+          "to_date",
+          "days"
+        ],
+        "title": "RangeOut",
+        "type": "object"
+      },
       "RateCardCancelIn": {
         "additionalProperties": false,
         "properties": {
@@ -34591,6 +35821,95 @@
           "clients_notified"
         ],
         "title": "RateCardWriteOut",
+        "type": "object"
+      },
+      "ReadinessComponentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "key": {
+            "enum": [
+              "tests",
+              "knowledge",
+              "notices",
+              "opening",
+              "live",
+              "missed"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "max_points": {
+            "title": "Max Points",
+            "type": "integer"
+          },
+          "points": {
+            "title": "Points",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "full",
+              "partial",
+              "none"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "points",
+          "max_points",
+          "state",
+          "detail"
+        ],
+        "title": "ReadinessComponentOut",
+        "type": "object"
+      },
+      "ReadinessFixOut": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "component": {
+            "enum": [
+              "tests",
+              "knowledge",
+              "notices",
+              "opening",
+              "live",
+              "missed"
+            ],
+            "title": "Component",
+            "type": "string"
+          },
+          "href": {
+            "title": "Href",
+            "type": "string"
+          },
+          "points": {
+            "title": "Points",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "component",
+          "action",
+          "href",
+          "points"
+        ],
+        "title": "ReadinessFixOut",
         "type": "object"
       },
       "ReadinessRowOut": {
@@ -37270,6 +38589,114 @@
         "title": "ScenarioClassCount",
         "type": "object"
       },
+      "ScheduleCallbackIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "at"
+        ],
+        "title": "ScheduleCallbackIn",
+        "type": "object"
+      },
+      "ScheduleCallbackOut": {
+        "additionalProperties": false,
+        "properties": {
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          },
+          "blocked_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Rule"
+          },
+          "callback_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callback Id"
+          },
+          "requested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested At"
+          },
+          "rescheduled": {
+            "default": false,
+            "title": "Rescheduled",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "scheduled",
+              "blocked"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ScheduleCallbackOut",
+        "type": "object"
+      },
       "ScheduleCancelledOut": {
         "additionalProperties": false,
         "description": "What was stopped, and what the campaign is NOW.\n\nTwo facts, and the caller can derive neither from the request it sent. `cancelled`\nbecause ONE button stops both kinds of promise: \"I stopped the weekly repeat\" and \"I\ncancelled Monday's start\" are different answers, and the screen that rendered the\nbutton is guessing which one it got. `status` because stopping a repeat on a RUNNING\ncampaign leaves it running \u2014 this route once answered the constant \"draft\" for every\ncancellation, which reported a state the campaign was not in.\n\n`status` stays `str`, matching `ProgressOut.status` and `CampaignSummaryOut.status`:\none spelling of campaign status across the API, and adding a member to\n`campaigns.models.CAMPAIGN_STATUSES` must not turn a cancel that already committed\ninto a 500 out of response validation (D-75's lesson, in the direction that costs\nleast). `cancelled` is a Literal because its two values are written by\n`campaigns/scheduling.py` and by nothing else.",
@@ -38083,6 +39510,47 @@
           "secrets"
         ],
         "title": "SecretsOut",
+        "type": "object"
+      },
+      "SeenIn": {
+        "additionalProperties": false,
+        "properties": {
+          "through": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Through"
+          }
+        },
+        "title": "SeenIn",
+        "type": "object"
+      },
+      "SeenOut": {
+        "additionalProperties": false,
+        "properties": {
+          "seen_through": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seen Through"
+          }
+        },
+        "required": [
+          "seen_through"
+        ],
+        "title": "SeenOut",
         "type": "object"
       },
       "ServiceItem": {
@@ -39643,6 +41111,98 @@
           "minutes_used"
         ],
         "title": "StatementSummaryOut",
+        "type": "object"
+      },
+      "StatsMetricOut": {
+        "additionalProperties": false,
+        "properties": {
+          "change_pct": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Pct"
+          },
+          "higher_is_better": {
+            "title": "Higher Is Better",
+            "type": "boolean"
+          },
+          "key": {
+            "enum": [
+              "calls",
+              "answered",
+              "answer_rate_pct",
+              "leads",
+              "hot_leads",
+              "avg_duration_s",
+              "talk_minutes"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "previous": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "value",
+          "previous",
+          "change_pct",
+          "higher_is_better"
+        ],
+        "title": "StatsMetricOut",
+        "type": "object"
+      },
+      "StatsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/StatsMetricOut"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "previous_window": {
+            "$ref": "#/components/schemas/RangeOut"
+          },
+          "window": {
+            "$ref": "#/components/schemas/RangeOut"
+          }
+        },
+        "required": [
+          "window",
+          "previous_window",
+          "metrics"
+        ],
+        "title": "StatsOut",
         "type": "object"
       },
       "StatusComponentOut": {
@@ -43906,6 +45466,73 @@
         "title": "TierSplitOut",
         "type": "object"
       },
+      "TimelineDayOut": {
+        "additionalProperties": false,
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "ist_date": {
+            "format": "date",
+            "title": "Ist Date",
+            "type": "string"
+          },
+          "leads": {
+            "title": "Leads",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ist_date",
+          "calls",
+          "answered",
+          "leads"
+        ],
+        "title": "TimelineDayOut",
+        "type": "object"
+      },
+      "TimelineOut": {
+        "additionalProperties": false,
+        "description": "One entry per IST day, oldest first, zero-filled \u2014 a brush chart's full extent.",
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineDayOut"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "leads": {
+            "title": "Leads",
+            "type": "integer"
+          },
+          "window": {
+            "$ref": "#/components/schemas/RangeOut"
+          }
+        },
+        "required": [
+          "window",
+          "days",
+          "calls",
+          "answered",
+          "leads"
+        ],
+        "title": "TimelineOut",
+        "type": "object"
+      },
       "TmRegistrationIn": {
         "additionalProperties": false,
         "properties": {
@@ -47186,6 +48813,139 @@
         "title": "VoiceStateOut",
         "type": "object"
       },
+      "VoiceTierCompareOut": {
+        "additionalProperties": false,
+        "properties": {
+          "best_for": {
+            "title": "Best For",
+            "type": "string"
+          },
+          "charged_this_month_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Charged This Month Inr",
+            "type": "string"
+          },
+          "from_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "From Inr Per Min",
+            "type": "string"
+          },
+          "includes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Includes",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "minutes_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minutes Left"
+          },
+          "minutes_this_month": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Minutes This Month",
+            "type": "string"
+          },
+          "offered": {
+            "title": "Offered",
+            "type": "boolean"
+          },
+          "tier": {
+            "enum": [
+              "clear",
+              "studio"
+            ],
+            "title": "Tier",
+            "type": "string"
+          },
+          "to_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "To Inr Per Min",
+            "type": "string"
+          },
+          "your_inr_per_min": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Your Inr Per Min"
+          }
+        },
+        "required": [
+          "tier",
+          "label",
+          "offered",
+          "from_inr_per_min",
+          "to_inr_per_min",
+          "your_inr_per_min",
+          "minutes_left",
+          "minutes_this_month",
+          "charged_this_month_inr",
+          "includes",
+          "best_for"
+        ],
+        "title": "VoiceTierCompareOut",
+        "type": "object"
+      },
+      "VoiceTierComparisonOut": {
+        "additionalProperties": false,
+        "properties": {
+          "not_offered_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Offered Notice"
+          },
+          "recommendation_reason": {
+            "title": "Recommendation Reason",
+            "type": "string"
+          },
+          "recommended": {
+            "enum": [
+              "clear",
+              "studio"
+            ],
+            "title": "Recommended",
+            "type": "string"
+          },
+          "tiers": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceTierCompareOut"
+            },
+            "title": "Tiers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tiers",
+          "not_offered_notice",
+          "recommended",
+          "recommendation_reason"
+        ],
+        "title": "VoiceTierComparisonOut",
+        "type": "object"
+      },
       "VoiceTierRateOut": {
         "additionalProperties": false,
         "description": "What ONE voice tier costs this client's NEXT minute, for the voice picker.\n\n**NOT THE CARD'S RATE.** A client who bought a \u20b915,000 pack holds minutes at the rates\nthat pack froze, and a picker quoting today's card would quote a price they do not pay\n(plan \u00a72.1: a lot knows what it was SOLD at). So this is the rate on the OLDEST OPEN\nLOT \u2014 the one the next call is actually drawn from \u2014 and `further_open_lots` says how\nmany purchases sit behind it at rates of their own, which is what stops a single\nfigure being read as the price of the whole wallet.\n\n`inr_per_min` is null when there is no open lot to answer from (an empty or overdrawn\nwallet). It is a real state, not a missing value, and the alternative \u2014 falling back to\nthe card \u2014 would quote a rate the client has not bought.\n\n`label` is the CLIENT-FACING name of the tier and `voice_tier` is the token. Both are\npublished because they answer different questions: no client-facing surface names a\ntier with anything but its product name (founder, 7 Sep 2026), while `voice_tier` is\nwhat a ledger row and a `meta.lots` split are reconciled on. The label comes from\n`billing/rates.voice_tier_label`, never a literal here and never a second copy in the\nbrowser \u2014 one definition, sent down, for the reason the money figures are.",
@@ -48360,6 +50120,52 @@
         "title": "WhatsAppHookAckOut",
         "type": "object"
       },
+      "WhatsAppOptionsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          },
+          "templates": {
+            "items": {
+              "$ref": "#/components/schemas/WhatsAppTemplateChoiceOut"
+            },
+            "title": "Templates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "available",
+          "reason",
+          "rule",
+          "templates"
+        ],
+        "title": "WhatsAppOptionsOut",
+        "type": "object"
+      },
       "WhatsAppOverviewOut": {
         "additionalProperties": false,
         "properties": {
@@ -48379,6 +50185,82 @@
           "accounts"
         ],
         "title": "WhatsAppOverviewOut",
+        "type": "object"
+      },
+      "WhatsAppSendIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "template_id": {
+            "format": "uuid",
+            "title": "Template Id",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "template_id"
+        ],
+        "title": "WhatsAppSendIn",
+        "type": "object"
+      },
+      "WhatsAppSendOut": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          },
+          "status": {
+            "enum": [
+              "sent",
+              "blocked",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "WhatsAppSendOut",
         "type": "object"
       },
       "WhatsAppSetupOut": {
@@ -48474,6 +50356,52 @@
           "extras"
         ],
         "title": "WhatsAppSignupOut",
+        "type": "object"
+      },
+      "WhatsAppTemplateChoiceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "variables": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "language",
+          "category",
+          "body",
+          "variables"
+        ],
+        "title": "WhatsAppTemplateChoiceOut",
         "type": "object"
       },
       "WhatsAppTemplateIn": {
@@ -49879,6 +51807,186 @@
           "actions"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/admin/announcements": {
+      "get": {
+        "operationId": "list_announcements_v1_admin_announcements_get",
+        "parameters": [
+          {
+            "description": "Include ended and finished ones.",
+            "in": "query",
+            "name": "past",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include ended and finished ones.",
+              "title": "Past",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementAdminListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Announcements, newest first (scheduled and showing; add past=true for history)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
+      "post": {
+        "operationId": "create_announcement_v1_admin_announcements_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnnouncementIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Write an announcement for all clients, trial clients, paid clients or one client",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/announcements/{announcement_id}": {
+      "patch": {
+        "operationId": "update_announcement_v1_admin_announcements__announcement_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "announcement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Announcement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnnouncementUpdateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Change an announcement that has not been ended",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/announcements/{announcement_id}/end": {
+      "post": {
+        "operationId": "end_announcement_v1_admin_announcements__announcement_id__end_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "announcement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Announcement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Stop showing an announcement now",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
       }
     },
     "/v1/admin/client-health": {
@@ -59919,6 +62027,46 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/agents/{agent_id}/readiness": {
+      "get": {
+        "operationId": "get_agent_readiness_v1_agents__agent_id__readiness_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentReadinessOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How ready this agent is for callers (0-100), and what to fix",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
     "/v1/agents/{agent_id}/restore": {
       "post": {
         "description": "It comes back INACTIVE, not active. Nothing can prove the voice platform still holds a retired agent's configuration, and the only thing that establishes it is a publish \u2014 so activate it afterwards, deliberately.",
@@ -61324,6 +63472,603 @@
           "agents"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/analytics/campaigns": {
+      "get": {
+        "operationId": "get_campaign_timelines_v1_analytics_campaigns_get",
+        "parameters": [
+          {
+            "description": "How many IST calendar days, 1-366, ending on `to`.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 90,
+              "description": "How many IST calendar days, 1-366, ending on `to`.",
+              "maximum": 366,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The last IST day of the range (YYYY-MM-DD). Today when left out.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The last IST day of the range (YYYY-MM-DD). Today when left out.",
+              "title": "To"
+            }
+          },
+          {
+            "description": "One campaign; otherwise the busiest in the range.",
+            "in": "query",
+            "name": "campaign_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "One campaign; otherwise the busiest in the range.",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "maximum": 10,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignTimelinesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Dials, connected calls and new leads per IST day for each campaign",
+        "tags": [
+          "analytics"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/analytics/durations": {
+      "get": {
+        "operationId": "get_durations_v1_analytics_durations_get",
+        "parameters": [
+          {
+            "description": "How many IST calendar days, 1-366, ending on `to`.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "How many IST calendar days, 1-366, ending on `to`.",
+              "maximum": 366,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The last IST day of the range (YYYY-MM-DD). Today when left out.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The last IST day of the range (YYYY-MM-DD). Today when left out.",
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "group_by",
+            "required": false,
+            "schema": {
+              "default": "agent",
+              "enum": [
+                "agent",
+                "outcome"
+              ],
+              "title": "Group By",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Bin width in seconds: 15, 30, 60 or 120.",
+            "in": "query",
+            "name": "bin_s",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "Bin width in seconds: 15, 30, 60 or 120.",
+              "title": "Bin S",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 8,
+              "maximum": 12,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only this agent's calls and leads.",
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this agent's calls and leads.",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "description": "False leaves out the owner's own test calls (D-697, D-859).",
+            "in": "query",
+            "name": "test_calls",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "False leaves out the owner's own test calls (D-697, D-859).",
+              "title": "Test Calls",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DurationsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How long completed calls lasted, binned per agent or per outcome",
+        "tags": [
+          "analytics"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/analytics/heatmap": {
+      "get": {
+        "operationId": "get_heatmap_v1_analytics_heatmap_get",
+        "parameters": [
+          {
+            "description": "How many IST calendar days, 1-366, ending on `to`.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "How many IST calendar days, 1-366, ending on `to`.",
+              "maximum": 366,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The last IST day of the range (YYYY-MM-DD). Today when left out.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The last IST day of the range (YYYY-MM-DD). Today when left out.",
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "metric",
+            "required": false,
+            "schema": {
+              "default": "calls",
+              "enum": [
+                "calls",
+                "leads"
+              ],
+              "title": "Metric",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this agent's calls and leads.",
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this agent's calls and leads.",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "description": "False leaves out the owner's own test calls (D-697, D-859).",
+            "in": "query",
+            "name": "test_calls",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "False leaves out the owner's own test calls (D-697, D-859).",
+              "title": "Test Calls",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeatmapOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Calls or new leads per IST weekday and hour \u2014 always 168 cells",
+        "tags": [
+          "analytics"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/analytics/stats": {
+      "get": {
+        "operationId": "get_stats_v1_analytics_stats_get",
+        "parameters": [
+          {
+            "description": "How many IST calendar days, 1-366, ending on `to`.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 7,
+              "description": "How many IST calendar days, 1-366, ending on `to`.",
+              "maximum": 366,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The last IST day of the range (YYYY-MM-DD). Today when left out.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The last IST day of the range (YYYY-MM-DD). Today when left out.",
+              "title": "To"
+            }
+          },
+          {
+            "description": "Only this agent's calls and leads.",
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this agent's calls and leads.",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "description": "False leaves out the owner's own test calls (D-697, D-859).",
+            "in": "query",
+            "name": "test_calls",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "False leaves out the owner's own test calls (D-697, D-859).",
+              "title": "Test Calls",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The stats band for a range, each figure beside the same length of time before",
+        "tags": [
+          "analytics"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/analytics/timeline": {
+      "get": {
+        "operationId": "get_timeline_v1_analytics_timeline_get",
+        "parameters": [
+          {
+            "description": "How many IST calendar days, 1-366, ending on `to`.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 90,
+              "description": "How many IST calendar days, 1-366, ending on `to`.",
+              "maximum": 366,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The last IST day of the range (YYYY-MM-DD). Today when left out.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The last IST day of the range (YYYY-MM-DD). Today when left out.",
+              "title": "To"
+            }
+          },
+          {
+            "description": "Only this agent's calls and leads.",
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this agent's calls and leads.",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "description": "False leaves out the owner's own test calls (D-697, D-859).",
+            "in": "query",
+            "name": "test_calls",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "False leaves out the owner's own test calls (D-697, D-859).",
+              "title": "Test Calls",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimelineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Calls, answered calls and new leads per IST day, zero-filled",
+        "tags": [
+          "analytics"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/announcements": {
+      "get": {
+        "operationId": "my_announcements_v1_announcements_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "maximum": 5,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What Calevate is telling this account now, most urgent first, minus dismissed",
+        "tags": [
+          "announcements"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/announcements/{announcement_id}/dismiss": {
+      "post": {
+        "operationId": "dismiss_announcement_v1_announcements__announcement_id__dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "announcement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Announcement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put an announcement away for this account",
+        "tags": [
+          "announcements"
+        ],
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/attention": {
@@ -62899,6 +65644,34 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/billing/credit-usage": {
+      "get": {
+        "operationId": "credit_usage_v1_billing_credit_usage_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreditUsageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Credit added and used: this IST month and all time",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "billing:read"
+      }
+    },
     "/v1/billing/invoice": {
       "get": {
         "description": "The same statement the Calevate team sees for this account, recomputed from the usage ledger on every request \u2014 there is no stored invoice row to go stale. Requires `billing:read`, which account owners hold and staff do not. `document_type` is `bill_of_supply` (CGST Rules r.49): Calevate is a sole proprietorship below the GST registration threshold, so it is not registered for GST, charges no GST and does not issue tax invoices.",
@@ -63349,6 +66122,34 @@
           }
         },
         "summary": "The prepaid credit-pack rate card: two per-minute rates on every pack",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "billing:read"
+      }
+    },
+    "/v1/billing/voice-tiers": {
+      "get": {
+        "operationId": "voice_tiers_v1_billing_voice_tiers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceTierComparisonOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Clear against Studio: \u20b9 per minute, your rate, your use, what each includes",
         "tags": [
           "billing"
         ],
@@ -64335,6 +67136,56 @@
           "crm"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/calls/{call_id}/follow-up": {
+      "put": {
+        "operationId": "put_call_follow_up_v1_calls__call_id__follow_up_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallFollowUpIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallFollowUpOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Mark a call resolved or needs-you, or clear the mark (undo with expected_state)",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:write"
       }
     },
     "/v1/calls/{call_id}/recording": {
@@ -72866,6 +75717,56 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/leads/{lead_id}/callbacks": {
+      "post": {
+        "operationId": "schedule_callback_v1_leads__lead_id__callbacks_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lead_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lead Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleCallbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleCallbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Call this lead back at a chosen time, 09:00-21:00 IST \u2014 gated, idempotent",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/leads/{lead_id}/captured": {
       "get": {
         "description": "The core every lead carries first (`calevate_shared.lead_fields`), then the\nbusiness fields of the version the lead was captured under, then any value from an\nearlier version \u2014 so a business moved to new fields still reads its old answers.",
@@ -72969,6 +75870,113 @@
           "crm"
         ],
         "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/leads/{lead_id}/whatsapp": {
+      "get": {
+        "operationId": "whatsapp_options_v1_leads__lead_id__whatsapp_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lead_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lead Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The agent the gate asks as; see `contact_agent`.",
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The agent the gate asks as; see `contact_agent`.",
+              "title": "Agent Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppOptionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Can this lead be sent a WhatsApp follow-up now, and with which approved messages",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:read"
+      },
+      "post": {
+        "operationId": "send_whatsapp_v1_leads__lead_id__whatsapp_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lead_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lead Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WhatsAppSendIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppSendOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Send an approved WhatsApp message to this lead \u2014 consent-gated, idempotent",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:dispatch"
       }
     },
     "/v1/legal/acceptances": {
@@ -73274,6 +76282,86 @@
           "tenancy"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/notifications": {
+      "get": {
+        "operationId": "get_feed_v1_notifications_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationFeedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The bell: needs-attention items and announcements, newest first, with unread",
+        "tags": [
+          "notifications"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/notifications/seen": {
+      "post": {
+        "operationId": "mark_seen_v1_notifications_seen_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeenIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeenOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Mark the bell read up to an instant (now by default)",
+        "tags": [
+          "notifications"
+        ],
+        "x-calevate-permission": "leads:read"
       }
     },
     "/v1/numbers/available": {
@@ -78155,6 +81243,48 @@
         "summary": "Monthly QA reports, newest month first (D-15)",
         "tags": [
           "quality"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/readiness": {
+      "get": {
+        "operationId": "get_account_readiness_v1_readiness_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountReadinessOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every working agent's readiness, the account's average and the biggest fixes",
+        "tags": [
+          "agents"
         ],
         "x-calevate-permission": "agents:read"
       }
