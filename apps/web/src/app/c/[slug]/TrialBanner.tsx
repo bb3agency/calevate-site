@@ -254,7 +254,6 @@ export function TrialChipView({
   const long = ["Trial", labels.long, minutes === null || minutes === undefined ? null : `${minutes} min`]
     .filter(Boolean)
     .join(" · ");
-  const short = `Trial · ${labels.short}`;
   const asksForCredit = running.testCallsOnly || running.prepaid;
 
   return (
@@ -269,10 +268,13 @@ export function TrialChipView({
           type="button"
           {...props}
           aria-label={`Free trial: ${long}. Show details`}
-          className={`${BAR_STATUS} text-ink-muted hover:text-ink`}
+          className={`${BAR_STATUS} text-ink-muted hover:text-ink max-sm:px-1.5`}
         >
           <TrialMeter left={trialShareLeft(running.trial)} className="h-4 w-4" />
-          <span className="sm:hidden">{short}</span>
+          <span className="sm:hidden">
+            <span className="sr-only">Trial · </span>
+            {labels.short}
+          </span>
           <span className="hidden sm:inline">{long}</span>
         </button>
       )}
