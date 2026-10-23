@@ -1,4 +1,5 @@
-"""D-507 — the third sentence: an agent that remembers callers says so, out loud.
+"""D-507 — the third sentence: an agent that remembers callers says so, out loud (with its
+goodbye since D-865).
 
 WHAT THIS FILE HAS TO PROVE, in falling order of what it costs to get wrong:
 
@@ -45,7 +46,13 @@ from apps.api.compliance.disclosure import (
     caller_memory_notice_for,
 )
 from apps.api.db.session import tenant_session
-from calevate_shared.engine import DisclosurePosture, compose_opening_line
+from calevate_shared.engine import (
+    AgentConfig,
+    DisclosurePosture,
+    compose_opening_line,
+    memory_goodbye_rule,
+    notice_fields,
+)
 from calevate_shared.languages import staged_language_tags
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -105,38 +112,52 @@ async def _remember(tenant_id: uuid.UUID, agent_id: uuid.UUID, *, on: bool = Tru
 # --- 1. the composer -----------------------------------------------------------------
 
 
+def _goodbye(posture: DisclosurePosture) -> str:
+    """The goodbye rule a config built from `posture` carries (D-865)."""
+    return memory_goodbye_rule(
+        AgentConfig(
+            tenant_id="t",
+            agent_id="a",
+            name="A",
+            direction="inbound",
+            system_prompt="S",
+            caller_memory_enabled=posture.caller_memory_enabled,
+            **notice_fields(posture, call_is_recorded=True),
+        )
+    )
+
+
 def test_the_sentence_is_spoken_exactly_when_memory_is_on() -> None:
-    """The decision, asked directly: the flag is the switch, and there is no other."""
-    assert compose_opening_line(_posture(memory=True), call_is_recorded=True).endswith(MEM)
-    assert MEM not in compose_opening_line(_posture(memory=False), call_is_recorded=True)
+    """The decision, asked directly: the flag is the switch, and there is no other. Since
+    D-865 it is said with the goodbye, so it is the prompt's goodbye rule that carries it."""
+    assert f'"{MEM}"' in _goodbye(_posture(memory=True))
+    assert _goodbye(_posture(memory=False)) == ""
 
 
-def test_the_sentence_comes_third() -> None:
-    """After what the agent IS and after the recording — the order those facts become
-    relevant to a caller. Pinned as the whole string, not as a substring test, because
-    "appears somewhere" is true of every ordering."""
+def test_the_sentence_is_never_in_the_opening() -> None:
+    """D-865 (founder, 23 Oct 2026): the opening says what the agent is and that the call is
+    recorded; what it keeps is said with the goodbye."""
     opening = compose_opening_line(_posture(memory=True), call_is_recorded=True)
-    assert opening == f"{AI} {REC} {MEM}"
+    assert opening == f"{AI} {REC}"
 
 
 @pytest.mark.parametrize(
     ("ai", "rec", "expected"),
     [
-        (True, True, f"{AI} {REC} {MEM}"),
-        (True, False, f"{AI} {MEM}"),
-        (False, True, f"{REC} {MEM}"),
+        (True, True, f"{AI} {REC}"),
+        (True, False, AI),
+        (False, True, REC),
         # THE CASE THAT MATTERS MOST. D-163's empty opening is a legitimate posture; an
-        # agent that remembers callers still has to say so, so this one is NOT empty.
-        (False, False, MEM),
+        # agent that remembers callers still has to say so, with its goodbye.
+        (False, False, ""),
     ],
 )
 def test_it_survives_both_other_toggles_in_every_combination(
     ai: bool, rec: bool, expected: str
 ) -> None:
-    assert (
-        compose_opening_line(_posture(ai=ai, rec=rec, memory=True), call_is_recorded=True)
-        == expected
-    )
+    posture = _posture(ai=ai, rec=rec, memory=True)
+    assert compose_opening_line(posture, call_is_recorded=True) == expected
+    assert f'"{MEM}"' in _goodbye(posture)
 
 
 @pytest.mark.parametrize(
@@ -162,10 +183,7 @@ def test_memory_off_leaves_d163s_four_postures_exactly_as_they_were(ai: bool, re
 def test_a_blank_sentence_cannot_be_padded_into_the_opening() -> None:
     """Whitespace is not a sentence. The column's CHECK is the real guard; this is the
     composer refusing to emit a trailing space if one ever gets past it."""
-    assert (
-        compose_opening_line(_posture(memory=True, memory_line="   "), call_is_recorded=True)
-        == f"{AI} {REC}"
-    )
+    assert _goodbye(_posture(memory=True, memory_line="   ")) == ""
 
 
 # --- 2. every constructor of the posture ---------------------------------------------
@@ -231,13 +249,16 @@ def test_the_roster_indices_agree_with_the_roster_query() -> None:
     assert parsed[11] == "a.recording_notice_line"
 
 
-async def test_the_roster_speaks_the_sentence_for_an_agent_that_remembers() -> None:
+async def test_the_roster_shows_the_sentence_for_an_agent_that_remembers() -> None:
+    """With the goodbye, not in what callers hear first (D-865)."""
     tenant_id, agent_id = await _tenant()
     await _remember(tenant_id, agent_id)
     async with tenant_session(tenant_id) as session:
         listed = await roster.list_agents(session)
     row = next(a for a in listed if a.id == agent_id)
-    assert row.opening_line.endswith(CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"])
+    assert row.caller_memory_enabled
+    assert row.caller_memory_notice_line == CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]
+    assert CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"] not in row.first_words
 
 
 async def test_the_roster_says_nothing_about_memory_when_it_is_off() -> None:
@@ -258,9 +279,7 @@ async def test_the_engine_config_path_speaks_the_sentence() -> None:
     posture = posture_of(agent)
     assert posture.caller_memory_enabled is True
     assert posture.caller_memory_notice_line == CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]
-    assert compose_opening_line(posture, call_is_recorded=True).endswith(
-        CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]
-    )
+    assert f'"{CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]}"' in _goodbye(posture)
 
 
 async def test_the_script_preview_speaks_the_sentence() -> None:
@@ -272,9 +291,7 @@ async def test_the_script_preview_speaks_the_sentence() -> None:
     async with tenant_session(tenant_id) as session:
         row = await script_builder._agent_or_404(session, agent_id)
     posture = script_builder._posture(row)
-    assert compose_opening_line(posture, call_is_recorded=True).endswith(
-        CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]
-    )
+    assert f'"{CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]}"' in _goodbye(posture)
 
 
 async def test_flipping_a_d163_toggle_does_not_drop_the_memory_sentence() -> None:
@@ -293,10 +310,10 @@ async def test_flipping_a_d163_toggle_does_not_drop_the_memory_sentence() -> Non
         recording_notice_enabled=None,
     )
     assert result.changed == ("ai_disclosure_enabled",)
-    assert result.opening_line.endswith(CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"])
-    assert not result.opening_line.startswith(CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]), (
-        "the AI notice is now on, so the memory sentence cannot be first"
-    )
+    assert CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"] not in result.opening_line
+    async with tenant_session(tenant_id) as session:
+        agent = await _load_agent(session, tenant_id, agent_id)
+    assert f'"{CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]}"' in _goodbye(posture_of(agent))
 
 
 # --- 3. the migration's copy of the sentences ----------------------------------------

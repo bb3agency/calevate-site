@@ -241,6 +241,11 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
         "the generated union — exhaustive by the type checker, so the keys are the built "
         "set and cannot silently grow; plus the staged set its static picker leaves out"
     ),
+    "apps/web/src/lib/firstAgent.ts": (
+        "the first run's language MARKS, a syllable in each language's own script (D-863), "
+        "`Record<AgentLanguage, string>` over the generated union like the names above: "
+        "content per language, which cannot be derived, and exhaustive by the type checker"
+    ),
 }
 
 #: Directories whose files are not product surfaces and are deliberately not scanned.

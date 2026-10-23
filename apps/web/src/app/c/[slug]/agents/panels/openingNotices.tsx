@@ -133,7 +133,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
       <div className="mt-4 divide-y divide-line border-y border-line">
         <NoticeToggle
           label="Say it is an AI assistant"
-          hint="Said at the start of the call, right after the opening line."
+          hint="Said at the start of the call. In Telugu and Hindi it is how the agent introduces itself, before its opening line."
           quote={agent.ai_disclosure_line}
           checked={agent.ai_disclosure_enabled}
           pending={locked}
@@ -165,7 +165,8 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
           <div className="py-4 pl-12">
             <p className="text-sm font-medium text-ink">Say that it remembers callers</p>
             <p className="mt-0.5 text-xs text-ink-muted">
-              Said at the start of the call, after the opening line and the notices above.
+              Said once as it says goodbye at the end of a call, not when the caller asked
+              to stop or hung up.
             </p>
             <blockquote className="mt-3 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
               “{agent.caller_memory_notice_line}”

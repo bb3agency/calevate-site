@@ -22,7 +22,14 @@ from alembic.operations import Operations
 from apps.api.agents import lifecycle
 from apps.api.agents.engine_limits import OPENING_TOO_LONG, refuse_over_engine_limits
 from apps.api.agents.starters import starter_opening
-from apps.api.agents.turn_checks import opened_again
+from apps.api.agents.test_conversations import Turn
+from apps.api.agents.turn_checks import (
+    JOB_KINDS,
+    SOUND_KINDS,
+    conversation_problems,
+    opened_again,
+)
+from apps.api.agents.verification import judge
 from apps.api.compliance.disclosure import (
     ai_disclosure_for,
     caller_memory_notice_for,
@@ -38,10 +45,12 @@ from apps.workers.script_assist import INTRODUCED_OPENING_NOTE, ScriptBrief, lan
 from calevate_shared.call_script import CallScript, compile_call_script
 from calevate_shared.engine import (
     AgentConfig,
+    AgentSnapshot,
     DisclosurePosture,
     compose_engine_prompt,
     compose_first_utterance,
     join_first_words,
+    memory_goodbye_rule,
     notice_fields,
 )
 from calevate_shared.spoken_style import trial_call_opening
@@ -88,6 +97,7 @@ def _cfg(
         direction=direction,  # type: ignore[arg-type]
         language_primary=language,
         system_prompt=compile_call_script(CallScript(opening_line=opening), collect=[]),
+        caller_memory_enabled=posture.caller_memory_enabled,
         **notice_fields(posture, call_is_recorded=True),
     )
 
@@ -215,21 +225,26 @@ def test_the_founders_agents_open_as_decided_and_fit_the_greeting() -> None:
         refuse_over_engine_limits(engine, cfg)
 
 
-def test_the_memory_sentence_too_overflows_a_telugu_introduction_and_is_refused_by_name() -> None:
-    """With the memory sentence as well, a Telugu introducing agent is past 200 characters
-    even on the starters' shortest lines; the refusal says so, nothing is cut. Hindi fits."""
+def test_the_memory_sentence_is_said_with_the_goodbye_never_in_the_opening() -> None:
+    """Founder, 23 Oct 2026 (D-865): the opening no longer carries the memory sentence, so a
+    Telugu agent with every notice on fits; the prompt tells it to say the sentence, word for
+    word, with its goodbye."""
     engine = FakeEngine(name="thinnest", capabilities=DICTATED_SPEECH_CAPABILITIES)
-    for case in ("a_te_calling", "b_te_answering"):
-        cfg = _first_words(case, ai=True, memory=True)
-        assert len(compose_first_utterance(cfg)) > GREETING_LIMIT
-        with pytest.raises(ProblemError) as refused:
-            refuse_over_engine_limits(engine, cfg)
-        assert refused.value.code == OPENING_TOO_LONG
-        assert "its own name" in str(refused.value.detail)
-        assert "shorter name" in str(refused.value.remediation)
-    hindi = _first_words("c_hi_calling_male", ai=True, memory=True)
-    assert len(compose_first_utterance(hindi)) <= GREETING_LIMIT
-    refuse_over_engine_limits(engine, hindi)
+    for case, _language, *_rest in CASES:
+        with_memory = _first_words(case, ai=True, memory=True)
+        without = _first_words(case, ai=True)
+        first = compose_first_utterance(with_memory)
+        assert first == compose_first_utterance(without)
+        assert len(first) <= GREETING_LIMIT
+        refuse_over_engine_limits(engine, with_memory)
+        sentence = with_memory.caller_memory_notice
+        assert sentence and sentence not in first
+        rule = memory_goodbye_rule(with_memory)
+        assert f'"{sentence}"' in rule
+        prompt = compose_engine_prompt(with_memory)
+        assert rule in prompt
+        assert memory_goodbye_rule(without) == ""
+        assert "Before you end a call with a goodbye" not in compose_engine_prompt(without)
 
 
 def test_a_long_business_name_is_refused_naming_it() -> None:
@@ -479,3 +494,42 @@ async def test_previous_defaults_take_the_agents_name_edits_are_kept_and_it_reve
                 transaction.rollback()
     finally:
         sync.dispose()
+
+
+# --- the memory sentence with the goodbye: read back and practice check (D-865) ----------
+
+
+def test_the_read_back_refuses_a_prompt_without_the_goodbye_rule() -> None:
+    engine = FakeEngine(name="thinnest", capabilities=DICTATED_SPEECH_CAPABILITIES)
+    cfg = _first_words("a_te_calling", ai=True, memory=True)
+    held = AgentSnapshot(
+        engine_agent_ref="ag_1",
+        system_prompt=compose_engine_prompt(cfg),
+        system_prompt_readable=True,
+        greeting=compose_first_utterance(cfg),
+        greeting_readable=True,
+    )
+    assert judge(engine, cfg, held).state != "not_applied"
+    dropped = held.model_copy(
+        update={"system_prompt": compose_engine_prompt(cfg).replace(memory_goodbye_rule(cfg), "")}
+    )
+    verdict = judge(engine, cfg, dropped)
+    assert verdict.state == "not_applied"
+    assert "memory notice" in verdict.detail
+
+
+MEMORY = caller_memory_notice_for(language="te-IN")
+
+
+def test_a_goodbye_without_the_memory_sentence_is_noted_not_failed() -> None:
+    closing = [Turn(said="సరే, థాంక్స్ అండి.", reply="సరే అండి, బై!")]
+    problems = conversation_problems(closing, memory_notice=MEMORY)
+    assert [p.kind for p in problems] == ["memory_not_said"]
+    assert "memory_not_said" in SOUND_KINDS and "memory_not_said" not in JOB_KINDS
+    said = [Turn(said="సరే, థాంక్స్ అండి.", reply=f"సరే అండి, {MEMORY} బై!")]
+    assert conversation_problems(said, memory_notice=MEMORY) == []
+    # No memory on, or the caller is still asking: nothing to note.
+    assert conversation_problems(closing) == []
+    asking = [Turn(said="ధర ఎంత?", reply="వన్ ట్వంటీ రూపీస్, బై!")]
+    kinds = [p.kind for p in conversation_problems(asking, memory_notice=MEMORY)]
+    assert "memory_not_said" not in kinds

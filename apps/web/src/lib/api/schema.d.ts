@@ -3536,7 +3536,7 @@ export interface paths {
          * Let an agent remember returning callers, and book call-backs
          * @description Two abilities, always on or off together. Your agents remember the people they have spoken to and can greet a returning caller with what they asked about last time; and when someone asks to be called back at a particular time, that follow-up is booked for exactly then and dials with everything already learned.
          *
-         *     Off unless you switch it on. Switched on, the agent says at the start of every call that a short note is kept — that sentence cannot be switched off separately.
+         *     Off unless you switch it on. Switched on, the agent says as it says goodbye that a short note is kept — that sentence cannot be switched off separately.
          *
          *     What is kept is a short note of what the caller wanted, what happened, and any preference they stated, such as the language they like or when they prefer to be called. It is used only for that person's own future calls with you, is never shared, and is deleted after 180 days or sooner if they ask.
          *
@@ -27870,7 +27870,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "brackets" | "symbols" | "time" | "money_digits" | "formal_words" | "spoken_number" | "repeated_question" | "several_questions" | "unmarked_question" | "too_long" | "wrong_language" | "third_person" | "foreign_script" | "repeated_turn" | "opened_again";
+            kind: "brackets" | "symbols" | "time" | "money_digits" | "formal_words" | "spoken_number" | "repeated_question" | "several_questions" | "unmarked_question" | "too_long" | "wrong_language" | "third_person" | "foreign_script" | "repeated_turn" | "opened_again" | "memory_not_said";
             /** Tests */
             tests: number;
         };
@@ -27883,7 +27883,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "brackets" | "symbols" | "time" | "money_digits" | "formal_words" | "spoken_number" | "repeated_question" | "several_questions" | "unmarked_question" | "too_long" | "wrong_language" | "third_person" | "foreign_script" | "repeated_turn" | "opened_again";
+            kind: "brackets" | "symbols" | "time" | "money_digits" | "formal_words" | "spoken_number" | "repeated_question" | "several_questions" | "unmarked_question" | "too_long" | "wrong_language" | "third_person" | "foreign_script" | "repeated_turn" | "opened_again" | "memory_not_said";
             /** Reason */
             reason: string;
             /** Tries */

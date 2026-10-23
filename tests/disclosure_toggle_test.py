@@ -1125,15 +1125,16 @@ def _everything_on() -> DisclosurePosture:
 
 
 def test_an_engine_that_records_nothing_never_announces_a_recording() -> None:
-    """The recording switch is ON and the sentence is still dropped; the AI sentence and
-    the memory sentence are untouched, because neither depends on audio being kept."""
+    """The recording switch is ON and the sentence is still dropped; the AI sentence is
+    untouched, because it does not depend on audio being kept. The memory sentence is said
+    with the goodbye, never in the opening (D-865)."""
     opening = compose_opening_line(_everything_on(), call_is_recorded=False)
     assert _REC not in opening
-    assert opening == f"{_AI} {_MEM}"
+    assert opening == _AI
 
 
 def test_an_engine_that_records_keeps_the_opening_exactly_as_configured() -> None:
-    assert compose_opening_line(_everything_on(), call_is_recorded=True) == f"{_AI} {_REC} {_MEM}"
+    assert compose_opening_line(_everything_on(), call_is_recorded=True) == f"{_AI} {_REC}"
 
 
 @pytest.mark.parametrize(("ai", "rec"), [(True, True), (True, False), (False, True)])

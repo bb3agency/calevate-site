@@ -440,6 +440,7 @@ SoundKind = Literal[
     "foreign_script",
     "repeated_turn",
     "opened_again",
+    "memory_not_said",
 ]
 
 

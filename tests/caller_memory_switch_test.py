@@ -31,6 +31,7 @@ from datetime import UTC, datetime
 import pytest
 from apps.api.agents import lifecycle as agent_lifecycle
 from apps.api.agents.publishing import CALLER_MEMORY_ATTESTATION, set_caller_memory
+from apps.api.agents.service import _load_agent, posture_of
 from apps.api.compliance import caller_memory
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
@@ -43,6 +44,8 @@ from calevate_shared.engine import (
     ModelConfig,
     compose_engine_prompt,
     compose_opening_line,
+    memory_goodbye_rule,
+    notice_fields,
     render_caller_memory,
 )
 from sqlalchemy import text
@@ -166,9 +169,28 @@ async def test_switching_it_off_needs_no_attestation_and_is_idempotent() -> None
 
 
 async def test_the_spoken_sentence_arrives_and_leaves_with_the_switch() -> None:
-    """THE COMPLIANCE GUARANTEE, asserted on the composed opening rather than on a column:
+    """THE COMPLIANCE GUARANTEE, asserted on what the agent is given rather than on a column:
     "remembers a caller without saying so" must not be a constructible state, and the
-    opposite — announcing a memory the agent does not keep — must not be either."""
+    opposite — announcing a memory the agent does not keep — must not be either. Since D-865
+    the sentence is said with the goodbye, so it is the prompt's goodbye rule, never the
+    opening, that carries it."""
+
+    async def goodbye() -> str:
+        async with tenant_session(tenant_id) as session:
+            agent = await _load_agent(session, tenant_id, agent_id)
+        posture = posture_of(agent)
+        return memory_goodbye_rule(
+            AgentConfig(
+                tenant_id=str(tenant_id),
+                agent_id=str(agent_id),
+                name="A",
+                direction="inbound",
+                system_prompt="S",
+                caller_memory_enabled=posture.caller_memory_enabled,
+                **notice_fields(posture, call_is_recorded=True),
+            )
+        )
+
     tenant_id, agent_id, owner = await _tenant()
     async with tenant_session(tenant_id) as session:
         sentence = str(
@@ -184,21 +206,24 @@ async def test_the_spoken_sentence_arrives_and_leaves_with_the_switch() -> None:
         tenant_id=tenant_id, agent_id=agent_id, enabled=False, attested_by=None
     )
     assert sentence not in off.opening_line
+    assert await goodbye() == ""
 
     on = await set_caller_memory(
         tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner
     )
-    assert sentence in on.opening_line
+    assert sentence not in on.opening_line
+    assert f'"{sentence}"' in await goodbye()
 
     back_off = await set_caller_memory(
         tenant_id=tenant_id, agent_id=agent_id, enabled=False, attested_by=None
     )
     assert sentence not in back_off.opening_line
+    assert await goodbye() == ""
 
 
-def test_the_opening_line_gains_the_memory_sentence_only_from_the_memory_flag() -> None:
-    """The unit form of the above, at the composer: no switch of its own, third in order,
-    gated on nothing but `caller_memory_enabled`."""
+def test_the_memory_sentence_never_enters_the_opening_line() -> None:
+    """The unit form of the above, at the composer: whatever `caller_memory_enabled` says,
+    the opening is the AI and recording notices only (D-865)."""
     posture = DisclosurePosture(
         ai_disclosure_line="This is an AI assistant.",
         ai_disclosure_enabled=True,
@@ -209,8 +234,8 @@ def test_the_opening_line_gains_the_memory_sentence_only_from_the_memory_flag() 
     )
     assert "short note" not in compose_opening_line(posture, call_is_recorded=True)
     remembering = posture.model_copy(update={"caller_memory_enabled": True})
-    assert compose_opening_line(remembering, call_is_recorded=True).endswith(
-        "We keep a short note of what you ask about."
+    assert compose_opening_line(remembering, call_is_recorded=True) == (
+        "This is an AI assistant. This call is recorded."
     )
 
 

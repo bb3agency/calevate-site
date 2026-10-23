@@ -170,6 +170,7 @@ export const SOUND: Record<SoundKind, string> = {
   foreign_script: "wrote letters the voice cannot say",
   repeated_turn: "repeated itself word for word",
   opened_again: "greeted again or asked again if now suits, after its opening",
+  memory_not_said: "said goodbye without saying it keeps a short note of the call",
 };
 
 /** Who fixes a result stored before D-823, which carries only the kind of fix. */

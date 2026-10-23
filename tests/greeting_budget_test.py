@@ -93,13 +93,13 @@ def test_each_switch_room_is_what_the_publish_would_let_through_with_it_on() -> 
     for switch, room in (
         ("ai", budget.opening_room_with_ai_disclosure),
         ("recording", budget.opening_room_with_recording_notice),
-        ("memory", budget.opening_room_with_caller_memory),
     ):
         on = _posture(**{switch: True})
         refuse_over_engine_limits(engine, _cfg(on, "a" * room))
         with pytest.raises(ProblemError):
             refuse_over_engine_limits(engine, _cfg(on, "a" * (room + 1)))
-    assert budget.opening_room_with_caller_memory == 200 - len(MEMORY) - 1
+    # The memory sentence is said with the goodbye (D-865): it takes no room here.
+    assert budget.opening_room_with_caller_memory == 200
 
 
 def test_an_engine_with_no_ceiling_has_no_budget() -> None:
@@ -184,25 +184,20 @@ async def test_the_agent_read_carries_the_budget_for_its_stored_lines() -> None:
     assert budget.limit == 200
     assert budget.opening_chars == len("Namaskaram, cheppandi.")
     assert budget.opening_room == 200
-    memory = agent.caller_memory_notice_line
-    assert budget.opening_room_with_caller_memory == 200 - len(memory) - 1
+    assert budget.opening_room_with_caller_memory == 200
 
 
 @pytest.mark.anyio
-async def test_remembering_callers_without_room_is_refused_before_anything_is_saved() -> None:
+async def test_remembering_callers_needs_no_room_in_the_opening() -> None:
+    """The memory sentence is said with the goodbye (D-865), so a full opening line does
+    not stop the switch."""
     with _on_thinnest():
         tenant_id, agent_id, owner = await _agent("a" * 180)
-        with pytest.raises(ProblemError) as refused:
-            await set_caller_memory(
-                tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner
-            )
-    problem = refused.value
-    assert problem.code == NOTICE_NEEDS_ROOM
-    assert problem.detail.startswith("Remembering callers adds a sentence")
-    assert problem.remediation is not None and "at least" in problem.remediation
-    row = await _row(tenant_id, agent_id)
-    # Neither the switch nor the attestation that would have come with it.
-    assert row[0] is False and row[2] is None
+        on = await set_caller_memory(
+            tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner
+        )
+    assert on.enabled is True
+    assert (await _row(tenant_id, agent_id))[0] is True
 
 
 @pytest.mark.anyio

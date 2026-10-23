@@ -680,7 +680,10 @@ async def test_the_spoken_account_includes_the_memory_sentence_and_no_third_togg
     markdown = draft.markdown  # type: ignore[attr-defined]
     spoken = markdown.split("## What we collect")[0]
 
-    assert "keep notes about you between calls also say so at the start of the call" in spoken
+    assert (
+        "keep notes about you between calls also say so when they say goodbye at the end of "
+        "the call" in spoken
+    )
     assert draft.caller_memory_on[0] in spoken  # type: ignore[attr-defined]
     assert "there is no separate setting for it" in spoken
     # The floor is untouched by the new sentence and still stated unconditionally.
