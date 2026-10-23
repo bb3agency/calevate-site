@@ -257,9 +257,8 @@ def assert_staged_languages_may_switch_on(raw: str) -> None:
                 for tag in unready
             ),
             remediation=(
-                "Record the review, the test call and ThinnestAI's confirmation in "
-                "apps/api/agents/languages.STAGED_LANGUAGE_READINESS (OPERATIONS §2 L-series), "
-                "deploy, then switch it on."
+                "Finish its native-speaker review, its test call and the voice platform's "
+                "confirmation, then switch it on."
             ),
         )
 

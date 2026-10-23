@@ -331,7 +331,10 @@ async def test_the_gate_refuses_a_test_call_with_the_rule(monkeypatch: pytest.Mo
     monkeypatch.setattr(compliance, "truthful_answer_drift_blocker", _no_refusal)
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text("UPDATE agents SET status = 'live', direction = 'both' WHERE id = :aid"),
+            text(
+                "UPDATE agents SET status = 'live', direction = 'both', "
+                "engine_agent_ref = 'agt_call_lines' WHERE id = :aid"
+            ),
             {"aid": agent_id},
         )
     await _call(tenant_id, agent_id, "in_progress")

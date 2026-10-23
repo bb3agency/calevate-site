@@ -98,6 +98,7 @@ TRANSIENT_REFUSALS: dict[str, str] = {
     PLATFORM_FEE_RULE: "the client pays the platform fee, an operator waives it or turns it off",
     "agent_missing": "the agent is restored; `archive_agent` refuses to create this state",
     "agent_not_live": "the agent is published; the same two doors apply",
+    "agent_not_ready": "the owner gets the draft ready (`prepare_agent`) for a trial test call",
     "agent_inbound_only": "the agent is given an outbound direction",
     "disclosure_missing": "the client fills the disclosure sentence in",
     "account_missing": "the organization row becomes visible again",
