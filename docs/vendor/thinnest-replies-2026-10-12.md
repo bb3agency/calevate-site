@@ -1541,3 +1541,89 @@ own-key forward on a brought number (§21 item 7), and the §20 items still unan
 
 Evidence for item 2: rememory 0d9429bf (founder's VPS test, 21 Oct 2026: standard 1167/973/1187 ms,
 priority 1166/1231/834 ms, `serviceTier=standard` on every request).
+
+## 27. The email of 23 Oct 2026 (drafted for the founder to send)
+
+Prompted by a production refusal on 23 Oct 2026: `POST /agents` → `409`, "Pay as you go includes
+2 agents. Upgrade to add more." (trace `2aeb14897b00481cba4f1270cff808bb`, rememory 4360ad72). Built
+from the full relationship history and limit analysis in `thinnest-relationship-2026-10-23.md`
+(rememory d2d4d6bc). The founder's plan, 23 Oct 2026: stay on Pay As You Go with raised limits, move
+to Scale at 10 active clients, and to Enterprise at 50.
+
+> Subject: Calevate: staying on pay as you go with raised limits, and our plan to Scale and Enterprise
+>
+> Hi Ashutosh,
+>
+> Thank you for everything you've built for us over the last few weeks. We're now getting ready to
+> onboard our first paying clients, and we've hit the limits of pay as you go. Here is what we'd like
+> to propose.
+>
+> **Our plan with you**
+> We'd like to stay on pay as you go for now and pay for usage, with the limits below raised for
+> our account. Once we reach 10 active clients we'll move to Scale, and once we reach 50 clients we'll
+> move to Enterprise. We're happy to put that in writing.
+>
+> **What happened today**
+> Creating an agent in our developer workspace returned `409 "Pay as you go includes 2 agents.
+> Upgrade to add more."` Every Calevate client's free-trial agents live in our developer workspace,
+> next to our shared trial-number agent, so no new trial client can test a call.
+>
+> **What we're asking for, on pay as you go**
+> 1. **Agents:** an allowance of 100 agents to start with, for our clients' agents. If the allowance
+>    is counted per workspace rather than across the account, please let us know, since that changes
+>    what we need.
+> 2. **Customer workspaces:** 100 instead of 3. Each client gets its own workspace, so our fourth
+>    paying client would be refused today. (You mentioned on 7 Oct this can be raised on request.)
+> 3. **Concurrent calls:** 100 across the account, in stages if that's easier. (You mentioned on
+>    11 Oct concurrency can be raised on request.)
+> 4. **Studio voices and voice cloning:** access to the Studio band and cloned voices on pay as you
+>    go, billed per minute as on Pro (₹3/min). Our main voice tier is built on your Studio band.
+>
+> **And when we move up**
+> 5. At 10 clients Scale allows 15 agents and 15 concurrent calls, which won't cover 10 clients plus
+>    their trial agents. Could the raised agent, workspace and concurrency limits carry over to Scale
+>    when we move?
+>
+> **A few things we'd like confirmed in writing so we plan correctly**
+> 6. The pricing page shows "White label — resell to clients: 3 / 20 / 100" and "Organizations
+>    1 / 1 / 2 / 100". Do either of these limit API customer workspaces, or is our limit the customer
+>    cap in the docs (3 / 100 / 1,000)?
+> 7. On Scale, do the voice-minute discount and the ₹249 number price apply to calls and numbers in
+>    our customer workspaces too?
+> 8. Does a plan's monthly usage credit (₹2,499 / ₹4,999) pay for own-key minutes and number rent,
+>    and does unused credit carry over?
+> 9. Price: could the band rate be lower on agents where we bring our own model (`byok: llm`), and
+>    is there a volume price for own-key minutes (₹1.00 `llm_voice`, ₹1.50 `voice`)?
+>
+> **Still open from earlier emails**
+> 10. The signed DPA and the list of sub-processors that handle a call on your stack (we can't put
+>     client calls live without it).
+> 11. Written confirmation that our developer workspace and every customer workspace under it are
+>     excluded from model training.
+> 12. Any update on the TRAI regulation 4 notice, and which access provider holds the numbers you
+>     rent to us.
+> 13. Dates for the live carrier tests on Airtel, Jio, Vi and BSNL you offered.
+> 14. The per-turn timing logs for out_cd17adc9-e7cc-4ae4-bae7-b679b749c2e6 and
+>     out_4ee76842-a834-49f0-81a4-1bac7db41c68, and anything you can see on why only about a third
+>     of our input tokens are served from cache on our own Google key.
+>
+> Items 1 to 4 are the ones blocking us today. We'll keep sending you detailed feedback and Telugu
+> call results as we go, as we have so far.
+>
+> Thanks,
+> Umesh
+
+### 27.1 Why each item is in (evidence; detail in `thinnest-relationship-2026-10-23.md`)
+| # | Why | Where |
+|---|---|---|
+| Plan | Founder, 23 Oct 2026: PAYG with leniency → Scale at 10 active clients → Enterprise at 50 | — |
+| 1 | 409 on POST /agents; trial agents in the developer workspace (D-697) | rememory 4360ad72 |
+| 2 | One customer workspace per client (D-693); cap 3 on PAYG; "raised on request" (7 Oct) | `customers.md:221-226`; relationship doc §2 |
+| 3 | PAYG 5 concurrent calls (pricing page, 23 Oct); "raised free on request" (11 Oct, gate T-7) | relationship doc §2 |
+| 4 | Clear is sold on the Studio band (D-792); clones (D-797); Studio needs Pro | relationship doc §5 |
+| 5 | Scale: 15 agents, 15 concurrent (pricing page, 23 Oct 2026) | relationship doc §5 |
+| 6 | Pricing rows vs `customers.md:221-226` and `white-label/overview.md:46-47` | relationship doc §4 |
+| 7 | 18 Oct email: on Scale "its clients don't get it" vs `customers.md:217` | relationship doc §5 |
+| 8 | Breakeven depends on it | relationship doc §6 |
+| 9 | "LLM don't cost us much"; offer to negotiate against a minimum commitment (12 Oct) | relationship doc §6-7 |
+| 10–14 | Open since §20/§25/§26 | §20, §26 |
