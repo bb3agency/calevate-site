@@ -1760,3 +1760,25 @@ minutes per client; ESTIMATE, confirmed by the founder by sending it.
    UNVERIFIED that the mode behaves as named. The opening itself stays a line our model
    writes once per agent, at build or edit, validated (own letters, length, notices after it)
    and spoken by the engine; no per-call generation.
+3. **Calling hours: a wider window for instant callbacks only, never for bulk** (founder,
+   23 Oct 2026). Place Call holds every call to "never wider than 9am–9pm in the customer's
+   own time" (`api-reference/calls/place-call.md:7`, mirror 19 Oct 2026); there is no documented
+   exception. Seen live 23 Oct 2026 23:26 IST: a free-trial test call to the owner's own number
+   (D-866 tick) was refused `409 outside_calling_hours`, "It is outside calling hours
+   (09:00–21:00) for this number." Outpero publishes bulk campaigns 09:00–21:00 and instant
+   callbacks 06:00–22:00 (`docs/evidence/outpero-numbers-and-calling-policy-2026-09-20.md` §5,
+   founder-observed 20 Sep 2026). The ask:
+   - can a call the customer asked for (a lead form, a missed call, "call me back") ring
+     06:00–22:00 in their time, with bulk and campaign calls staying 09:00–21:00; if so, which
+     field marks a call as such, and is it per call, per agent or per workspace;
+   - can a test call to the account owner's own number ring at any hour;
+   - on what regulatory basis ThinnestAI would allow either, and who carries the obligation.
+
+   **Our side does not widen with it.** Our own gate (`compliance/service.within_calling_hours`)
+   is 09:00–21:00 IST for every outbound call because TCCCPR 2018 forbids commercial
+   communication between 2100 and 0900 hours; the regulatory premise is REPORTED
+   (`number-series-inbound-vs-outbound-2026-09-13.md` §4) and §6.2 of the Outpero evidence
+   file says a competitor's window is not a ground to widen ours. A vendor yes opens the
+   question; widening our gate for requested callbacks needs the operative TRAI direction read
+   (or counsel's answer) on whether a callback the person requested is a commercial
+   communication, recorded as its own decision.
