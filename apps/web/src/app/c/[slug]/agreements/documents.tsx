@@ -47,7 +47,7 @@ function DocumentRow({ doc }: { doc: LegalDocumentState }) {
         <dl className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-meta text-ink-faint">
           {doc.accepted_at && (
             <div className="flex gap-1">
-              <dt>Accepted on</dt>
+              <dt className="shrink-0">Accepted on</dt>
               <dd className="text-ink-muted">
                 {formatIST(doc.accepted_at)}
                 {doc.accepted_by_name ? ` by ${doc.accepted_by_name}` : ""}
@@ -57,7 +57,7 @@ function DocumentRow({ doc }: { doc: LegalDocumentState }) {
           {/* An undated document says so rather than losing the row: a reader who sees no
               date cannot tell that from a screen that forgot to print it. */}
           <div className="flex gap-1">
-            <dt>Effective from</dt>
+            <dt className="shrink-0">Effective from</dt>
             <dd className="text-ink-muted">{doc.effective_date ?? "not yet dated"}</dd>
           </div>
         </dl>
