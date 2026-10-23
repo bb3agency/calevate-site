@@ -195,6 +195,7 @@ async def place_trial_call(
     except Exception:
         await release()
         raise
+
     async def blocked(rule: str | None, reason: str | None) -> TrialCallResult:
         record_compliance_block(rule=rule or "unknown")
         result = TrialCallResult(status="blocked", blocked_reason=reason, blocked_rule=rule)
