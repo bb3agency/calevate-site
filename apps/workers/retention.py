@@ -3641,6 +3641,10 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # their account); the business token is an `integration_credentials` row.
         await session.execute(text("DELETE FROM whatsapp_templates"))
         await session.execute(text("DELETE FROM whatsapp_accounts"))
+        # Which announcements the account put away and how far each person read the bell
+        # (D-869): the account's own state, gone with it.
+        await session.execute(text("DELETE FROM announcement_dismissals"))
+        await session.execute(text("DELETE FROM notification_reads"))
         # The teach box and the improvement loop: saved tests hold callers' redacted lines,
         # and the facts, teachings and waiting rules are the business's own words. Test runs
         # carry copies of those saved lines; the owner's "this test is wrong" labels point at

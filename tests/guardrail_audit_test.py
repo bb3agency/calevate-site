@@ -618,6 +618,9 @@ class TestRlsCoverage:
             # id, no call, no number. Clients read it only through the two surfaces that
             # project it for them (the banner route and the 503 body), never the row.
             "platform_maintenance_windows",
+            # D-869: the operator's announcement bar. One message for an audience, no
+            # tenant whose row it is; `target_tenant_id` is a target, not an owner.
+            "platform_announcements",
             "webhook_deliveries",
             # The FOURTH shape, and the one `webhook_deliveries` above is one hop short
             # of: a tenant payload held INLINE rather than by reference. `payload` on the
