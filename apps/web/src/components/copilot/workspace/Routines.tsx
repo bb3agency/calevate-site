@@ -4,6 +4,7 @@ import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useId, useState } from "react";
 import { Plus } from "lucide-react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { Drawer } from "@/components/console/drawer";
@@ -68,9 +69,20 @@ export function Routines({ session }: { session: Session }) {
   const [history, setHistory] = useState<CopilotRoutineOut | null>(null);
   const [deleting, setDeleting] = useState<CopilotRoutineOut | null>(null);
   const update = useUpdateRoutine(session);
+  // The switch shows its new position; a refusal is drawn above the list.
+  useActionFeedback(update, { errorDisplay: "inline" });
   const run = useRunRoutine(session);
+  // Run now is picked from a menu that closes, so its outcome is said in a toast.
+  useActionFeedback(run, {
+    errorDisplay: "inline",
+    successToast: "Started",
+    successDescription: "It's running as a background task.",
+  });
   const remove = useDeleteRoutine(session);
-  const [notice, setNotice] = useState<string | null>(null);
+  const removeFeedback = useActionFeedback(remove, {
+    errorDisplay: "inline",
+    successToast: "Routine deleted",
+  });
 
   const rows = routines.data?.routines ?? [];
   return (
@@ -85,11 +97,6 @@ export function Routines({ session }: { session: Session }) {
         </button>
       </div>
 
-      {notice ? (
-        <p role="status" className="text-body text-ink">
-          {notice}
-        </p>
-      ) : null}
       {routines.error != null && (
         <ProblemNotice error={routines.error} onRetry={() => void routines.refetch()} />
       )}
@@ -139,10 +146,8 @@ export function Routines({ session }: { session: Session }) {
                     {
                       id: "run",
                       label: "Run now",
-                      onSelect: () =>
-                        run.mutate(routine.id, {
-                          onSuccess: () => setNotice("Started. It's running as a background task."),
-                        }),
+                      disabled: run.isPending,
+                      onSelect: () => run.mutate(routine.id),
                     },
                     { id: "edit", label: "Edit", onSelect: () => setEditing(routine) },
                     { id: "history", label: "History", onSelect: () => setHistory(routine) },
@@ -171,7 +176,6 @@ export function Routines({ session }: { session: Session }) {
             session={session}
             routine={editing === "new" ? null : editing}
             onDone={() => setEditing(null)}
-            onSaved={setNotice}
           />
         )}
       </Drawer>
@@ -191,7 +195,7 @@ export function Routines({ session }: { session: Session }) {
           title={`Delete ${deleting.name}?`}
           confirmLabel="Delete routine"
           pendingLabel="Deleting…"
-          pending={remove.isPending}
+          status={removeFeedback.status}
           error={remove.error}
           onCancel={() => setDeleting(null)}
           onConfirm={() => remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}
@@ -208,12 +212,10 @@ function RoutineEditor({
   session,
   routine,
   onDone,
-  onSaved,
 }: {
   session: Session;
   routine: CopilotRoutineOut | null;
   onDone: () => void;
-  onSaved: (sentence: string) => void;
 }) {
   const [name, setName] = useState(routine?.name ?? "");
   const [instruction, setInstruction] = useState(routine?.instruction ?? "");
@@ -223,6 +225,10 @@ function RoutineEditor({
   const [time, setTime] = useState(routine?.schedule.time ?? "09:00");
   const create = useCreateRoutine(session);
   const update = useUpdateRoutine(session);
+  // The drawer closes on success, so the save is confirmed in a toast; StepFlow draws a
+  // refusal inside the drawer.
+  useActionFeedback(create, { errorDisplay: "inline", successToast: "Routine added" });
+  useActionFeedback(update, { errorDisplay: "inline", successToast: "Routine saved" });
   const ids = { name: useId(), instruction: useId(), time: useId(), days: useId() };
   const pending = create.isPending || update.isPending;
   const error = create.error ?? update.error;
@@ -231,12 +237,8 @@ function RoutineEditor({
 
   const save = () => {
     const body = { name: name.trim(), instruction: instruction.trim(), schedule };
-    const done = () => {
-      onSaved(routine === null ? "Routine added." : "Routine saved.");
-      onDone();
-    };
-    if (routine === null) create.mutate({ ...body, enabled: true }, { onSuccess: done });
-    else update.mutate({ id: routine.id, patch: body }, { onSuccess: done });
+    if (routine === null) create.mutate({ ...body, enabled: true }, { onSuccess: onDone });
+    else update.mutate({ id: routine.id, patch: body }, { onSuccess: onDone });
   };
 
   return (

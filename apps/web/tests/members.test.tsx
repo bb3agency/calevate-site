@@ -364,7 +364,7 @@ describe("what the invite flow shows", () => {
     await screen.findByText("Anita");
     // The invite form is inline on the page since REDESIGN-2 (it was a drawer).
     fireEvent.change(
-      await screen.findByRole("textbox", { name: "Email address to invite" }),
+      await screen.findByRole("textbox", { name: "Their email address" }),
       {
         target: { value: "priya@clinic.example" },
       },
@@ -410,14 +410,17 @@ describe("what the invite flow shows", () => {
   it("sends an invitation again from its row and says so beside the button", async () => {
     const { calls } = await renderTeam({ invitations: [INVITE] });
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: `Send the invitation to ${INVITE.email} again` }),
-    );
+    const button = await screen.findByRole("button", {
+      name: `Send the invitation to ${INVITE.email} again`,
+    });
+    fireEvent.click(button);
     await waitFor(() => {
       const post = calls.find((c) => c.method === "POST");
       expect(post?.path).toBe(`/v1/invitations/${INVITE.id}/resend`);
     });
-    expect(await screen.findByText("Sent")).toBeTruthy();
+    // The button itself turns to its "Sent" face, and the outcome is spoken from its status line.
+    await waitFor(() => expect(button.getAttribute("data-status")).toBe("success"));
+    expect(screen.getAllByText("Sent").length).toBeGreaterThan(0);
   });
 
   it("shows a staff member the pending invites with no send-again or cancel control", async () => {

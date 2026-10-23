@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Section } from "@/components/console/section";
 import { ProblemNotice, SECONDARY_BUTTON, Skeleton, formatIST } from "@/components/ui";
@@ -19,6 +20,9 @@ import { PipConsentGate } from "../PipConsent";
 export function PipSwitch({ session }: { session: Session }) {
   const consent = usePipConsent(session);
   const turnOff = useTurnPipOff(session);
+  // The dialog draws a refusal inside itself; on success the section itself says Pip is
+  // off, where the person is looking.
+  const turnOffFeedback = useActionFeedback(turnOff, { errorDisplay: "inline" });
   const [confirming, setConfirming] = useState(false);
 
   return (
@@ -63,7 +67,7 @@ export function PipSwitch({ session }: { session: Session }) {
           title={`Turn ${ASSISTANT_NAME} off for everyone?`}
           confirmLabel={`Turn ${ASSISTANT_NAME} off`}
           pendingLabel="Turning off…"
-          pending={turnOff.isPending}
+          status={turnOffFeedback.status}
           error={turnOff.error}
           onCancel={() => setConfirming(false)}
           onConfirm={() => turnOff.mutate(undefined, { onSuccess: () => setConfirming(false) })}

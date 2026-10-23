@@ -4,16 +4,10 @@ import { useState } from "react";
 
 import type { DataColumn } from "@/components/console/dataTable";
 import { InfoTip } from "@/components/console/infoTip";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { RowMenu } from "@/components/arc/menu";
-import { SavedTick } from "@/components/console/savedTick";
 import { TEXT_ACTION_DANGER } from "@/components/console/section";
-import {
-  FIELD_INLINE,
-  NoticeBox,
-  PRIMARY_BUTTON_SM,
-  SECONDARY_BUTTON_SM,
-  formatIST,
-} from "@/components/ui";
+import { FIELD_INLINE, NoticeBox, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import {
   ROLE_COPY,
@@ -34,6 +28,12 @@ export type TeamRow =
   | { kind: "member"; id: string; member: Member; email: string | null }
   | { kind: "invite"; id: string; invitation: PendingInvitation };
 
+type RowStatus = { id: string; status: FeedbackStatus };
+
+function statusFor(row: RowStatus | null, id: string): FeedbackStatus {
+  return row?.id === id ? row.status : "idle";
+}
+
 export type TeamTableContext = {
   myId: string | null;
   canManage: boolean;
@@ -42,9 +42,12 @@ export type TeamTableContext = {
   showEmail: boolean;
   busyMember: string | null;
   busyInvite: string | null;
-  /** The invitation being sent again, and the last one that was (with when, for the tick). */
+  /** The invitation being sent again. */
   resendingInvite: string | null;
-  resent: { id: string; at: number } | null;
+  /** Each action's button face, for the row it was last pressed on. */
+  roleStatus: RowStatus | null;
+  resendStatus: RowStatus | null;
+  revokeStatus: RowStatus | null;
   onRole: (member: Member, role: MemberRole) => void;
   onRemove: (member: Member) => void;
   onRevoke: (invitation: PendingInvitation) => void;
@@ -88,10 +91,12 @@ function roleLabel(role: string): string {
 function RoleControl({
   member,
   busy,
+  status,
   onRole,
 }: {
   member: Member;
   busy: boolean;
+  status: FeedbackStatus;
   onRole: (role: MemberRole) => void;
 }) {
   const who = member.name ?? "this member";
@@ -119,15 +124,15 @@ function RoleControl({
       </select>
       {pendingRole && (
         <>
-          <button
-            type="button"
-            disabled={busy}
+          <ActionButton
+            variant="primary-sm"
+            status={status}
             onClick={() => onRole(pendingRole)}
             aria-label={`Save ${who} as ${ROLE_COPY[pendingRole].label}`}
-            className={PRIMARY_BUTTON_SM}
+            successLabel="Saved"
           >
-            {busy ? "Saving…" : "Save role"}
-          </button>
+            Save role
+          </ActionButton>
           <span className="basis-full text-meta text-ink-muted">
             {pendingRole === "owner"
               ? `${who} will be able to see your invoice, invite and remove people, including you.`
@@ -186,6 +191,7 @@ function RoleCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
       <RoleControl
         member={row.member}
         busy={ctx.busyMember === row.member.id}
+        status={statusFor(ctx.roleStatus, row.member.id)}
         onRole={(role) => ctx.onRole(row.member, role)}
       />
     );
@@ -219,24 +225,26 @@ function ActionsCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
     const who = row.invitation.email;
     return (
       <span className="flex flex-wrap items-center justify-end gap-2">
-        <SavedTick at={ctx.resent?.id === row.invitation.id ? ctx.resent.at : 0} label="Sent" />
-        <button
-          type="button"
-          disabled={sending || revoking}
+        <ActionButton
+          variant="secondary-sm"
+          status={statusFor(ctx.resendStatus, row.invitation.id)}
+          disabled={revoking}
           onClick={() => ctx.onResend(row.invitation)}
           aria-label={`Send the invitation to ${who} again`}
-          className={`${SECONDARY_BUTTON_SM} whitespace-nowrap`}
+          successLabel="Sent"
+          className="whitespace-nowrap"
         >
-          {sending ? "Sending…" : "Send again"}
-        </button>
+          Send again
+        </ActionButton>
         <button
           type="button"
           disabled={sending || revoking}
+          aria-busy={revoking || undefined}
           onClick={() => ctx.onRevoke(row.invitation)}
           aria-label={`Cancel the invitation to ${who}`}
           className={TEXT_ACTION_DANGER}
         >
-          {revoking ? "Cancelling…" : "Cancel"}
+          {revoking ? "Cancelling…" : statusFor(ctx.revokeStatus, row.invitation.id) === "error" ? "Try again" : "Cancel"}
         </button>
       </span>
     );

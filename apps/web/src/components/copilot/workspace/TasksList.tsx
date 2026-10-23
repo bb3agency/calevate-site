@@ -1,5 +1,6 @@
 "use client";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { StatusPill } from "@/components/console/statusPill";
 import { EmptyState } from "@/components/console/emptyState";
@@ -64,6 +65,7 @@ function TaskRow({
   onOpenApprovals: () => void;
 }) {
   const cancel = useCancelJob(session);
+  const cancelFeedback = useActionFeedback(cancel, { errorDisplay: "inline" });
   const status = lookup(STATUS, job.status) ?? STATUS.done;
   const running = job.status === "queued" || job.status === "running";
   const waiting = job.progress.some((entry) => entry.kind === "approval");
@@ -93,14 +95,15 @@ function TaskRow({
             </button>
           )}
           {running && (
-            <button
-              type="button"
-              onClick={() => cancel.mutate(job.id)}
-              disabled={cancel.isPending}
-              className={SECONDARY_BUTTON_SM}
+            <ActionButton
+              variant="secondary-sm"
+              status={cancelFeedback.status}
+              onClick={() => cancelFeedback.run(job.id)}
+              pendingLabel="Stopping…"
+              successLabel="Stopped"
             >
-              {cancel.isPending ? "Stopping…" : "Stop"}
-            </button>
+              Stop
+            </ActionButton>
           )}
         </div>
       )}

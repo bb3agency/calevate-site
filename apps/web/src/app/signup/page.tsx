@@ -1,15 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { ArrowRight, CircleAlert, Mail, ShieldCheck } from "lucide-react";
 
 import { Providers } from "@/app/providers";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FIELD_FLUSH, Field } from "@/components/arc/field";
 import {
   Card,
   FIELD,
-  FIELD_HINT,
-  FIELD_LABEL,
   NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
@@ -52,17 +52,6 @@ import {
  * on the response and the success panel renders only what arrived.
  *
  * No app shell wraps this route, so it carries its own frame and scroll container.
- */
-
-/**
- * The console's field/control shapes, copied deliberately and marked for extraction.
- *
- * `/c/<slug>/campaigns` defines this identical set and says they belong in `ui.tsx` "the
- * moment a second screen needs them". This is that second screen — but `ui.tsx` is out of
- * this change's slice, so the constants are duplicated here with the pointer attached
- * rather than the two screens quietly drifting apart. THE FOLLOW-UP IS: move `FIELD`,
- * `FIELD_LABEL`, `FIELD_HINT`, `PRIMARY_BUTTON` and `SECONDARY_BUTTON` into `ui.tsx` and
- * delete both copies.
  */
 
 /**
@@ -288,6 +277,9 @@ function ConfirmYourAddress({
 
 function SignupForm() {
   const signup = useSignup();
+  // Every refusal is drawn on this page (beside its field, or as the panel that replaces
+  // the form), so none is toasted.
+  const signupFeedback = useActionFeedback(signup, { errorDisplay: "inline" });
   const [businessName, setBusinessName] = useState("");
   const valid = useFormValidation();
   const [slug, setSlug] = useState("");
@@ -497,7 +489,7 @@ function SignupForm() {
                   onChange={(e) => setSlug(e.target.value)}
                   placeholder={previewSlug(businessName) || "your-business"}
                   maxLength={40}
-                  className={`${FIELD} mt-0 font-mono`}
+                  className={`${FIELD_FLUSH} font-mono`}
                 />
               </div>
             )}
@@ -565,15 +557,11 @@ function SignupForm() {
           </Field>
 
           <div className="space-y-2">
-            <button
-              type="submit"
-              /* The name rule is not repeated here: the field answers it in a sentence,
-                 and a button dead at one character said nothing at all. */
-              disabled={signup.isPending}
-              className={PRIMARY_BUTTON}
-            >
-              {signup.isPending ? "Creating…" : "Create workspace"}
-            </button>
+            {/* Never disabled for the name rule: the field answers it in a sentence, and a
+                button dead at one character said nothing at all. */}
+            <ActionButton type="submit" status={signupFeedback.status} successLabel="Created">
+              Create workspace
+            </ActionButton>
             <p className="text-xs text-ink-faint">
               Your free trial starts straight away: you make your first agent and give
               it test calls to your own phone. Calling your customers opens once you add
@@ -586,58 +574,3 @@ function SignupForm() {
   );
 }
 
-/**
- * One labelled control, with its hint and its refusal wired to it.
- *
- * The children are a RENDER FUNCTION rather than a node because the input needs the
- * generated ids: `id` to be the label's target, and `aria-describedby` to name the hint
- * and the error. Passing them down is what makes the association real rather than
- * visual — a screen reader announces "Workspace URL, invalid, that name is taken" while
- * tabbing, instead of leaving the user to hunt for a red block at the top of the page.
- *
- * `htmlFor` + an explicit `id` rather than a wrapping `<label>`: the URL field wraps its
- * input in a row with a `/c/` prefix, and a label wrapping two things labels both.
- */
-function Field({
-  id,
-  label,
-  hint,
-  error,
-  children,
-}: {
-  id: string;
-  label: string;
-  hint?: string;
-  error?: string;
-  children: (props: {
-    id: string;
-    "aria-describedby"?: string;
-    "aria-invalid"?: true;
-  }) => ReactNode;
-}) {
-  const hintId = hint ? `${id}-hint` : undefined;
-  const errorId = error ? `${id}-error` : undefined;
-  const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
-  return (
-    <div>
-      <label htmlFor={id} className={FIELD_LABEL}>
-        {label}
-      </label>
-      {children({
-        id,
-        "aria-describedby": describedBy,
-        ...(error ? { "aria-invalid": true as const } : {}),
-      })}
-      {hint && (
-        <span id={hintId} className={FIELD_HINT}>
-          {hint}
-        </span>
-      )}
-      {error && (
-        <span id={errorId} className="mt-1 block text-xs font-medium text-danger">
-          {error}
-        </span>
-      )}
-    </div>
-  );
-}

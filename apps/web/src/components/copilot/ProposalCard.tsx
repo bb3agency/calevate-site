@@ -4,13 +4,8 @@ import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, ShieldAlert } from "lucide-react";
 
-import {
-  DANGER_BUTTON,
-  NOTICE_BAR,
-  PRIMARY_BUTTON,
-  ProblemNotice,
-  SECONDARY_BUTTON,
-} from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { NOTICE_BAR, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
 import { ApiProblem, TransportProblem, type Session } from "@/lib/api/client";
 import { useConfirmProposal, type CopilotConfirmOut } from "@/lib/api/copilot";
 import { lookup } from "@/lib/lookup";
@@ -91,6 +86,8 @@ export function ProposalCard({
   onCeiling?: () => void;
 }) {
   const confirm = useConfirmProposal(session, realm, proposal.confirm_action ?? null);
+  // The refusal is the server's own sentence, kept on the card; the outcome replaces it.
+  const confirmFeedback = useActionFeedback(confirm, { errorDisplay: "inline" });
   const card = useRef<HTMLDivElement>(null);
   const [expired, setExpired] = useState(() => hasExpired(proposal.expires_at));
 
@@ -163,7 +160,8 @@ export function ProposalCard({
   }, [armed]);
 
   const retryable = confirm.isError && canRetry(confirm.error);
-  const confirmLabel = confirm.isPending ? "Confirming…" : retryable ? "Try again" : "Confirm";
+  // The button's error face reads "Try again"; its accessible name follows the visible word.
+  const confirmLabel = retryable ? "Try again" : "Confirm";
 
   return (
     <div
@@ -252,10 +250,11 @@ export function ProposalCard({
           ) : (
             (!confirm.isError || retryable) && (
               <div className="mt-2 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={confirm.isPending || !armed}
-                  onClick={() => confirm.mutate(proposal.token)}
+                <ActionButton
+                  status={confirmFeedback.status}
+                  variant={consequential ? "danger" : "primary"}
+                  disabled={!armed}
+                  onClick={() => confirmFeedback.run(proposal.token)}
                   // The accessible name is the VISIBLE WORD plus the server's own title,
                   // and it is built from the same variable rather than typed out — WCAG
                   // 2.5.3 Label in Name requires the name to CONTAIN the visible text, so
@@ -264,10 +263,11 @@ export function ProposalCard({
                   // here by keyboard hears WHICH change they are about to make rather
                   // than a bare verb.
                   aria-label={`${confirmLabel} — ${proposal.title}`}
-                  className={consequential ? DANGER_BUTTON : PRIMARY_BUTTON}
+                  pendingLabel="Confirming…"
+                  successLabel="Confirmed"
                 >
-                  {confirmLabel}
-                </button>
+                  Confirm
+                </ActionButton>
                 <button
                   type="button"
                   disabled={confirm.isPending}

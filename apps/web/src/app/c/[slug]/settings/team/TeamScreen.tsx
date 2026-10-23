@@ -15,6 +15,7 @@ import {
   formatCount,
 } from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { useActAccess, useMe } from "@/lib/api/hooks";
 import {
   ROLE_COPY,
@@ -91,9 +92,22 @@ export function TeamScreen() {
   );
 
   const changeRole = useSetMemberRole(session);
+  // The staged Save button leaves the row once the role lands, so the change is confirmed
+  // in a toast; refusals stay in the notices above the table.
+  const changeRoleFeedback = useActionFeedback(changeRole, {
+    errorDisplay: "inline",
+    successToast: (_data, vars) => `Role changed to ${ROLE_COPY[vars.role].label}`,
+  });
   const remove = useRemoveMember(session);
+  const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline" });
   const revoke = useRevokeInvitation(session);
+  // A cancelled invitation leaves the table, so its outcome is said in a toast.
+  const revokeFeedback = useActionFeedback(revoke, {
+    errorDisplay: "inline",
+    successToast: "Invitation cancelled",
+  });
   const resend = useResendInvitation(session);
+  const resendFeedback = useActionFeedback(resend, { errorDisplay: "inline" });
 
   /*
    * THE ADDRESS AND THE ROLE ARE HELD HERE, not in `InviteForm`, because the copilot
@@ -251,10 +265,11 @@ export function TeamScreen() {
           : null,
     busyInvite: revoke.isPending ? (revoke.variables ?? null) : null,
     resendingInvite: resend.isPending ? (resend.variables ?? null) : null,
-    resent:
-      resend.isSuccess && resend.variables
-        ? { id: resend.variables, at: resend.submittedAt }
-        : null,
+    roleStatus: changeRole.variables
+      ? { id: changeRole.variables.userId, status: changeRoleFeedback.status }
+      : null,
+    resendStatus: resend.variables ? { id: resend.variables, status: resendFeedback.status } : null,
+    revokeStatus: revoke.variables ? { id: revoke.variables, status: revokeFeedback.status } : null,
     onRole: (member, next) =>
       changeRole.mutate({
         userId: member.id,
@@ -368,7 +383,7 @@ export function TeamScreen() {
           confirmLabel="Remove their access"
           pendingLabel="Removing…"
           cancelLabel="Keep their access"
-          pending={remove.isPending}
+          status={removeFeedback.status}
           error={remove.error}
           onCancel={() => {
             remove.reset();

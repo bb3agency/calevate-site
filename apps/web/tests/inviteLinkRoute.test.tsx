@@ -109,7 +109,7 @@ describe("the invite link", () => {
     await screen.findByText("Anita");
     // The invite form is inline on the page since REDESIGN-2 (it was a drawer).
     fireEvent.change(
-      await screen.findByRole("textbox", { name: "Email address to invite" }),
+      await screen.findByRole("textbox", { name: "Their email address" }),
       {
         target: { value: "priya@clinic.example" },
       },

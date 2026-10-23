@@ -5,6 +5,7 @@ import { Info, Undo2, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 
 import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { PipMark } from "@/components/illustration/pip";
 import { NewItemsPill } from "@/components/interior/new-items-pill";
@@ -152,6 +153,12 @@ export function CopilotPanel({
   const wantsQuota = realm === "client" && (conversation.atCeiling || confirmAtCeiling);
   const quota = useAiQuota(session, { enabled: wantsQuota });
   const buy = useBuyAiExtra(session);
+  // The charge dialog shows a refusal inside itself and closes on success, so the purchase
+  // is confirmed in a toast.
+  useActionFeedback(buy, {
+    errorDisplay: "inline",
+    successToast: "More AI help added for this month",
+  });
 
   // Escape, on `document` rather than on this subtree: a person reaching for Escape has
   // very often just been typing in the FORM, not in the panel, and a React `onKeyDown`

@@ -9,6 +9,7 @@
  * NO `<h1>`: the app shell renders the page title from the nav list it also renders.
  */
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { CallHandlingDefaultsRows } from "@/components/callHandlingDefaults";
 import { PageHeader } from "@/components/console/pageHeader";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
@@ -29,6 +30,9 @@ export function CallHandlingScreen() {
   const session = useClientSession();
   const state = useOrganizationCallHandling(session);
   const save = useSetOrganizationCallHandling(session);
+  // Each row shows its own busy state and refusal, so failures stay inline; the toast stack
+  // only clears a stale failure once a later save succeeds.
+  useActionFeedback(save, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "change how your agents end turns and calls");
 
   const data = state.data;

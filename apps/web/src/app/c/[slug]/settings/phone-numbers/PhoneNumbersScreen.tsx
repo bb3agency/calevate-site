@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -124,7 +125,14 @@ function LineSettings({
   testingAvailable: boolean;
 }) {
   const change = useChangeLine(session, line.id);
+  const changeFeedback = useActionFeedback(change, { errorDisplay: "inline" });
   const remove = useRemoveLine(session);
+  // The dialog shows a refusal inside itself; on success the line leaves the page, so the
+  // outcome is said in a toast.
+  const removeFeedback = useActionFeedback(remove, {
+    errorDisplay: "inline",
+    successToast: `${formatPhone(line.e164)} removed`,
+  });
   const [editing, setEditing] = useState(false);
   const [mode, setMode] = useState<ForwardingMode>(line.mode);
   const [seconds, setSeconds] = useState<number>(line.ring_seconds || DEFAULT_RING_SECONDS);
@@ -210,9 +218,9 @@ function LineSettings({
             <button type="button" className={SECONDARY_BUTTON} onClick={() => setEditing(false)}>
               Cancel
             </button>
-            <button type="submit" className={PRIMARY_BUTTON} disabled={!allowed || change.isPending}>
-              {change.isPending ? "Saving…" : "Save"}
-            </button>
+            <ActionButton type="submit" status={changeFeedback.status} successLabel="Saved" disabled={!allowed}>
+              Save
+            </ActionButton>
           </div>
         </form>
       )}
@@ -241,7 +249,7 @@ function LineSettings({
           title={`Stop using ${formatPhone(line.e164)}`}
           confirmLabel="Stop using it"
           pendingLabel="Removing…"
-          pending={remove.isPending}
+          status={removeFeedback.status}
           error={remove.error}
           onCancel={() => setConfirming(false)}
           onConfirm={() => remove.mutate(line.id, { onSuccess: () => setConfirming(false) })}
@@ -257,6 +265,8 @@ function LineSettings({
 function SaveNumber({ session }: { session: Session }) {
   const state = useSaveNumberSwitch(session);
   const set = useSetSaveNumber(session);
+  // The switch itself shows the new state; a refusal is drawn under it.
+  useActionFeedback(set, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "change the save-our-number message");
   return (
     <Section
