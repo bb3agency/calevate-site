@@ -123,11 +123,11 @@ export function DonutChart({
             <span className="text-meta text-ink-muted">{hover !== null ? parts[hover].label : centerLabel}</span>
           </div>
         </div>
-        <ul className="min-w-0 flex-1 space-y-1.5">
+        <ul className="min-w-0 grow basis-48 space-y-1.5">
           {parts.map((s, i) => (
             <li key={s.label} className="flex items-center gap-2 text-meta" onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)}>
               <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: seriesColor(i) }} />
-              <span className="min-w-0 flex-1 text-ink [overflow-wrap:anywhere]">{s.label}</span>
+              <span className="min-w-0 flex-1 break-words text-ink">{s.label}</span>
               <span className="tabular-nums text-ink">{text(s)}</span>
               <span className="w-10 text-right tabular-nums text-ink-muted">{share(s.value, total)}</span>
             </li>

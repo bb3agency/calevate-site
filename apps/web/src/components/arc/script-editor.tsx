@@ -79,7 +79,7 @@ const DEFAULT_STRINGS: ScriptEditorStrings = {
   usesLabel: "Uses",
   unknownVariable: (token) => `${token} is not a detail this agent knows, so the agent would say nothing there. Pick one from the list.`,
   cleaned: "Formatting was removed: the agent speaks plain words only.",
-  over: (n) => `${n} characters over`,
+  over: (n) => `${n} ${n === "1" ? "character" : "characters"} over`,
   left: (n) => `${n} left`,
   totalLabel: "Whole script",
   previewTitle: "How it will sound",

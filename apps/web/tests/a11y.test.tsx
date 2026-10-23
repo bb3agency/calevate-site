@@ -43,6 +43,7 @@ import OpsAlertsPage from "@/app/admin/ops/alerts/page";
 import OpsHealerPage from "@/app/admin/ops/healer/page";
 import PaymentsPage from "@/app/admin/payments/page";
 import ReplyTimesPage from "@/app/admin/ops/reply-times/page";
+import KitPage from "@/app/admin/ops/kit/page";
 import WhatsAppAdminPage from "@/app/admin/ops/whatsapp/page";
 import SpokenStylePage from "@/app/admin/ops/spoken-style/page";
 import VoicesPage from "@/app/admin/ops/voices/page";
@@ -4372,6 +4373,14 @@ const ADMIN_SCREENS: Screen[] = [
       },
       "/v1/ops/reply-times?days=7": replyTimeReport(),
     },
+  },
+  {
+    // The living kit: every shared component in its resting state, with no server reads,
+    // so the sweep checks the kit itself rather than a screen's data.
+    file: "admin/ops/kit/page.tsx",
+    realm: "admin",
+    element: () => <KitPage />,
+    routes: { "/v1/admin/me": ADMIN_ME },
   },
   {
     // Clients' WhatsApp (D-784): a configured app, a week partly used, one connected client.

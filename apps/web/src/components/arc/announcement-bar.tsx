@@ -72,7 +72,7 @@ export function AnnouncementBar({
     >
       <div className={clsx(SHELL_RAIL_CLASS, "flex items-center gap-3 py-1 text-sm")}>
         <span aria-hidden className={clsx("h-2 w-2 shrink-0 rounded-full", TONE_DOT[tone])} />
-        <p className="line-clamp-2 min-w-0 flex-1 py-1">
+        <p className="min-w-0 flex-1 break-words py-1">
           <span className="font-semibold">{title}</span>
           {detail ? <span className="hidden sm:inline"> {detail}</span> : null}
         </p>

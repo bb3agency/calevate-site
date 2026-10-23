@@ -142,9 +142,9 @@ describe("Gauge", () => {
 
   it("never shows a missing score as zero", () => {
     render(<Gauge value={null} label="Readiness" pendingText="Run a practice test to get a score" fixes={[]} allDoneText="Nothing left to fix." />);
-    const meter = screen.getByRole("meter", { name: "Readiness" });
-    expect(meter.getAttribute("aria-valuenow")).toBeNull();
-    expect(meter.getAttribute("aria-valuetext")).toBe("Run a practice test to get a score");
+    // Not a meter at all until there is a reading: an image named by why there is none.
+    expect(screen.queryByRole("meter")).toBeNull();
+    expect(screen.getByRole("img", { name: "Readiness: Run a practice test to get a score" })).toBeTruthy();
     expect(screen.getByText("Nothing left to fix.")).toBeTruthy();
   });
 });

@@ -25,7 +25,7 @@ import {
 } from "react";
 import clsx from "clsx";
 
-import { Skeleton, formatCount } from "@/components/ui";
+import { ScrollRegion, Skeleton, formatCount } from "@/components/ui";
 
 /** The categorical slots, in their fixed order (globals.css `--series-*`). */
 export const SERIES = [
@@ -212,8 +212,7 @@ export function ChartFrame({
 }
 
 function DataTable({ title, table, visible }: { title: string; table: ChartTable; visible: boolean }) {
-  return (
-    <div className={visible ? "max-w-full overflow-x-auto" : "sr-only"}>
+  const body = (
       <table className="w-full text-left text-meta">
         <caption className="sr-only">{title}</caption>
         <thead>
@@ -243,7 +242,15 @@ function DataTable({ title, table, visible }: { title: string; table: ChartTable
           ))}
         </tbody>
       </table>
-    </div>
+  );
+  // Shown, it can be wider than a phone, so it scrolls in a keyboard-reachable region;
+  // hidden, it is still read by a screen reader.
+  return visible ? (
+    <ScrollRegion label={title} className="max-w-full">
+      {body}
+    </ScrollRegion>
+  ) : (
+    <div className="sr-only">{body}</div>
   );
 }
 

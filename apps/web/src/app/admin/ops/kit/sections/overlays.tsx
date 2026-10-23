@@ -119,7 +119,7 @@ function DrawerDemo() {
       >
         <div className="space-y-3 text-body text-ink">
           <p>
-            Asked about weekend appointments and the price of a full check-up.
+            Asked about weekend opening hours and the price of a home visit.
             <InfoTip label="captured details">Details the agent captured during the call, in the lead&apos;s own words.</InfoTip>
           </p>
           <RowMenu label="Priya Sharma" items={ROW_ACTIONS} />

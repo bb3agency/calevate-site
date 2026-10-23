@@ -149,7 +149,7 @@ function Node({
         />
       </div>
       {open ? (
-        <ul id={id} role="group" className="ml-2 border-l border-line pl-2">
+        <ul id={id} className="ml-2 border-l border-line pl-2">
           {entries.slice(0, shown).map(([key, child]) => (
             <Node
               key={key}

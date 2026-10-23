@@ -72,7 +72,7 @@ export function FilterToolbar({
   return (
     <div className={clsx("space-y-2", className)}>
       <div className="flex flex-wrap items-center gap-2">
-        {search ? <div className="min-w-0 flex-1 sm:flex-none">{search}</div> : null}
+        {search ? <div className="w-full min-w-0 sm:w-auto sm:flex-none">{search}</div> : null}
         {filters ? (
           <button
             type="button"

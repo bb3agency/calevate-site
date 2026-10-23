@@ -88,12 +88,18 @@ export function Gauge({
   return (
     <div className={clsx("flex flex-wrap items-start gap-x-6 gap-y-4", className)}>
       <div
-        role="meter"
-        aria-label={label}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={score ?? undefined}
-        aria-valuetext={score === null ? pendingText : `${score} out of 100, ${band?.label ?? ""}`}
+        // No score yet is not a meter reading (a meter must carry a value), so it is an
+        // image named by the reason there is no score.
+        {...(score === null
+          ? { role: "img", "aria-label": `${label}: ${pendingText}` }
+          : {
+              role: "meter",
+              "aria-label": label,
+              "aria-valuemin": 0,
+              "aria-valuemax": 100,
+              "aria-valuenow": score,
+              "aria-valuetext": `${score} out of 100, ${band?.label ?? ""}`,
+            })}
         className="relative shrink-0"
         style={{ width: size, height: size }}
       >

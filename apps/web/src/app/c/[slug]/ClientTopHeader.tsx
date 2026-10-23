@@ -51,6 +51,7 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
   // all-clear, which is the same "nobody is waiting" claim §52 exists to stop the shell
   // making. A bell that has lost the API says so.
   const waiting = attention.data?.total;
+  const bellItems = (attention.data?.items ?? []).slice(0, BELL_ROWS);
   // New items on the bell also become desktop notifications, once turned on in Alerts.
   useDesktopAlerts(slug, attention.data, href);
 
@@ -99,7 +100,7 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
             state={attention.error != null ? "error" : attention.data ? "ready" : "loading"}
             count={waiting}
             onRetry={() => void attention.refetch()}
-            items={(attention.data?.items ?? []).slice(0, BELL_ROWS).map((item) => ({
+            items={bellItems.map((item) => ({
               id: `${item.kind}-${item.id}-${item.occurred_at}`,
               title: item.title,
               detail: item.detail,
@@ -108,8 +109,9 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
               tone: KIND_TONE[item.kind],
             }))}
             shortfall={
-              waiting !== undefined && waiting > BELL_ROWS
-                ? `The newest ${formatCount(BELL_ROWS)} of ${formatCount(waiting)}.`
+              // The rows actually shown, not the cap: the server may send fewer.
+              waiting !== undefined && waiting > bellItems.length
+                ? `The newest ${formatCount(bellItems.length)} of ${formatCount(waiting)}.`
                 : undefined
             }
             seeAll={{ href: href(`/c/${slug}/attention`), label: "Open everything that needs you" }}

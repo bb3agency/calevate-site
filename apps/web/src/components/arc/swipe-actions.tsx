@@ -60,7 +60,7 @@ export type SwipeActionsProps = {
 };
 
 const ACTION_BUTTON =
-  "flex min-w-[4.75rem] flex-col items-center justify-center gap-1 px-3 text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white disabled:opacity-50";
+  "flex w-19 shrink-0 flex-col items-center justify-center gap-1 px-3 text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white disabled:opacity-50";
 
 export function SwipeActions({ label, primary, secondary = [], children, className }: SwipeActionsProps) {
   const track = useRef<HTMLDivElement>(null);

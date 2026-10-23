@@ -126,7 +126,7 @@ export function TagInput({
                       disabled={disabled}
                       aria-label={removeLabel(tag)}
                       onClick={() => onChange(value.filter((t) => t !== tag))}
-                      className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-ink-muted hover:bg-ink/[0.08] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:h-9 touch:w-9"
+                      className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-ink-muted hover:bg-ink/[0.08] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:-my-2.5 touch:h-11 touch:w-11"
                     >
                       <X aria-hidden className="h-3 w-3" />
                     </button>

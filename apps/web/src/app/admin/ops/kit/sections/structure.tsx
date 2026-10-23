@@ -194,7 +194,7 @@ export function StructureSection() {
           <HoverCard
             label="Preview of Priya Reddy"
             trigger={
-              <Link href="#structure" className="font-medium text-brand-strong underline-offset-2 hover:underline">
+              <Link href="#structure" className="inline-flex items-center font-medium text-brand-strong underline-offset-2 hover:underline touch:min-h-11">
                 Priya Reddy
               </Link>
             }

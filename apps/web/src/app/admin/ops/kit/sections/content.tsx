@@ -15,7 +15,7 @@ import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { CopyButton } from "@/components/interior/copy-button";
 import { ApiProblem } from "@/lib/api/client";
-import { PRIMARY_BUTTON } from "@/components/ui";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON_SM } from "@/components/ui";
 
 import { KitDemo, KitGrid, KitSection } from "../kitLayout";
 
@@ -124,7 +124,7 @@ export function ContentSection() {
                 : null
           }
           previewAction={
-            <button type="button" className="text-meta font-medium text-brand-strong hover:underline">
+            <button type="button" className={SECONDARY_BUTTON_SM}>
               Listen
             </button>
           }
