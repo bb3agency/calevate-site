@@ -579,6 +579,31 @@ async def test_an_oversized_evidence_file_is_refused(monkeypatch: pytest.MonkeyP
     assert fake.uploads == []
 
 
+async def test_too_many_evidence_files_are_refused_before_any_upload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeApi()
+    monkeypatch.setattr(payment_admin_routes, "razorpay_api", lambda: fake)
+    _tenant_id, dispute_id = await _open_dispute()
+    files = [_upload() for _ in range(payment_admin_routes.EVIDENCE_MAX_FILES + 1)]
+    with pytest.raises(ProblemError) as refused:
+        await _contest(dispute_id, files)
+    assert refused.value.code == "dispute_evidence_too_many"
+    assert fake.uploads == []
+
+
+async def test_a_bad_last_file_leaves_no_document_at_the_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeApi()
+    monkeypatch.setattr(payment_admin_routes, "razorpay_api", lambda: fake)
+    _tenant_id, dispute_id = await _open_dispute()
+    with pytest.raises(ProblemError) as refused:
+        await _contest(dispute_id, [_upload(), _upload(content_type="text/plain")])
+    assert refused.value.code == "dispute_evidence_invalid"
+    assert fake.uploads == []
+
+
 async def test_a_contest_uploads_each_document_and_submits_the_disputed_amount(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

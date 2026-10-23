@@ -10,7 +10,7 @@ import uuid
 
 import pytest
 from apps.api.compliance.kyc_documents import KYC_MAX_DOCUMENT_BYTES
-from apps.api.core.middleware import MAX_BODY_BYTES, ROUTE_BODY_LIMITS
+from apps.api.core.middleware import MAX_BODY_BYTES, ROUTE_BODY_LIMITS, body_limit_for
 from apps.api.core.ratelimit import profile_for
 from apps.api.kb.pdf_render import MAX_UPLOAD_BYTES
 from apps.api.main import app
@@ -33,6 +33,19 @@ BOUNDED_UPLOADS = [
 def test_the_outer_wall_sits_just_above_the_routes_own_limit(path: str, file_limit: int) -> None:
     wall = ROUTE_BODY_LIMITS[("POST", path)]
     assert file_limit <= wall <= file_limit + 128 * 1024, (path, file_limit, wall)
+
+
+def test_a_dispute_contest_may_carry_every_evidence_file_it_accepts() -> None:
+    from apps.api.billing.payment_admin_routes import _EVIDENCE_MAX_BYTES, EVIDENCE_MAX_FILES
+
+    files = EVIDENCE_MAX_FILES * _EVIDENCE_MAX_BYTES
+    wall = body_limit_for("POST", "/v1/admin/payments/disputes/disp_abc123/contest")
+    assert files <= wall <= files + 128 * 1024
+    # The pattern is one path segment wide: nothing nested or neighbouring matches it.
+    assert body_limit_for("POST", "/v1/admin/payments/disputes/a/b/contest") == MAX_BODY_BYTES
+    assert body_limit_for("GET", "/v1/admin/payments/disputes/disp_abc123/contest") == (
+        MAX_BODY_BYTES
+    )
 
 
 @pytest.mark.parametrize("path", [p for p, limit in BOUNDED_UPLOADS if limit > 4 * 1024 * 1024])

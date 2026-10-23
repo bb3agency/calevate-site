@@ -55,10 +55,13 @@ Operator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin")
 WEBHOOK_PATH = "/hooks/v1/razorpay"
 #: Alarm codes this page shows, by prefix.
 _PAYMENT_ALARM_PREFIXES = ("razorpay_", "topup_", "auto_recharge_", "payment_dispute_")
-#: Evidence files: what Razorpay's Documents API is documented with (jpg/pdf samples,
-#: `api/documents/create.md`); the size limit is ours, as the docs state none.
+#: Evidence files: the types Razorpay's document entity lists (`api/documents/entity.md`).
+#: Both limits are ours and tighter than theirs: Razorpay takes up to 50,000 KB a file and
+#: states no count (`api/documents/create.md`, `api/disputes/contest.md`, read 24 Oct 2026).
+#: Each file is held in memory while it is uploaded, so the count bounds the request.
 _EVIDENCE_TYPES = frozenset({"application/pdf", "image/jpeg", "image/png"})
 _EVIDENCE_MAX_BYTES = 5 * 1024 * 1024
+EVIDENCE_MAX_FILES = 5
 
 
 class _Strict(BaseModel):
@@ -347,6 +350,12 @@ async def contest(
             "Contesting a dispute needs at least one document.",
             remediation="Attach a receipt, the call records or our terms as a PDF or image.",
         )
+    if len(files) > EVIDENCE_MAX_FILES:
+        raise ProblemError.business_rule(
+            "dispute_evidence_too_many",
+            f"Contest with at most {EVIDENCE_MAX_FILES} documents at a time.",
+            remediation="Combine documents into one PDF, or attach the most relevant ones.",
+        )
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
@@ -370,16 +379,22 @@ async def contest(
             "The contested amount must be more than zero and at most the disputed amount.",
             remediation="Leave it empty to contest the whole amount.",
         )
-    api = razorpay_api()
-    doc_ids: list[str] = []
+    # Every file is checked before the first is sent, so a bad last file cannot leave
+    # documents at Razorpay that no contest names. A read one byte past the limit is enough
+    # to know a file is too big without holding all of it.
+    checked: list[tuple[UploadFile, bytes]] = []
     for upload in files:
-        content = await upload.read()
+        content = await upload.read(_EVIDENCE_MAX_BYTES + 1)
         if upload.content_type not in _EVIDENCE_TYPES or len(content) > _EVIDENCE_MAX_BYTES:
             raise ProblemError.business_rule(
                 "dispute_evidence_invalid",
                 "Evidence must be a PDF, JPEG or PNG of at most 5 MB.",
                 remediation="Convert or shrink the file and try again.",
             )
+        checked.append((upload, content))
+    api = razorpay_api()
+    doc_ids: list[str] = []
+    for upload, content in checked:
         doc_ids.append(
             await api.upload_document(
                 filename=upload.filename or "evidence",

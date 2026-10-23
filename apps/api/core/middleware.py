@@ -101,6 +101,28 @@ ROUTE_BODY_LIMITS: dict[tuple[str, str], int] = {
     ("POST", "/v1/kb/teach/upload"): 3 * 1024 * 1024 + _MULTIPART_ROOM,
     ("POST", "/v1/first-run/recordings"): 3 * 1024 * 1024 + _MULTIPART_ROOM,
 }
+#: The same, for a route whose path carries an id. Anchored patterns over one path segment,
+#: so no other route can match.
+ROUTE_BODY_PATTERN_LIMITS: tuple[tuple[str, re.Pattern[str], int], ...] = (
+    # `billing/payment_admin_routes.EVIDENCE_MAX_FILES` files of `_EVIDENCE_MAX_BYTES` each.
+    (
+        "POST",
+        re.compile(r"/v1/admin/payments/disputes/[^/]+/contest"),
+        5 * 5 * 1024 * 1024 + _MULTIPART_ROOM,
+    ),
+)
+
+
+def body_limit_for(method: str, path: str, default: int = MAX_BODY_BYTES) -> int:
+    """The body limit for one request: its exact route's, its pattern's, or the default."""
+    exact = ROUTE_BODY_LIMITS.get((method, path))
+    if exact is not None:
+        return exact
+    for pattern_method, pattern, limit in ROUTE_BODY_PATTERN_LIMITS:
+        if method == pattern_method and pattern.fullmatch(path):
+            return limit
+    return default
+
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -316,7 +338,7 @@ class BodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
         path = str(scope.get("path", ""))
-        max_bytes = ROUTE_BODY_LIMITS.get((str(scope.get("method", "")), path), self.max_bytes)
+        max_bytes = body_limit_for(str(scope.get("method", "")), path, self.max_bytes)
         declared = _headers(scope).get("content-length")
         if declared and declared.isdigit() and int(declared) > max_bytes:
             await _problem_response(_payload_too_large(max_bytes), path)(scope, receive, send)
@@ -1107,6 +1129,7 @@ __all__ = [
     "CORRELATION_HEADER",
     "MAX_BODY_BYTES",
     "ROUTE_BODY_LIMITS",
+    "ROUTE_BODY_PATTERN_LIMITS",
     "SECURITY_HEADERS",
     "BodyLimitMiddleware",
     "CookieCsrfMiddleware",
@@ -1117,5 +1140,6 @@ __all__ = [
     "RealmCorsMiddleware",
     "SecurityHeadersMiddleware",
     "UnhandledExceptionMiddleware",
+    "body_limit_for",
     "install_middleware",
 ]
