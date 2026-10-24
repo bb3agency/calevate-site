@@ -184,7 +184,9 @@ EXTRACTION_TIMEOUT_S: Final = 60.0
 #: warn that a low `max_tokens` lets reasoning use the whole budget (docs.sarvam.ai/
 #: api-reference-docs/api-guides-tutorials/chat-completion/overview, read 21 Oct 2026). A
 #: production call (20 Oct 2026) truncated at 2048 on both its first pass and its re-read.
-#: 4096 is the ceiling Sarvam's lowest tier allows, so it is valid on every plan.
+#: 4096 is the ceiling Sarvam's lowest tier allows, so it is valid on every plan. Because the
+#: cap cannot rise further, a Sarvam answer truncated with reasoning on is asked once more with
+#: reasoning off (`SarvamExtractor.run`), and a re-read of a truncated call starts there.
 EXTRACTION_MAX_TOKENS: Final = 4096
 
 
@@ -327,7 +329,8 @@ def _first_json_object(text: str) -> dict[str, Any]:
 #:         --provider sarvam_reasoning_off --evidence <path>.md
 #:
 #: and compare `restraint` and `capture_wrong` (both unwaivable), field accuracy and the
-#: output tokens per case. Change this value only on that evidence.
+#: output tokens per case. Change this value only on that evidence. It is the FIRST ask only:
+#: an answer truncated at `EXTRACTION_MAX_TOKENS` is retried with `off` in the same run.
 SARVAM_EXTRACTION_REASONING_EFFORT: Final[chat.ReasoningEffort] = "low"
 
 
@@ -363,9 +366,19 @@ class SarvamExtractor:
         #: What the last `run` cost, in Sarvam's own count, or None if it sent no `usage`
         #: block. Read by the post-call pipeline to record the pass at our cost.
         self.last_usage: TokenUsage | None = None
+        #: The `reasoning_effort` of the request whose answer the last `run` used, or None
+        #: before one answered. `off` after a truncation retry; metered beside the tokens.
+        self.last_reasoning_effort: chat.ReasoningEffort | None = None
         #: When the assist this pass serves must be done by (`ladder_deadlines`); None in
         #: the post-call pipeline, where each request keeps its whole `timeout_s`.
         self.deadline: float | None = None
+
+    def without_reasoning(self) -> SarvamExtractor:
+        """This runner asking with reasoning off from the first request: the re-read of a
+        call whose stored failure is a truncation, which the default would only repeat."""
+        return SarvamExtractor(
+            self._api_key, self.model_name, timeout_s=self._timeout_s, reasoning_effort="off"
+        )
 
     @property
     def _leg(self) -> chat.ChatLeg:
@@ -400,9 +413,42 @@ class SarvamExtractor:
         # `extract_call`'s ladder and fails the whole post-call job — is now that module's
         # `_message_of`, so both legs and every future one inherit it.
         self.last_usage = None
+        self.last_reasoning_effort = None
         prompt = build_extraction_prompt(
             spec, transcript, moments=moments, languages=languages, outcomes=outcomes
         )
+        schema = build_response_schema(spec, moments=moments is not None, outcomes=outcomes)
+
+        outcome = await self._ask(prompt, schema, self._reasoning_effort)
+        # Before the truncation check: a truncated answer was still paid for.
+        self.last_usage = outcome.usage
+        self.last_reasoning_effort = self._reasoning_effort
+        if outcome.finish_reason == "length" and self._reasoning_effort != "off":
+            # Sarvam bills its reasoning inside `EXTRACTION_MAX_TOKENS`, so a truncation at
+            # `low` is usually the reasoning eating the budget, and asking again with the
+            # same settings truncates again (23 Oct 2026, three identical re-reads). One
+            # immediate retry with reasoning off gives the whole budget to the JSON.
+            record_extraction_failure(reason="truncated_reasoning_retry")
+            log.warning(
+                "extraction_truncated_retry",
+                extra={
+                    "model": self.model_name,
+                    "reasoning_effort": self._reasoning_effort,
+                    "retry_reasoning_effort": "off",
+                },
+            )
+            first_usage = outcome.usage
+            outcome = await self._ask(prompt, schema, "off")
+            self.last_usage = chat.sum_usage((first_usage, outcome.usage))
+            self.last_reasoning_effort = "off"
+        if outcome.finish_reason == "length":
+            raise ExtractionTruncatedError(self.model_name)
+        return _first_json_object(outcome.content)
+
+    async def _ask(
+        self, prompt: str, schema: dict[str, Any], reasoning_effort: chat.ReasoningEffort
+    ) -> chat.ChatOutcome:
+        """One answer under Structured Outputs, degrading to `json_object` on a 400."""
 
         async def ask(response_format: Mapping[str, Any]) -> chat.ChatOutcome:
             return await chat.complete(
@@ -412,12 +458,10 @@ class SarvamExtractor:
                 temperature=0,
                 response_format=response_format,
                 max_tokens=EXTRACTION_MAX_TOKENS,
-                reasoning_effort=self._reasoning_effort,
+                reasoning_effort=reasoning_effort,
             )
 
-        outcome, degraded = await _ask_strict_then_plain(
-            ask, build_response_schema(spec, moments=moments is not None, outcomes=outcomes)
-        )
+        outcome, degraded = await _ask_strict_then_plain(ask, schema)
         if degraded:
             log.warning(
                 "sarvam_json_schema_unsupported",
@@ -430,11 +474,7 @@ class SarvamExtractor:
                     ),
                 },
             )
-        # Before the truncation check: a truncated answer was still paid for.
-        self.last_usage = outcome.usage
-        if outcome.finish_reason == "length":
-            raise ExtractionTruncatedError(self.model_name)
-        return _first_json_object(outcome.content)
+        return outcome
 
 
 #: How each schema field type is spelled in a JSON Schema Azure's Structured Outputs will

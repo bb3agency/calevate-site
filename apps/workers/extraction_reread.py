@@ -41,7 +41,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue, job_id_for
 from apps.api.db.session import tenant_session
 from apps.api.integrations import service as integrations
-from apps.workers.extraction import MODEL_FAILURE, model_answered
+from apps.workers.extraction import MODEL_FAILURE, ExtractionTruncatedError, model_answered
 from apps.workers.pipeline import (
     PIPELINE_STALL_AFTER,
     _agent_business_outcomes,
@@ -134,6 +134,23 @@ _CLAIM_SQL: Final = (
     "AND ce.reread_attempts < :max_attempts "
     "AND (ce.reread_at IS NULL OR ce.reread_at < :spaced_before) "
     "RETURNING ce.reread_attempts"
+)
+
+
+#: The `errors._model` value of a reading the model ran out of tokens on.
+_TRUNCATED: Final = ExtractionTruncatedError.__name__
+
+_STORED_FAILURE_SQL: Final = (
+    "SELECT errors ->> :model_failure FROM call_extractions "
+    "WHERE call_id = :cid AND tenant_id = :tid"
+)
+
+#: Ends the re-reads of a call whose reasoning-off reading still truncated: at temperature 0
+#: the same transcript and schema truncate again, so further tries are paid for nothing. The
+#: call then counts as exhausted, so `extraction_reread_exhausted` names it for a person.
+_GIVE_UP_SQL: Final = (
+    "UPDATE call_extractions SET reread_attempts = GREATEST(reread_attempts, :max_attempts), "
+    "updated_at = now() WHERE call_id = :cid AND tenant_id = :tid"
 )
 
 
@@ -241,17 +258,43 @@ async def _outcomes_now(tenant_id: UUID, call_id: UUID) -> tuple[str | None, str
     return (row[0], row[1]) if row is not None else (None, None)
 
 
+async def _stored_failure(tenant_id: UUID, call_id: UUID) -> str | None:
+    async with tenant_session(tenant_id) as session:
+        return cast(
+            "str | None",
+            (
+                await session.execute(
+                    text(_STORED_FAILURE_SQL),
+                    {"model_failure": MODEL_FAILURE, "cid": call_id, "tid": tenant_id},
+                )
+            ).scalar_one_or_none(),
+        )
+
+
+async def _give_up(tenant_id: UUID, call_id: UUID) -> None:
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(_GIVE_UP_SQL),
+            {"max_attempts": REREAD_MAX_ATTEMPTS, "cid": call_id, "tid": tenant_id},
+        )
+
+
 async def reread_extraction(tenant_id: UUID, call_id: UUID) -> str:
     """Read one call again and file what the reading changes. Returns `still_failed`,
-    `reread` or `call_not_found`.
+    `still_truncated`, `reread` or `call_not_found`.
 
     The attempt has already been claimed; this does the reading. Each stage is the
     pipeline's own and is safe to run again: the extraction is one row per call, the lead
     files a call once (`_upsert_lead`), and the hot alert is queued once per lead per call.
+
+    A call whose stored failure is a truncation is read with reasoning off from the first
+    request, since the default settings are what truncated; if that truncates too, the
+    call's re-reads end here (`still_truncated`) rather than repeating it.
     """
     snapshot = await _stored_snapshot(tenant_id, call_id)
     if snapshot is None:
         return "call_not_found"
+    after_truncation = await _stored_failure(tenant_id, call_id) == _TRUNCATED
     spec, schema_version, agent_id, direction, _disclosure, _notice = await _load_call_context(
         tenant_id, call_id
     )
@@ -266,8 +309,12 @@ async def reread_extraction(tenant_id: UUID, call_id: UUID) -> str:
         transcript_text=extractor_transcript(snapshot.transcript),
         opt_out_signal=detect_opt_out(snapshot.transcript) if snapshot.transcript else None,
         business_outcomes=business_outcomes,
+        reasoning_off=after_truncation,
     )
     if extraction is None or not model_answered(extraction):
+        if extraction is not None and extraction.errors.get(MODEL_FAILURE) == _TRUNCATED:
+            await _give_up(tenant_id, call_id)
+            return "still_truncated"
         return "still_failed"
 
     reading = await _record_reading(tenant_id, call_id, snapshot, extraction)
