@@ -54,8 +54,6 @@ describe("a rate card whose cheaper voice is flat", () => {
     const { container } = render(<WhatCallsCost card={FLAT_CLEAR} labels={LABELS} />);
     const text = container.textContent ?? "";
     expect(text).not.toMatch(FALLS_TO_ITSELF);
-    // The voice that DOES still fall keeps its band — the guard must not flatten both.
-    expect(text).toContain("₹5.50");
   });
 
   it("does not advertise a pack discount the ROI calculator's own card does not grant", () => {

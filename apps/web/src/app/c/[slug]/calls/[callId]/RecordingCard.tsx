@@ -3,7 +3,8 @@
 import { useEffect, useRef } from "react";
 import { AudioLines } from "lucide-react";
 
-import { ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { ProblemNotice } from "@/components/ui";
 import {
   CallAudioPlayer,
   type CallAudioPlayerHandle,
@@ -33,6 +34,7 @@ import type { useRecordingLink } from "./transcriptAccess";
  */
 export function RecordingCard({
   recording,
+  status,
   playerRef,
   onTimeUpdate,
   durationS,
@@ -41,6 +43,8 @@ export function RecordingCard({
   download,
 }: {
   recording: ReturnType<typeof useRecordingLink>;
+  /** The first press's state, from the caller's `useActionFeedback`; without one, pending only. */
+  status?: FeedbackStatus;
   playerRef: React.Ref<CallAudioPlayerHandle>;
   onTimeUpdate: (seconds: number) => void;
   durationS: number | null;
@@ -109,15 +113,10 @@ export function RecordingCard({
     <div className="space-y-2">
       {recording.error != null && <ProblemNotice error={recording.error} />}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <button
-          type="button"
-          disabled={recording.isPending}
-          onClick={() => recording.mutate()}
-          className={SECONDARY_BUTTON}
-        >
+        <ActionButton variant="secondary" status={status ?? (recording.isPending ? "pending" : "idle")} pendingLabel="Preparing…" onClick={() => recording.mutate()}>
           <AudioLines aria-hidden className="h-4 w-4" />
-          {recording.isPending ? "Preparing…" : "Listen to this call"}
-        </button>
+          Listen to this call
+        </ActionButton>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
@@ -74,6 +75,12 @@ export function CallbacksScreen() {
   const openOnly = view === "open";
   const callbacks = useCallbacks(session, openOnly);
   const cancel = useCancelCallback(session);
+  // The refusal is shown inside the dialog; the toast confirms once the dialog has closed.
+  const cancelFeedback = useActionFeedback(cancel, {
+    errorDisplay: "inline",
+    successToast: "Call-back called off",
+    successDescription: "Nobody will ring them for it.",
+  });
   const write = useWriteAccess(session, "leads:dispatch", "call off a call-back");
   const [stopping, setStopping] = useState<ScheduledCallback | null>(null);
   const rows = callbacks.data;
@@ -248,7 +255,7 @@ export function CallbacksScreen() {
           confirmLabel="Do not ring them"
           pendingLabel="Calling it off…"
           cancelLabel="Keep it"
-          pending={cancel.isPending}
+          status={cancelFeedback.status}
           error={cancel.error}
           onCancel={() => {
             cancel.reset();

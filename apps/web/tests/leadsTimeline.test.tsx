@@ -100,6 +100,7 @@ function timeline(
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": ME,
+    "/v1/agents": [],
     "/v1/members": MEMBERS,
     "/v1/leads/lead-a": LEAD,
     "/v1/leads/lead-a/timeline?limit=50": timeline([event()]),

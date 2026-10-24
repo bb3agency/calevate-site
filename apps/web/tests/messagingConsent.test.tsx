@@ -281,7 +281,7 @@ describe("recording an answer", () => {
     const staffOption = "Someone here recorded their request";
     expect(screen.queryByRole("option", { name: staffOption })).toBeNull();
 
-    fireEvent.click(screen.getByLabelText("They do not want messages"));
+    fireEvent.click(screen.getByRole("radio", { name: /They do not want messages/ }));
     expect(
       await screen.findByRole("option", { name: staffOption }),
     ).toBeTruthy();
@@ -290,7 +290,7 @@ describe("recording an answer", () => {
   it("never obstructs a refusal — no evidence is asked for and none is required", async () => {
     await form();
 
-    fireEvent.click(screen.getByLabelText("They do not want messages"));
+    fireEvent.click(screen.getByRole("radio", { name: /They do not want messages/ }));
     fireEvent.change(screen.getByLabelText("Their number"), {
       target: { value: RAW_PHONE },
     });
@@ -309,7 +309,7 @@ describe("recording an answer", () => {
       }),
     });
 
-    fireEvent.click(screen.getByLabelText("They do not want messages"));
+    fireEvent.click(screen.getByRole("radio", { name: /They do not want messages/ }));
     fireEvent.change(screen.getByLabelText("Their number"), {
       target: { value: RAW_PHONE },
     });
@@ -344,7 +344,7 @@ describe("recording an answer", () => {
       }),
     });
 
-    fireEvent.click(screen.getByLabelText("They do not want messages"));
+    fireEvent.click(screen.getByRole("radio", { name: /They do not want messages/ }));
     fireEvent.change(screen.getByLabelText("Their number"), {
       target: { value: RAW_PHONE },
     });

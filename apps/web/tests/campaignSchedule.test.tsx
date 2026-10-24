@@ -1,7 +1,7 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { campaignPage, detailRoutes, progressFixture } from "./campaignFixtures";
+import { campaignPage, detailRoutes, pickDate, progressFixture } from "./campaignFixtures";
 import type { Agent } from "@/lib/api/agents";
 import type {
   CampaignProgress,
@@ -33,6 +33,8 @@ import { expectTextCount, problem, renderClientPage } from "./harness";
  */
 
 const CAMPAIGN_ID = "0192f0aa-2222-7000-8000-000000000001";
+/** A start the picker offers whenever the suite runs: it refuses days already gone. */
+const FUTURE_DAY = "2030-08-17";
 const AGENT_ID = "0192f0aa-3333-7000-8000-000000000002";
 
 const ME: Me = {
@@ -177,9 +179,7 @@ describe("scheduling from the launch card", () => {
       "Before you launch",
     );
 
-    fireEvent.change(screen.getByLabelText("Start date"), {
-      target: { value: "2026-08-17" },
-    });
+    await pickDate("Start date", FUTURE_DAY);
     fireEvent.change(screen.getByLabelText("Start time (IST)"), {
       target: { value: "10:00" },
     });
@@ -190,14 +190,14 @@ describe("scheduling from the launch card", () => {
         calls.find((c) => c.method === "POST" && c.path.endsWith("/schedule")),
       { timeout: 2000 },
     );
-    // Character for character: a body of `{"start_at":"2026-08-17T10:00:00"}` is the
-    // bug this test exists for, and it is one the server would refuse — but only after
-    // the client had already been shown a working-looking form.
-    expect(sent.body).toBe('{"start_at":"2026-08-17T10:00:00+05:30"}');
+    // Character for character: a body without the +05:30 is the bug this test exists
+    // for, and it is one the server would refuse — but only after the client had already
+    // been shown a working-looking form.
+    expect(sent.body).toBe(`{"start_at":"${FUTURE_DAY}T10:00:00+05:30"}`);
   });
 
-  it("keeps the button dead until both halves of the time are picked", async () => {
-    await openCampaign(
+  it("says which half of the time is missing, and sends nothing until both are picked", async () => {
+    const { calls } = await openCampaign(
       {
         [`/v1/campaigns/${CAMPAIGN_ID}`]: progress({
           status: "draft",
@@ -206,14 +206,9 @@ describe("scheduling from the launch card", () => {
       },
       "Before you launch",
     );
-    const button = screen.getByRole("button", {
-      name: "Schedule start",
-    }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("Start date"), {
-      target: { value: "2026-08-17" },
-    });
-    expect(button.disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Schedule start" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Choose the day it should start.");
+    expect(calls.some((c) => c.path.endsWith("/schedule"))).toBe(false);
   });
 
   it("says the gate runs again at the start, not only now", async () => {
@@ -318,9 +313,7 @@ describe("a campaign waiting for its start", () => {
       },
       "Before you launch",
     );
-    fireEvent.change(screen.getByLabelText("Start date"), {
-      target: { value: "2026-08-17" },
-    });
+    await pickDate("Start date", FUTURE_DAY);
     fireEvent.click(screen.getByRole("button", { name: "Schedule start" }));
     expect(
       await screen.findByText(
@@ -368,18 +361,9 @@ describe("arming a schedule while the gate is refusing", () => {
 
     // Reachable: the one-time start and the repeat, both live rather than merely
     // rendered — a form a client can see and cannot submit is the same dead end.
-    expect(screen.getByLabelText("Start date")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start date" })).toBeTruthy();
     expect(screen.getByLabelText("Start time (IST)")).toBeTruthy();
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Schedule start",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true); // …until a date is picked, which is the form's own rule, not the gate's.
-    fireEvent.change(screen.getByLabelText("Start date"), {
-      target: { value: "2026-08-17" },
-    });
+    await pickDate("Start date", FUTURE_DAY);
     expect(
       (
         screen.getByRole("button", {
@@ -462,9 +446,7 @@ describe("arming a schedule while the gate is refusing", () => {
       "Before you launch",
     );
 
-    fireEvent.change(screen.getByLabelText("Start date"), {
-      target: { value: "2026-08-17" },
-    });
+    await pickDate("Start date", FUTURE_DAY);
     fireEvent.change(screen.getByLabelText("Start time (IST)"), {
       target: { value: "10:00" },
     });
@@ -475,7 +457,7 @@ describe("arming a schedule while the gate is refusing", () => {
         calls.find((c) => c.method === "POST" && c.path.endsWith("/schedule")),
       { timeout: 2000 },
     );
-    expect(sent.body).toBe('{"start_at":"2026-08-17T10:00:00+05:30"}');
+    expect(sent.body).toBe(`{"start_at":"${FUTURE_DAY}T10:00:00+05:30"}`);
   });
 
   it("keeps the warning off a campaign the gate is happy with", async () => {

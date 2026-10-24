@@ -395,7 +395,12 @@ describe("the D-21 dispatch verdict, per lead", () => {
     });
     expect(buttons).toHaveLength(2);
 
+    // Calling rings a phone, so it is asked first (the follow-up actions' confirmation).
     fireEvent.click(buttons[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Call now" }));
+    // The refusal is said in the dialog where the press was; closing it leaves it on the row.
+    await screen.findAllByText(/do-not-call list/);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     // ONE lead was called, so one verdict may exist. A shared slot puts it on both rows
     // here, before the second click has even happened.
     const firstVerdict = await screen.findAllByText(/do-not-call list/);
@@ -405,6 +410,7 @@ describe("the D-21 dispatch verdict, per lead", () => {
 
     // Priya's row is still callable, and calling her must not disturb Ramesh's answer.
     fireEvent.click(screen.getByRole("button", { name: /Call with AI/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Call now" }));
     await screen.findByText("Calling now");
 
     expect(row(SHOWN_A).textContent).toContain(
@@ -436,8 +442,10 @@ describe("the D-21 dispatch verdict, per lead", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: /Call with AI/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Call now" }));
     await screen.findByRole("alert");
-    fireEvent.click(screen.getByRole("button", { name: /Call with AI/ }));
+    // The retry is the same confirm button, still open with the failure inside it.
+    fireEvent.click(screen.getByRole("button", { name: "Call now" }));
     await screen.findByText("Calling now");
 
     const keys = calls
@@ -463,8 +471,9 @@ describe("the D-21 dispatch verdict, per lead", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Call with AI/ }),
     );
+    fireEvent.click(await screen.findByRole("button", { name: "Call now" }));
 
-    expect(await screen.findByText(/do-not-call list/)).toBeTruthy();
+    expect((await screen.findAllByText(/do-not-call list/)).length).toBeGreaterThan(0);
     /*
      * THE RULE NAME IS NOT SHOWN, AND THIS ASSERTION USED TO BE ITS OPPOSITE.
      *
@@ -503,8 +512,9 @@ describe("the D-21 dispatch verdict, per lead", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Call with AI/ }),
     );
+    fireEvent.click(await screen.findByRole("button", { name: "Call now" }));
 
-    await screen.findByText(/no calling credit left/);
+    await screen.findAllByText(/no calling credit left/);
     expect(container.textContent).not.toContain("still get through");
     expect(container.textContent).toContain(
       "Add credit on the Credits & billing screen and both start again straight away",

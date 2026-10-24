@@ -1,7 +1,8 @@
 "use client";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { StatusPill } from "@/components/console/statusPill";
-import { NoticeBox, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, formatIST } from "@/components/ui";
+import { NoticeBox, ProblemNotice, formatIST } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { testRunning, useLineTests, useRunTest, type ForwardedLine } from "@/lib/api/forwarding";
 
@@ -31,6 +32,8 @@ export function TestPanel({
 }) {
   const tests = useLineTests(session, line.id);
   const run = useRunTest(session, line.id);
+  // A refusal is said above the button; the result is the panel's own status line.
+  const runFeedback = useActionFeedback(run, { errorDisplay: "inline" });
   const latest = tests.data?.[0];
   const running = testRunning(latest) || run.isPending;
   const outcome = latest?.outcome ? OUTCOME_COPY[latest.outcome] : null;
@@ -73,14 +76,19 @@ export function TestPanel({
           ))}
         </ul>
       </details>
-      <button
-        type="button"
-        className={`${primary ? PRIMARY_BUTTON : SECONDARY_BUTTON} w-full justify-center sm:w-auto`}
-        disabled={!allowed || !available || running}
-        onClick={() => run.mutate()}
+      {/* Busy for the whole test, not only the request that starts it: the call takes
+          about two minutes and a second press would ring the number twice. */}
+      <ActionButton
+        variant={primary ? "primary" : "secondary"}
+        className="w-full sm:w-auto"
+        status={running ? "pending" : runFeedback.status}
+        pendingLabel="Testing…"
+        successLabel="Started"
+        disabled={!allowed || !available}
+        onClick={() => runFeedback.run()}
       >
-        {running ? "Testing…" : latest ? "Test again" : "Test it now"}
-      </button>
+        {latest ? "Test again" : "Test it now"}
+      </ActionButton>
     </div>
   );
 }

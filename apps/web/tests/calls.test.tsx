@@ -65,7 +65,7 @@ function call(over: Partial<CallSummary> = {}): CallSummary {
 const page = <CallsPage params={Promise.resolve({ slug: "acme" })} />;
 
 function routes(calls: unknown, over: Record<string, unknown> = {}) {
-  return { "/v1/me": ME, "/v1/calls?limit=100": calls, ...over };
+  return { "/v1/me": ME, "/v1/agents": [], "/v1/calls?limit=100": calls, ...over };
 }
 
 describe("the call log", () => {
@@ -144,7 +144,7 @@ describe("the call log", () => {
     ).toBeNull();
   });
 
-  it("filters on one row: outcome chips with Needs you first, two dropdowns and the test-call switch", async () => {
+  it("filters on one row: outcome chips with Needs you first, the days, which way and the test-call switch", async () => {
     await renderClientPage(page, routes([call()]));
     await screen.findByText("+91 98765 43210");
 
@@ -154,7 +154,8 @@ describe("the call log", () => {
       screen.getByRole("group", { name: "Show calls by how they ended" }).querySelectorAll("button"),
     ).map((b) => b.textContent);
     expect(chips).toEqual(["Needs you", "Call back booked", "Answered", "Transferred", "Hung up early", "Missed"]);
-    expect(screen.getByRole("combobox", { name: "When" })).toBeTruthy();
+    // When is a span of India-time days (the kit date-range picker), not a dropdown.
+    expect(screen.getByRole("button", { name: "Dates" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Which way" })).toBeTruthy();
     expect((screen.getByRole("checkbox", { name: "Include test calls" }) as HTMLInputElement).checked).toBe(true);
   });
@@ -225,6 +226,7 @@ describe("exporting the call log (REDESIGN-2)", () => {
     const owner: Me = { ...ME, permissions: ["calls:read", "calls:read_raw"] };
     const { calls } = await renderClientPage(page, {
       "/v1/me": owner,
+      "/v1/agents": [],
       "/v1/calls?limit=100": [call()],
       "/v1/calls?direction=inbound&limit=100": [call()],
       "/v1/calls/export.csv?direction=inbound": csv("Started (India time),Direction\n"),
@@ -313,10 +315,10 @@ describe("the agent filter from a link", () => {
         page,
         routes([call()], { "/v1/calls?agent_id=a1&limit=100": [call()] }),
       );
-      const chip = await screen.findByRole("button", { name: "Agent: Reception" });
+      const chip = await screen.findByRole("button", { name: "Remove the filter: Agent: Reception" });
       expect(calls.some((c) => c.path === "/v1/calls?agent_id=a1&limit=100")).toBe(true);
       fireEvent.click(chip);
-      await waitFor(() => expect(screen.queryByRole("button", { name: /^Agent:/ })).toBeNull());
+      await waitFor(() => expect(screen.queryByRole("button", { name: /Agent:/ })).toBeNull());
       expect(calls.some((c) => c.path === "/v1/calls?limit=100")).toBe(true);
     } finally {
       window.history.replaceState(null, "", "/");

@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 
+import type { FollowUpActions, FollowUpTarget } from "@/components/calls/followUpActions";
 import { type Lead, type LeadColumn, type LeadStatus } from "@/lib/api/leads";
 
 /**
@@ -17,9 +18,9 @@ export interface LeadRowKit {
   maySelect: boolean;
   readOnly: boolean;
   ticked: Set<string>;
-  allOfPageTicked: boolean;
   toggleRow: (leadId: string) => void;
-  toggleAllOnPage: () => void;
+  /** The table's selection column hands back the whole ticked set. */
+  setTicked: (next: Set<string>) => void;
   renderCell: (column: LeadColumn, lead: Lead) => ReactNode;
   /** Once per row, in its first cell — an inline edit that failed and reverted. */
   rowFailure: (lead: Lead) => ReactNode;
@@ -31,6 +32,9 @@ export interface LeadRowKit {
   callHref: (callId: string) => string;
   /** The SERVER's count for a stage, or `undefined` when it did not say. */
   stageCount: (stage: LeadStatus) => number | undefined;
+  /** Call now, mark, call back later, WhatsApp: the swipe and the ⋯ menu. */
+  followUp: FollowUpActions;
+  targetOf: (lead: Lead) => FollowUpTarget;
   /**
    * IS ANY FILTER IN FORCE — one boolean, derived from the LENS the server was actually
    * given (`leadFilters.anyFilterInForce`), so the empty state can belong to the filters

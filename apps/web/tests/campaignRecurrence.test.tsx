@@ -249,22 +249,19 @@ describe("a repeat the screen could not read", () => {
 
 describe("setting a repeat", () => {
   it("cannot be submitted until a day is chosen, and says so", async () => {
-    const { container } = await openCampaign(DRAFT);
+    const { calls } = await openCampaign(DRAFT);
 
     await screen.findByText("Or repeat it every week");
-    const set = screen.getByRole("button", {
-      name: "Set repeat",
-    }) as HTMLButtonElement;
-    expect(set.disabled).toBe(true);
-    expect(container.textContent).toContain("Choose at least one day");
+    // The message waits for a press: a form that opens shouting is read as broken.
+    expect(screen.queryByText("Choose at least one day.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Set repeat" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Choose at least one day.");
+    expect(calls.some((c) => c.path.endsWith("/recurrence"))).toBe(false);
 
     // Every day toggle is reachable by its full name, not by a three-letter abbreviation
-    // a screen reader spells out.
+    // a screen reader spells out; ticking one clears the message.
     fireEvent.click(screen.getByRole("checkbox", { name: "Tuesday" }));
-    expect(
-      (screen.getByRole("button", { name: "Set repeat" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(false);
+    expect(screen.queryByText("Choose at least one day.")).toBeNull();
   });
 
   it("sends ISO weekday numbers and an IST wall-clock time", async () => {

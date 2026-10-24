@@ -21,6 +21,7 @@ import {
 
 import { adminSession } from "./admin";
 import { apiRequest, type Session } from "./client";
+import { livePoll } from "@/lib/live/liveStatus";
 import { notificationKeys } from "./notifications";
 import type { components } from "./schema";
 
@@ -44,6 +45,8 @@ export function useAnnouncements(session: Session): UseQueryResult<AnnouncementL
     queryKey: announcementKeys.mine(session.orgSlug),
     queryFn: () => apiRequest<AnnouncementList>(session, "/v1/announcements"),
     staleTime: 60_000,
+    // No live topic carries an operator's announcement to a client stream, so the bar polls.
+    refetchInterval: livePoll(5 * 60_000),
   });
 }
 

@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { Bookmark, Trash2 } from "lucide-react";
 
-import { FIELD_INLINE, FIELD_LABEL, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
-import { TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
-import { SavedTick } from "@/components/console/savedTick";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FIELD_INLINE, FIELD_LABEL, ProblemNotice } from "@/components/ui";
+import { TEXT_ACTION } from "@/components/console/section";
 import { useClientRealm } from "@/lib/api/session";
 import { useDeleteView, useSaveView, type SavedView, type SavedViewBody } from "@/lib/api/leads";
 
@@ -49,9 +49,19 @@ export function SavedViewBar({
   // Save, update and delete otherwise leave no trace on screen (the picker just
   // re-selects), so each is acknowledged beside these controls with a tick that fades
   // (REDESIGN-2: no success toasts).
-  const [done, setDone] = useState<{ at: number; label: string }>({ at: 0, label: "Saved" });
   const saveView = useSaveView(session);
   const deleteView = useDeleteView(session);
+  // A new view closes its form and becomes the chosen one, so its success is a toast; an
+  // update keeps its button, whose face says it. A refused name is said beside the form.
+  const saving = useActionFeedback(saveView, {
+    errorDisplay: "inline",
+    successToast: (view, vars) => (vars.viewId ? null : `Saved the view “${view.name}”`),
+  });
+  const deleting = useActionFeedback(deleteView, {
+    errorTitle: "Could not delete the view",
+    successToast: "View deleted",
+  });
+  const updatingThis = Boolean(saveView.variables?.viewId);
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
 
@@ -97,6 +107,7 @@ export function SavedViewBar({
             noValidate
             onSubmit={(e) => {
               e.preventDefault();
+              if (!name.trim()) return;
               saveView.mutate(
                 { body: { ...currentBody, name: name.trim() } },
                 {
@@ -104,7 +115,6 @@ export function SavedViewBar({
                     setNaming(false);
                     setName("");
                     onApply(view);
-                    setDone({ at: Date.now(), label: `Saved “${view.name}”` });
                   },
                 },
               );
@@ -122,13 +132,15 @@ export function SavedViewBar({
                 className={`${FIELD_INLINE} mt-1 block w-48`}
               />
             </div>
-            <button
+            <ActionButton
               type="submit"
-              disabled={!name.trim() || saveView.isPending}
-              className={SECONDARY_BUTTON_SM}
+              variant="secondary-sm"
+              status={updatingThis ? "idle" : saving.status}
+              successLabel="Saved"
+              disabled={!name.trim()}
             >
-              {saveView.isPending ? "Saving…" : "Save"}
-            </button>
+              Save
+            </ActionButton>
             <button
               type="button"
               onClick={() => {
@@ -155,49 +167,36 @@ export function SavedViewBar({
 
         {active && (
           <>
-            <button
-              type="button"
-              disabled={!canWrite || saveView.isPending}
+            <ActionButton
+              variant="secondary-sm"
+              status={updatingThis ? saving.status : "idle"}
+              successLabel="Updated"
+              disabled={!canWrite}
               title={writeReason ?? undefined}
-              onClick={() =>
-                saveView.mutate(
-                  { viewId: active.id, body: { ...currentBody, name: active.name } },
-                  {
-                    onSuccess: () => setDone({ at: Date.now(), label: `Updated “${active.name}”` }),
-                  },
-                )
-              }
-              className={TEXT_ACTION}
+              onClick={() => saving.run({ viewId: active.id, body: { ...currentBody, name: active.name } })}
             >
-              Update “{active.name}”
-            </button>
-            <button
-              type="button"
-              disabled={!canWrite || deleteView.isPending}
+              <span className="max-w-48 truncate">Update “{active.name}”</span>
+            </ActionButton>
+            <ActionButton
+              variant="secondary-sm"
+              status={deleting.status}
+              pendingLabel="Deleting…"
+              successLabel="Deleted"
+              disabled={!canWrite}
               title={writeReason ?? undefined}
-              onClick={() =>
-                deleteView.mutate(active.id, {
-                  onSuccess: () => {
-                    onApply(undefined);
-                    setDone({ at: Date.now(), label: `Deleted “${active.name}”` });
-                  },
-                })
-              }
-              className={TEXT_ACTION_DANGER}
+              onClick={() => deleteView.mutate(active.id, { onSuccess: () => onApply(undefined) })}
             >
               <Trash2 aria-hidden className="h-3.5 w-3.5" />
-              Delete
-            </button>
+              Delete view
+            </ActionButton>
           </>
         )}
-        <SavedTick at={done.at} label={done.label} />
       </div>
 
       {/* Errors from the mutations, in the server's own words. A refused name clash has a
           remediation the client can act on, and swallowing it would leave a button that
           looks like it did nothing. */}
       {saveView.error != null && <ProblemNotice error={saveView.error} />}
-      {deleteView.error != null && <ProblemNotice error={deleteView.error} />}
 
       {/* THE DEGRADATION, said out loud. Both lists are already excluded from what the
           view applies, so this is a report and not a warning about something pending. */}

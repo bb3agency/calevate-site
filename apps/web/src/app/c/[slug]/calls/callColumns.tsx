@@ -1,6 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
+import { CircleAlert, CircleCheck } from "lucide-react";
+
+import { HoverCard } from "@/components/arc/hover-card";
 
 import { formatDuration, formatINR, formatIST, formatPhone } from "@/components/ui";
 import type { DataColumn } from "@/components/console/dataTable";
@@ -29,6 +33,66 @@ export function CallResult({
     <span className={`whitespace-nowrap text-meta ${warn ? "font-medium text-warn" : "text-ink-muted"}`}>
       {overdue ? "Call back overdue" : callResultWords(call)}
     </span>
+  );
+}
+
+/**
+ * A PERSON'S MARK on the call (D-869), said apart from how the call ended: the outcome is
+ * what happened on the line, the mark is what the team decided about it afterwards.
+ */
+export function FollowUpMark({ state }: { state: string | null | undefined }) {
+  if (state === "resolved") {
+    return (
+      <span className="inline-flex items-center gap-1 whitespace-nowrap text-meta text-ink-muted">
+        <CircleCheck aria-hidden className="h-3.5 w-3.5 shrink-0 text-brand-strong" />
+        Marked done
+      </span>
+    );
+  }
+  if (state === "needs_you") {
+    return (
+      <span className="inline-flex items-center gap-1 whitespace-nowrap text-meta font-medium text-warn">
+        <CircleAlert aria-hidden className="h-3.5 w-3.5 shrink-0" />
+        Marked: needs you
+      </span>
+    );
+  }
+  return null;
+}
+
+/**
+ * What a resting pointer sees of a call before opening it. Read-only, and every fact here
+ * is also on the call's own screen: a preview is never the only place something is said.
+ */
+export function CallPreview({ call }: { call: CallSummary }) {
+  const line = callRowLine(call);
+  const chips = call.captured_preview ?? [];
+  return (
+    <div className="space-y-2">
+      <div>
+        <p className="font-semibold text-ink">{callTitle(call)}</p>
+        {call.lead_name?.trim() && call.caller_e164 ? (
+          <p className="tabular-nums text-ink-muted">{formatPhone(call.caller_e164)}</p>
+        ) : null}
+      </div>
+      <p className={line.pending ? "italic text-ink-faint" : "text-ink"}>{line.text}</p>
+      {chips.length > 0 ? (
+        <dl className="space-y-0.5">
+          {chips.map((chip) => (
+            <div key={chip.label} className="flex gap-1.5">
+              <dt className="shrink-0 text-ink-muted">{chip.label}:</dt>
+              <dd className="min-w-0 break-words">{chip.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      <p className="text-ink-muted">
+        {[call.direction === "outbound" ? "Outgoing" : "Incoming", call.agent_name ?? null, formatIST(call.started_at)]
+          .filter(Boolean)
+          .join(" · ")}
+      </p>
+      <FollowUpMark state={call.follow_up_state} />
+    </div>
   );
 }
 
@@ -78,6 +142,7 @@ export function callColumns({
   callHref,
   compact = false,
   showCost = false,
+  menu,
 }: {
   callHref: (id: string) => string;
   /** The dashboard's short list: adds how the caller sounded and what was captured, no sorting. */
@@ -85,6 +150,8 @@ export function callColumns({
   /** Adds what each call took from the credit balance. The server sends it only to a role
    * that may see billing, so the caller passes whether any row carries it. */
   showCost?: boolean;
+  /** The row's ⋯ menu (the call log's follow-up actions), as a last column. */
+  menu?: (call: CallSummary) => ReactNode;
 }): DataColumn<CallSummary>[] {
   const caller: DataColumn<CallSummary> = {
     id: "caller",
@@ -93,16 +160,25 @@ export function callColumns({
     cell: (call) => {
       const line = callRowLine(call);
       const named = Boolean(call.lead_name?.trim());
+      const rowLink = (
+        <Link
+          href={callHref(call.id)}
+          className="truncate rounded-sm font-medium text-ink after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
+        >
+          {callTitle(call)}
+        </Link>
+      );
       return (
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
             {isLive(call) && <LiveDot />}
-            <Link
-              href={callHref(call.id)}
-              className="truncate rounded-sm font-medium text-ink after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
-            >
-              {callTitle(call)}
-            </Link>
+            {compact ? (
+              rowLink
+            ) : (
+              <HoverCard trigger={rowLink} label={`Preview of the call with ${callTitle(call)}`}>
+                <CallPreview call={call} />
+              </HoverCard>
+            )}
             {named && call.caller_e164 && (
               <span className="hidden whitespace-nowrap text-meta tabular-nums text-ink-faint sm:inline">
                 {formatPhone(call.caller_e164)}
@@ -119,6 +195,12 @@ export function callColumns({
           {compact && <CapturedLine call={call} />}
           <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-meta text-ink-faint md:hidden">
             <CallResult call={call} />
+            {call.follow_up_state ? (
+              <>
+                <span aria-hidden>·</span>
+                <FollowUpMark state={call.follow_up_state} />
+              </>
+            ) : null}
             <span aria-hidden>·</span>
             <span className="tabular-nums">{formatDuration(call.duration_s)}</span>
             <span aria-hidden>·</span>
@@ -133,9 +215,14 @@ export function callColumns({
     header: "Outcome",
     hideBelow: "md",
     flash: (call) =>
-      `${call.status}|${call.outcome_tag ?? ""}|${call.business_outcome_label ?? ""}|${call.callback?.status ?? ""}`,
+      `${call.status}|${call.outcome_tag ?? ""}|${call.business_outcome_label ?? ""}|${call.callback?.status ?? ""}|${call.follow_up_state ?? ""}`,
     sort: compact ? undefined : { value: (call) => callResultWords(call) },
-    cell: (call) => <CallResult call={call} />,
+    cell: (call) => (
+      <span className="flex flex-col items-start gap-0.5">
+        <CallResult call={call} />
+        <FollowUpMark state={call.follow_up_state} />
+      </span>
+    ),
   };
   const duration: DataColumn<CallSummary> = {
     id: "duration",
@@ -181,7 +268,18 @@ export function callColumns({
       </span>
     ),
   };
-  if (!compact) return [caller, result, duration, started];
+  const more: DataColumn<CallSummary>[] = menu
+    ? [
+        {
+          id: "more",
+          header: "More actions",
+          renderHeader: () => null,
+          className: "relative z-raised w-10 text-right",
+          cell: (call) => menu(call),
+        },
+      ]
+    : [];
+  if (!compact) return [caller, result, duration, started, ...more];
   return showCost
     ? [caller, result, sentiment, duration, cost, started]
     : [caller, result, sentiment, duration, started];

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { useActionFeedback, type ActionFeedback } from "@/components/arc/feedback";
+
 import {
   CONSENT_SOURCES,
   GRANT_CAPABLE_SOURCES,
@@ -30,6 +32,12 @@ import { type Session } from "@/lib/api/client";
 export interface ConsentForm {
   lookup: ReturnType<typeof useLookupMessagingConsent>;
   record: ReturnType<typeof useRecordMessagingConsent>;
+  /**
+   * The two actions' button states. Both answers are drawn on the screen (the verdict, the
+   * recorded verdict, a refusal under the form), so neither is toasted.
+   */
+  lookupFeedback: ActionFeedback<string>;
+  recordFeedback: ActionFeedback<Parameters<ReturnType<typeof useRecordMessagingConsent>["mutate"]>[0]>;
   /**
    * The refusal from the last write, surfaced BY the module that fires the write.
    *
@@ -67,6 +75,8 @@ export interface ConsentForm {
 export function useConsentForm(session: Session): ConsentForm {
   const lookup = useLookupMessagingConsent(session);
   const record = useRecordMessagingConsent(session);
+  const lookupFeedback = useActionFeedback(lookup, { errorDisplay: "inline" });
+  const recordFeedback = useActionFeedback(record, { errorDisplay: "inline" });
 
   const [lookupPhone, setLookupPhone] = useState("");
 
@@ -131,6 +141,8 @@ export function useConsentForm(session: Session): ConsentForm {
   return {
     lookup,
     record,
+    lookupFeedback,
+    recordFeedback,
     recordError: record.error,
     lookupPhone,
     setLookupPhone,

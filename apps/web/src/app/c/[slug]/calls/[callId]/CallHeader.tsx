@@ -1,12 +1,14 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import { formatDuration, formatIST, formatPhone } from "@/components/ui";
 import { CopyButton } from "@/components/interior/copy-button";
 import { LiveDot } from "@/components/console/liveCalls";
 import type { CallDetail } from "@/lib/api/client";
 import { callTitle } from "@/lib/callReview";
 
-import { TestCallTag, isLive } from "../callColumns";
+import { FollowUpMark, TestCallTag, isLive } from "../callColumns";
 
 /**
  * WHO AND WHEN — the call's identity, and nothing else.
@@ -16,7 +18,7 @@ import { TestCallTag, isLive } from "../callColumns";
  * call ended is the verdict below, not a chip up here: one statement of the outcome on
  * the screen, in one place.
  */
-export function CallHeader({ detail }: { detail: CallDetail }) {
+export function CallHeader({ detail, actions }: { detail: CallDetail; actions?: ReactNode }) {
   const named = Boolean(detail.lead_name?.trim());
   const facts = [
     detail.direction === "outbound" ? "Outgoing" : "Incoming",
@@ -25,7 +27,8 @@ export function CallHeader({ detail }: { detail: CallDetail }) {
     detail.agent_name ?? null,
   ].filter((fact): fact is string => Boolean(fact));
   return (
-    <header>
+    <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
         {isLive(detail) && <LiveDot />}
         <p className={`min-w-0 break-words text-title text-ink ${named ? "" : "tabular-nums"}`}>
@@ -43,6 +46,12 @@ export function CallHeader({ detail }: { detail: CallDetail }) {
       {/* One line of text, so it wraps between words rather than leaving a separator at
           the start of a line. */}
       <p className="mt-0.5 text-meta tabular-nums text-ink-muted">{facts.join(" · ")}</p>
+      {/* A person's mark (D-869), apart from how the call ended. */}
+      {detail.follow_up_state ? (
+        <p className="mt-1">
+          <FollowUpMark state={detail.follow_up_state} />
+        </p>
+      ) : null}
       {/* D-746: a forwarded call that showed your own number, and our forwarding test. */}
       {detail.caller_id_hidden && (
         <p className="mt-1 text-meta text-ink-muted">
@@ -67,6 +76,8 @@ export function CallHeader({ detail }: { detail: CallDetail }) {
       )}
       {/* D-842: a call that was waiting to be placed and never rang; the server's sentence. */}
       {detail.not_placed_reason && <p className="mt-1 text-meta text-ink-muted">{detail.not_placed_reason}</p>}
+      </div>
+      {actions ? <div className="shrink-0">{actions}</div> : null}
     </header>
   );
 }

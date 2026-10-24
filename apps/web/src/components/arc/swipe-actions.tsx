@@ -26,6 +26,7 @@ import { ConfirmDialog } from "@/components/confirmDialog";
 
 import type { FeedbackStatus } from "./feedback";
 import { RowMenu } from "./menu";
+import { useToast } from "./toast";
 
 export type SwipeAction = {
   id: string;
@@ -34,7 +35,7 @@ export type SwipeAction = {
   onSelect: () => void;
   tone?: "danger";
   disabled?: boolean;
-  /** Why it is disabled, shown in the ⋯ menu. */
+  /** Why it is disabled: shown in the ⋯ menu, and said when the revealed button is pressed. */
   hint?: string;
   status?: FeedbackStatus;
   /** Ask first: the action cannot be taken back. */
@@ -60,12 +61,13 @@ export type SwipeActionsProps = {
 };
 
 const ACTION_BUTTON =
-  "flex w-19 shrink-0 flex-col items-center justify-center gap-1 px-3 text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white disabled:opacity-50";
+  "press flex w-19 shrink-0 flex-col items-center justify-center gap-1 px-3 text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white aria-disabled:opacity-50";
 
 export function SwipeActions({ label, primary, secondary = [], children, className }: SwipeActionsProps) {
   const track = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [askingId, setAskingId] = useState<string | null>(null);
+  const toasts = useToast();
 
   const hasPrimary = primary !== undefined;
   // Rest on the row, not on the leading panel. `scroll-initial-target` does this natively
@@ -78,9 +80,18 @@ export function SwipeActions({ label, primary, secondary = [], children, classNa
 
   const close = () => content.current?.scrollIntoView?.({ block: "nearest", inline: "start" });
 
-  const choose = (action: SwipeAction) => {
-    if (action.disabled) return;
+  const choose = (action: SwipeAction, fromPanel = false) => {
+    // A revealed button that cannot act still answers a press: on a phone the ⋯ menu that
+    // carries the reason is hidden, so the reason is said here instead.
+    if (action.disabled) {
+      if (action.hint) toasts.toast({ id: `swipe-${action.id}`, kind: "info", title: `${action.label} is not available`, description: action.hint });
+      return;
+    }
     close();
+    // A dialog the action opens hands focus back to whatever held it when it closes. Left
+    // on the revealed button, that focus scrolls the panel open again; on the row, it
+    // does not.
+    if (fromPanel) content.current?.querySelector<HTMLElement>("a[href], button")?.focus({ preventScroll: true });
     if (action.confirm) setAskingId(action.id);
     else action.onSelect();
   };
@@ -108,8 +119,8 @@ export function SwipeActions({ label, primary, secondary = [], children, classNa
           <div role="group" aria-label={`${primary.label}: ${label}`} className="col-start-1 row-start-1 hidden snap-start touch:flex">
             <button
               type="button"
-              onClick={() => choose(primary)}
-              disabled={primary.disabled}
+              onClick={() => choose(primary, true)}
+              aria-disabled={primary.disabled || undefined}
               className={clsx(ACTION_BUTTON, "bg-brand-strong text-white")}
             >
               {primary.icon ? <span aria-hidden>{primary.icon}</span> : null}
@@ -158,8 +169,8 @@ export function SwipeActions({ label, primary, secondary = [], children, classNa
               <button
                 key={action.id}
                 type="button"
-                onClick={() => choose(action)}
-                disabled={action.disabled}
+                onClick={() => choose(action, true)}
+                aria-disabled={action.disabled || undefined}
                 aria-busy={action.status === "pending" || undefined}
                 className={clsx(
                   ACTION_BUTTON,

@@ -2,15 +2,15 @@
 
 import { RotateCcw } from "lucide-react";
 
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import {
   NOTICE_BAR,
   NOTICE_BASE,
   ProblemNotice,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
 } from "@/components/ui";
-import { useIngestActivity, useMetaRedrive } from "@/lib/api/leadSources";
+import type { useIngestActivity, useMetaRedrive } from "@/lib/api/leadSources";
 
 /**
  * The other half of the re-drive: an affordance for it.
@@ -30,11 +30,14 @@ export function MetaRecovery({
   sourceId,
   activity,
   redrive,
+  redriveStatus,
   canWrite,
 }: {
   sourceId: string;
   activity: ReturnType<typeof useIngestActivity>;
   redrive: ReturnType<typeof useMetaRedrive>;
+  /** The recovery's state from the screen's `useActionFeedback`. */
+  redriveStatus: FeedbackStatus;
   canWrite: boolean;
 }) {
   // Nothing to say until a source is picked: the count and the button are both about ONE
@@ -67,15 +70,16 @@ export function MetaRecovery({
         </div>
       ) : (
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            disabled={!canWrite || redrive.isPending || waiting.length === 0}
+          <ActionButton
+            variant="secondary-sm"
+            status={redriveStatus}
+            successLabel="Recovered"
+            disabled={!canWrite || waiting.length === 0}
             onClick={() => redrive.mutate(sourceId)}
-            className={SECONDARY_BUTTON_SM}
           >
-            <RotateCcw className="h-4 w-4" />
-            {redrive.isPending ? "Recovering…" : "Recover unread leads"}
-          </button>
+            <RotateCcw aria-hidden className="h-4 w-4" />
+            Recover unread leads
+          </ActionButton>
           <span className="text-meta text-ink-faint">
             {waiting.length === 0
               ? "Nothing is waiting for this source."

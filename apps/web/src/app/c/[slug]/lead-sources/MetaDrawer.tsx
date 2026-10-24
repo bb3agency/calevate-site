@@ -1,5 +1,6 @@
 "use client";
 
+import type { FeedbackStatus } from "@/components/arc/feedback";
 import { Drawer } from "@/components/console/drawer";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import type { LeadSource, useIngestActivity, useMetaRedrive, useMetaSetup } from "@/lib/api/leadSources";
@@ -19,6 +20,7 @@ export function MetaDrawer({
   onClose,
   metaSetup,
   redrive,
+  redriveStatus,
   activity,
   canWrite,
   refusal,
@@ -27,6 +29,7 @@ export function MetaDrawer({
   onClose: () => void;
   metaSetup: ReturnType<typeof useMetaSetup>;
   redrive: ReturnType<typeof useMetaRedrive>;
+  redriveStatus: FeedbackStatus;
   activity: ReturnType<typeof useIngestActivity>;
   canWrite: boolean;
   /** Why this viewer cannot read the setup (it is an `org:manage` route), if they cannot. */
@@ -46,7 +49,13 @@ export function MetaDrawer({
       {metaSetup.error != null && <ProblemNotice error={metaSetup.error} />}
       {metaSetup.data && <MetaSetupDetails setup={metaSetup.data} />}
       {source && (
-        <MetaRecovery sourceId={source.id} activity={activity} redrive={redrive} canWrite={canWrite} />
+        <MetaRecovery
+          sourceId={source.id}
+          activity={activity}
+          redrive={redrive}
+          redriveStatus={redriveStatus}
+          canWrite={canWrite}
+        />
       )}
     </Drawer>
   );

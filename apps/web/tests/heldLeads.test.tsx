@@ -11,7 +11,7 @@ function renderHeld(held: Parameters<typeof HeldLeads>[0]["held"], holding: bool
       held={held}
       holding={holding}
       canWrite
-      busyId={null}
+      statusOf={() => "idle"}
       actionError={null}
       onRelease={NOOP}
       onDrop={NOOP}

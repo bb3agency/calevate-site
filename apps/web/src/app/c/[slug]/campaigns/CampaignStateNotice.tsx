@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
   NOTICE_BAR,
   NOTICE_BASE,
-  PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -134,6 +134,8 @@ function ComplaintReview({
   const { session, href } = useClientRealm();
   const optOuts = useOptOuts(session, campaignId, true);
   const review = useComplaintReview(session, campaignId);
+  // Inline: the refusal belongs beside the confirmation it refused.
+  const reviewFeedback = useActionFeedback(review, { errorDisplay: "inline" });
   const [read, setRead] = useState(false);
   const slug = session.orgSlug;
 
@@ -182,15 +184,16 @@ function ComplaintReview({
             </span>
           </label>
           {review.error ? <ProblemNotice error={review.error} /> : null}
-          <button
-            type="button"
+          <ActionButton
             title={refusal}
-            disabled={!read || !canWrite || review.isPending}
-            onClick={() => review.mutate()}
-            className={PRIMARY_BUTTON}
+            disabled={!read || !canWrite}
+            status={reviewFeedback.status}
+            pendingLabel="Saving"
+            successLabel="Confirmed"
+            onClick={() => reviewFeedback.run()}
           >
-            {review.isPending ? "Saving…" : "Confirm I've reviewed them"}
-          </button>
+            {"Confirm I've reviewed them"}
+          </ActionButton>
         </div>
       ) : (
         <p className="text-meta text-ink-muted">

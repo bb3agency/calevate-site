@@ -4,9 +4,14 @@ import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 
+import { ButtonGroup } from "@/components/arc/button-group";
+import { useActionFeedback } from "@/components/arc/feedback";
+import { useFollowUpActions } from "@/components/calls/followUpActions";
 import { NoticeBox, ProblemNotice } from "@/components/ui";
 import { LiveCallPanel } from "@/components/console/liveCallPanel";
 import type { CallAudioPlayerHandle } from "@/components/callAudioPlayer";
+import { canDialOut } from "@/lib/agentState";
+import { useAgents } from "@/lib/api/agents";
 import { useClientRealm } from "@/lib/api/session";
 import {
   useCall,
@@ -19,6 +24,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { MomentTag } from "@/components/calls/MomentTag";
 import { momentsByTurn } from "@/lib/callMoments";
+import { callTitle } from "@/lib/callReview";
 
 import { isLive } from "../callColumns";
 
@@ -91,6 +97,8 @@ export function CallDetailScreen({
   const call = useCall(session, callId);
   const eligibility = useCallbackEligibility(session, callId);
   const callback = useCallBack(session, callId);
+  // The answer (calling now, or the gate's reason) replaces the button in the card itself.
+  const callingBack = useActionFeedback(callback, { errorDisplay: "inline" });
   /**
    * The eligibility QUERY is `leads:read` on purpose — the server made it a read so this
    * button could render disabled with a reason — while the POST behind the button is
@@ -104,6 +112,8 @@ export function CallDetailScreen({
   const testWrite = useWriteAccess(session, "agents:write", "save a call as a test");
   const englishWrite = useWriteAccess(session, "org:manage", "prepare the English of a call");
   const retryEnglish = useRetryEnglish(session, callId);
+  // Its failure is drawn in the transcript card, beside the control that asked.
+  useActionFeedback(retryEnglish, { errorDisplay: "inline" });
   // ONE language for the page: the conversation and the summary both follow it. Chosen once,
   // when the call first loads (set during render, React's pattern for state derived from a
   // prop), then left to the reader: English arriving later does not switch it under them.
@@ -113,7 +123,25 @@ export function CallDetailScreen({
   const rawAccess = useRawTranscriptAccess(session);
   const [showRaw, setShowRaw] = useState(false);
   const raw = useRawTranscript(session, callId);
+  // Both answer in place: the raw turns replace the redacted ones, the player opens. Their
+  // failures are drawn in the cards that asked.
+  useActionFeedback(raw, { errorDisplay: "inline" });
   const recording = useRecordingLink(session, callId);
+  const listening = useActionFeedback(recording, { errorDisplay: "inline" });
+  /* The header's follow-up actions. "Call back now" is not among them: the verdict below
+     already offers it through the call's own call-back (eligibility-checked, picks up the
+     conversation), and a second button for the same act would be a second way. */
+  const agents = useAgents(session);
+  const dialer = agents.data?.find((agent) => agent.id === call.data?.agent_id && canDialOut(agent)) ?? agents.data?.find(canDialOut);
+  const followUp = useFollowUpActions(session, {
+    dialerFor: () => (dialer ? { id: dialer.id, name: dialer.name } : null),
+    noDialerReason:
+      agents.error != null
+        ? "We could not read your agents just now, so no call can be placed. Reload the page to try again."
+        : !agents.data
+          ? "Checking which of your agents can place the call…"
+          : undefined,
+  });
   /**
    * One press, one request, one audit row — in BOTH directions.
    *
@@ -279,7 +307,32 @@ export function CallDetailScreen({
         Call logs
       </Link>
 
-      <CallHeader detail={detail} />
+      <CallHeader
+        detail={detail}
+        actions={
+          <ButtonGroup
+            label={`Actions for the call with ${callTitle(detail)}`}
+            moreLabel={`More actions for the call with ${callTitle(detail)}`}
+            actions={[
+              ...followUp
+                .groupActions({
+                  key: detail.id,
+                  name: callTitle(detail),
+                  phone: detail.caller_e164,
+                  leadId: detail.lead_id ?? null,
+                  callId: detail.id,
+                  followUpState: (detail.follow_up_state ?? null) as "resolved" | "needs_you" | null,
+                  agentId: detail.agent_id,
+                })
+                .filter((action) => action.id !== "call"),
+            ]}
+            phoneVisible={1}
+            primaryFirst={false}
+            desktopVisible={3}
+          />
+        }
+      />
+      {followUp.dialogs}
 
       {isLive(detail) && (
         <LiveCallPanel
@@ -295,6 +348,8 @@ export function CallDetailScreen({
           <FollowUpAction
             eligibility={eligibility}
             callback={callback}
+            status={callingBack.status}
+            onCallBack={() => callingBack.run()}
             write={write}
             leadHref={leadHref}
             leadLabel={leadName ? `Open ${leadName}'s lead` : "Open the lead"}
@@ -337,6 +392,7 @@ export function CallDetailScreen({
             detail.has_recording ? (
               <RecordingCard
                 recording={recording}
+                status={listening.status}
                 playerRef={playerRef}
                 onTimeUpdate={setPlayhead}
                 durationS={detail.duration_s ?? null}
