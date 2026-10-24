@@ -367,6 +367,54 @@ async def test_no_voices_yet_is_said_plainly(
     assert out.voices == [] and out.note == "No voices have been made available yet."
 
 
+@pytest.mark.parametrize(
+    ("state", "withdrawn", "standing", "note"),
+    [
+        ("disabled", False, "kept", engine_catalogue_routes.KEPT_VOICE_NOTE),
+        ("archived", True, "unavailable", engine_catalogue_routes.UNAVAILABLE_VOICE_NOTE),
+    ],
+)
+async def test_an_agents_own_voice_off_the_picker_is_listed_for_it_and_cannot_be_chosen(
+    priced: set[str],
+    hosted_rows: CatalogueRows,
+    state: str,
+    withdrawn: bool,
+    standing: str,
+    note: str,
+) -> None:
+    """D-880, production 24 Oct 2026: the picker of an agent whose voice was no longer
+    offered showed no voice selected while the agent spoke it."""
+    from apps.api.db.session import tenant_session
+    from sqlalchemy import text
+
+    offered = await hosted_rows.add("engine", label="Offered")
+    held = await hosted_rows.add(
+        "engine", label="Anusha", state=state, withdrawn=withdrawn, preview=True
+    )
+    tenant_id = await _account(trial=False)
+    async with tenant_session(tenant_id) as session:
+        agent_id = (
+            await session.execute(
+                text("UPDATE agents SET engine_voice_id = :v RETURNING id"), {"v": held}
+            )
+        ).scalar_one()
+    with selected(HostingEngine()):
+        plain = await engine_catalogue(_client_of(tenant_id))
+        for_agent = await engine_catalogue(_client_of(tenant_id), agent_id=agent_id)
+        # Another account's agent id reads nothing of this one's voice (RLS).
+        stranger = await engine_catalogue(_client(), agent_id=agent_id)
+    assert held not in {v.voice_id for v in plain.voices}
+    assert held not in {v.voice_id for v in stranger.voices}
+    by_id = {v.voice_id: v for v in for_agent.voices}
+    assert by_id[offered].standing == "offered"
+    shown = by_id[held]
+    assert (shown.standing, shown.reason, shown.offerable) == (standing, note, False)
+    assert shown.label == "Anusha" and shown.rung == "clear"
+    # The client's preview route serves offered voices only, so none is promised.
+    assert shown.preview_available is False
+    assert for_agent.note == plain.note
+
+
 # --- the preview route -------------------------------------------------------------
 
 

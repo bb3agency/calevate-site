@@ -98,6 +98,7 @@ const ENGINE_CATALOGUE: EngineCatalogue = {
       is_custom: false,
       offerable: true,
       reason: null,
+      standing: "offered",
     },
     {
       voice_id: "engine:priya",
@@ -108,6 +109,7 @@ const ENGINE_CATALOGUE: EngineCatalogue = {
       is_custom: false,
       offerable: false,
       reason: "No rupee-per-minute rate is attested for the Clear rung.",
+      standing: "offered",
     },
   ],
   models: [

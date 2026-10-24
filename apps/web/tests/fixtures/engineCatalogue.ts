@@ -53,6 +53,7 @@ export function operatorEngineCatalogue(over: Partial<EngineCatalogue> = {}): En
         is_custom: false,
         offerable: true,
         reason: null,
+        standing: "offered",
       },
       {
         voice_id: "byok:meera",
@@ -63,6 +64,7 @@ export function operatorEngineCatalogue(over: Partial<EngineCatalogue> = {}): En
         is_custom: false,
         offerable: true,
         reason: null,
+        standing: "offered",
       },
     ],
     models,

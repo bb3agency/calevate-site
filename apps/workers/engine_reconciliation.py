@@ -434,10 +434,10 @@ async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | N
             "WORKER_STALL",
             "engine_agent_voice_withdrawn",
             detail=(
-                f"engine={engine_name}: a live agent's chosen voice is no longer on the voice "
-                "platform (a deleted clone, or a voice the platform dropped), so callers hear "
-                "the platform's standard voice. Choose another voice for the agent and "
-                "republish it."
+                f"engine={engine_name}: a published agent's (live or ready) chosen voice is no "
+                "longer on the voice platform (a deleted clone, or a voice the platform "
+                "dropped), so its calls and test calls speak the platform's standard voice. "
+                "Choose another voice for the agent and republish it."
             ),
             agent_id=str(candidate.agent_id),
             tenant_id=str(candidate.tenant_id),

@@ -18043,6 +18043,15 @@
             "title": "Rung",
             "type": "string"
           },
+          "standing": {
+            "enum": [
+              "offered",
+              "kept",
+              "unavailable"
+            ],
+            "title": "Standing",
+            "type": "string"
+          },
           "voice_id": {
             "title": "Voice Id",
             "type": "string"
@@ -18056,7 +18065,8 @@
           "language_note",
           "preview_available",
           "offerable",
-          "reason"
+          "reason",
+          "standing"
         ],
         "title": "EngineCatalogueVoiceOut",
         "type": "object"
@@ -22566,6 +22576,15 @@
           "tenant_name": {
             "title": "Tenant Name",
             "type": "string"
+          },
+          "use": {
+            "enum": [
+              "live",
+              "ready",
+              "not_published"
+            ],
+            "title": "Use",
+            "type": "string"
           }
         },
         "required": [
@@ -22573,7 +22592,8 @@
           "tenant_name",
           "agent_id",
           "agent_name",
-          "status"
+          "status",
+          "use"
         ],
         "title": "HostedVoiceAgentOut",
         "type": "object"
@@ -22735,10 +22755,6 @@
             "title": "Languages",
             "type": "array"
           },
-          "live_agents": {
-            "title": "Live Agents",
-            "type": "integer"
-          },
           "not_sold_reason": {
             "anyOf": [
               {
@@ -22818,6 +22834,9 @@
             "title": "Synced At",
             "type": "string"
           },
+          "used_by": {
+            "$ref": "#/components/schemas/VoiceUsageOut"
+          },
           "vendor_id": {
             "title": "Vendor Id",
             "type": "string"
@@ -22864,7 +22883,7 @@
           "preview_available",
           "preview_source",
           "deletable_clone",
-          "live_agents",
+          "used_by",
           "vendor_id",
           "vendor_label",
           "display_label",
@@ -49522,6 +49541,36 @@
         "title": "VoiceTuningPreviewIn",
         "type": "object"
       },
+      "VoiceUsageOut": {
+        "additionalProperties": false,
+        "description": "The non-deleted agents in every account set to one voice, by how they use it (D-880).",
+        "properties": {
+          "live": {
+            "title": "Live",
+            "type": "integer"
+          },
+          "not_published": {
+            "title": "Not Published",
+            "type": "integer"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "live",
+          "ready",
+          "not_published",
+          "total"
+        ],
+        "title": "VoiceUsageOut",
+        "type": "object"
+      },
       "WaiverIn": {
         "additionalProperties": false,
         "properties": {
@@ -60680,8 +60729,27 @@
     },
     "/v1/agents/engine-catalogue": {
       "get": {
-        "description": "On a voice platform that hosts its own voices: the voices an operator added and enabled, each with its rung (Clear or Studio), a language note, whether a preview can be played, and whether it can be chosen right now. To an operator, the platform's own models that can answer a call on our plan, with their recorded band; a client is sent no models. On any other platform `available` is false and the voice picker at `/v1/agents/voices` is the one to read.",
+        "description": "On a voice platform that hosts its own voices: the voices an operator added and enabled, each with its rung (Clear or Studio), a language note, whether a preview can be played, and whether it can be chosen right now. To an operator, the platform's own models that can answer a call on our plan, with their recorded band; a client is sent no models. With `agent_id`, that agent's own voice is listed too when it is no longer on offer, with `standing` `kept` or `unavailable`, so the picker can show it selected. On any other platform `available` is false and the voice picker at `/v1/agents/voices` is the one to read.",
         "operationId": "engine_catalogue_v1_agents_engine_catalogue_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -80271,7 +80339,7 @@
     },
     "/v1/ops/voices/clones": {
       "delete": {
-        "description": "Deletes the clone on the voice platform, which forgets it everywhere and moves every agent on it, in our workspace and in every client's, to a standard voice; it cannot be undone. Refused with `voice_clone_in_use` while live agents of any client are on it, unless `confirm=true`. Requires `X-Confirm-Action: delete_voice_clone:<voice_id>`.",
+        "description": "Deletes the clone on the voice platform, which forgets it everywhere and moves every agent on it, in our workspace and in every client's, to a standard voice; it cannot be undone. Refused with `voice_clone_in_use` while any agent of any client, published or not, is on it, unless `confirm=true`. Requires `X-Confirm-Action: delete_voice_clone:<voice_id>`.",
         "operationId": "delete_clone_v1_ops_voices_clones_delete",
         "parameters": [
           {
@@ -80437,7 +80505,7 @@
         "x-calevate-permission": "ops:manage"
       },
       "patch": {
-        "description": "Only an ADDED voice can be enabled. It changes no agent and no call: an agent on this voice keeps speaking it; disabling only takes it off the picker. Idempotent.",
+        "description": "Only an ADDED voice can be enabled. It changes no agent and no call: an agent on this voice keeps speaking it and can be republished on it; disabling only takes it off the picker. Archiving is refused with `voice_in_use` while any agent, published or not, is set to the voice (D-880). Idempotent.",
         "operationId": "set_hosted_state_v1_ops_voices_hosted_patch",
         "requestBody": {
           "content": {
@@ -80513,7 +80581,7 @@
     },
     "/v1/ops/voices/hosted/agents": {
       "get": {
-        "description": "Every agent, live or not, whose voice is this hosted voice, with its account, live ones first. Read one voice at a time, for the voice's detail.",
+        "description": "Every agent, live or not, whose voice is this hosted voice, with its account and `use` (`live`, `ready`, `not_published`), live ones first, then ready. Read one voice at a time, for the voice's detail.",
         "operationId": "hosted_voice_agents_v1_ops_voices_hosted_agents_get",
         "parameters": [
           {

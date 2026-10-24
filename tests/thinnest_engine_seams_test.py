@@ -376,6 +376,23 @@ async def test_a_choice_that_is_not_allowed_is_refused_by_name(
     assert "ThinnestAI" not in (caught.value.detail or "")
 
 
+async def test_a_held_voice_is_kept_while_usable_and_priced(
+    attested: set[str], hosted_rows: CatalogueRows
+) -> None:
+    disabled = await hosted_rows.add("engine", state="disabled")
+    archived = await hosted_rows.add("engine", state="archived")
+    withdrawn = await hosted_rows.add("engine", withdrawn=True)
+    for voice in (disabled, archived):
+        assert await _choose(voice_id=voice, model_id=None, held_voice_id=voice) == "studio"
+    with pytest.raises(ProblemError) as gone:
+        await _choose(voice_id=withdrawn, model_id=None, held_voice_id=withdrawn)
+    assert gone.value.code == engine_choice.VOICE_NOT_ON_OFFER
+    attested.discard("studio")
+    with pytest.raises(ProblemError) as unpriced:
+        await _choose(voice_id=disabled, model_id=None, held_voice_id=disabled)
+    assert unpriced.value.code == engine_choice.VOICE_TIER_UNPRICED
+
+
 async def test_an_unpriced_rung_is_refused_as_unpriced(
     attested: set[str], hosted_rows: CatalogueRows
 ) -> None:
@@ -667,23 +684,86 @@ async def test_a_publish_the_platform_holds_on_the_wrong_key_is_not_applied(
 
 
 @pytest.mark.parametrize(
-    ("state", "code"),
-    [(None, engine_choice.VOICE_REQUIRED), ("disabled", engine_choice.VOICE_NOT_ON_OFFER)],
+    ("withdrawn", "code"),
+    [(None, engine_choice.VOICE_REQUIRED), (True, engine_choice.VOICE_NOT_ON_OFFER)],
 )
-async def test_publish_refuses_no_voice_and_a_voice_not_on_offer_before_any_vendor_write(
+async def test_publish_refuses_no_voice_and_a_withdrawn_voice_before_any_vendor_write(
     attested: set[str],
     no_webhook: None,
     hosted_rows: CatalogueRows,
-    state: str | None,
+    withdrawn: bool | None,
     code: str,
 ) -> None:
     tenant_id, agent_id = await _agent()
-    voice = None if state is None else await hosted_rows.add("engine", state=state)
+    voice = None if withdrawn is None else await hosted_rows.add("engine", withdrawn=True)
     await _set_columns(tenant_id, agent_id, voice, None)
     with selected(HostingEngine()) as engine, pytest.raises(ProblemError) as caught:
         await _publish(tenant_id, agent_id)
     assert caught.value.code == code
     assert isinstance(engine, HostingEngine) and engine.sent == []
+
+
+@pytest.mark.parametrize("state", ["disabled", "archived"])
+async def test_an_agent_keeps_a_voice_no_longer_offered_and_is_republished_on_it(
+    attested: set[str], no_webhook: None, hosted_rows: CatalogueRows, state: str
+) -> None:
+    """D-880: an operator stopping a voice stops new choices, not the agents already on it."""
+    tenant_id, agent_id = await _agent()
+    voice = await hosted_rows.add("engine", state=state)
+    await _set_columns(tenant_id, agent_id, voice, None)
+    with selected(HostingEngine()) as engine:
+        ref = await _publish(tenant_id, agent_id)
+        again = await _publish(tenant_id, agent_id)
+    assert isinstance(engine, HostingEngine) and again == ref
+    assert engine.sent[-1].engine_voice_id == voice.removeprefix("engine:")
+
+
+@pytest.mark.parametrize("status", ["draft", "paused"])
+async def test_a_voice_no_longer_offered_cannot_be_chosen_anew_but_can_be_kept(
+    attested: set[str], hosted_rows: CatalogueRows, status: str
+) -> None:
+    """On a draft and on a ready agent (republished by the edit, D-876) alike: switching to a
+    disabled voice is refused before the write, and re-sending the voice it holds is not."""
+    tenant_id, agent_id = await _agent()
+    held = await hosted_rows.add("engine", state="disabled")
+    other = await hosted_rows.add("engine", state="disabled")
+    await _set_columns(tenant_id, agent_id, held, None)
+    if status == "paused":
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text(
+                    "UPDATE agents SET engine_agent_ref = 'ag_kept', status = 'paused' "
+                    "WHERE id = :a"
+                ),
+                {"a": agent_id},
+            )
+    with selected(HostingEngine()):
+        with pytest.raises(ProblemError) as caught:
+            async with tenant_session(tenant_id) as session:
+                await lifecycle.update_agent(
+                    session,
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    engine_voice_id=other,
+                    set_engine_voice_id=True,
+                )
+        if status == "draft":
+            async with tenant_session(tenant_id) as session:
+                await lifecycle.update_agent(
+                    session,
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    engine_voice_id=held,
+                    set_engine_voice_id=True,
+                )
+    assert caught.value.code == engine_choice.VOICE_NOT_ON_OFFER
+    async with tenant_session(tenant_id) as session:
+        kept = (
+            await session.execute(
+                text("SELECT engine_voice_id FROM agents WHERE id = :a"), {"a": agent_id}
+            )
+        ).scalar_one()
+    assert kept == held
 
 
 async def test_an_engine_running_our_voices_never_sees_a_stored_choice(no_webhook: None) -> None:

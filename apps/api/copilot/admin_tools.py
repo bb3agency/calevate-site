@@ -405,18 +405,27 @@ async def _admin_voices(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
 ) -> str:
     """`hosted_voices.list_hosted_voices` — the Voices screen's read of the voices an
-    operator added, with the live count `voice_curation` keeps beside them."""
+    operator added, with the agents `voice_curation` counts beside them."""
     del context, args
     from apps.api.agents.hosted_voices import list_hosted_voices
     from apps.api.agents.own_model import own_model_readiness
-    from apps.api.agents.voice_curation import count_live_agents_by_engine_voice
+    from apps.api.agents.voice_curation import NOT_IN_USE, count_agents_by_engine_voice
     from apps.api.core.settings import get_settings
 
     rows = await list_hosted_voices(session, scope="added")
-    live = await count_live_agents_by_engine_voice()
+    usage = await count_agents_by_engine_voice()
+
+    def _used(voice_id: str) -> str:
+        held = usage.get(voice_id, NOT_IN_USE)
+        if not held.total:
+            return "no agent"
+        return (
+            f"{held.total} agent(s): {held.live} live, {held.ready} ready, "
+            f"{held.not_published} not published"
+        )
+
     lines = [
-        _clean(f"{row.label} · {row.state} · {live.get(row.voice_id, 0)} live agent(s)")
-        + f" [voice_id {row.voice_id}]"
+        _clean(f"{row.label} · {row.state} · {_used(row.voice_id)}") + f" [voice_id {row.voice_id}]"
         for row in rows[:MAX_ROWS]
     ]
     # The Voices screen's "Our own model" card (D-764), so a question about which model the

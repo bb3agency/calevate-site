@@ -3849,7 +3849,7 @@ function hostedVoice(over: Partial<HostedVoice> = {}): HostedVoice {
     preview_available: true,
     preview_source: "upload",
     deletable_clone: false,
-    live_agents: 0,
+    used_by: { live: 0, ready: 0, not_published: 0, total: 0 },
     person_clone: false,
     clone_consent: null,
     clone_blocker: null,
@@ -4598,7 +4598,7 @@ const ADMIN_SCREENS: Screen[] = [
             preview_available: false,
             preview_source: null,
             deletable_clone: true,
-            live_agents: 2,
+            used_by: { live: 2, ready: 0, not_published: 0, total: 2 },
           }),
           hostedVoice({
             voice_id: "byok:meera",

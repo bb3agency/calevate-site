@@ -55,10 +55,25 @@ export function TierChips({
 /** How many rows a list shows before "Show more": enough to scan, few enough to stay quick. */
 export const PAGE_SIZE = 25;
 
-/** "Used by 3 agents" — live agents across every client. */
-export function usedBy(count: number): string {
-  if (count === 0) return "Not in use";
-  return `${formatCount(count)} live ${count === 1 ? "agent" : "agents"}`;
+/**
+ * "2 agents: 1 live, 1 ready" — every agent on the voice across every client, by use (D-880).
+ * A ready or draft agent counts: archiving the voice would leave it showing no voice.
+ */
+export function usedBy(usage: HostedVoice["used_by"]): string {
+  if (usage.total === 0) return "Not in use";
+  const parts = [
+    usage.live ? `${formatCount(usage.live)} live` : null,
+    usage.ready ? `${formatCount(usage.ready)} ready` : null,
+    usage.not_published ? `${formatCount(usage.not_published)} not published` : null,
+  ].filter((part): part is string => part !== null);
+  return `${formatCount(usage.total)} ${usage.total === 1 ? "agent" : "agents"}: ${parts.join(", ")}`;
+}
+
+/** Why Archive cannot be pressed, or null. The server refuses it too (`voice_in_use`). */
+export function archiveBlocked(voice: HostedVoice): string | null {
+  if (voice.state === "archived" || voice.used_by.total === 0) return null;
+  const n = voice.used_by.total;
+  return `${formatCount(n)} ${n === 1 ? "agent uses" : "agents use"} this voice. Move ${n === 1 ? "it" : "them"} to another voice first, then archive it.`;
 }
 
 /** The tier as a row prints it: ours first, the platform's band as its detail. */
@@ -115,7 +130,7 @@ export function HostedVoiceList({
     <div>
       <div
         aria-hidden
-        className={`hidden grid-cols-[2.75rem_minmax(0,1fr)_6rem_8rem_3rem] items-center gap-3 border-b border-line px-2 pb-2 md:grid ${LIST_HEAD}`}
+        className={`hidden grid-cols-[2.75rem_minmax(0,1fr)_6rem_11rem_3rem] items-center gap-3 border-b border-line px-2 pb-2 md:grid ${LIST_HEAD}`}
       >
         <span />
         <span>Voice</span>
@@ -189,7 +204,7 @@ function VoiceRow({ voice, onOpen }: { voice: HostedVoice; onOpen: (voiceId: str
   return (
     <li
       aria-label={voice.label}
-      className={`grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-2 py-2.5 md:grid-cols-[2.75rem_minmax(0,1fr)_6rem_8rem_3rem] ${ROW_HOVER}`}
+      className={`grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-2 py-2.5 md:grid-cols-[2.75rem_minmax(0,1fr)_6rem_11rem_3rem] ${ROW_HOVER}`}
     >
       <PlayCell voice={voice} />
       <div className="min-w-0">
@@ -208,7 +223,7 @@ function VoiceRow({ voice, onOpen }: { voice: HostedVoice; onOpen: (voiceId: str
           <span className="md:hidden">
             {tier}
             {" · "}
-            {usedBy(voice.live_agents)}
+            {usedBy(voice.used_by)}
           </span>
           <VoicePills voice={voice} />
         </p>
@@ -220,7 +235,7 @@ function VoiceRow({ voice, onOpen }: { voice: HostedVoice; onOpen: (voiceId: str
       </div>
       {/* The platform band is the same on every Clear row, so it is in the detail, not here. */}
       <p className="hidden text-body text-ink md:block">{tier}</p>
-      <p className="hidden text-body tabular-nums text-ink-muted md:block">{usedBy(voice.live_agents)}</p>
+      <p className="hidden text-body tabular-nums text-ink-muted md:block">{usedBy(voice.used_by)}</p>
       <div className="flex justify-end">
         <ToggleSwitch
           label={

@@ -98,7 +98,7 @@ function voice(over: Partial<HostedVoice> = {}): HostedVoice {
     preview_available: true,
     preview_source: "upload",
     deletable_clone: false,
-    live_agents: 0,
+    used_by: { live: 0, ready: 0, not_published: 0, total: 0 },
     person_clone: false,
     clone_consent: null,
     clone_blocker: null,
@@ -117,7 +117,7 @@ const CLONE = voice({
   preview_available: false,
   preview_source: null,
   deletable_clone: true,
-  live_agents: 2,
+  used_by: { live: 1, ready: 1, not_published: 0, total: 2 },
 });
 
 const STOCK_NO_PREVIEW = voice({
@@ -635,7 +635,7 @@ describe("one voice's detail", () => {
         [agents]: {
           voice_id: "engine:anjali",
           agents: [
-            { tenant_id: "t1", tenant_name: "Skyline Properties", agent_id: "a1", agent_name: "Reception", status: "live" },
+            { tenant_id: "t1", tenant_name: "Skyline Properties", agent_id: "a1", agent_name: "Reception", status: "live", use: "live" },
           ],
         },
       }),
@@ -648,6 +648,38 @@ describe("one voice's detail", () => {
     expect(within(drawer).getByRole("button", { name: "Copy the voice id" })).toBeTruthy();
     expect(await within(drawer).findByRole("link", { name: "Reception" })).toBeTruthy();
     expect(within(drawer).getByText(/Skyline Properties/)).toBeTruthy();
+  });
+
+  it("counts every agent on a voice by use, and says why Archive is shut while any uses it (D-880)", async () => {
+    const agents = `${OPS_HOSTED_AGENTS_PATH}?voice_id=${encodeURIComponent(CLONE.voice_id)}`;
+    const { calls } = renderAdminPage(
+      <VoicesPage />,
+      routes({
+        [agents]: {
+          voice_id: CLONE.voice_id,
+          agents: [
+            { tenant_id: "t1", tenant_name: "Skyline", agent_id: "a1", agent_name: "Front desk", status: "live", use: "live" },
+            { tenant_id: "t2", tenant_name: "Sri Clinic", agent_id: "a2", agent_name: "Anjali", status: "paused", use: "ready" },
+          ],
+        },
+      }),
+    );
+
+    await screen.findByRole("listitem", { name: "Ravi" });
+    expect(within(row("Ravi")).getAllByText("2 agents: 1 live, 1 ready").length).toBeGreaterThan(0);
+    expect(within(row("Anjali")).getAllByText("Not in use").length).toBeGreaterThan(0);
+
+    const drawer = await openVoice("Ravi");
+    const archive = within(drawer).getByRole("button", { name: /Archive/ }) as HTMLButtonElement;
+    expect(archive.disabled).toBe(true);
+    expect(
+      within(drawer).getByText("2 agents use this voice. Move them to another voice first, then archive it."),
+    ).toBeTruthy();
+    // Each agent is named with its client, a ready one said as such.
+    expect(await within(drawer).findByRole("link", { name: "Anjali" })).toBeTruthy();
+    expect(within(drawer).getByText("Ready, not taking calls")).toBeTruthy();
+    expect(within(drawer).getByText(/Sri Clinic/)).toBeTruthy();
+    expect(calls.some((c) => c.method === "PATCH")).toBe(false);
   });
 
   it("generates a preview for a clone and uploads one for a stock voice", async () => {

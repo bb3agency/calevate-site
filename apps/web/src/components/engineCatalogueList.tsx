@@ -16,9 +16,11 @@ import { useAgent, useUpdateAgent, type Agent } from "@/lib/api/agents";
 import type { Session } from "@/lib/api/client";
 import {
   useEngineCatalogue,
+  useHeldVoice,
   useTenantEngineCatalogue,
   type EngineCatalogue,
   type EngineCatalogueModel,
+  type EngineCatalogueVoice,
 } from "@/lib/api/engineCatalogue";
 import { CLIENT_PREVIEW_PATH } from "@/lib/api/voicePreview";
 import { StatusPill } from "@/components/console/statusPill";
@@ -95,8 +97,11 @@ export function EngineVoiceList({
   control,
   previewSession,
   audience,
+  held = null,
 }: {
   catalogue: UseQueryResult<EngineCatalogue>;
+  /** The agent's own voice when the list does not offer it (`useHeldVoice`), shown selected. */
+  held?: EngineCatalogueVoice | null;
   /** Who reads it: a client is never shown a model's name (D-679). */
   audience: "client" | "operator";
   /** The saved voice, or null for the platform default. */
@@ -115,6 +120,7 @@ export function EngineVoiceList({
   if (!loaded.data) return loaded.node;
   const data = loaded.data;
   if (!data.available) return null;
+  const listed = held && !data.voices.some((entry) => entry.voice_id === held.voice_id) ? [...data.voices, held] : data.voices;
 
   const lockReason = !data.choosable ? (data.choice_note ?? null) : (control?.disabledReason ?? null);
   const locked = !control || lockReason !== null || control.status === "pending";
@@ -151,12 +157,19 @@ export function EngineVoiceList({
           />
         </div>
       )}
-      {data.voices.length === 0 ? (
+      {listed.length === 0 ? (
         <p className="text-body text-ink-muted">No voice is offered yet.</p>
       ) : (
         RUNGS.map((rung) => {
-          const voices = data.voices.filter((entry) => entry.rung === rung.value);
+          // A voice off the picker is listed only while it is the one this agent holds
+          // (D-880): once switched away from, a cached copy must not offer it back.
+          const voices = listed.filter(
+            (entry) => entry.rung === rung.value && (entry.standing === "offered" || entry.voice_id === voiceId),
+          );
           if (rung.value === "studio" && !data.studio_available && voices.length === 0) return null;
+          const studioClosed = rung.value === "studio" && !data.studio_available;
+          // With Studio closed to the account, only the agent's own Studio voice is shown.
+          const cardVoices = studioClosed ? voices.filter((entry) => entry.standing !== "offered") : voices;
           const headingId = `engine-voice-${rung.value}`;
           return (
             <div key={rung.value} role="group" aria-labelledby={headingId}>
@@ -164,16 +177,20 @@ export function EngineVoiceList({
                 {rung.label} voices
               </h3>
               <p className="text-meta text-ink-muted">{rung.blurb}</p>
-              {rung.value === "studio" && !data.studio_available ? (
+              {studioClosed && (
                 <p className="mt-2 text-body text-ink-muted">
                   {data.studio_note ?? "Studio voices are not available on this account yet."}
                 </p>
-              ) : voices.length === 0 ? (
+              )}
+              {!studioClosed && cardVoices.length === 0 ? (
                 <p className="mt-2 text-body text-ink-muted">No {rung.label} voice is offered yet.</p>
-              ) : (
+              ) : cardVoices.length === 0 ? null : (
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {voices.map((entry) => {
+                  {cardVoices.map((entry) => {
                     const blocked = entry.rung === "studio" ? studioBlocked : null;
+                    // The agent's own voice off the picker: shown selected, with the server's
+                    // whole sentence (kept, or choose another now).
+                    const ownOffPicker = entry.standing !== "offered";
                     return (
                       <ChoiceCard
                         key={entry.voice_id}
@@ -182,7 +199,12 @@ export function EngineVoiceList({
                         label={entry.label}
                         suffix={entry.is_custom ? "made for this platform" : undefined}
                         detail={entry.language_note}
-                        reason={entry.offerable ? blocked : entry.reason}
+                        reason={ownOffPicker ? null : entry.offerable ? blocked : entry.reason}
+                        note={
+                          ownOffPicker && entry.reason
+                            ? { text: entry.reason, stop: entry.standing === "unavailable" }
+                            : null
+                        }
                         checked={selected === entry.voice_id}
                         current={saved === entry.voice_id}
                         disabled={locked || !entry.offerable || blocked !== null}
@@ -388,6 +410,8 @@ export function EngineModelList({
  * text when it is not. `extra` (a preview button, a band control) sits OUTSIDE the label, so
  * pressing it never changes the selection. `current` marks what is saved now, which a moved
  * radio no longer shows. A reason is a plain muted line with the whole sentence behind an ⓘ.
+ * A `note` is a whole sentence said in full and the card is not dimmed: it is about the
+ * option the agent holds now, which the reader must read rather than skip.
  */
 function ChoiceCard({
   name,
@@ -397,6 +421,7 @@ function ChoiceCard({
   suffix,
   detail,
   reason,
+  note,
   checked,
   current = false,
   disabled,
@@ -410,6 +435,7 @@ function ChoiceCard({
   suffix?: string;
   detail?: string;
   reason?: string | null;
+  note?: { text: string; stop: boolean } | null;
   checked: boolean;
   current?: boolean;
   disabled: boolean;
@@ -432,6 +458,9 @@ function ChoiceCard({
       </span>
       {detail && <span className="mt-0.5 block text-xs text-ink-muted">{detail}</span>}
       {reasonText && <span className="mt-0.5 block text-xs text-ink-muted">{reasonText}</span>}
+      {note && (
+        <span className={`mt-1 block text-xs ${note.stop ? "text-danger" : "text-ink-muted"}`}>{note.text}</span>
+      )}
     </span>
   );
   return (
@@ -521,10 +550,14 @@ export function TenantEngineVoices({
   // The console reads this agent from its own roster query, which the client hook's refresh
   // does not know about.
   const refreshRoster = () => void client.invalidateQueries({ queryKey: ["admin", "agents", slug] });
+  const catalogue = useTenantEngineCatalogue(slug);
+  const voiceId = agent?.engine_voice_id ?? null;
+  const held = useHeldVoice(viewAsSession(slug), `operator:${slug}`, agent?.id, voiceId, catalogue.data);
   return (
     <EngineVoiceList
-      catalogue={useTenantEngineCatalogue(slug)}
-      voiceId={agent?.engine_voice_id ?? null}
+      catalogue={catalogue}
+      held={held}
+      voiceId={voiceId}
       modelId={agent?.engine_model_id ?? null}
       control={agent ? saveControl(save, feedback.status, disabledReason, "engine_voice_id", refreshRoster) : undefined}
       previewSession={viewAsSession(slug)}
@@ -565,10 +598,14 @@ export function ClientEngineVoices({ session, agentId }: { session: Session; age
   const agent = useAgent(session, agentId);
   const save = useUpdateAgent(session, agentId);
   const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Voice saved" });
+  const catalogue = useEngineCatalogue(session);
+  const voiceId = agent.data?.engine_voice_id ?? null;
+  const held = useHeldVoice(session, "client", agentId, voiceId, catalogue.data);
   return (
     <EngineVoiceList
-      catalogue={useEngineCatalogue(session)}
-      voiceId={agent.data?.engine_voice_id ?? null}
+      catalogue={catalogue}
+      held={held}
+      voiceId={voiceId}
       modelId={agent.data?.engine_model_id ?? null}
       control={agent.data ? saveControl(save, feedback.status, null, "engine_voice_id") : undefined}
       previewSession={session}

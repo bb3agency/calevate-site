@@ -21,12 +21,15 @@ Mounted BEFORE `agents.routes.router`: `/v1/agents/
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Final, Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import text
 
 from apps.api.agents.engine_catalogue_offer import offered_models
 from apps.api.agents.engine_choice import (
@@ -42,9 +45,11 @@ from apps.api.agents.engine_model_bands import (
 )
 from apps.api.agents.hosted_voices import (
     STUDIO_VOICE_PROVIDER,
+    HostedVoiceRow,
     hosted_voice_unofferable_reason,
     offered_hosted_voices,
     preview_object,
+    read_hosted_voice,
     rung_of_source,
 )
 from apps.api.agents.llm_models import LlmReasonAudience
@@ -71,6 +76,19 @@ from apps.api.engine.hosted_platform import engine_platform_label
 router = APIRouter(tags=["agents"])
 
 CatalogueReader = Annotated[Principal, Depends(requires("agents:read"))]
+
+VoiceStanding = Literal["offered", "kept", "unavailable"]
+KEPT_VOICE_NOTE: Final = (
+    "No longer offered. This agent keeps it, but once you switch to another voice it cannot "
+    "be chosen again."
+)
+UNAVAILABLE_VOICE_NOTE: Final = (
+    "This voice is no longer available. Choose another voice for this agent now."
+)
+#: Read on the reader's own tenant session, so an id from another account finds nothing.
+_AGENT_VOICE_SQL: Final = (
+    "SELECT engine_voice_id FROM agents WHERE id = :aid AND deleted_at IS NULL"
+)
 
 #: How long a browser may keep a preview clip. The bytes for one voice id only change when
 #: an operator replaces them, and an hour is what the vendor itself allows for its own
@@ -106,6 +124,10 @@ class EngineCatalogueVoiceOut(BaseModel):
     offerable: bool
     #: Why it cannot be chosen right now, in the reader's audience. Null exactly when offerable.
     reason: str | None
+    #: `offered`: on the picker. Asked with `agent_id`, that agent's own voice when it is not:
+    #: `kept` (no longer offered; the agent keeps it, D-880) or `unavailable` (it can no
+    #: longer be used, and the agent needs another voice now). Neither can be chosen.
+    standing: VoiceStanding
 
 
 class EngineCatalogueModelOut(BaseModel):
@@ -175,6 +197,29 @@ class EngineCatalogueOut(BaseModel):
 STUDIO_NOT_READY_NOTE: Final = "Studio voices are not available yet."
 
 
+async def _held_voice_off_offer(
+    principal: Principal, agent_id: UUID | None, *, offered: Sequence[HostedVoiceRow]
+) -> HostedVoiceRow | None:
+    """The catalogue row of `agent_id`'s voice when it is not among `offered`, else None.
+
+    Without it the picker of an agent whose voice an operator stopped offering shows no
+    voice selected while the agent still speaks it."""
+    if agent_id is None or principal.tenant_id is None:
+        return None
+    async with tenant_session(principal.tenant_id) as scoped:
+        voice_id = (
+            await scoped.execute(text(_AGENT_VOICE_SQL), {"aid": agent_id})
+        ).scalar_one_or_none()
+    if voice_id is None or any(row.voice_id == voice_id for row in offered):
+        return None
+    async with untenanted_session() as session:
+        try:
+            return await read_hosted_voice(session, str(voice_id))
+        except ProblemError:
+            # Not a hosted catalogue id at all: nothing to show beside the list.
+            return None
+
+
 def _studio_note(*, studio_ready: bool) -> str | None:
     """Why a reader cannot choose a Studio voice, or None. A free-trial account may choose one
     like any other while our developer workspace is on our key (D-727, D-806)."""
@@ -191,11 +236,15 @@ def _studio_note(*, studio_ready: bool) -> str | None:
         "enabled, each with its rung (Clear or Studio), a language note, whether a preview "
         "can be played, and whether it can be chosen right now. To an operator, the "
         "platform's own models that can answer a call on our plan, with their recorded "
-        "band; a client is sent no models. On any other platform `available` is false and "
+        "band; a client is sent no models. With `agent_id`, that agent's own voice is listed "
+        "too when it is no longer on offer, with `standing` `kept` or `unavailable`, so the "
+        "picker can show it selected. On any other platform `available` is false and "
         "the voice picker at `/v1/agents/voices` is the one to read."
     ),
 )
-async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
+async def engine_catalogue(
+    principal: CatalogueReader, agent_id: Annotated[UUID | None, Query()] = None
+) -> EngineCatalogueOut:
     engine = get_engine()
     if not isinstance(engine, HostsVoices) or not isinstance(engine, HoldsCatalogue):
         return EngineCatalogueOut(
@@ -259,10 +308,27 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
             preview_available=row.preview_available,
             offerable=reason is None,
             reason=reason,
+            standing="offered",
         )
         for row, reason in zip(rows, reasons, strict=True)
     ]
     offerable = sum(1 for v in voices if v.offerable)
+    held = await _held_voice_off_offer(principal, agent_id, offered=rows)
+    if held is not None:
+        voices.append(
+            EngineCatalogueVoiceOut(
+                voice_id=held.voice_id,
+                label=held.label,
+                rung=rung_of_source(engine.name, held.source),
+                is_custom=held.is_custom,
+                language_note=held.language_note,
+                # A client's preview route serves offered voices only (`preview_object`).
+                preview_available=held.preview_available and not is_client,
+                offerable=False,
+                reason=KEPT_VOICE_NOTE if held.keepable else UNAVAILABLE_VOICE_NOTE,
+                standing="kept" if held.keepable else "unavailable",
+            )
+        )
     byok = byok_in_force(engine)
     default_model = in_call_default_model(engine, voice_id=None)
     default_label = (
@@ -284,8 +350,8 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
         studio_note=studio_note,
         default_model_label=default_label,
         note=(
-            f"{offerable} of {len(voices)} voices can be chosen today."
-            if voices
+            f"{offerable} of {len(rows)} voices can be chosen today."
+            if rows
             else "No voices have been made available yet."
         ),
         voices=voices,

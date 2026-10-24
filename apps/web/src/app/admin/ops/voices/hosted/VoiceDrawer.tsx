@@ -49,10 +49,17 @@ import {
 import { OPS_PREVIEW_PATH } from "@/lib/api/voicePreview";
 import { lookup } from "@/lib/lookup";
 
-import { switchBlocked, tierText, usedBy } from "./HostedVoiceList";
+import { archiveBlocked, switchBlocked, tierText, usedBy } from "./HostedVoiceList";
 import { accentOf } from "./voiceFilters";
 
 const DISPLAY_MAX = 60;
+
+/** A published agent's use of the voice as the drawer's pill says it; any other agent shows its
+ *  status ("Draft", "Archived"). */
+const AGENT_USE: Record<string, string> = {
+  live: "Live",
+  ready: "Ready, not taking calls",
+};
 
 /** `2026-10-11` as "11 Oct 2026": a calendar date, so no time zone is involved. */
 function formatDay(isoDate: string): string {
@@ -198,6 +205,9 @@ function OfferSection({ voice }: { voice: HostedVoice }) {
   }, [setStateFeedback.status]);
   const pressedState = setState.variables?.state;
   const blocked = switchBlocked(voice);
+  // Said before the click, like `blocked`: the agents are listed under "Agents on this voice".
+  const archiveRefusal = archiveBlocked(voice);
+  const archiveHintId = useId();
   const state = lookup(HOSTED_STATE, voice.state);
   // Enabled but not on the picker: the API says why in its own fields.
   const enabledNotOffered = voice.state === "enabled" && !voice.offered;
@@ -241,19 +251,28 @@ function OfferSection({ voice }: { voice: HostedVoice }) {
             disabled={setStateFeedback.status === "pending" || (blocked !== null && voice.state !== "enabled")}
             onChange={(on) => setStateFeedback.run({ voice_id: voice.voice_id, state: on ? "enabled" : "disabled" })}
           />
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {voice.state !== "archived" ? (
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                onClick={() => {
-                  setState.reset();
-                  setArchiving(true);
-                }}
-              >
-                <Archive aria-hidden className="h-4 w-4" />
-                Archive
-              </button>
+              <>
+                <button
+                  type="button"
+                  className={SECONDARY_BUTTON_SM}
+                  disabled={archiveRefusal !== null}
+                  aria-describedby={archiveRefusal ? archiveHintId : undefined}
+                  onClick={() => {
+                    setState.reset();
+                    setArchiving(true);
+                  }}
+                >
+                  <Archive aria-hidden className="h-4 w-4" />
+                  Archive
+                </button>
+                {archiveRefusal && (
+                  <p id={archiveHintId} className="text-meta text-ink-muted">
+                    {archiveRefusal}
+                  </p>
+                )}
+              </>
             ) : (
               <ActionButton
                 variant="secondary-sm"
@@ -429,14 +448,14 @@ function AgentsSection({ voice }: { voice: HostedVoice }) {
                 </Link>
                 <span className="text-meta text-ink-muted">{` · ${agent.tenant_name}`}</span>
               </span>
-              <StatusPill tone={agent.status === "live" ? "ok" : "neutral"}>
-                {agent.status === "live" ? "Live" : sentenceCase(agent.status)}
+              <StatusPill tone={agent.use === "live" ? "ok" : "neutral"}>
+                {lookup(AGENT_USE, agent.use) ?? sentenceCase(agent.status)}
               </StatusPill>
             </li>
           ))}
         </ul>
       )}
-      <p className={FIELD_HINT}>{usedBy(voice.live_agents)} across every client.</p>
+      <p className={FIELD_HINT}>{usedBy(voice.used_by)} across every client.</p>
     </section>
   );
 }
@@ -679,7 +698,7 @@ function DeleteCloneSection({
 }
 
 /**
- * Delete one of our clones. The first request goes WITHOUT `confirm`: with live agents on it
+ * Delete one of our clones. The first request goes WITHOUT `confirm`: with any agent on it
  * the server refuses with `voice_clone_in_use` and names them, and only then is the operator
  * offered the delete that moves them.
  */

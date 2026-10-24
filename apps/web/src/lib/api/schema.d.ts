@@ -3155,7 +3155,7 @@ export interface paths {
         };
         /**
          * The voices an agent may be put on, and the platform's models, with availability
-         * @description On a voice platform that hosts its own voices: the voices an operator added and enabled, each with its rung (Clear or Studio), a language note, whether a preview can be played, and whether it can be chosen right now. To an operator, the platform's own models that can answer a call on our plan, with their recorded band; a client is sent no models. On any other platform `available` is false and the voice picker at `/v1/agents/voices` is the one to read.
+         * @description On a voice platform that hosts its own voices: the voices an operator added and enabled, each with its rung (Clear or Studio), a language note, whether a preview can be played, and whether it can be chosen right now. To an operator, the platform's own models that can answer a call on our plan, with their recorded band; a client is sent no models. With `agent_id`, that agent's own voice is listed too when it is no longer on offer, with `standing` `kept` or `unavailable`, so the picker can show it selected. On any other platform `available` is false and the voice picker at `/v1/agents/voices` is the one to read.
          */
         get: operations["engine_catalogue_v1_agents_engine_catalogue_get"];
         put?: never;
@@ -11093,7 +11093,7 @@ export interface paths {
         post: operations["create_clone_v1_ops_voices_clones_post"];
         /**
          * Delete one of our cloned voices (step-up confirmed, audited)
-         * @description Deletes the clone on the voice platform, which forgets it everywhere and moves every agent on it, in our workspace and in every client's, to a standard voice; it cannot be undone. Refused with `voice_clone_in_use` while live agents of any client are on it, unless `confirm=true`. Requires `X-Confirm-Action: delete_voice_clone:<voice_id>`.
+         * @description Deletes the clone on the voice platform, which forgets it everywhere and moves every agent on it, in our workspace and in every client's, to a standard voice; it cannot be undone. Refused with `voice_clone_in_use` while any agent of any client, published or not, is on it, unless `confirm=true`. Requires `X-Confirm-Action: delete_voice_clone:<voice_id>`.
          */
         delete: operations["delete_clone_v1_ops_voices_clones_delete"];
         options?: never;
@@ -11124,7 +11124,7 @@ export interface paths {
         head?: never;
         /**
          * Enable, disable or archive one hosted voice for every client (audited)
-         * @description Only an ADDED voice can be enabled. It changes no agent and no call: an agent on this voice keeps speaking it; disabling only takes it off the picker. Idempotent.
+         * @description Only an ADDED voice can be enabled. It changes no agent and no call: an agent on this voice keeps speaking it and can be republished on it; disabling only takes it off the picker. Archiving is refused with `voice_in_use` while any agent, published or not, is set to the voice (D-880). Idempotent.
          */
         patch: operations["set_hosted_state_v1_ops_voices_hosted_patch"];
         trace?: never;
@@ -11138,7 +11138,7 @@ export interface paths {
         };
         /**
          * The agents set to one hosted voice, in every account (admin realm)
-         * @description Every agent, live or not, whose voice is this hosted voice, with its account, live ones first. Read one voice at a time, for the voice's detail.
+         * @description Every agent, live or not, whose voice is this hosted voice, with its account and `use` (`live`, `ready`, `not_published`), live ones first, then ready. Read one voice at a time, for the voice's detail.
          */
         get: operations["hosted_voice_agents_v1_ops_voices_hosted_agents_get"];
         put?: never;
@@ -18383,6 +18383,11 @@ export interface components {
              * @enum {string}
              */
             rung: "clear" | "studio";
+            /**
+             * Standing
+             * @enum {string}
+             */
+            standing: "offered" | "kept" | "unavailable";
             /** Voice Id */
             voice_id: string;
         };
@@ -20085,6 +20090,11 @@ export interface components {
             tenant_id: string;
             /** Tenant Name */
             tenant_name: string;
+            /**
+             * Use
+             * @enum {string}
+             */
+            use: "live" | "ready" | "not_published";
         };
         /** HostedVoiceAgentsOut */
         HostedVoiceAgentsOut: {
@@ -20127,8 +20137,6 @@ export interface components {
             language_note: string;
             /** Languages */
             languages: string[];
-            /** Live Agents */
-            live_agents: number;
             /** Not Sold Reason */
             not_sold_reason: string | null;
             /** Offered */
@@ -20158,6 +20166,7 @@ export interface components {
              * Format: date-time
              */
             synced_at: string;
+            used_by: components["schemas"]["VoiceUsageOut"];
             /** Vendor Id */
             vendor_id: string;
             /** Vendor Label */
@@ -30391,6 +30400,20 @@ export interface components {
             /** Volume */
             volume?: number | string | null;
         };
+        /**
+         * VoiceUsageOut
+         * @description The non-deleted agents in every account set to one voice, by how they use it (D-880).
+         */
+        VoiceUsageOut: {
+            /** Live */
+            live: number;
+            /** Not Published */
+            not_published: number;
+            /** Ready */
+            ready: number;
+            /** Total */
+            total: number;
+        };
         /** WaiverIn */
         WaiverIn: {
             /** Reason */
@@ -36755,7 +36778,9 @@ export interface operations {
     };
     engine_catalogue_v1_agents_engine_catalogue_get: {
         parameters: {
-            query?: never;
+            query?: {
+                agent_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;

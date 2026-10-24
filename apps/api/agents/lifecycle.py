@@ -432,6 +432,10 @@ async def _check_engine_choice(
     draft is checked here, so it cannot store a voice that would refuse its first
     publish. `held` is the row's current (voice, model); `voice`/`model` are (sent, value).
 
+    A NEW voice is checked here on every agent, published or not: the republish keeps the
+    voice an agent holds even when it is no longer offered (D-880), so it cannot tell a
+    voice kept from one chosen just now, and only an offered voice may be chosen.
+
     Clearing a choice is allowed: the adapter sends `null`, which puts the vendor agent back
     on its default (`engine/thinnest.ThinnestEngine._agent_body`). A cleared VOICE on a live
     agent is then refused by its republish (`engine_choice.VOICE_REQUIRED`), because the
@@ -446,13 +450,17 @@ async def _check_engine_choice(
         # A model of OUR key (D-764) is checked here even on a live agent: its republish
         # would otherwise fall back to the default without saying so.
         refuse_own_model_choice(get_engine(), model[1])
-    if republish or not any(sent and value is not None for sent, value in (voice, model)):
+    new_voice = voice[0] and voice[1] is not None and voice[1] != held[0]
+    if republish and not new_voice:
+        return
+    if not any(sent and value is not None for sent, value in (voice, model)):
         return
     await require_engine_choice(
         session,
         get_engine(),
         voice_id=voice[1] if voice[0] else held[0],
         model_id=model[1] if model[0] else held[1],
+        held_voice_id=held[0],
     )
 
 

@@ -24,6 +24,7 @@ from apps.api.agents.hosted_voices import (
 )
 from apps.api.agents.languages import BUILT_LANGUAGES
 from apps.api.agents.models import PlatformVoiceCatalogEntry
+from apps.api.agents.voice_curation import VoiceUsage
 from apps.api.agents.voice_sync import sync_voice_catalogue
 from apps.api.billing.payment_routes import voice_tier_not_offered
 from apps.api.core.errors import ProblemError
@@ -458,6 +459,76 @@ async def test_add_then_enable_puts_a_voice_on_offer(
     assert await _audits("ops.hosted_voice_added") >= 1
 
 
+async def _agent_on(voice: str, *, status: str, ref: str | None, name: str) -> None:
+    """A fresh account whose agent uses `voice` in `status`, published when `ref` is set."""
+    created = await create_org_with_receptionist(
+        name=f"{name} Co",
+        slug=f"vu-{uuid.uuid4().hex[:8]}",
+        vertical_template="retail",
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    async with tenant_session(created["id"]) as session:
+        await session.execute(
+            text(
+                "UPDATE agents SET engine_voice_id = :v, status = :s, engine_agent_ref = :r, "
+                "name = :n WHERE id = :a"
+            ),
+            {"v": voice, "s": status, "r": ref, "n": name, "a": created["agent_id"]},
+        )
+
+
+async def test_every_agent_on_a_voice_counts_and_an_archive_waits_for_none(
+    admin: dict[str, str], hosted_rows: CatalogueRows
+) -> None:
+    """D-880, production 24 Oct 2026: a voice a READY agent used read "Not in use" and was
+    archived from under it. Every non-deleted agent counts, by use, in every account."""
+    voice = await hosted_rows.add("engine", label="Anusha")
+    await _agent_on(voice, status="live", ref=f"ag_{uuid.uuid4().hex[:8]}", name="Ravi")
+    await _agent_on(voice, status="paused", ref=f"ag_{uuid.uuid4().hex[:8]}", name="Anjali")
+    await _agent_on(voice, status="draft", ref=None, name="Meena")
+    unused = await hosted_rows.add("engine", label="Spare")
+    with selected(HostingEngine()):
+        async with _client() as http:
+            listed = await http.get("/v1/ops/voices/hosted", headers=admin)
+            agents = await http.get(
+                "/v1/ops/voices/hosted/agents", headers=admin, params={"voice_id": voice}
+            )
+            archive = await http.patch(
+                "/v1/ops/voices/hosted",
+                headers=admin,
+                json={"voice_id": voice, "state": "archived"},
+            )
+            disable = await http.patch(
+                "/v1/ops/voices/hosted",
+                headers=admin,
+                json={"voice_id": voice, "state": "disabled"},
+            )
+            spare = await http.patch(
+                "/v1/ops/voices/hosted",
+                headers=admin,
+                json={"voice_id": unused, "state": "archived"},
+            )
+    rows = {v["voice_id"]: v for v in listed.json()["voices"]}
+    assert rows[voice]["used_by"] == {"live": 1, "ready": 1, "not_published": 1, "total": 3}
+    assert rows[unused]["used_by"]["total"] == 0
+    assert [(a["agent_name"], a["use"]) for a in agents.json()["agents"]] == [
+        ("Ravi", "live"),
+        ("Anjali", "ready"),
+        ("Meena", "not_published"),
+    ]
+    assert archive.status_code == 422, archive.text
+    refusal = archive.json()
+    assert refusal["type"].rsplit("/", 1)[-1] == "voice_in_use"
+    assert "Anjali (Anjali Co)" in refusal["detail"] and "3 agent(s)" in refusal["detail"]
+    assert "another voice first" in refusal["remediation"]
+    # Disabling is allowed while in use: the agents keep the voice.
+    assert disable.status_code == 200 and disable.json()["voice"]["state"] == "disabled"
+    assert "3 agent(s) on it keep it" in disable.json()["next_step"]
+    assert spare.status_code == 200 and spare.json()["voice"]["state"] == "archived"
+
+
 async def test_a_withdrawn_voice_cannot_be_added(
     admin: dict[str, str], hosted_rows: CatalogueRows
 ) -> None:
@@ -612,10 +683,10 @@ async def test_deleting_a_clone_warns_about_live_agents_then_withdraws_it(
     voice = await hosted_rows.add("engine", clone_id="vc_1")
     plain = await hosted_rows.add("engine")
 
-    async def _live() -> dict[str, int]:
-        return {voice: 2}
+    async def _using() -> dict[str, VoiceUsage]:
+        return {voice: VoiceUsage(live=1, ready=1)}
 
-    monkeypatch.setattr(routes, "count_live_agents_by_engine_voice", _live)
+    monkeypatch.setattr(routes, "count_agents_by_engine_voice", _using)
     engine = HostingEngine()
     engine.moved = 2
 
@@ -638,6 +709,7 @@ async def test_deleting_a_clone_warns_about_live_agents_then_withdraws_it(
     )
     # A shared clone moves every client's agents too (channels/voice-clone.md:124-126).
     assert "every client's workspace" in warned.json()["detail"]
+    assert "1 live, 1 ready" in warned.json()["detail"]
     assert done.status_code == 200 and done.json()["moved_agents"] == 2
     assert "moved 2 agent(s)" in done.json()["next_step"]
     entry = await _entry(voice)

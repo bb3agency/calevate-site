@@ -513,7 +513,7 @@ async def _plan_voice_curation(
     session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
 ) -> Plan:
     from apps.api.agents.hosted_voices import read_hosted_voice
-    from apps.api.agents.voice_curation import count_live_agents_by_engine_voice
+    from apps.api.agents.voice_curation import NOT_IN_USE, count_agents_by_engine_voice
 
     del actor
     parsed = parse_args(_VoiceCurationArgs, args)
@@ -523,14 +523,20 @@ async def _plan_voice_curation(
         raise WriteRefusedError(
             "no voice in the catalogue has that id; look it up with `admin_voices`"
         ) from None
-    live = (await count_live_agents_by_engine_voice()).get(parsed.voice_id, 0)
+    using = (await count_agents_by_engine_voice()).get(parsed.voice_id, NOT_IN_USE).total
+    if parsed.state == "archived" and row.state != "archived" and using:
+        # `set_hosted_curation` refuses it (D-880); said before a confirm card is drawn.
+        raise WriteRefusedError(
+            f"{using} agent(s) use this voice, and a voice in use cannot be archived; move "
+            "them to another voice first, or propose `disabled` to stop new choices"
+        )
     label = strip_invisible(row.label)
     return Plan(
         object_id=parsed.voice_id,
         title="Change whether clients may choose this voice",
         summary=(
-            f"Set “{label}” to {parsed.state} for every client. {live} agent(s) "
-            "speak it now and keep speaking it; only the picker changes."
+            f"Set “{label}” to {parsed.state} for every client. {using} agent(s) "
+            "use it now and keep it; only the picker changes."
         ),
         current=row.state,
         proposed=parsed.state,
@@ -545,19 +551,19 @@ async def _execute_voice_curation(
 ) -> Executed:
     """`hosted_voices.set_hosted_curation` — `PATCH /v1/ops/voices/hosted`'s call."""
     from apps.api.agents.hosted_voices import set_hosted_curation
-    from apps.api.agents.voice_curation import count_live_agents_by_engine_voice
+    from apps.api.agents.voice_curation import NOT_IN_USE, count_agents_by_engine_voice
 
     del actor
     parsed = parse_args(_VoiceCurationArgs, args)
     row = await set_hosted_curation(session, voice_id=parsed.voice_id, state=parsed.state)
-    live = (await count_live_agents_by_engine_voice()).get(parsed.voice_id, 0)
+    using = (await count_agents_by_engine_voice()).get(parsed.voice_id, NOT_IN_USE).total
     return Executed(
         applied=True,
         detail=f"The voice is now {row.state}.",
         audit_summary={
             "voice_id": parsed.voice_id,
             "state": parsed.state,
-            "live_agents": live,
+            "agents_using": using,
         },
     )
 
@@ -572,7 +578,8 @@ ADMIN_VOICE_SET: Final = AdminActionTool(
     schema=action_schema(
         "admin_voice_set",
         "Propose enabling, disabling or archiving one voice for every client's picker. Agents "
-        "already using it are not changed." + PROPOSES_ONLY,
+        "already using it are not changed, and a voice any agent uses cannot be archived."
+        + PROPOSES_ONLY,
         {
             "voice_id": {"type": "string", "description": "From `admin_voices`."},
             "state": {"type": "string", "enum": ["enabled", "disabled", "archived"]},

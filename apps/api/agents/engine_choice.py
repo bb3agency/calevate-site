@@ -9,9 +9,10 @@ key the agent's minutes are metered at:
 * nothing chosen — `platform`, with no read, which is every agent's path on other engines;
 * a voice — its rate key: the engine's band sold as Clear (`Settings.thinnest_clear_voice_band`)
   or a voice of our own Cartesia key (`byok_voice`, sold as Studio), D-687, D-688. A voice
-  the operator has not added and enabled, that the engine no longer lists, or whose minute is
-  unattested is refused
-  (hard rule 7, through `billing/engine_minutes.attested_rate_keys`).
+  chosen anew that the operator has not added and enabled, a voice the engine no longer
+  lists, and a voice whose minute is unattested are refused (hard rule 7, through
+  `billing/engine_minutes.attested_rate_keys`). An agent keeps a voice that is merely no
+  longer offered (D-880).
 
 A PUBLISH also refuses an agent with no voice (`engine_voice_required`) and the workspace on
 all three of its own keys (`engine_own_keys_not_on_sale`). Whether our Cartesia key is on in
@@ -181,13 +182,25 @@ class HostedChoice:
 
 
 async def _check_voice(
-    session: AsyncSession, voice_id: str, *, attested: frozenset[str], platform: str
+    session: AsyncSession,
+    voice_id: str,
+    *,
+    attested: frozenset[str],
+    platform: str,
+    kept: bool,
 ) -> HostedChoice:
     try:
         row = await read_hosted_voice(session, voice_id)
     except ProblemError:
         raise _not_in_catalogue() from None
-    if not row.offered:
+    if kept and not row.keepable:
+        raise _refusal(
+            VOICE_NOT_ON_OFFER,
+            title="This voice is no longer available",
+            detail="The voice this agent was set to can no longer be used for calls.",
+            remediation="Choose another voice for this agent.",
+        )
+    if not kept and not row.offered:
         raise _refusal(
             VOICE_NOT_ON_OFFER,
             title="This voice is not on offer",
@@ -265,6 +278,7 @@ async def require_engine_choice(
     *,
     voice_id: str | None,
     model_id: str | None,
+    held_voice_id: str | None = None,
     for_publish: bool = False,
 ) -> EngineRateKey:
     """Refuse a choice the engine cannot run or we cannot price; else its rate key.
@@ -272,6 +286,11 @@ async def require_engine_choice(
     `for_publish` adds what only a publish needs: on an engine that hosts its voices an
     agent must name one (the platform default speaks a voice nobody priced), the developer
     workspace must not be on all three of its own keys. A draft save may leave the voice empty.
+
+    A voice equal to `held_voice_id` — the agent's own, and every publish's — is KEPT: it
+    need not still be offered, only still usable and priced (`HostedVoiceRow.keepable`),
+    so an operator who stops offering a voice does not stop every agent already on it from
+    being republished (D-880). Choosing it anew needs it offered.
     """
     caps = engine.capabilities
     refuse_choice_under_byok(engine, voice_id=voice_id, model_id=model_id)
@@ -316,7 +335,13 @@ async def require_engine_choice(
     platform = engine_platform_label(engine)
     choice: HostedChoice | None = None
     if voice_id is not None and hosting is not None:
-        choice = await _check_voice(session, voice_id, attested=attested, platform=platform)
+        choice = await _check_voice(
+            session,
+            voice_id,
+            attested=attested,
+            platform=platform,
+            kept=voice_id == held_voice_id,
+        )
     if model_id is not None and holder is not None:
         _check_model(
             await banded_catalogue(session, holder, engine=engine.name),
@@ -409,9 +434,15 @@ async def resolve_in_call_default(session: AsyncSession, value: str | None) -> s
 async def engine_rate_key_for(
     session: AsyncSession, engine: VoiceEngine, *, voice_id: str | None, model_id: str | None
 ) -> EngineRateKey:
-    """`require_engine_choice` for the agent a publish is about to send."""
+    """`require_engine_choice` for the agent a publish is about to send: its voice is the one
+    it holds, so it is kept rather than chosen."""
     return await require_engine_choice(
-        session, engine, voice_id=voice_id, model_id=model_id, for_publish=True
+        session,
+        engine,
+        voice_id=voice_id,
+        model_id=model_id,
+        held_voice_id=voice_id,
+        for_publish=True,
     )
 
 

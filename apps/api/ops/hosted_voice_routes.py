@@ -114,7 +114,12 @@ from apps.api.agents.voice_consent import (
     keep_consent_document,
     open_consent_document,
 )
-from apps.api.agents.voice_curation import count_live_agents_by_engine_voice
+from apps.api.agents.voice_curation import (
+    NOT_IN_USE,
+    VoiceUsage,
+    VoiceUse,
+    count_agents_by_engine_voice,
+)
 from apps.api.agents.voices import CurationState
 from apps.api.billing.own_model_prompt import PromptSource, current_prompt_basis
 from apps.api.billing.plans import IST
@@ -227,12 +232,34 @@ class HostedVoiceAgentOut(Strict):
     agent_id: str
     agent_name: str
     status: str
+    #: `live` | `ready` (published, not taking calls) | `not_published`.
+    use: VoiceUse
 
 
 class HostedVoiceAgentsOut(Strict):
     voice_id: str
-    #: Every agent set to this voice, in every account, live ones first.
+    #: Every agent set to this voice, in every account: live, then ready, then the rest.
     agents: list[HostedVoiceAgentOut]
+
+
+class VoiceUsageOut(Strict):
+    """The non-deleted agents in every account set to one voice, by how they use it (D-880)."""
+
+    live: int
+    #: Published and not taking calls (D-838): its test calls speak the voice.
+    ready: int
+    #: Drafts, agents paused before they were published, archived agents.
+    not_published: int
+    total: int
+
+    @classmethod
+    def of(cls, usage: VoiceUsage) -> VoiceUsageOut:
+        return cls(
+            live=usage.live,
+            ready=usage.ready,
+            not_published=usage.not_published,
+            total=usage.total,
+        )
 
 
 class SetDisplayLabelIn(Strict):
@@ -282,8 +309,9 @@ class HostedVoiceOut(Strict):
     preview_source: PreviewSource | None
     #: Our clone: it can be deleted from here.
     deletable_clone: bool
-    #: LIVE agents across every account set to this voice.
-    live_agents: int
+    #: Every non-deleted agent across every account set to this voice, by use. Archiving
+    #: is refused while `total` is above zero (`voice_in_use`, D-880).
+    used_by: VoiceUsageOut
     #: The provider's own id for the voice, for an operator to copy; never shown to a client.
     vendor_id: str
     #: The provider's own name. `label` is what clients see: `display_label` when set.
@@ -307,7 +335,7 @@ class HostedVoiceOut(Strict):
         row: HostedVoiceRow,
         *,
         engine: str,
-        live_agents: int,
+        used_by: VoiceUsage,
         admin_names: Mapping[UUID, str] | None = None,
     ) -> HostedVoiceOut:
         refusal = clone_offer_refusal(row)
@@ -356,7 +384,7 @@ class HostedVoiceOut(Strict):
             # The CHECK `ck_platform_voice_catalog_preview_source` holds the vocabulary.
             preview_source=cast("PreviewSource | None", row.preview_source),
             deletable_clone=row.clone_id is not None and row.withdrawn_at is None,
-            live_agents=live_agents,
+            used_by=VoiceUsageOut.of(used_by),
         )
 
 
@@ -559,11 +587,11 @@ async def _admin_names(session: AsyncSession, rows: list[HostedVoiceRow]) -> dic
 
 
 async def _out(session: AsyncSession, row: HostedVoiceRow, *, engine: str) -> HostedVoiceOut:
-    live = await count_live_agents_by_engine_voice()
+    usage = await count_agents_by_engine_voice()
     return HostedVoiceOut.of(
         row,
         engine=engine,
-        live_agents=live.get(row.voice_id, 0),
+        used_by=usage.get(row.voice_id, NOT_IN_USE),
         admin_names=await _admin_names(session, [row]),
     )
 
@@ -673,11 +701,14 @@ async def list_hosted(
             plan_note=None,
         )
     rows = await list_hosted_voices(session, scope=scope)
-    live = await count_live_agents_by_engine_voice()
+    usage = await count_agents_by_engine_voice()
     names = await _admin_names(session, list(rows))
     voices = [
         HostedVoiceOut.of(
-            row, engine=engine.name, live_agents=live.get(row.voice_id, 0), admin_names=names
+            row,
+            engine=engine.name,
+            used_by=usage.get(row.voice_id, NOT_IN_USE),
+            admin_names=names,
         )
         for row in rows
     ]
@@ -749,7 +780,9 @@ async def add_hosted(
     summary="Enable, disable or archive one hosted voice for every client (audited)",
     description=(
         "Only an ADDED voice can be enabled. It changes no agent and no call: an agent on "
-        "this voice keeps speaking it; disabling only takes it off the picker. Idempotent."
+        "this voice keeps speaking it and can be republished on it; disabling only takes it "
+        "off the picker. Archiving is refused with `voice_in_use` while any agent, published "
+        "or not, is set to the voice (D-880). Idempotent."
     ),
 )
 async def set_hosted_state(
@@ -767,15 +800,21 @@ async def set_hosted_state(
         principal,
         action="ops.hosted_voice_curation_set",
         voice_id=row.voice_id,
-        summary={"voice_id": row.voice_id, "state": row.state, "live_agents": out.live_agents},
+        summary={
+            "voice_id": row.voice_id,
+            "state": row.state,
+            "agents_using": out.used_by.total,
+        },
     )
     if row.state == "enabled":
         step = f"{row.label} can now be chosen for an agent."
-    else:
+    elif out.used_by.total:
         step = (
-            f"{row.label} can no longer be chosen. {out.live_agents} live agent(s) on it keep "
-            "speaking it until each is moved."
+            f"{row.label} can no longer be chosen. The {out.used_by.total} agent(s) on it keep "
+            "it until each is moved to another voice."
         )
+    else:
+        step = f"{row.label} can no longer be chosen. No agent uses it."
     return HostedVoiceWriteOut(voice=out, next_step=step)
 
 
@@ -785,8 +824,9 @@ async def set_hosted_state(
     openapi_extra=permission_meta("ops:manage"),
     summary="The agents set to one hosted voice, in every account (admin realm)",
     description=(
-        "Every agent, live or not, whose voice is this hosted voice, with its account, live "
-        "ones first. Read one voice at a time, for the voice's detail."
+        "Every agent, live or not, whose voice is this hosted voice, with its account and "
+        "`use` (`live`, `ready`, `not_published`), live ones first, then ready. Read one "
+        "voice at a time, for the voice's detail."
     ),
 )
 async def hosted_voice_agents(
@@ -807,6 +847,7 @@ async def hosted_voice_agents(
                 agent_id=str(a.agent_id),
                 agent_name=a.agent_name,
                 status=a.status,
+                use=a.use,
             )
             for a in agents
         ],
@@ -1194,8 +1235,8 @@ async def _try_vendor_preview(session: AsyncSession, *, voice_id: str, url: str)
     description=(
         "Deletes the clone on the voice platform, which forgets it everywhere and moves "
         "every agent on it, in our workspace and in every client's, to a standard voice; it "
-        "cannot be undone. Refused with `voice_clone_in_use` while live agents of any client "
-        "are on it, unless `confirm=true`. "
+        "cannot be undone. Refused with `voice_clone_in_use` while any agent of any client, "
+        "published or not, is on it, unless `confirm=true`. "
         "Requires `X-Confirm-Action: delete_voice_clone:<voice_id>`."
     ),
 )
@@ -1219,16 +1260,17 @@ async def delete_clone(
             detail="Only a voice cloned from this console can be deleted from it.",
             remediation="Disable or archive the voice instead.",
         )
-    live = (await count_live_agents_by_engine_voice()).get(voice_id, 0)
-    if live and not confirm:
+    usage = (await count_agents_by_engine_voice()).get(voice_id, NOT_IN_USE)
+    if usage.total and not confirm:
         raise ProblemError(
             kind="conflict",
             code="voice_clone_in_use",
-            title="Live agents are speaking this voice",
+            title="Agents use this voice",
             detail=(
-                f"{live} live agent(s) across our clients are on this voice. Deleting it moves "
-                "every agent on it, in every client's workspace, to the platform's standard "
-                "voice at once."
+                f"{usage.total} agent(s) across our clients use this voice ({usage.live} live, "
+                f"{usage.ready} ready, {usage.not_published} not published). Deleting it "
+                "moves every agent on it, in every client's workspace, to the platform's "
+                "standard voice at once."
             ),
             remediation="Move those agents to another voice first, or delete with confirm=true.",
         )
@@ -1251,7 +1293,7 @@ async def delete_clone(
         principal,
         action="ops.voice_clone_deleted",
         voice_id=voice_id,
-        summary={"voice_id": voice_id, "moved_agents": moved, "live_agents": live},
+        summary={"voice_id": voice_id, "moved_agents": moved, "agents_using": usage.total},
     )
     return DeleteCloneOut(
         voice_id=voice_id,

@@ -50,6 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.languages import BUILT_LANGUAGES
 from apps.api.agents.llm_models import LlmReasonAudience
 from apps.api.agents.models import PlatformVoiceCatalogEntry
+from apps.api.agents.voice_curation import VoiceUse, use_of
 from apps.api.agents.voices import (
     ARRIVAL_CURATION_STATE,
     CurationState,
@@ -719,16 +720,16 @@ class HostedVoiceRow:
         return band_is_sold(self.source, self.band)
 
     @property
+    def keepable(self) -> bool:
+        """An agent already on this voice may keep it and be republished on it (D-880):
+        sold, still listed, and, for a person's clone, consented to and renamed. Whether an
+        operator still OFFERS it does not matter to an agent that chose it while it was."""
+        return self.sold and self.withdrawn_at is None and self.clone_cleared
+
+    @property
     def offered(self) -> bool:
-        """Ground zero of the client offer: sold, added, enabled, still listed, and, for a
-        person's clone, consented to and renamed."""
-        return (
-            self.sold
-            and self.added
-            and self.state == "enabled"
-            and self.withdrawn_at is None
-            and self.clone_cleared
-        )
+        """Ground zero of the client offer: keepable, and added and enabled."""
+        return self.keepable and self.added and self.state == "enabled"
 
 
 def row_of(entry: PlatformVoiceCatalogEntry) -> HostedVoiceRow:
@@ -885,12 +886,44 @@ async def set_hosted_curation(
         raise band_not_sold(row)
     if state == "enabled" and (refusal := clone_offer_refusal(row)) is not None:
         raise refusal
+    if state == "archived" and row.state != "archived":
+        await _refuse_archive_in_use(row)
     await session.execute(
         update(PlatformVoiceCatalogEntry)
         .where(PlatformVoiceCatalogEntry.voice_id == voice_id)
         .values(curation_state=state, curated_at=now or datetime.now(UTC))
     )
     return await read_hosted_voice(session, voice_id)
+
+
+VOICE_IN_USE: Final = "voice_in_use"
+#: How many agents the archive refusal names before "and N more"; the drawer lists them all.
+_NAMED_IN_REFUSAL: Final = 3
+
+
+async def _refuse_archive_in_use(row: HostedVoiceRow) -> None:
+    """Archiving takes a voice out of every list, so an agent on it would show its client no
+    selected voice and leave an operator nothing to find it by. Disabling is the step that
+    stops new choices; archiving waits until no agent uses the voice (D-880)."""
+    agents = await agents_on_hosted_voice(row.voice_id)
+    if not agents:
+        return
+    named = ", ".join(f"{a.agent_name} ({a.tenant_name})" for a in agents[:_NAMED_IN_REFUSAL])
+    more = len(agents) - _NAMED_IN_REFUSAL
+    raise ProblemError(
+        kind="business_rule",
+        code=VOICE_IN_USE,
+        title="Agents still use this voice",
+        detail=(
+            f"{len(agents)} agent(s) use {row.label}: {named}"
+            + (f" and {more} more" if more > 0 else "")
+            + ". An archived voice is hidden from every list, so these agents would show no voice."
+        ),
+        remediation=(
+            "Move these agents to another voice first, then archive it. To stop new agents "
+            "choosing it now, switch off Offered to clients instead."
+        ),
+    )
 
 
 VOICE_CLONE_CONSENT_MISSING: Final = "voice_clone_consent_missing"
@@ -1043,13 +1076,16 @@ class AgentOnVoice:
     agent_id: UUID
     agent_name: str
     status: str
+    use: VoiceUse
 
 
 #: One tenant's agents set to one hosted voice, live first. Read on the tenant's own session.
 _AGENTS_ON_VOICE_SQL: Final = (
-    "SELECT id, name, status FROM agents WHERE engine_voice_id = :v AND deleted_at IS NULL "
+    "SELECT id, name, status, engine_agent_ref FROM agents "
+    "WHERE engine_voice_id = :v AND deleted_at IS NULL "
     "ORDER BY status = 'live' DESC, name LIMIT :cap"
 )
+_USE_ORDER: Final[dict[VoiceUse, int]] = {"live": 0, "ready": 1, "not_published": 2}
 _LIVE_TENANTS_SQL: Final = "SELECT id, name FROM organizations WHERE deleted_at IS NULL"
 #: The most agents the operator's drawer lists for one voice.
 MAX_AGENTS_ON_VOICE: Final = 200
@@ -1060,7 +1096,7 @@ async def agents_on_hosted_voice(
 ) -> list[AgentOnVoice]:
     """Agents across every live tenant set to `voice_id`, at most `limit`, for the operator's
     drawer. The directory-then-tenant walk RLS requires
-    (`voice_curation.count_live_agents_by_voice`); asked for one voice at a time, on demand,
+    (`voice_curation.count_agents_by_engine_voice`); asked for one voice at a time, on demand,
     never on a picker or call path."""
     async with admin_session() as directory:
         tenants = (await directory.execute(text(_LIVE_TENANTS_SQL))).all()
@@ -1080,10 +1116,11 @@ async def agents_on_hosted_voice(
                 agent_id=agent_id,
                 agent_name=str(name),
                 status=str(status),
+                use=use_of(str(status), ref),
             )
-            for agent_id, name, status in rows
+            for agent_id, name, status, ref in rows
         )
-    return sorted(found, key=lambda a: (a.status != "live", a.tenant_name, a.agent_name))
+    return sorted(found, key=lambda a: (_USE_ORDER[a.use], a.tenant_name, a.agent_name))
 
 
 def accent_name(tag: str | None) -> str | None:
@@ -1261,6 +1298,7 @@ __all__ = [
     "STUDIO_NEEDS_PRO",
     "STUDIO_VOICE_PROVIDER",
     "VOICE_CLONE_CONSENT_MISSING",
+    "VOICE_IN_USE",
     "AgentOnVoice",
     "CloneConsent",
     "HostedSyncResult",

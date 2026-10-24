@@ -38,6 +38,7 @@ const CATALOGUE: EngineCatalogue = {
       is_custom: false,
       offerable: true,
       reason: null,
+      standing: "offered",
     },
     {
       voice_id: "engine:kiran",
@@ -48,6 +49,7 @@ const CATALOGUE: EngineCatalogue = {
       is_custom: true,
       offerable: true,
       reason: null,
+      standing: "offered",
     },
     {
       voice_id: "engine:priya",
@@ -58,6 +60,7 @@ const CATALOGUE: EngineCatalogue = {
       is_custom: false,
       offerable: false,
       reason: "Not available yet: this voice has not been priced.",
+      standing: "offered",
     },
     {
       voice_id: "byok:meera",
@@ -68,6 +71,7 @@ const CATALOGUE: EngineCatalogue = {
       is_custom: false,
       offerable: true,
       reason: null,
+      standing: "offered",
     },
   ],
   models: [
@@ -184,6 +188,54 @@ describe("the platform voice picker", () => {
     fireEvent.click(screen.getByRole("button", { name: "Use this voice" }));
 
     await screen.findByText(/not on offer to your account any more/);
+  });
+
+  it.each([
+    ["kept", "No longer offered. This agent keeps it, but once you switch to another voice it cannot be chosen again."],
+    ["unavailable", "This voice is no longer available. Choose another voice for this agent now."],
+  ] as const)(
+    "shows the agent's own %s voice selected though it is off the list (D-880)",
+    async (standing, sentence) => {
+      const ownPath = `${ENGINE_CATALOGUE_PATH}?agent_id=${AGENT}`;
+      const anusha = {
+        voice_id: "byok:anusha",
+        label: "Anusha",
+        rung: "studio" as const,
+        language_note: "Speaks Telugu.",
+        preview_available: false,
+        is_custom: false,
+        offerable: false,
+        reason: sentence,
+        standing,
+      };
+      const { calls } = await renderClientPage(<Picker />, {
+        [ENGINE_CATALOGUE_PATH]: CATALOGUE,
+        [ownPath]: { ...CATALOGUE, voices: [...CATALOGUE.voices, anusha] },
+        [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT, engine_voice_id: "byok:anusha" }),
+      });
+
+      const own = (await screen.findByRole("radio", { name: /Anusha/ })) as HTMLInputElement;
+      expect(own.checked).toBe(true);
+      expect(own.disabled).toBe(true);
+      const card = own.closest("div")!;
+      expect(card.textContent).toContain("In use");
+      expect(card.textContent).toContain(sentence);
+      expect(within(screen.getByRole("group", { name: "Studio voices" })).getByRole("radio", { name: /Anusha/ })).toBeTruthy();
+      // Another voice can still be chosen to move off it.
+      expect((screen.getByRole("radio", { name: /Kiran/ }) as HTMLInputElement).disabled).toBe(false);
+      expect(calls.filter((c) => c.path === ownPath)).toHaveLength(1);
+    },
+  );
+
+  it("asks for the agent's own voice only when the shared list does not hold it", async () => {
+    const { calls } = await renderClientPage(<Picker />, {
+      [ENGINE_CATALOGUE_PATH]: CATALOGUE,
+      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT, engine_voice_id: "engine:3b7e" }),
+    });
+    await waitFor(() =>
+      expect((screen.getByRole("radio", { name: /Anjali/ }) as HTMLInputElement).checked).toBe(true),
+    );
+    expect(calls.some((c) => c.path.includes("agent_id="))).toBe(false);
   });
 });
 
