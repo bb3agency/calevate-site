@@ -63,14 +63,15 @@ function upload(over: Partial<UploadWire> = {}): UploadWire {
   return {
     id: UPLOAD_ID,
     source_id: SOURCE_ID,
-    name: "Price list.pdf",
-    source_kind: "pdf",
+    name: "Price list.docx",
+    // A kind whose words reach the agents; a PDF does not yet (D-868), see its own test.
+    source_kind: "docx",
     ingest_status: "processed",
     ingest_detail: null,
     review_state: "approved",
     is_live: true,
     version: 1,
-    filename: "Price list.pdf",
+    filename: "Price list.docx",
     byte_size: 284_912,
     source_url: null,
     text_provenance: null,
@@ -88,6 +89,7 @@ async function renderKnowledge(
     "/v1/kb/sources": [],
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
+    "/v1/kb/struggles": [],
     "/v1/kb/teach/open": { teaching: null },
     "/v1/kb/uploads": uploads,
     // A row still moving is watched on its own path. By default it answers that it has
@@ -97,8 +99,8 @@ async function renderKnowledge(
       : {}),
     ...over,
   });
-  // Files are their own tab since REDESIGN-2 (Facts opens first).
-  fireEvent.click(await screen.findByRole("tab", { name: "Files and pages" }));
+  // The Add area opens on writing; its File view holds the upload control (D-874).
+  fireEvent.click(await screen.findByRole("radio", { name: "File" }));
   return rendered;
 }
 
@@ -229,7 +231,7 @@ async function ready(): Promise<void> {
 /** The drop zone's real control — found the way assistive technology finds it. */
 function filePicker(): HTMLInputElement {
   return screen.getByLabelText(
-    /your document or photo/i,
+    /your file or photo/i,
   ) as HTMLInputElement;
 }
 
@@ -259,8 +261,10 @@ describe("the control the founder could not find", () => {
     const { container } = await renderKnowledge([]);
 
     const text = container.textContent ?? "";
-    expect(text).toContain("PDFs, Word documents, spreadsheets, plain text");
+    expect(text).toContain("a Word document, an Excel or CSV sheet, a text file");
     expect(text).toContain("20 MB");
+    // A PDF is accepted, but it is said apart: its words do not reach the agents yet.
+    expect(text).toContain("your agents can't read PDFs yet");
     // The picker's own filter carries the same list, so the file browser greys out a
     // `.doc` rather than letting it be chosen and refused.
     expect(filePicker().accept).toContain(".docx");
@@ -370,10 +374,11 @@ describe("the control the founder could not find", () => {
     });
 
     await ready();
-    fireEvent.change(screen.getByLabelText(/address of a page/i), {
+    fireEvent.click(screen.getByRole("radio", { name: "Link" }));
+    fireEvent.change(screen.getByLabelText(/web address/i), {
       target: { value: "http://169.254.169.254/latest" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /add page/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save link/i }));
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(container.textContent).toContain(
@@ -388,10 +393,13 @@ describe("the control the founder could not find", () => {
     });
 
     await ready();
-    fireEvent.change(screen.getByLabelText(/address of a page/i), {
+    fireEvent.click(screen.getByRole("radio", { name: "Link" }));
+    // Said before anything is typed: a link is saved, and its words do not reach the agents.
+    expect(screen.getByText(/your agents can't read web pages yet/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/web address/i), {
       target: { value: "https://example.in/prices" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /add page/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save link/i }));
 
     await waitFor(() =>
       expect(calls.some((c) => c.method === "POST" && c.path === "/v1/kb/links")).toBe(true),
@@ -412,7 +420,8 @@ describe("the control the founder could not find", () => {
   it("answers an empty address in our words rather than the browser's", async () => {
     await renderKnowledge([]);
     await ready();
-    fireEvent.click(screen.getByRole("button", { name: /add page/i }));
+    fireEvent.click(screen.getByRole("radio", { name: "Link" }));
+    fireEvent.click(screen.getByRole("button", { name: /save link/i }));
 
     expect(
       await screen.findByText(/give us the full web address/i),
@@ -455,7 +464,7 @@ describe("what each state means to the person who sent the file", () => {
   it("says a live document is what the agent is using now", async () => {
     const { container } = await renderKnowledge([upload({ is_live: true })]);
 
-    await screen.findByText("Price list.pdf");
+    await screen.findByText("Price list.docx");
     expect(container.textContent).toContain("In use");
     expect(container.textContent).toContain("Your agents are using this now");
   });
@@ -469,7 +478,7 @@ describe("what each state means to the person who sent the file", () => {
       }),
     ]);
 
-    await screen.findByText("Price list.pdf");
+    await screen.findByText("Price list.docx");
     expect(container.textContent).toContain("We are reading your file");
     expect(container.textContent).toContain("usually takes a minute");
   });
@@ -657,7 +666,7 @@ describe("text a machine read is confirmed by a person before a caller hears it"
       }),
     ]);
 
-    await screen.findByText("Price list.pdf");
+    await screen.findByText("Price list.docx");
     expect(
       screen.queryByRole("button", { name: /read it and confirm/i }),
     ).toBeNull();
@@ -679,7 +688,7 @@ describe("a row that moves on its own", () => {
       { [`/v1/kb/uploads/${UPLOAD_ID}`]: stillLoading() },
     );
 
-    await screen.findByText("Price list.pdf");
+    await screen.findByText("Price list.docx");
     expect(container.textContent).toContain("Going to your agents");
     expect(container.textContent).toContain(
       "Your agents are being given this now",
@@ -704,7 +713,7 @@ describe("a row that moves on its own", () => {
       },
     );
 
-    await screen.findByText("Price list.pdf");
+    await screen.findByText("Price list.docx");
     await waitFor(() =>
       expect(container.textContent).toContain("Your agents are using this now"),
     );
@@ -716,7 +725,7 @@ describe("a row that moves on its own", () => {
   it("asks nothing at all about a row that has stopped moving", async () => {
     const { calls } = await renderKnowledge([upload({ is_live: true })]);
 
-    await screen.findByText("Price list.pdf");
+    await screen.findByText("Price list.docx");
     expect(calls.some((c) => c.path === `/v1/kb/uploads/${UPLOAD_ID}`)).toBe(
       false,
     );
@@ -735,7 +744,7 @@ describe("a row that moves on its own", () => {
       }),
     ]);
 
-    await screen.findByText("Price list.pdf");
+    await screen.findByText("Price list.docx");
     expect(calls.some((c) => c.path === `/v1/kb/uploads/${UPLOAD_ID}`)).toBe(
       false,
     );
@@ -748,9 +757,9 @@ describe("removing a document, and reading the original", () => {
       [`DELETE /v1/kb/uploads/${UPLOAD_ID}`]: null,
     });
 
-    await screen.findByText("Price list.pdf");
+    await screen.findByText("Price list.docx");
     // Remove lives in the row's menu since the round-2 redesign (RowMenu).
-    fireEvent.click(screen.getByRole("button", { name: "More actions for Price list.pdf" }));
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Price list.docx" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /^remove$/i }));
 
     const dialog = await screen.findByRole("dialog");
@@ -779,12 +788,12 @@ describe("removing a document, and reading the original", () => {
       },
     });
 
-    await screen.findByText("Price list.pdf");
+    await screen.findByText("Price list.docx");
     // Not painted as an href: it would be dead by the time anybody pressed it, and a dead
     // link on the review step reads as "your document is gone".
     expect(calls.some((c) => c.path.endsWith("/original"))).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: "More actions for Price list.pdf" }));
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Price list.docx" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /open the file you sent/i }));
     await waitFor(() => expect(opened).toHaveBeenCalled());
     expect(opened.mock.calls[0][0]).toContain("signature=abc");
@@ -820,10 +829,9 @@ describe("who may add, and what happens to what they add", () => {
   it("tells an owner their own document does not wait for us", async () => {
     const { container } = await renderKnowledge([]);
 
-    await screen.findByText(/Add a file or a web page/i);
-    expect(container.textContent).toContain("you do not wait for us");
+    await screen.findByText("Add something");
     // D-658: no exception for a photo, and no review for anybody in the account.
-    expect(container.textContent).toContain("nobody approves it first");
+    expect(container.textContent).toContain("Nobody approves what you add, so you never wait for us.");
     expect(container.textContent).not.toContain("read off a photo");
   });
 
@@ -833,12 +841,12 @@ describe("who may add, and what happens to what they add", () => {
     // than answering 403 after they have chosen a 20 MB file.
     const { container } = await renderKnowledge([], { "/v1/me": STAFF });
 
-    await screen.findByText(/Add a file or a web page/i);
+    await screen.findByText("Add something");
     expect(filePicker().disabled).toBe(true);
-    expect(container.textContent).toContain("nobody approves it first");
+    expect(container.textContent).toContain("Nobody approves what you add");
     expect(container.textContent).not.toContain("reviewed before your agents start using it");
     expect(container.textContent).toContain(
-      "Only an account owner can add knowledge to this account.",
+      "Only an account owner can teach your agents on this account.",
     );
   });
 });
@@ -848,7 +856,7 @@ describe("the steps a moving upload is on (D-658)", () => {
     await renderKnowledge([
       upload({ ingest_status: "converting", review_state: "approved", is_live: false }),
     ]);
-    const steps = await screen.findByRole("list", { name: "Progress of Price list.pdf" });
+    const steps = await screen.findByRole("list", { name: "Progress of Price list.docx" });
     expect(steps.textContent).toContain("Received");
     expect(steps.textContent).toContain("Read");
     expect(steps.textContent).toContain("In use");
@@ -858,7 +866,7 @@ describe("the steps a moving upload is on (D-658)", () => {
 
   it("draws no steps for an upload that is already in use", async () => {
     await renderKnowledge([upload({ is_live: true })]);
-    await screen.findByText("Price list.pdf");
+    await screen.findByText("Price list.docx");
     expect(screen.queryByRole("list", { name: /Progress of/ })).toBeNull();
   });
 });

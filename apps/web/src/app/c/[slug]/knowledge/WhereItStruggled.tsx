@@ -30,7 +30,8 @@ const SCRIPT_PLACE: Record<string, string> = {
 };
 
 /**
- * WHERE THE AGENTS STRUGGLED ON REAL CALLS, found from the calls themselves — never guessed.
+ * THE QUESTIONS THE AGENTS COULD NOT ANSWER ON REAL CALLS, found from the calls themselves —
+ * never guessed.
  * Each item opens the call it came from and offers the two fixes: add the answer (opens the
  * teach box with the question filled in) or change how the agent behaves (its script).
  */
@@ -44,11 +45,11 @@ export function WhereItStruggled({
   const session = useClientSession();
   const struggles = useStruggles(session);
 
-  if (struggles.isLoading) return <Skeleton rows={4} label="Loading where your agents struggled" />;
+  if (struggles.isLoading) return <Skeleton rows={4} label="Loading the questions your agents could not answer" />;
   if (struggles.error || !struggles.data) {
     return (
       <ProblemNotice
-        error={struggles.error ?? new Error("We could not load where your agents struggled.")}
+        error={struggles.error ?? new Error("We could not load the questions your agents could not answer.")}
         onRetry={() => void struggles.refetch()}
       />
     );
@@ -57,15 +58,17 @@ export function WhereItStruggled({
     return (
       <p className="flex items-center gap-2 text-meta text-ink-muted">
         <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand-strong" />
-        Nothing to fix. When an agent cannot answer a caller, it shows up here.
+        Nothing to answer. When an agent can&rsquo;t answer a caller, the question shows up here.
       </p>
     );
   }
 
   return (
     <div className="space-y-3">
-      <p className="text-meta text-ink-muted">Found from your real calls, newest problems first.</p>
-      <ul className="divide-y divide-line border-y border-line" aria-label="Where your agents struggled">
+      <p className="text-meta text-ink-muted">
+        From your real calls, newest first. Add the answer once and every agent knows it.
+      </p>
+      <ul className="divide-y divide-line border-y border-line" aria-label="Questions your agents could not answer">
         {struggles.data.map((struggle) => (
           <li key={struggle.id} className="space-y-2 py-3">
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">

@@ -60,6 +60,7 @@ async function renderKnowledge(over: Routes = {}) {
     "/v1/kb/uploads": [],
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
+    "/v1/kb/struggles": [],
     "/v1/kb/teach/open": { teaching: null },
     ...over,
   });
@@ -124,6 +125,8 @@ describe("the teach box", () => {
       target: { value: "Chilli powder is 120 rupees." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Let Pip teach it" }));
+    // Pip reading a file sits with the other file path, in the Add area's File view.
+    fireEvent.click(screen.getByRole("radio", { name: "File" }));
     fireEvent.click(screen.getByRole("button", { name: /^Let Pip read a photo or file: / }));
     expect(asked.map((a) => a.prompt)).toEqual([
       "Teach my agents this: Chilli powder is 120 rupees.",
@@ -225,6 +228,25 @@ describe("what it knows", () => {
         ],
         pinned_not_yet_on: [],
       },
+      // Files and links are drawn from the uploads list, which carries each one's kind.
+      "/v1/kb/uploads": [
+        {
+          id: "u1",
+          source_id: "s1",
+          name: "Our menu",
+          source_kind: "url",
+          ingest_status: "processed",
+          ingest_detail: null,
+          review_state: "approved",
+          is_live: true,
+          version: 1,
+          filename: null,
+          byte_size: null,
+          source_url: "https://example.in/menu",
+          text_provenance: null,
+          change_detected_at: null,
+        },
+      ],
       "POST /v1/kb/facts/pinned-order": noContent(),
     });
     const pinned = await screen.findByRole("list", { name: "Pinned facts" });
@@ -293,7 +315,7 @@ describe("where it struggled", () => {
         },
       ],
     });
-    fireEvent.click(await screen.findByRole("tab", { name: "Where it struggled" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Couldn’t answer · 1" }));
     expect((await screen.findByRole("link", { name: "Open the call" })).getAttribute("href")).toBe(
       "/c/acme/calls/call-9",
     );

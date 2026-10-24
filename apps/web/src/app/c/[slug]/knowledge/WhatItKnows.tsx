@@ -7,18 +7,20 @@ import { ArrowDown, ArrowUp, Pin } from "lucide-react";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { SearchField } from "@/components/arc/search-field";
 import { EmptyState } from "@/components/console/emptyState";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { Section } from "@/components/console/section";
+import { StatusPill } from "@/components/console/statusPill";
 import {
   FIELD,
   FIELD_LABEL,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
+  formatCount,
 } from "@/components/ui";
-import type { useKbSources } from "@/lib/api/kb";
+import { useKbChunks, useKbUploads, type KbUpload, type useKbSources } from "@/lib/api/kb";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
-import { lookup } from "@/lib/lookup";
 import {
   useAddFact,
   useEditFact,
@@ -26,24 +28,14 @@ import {
   useRemoveFact,
   useReorderPinned,
   type Fact,
-  type KnownItem,
   type PinnedNotYetOn,
 } from "@/lib/api/teach";
 
-import { SourcesList } from "./SourcesList";
+import { FactRow as NoteRow } from "./SubmittedList";
+import { UploadRow } from "./UploadList";
 
-const KIND_LABEL: Record<string, string> = {
-  document: "Document",
-  photo: "Photo",
-  page: "Web page",
-};
-
-const STATE_LABEL: Record<string, string | null> = {
-  live: null,
-  getting_ready: "Getting ready",
-  in_review: "Waiting for review",
-  needs_attention: "Needs attention — see Files and pages",
-};
+/** `apps/api/teach/facts.FACTS_SOURCE_NAME`: the source the taught facts compile into. */
+const TAUGHT_FACTS_SOURCE = "Facts you taught";
 
 function matches(query: string, ...values: (string | null | undefined)[]): boolean {
   const q = query.trim().toLocaleLowerCase();
@@ -51,9 +43,15 @@ function matches(query: string, ...values: (string | null | undefined)[]): boole
 }
 
 /**
- * WHAT THE AGENTS KNOW, in one searchable list: pinned facts first (always in every
- * agent's instructions, and they win over anything else), then the other facts, then
- * documents, photos, web pages and older notes. Every row is shared by all the agents.
+ * EVERYTHING THE AGENTS HAVE BEEN GIVEN, in one searchable list grouped by what it is:
+ * pinned facts (in every agent's instructions, winning over anything else), the other facts
+ * and answers, files, links, and notes typed before the teach box. Every row is shared by
+ * all the agents (D-689), so no row names one.
+ *
+ * Files and links are read from the uploads list rather than `/v1/kb/knows`' items: only
+ * an upload row carries its kind (`source_kind`), and the kind decides whether its words
+ * reach the agents at all (`uploadCopy.reachesAgents`). Each read keeps its own honesty
+ * (§52): one that failed gets its refusal, never an "empty" claim about what was sent.
  */
 export function WhatItKnows({
   canWrite,
@@ -64,11 +62,24 @@ export function WhatItKnows({
 }) {
   const session = useClientSession();
   const knows = useKnows(session);
+  const uploads = useKbUploads(session);
   const [query, setQuery] = useState("");
   const clearQuery = () => setQuery("");
+  const [previewing, setPreviewing] = useState<string | null>(null);
+  const chunks = useKbChunks(session, previewing);
 
   const pinned = useMemo(() => knows.data?.facts.filter((f) => f.pinned) ?? [], [knows.data]);
   const other = useMemo(() => knows.data?.facts.filter((f) => !f.pinned) ?? [], [knows.data]);
+  // A replaced version is history: the version that took its place is the row.
+  const current = useMemo(
+    () => uploads.data?.filter((u) => u.review_state !== "archived") ?? [],
+    [uploads.data],
+  );
+  const files = current.filter((u) => u.source_kind !== "url");
+  const links = current.filter((u) => u.source_kind === "url");
+  // The teach box's own facts compile into one source; they are listed one by one above.
+  const notes =
+    sources.data?.filter((s) => s.kind === "text" && s.name !== TAUGHT_FACTS_SOURCE) ?? [];
 
   if (knows.isLoading) return <Skeleton rows={5} label="Loading what your agents know" />;
   if (knows.error || !knows.data) {
@@ -82,53 +93,83 @@ export function WhatItKnows({
     );
   }
 
+  const filtered = query.trim() !== "";
   const shownPinned = pinned.filter((f) => matches(query, f.text, f.question));
   const shownOther = other.filter((f) => matches(query, f.text));
-  const shownItems = knows.data.items.filter((i) => matches(query, i.name, i.url));
-  const empty = pinned.length + other.length + knows.data.items.length === 0;
+  const uploadMatches = (u: KbUpload) => matches(query, u.name, u.filename, u.source_url);
+  const shownFiles = files.filter(uploadMatches);
+  const shownLinks = links.filter(uploadMatches);
+  const shownNotes = notes.filter((n) => matches(query, n.name));
+  const total = pinned.length + other.length + files.length + links.length + notes.length;
+  // "Nothing yet" is said only when every read answered; a read still out is not empty.
+  const empty = total === 0 && Boolean(uploads.data) && Boolean(sources.data);
+  const shown =
+    shownPinned.length + shownOther.length + shownFiles.length + shownLinks.length + shownNotes.length;
+
+  if (empty) {
+    // The Add area above is the one way in, so the empty list offers no second form.
+    return (
+      <div>
+        <EmptyState
+          align="start"
+          illustration={<EmptySketch kind="knowledge" />}
+          message={
+            <>
+              <span className="block font-medium text-ink">Your agents don&rsquo;t know anything yet</span>
+              <span className="mt-1 block">
+                Add your prices, timings and the answers callers ask for most, and every one of
+                your agents can use them.
+              </span>
+            </>
+          }
+        />
+      </div>
+    );
+  }
+
+  const uploadsFailed = uploads.error || (!uploads.isLoading && !uploads.data);
 
   return (
-    <div className="space-y-8">
-      <p className="text-meta text-ink-muted">Every one of your agents knows all of this.</p>
-
-      {!empty ? (
+    <div className="space-y-10">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-meta text-ink-muted">
+          {formatCount(total)} {total === 1 ? "thing" : "things"} added, shared by every one of
+          your agents.
+        </p>
         <SearchField
           label="Search what your agents know"
           hideLabel
           value={query}
           onValueChange={setQuery}
           placeholder="Search"
-          className="max-w-sm"
+          className="w-full sm:max-w-xs"
         />
+      </div>
+
+      {filtered && shown === 0 ? (
+        <NoMatch message="Nothing matches your search." onClear={clearQuery} />
       ) : null}
 
       <PinnedFacts
         facts={shownPinned}
         all={pinned}
         canWrite={canWrite}
-        filtered={query.trim() !== ""}
+        filtered={filtered}
         onClearFilter={clearQuery}
         notYetOn={knows.data.pinned_not_yet_on}
       />
 
-      <Section
-        title="Facts"
-        headingLevel={3}
-        info={<p>Found and used when a caller asks about them.</p>}
-        action={
-          knows.data.facts_state === "publishing" && other.length ? (
-            <span className="text-shimmer text-meta text-ink-muted">Reaching your agents…</span>
-          ) : knows.data.facts_state === "in_review" ? (
-            <span className="text-meta text-ink-muted">Waiting for review</span>
-          ) : undefined
-        }
+      <Group
+        title="Facts and answers"
+        count={other.length}
+        hidden={filtered && shownOther.length === 0}
+        info={<p>Your agents look these up when a caller asks about them.</p>}
+        status={<FactsStatus state={knows.data.facts_state} any={other.length > 0} />}
       >
-        {shownOther.length === 0 ? (
-          other.length ? (
-            <NoMatch message="No facts match your search." onClear={clearQuery} />
-          ) : (
-            <p className="text-meta text-ink-muted">Facts you teach above appear here.</p>
-          )
+        {other.length === 0 ? (
+          <p className="text-meta text-ink-muted">
+            Facts and answers you write above appear here.
+          </p>
         ) : (
           <ul className="divide-y divide-line border-y border-line">
             {shownOther.map((fact) => (
@@ -136,27 +177,121 @@ export function WhatItKnows({
             ))}
           </ul>
         )}
-      </Section>
+      </Group>
 
-      <Section title="Documents, photos and pages" headingLevel={3}>
-        {shownItems.length === 0 ? (
-          knows.data.items.length ? (
-            <NoMatch message="No documents, photos or pages match your search." onClear={clearQuery} />
-          ) : (
-            <p className="text-meta text-ink-muted">Add these under Files and pages.</p>
-          )
-        ) : (
+      {uploadsFailed ? (
+        <ProblemNotice
+          error={uploads.error ?? new Error("We could not load the files and links you sent.")}
+          onRetry={() => void uploads.refetch()}
+        />
+      ) : uploads.isLoading ? (
+        <Skeleton rows={3} label="Loading your files and links" />
+      ) : (
+        <>
+          <Group title="Files" count={files.length} hidden={filtered && shownFiles.length === 0}>
+            {files.length === 0 ? (
+              <p className="text-meta text-ink-muted">
+                Files and photos you send appear here, each with whether your agents can use it.
+              </p>
+            ) : (
+              <ul className="divide-y divide-line border-y border-line">
+                {shownFiles.map((upload) => (
+                  <UploadRow key={upload.id} upload={upload} />
+                ))}
+              </ul>
+            )}
+          </Group>
+
+          {/* Links only once there is one: an empty "Links" group would invite a kind of
+              item whose words do not reach the agents yet (D-868). */}
+          {links.length > 0 ? (
+            <Group title="Links" count={links.length} hidden={filtered && shownLinks.length === 0}>
+              <ul className="divide-y divide-line border-y border-line">
+                {shownLinks.map((upload) => (
+                  <UploadRow key={upload.id} upload={upload} />
+                ))}
+              </ul>
+            </Group>
+          ) : null}
+        </>
+      )}
+
+      {sources.data && notes.length > 0 ? (
+        <Group
+          title="Notes you wrote earlier"
+          count={notes.length}
+          hidden={filtered && shownNotes.length === 0}
+          info={<p>Longer notes added before you could write facts one by one.</p>}
+        >
           <ul className="divide-y divide-line border-y border-line">
-            {shownItems.map((item) => (
-              <ItemRow key={item.id} item={item} />
+            {shownNotes.map((source) => (
+              <NoteRow
+                key={source.id}
+                source={source}
+                open={previewing === source.id}
+                onToggle={() => setPreviewing(previewing === source.id ? null : source.id)}
+                chunks={chunks}
+              />
             ))}
           </ul>
-        )}
-      </Section>
-
-      <SourcesList sources={sources} only="facts" />
+        </Group>
+      ) : null}
     </div>
   );
+}
+
+/** One kind of thing the agents were given: a heading with its count, then its rows. */
+function Group({
+  title,
+  count,
+  hidden,
+  info,
+  status,
+  children,
+}: {
+  title: string;
+  count: number;
+  /** A search left nothing in this group; the page says so once, not per group. */
+  hidden: boolean;
+  info?: ReactNode;
+  status?: ReactNode;
+  children: ReactNode;
+}) {
+  if (hidden) return null;
+  return (
+    <Section
+      title={
+        <>
+          {title}
+          {count > 0 ? (
+            <span className="ml-2 text-meta font-normal tabular-nums text-ink-faint">
+              {formatCount(count)}
+            </span>
+          ) : null}
+        </>
+      }
+      headingLevel={3}
+      info={info}
+      action={status}
+    >
+      {children}
+    </Section>
+  );
+}
+
+/**
+ * Where the newest facts are, from `/v1/kb/knows`' `facts_state`. It is ONE state for the
+ * whole set (the facts are published together), so it is said once beside the heading
+ * rather than repeated on every row.
+ */
+function FactsStatus({ state, any }: { state: string; any: boolean }) {
+  if (!any) return null;
+  if (state === "publishing") {
+    return <span className="text-shimmer text-meta text-ink-muted">Reaching your agents…</span>;
+  }
+  if (state === "in_review") return <StatusPill tone="warn">Waiting for review</StatusPill>;
+  if (state === "live") return <StatusPill tone="ok">In use</StatusPill>;
+  return null;
 }
 
 /** A list the search emptied: says so, and offers the way back. */
@@ -170,28 +305,6 @@ function NoMatch({ message, onClear }: { message: string; onClear: () => void })
       onClear={onClear}
       clearLabel="Clear the search"
     />
-  );
-}
-
-function ItemRow({ item }: { item: KnownItem }) {
-  const state = lookup(STATE_LABEL, item.state) ?? null;
-  return (
-    <li className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2.5">
-      <div className="min-w-0">
-        <p className="truncate text-sm text-ink" title={item.name}>
-          {item.name}
-        </p>
-        {item.url ? (
-          <p className="truncate text-meta text-ink-faint" title={item.url}>
-            {item.url}
-          </p>
-        ) : null}
-      </div>
-      <p className="shrink-0 text-meta text-ink-muted">
-        {lookup(KIND_LABEL, item.kind) ?? "Document"}
-        {state ? <span className={item.state === "needs_attention" ? "text-warn" : ""}> · {state}</span> : null}
-      </p>
-    </li>
   );
 }
 
@@ -477,8 +590,9 @@ function FactRow({
           </div>
         </form>
       ) : (
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
+        // Stacked on a phone: beside three buttons the fact was squeezed to a word a line.
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+          <div className="min-w-0 sm:flex-1">
             {fact.question ? <p className="text-meta text-ink-muted">{fact.question}</p> : null}
             <p className="text-sm text-ink [overflow-wrap:anywhere]">
               {fact.pinned ? <Pin aria-label="Pinned" className="mr-1.5 inline h-3.5 w-3.5 text-brand-strong" /> : null}
@@ -487,7 +601,7 @@ function FactRow({
           </div>
           {canWrite ? (
             // Wraps within itself on a phone: the kit buttons are as wide as their widest face.
-            <div className="flex min-w-0 flex-wrap gap-1.5">
+            <div className="flex min-w-0 flex-wrap gap-1.5 sm:shrink-0">
               {ordering}
               <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setEditing(true)} disabled={busy}>
                 Edit

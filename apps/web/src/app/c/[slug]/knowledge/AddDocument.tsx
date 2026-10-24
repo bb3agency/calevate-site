@@ -4,67 +4,58 @@ import { useId, useState } from "react";
 import { Link2 } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { FileDrop } from "@/components/fileDrop";
-
-import {
-  FIELD_HINT,
-  FIELD_INLINE,
-  FIELD_LABEL,
-  ProblemNotice,
-} from "@/components/ui";
+import { FIELD_INLINE, FIELD_LABEL, ProblemNotice } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
 import { useAddLink, useUploadDocument } from "@/lib/api/kb";
 import { useClientSession } from "@/lib/api/session";
 import type { UploadProgress } from "@/lib/api/client";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
-import { ACCEPTED_KINDS_SENTENCE, ACCEPT_ATTRIBUTE, MAX_UPLOAD_MB } from "./uploadCopy";
+import { READ_FILE_REQUEST } from "./TeachBox";
+import {
+  ACCEPT_ATTRIBUTE,
+  LINK_NOTE,
+  MAX_UPLOAD_MB,
+  PDF_NOTE,
+  READ_KINDS_SENTENCE,
+} from "./uploadCopy";
 
 /**
- * THE DOOR FOR A DOCUMENT, A PHOTOGRAPH AND A LINK — the half of this screen the founder
- * found missing ("where is a client able to upload files or docs or links?").
+ * THE FILE HALF OF THE ADD AREA: a price list, a menu or a photo of one.
  *
- * It sits BESIDE the typed-text form rather than replacing it. Typing a short answer is
- * still the fastest way to add one fact, and a clinic that wants to correct its closing
- * time should not have to produce a document to do it.
+ * Three things here are decisions, not layout:
  *
- * ## Three things here are decisions, not layout
- *
- * 1. **The control is the kit's `FileDrop`** (a label around a real, focusable file
- *    input; see its header). Only the SIZE is checked in the browser: the API refuses
- *    `.doc` with a remediation naming the fix (Save as .docx), which a generic "that kind
- *    of file cannot be sent" here would hide.
- * 2. **The accepted kinds are said before a file is chosen**, in the paragraph above the
- *    control — making a person discover the list by being refused is the other choice.
+ * 1. **The control is the kit's `FileDrop`** (a label around a real, focusable file input).
+ *    Only the SIZE is checked in the browser: the API refuses `.doc` with a remediation
+ *    naming the fix (Save as .docx), which a generic refusal here would hide.
+ * 2. **What reaches the agents is said before a file is chosen**, and a PDF is said apart
+ *    (`PDF_NOTE`): it is accepted and stored, but its words do not reach the agents yet
+ *    (D-868), and a client must not send one believing they do.
  * 3. **Progress is real bytes, not a spinner.** 20 MB over a phone uplink is minutes of
- *    apparent silence, and a form that looks frozen gets pressed twice — which here means
- *    the same price list arriving twice and being reviewed twice. `apiUpload` reports what
- *    has actually left the device (`lib/api/client.ts`).
+ *    apparent silence, and a form that looks frozen gets pressed twice — the same price
+ *    list arriving twice. `apiUpload` reports what has actually left the device.
+ *
+ * The new row lands in the list below, often off screen on a phone, so a toast says the
+ * file arrived and what happens next.
  */
-export function AddDocument({
-  allowed,
-  reason,
-}: {
-  allowed: boolean;
-  reason: string | null;
-}) {
+export function AddFile({ allowed }: { allowed: boolean }) {
   const session = useClientSession();
   const upload = useUploadDocument(session);
-  const link = useAddLink(session);
-  // Both refusals are drawn beside their control (ProblemNotice), so no toast repeats
-  // them. The upload's pending face is FileDrop's progress row; its success is the new
-  // row in the upload list below.
-  useActionFeedback(upload, { errorDisplay: "inline" });
-  const linkFeedback = useActionFeedback(link, { errorDisplay: "inline" });
+  // The refusal is drawn above the control (ProblemNotice), so no toast repeats it.
+  useActionFeedback(upload, {
+    errorDisplay: "inline",
+    successToast: (sent) => `${sent.name} received`,
+    successDescription: (sent) =>
+      sent.source_kind === "pdf"
+        ? "It is saved. Your agents can't read PDFs yet."
+        : "We're reading it now. You'll see it in the list below.",
+  });
 
-  const urlInputId = useId();
   const [progress, setProgress] = useState<UploadProgress | null>(null);
-  const [url, setUrl] = useState("");
-  // The house refusal: our sentence, in our surface, rather than Chrome's bubble in
-  // whatever language Chrome is set to (`components/formValidation.tsx`).
-  const valid = useFormValidation();
   /** The last file this panel accepted, so the row can say what it is sending. */
   const [sending, setSending] = useState<File | null>(null);
-
   const disabled = !allowed || upload.isPending;
 
   function send(file: File): void {
@@ -88,83 +79,113 @@ export function AddDocument({
     progress && progress.total ? Math.min(100, Math.round((progress.loaded / progress.total) * 100)) : null;
 
   return (
-    <div>
-      <h3 className="text-sm font-semibold text-ink">Add a file or a web page</h3>
-      <div className="mt-2 space-y-4">
-        <p className="text-sm text-ink-muted">
-          <span>
-            Send us what you already have — a price list, a menu, a leaflet, or a photo of
-            one. {ACCEPTED_KINDS_SENTENCE} Up to {MAX_UPLOAD_MB} MB each. Every one of
-            your agents will use it.
-          </span>
+    <div className="space-y-4">
+      <p className="text-body text-ink-muted [text-wrap:pretty]">
+        {READ_KINDS_SENTENCE}
+      </p>
+
+      {upload.error && <ProblemNotice error={upload.error} />}
+
+      <FileDrop
+        label="Your file or photo"
+        hint={`One at a time, up to ${MAX_UPLOAD_MB} MB.`}
+        accept={ACCEPT_ATTRIBUTE}
+        validate={sizeProblem}
+        disabled={disabled}
+        onFiles={([file]) => send(file)}
+        sending={sending ? { file: sending, percent } : null}
+      />
+
+      <p className="text-meta text-ink-muted [text-wrap:pretty]">{PDF_NOTE}</p>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line pt-4">
+        <p className="text-meta text-ink-muted">
+          Want to check the facts first? {ASSISTANT_NAME} can read a photo or file and sort it
+          into facts you approve one by one.
         </p>
-
-        {upload.error && <ProblemNotice error={upload.error} />}
-
-        <FileDrop
-          label="Your document or photo"
-          hint={`One at a time, up to ${MAX_UPLOAD_MB} MB.`}
-          accept={ACCEPT_ATTRIBUTE}
-          validate={sizeProblem}
-          disabled={disabled}
-          onFiles={([file]) => send(file)}
-          sending={sending ? { file: sending, percent } : null}
+        <AskAssistant
+          label={`Let ${ASSISTANT_NAME} read a photo or file`}
+          prompt={READ_FILE_REQUEST}
+          disabled={!allowed}
         />
-
-        <div className="border-t border-line pt-4">
-          <form
-            className="space-y-2"
-            noValidate
-            onSubmit={valid.onSubmit(() => {
-              if (!allowed || link.isPending) return;
-              link.mutate({ url: url.trim() }, { onSuccess: () => setUrl("") });
-            })}
-          >
-            <label htmlFor={urlInputId} className={FIELD_LABEL}>
-              Or give us the address of a page
-            </label>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative min-w-0 flex-1">
-                <Link2
-                  aria-hidden
-                  className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
-                />
-                <input
-                  {...valid.field("url", "Give us the full web address of the page.")}
-                  id={urlInputId}
-                  type="url"
-                  inputMode="url"
-                  required
-                  value={url}
-                  disabled={!allowed || link.isPending}
-                  onChange={(event) => setUrl(event.target.value)}
-                  placeholder="https://your-website.in/prices"
-                  className={`${FIELD_INLINE} w-full pl-8`}
-                />
-              </div>
-              <ActionButton
-                type="submit"
-                status={linkFeedback.status}
-                pendingLabel="Adding…"
-                successLabel="Added"
-                /* The empty-address rule is NOT repeated here: pressing answers in words,
-                   where a dead button answers with nothing. */
-                disabled={!allowed}
-                title={reason ?? undefined}
-              >
-                Add page
-              </ActionButton>
-            </div>
-            {valid.error("url")}
-            <span className={FIELD_HINT}>
-              We read the page and check it again from time to time. If it changes, we ask
-              you about the new version before your agents use it.
-            </span>
-            {link.error && <ProblemNotice error={link.error} />}
-          </form>
-        </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * THE LINK HALF OF THE ADD AREA. A link is stored and checked for changes, but no text is
+ * taken from the page, so its words do not reach the agents yet (D-868) — `LINK_NOTE` says
+ * so before anything is typed, and the button says "Save", not "Add to your agents".
+ */
+export function AddLink({ allowed, reason }: { allowed: boolean; reason: string | null }) {
+  const session = useClientSession();
+  const link = useAddLink(session);
+  const linkFeedback = useActionFeedback(link, {
+    errorDisplay: "inline",
+    successToast: "Link saved",
+    successDescription: "Your agents can't read web pages yet. It is in the list below.",
+  });
+  const urlInputId = useId();
+  const [url, setUrl] = useState("");
+  // The house refusal: our sentence, in our surface, rather than Chrome's bubble in
+  // whatever language Chrome is set to (`components/formValidation.tsx`).
+  const valid = useFormValidation();
+
+  return (
+    <form
+      className="space-y-3"
+      noValidate
+      onSubmit={valid.onSubmit(() => {
+        if (!allowed || link.isPending) return;
+        link.mutate({ url: url.trim() }, { onSuccess: () => setUrl("") });
+      })}
+    >
+      <p className="text-body text-ink-muted [text-wrap:pretty]">{LINK_NOTE}</p>
+      <div>
+        <label htmlFor={urlInputId} className={FIELD_LABEL}>
+          Web address
+        </label>
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1 basis-60">
+            <Link2
+              aria-hidden
+              className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
+            />
+            <input
+              {...valid.field("url", "Give us the full web address of the page.")}
+              id={urlInputId}
+              type="url"
+              inputMode="url"
+              autoCapitalize="none"
+              autoCorrect="off"
+              enterKeyHint="done"
+              required
+              value={url}
+              disabled={!allowed || link.isPending}
+              onChange={(event) => setUrl(event.target.value)}
+              placeholder="https://your-website.in/prices"
+              className={`${FIELD_INLINE} w-full pl-8`}
+            />
+          </div>
+          <ActionButton
+            type="submit"
+            variant="secondary"
+            status={linkFeedback.status}
+            pendingLabel="Saving…"
+            successLabel="Saved"
+            /* The empty-address rule is NOT repeated here: pressing answers in words,
+               where a dead button answers with nothing. */
+            disabled={!allowed}
+            title={reason ?? undefined}
+          >
+            Save link
+          </ActionButton>
+        </div>
+        {valid.error("url")}
+      </div>
+      {link.error && <ProblemNotice error={link.error} />}
+    </form>
   );
 }
 
