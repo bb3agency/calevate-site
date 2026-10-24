@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from apps.api.core import ratelimit
@@ -498,6 +499,13 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
     return ids
 
 
+#: Inside the call-back window (09:00-21:00 IST) and its 30-day horizon whenever the
+#: suite runs.
+_TOMORROW_NOON_IST = (
+    datetime.now(UTC).astimezone(timezone(timedelta(hours=5, minutes=30))).date()
+    + timedelta(days=1)
+).isoformat() + "T12:00:00+05:30"
+
 #: (method, template, body, headers). The body is the SMALLEST one that passes validation,
 #: because a 422 would mean the sweep never reached the tenant check — see the assertion
 #: below. `headers` is the same argument one step earlier: the two routes that require an
@@ -667,6 +675,24 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
         {"agent_id": "{agent_id}"},
         {"Idempotency-Key": "idor-sweep-call"},
     ),
+    # D-869 swipe actions. Booking a call back and sending a WhatsApp reach a neighbour's
+    # customer by phone or message; the follow-up mark and the readiness read are the
+    # neighbour's call and agent. Bodies valid, so the refusal is the row, not validation.
+    ("PUT", "/v1/calls/{call_id}/follow-up", {"state": "resolved"}, {}),
+    (
+        "POST",
+        "/v1/leads/{lead_id}/callbacks",
+        {"at": _TOMORROW_NOON_IST},
+        {"Idempotency-Key": "idor-sweep-callback"},
+    ),
+    ("GET", "/v1/leads/{lead_id}/whatsapp", {}, {}),
+    (
+        "POST",
+        "/v1/leads/{lead_id}/whatsapp",
+        {"template_id": str(uuid.uuid4()), "values": []},
+        {"Idempotency-Key": "idor-sweep-whatsapp"},
+    ),
+    ("GET", "/v1/agents/{agent_id}/readiness", {}, {}),
     ("DELETE", "/v1/members/{user_id}", {}, {}),
     # Added by the route sweep (D-301): the ONE `{id}` route in the client path space the
     # list above never addressed, and the one with the most to lose — it answers with the
@@ -926,6 +952,10 @@ async def test_the_idor_sweep_is_driving_routes_that_exist() -> None:
 #: bar is that the id is NOT an object reference a neighbour could name — otherwise the
 #: entry is an exemption for the exact case the sweep exists to catch.
 _NOT_AN_OBJECT_REFERENCE: dict[str, str] = {
+    "POST /v1/announcements/{announcement_id}/dismiss": (
+        "an announcement is a platform row (no tenant_id, D-869); the dismissal it writes is "
+        "the caller's own, under their tenant's RLS, so the id names nothing a neighbour owns."
+    ),
     "GET /v1/integrations/oauth/{kind}/connect": (
         "`kind` is one of three provider names (google_calendar, zoho_crm, hubspot), a "
         "Literal the route validates; it names no row anybody owns."
