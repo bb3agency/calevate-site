@@ -113,7 +113,7 @@ def test_an_agent_with_only_one_of_them_is_told_about_that_one() -> None:
 
 def test_the_chat_hears_the_honesty_rules_the_call_rules_would_have_given() -> None:
     assert "Never re-ask what they said or repeat a sentence." in VOICE_STYLE_GUIDANCE
-    assert "Never say anything is booked or done unless a tool" in ACTION_CLAIM_RULE
+    assert "booked, fixed, confirmed or done unless a tool" in ACTION_CLAIM_RULE
     assert "say it is noted and the team will confirm" in ACTION_CLAIM_RULE
     assert "what happens next" not in ACTION_CLAIM_RULE
     prompt = compose_engine_prompt(_cfg())
@@ -168,7 +168,7 @@ def test_the_judge_is_told_the_notices_are_never_a_fault() -> None:
 def test_the_writers_never_ask_for_what_the_agent_cannot_truthfully_do() -> None:
     assert "never expect it to state it" in GENERATE_INSTRUCTION
     assert "never expect it to say it is done" in GENERATE_INSTRUCTION
-    assert "says an order or booking is placed, booked or confirmed" in IMPROVE_INSTRUCTION
+    assert "says an order or booking is placed, booked, fixed or confirmed" in IMPROVE_INSTRUCTION
     assert "only those the caller has not already said" in _SYSTEM_INSTRUCTION
     assert "takes the details for the team to confirm" in _SYSTEM_INSTRUCTION
     products = next(

@@ -454,6 +454,18 @@
           "డేట్"
         ],
         [
+          "ఖరారు",
+          "ఫిక్స్"
+        ],
+        [
+          "సమయం",
+          "టైమ్"
+        ],
+        [
+          "ఉదయం",
+          "పొద్దున"
+        ],
+        [
           "తక్షణమే",
           "వెంటనే"
         ],
@@ -587,7 +599,7 @@
         "దయచేసి",
         "ప్రస్తుతం",
         "క్షమించండి",
-        "చేయాలనుకుంటున్నారా",
+        "ఖరారు",
         "చేస్తాము"
       ],
       "fillers": [
@@ -788,9 +800,9 @@
         "note": "D-830 language pack: the one platform block for how an agent speaks Telugu, full when Telugu is the primary language, compact (the first say_english, avoid and exchanges) when it is an extra. AI-drafted, measured by scripts/register_eval (--variants pack-en,pack-native,...); no prompt reads it until review is founder_approved and ship names the form the eval chose, e.g. {\"form\": \"native\", \"avoid\": \"none\"}. avoid lists the list words the 19 Oct 2026 production eval saw most, most frequent first.",
         "ship": null,
         "talk_en": "Everyday spoken Telugu as people talk on the phone, neutral for Telangana and Andhra, in Telugu script, never bookish or newsreader Telugu. అండి and గారు by situation, not in every sentence.",
-        "say_english": ["details", "price", "rate", "thanks", "sorry", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"],
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment", "fix", "date", "time"],
         "say_spoken": [["ఉంది", "available"], ["ఇప్పుడు", "now"], ["ఇంకా", "and"], ["కావాలి", "need"], ["చేస్తాం", "we will do"]],
-        "avoid": ["వివరాలు", "మరియు", "ధర", "ధన్యవాదాలు", "క్షమించండి", "దయచేసి", "ప్రస్తుతం", "సమాచారం", "అందుబాటులో ఉంది", "ఉత్పత్తులు", "నాణ్యత", "సహాయం", "పరిమాణం", "అవసరం", "యొక్క"],
+        "avoid": ["వివరాలు", "మరియు", "ధర", "ధన్యవాదాలు", "క్షమించండి", "దయచేసి", "ప్రస్తుతం", "సమాచారం", "అందుబాటులో ఉంది", "ఉత్పత్తులు", "నాణ్యత", "సహాయం", "పరిమాణం", "అవసరం", "యొక్క", "ఖరారు"],
         "native": {
           "talk": [
             "మనం ఫోన్ లో మామూలుగా ఎలా మాట్లాడతామో అలాగే మాట్లాడండి, రోజూ మాట్లాడే సింపుల్ తెలుగు లో.",

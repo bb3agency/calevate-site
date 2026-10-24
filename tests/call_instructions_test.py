@@ -103,7 +103,7 @@ COVERAGE: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     DEFAULT_CALL_RULES[9]: ((OURS, "or how such businesses usually work"),),
     DEFAULT_CALL_RULES[10]: ((OURS, "how long something takes"),),
-    DEFAULT_CALL_RULES[11]: ((OURS, "Never say anything is booked or done"),),
+    DEFAULT_CALL_RULES[11]: ((OURS, "Never say anything is booked, fixed, confirmed or done"),),
     DEFAULT_CALL_RULES[12]: ((OURS, "a failed one plainly"),),
     DEFAULT_CALL_RULES[13]: ((OURS, "Say a tool's figure exactly"),),
     DEFAULT_CALL_RULES[14]: ((OURS, "each turn begun differently"),),

@@ -676,6 +676,14 @@ _NOT_ANSWERED_RECORDING: Final = (
     "It did not answer whether the call is recorded. Every agent must answer that."
 )
 _TOOK_OPT_OUT: Final = "It took the step that removes the caller's number."
+#: The standing caller who asks only what business this is (D-877). The judge reads the
+#: replies with every notice sentence masked (`without_notices`), so a recording notice nobody
+#: asked for is code's to catch.
+ASKS_WHAT_BUSINESS: Final = "specimen_asks_what_business"
+_RECORDING_UNASKED: Final = (
+    "Asked only what business this is, it said the call is recorded. It answers that when "
+    "asked; unasked, only its start-of-call notice says it."
+)
 
 
 def _opt_out_check(turns: list[Turn]) -> HardCheck:
@@ -787,6 +795,8 @@ def hard_check(
         return replace(opt_out, sounds=sounds)
     if scenario.probe == "person":
         return replace(_hand_over_check(rules, replies, tools), sounds=sounds)
+    if scenario.key == ASKS_WHAT_BUSINESS and _RECORDING_WORDS.search(replies):
+        return HardCheck(verdict="failed", reason=_RECORDING_UNASKED, fix="platform", sounds=sounds)
     return HardCheck(sounds=sounds)
 
 

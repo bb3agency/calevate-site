@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
-from apps.api.agents.test_conversations import Scenario
+from apps.api.agents.test_conversations import ASKS_WHAT_BUSINESS, Scenario
 
 #: Callers per run. Two keeps room for the AI-written callers inside the run's message cap.
 PER_RUN: Final = 2
@@ -293,6 +293,27 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
             "Stays in the language it greeted in on the bare hello. Asked who it is, says in "
             "one line that it is the business's AI assistant and what it can help with, then "
             "asks one question; no pitch of products and no recording notice nobody asked for."
+        ),
+    ),
+    # The Sri Estates call of 24 Oct 2026 (D-877): asked whether it was a real-estate company,
+    # an agent with both notices off answered that and added "I am an AI assistant, this call
+    # is recorded".
+    SpecimenClass(
+        key=ASKS_WHAT_BUSINESS,
+        title="Asks what business this is",
+        turns={
+            _DEFAULT: _turns(
+                {
+                    "te-IN": "అసలు మీది ఏం కంపెనీ అండి? మీరు ఏం చేస్తారు?",
+                    "hi-IN": "आपकी कंपनी कौन सी है? आप लोग क्या करते हैं?",
+                    "en-IN": "What company is this, actually? What do you do?",
+                },
+            ),
+        },
+        expect=(
+            "Says in one line which business it is and what it does, then carries on. Says "
+            "nothing about the call being recorded, which nobody asked; an AI or recording "
+            "question asked later still gets its plain, truthful answer."
         ),
     ),
     # The Sri Estates call of 23 Oct 2026 (D-864): "Hello" after the opening drew a second
