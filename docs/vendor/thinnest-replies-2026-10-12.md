@@ -1868,3 +1868,22 @@ unanswered, so D-868 keeps waiting.
    on a voice agent only; not used on a realtime model. Also on the agent's Playground page
    under the opening line. VERIFIED-VENDOR-DOCS: docs.thinnest.ai/api-reference/agents/
    update-agent, read 24 Oct 2026. Built as D-871.
+
+## 33. Questions for the next email (from the Sri Estates call of 24 Oct 2026, D-877)
+
+1. **Where did the second goodbye come from?** The agent's last turn on the call, as the
+   transcript holds it, is one agent entry: "సరే అండి, ధన్యవాదాలు. ఉంటాను మరి, నమస్కారం. సరే
+   అండి, ఉంటాను మరి." (two goodbyes). Our instructions say "then one goodbye", and our
+   transcript keeps each of your entries as one turn (`engine/thinnest.parse_transcript`
+   merges nothing). Your What's new (mirror 19 Oct 2026, `whats-new/index.md:292-295`) says
+   the agent has short fixed lines it falls back on, "a goodbye" among them, now written in
+   Telugu, and the Voice page says "The closing line is always spoken first"
+   (`channels/voice.md`, Ending the call). Please say: when the fixed goodbye is spoken (when
+   the model calls `hang_up` with no text? after a goodbye it already said?), its exact
+   Telugu text, whether text the model writes after its `hang_up` call is spoken, and whether
+   such text and the goodbye before it are saved as one transcript entry. If the second line
+   is yours, can it be skipped when the model's last reply already said goodbye, or switched
+   off per agent?
+
+   Until answered: our rule now reads "then one goodbye and nothing more", and the practice
+   checks flag a second goodbye in one reply (`agents/turn_checks._repeated_sentence`).

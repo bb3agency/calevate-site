@@ -436,7 +436,12 @@ def _finished_cut_line(caller_said: str, reply: str) -> str | None:
 def _repeated_sentence(parts: list[str]) -> str | None:
     """A statement whose words all came earlier in the same reply ("మంచిది అండి, thanks అండి."
     after "మంచిది అండి, ... thanks అండి."): the double goodbye of 21 Oct 2026. Questions are
-    `repeated_question`'s, and a statement after a question answers it (`caller_line`)."""
+    `repeated_question`'s, and a statement after a question answers it (`caller_line`).
+    A second sentence that says goodbye is one too, in other words or not ("ఉంటాను మరి,
+    నమస్కారం. సరే అండి, ఉంటాను మరి.", our call of 24 Oct 2026, D-877)."""
+    farewells = [part for part in parts if _GOODBYE.search(part)]
+    if len(farewells) > 1:
+        return farewells[1]
     for i, later in enumerate(parts):
         words = set(_words(later))
         if _is_question(later) or len(words) < 2:
@@ -848,12 +853,14 @@ _CLAIMS_DONE: Final = re.compile(
     # The bare Telugu form must not be followed by a letter, so "చేసుకున్నారా?" (did you?)
     # is no claim.
     # "Fixed" a visit or a slot is a booking claim too (a competitor's "సైట్ విజిట్ ఫిక్స్
-    # చేశాను", D-856).
+    # చేశాను", D-856), in textbook Telugu too ("ఖరారు చేశాను", our call of 24 Oct 2026, D-877).
     r"|(?:నమోదు|సేవ్|save|బుక్|book|రికార్డ్|record|confirm|కన్ఫర్మ్|place|ప్లేస్|add|"
-    r"యాడ్|fix|ఫిక్స్|ఆర్డర్ పెట్టే|order పెట్టే)\s*(?:చేసా|చేశా|చేసేసా|చేసేశా|అయిపోయింది|"
+    r"యాడ్|fix|ఫిక్స్|ఖరారు|ఖాయం|షెడ్యూల్|schedule|ఫైనల్|final|ఆర్డర్ పెట్టే|order పెట్టే)"
+    r"\s*(?:చేసా|చేశా|చేసేసా|చేసేశా|అయిపోయింది|"
     r"అయింది|ఐంది|చేసుకున్నాను|చేసుకున్నాం|చేసుకున్నా(?![ఀ-౿]))"
     r"|పంపాను|పంపాం|పంపించాను|పంపించాం|పంపేశాను|పంపేసాను|పంపేశాం|పంపేసాం"
-    r"|(?:सेव|बुक|दर्ज|रिकॉर्ड|कन्फर्म|प्लेस|ऐड|फिक्स|save|book|confirm|add|fix)\s*"
+    r"|(?:सेव|बुक|दर्ज|रिकॉर्ड|कन्फर्म|प्लेस|ऐड|फिक्स|तय|पक्का|शेड्यूल|save|book|confirm|add|"
+    r"fix|schedule)\s*"
     r"(?:कर\s*(?:दिया|दी|दिए|लिया|ली|लिए)|हो\s*(?:गया|गई|गए))|भेज\s*(?:दिया|दी|दिए)",
     re.IGNORECASE,
 )
@@ -892,7 +899,8 @@ _WRAPS_UP: Final = re.compile(
     re.IGNORECASE,
 )
 _GOODBYE: Final = re.compile(
-    r"\bgood\s?bye\b|\bbye\b|గుడ్\s?బై|(?:^|[\s,.!?])బై(?=[\s,.!?]|$)|अलविदा|बाय",
+    r"\bgood\s?bye\b|\bbye\b|గుడ్\s?బై|(?:^|[\s,.!?])బై(?=[\s,.!?]|$)|ఉంటాను\s*మరి|ఉంటానండి|"
+    r"ఉంటాం\s*మరి|अलविदा|बाय",
     re.IGNORECASE,
 )
 #: A caller line that closes the conversation, after which a goodbye is right.
