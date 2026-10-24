@@ -68,7 +68,7 @@ describe("an address that is not one", () => {
     // The invite is one line on the page, above the pending invitations (REDESIGN-2).
 
     const field = (await screen.findByLabelText(
-      "Email address to invite",
+      "Their email address",
     )) as HTMLInputElement;
     fireEvent.change(field, { target: { value: "priya" } });
     fireEvent.click(screen.getByRole("button", { name: /Send invite/ }));

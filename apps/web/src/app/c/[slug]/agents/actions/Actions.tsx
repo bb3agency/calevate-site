@@ -26,6 +26,7 @@ import {
   UserSearch,
 } from "lucide-react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { Chooser, ChooserItem } from "@/components/console/chooser";
 import { EmptyState } from "@/components/console/emptyState";
 import { EmptySketch } from "@/components/console/emptySketch";
@@ -98,6 +99,10 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
   const creds = useCredentials(session);
   const setMaster = useSetMasterSwitch(session, agentId);
   const setEnabled = useSetActionEnabled(session, agentId);
+  // Both are switches: the switch's own position is the success, and the failure is the
+  // ProblemNotice under it.
+  useActionFeedback(setMaster, { errorDisplay: "inline" });
+  useActionFeedback(setEnabled, { errorDisplay: "inline" });
   const [requested, setView] = useState<View>({ at: "list" });
   const eg = useVerticalExamples();
   // Reading actions and credentials is `org:read`; every write here — the master switch,

@@ -2,7 +2,8 @@
 
 import { useId, useState } from "react";
 
-import { PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ProblemNotice } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { type PipConsent, useTurnPipOn } from "@/lib/copilot/conversation";
@@ -42,6 +43,7 @@ function PipLocked() {
 function OwnerConsent({ session, consent }: { session: Session; consent: PipConsent }) {
   const [agreed, setAgreed] = useState(false);
   const turnOn = useTurnPipOn(session);
+  const turnOnFeedback = useActionFeedback(turnOn, { errorDisplay: "inline" });
   const checkboxId = useId();
   const errorId = useId();
   const changed = consent.status === "outdated";
@@ -100,9 +102,9 @@ function OwnerConsent({ session, consent }: { session: Session; consent: PipCons
         </label>
       </div>
 
-      <button type="submit" disabled={!agreed || turnOn.isPending} className={PRIMARY_BUTTON}>
-        {turnOn.isPending ? "Turning on…" : `Turn on ${ASSISTANT_NAME}`}
-      </button>
+      <ActionButton type="submit" status={turnOnFeedback.status} disabled={!agreed} successLabel="Turned on">
+        Turn on {ASSISTANT_NAME}
+      </ActionButton>
 
       {turnOn.error != null && (
         <div id={errorId}>

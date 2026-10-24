@@ -2,7 +2,8 @@
 
 /**
  * OVERVIEW — what is left before this agent's first call, anything waiting to go live, the
- * opening notices, and its latest calls (the old Calls entry, D-825).
+ * opening notices, how ready it is (the D-870 score and what would raise it), and its
+ * latest calls (the old Calls entry, D-825).
  *
  * The notices are HERE and nowhere else: this is the tab that opens first, so the
  * truthful-answer guarantee and the two switches under it are never behind a tab switch
@@ -25,6 +26,7 @@ import { noFill } from "@/lib/copilot/types";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
 import { LatestCalls } from "../../../LatestCalls";
+import { AgentReadinessPanel } from "../../AgentReadiness";
 import { OpeningNotices } from "../../panels/openingNotices";
 import { PendingBanner } from "../../panels/publishing";
 
@@ -96,6 +98,8 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
       )}
       {pending.data && <PendingBanner state={pending.data} />}
       <OpeningNotices agent={agent} />
+      {/* After the notices, which stay on a phone's first screen (see above). */}
+      <AgentReadinessPanel agentId={agent.id} slug={slug} />
       <LatestCalls
         recent={recent}
         allHref={href(`/c/${slug}/calls?agent_id=${agent.id}`)}

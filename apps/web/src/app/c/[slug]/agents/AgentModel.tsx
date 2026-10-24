@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ModelTierSetting } from "@/components/modelTierSetting";
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import { TEXT_ACTION } from "@/components/console/section";
@@ -36,6 +37,9 @@ export function AgentModel({ agent, slug }: { agent: AgentWithLlm; slug: string 
   const view = agentLlmView(agent);
   const catalogue = useOrganizationLlmDefaults(session);
   const save = useUpdateAgent(session, agent.id);
+  // `ModelTierSetting` draws the busy face, the saved tick and the refusal beside its own
+  // save button, so a failure stays inline.
+  useActionFeedback(save, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "change this agent's model");
 
   useCopilotSurface(

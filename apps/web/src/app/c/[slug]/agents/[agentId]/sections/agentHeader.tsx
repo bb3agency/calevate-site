@@ -30,7 +30,8 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { MessageSquareText } from "lucide-react";
 
-import { formatINR, ProblemNotice, PRIMARY_BUTTON, RestrictionNote, SECONDARY_BUTTON, ToggleSwitch } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { formatINR, ProblemNotice, RestrictionNote, SECONDARY_BUTTON, ToggleSwitch } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { useSectionLink } from "@/components/console/settingsLayout";
@@ -70,6 +71,18 @@ export function AgentHeader({
   const pending = usePendingChanges(session, agent.id);
   const move = useAgentLifecycle(session, agent.id);
   const undo = useUndoScript(session, agent.id);
+  /* Bringing an agent back or getting it ready changes which buttons are offered, so the one
+     pressed is gone when it succeeds: those say so in a toast. The switch is its own success.
+     A refusal stays inline (`LifecycleError`). */
+  const moveFeedback = useActionFeedback(move, {
+    errorDisplay: "inline",
+    successToast: (_, key) => (key === "restore" || key === "prepare" ? MOVE_COPY[key].done : null),
+  });
+  // Started from the ⋯ menu, which closes: the result is said in a toast.
+  const undoFeedback = useActionFeedback(undo, {
+    errorDisplay: "inline",
+    successToast: "Waiting changes undone. The draft matches what callers hear.",
+  });
   const write = useWriteAccess(session, "org:manage", "change whether this agent is working");
   // Owners see what this agent spent this month; staff without billing:read see nothing,
   // and a failed read shows nothing rather than a guessed figure.
@@ -95,7 +108,7 @@ export function AgentHeader({
               {
                 id: "undo",
                 label: "Undo waiting changes",
-                onSelect: () => undo.mutate(),
+                onSelect: () => undoFeedback.run(),
                 disabled: !write.allowed || undo.isPending,
                 hint: write.reason ?? undefined,
               },
@@ -117,15 +130,17 @@ export function AgentHeader({
   const detail = [stateLine, tierLine, spendLine].filter(Boolean).join(" · ");
 
   const restoreButton = deleted && moves.includes("restore") && (
-    <button
-      type="button"
-      onClick={() => move.mutate("restore")}
-      disabled={!write.allowed || move.isPending}
+    <ActionButton
+      status={move.variables === "restore" ? moveFeedback.status : "idle"}
+      pendingLabel={MOVE_COPY.restore.busy}
+      successLabel="Done"
+      onClick={() => moveFeedback.run("restore")}
+      disabled={!write.allowed}
       title={write.reason ?? undefined}
-      className={`${PRIMARY_BUTTON} flex-1 justify-center whitespace-nowrap sm:flex-none`}
+      className="flex-1 whitespace-nowrap sm:flex-none"
     >
-      {move.isPending ? MOVE_COPY.restore.busy : MOVE_COPY.restore.label}
-    </button>
+      {MOVE_COPY.restore.label}
+    </ActionButton>
   );
 
   return (
@@ -142,15 +157,18 @@ export function AgentHeader({
               <>
                 <OnOffSwitch agent={agent} canWrite={write.allowed} onTrial={onTrial} move={move} />
                 {moves.includes("prepare") && (
-                  <button
-                    type="button"
-                    onClick={() => move.mutate("prepare")}
-                    disabled={!write.allowed || move.isPending}
+                  <ActionButton
+                    variant="secondary"
+                    status={move.variables === "prepare" ? moveFeedback.status : "idle"}
+                    pendingLabel={MOVE_COPY.prepare.busy}
+                    successLabel="Done"
+                    onClick={() => moveFeedback.run("prepare")}
+                    disabled={!write.allowed || (move.isPending && move.variables !== "prepare")}
                     title={write.reason ?? MOVE_COPY.prepare.hint}
-                    className={`${SECONDARY_BUTTON} flex-1 justify-center whitespace-nowrap sm:flex-none`}
+                    className="flex-1 whitespace-nowrap sm:flex-none"
                   >
-                    {move.isPending && move.variables === "prepare" ? MOVE_COPY.prepare.busy : MOVE_COPY.prepare.label}
-                  </button>
+                    {MOVE_COPY.prepare.label}
+                  </ActionButton>
                 )}
                 <Link
                   href={training?.href ?? href(`${base}?section=training`)}
@@ -263,15 +281,16 @@ function PutLiveButton({
   }
   return (
     <>
-      <button
-        type="button"
-        className={`${PRIMARY_BUTTON} flex-1 justify-center whitespace-nowrap sm:flex-none`}
-        disabled={!canWrite || putLive.pending}
+      <ActionButton
+        status={putLive.pending ? "pending" : "idle"}
+        pendingLabel="Putting it live…"
+        disabled={!canWrite}
         title={reason ?? undefined}
         onClick={() => setAsking(true)}
+        className="flex-1 whitespace-nowrap sm:flex-none"
       >
-        {putLive.pending ? "Putting it live…" : "Put it live"}
-      </button>
+        Put it live
+      </ActionButton>
       {asking && (
         <PutLiveDialog
           live={out.script}
@@ -279,6 +298,7 @@ function PutLiveButton({
           agentOn={agent.published && agent.status === "live"}
           voiceLine={voiceLine}
           pending={putLive.pending}
+          status={putLive.status}
           error={putLive.error}
           onCancel={() => {
             setAsking(false);

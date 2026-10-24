@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowRight, Check } from "lucide-react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { PipMark } from "@/components/illustration/pip";
 import { FIELD, ProblemNotice } from "@/components/ui";
@@ -61,6 +62,7 @@ export function BriefStep({
   const examples = useVerticalExamples();
   const ownTrade = me.data?.organization?.vertical_template ?? null;
   const save = useSaveBrief(session);
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const boxId = useId();
   const box = useRef<HTMLTextAreaElement>(null);
   const [brief, setBrief] = useState<string | null>(run.brief);
@@ -81,11 +83,11 @@ export function BriefStep({
       onBack={onBack}
       primary={
         <>
-          {save.isPending ? "Saving…" : "Continue"}
+          Continue
           <ArrowRight aria-hidden className="h-4 w-4" />
         </>
       }
-      pending={save.isPending}
+      status={saveFeedback.status}
       onSubmit={() => save.mutate({ brief: text.trim() }, { onSuccess: onDone })}
       aside={
         pipOff === null ? (
@@ -179,6 +181,8 @@ function SpokenBrief({
 }) {
   const session = useClientSession();
   const record = useRecordBrief(session);
+  // The working line and "Added to the box" below are this action's pending and success.
+  useActionFeedback(record, { errorDisplay: "inline" });
   const [current, setCurrent] = useState<string | null>(null);
   const heard = useRecording(session, current);
   const added = useRef(new Set<string>());

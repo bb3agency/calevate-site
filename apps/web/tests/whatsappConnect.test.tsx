@@ -151,7 +151,8 @@ describe("Integrations > WhatsApp", () => {
       routes({ "/v1/whatsapp": WHATSAPP_CONNECTED, "/v1/whatsapp/templates": TEMPLATES }),
     );
     expect(await screen.findByText("Lakshmi Traders")).toBeTruthy();
-    expect(screen.getByText("Connected")).toBeTruthy();
+    // The sign-in buttons carry a hidden "Connected" success face; the status pill is the one shown.
+    expect(screen.getAllByText("Connected").filter((el) => !el.closest("[aria-hidden]"))).toHaveLength(1);
     expect(await screen.findByText("Payment link")).toBeTruthy();
     expect(screen.getAllByText("Approved").length).toBeGreaterThan(0);
     expect(screen.getByText("Rejected by Meta")).toBeTruthy();

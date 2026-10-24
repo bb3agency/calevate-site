@@ -23,8 +23,9 @@
 import { useId, useRef, useState } from "react";
 import { KeyRound } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { Section, TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
+import { Section, TEXT_ACTION_DANGER } from "@/components/console/section";
 import { IconTile } from "@/components/console/iconTile";
 import { ServiceLogo } from "@/components/console/serviceLogo";
 import { FieldMessage, useFormValidation } from "@/components/formValidation";
@@ -34,7 +35,6 @@ import {
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -88,9 +88,12 @@ const KEY_KINDS: { kind: KeyKind; label: string; hint: string }[] = [
 export function ConnectedAccounts({ session, canWrite }: { session: Session; canWrite: boolean }) {
   const creds = useCredentials(session);
   const status = useConnectionsStatus(session);
-  const { signIn, connect, complete, error: signInError } = useAccountSignIn(session);
+  const { signIn, connect, complete, error: signInError, statusFor } = useAccountSignIn(session);
   const remove = useDeleteCredential(session);
+  // The dialog shows the refusal while it is open, and the notice below the list after.
+  const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline" });
   const probe = useTestCredential(session);
+  const probeFeedback = useActionFeedback(probe, { errorDisplay: "inline" });
   const [tested, setTested] = useState<{ id: string; result: CredentialTest } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<IntegrationCredential | null>(null);
   const [adding, setAdding] = useState(false);
@@ -100,15 +103,17 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
   /** Check and Disconnect for one connected account, and the check's answer under it. */
   const accountActions = (c: IntegrationCredential) => (
     <span className="flex flex-wrap items-center gap-x-4">
-      <button
-        type="button"
-        className={TEXT_ACTION}
-        disabled={!canWrite || probe.isPending}
+      <ActionButton
+        variant="secondary-sm"
+        status={probe.variables === c.id ? probeFeedback.status : "idle"}
+        disabled={!canWrite || (probe.isPending && probe.variables !== c.id)}
         onClick={() => probe.mutate(c.id, { onSuccess: (result) => setTested({ id: c.id, result }) })}
         aria-label={`Check ${c.label}`}
+        pendingLabel="Checking…"
+        successLabel="Checked"
       >
         Check
-      </button>
+      </ActionButton>
       <button
         type="button"
         className={TEXT_ACTION_DANGER}
@@ -169,23 +174,27 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
                       </div>
                     ))}
                     {mine.length === 0 ? (
-                      <button
-                        type="button"
-                        className={SECONDARY_BUTTON_SM}
-                        disabled={!canWrite || !available || connect.isPending}
+                      <ActionButton
+                        variant="secondary-sm"
+                        status={statusFor(s.kind)}
+                        disabled={!canWrite || !available || (connect.isPending && connect.variables !== s.kind)}
                         onClick={() => signIn(s.kind)}
+                        pendingLabel="Opening sign-in…"
+                        successLabel="Connected"
                       >
                         {available ? `Connect ${s.label}` : "Not available yet"}
-                      </button>
+                      </ActionButton>
                     ) : (
-                      <button
-                        type="button"
-                        className={TEXT_ACTION}
-                        disabled={!canWrite || !available || connect.isPending}
+                      <ActionButton
+                        variant="secondary-sm"
+                        status={statusFor(s.kind)}
+                        disabled={!canWrite || !available || (connect.isPending && connect.variables !== s.kind)}
                         onClick={() => signIn(s.kind)}
+                        pendingLabel="Opening sign-in…"
+                        successLabel="Connected"
                       >
                         Connect another
-                      </button>
+                      </ActionButton>
                     )}
                   </div>
                 </li>
@@ -267,7 +276,8 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
           title={`Disconnect “${pendingDelete.label}”?`}
           confirmLabel="Disconnect"
           pendingLabel="Disconnecting…"
-          pending={remove.isPending}
+          successLabel="Disconnected"
+          status={removeFeedback.status}
           error={remove.error}
           onCancel={() => setPendingDelete(null)}
           onConfirm={() => remove.mutate(pendingDelete.id, { onSuccess: () => setPendingDelete(null) })}
@@ -293,6 +303,7 @@ function AddKey({
   onDone: () => void;
 }) {
   const create = useCreateCredential(session);
+  const createFeedback = useActionFeedback(create, { errorDisplay: "inline" });
   const [kind, setKind] = useState<KeyKind>(initialKind);
   const [label, setLabel] = useState("");
   const [secret, setSecret] = useState("");
@@ -384,9 +395,9 @@ function AddKey({
       </div>
       {create.isError ? <ProblemNotice error={create.error} /> : null}
       <div className="flex flex-wrap gap-2">
-        <button type="submit" className={PRIMARY_BUTTON_SM} disabled={create.isPending}>
-          {create.isPending ? "Saving…" : "Save"}
-        </button>
+        <ActionButton type="submit" variant="primary-sm" status={createFeedback.status} successLabel="Saved">
+          Save
+        </ActionButton>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
           Cancel
         </button>

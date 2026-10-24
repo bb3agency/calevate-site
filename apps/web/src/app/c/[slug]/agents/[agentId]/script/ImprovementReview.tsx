@@ -18,6 +18,7 @@
 
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
 import {
   FIELD,
   NoticeBox,
@@ -74,13 +75,20 @@ export function ImprovementReview({
   const settle = useSettleImprovement(session, agentId);
   const addFact = useAddFact(session);
   const editFact = useEditFact(session);
+  // Each step's refusal is drawn below the list; the two Keep buttons carry the chain's state.
+  useActionFeedback(saveDraft, { errorDisplay: "inline" });
+  useActionFeedback(publish, { errorDisplay: "inline" });
+  useActionFeedback(apply, { errorDisplay: "inline" });
+  useActionFeedback(settle, { errorDisplay: "inline" });
+  useActionFeedback(addFact, { errorDisplay: "inline" });
+  useActionFeedback(editFact, { errorDisplay: "inline" });
 
   const [kept, setKept] = useState<Set<string>>(() => new Set(improvement.edits.map((e) => e.id)));
   const [facts, setFacts] = useState(() =>
     improvement.facts.map((fact) => ({ fact, keep: fact.answer.trim() !== "", answer: fact.answer })),
   );
   const [done, setDone] = useState<null | { where: "draft" | "live"; skipped: string | null }>(null);
-  const [saving, setSaving] = useState(false);
+  const [pressed, setPressed] = useState<"draft" | "live">("draft");
 
   const titles = new Map(run.results.map((r) => [r.key, r.title]));
   const working: CallScript | undefined = loaded.data?.draft?.script ?? loaded.data?.script ?? undefined;
@@ -110,34 +118,34 @@ export function ImprovementReview({
     }
   };
 
-  const keep = async (goLive: boolean) => {
+  const keepChain = async (goLive: boolean) => {
     if (!working) return;
-    setSaving(true);
-    try {
-      let skipped: string | null = null;
-      if (keptIds.length > 0) {
-        const applied = await apply.mutateAsync({ runId: run.id, script: working, edits: keptIds });
-        skipped = skippedNote(applied.skipped, improvement);
-        await saveFacts();
-        if (goLive) {
-          await publish.mutateAsync({
-            summary: "Improved from test results",
-            script: applied.script,
-            expected_version: loaded.data?.version ?? null,
-          });
-        } else {
-          await saveDraft.mutateAsync({ script: applied.script, base_saved_at: loaded.data?.draft?.saved_at ?? null });
-        }
+    let skipped: string | null = null;
+    if (keptIds.length > 0) {
+      const applied = await apply.mutateAsync({ runId: run.id, script: working, edits: keptIds });
+      skipped = skippedNote(applied.skipped, improvement);
+      await saveFacts();
+      if (goLive) {
+        await publish.mutateAsync({
+          summary: "Improved from test results",
+          script: applied.script,
+          expected_version: loaded.data?.version ?? null,
+        });
       } else {
-        await saveFacts();
+        await saveDraft.mutateAsync({ script: applied.script, base_saved_at: loaded.data?.draft?.saved_at ?? null });
       }
-      await settle.mutateAsync({ runId: run.id });
-      setDone({ where: goLive ? "live" : "draft", skipped });
-    } catch {
-      // Each mutation renders its own refusal below.
-    } finally {
-      setSaving(false);
+    } else {
+      await saveFacts();
     }
+    await settle.mutateAsync({ runId: run.id });
+    setDone({ where: goLive ? "live" : "draft", skipped });
+  };
+  const keep = useAsyncAction((goLive: boolean) => keepChain(goLive), { errorDisplay: "inline" });
+  const saving = keep.status === "pending";
+  const startKeep = (goLive: boolean) => {
+    if (saving) return;
+    setPressed(goLive ? "live" : "draft");
+    keep.run(goLive);
   };
 
   if (done) {
@@ -230,25 +238,29 @@ export function ImprovementReview({
       {settle.error && <ProblemNotice error={settle.error} />}
       <div className="flex flex-wrap gap-2">
         {!nothing && (
-          <button
-            type="button"
-            className={PRIMARY_BUTTON_SM}
-            disabled={keptCount === 0 || factMissingAnswer || saving || !working}
+          <ActionButton
+            variant="primary-sm"
+            status={pressed === "draft" ? keep.status : "idle"}
+            pendingLabel="Saving…"
+            successLabel="Kept"
+            disabled={keptCount === 0 || factMissingAnswer || !working || (saving && pressed !== "draft")}
             title={factMissingAnswer ? "Type the answer for each fact you keep" : undefined}
-            onClick={() => void keep(false)}
+            onClick={() => startKeep(false)}
           >
-            {saving ? "Saving…" : `Keep ${keptCount}`}
-          </button>
+            {`Keep ${keptCount}`}
+          </ActionButton>
         )}
         {!nothing && !hasDraft && (
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={keptCount === 0 || factMissingAnswer || saving || !working}
-            onClick={() => void keep(true)}
+          <ActionButton
+            variant="secondary-sm"
+            status={pressed === "live" ? keep.status : "idle"}
+            pendingLabel="Putting it live…"
+            successLabel="Live"
+            disabled={keptCount === 0 || factMissingAnswer || !working || (saving && pressed !== "live")}
+            onClick={() => startKeep(true)}
           >
             Keep and put live
-          </button>
+          </ActionButton>
         )}
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onClose}>
           Not now

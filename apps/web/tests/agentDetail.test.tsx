@@ -21,6 +21,7 @@ import {
   AGENT_SPEND_PATH,
   LANES,
   agentCallHandling,
+  agentReadiness,
   clientVoiceTuning,
   LEGAL_READY,
   clientLlmTiers,
@@ -296,6 +297,7 @@ function routes(over: Record<string, unknown> = {}) {
     // `findByRole("alert")` here becomes a race it loses whenever that one paints first.
     // Overview's last calls for this agent (REDESIGN-2).
     "/v1/calls?agent_id=agent-1&limit=5": [],
+    "/v1/agents/agent-1/readiness": agentReadiness(),
     "/v1/agents/agent-1/handoff": {
       agent_id: "agent-1",
       enabled: false,
@@ -1725,8 +1727,11 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
       fireEvent.click(trigger);
     });
 
-    const announced = within(panel).getByRole("status");
-    expect(announced.textContent).toContain("stay in your call log");
+    // The confirm is a kit `ActionButton`, whose own (empty) outcome line is a status too.
+    const announced = within(panel)
+      .getAllByRole("status")
+      .find((el) => el.textContent?.includes("stay in your call log"));
+    expect(announced, "the delete consequences were not announced").toBeDefined();
 
     const armed = within(panel).getByRole("button", {
       name: /Delete this agent/,
@@ -1741,7 +1746,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     await act(async () => {
       fireEvent.click(within(panel).getByRole("button", { name: /Keep it/ }));
     });
-    expect(within(panel).queryByRole("status")).toBeNull();
+    expect(within(panel).queryByText(/stay in your call log/)).toBeNull();
     expect(
       within(panel).getByRole("button", { name: /^Delete…$/ }),
     ).toBeTruthy();
@@ -2176,7 +2181,7 @@ describe("the header holds the one primary, and Overview keeps the guarantee fir
     openSection("script");
     await renderClientPage(page, routes(SCRIPT_TAB_READS));
 
-    const opening = await screen.findByLabelText("Opening line");
+    const opening = await screen.findByRole("textbox", { name: "Opening line" });
     expect((opening as HTMLInputElement).value).toBe("Namaskaram.");
     expect(screen.getByRole("heading", { level: 3, name: "Tell Pip what to change" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Script" }).getAttribute("aria-selected")).toBe("true");

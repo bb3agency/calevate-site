@@ -10,6 +10,7 @@
  * writes the draft; the rule is marked used, and callers hear it once the draft is live.
  */
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ProblemNotice } from "@/components/ui";
 import { TEXT_ACTION } from "@/components/console/section";
 import type { CallScript } from "@/lib/api/script";
@@ -39,6 +40,13 @@ export function TaughtRules({
   const session = useClientSession();
   const rules = useProposedRules(session, agentId);
   const resolve = useResolveRule(session, agentId);
+  // The rule leaves this list when it is placed or set aside, so that is said in a toast.
+  const resolveFeedback = useActionFeedback(resolve, {
+    errorDisplay: "inline",
+    successToast: (_, vars) =>
+      vars.status === "dismissed" ? "Rule set aside for this agent" : "Rule added to your draft",
+  });
+  const busy = resolveFeedback.status === "pending";
   if (rules.error) return <ProblemNotice error={rules.error} onRetry={() => void rules.refetch()} />;
   // Nothing is said about taught rules until the list has arrived.
   if (!rules.data) return null;
@@ -69,12 +77,12 @@ export function TaughtRules({
                   <button
                     type="button"
                     className={TEXT_ACTION}
-                    disabled={withRole === null || resolve.isPending}
+                    disabled={withRole === null || busy}
                     title={withRole === null ? "Its role is too long to add this. Add it as a step." : undefined}
                     onClick={() => {
                       if (!withRole) return;
                       onChange(withRole);
-                      resolve.mutate({ ruleId: rule.id, status: "applied" });
+                      resolveFeedback.run({ ruleId: rule.id, status: "applied" });
                     }}
                   >
                     Add to its role
@@ -82,12 +90,12 @@ export function TaughtRules({
                   <button
                     type="button"
                     className={TEXT_ACTION}
-                    disabled={resolve.isPending || (script.stages?.length ?? 0) >= 12}
+                    disabled={busy || (script.stages?.length ?? 0) >= 12}
                     onClick={() => {
                       onChange(
                         addSection(script, { name: sectionName(rule.text), instruction: rule.text.slice(0, 600) }).script,
                       );
-                      resolve.mutate({ ruleId: rule.id, status: "applied" });
+                      resolveFeedback.run({ ruleId: rule.id, status: "applied" });
                     }}
                   >
                     Add as a step
@@ -95,8 +103,8 @@ export function TaughtRules({
                   <button
                     type="button"
                     className={TEXT_ACTION}
-                    disabled={resolve.isPending}
-                    onClick={() => resolve.mutate({ ruleId: rule.id, status: "dismissed" })}
+                    disabled={busy}
+                    onClick={() => resolveFeedback.run({ ruleId: rule.id, status: "dismissed" })}
                   >
                     Not for this agent
                   </button>

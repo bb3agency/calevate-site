@@ -12,6 +12,7 @@ import { ARCHIVED_QUERY, type Agent, type AgentStats } from "@/lib/api/agents";
 import type { Lanes } from "@/lib/api/publishing";
 
 import { problem, renderClientPage } from "./harness";
+import { NO_ACCOUNT_READINESS, ROSTER_READINESS_PATH } from "./fixtures/sharedReads";
 
 /**
  * The agents ROSTER — the screen that answers "which of my agents is working right now".
@@ -144,6 +145,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/agents": [agent()],
     [ARCHIVED_QUERY]: [],
     "/v1/agents/stats": [stats()],
+    [ROSTER_READINESS_PATH]: NO_ACCOUNT_READINESS,
     "/v1/agents/lanes": LANES,
     "/v1/trial": { on_trial: false },
     ...over,

@@ -1,5 +1,6 @@
 "use client";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { CallOutcomesView } from "@/components/leadFields/CallOutcomesView";
 import { LeadDetailsView } from "@/components/leadFields/LeadDetailsView";
 import { ProblemNotice, Skeleton } from "@/components/ui";
@@ -29,11 +30,17 @@ export function LeadDetailsScreen() {
   const outcomes = useCallOutcomes(session);
   const saveOutcomes = useSaveCallOutcomes(session);
   const draftOutcomes = useDraftCallOutcomes(session);
-  const writes = {
-    save: useSaveAgentLeadFields(session),
-    review: useReviewLeadFieldsDraft(session),
-    replace: useReplaceLeadFields(session),
-  };
+  const saveFields = useSaveAgentLeadFields(session);
+  const reviewDraft = useReviewLeadFieldsDraft(session);
+  const replaceFields = useReplaceLeadFields(session);
+  // The two views draw each write's busy face, saved tick and refusal beside its own
+  // button, so a failure stays inline rather than being said twice in a toast.
+  useActionFeedback(saveOutcomes, { errorDisplay: "inline" });
+  useActionFeedback(draftOutcomes, { errorDisplay: "inline" });
+  useActionFeedback(saveFields, { errorDisplay: "inline" });
+  useActionFeedback(reviewDraft, { errorDisplay: "inline" });
+  useActionFeedback(replaceFields, { errorDisplay: "inline" });
+  const writes = { save: saveFields, review: reviewDraft, replace: replaceFields };
 
   useCopilotSurface({
     route: "/c/{slug}/settings/lead-details",

@@ -320,7 +320,10 @@ export function ScriptEditor({
     .map((text) => fillVariables(text, samples));
 
   return (
-    <div className={clsx("grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)]", className)}>
+    // The preview sits beside the boxes only when the EDITOR has room for both (a container
+    // query, not the viewport): a page may put the editor in a narrow column beside a panel.
+    <div className={clsx("@container", className)}>
+    <div className="grid gap-6 @3xl:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)]">
       <div className="min-w-0 space-y-4">
         <ol className="space-y-4">
           {sections.map((section, index) => (
@@ -362,7 +365,7 @@ export function ScriptEditor({
         ) : null}
       </div>
       {showPreview ? (
-        <aside aria-label={strings.previewTitle} className="h-fit space-y-3 rounded-card border border-line bg-surface-muted p-4 lg:sticky lg:top-4">
+        <aside aria-label={strings.previewTitle} className="h-fit min-w-0 space-y-3 rounded-card border border-line bg-surface-muted p-4 @3xl:sticky @3xl:top-4">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-body font-semibold text-ink">{strings.previewTitle}</h3>
             {previewAction}
@@ -380,6 +383,7 @@ export function ScriptEditor({
           )}
         </aside>
       ) : null}
+    </div>
     </div>
   );
 }

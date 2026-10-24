@@ -27,6 +27,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
@@ -39,6 +40,7 @@ import {
   type AgentStats,
 } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { useAccountReadiness, type AccountReadiness } from "@/lib/api/readiness";
 import { agentOwnTier } from "@/lib/api/llmModels";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -46,6 +48,10 @@ import { DIRECTION_COPY, LANGUAGE_NAMES, agentGroup, humanise } from "@/lib/agen
 
 import { LiveBadge, VoiceTierBadge } from "./AgentBadge";
 import { MOVE_COPY } from "./AgentLifecycle";
+import { ReadinessScore } from "./AgentReadiness";
+
+/** The roster limit (`agents/roster.AGENT_ROSTER_LIMIT`): every listed agent gets its score. */
+const ROSTER_LIMIT = 200;
 
 export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
   const { href } = useClientRealm();
@@ -53,6 +59,8 @@ export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
   // A separate request over `calls`, the biggest table a tenant owns: the list paints first
   // and a row simply carries no activity line until its figures exist — never a zero.
   const stats = useAgentStats(session);
+  // Like the figures: a row whose score has not arrived (or failed) shows none, never a 0.
+  const readiness = useAccountReadiness(session, ROSTER_LIMIT);
 
   if (agents.length === 0) {
     return (
@@ -72,7 +80,7 @@ export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
     ...agents.filter((agent) => agentGroup(agent) === "active"),
     ...agents.filter((agent) => agentGroup(agent) !== "active"),
   ];
-  return <AgentList rows={ordered} slug={slug} stats={stats.data} label="Your agents" />;
+  return <AgentList rows={ordered} slug={slug} stats={stats.data} readiness={readiness.data} label="Your agents" />;
 }
 
 /**
@@ -102,12 +110,15 @@ function AgentList({
   rows,
   slug,
   stats,
+  readiness,
   label,
   archived = false,
 }: {
   rows: Agent[];
   slug: string;
   stats: AgentStats[] | undefined;
+  /** Absent on the deleted list, which is not being made ready. */
+  readiness?: AccountReadiness;
   label: string;
   archived?: boolean;
 }) {
@@ -126,6 +137,7 @@ function AgentList({
           // `find`, not an index keyed by server ids: a keyed object inherits
           // `Object.prototype` (src/lib/lookup.ts), and the roster is bounded at 200 rows.
           stats={stats?.find((row) => row.agent_id === agent.id)}
+          score={readiness?.agents.find((row) => row.agent_id === agent.id)?.score}
         />
       ))}
     </ul>
@@ -137,12 +149,14 @@ function AgentRow({
   slug,
   archived,
   stats,
+  score,
   index,
 }: {
   agent: Agent;
   slug: string;
   archived: boolean;
   stats: AgentStats | undefined;
+  score?: number;
   index: number;
 }) {
   const { href } = useClientRealm();
@@ -196,7 +210,8 @@ function AgentRow({
             <span className="block text-xs text-ink-faint">Deleted {formatIST(agent.archived_at)}</span>
           )}
         </span>
-        <span className="flex shrink-0 items-center gap-2">
+        <span className="flex shrink-0 flex-wrap items-center gap-2">
+          <ReadinessScore score={score} />
           <VoiceTierBadge agent={agent} />
           <LiveBadge agent={agent} />
         </span>
@@ -223,6 +238,11 @@ function AgentRow({
 function DeleteDialog({ agent, onClose }: { agent: Agent; onClose: () => void }) {
   const session = useClientSession();
   const move = useAgentLifecycle(session, agent.id);
+  // The dialog closes on success and the row moves or leaves, so the result is a toast.
+  const moveFeedback = useActionFeedback(move, {
+    errorDisplay: "inline",
+    successToast: (_data, step) => (step === "archive" ? `${agent.name} deleted` : `${agent.name} switched off`),
+  });
   const write = useWriteAccess(session, "org:manage", "delete an agent");
   const working = agentGroup(agent) === "active";
   const copy = MOVE_COPY.archive.confirm;
@@ -234,7 +254,8 @@ function DeleteDialog({ agent, onClose }: { agent: Agent; onClose: () => void })
         confirmLabel="Switch it off"
         pendingLabel="Switching off…"
         cancelLabel="Keep it"
-        pending={move.isPending}
+        status={moveFeedback.status}
+        successLabel="Switched off"
         error={move.error}
         onCancel={onClose}
         onConfirm={() => {
@@ -255,7 +276,8 @@ function DeleteDialog({ agent, onClose }: { agent: Agent; onClose: () => void })
       confirmLabel={`Delete ${agent.name}`}
       pendingLabel="Deleting…"
       cancelLabel="Keep it"
-      pending={move.isPending}
+      status={moveFeedback.status}
+      successLabel="Deleted"
       error={move.error}
       onCancel={onClose}
       onConfirm={() => {

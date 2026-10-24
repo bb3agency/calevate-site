@@ -213,7 +213,10 @@ describe("what the form sends", () => {
     await toDetails();
     await fillName("Front desk");
     await act(async () => {
-      fireEvent.change(screen.getByLabelText(/^Minutes/), { target: { value: "5" } });
+      // The minutes box (a spinbutton) applies what was typed when it is left.
+      const minutes = screen.getByLabelText(/^Minutes/);
+      fireEvent.change(minutes, { target: { value: "5" } });
+      fireEvent.blur(minutes);
     });
     await next();
     await screen.findByText("Check and build");
@@ -232,7 +235,7 @@ describe("what the form sends", () => {
 
     await toDetails();
     const textInputs = container.querySelectorAll(
-      'input[type="text"], input:not([type]), textarea',
+      'input[type="text"]:not([role="spinbutton"]), input:not([type]):not([role="spinbutton"]), textarea',
     );
     // One: the name. Nothing else in the flow is free text.
     expect(textInputs).toHaveLength(1);
@@ -295,9 +298,9 @@ describe("the call cap is the server's, or it is not offered", () => {
     );
 
     await toDetails();
-    const field = screen.getByLabelText(/^Minutes/);
-    expect(field.getAttribute("min")).toBe("2");
-    expect(field.getAttribute("max")).toBe("30");
+    const field = screen.getByRole("spinbutton", { name: /^Minutes/ });
+    expect(field.getAttribute("aria-valuemin")).toBe("2");
+    expect(field.getAttribute("aria-valuemax")).toBe("30");
     expect(container.textContent).toContain("blank for the standard 15 minutes");
     expect(container.textContent).not.toContain("10 minutes");
   });
@@ -310,7 +313,7 @@ describe("the call cap is the server's, or it is not offered", () => {
     );
 
     await toDetails();
-    expect(container.querySelector('input[type="number"]')).toBeNull();
+    expect(container.querySelector('[role="spinbutton"]')).toBeNull();
     // The rest of the flow still works: one slow read must not take the screen with it.
     expect(screen.getByLabelText(/^Name/)).toBeTruthy();
   });
@@ -324,7 +327,7 @@ describe("the call cap is the server's, or it is not offered", () => {
     );
 
     await screen.findByRole("alert");
-    expect(container.querySelector('input[type="number"]')).toBeNull();
+    expect(container.querySelector('[role="spinbutton"]')).toBeNull();
   });
 });
 

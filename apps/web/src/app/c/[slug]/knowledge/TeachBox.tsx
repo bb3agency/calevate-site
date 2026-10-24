@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { PipMark } from "@/components/illustration/pip";
 import { SavedTick } from "@/components/console/savedTick";
@@ -12,7 +13,6 @@ import {
   FIELD_LABEL,
   PRIMARY_BUTTON,
   ProblemNotice,
-  SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
 } from "@/components/ui";
@@ -83,6 +83,9 @@ export function TeachBox({
   const eg = useVerticalExamples();
   const hear = useHearVoiceNote(session);
   const discardHeard = useDiscardTeaching(session);
+  // Both refusals are drawn under the box; the pending face is the "Listening…" line.
+  useActionFeedback(hear, { errorDisplay: "inline" });
+  useActionFeedback(discardHeard, { errorDisplay: "inline" });
   const open = useOpenTeaching(session);
   const [words, setWords] = useState("");
   const [linkedGap, setLinkedGap] = useState<string | null>(null);
@@ -266,6 +269,8 @@ function Review({
   const agents = useAgents(session);
   const save = useSaveTeaching(session);
   const discard = useDiscardTeaching(session);
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
+  const discardFeedback = useActionFeedback(discard, { errorDisplay: "inline" });
   const [items, setItems] = useState<ReviewItem[]>(() =>
     teaching.items.map((item, key) => ({ ...item, key, keep: true })),
   );
@@ -335,10 +340,11 @@ function Review({
       {save.error ? <ProblemNotice error={save.error} /> : null}
       {discard.error ? <ProblemNotice error={discard.error} /> : null}
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className={PRIMARY_BUTTON}
-          disabled={kept.length === 0 || needsAgent || save.isPending}
+        <ActionButton
+          status={saveFeedback.status}
+          pendingLabel="Saving…"
+          successLabel="Saved"
+          disabled={kept.length === 0 || needsAgent || discard.isPending}
           onClick={() =>
             save.mutate(
               {
@@ -361,16 +367,17 @@ function Review({
             )
           }
         >
-          {save.isPending ? "Saving…" : kept.length ? `Save ${summary}` : "Save"}
-        </button>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON}
+          {kept.length ? `Save ${summary}` : "Save"}
+        </ActionButton>
+        <ActionButton
+          variant="secondary"
+          status={discardFeedback.status}
+          successLabel="Discarded"
           disabled={save.isPending}
-          onClick={() => discard.mutate(teaching.id)}
+          onClick={() => discardFeedback.run(teaching.id)}
         >
           Discard
-        </button>
+        </ActionButton>
       </div>
     </div>
   );

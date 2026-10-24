@@ -3,9 +3,9 @@
 import { Section } from "@/components/console/section";
 
 import type { ReactNode } from "react";
-import { Check } from "lucide-react";
 
-import { PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ProblemNotice } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
 import {
   draftFromProfile,
@@ -40,6 +40,7 @@ export function ProfileSection({
 }) {
   const session = useClientSession();
   const save = useSaveBusinessProfile(session);
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const dirty =
     JSON.stringify(toPatch(draft, step.id)) !== JSON.stringify(toPatch(saved, step.id));
   useUnsavedGuard(dirty);
@@ -74,22 +75,18 @@ export function ProfileSection({
         {save.error && <ProblemNotice error={save.error} />}
         {canWrite && (
           <div className="flex flex-wrap items-center gap-3">
-            <button
+            {/* Stays enabled while it shows "Saved", so the tick is not greyed out; a press
+                with nothing changed is ignored by the submit handler. */}
+            <ActionButton
               type="submit"
-              disabled={!dirty || save.isPending || Boolean(problem)}
-              aria-busy={save.isPending || undefined}
-              className={PRIMARY_BUTTON}
+              status={saveFeedback.status}
+              disabled={(!dirty && saveFeedback.status !== "success") || Boolean(problem)}
+              successLabel="Saved"
             >
-              {save.isPending ? "Saving…" : "Save"}
-            </button>
+              Save
+            </ActionButton>
             {save.isSuccess && !dirty && (
-              <span
-                role="status"
-                className="inline-flex items-center gap-1 text-meta text-ink-muted"
-              >
-                <Check aria-hidden className="h-3.5 w-3.5" />
-                Saved. Your agents use this now.
-              </span>
+              <span className="text-meta text-ink-muted">Your agents use this now.</span>
             )}
           </div>
         )}

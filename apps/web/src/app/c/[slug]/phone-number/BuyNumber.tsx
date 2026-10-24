@@ -45,13 +45,13 @@ import { Section } from "@/components/console/section";
 import Link from "next/link";
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { RadioGroup } from "@/components/arc/radio-group";
 import {
   FIELD,
   FIELD_LABEL,
   MonoValue,
   NoticeBox,
-  PRIMARY_BUTTON,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -164,6 +164,7 @@ function HolderBlock() {
   const session = useClientRealm().session;
   const holder = useNumberHolder(session);
   const record = useRecordNumberHolder(session);
+  const recordFeedback = useActionFeedback(record, { errorDisplay: "inline" });
   const [draft, setDraft] = useState<NumberHolderIn>({
     holder_type: "business",
     holder_name: "",
@@ -200,23 +201,15 @@ function HolderBlock() {
         be changed later, so please check it before you save it.
       </p>
 
-      <fieldset className="mt-3">
-        <legend className={FIELD_LABEL}>They are</legend>
-        <div className="mt-2 flex flex-wrap gap-4">
-          {HOLDER_TYPES.map((kind) => (
-            <label key={kind.value} className="flex items-center gap-2 text-body text-ink">
-              <input
-                type="radio"
-                name="holder-type"
-                value={kind.value}
-                checked={draft.holder_type === kind.value}
-                onChange={() => setDraft({ ...draft, holder_type: kind.value })}
-              />
-              <span>{kind.label}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <RadioGroup
+        className="mt-3"
+        label="They are"
+        name="holder-type"
+        inline
+        options={HOLDER_TYPES}
+        value={draft.holder_type}
+        onChange={(value) => setDraft({ ...draft, holder_type: value as HolderType })}
+      />
 
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
@@ -252,14 +245,17 @@ function HolderBlock() {
         </div>
       )}
 
-      <button
-        type="button"
-        className={`mt-3 ${PRIMARY_BUTTON_SM}`}
-        disabled={!complete || record.isPending}
-        onClick={() => record.mutate(draft)}
+      <ActionButton
+        variant="primary-sm"
+        className="mt-3"
+        status={recordFeedback.status}
+        disabled={!complete}
+        onClick={() => recordFeedback.run(draft)}
+        pendingLabel="Saving…"
+        successLabel="Saved"
       >
-        {record.isPending ? "Saving…" : "Save these details"}
-      </button>
+        Save these details
+      </ActionButton>
     </div>
   );
 }
@@ -300,6 +296,8 @@ export function BuyNumber() {
   // A trial that is test calls only (D-697) buys no number at all; the screen above says so.
   const trial = wallet.data?.trial?.test_calls_only === true ? null : activeTrial(wallet.data);
   const purchase = usePurchaseNumber(session);
+  // Every refusal renders above the button with its own next step (top up, pick another).
+  const purchaseFeedback = useActionFeedback(purchase, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "buy a phone number");
 
   const [chosen, setChosen] = useState<OfferedNumber | null>(null);
@@ -479,27 +477,13 @@ export function BuyNumber() {
                     </p>
                   )}
 
-                  <fieldset>
-                    <legend className={FIELD_LABEL}>What this number is for</legend>
-                    <div className="mt-2 space-y-2">
-                      {DIRECTIONS.map((option) => (
-                        <label key={option.value} className="flex items-start gap-2 text-body text-ink">
-                          <input
-                            type="radio"
-                            className="mt-1"
-                            name="purchase-direction"
-                            value={option.value}
-                            checked={direction === option.value}
-                            onChange={() => setDirection(option.value)}
-                          />
-                          <span>
-                            {option.label}
-                            <span className="block text-meta text-ink-muted">{option.hint}</span>
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  </fieldset>
+                  <RadioGroup
+                    label="What this number is for"
+                    name="purchase-direction"
+                    options={DIRECTIONS}
+                    value={direction}
+                    onChange={(value) => setDirection(value as CallDirection)}
+                  />
 
                   {!verified && (
                     <p className="text-body text-ink-muted">
@@ -528,11 +512,12 @@ export function BuyNumber() {
                   )}
 
                   <div className="space-y-2">
-                    <button
-                      type="button"
-                      className={PRIMARY_BUTTON}
-                      disabled={!canBuy || purchase.isPending}
+                    <ActionButton
+                      status={purchaseFeedback.status}
+                      disabled={!canBuy}
                       title={blockedReason ?? undefined}
+                      pendingLabel="Buying…"
+                      successLabel="Bought"
                       onClick={() =>
                         purchase.mutate(
                           { e164: chosen.e164, direction, idempotencyKey },
@@ -540,8 +525,8 @@ export function BuyNumber() {
                         )
                       }
                     >
-                      {purchase.isPending ? "Buying…" : "Buy this number"}
-                    </button>
+                      Buy this number
+                    </ActionButton>
                     {blockedReason ? <p className="text-meta text-ink-muted">{blockedReason}</p> : null}
                   </div>
                 </section>

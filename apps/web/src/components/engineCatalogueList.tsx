@@ -4,6 +4,7 @@ import { useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { CheckCircle2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { InfoTip } from "@/components/console/infoTip";
 import { ModelLogo } from "@/components/console/modelLogo";
@@ -477,6 +478,10 @@ function ChoiceCard({
  * MOUNTS
  * ═══════════════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * Each mount passes its write through `useActionFeedback` with `errorDisplay: "inline"`:
+ * the list draws the busy save bar and the refusal itself (`SaveControl`).
+ */
 function saveControl(
   save: ReturnType<typeof useUpdateAgent>,
   disabledReason: string | null,
@@ -509,6 +514,7 @@ export function TenantEngineVoices({
 }) {
   const client = useQueryClient();
   const save = useUpdateAgent(viewAsSession(slug), agent?.id ?? "");
+  useActionFeedback(save, { errorDisplay: "inline" });
   // The console reads this agent from its own roster query, which the client hook's refresh
   // does not know about.
   const refreshRoster = () => void client.invalidateQueries({ queryKey: ["admin", "agents", slug] });
@@ -538,6 +544,7 @@ export function TenantEngineModels({
 }) {
   const client = useQueryClient();
   const save = useUpdateAgent(viewAsSession(slug), agent?.id ?? "");
+  useActionFeedback(save, { errorDisplay: "inline" });
   const refreshRoster = () => void client.invalidateQueries({ queryKey: ["admin", "agents", slug] });
   return (
     <EngineModelList
@@ -554,6 +561,7 @@ export function TenantEngineModels({
 export function ClientEngineVoices({ session, agentId }: { session: Session; agentId: string }) {
   const agent = useAgent(session, agentId);
   const save = useUpdateAgent(session, agentId);
+  useActionFeedback(save, { errorDisplay: "inline" });
   return (
     <EngineVoiceList
       catalogue={useEngineCatalogue(session)}

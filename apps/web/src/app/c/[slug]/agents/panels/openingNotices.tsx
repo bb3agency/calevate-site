@@ -13,6 +13,7 @@ import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ProblemNotice, RestrictionNote, ToggleSwitch, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
 import { useSetDisclosure, type Agent, type DisclosureIn } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -79,6 +80,9 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
   const { href } = useClientRealm();
   const session = useClientSession();
   const setDisclosure = useSetDisclosure(session, agent.id);
+  // The switch's position is the success; a refusal is the notice (or the opening-line fix)
+  // drawn here, so nothing is toasted.
+  useActionFeedback(setDisclosure, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "switch these notices");
   const locked = setDisclosure.isPending || !write.allowed;
   const opening = agent.script_opening_line;

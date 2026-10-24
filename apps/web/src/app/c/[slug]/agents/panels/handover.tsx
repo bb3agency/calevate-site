@@ -44,13 +44,13 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import {
   FIELD,
   FIELD_LABEL,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -110,6 +110,7 @@ export function Handover({ agent }: { agent: Agent }) {
   const handoff = useHandoff(session, agent.id);
   const profile = useBusinessProfile(session);
   const save = useSetHandoff(session, agent.id);
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   // `PUT /v1/agents/{id}/handoff` is `org:manage`; staff read this panel on `agents:read`.
   const write = useWriteAccess(session, "org:manage", "change who calls are put through to");
 
@@ -299,14 +300,16 @@ export function Handover({ agent }: { agent: Agent }) {
               </button>
             </>
           )}
-          <button
-            type="button"
-            className={PRIMARY_BUTTON}
-            disabled={!dirty || save.isPending}
-            onClick={() => save.mutate(payload, { onSuccess: () => setDirty(false) })}
+          <ActionButton
+            status={saveFeedback.status}
+            successLabel="Saved"
+            disabled={saveFeedback.status === "idle" && !dirty}
+            onClick={() => {
+              if (dirty) save.mutate(payload, { onSuccess: () => setDirty(false) });
+            }}
           >
-            {save.isPending ? "Saving…" : "Save the list"}
-          </button>
+            Save the list
+          </ActionButton>
           {dirty && (
             <span className="text-xs text-ink-faint">
               Not saved yet. Changes reach your callers the next time this agent is published.

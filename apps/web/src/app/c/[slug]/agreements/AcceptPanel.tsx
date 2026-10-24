@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { CircleCheck } from "lucide-react";
 
-import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ProblemNotice, RestrictionNote } from "@/components/ui";
 import { needsAction, useAcceptAgreement, type LegalReadiness } from "@/lib/api/agreements";
 import { useClientSession } from "@/lib/api/session";
 
@@ -18,6 +19,7 @@ import { useClientSession } from "@/lib/api/session";
 export function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
   const session = useClientSession();
   const accept = useAcceptAgreement(session);
+  const acceptFeedback = useActionFeedback(accept, { errorDisplay: "inline" });
   const [ticked, setTicked] = useState(false);
 
   const outstanding = readiness.documents.filter(
@@ -99,11 +101,15 @@ export function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
         <p className="mr-auto text-meta text-ink-muted">
           We record which documents you accepted, at which version, and when.
         </p>
-        <button type="submit" disabled={!ticked || accept.isPending} className={PRIMARY_BUTTON}>
-          {accept.isPending
-            ? "Recording…"
-            : `Accept ${outstanding.length} agreement${outstanding.length === 1 ? "" : "s"}`}
-        </button>
+        <ActionButton
+          type="submit"
+          status={acceptFeedback.status}
+          disabled={!ticked}
+          pendingLabel="Recording…"
+          successLabel="Accepted"
+        >
+          {`Accept ${outstanding.length} agreement${outstanding.length === 1 ? "" : "s"}`}
+        </ActionButton>
       </div>
     </form>
   );

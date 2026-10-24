@@ -1071,7 +1071,8 @@ describe("a proposal", () => {
       name: /^Try again — Pause this campaign$/,
     });
     expect(again.length).toBe(1);
-    expect(again[0].textContent).toBe("Try again");
+    // The kit button keeps every face in the DOM; the error face ("Try again") is the one shown.
+    expect(again[0].getAttribute("data-status")).toBe("error");
     expect(screen.queryAllByText("Done").length).toBe(0);
   });
 
@@ -1116,7 +1117,8 @@ describe("a proposal", () => {
     // accessible name CONTAINS its visible word (WCAG 2.5.3 Label in Name) while naming
     // WHICH change, so a keyboard user does not land on a bare verb.
     expect(confirmButton.tagName).toBe("BUTTON");
-    expect(confirmButton.textContent).toBe("Confirm");
+    expect(confirmButton.getAttribute("data-status")).toBe("idle");
+    expect(confirmButton.textContent).toMatch(/^Confirm/);
     expect(confirmButton.getAttribute("aria-label")).toBe(
       "Confirm — Pause this campaign",
     );

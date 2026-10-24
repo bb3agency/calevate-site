@@ -13,6 +13,7 @@
 
 import { useEffect } from "react";
 
+import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { useOAuthComplete, useOAuthConnect, type OAuthKind } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
 
@@ -21,6 +22,10 @@ import { beginOAuthReturn, OAUTH_RETURN_KEY, takeOAuthReturn } from "./oauthRetu
 export function useAccountSignIn(session: Session) {
   const connect = useOAuthConnect(session);
   const complete = useOAuthComplete(session);
+  // Both failures render as `error` beside the Connect button (every caller shows it), so
+  // neither toasts. `connectStatus` belongs on the button for the kind being connected.
+  const connectFeedback = useActionFeedback(connect, { errorDisplay: "inline" });
+  const completeFeedback = useActionFeedback(complete, { errorDisplay: "inline" });
 
   useEffect(() => {
     const finish = () => {
@@ -51,5 +56,17 @@ export function useAccountSignIn(session: Session) {
   // The refusal to render, whichever half failed: starting the sign-in or finishing it.
   const error = connect.error ?? complete.error;
 
-  return { signIn, connect, complete, error };
+  /**
+   * The status of the sign-in for `kind`: opening the page, then finishing the connection.
+   * Opening the page is not a success to show (the person may still close the popup), so
+   * only finishing the connection earns the tick.
+   */
+  function statusFor(kind: OAuthKind): FeedbackStatus {
+    const opening = connectFeedback.status;
+    if (connect.variables === kind && (opening === "pending" || opening === "error")) return opening;
+    if (complete.variables?.kind === kind) return completeFeedback.status;
+    return "idle";
+  }
+
+  return { signIn, connect, complete, error, statusFor };
 }

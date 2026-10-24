@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ModelTierSetting } from "@/components/modelTierSetting";
 import { Disclosure, NoticeBox } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -29,6 +30,9 @@ export function OrganizationDefault({
   const { href } = useClientRealm();
   const session = useClientSession();
   const save = useSetOrganizationLlmDefault(session);
+  // `ModelTierSetting` draws the busy face, the saved tick and the refusal beside its own
+  // save button, so a failure stays inline.
+  useActionFeedback(save, { errorDisplay: "inline" });
   /**
    * `org:manage` — the owner's own permission, the one that already governs the account's
    * settings and its spending limit. An operator in view-as holds it too (D-587).

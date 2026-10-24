@@ -14,7 +14,8 @@ import { useState } from "react";
 
 import { Section } from "@/components/console/section";
 import { useFormValidation } from "@/components/formValidation";
-import { FIELD, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FIELD, FIELD_LABEL, ProblemNotice } from "@/components/ui";
 import { ROLE_COPY, useInviteMember, type CreatedInvitation, type MemberRole } from "@/lib/api/members";
 import { useClientSession } from "@/lib/api/session";
 
@@ -34,7 +35,9 @@ export function InviteInline({
 }) {
   const session = useClientSession();
   const invite = useInviteMember(session);
+  const inviteFeedback = useActionFeedback(invite, { errorDisplay: "inline" });
   const valid = useFormValidation();
+  const emailField = valid.field("email", "Enter their email address.");
   const [issued, setIssued] = useState<CreatedInvitation | null>(null);
 
   return (
@@ -53,48 +56,55 @@ export function InviteInline({
           );
         })}
       >
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-          {/* The message sits OUTSIDE the wrapping label: inside it, the refusal would be
-              folded into the field's accessible name and read back on every visit. */}
+        {/* Labels above both fields; the button sits on the fields' baseline from `sm`. The
+            email's refusal sits under its box, outside the label, so it is not folded into
+            the field's accessible name. */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
           <div className="min-w-0 flex-1">
-            <label className="block">
-              <span className="sr-only">Their email address</span>
-              <input
-                {...valid.field("email", "Enter their email address.")}
-                required
-                type="email"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  setIssued(null);
-                }}
-                autoComplete="off"
-                placeholder="Their email address"
-                aria-label="Email address to invite"
-                className={`${FIELD} mt-0`}
-              />
+            <label htmlFor={emailField.id} className={FIELD_LABEL}>
+              Their email address
             </label>
+            <input
+              {...emailField}
+              required
+              type="email"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setIssued(null);
+              }}
+              autoComplete="off"
+              placeholder="name@business.in"
+              className={FIELD}
+            />
             {valid.error("email")}
           </div>
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value as MemberRole)}
-            aria-label="Role for the invitation"
-            className={`${FIELD} mt-0 sm:w-36`}
-          >
-            {ROLES.map((value) => (
-              <option key={value} value={value}>
-                {ROLE_COPY[value].label}
-              </option>
-            ))}
-          </select>
-          <button
+          <div className="sm:w-36">
+            <label htmlFor="team-invite-role" className={FIELD_LABEL}>
+              Role
+            </label>
+            <select
+              id="team-invite-role"
+              value={role}
+              onChange={(e) => setRole(e.target.value as MemberRole)}
+              className={FIELD}
+            >
+              {ROLES.map((value) => (
+                <option key={value} value={value}>
+                  {ROLE_COPY[value].label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <ActionButton
             type="submit"
-            disabled={invite.isPending || email.trim().length < 3}
-            className={`${PRIMARY_BUTTON} justify-center`}
+            status={inviteFeedback.status}
+            disabled={email.trim().length < 3 && inviteFeedback.status !== "success"}
+            successLabel="Sent"
+            className="sm:mt-5"
           >
-            {invite.isPending ? "Sending…" : "Send invite"}
-          </button>
+            Send invite
+          </ActionButton>
         </div>
         <p className="mt-2 text-meta text-ink-muted">
           <span className="font-medium text-ink">{ROLE_COPY[role].label}:</span> {ROLE_COPY[role].can}

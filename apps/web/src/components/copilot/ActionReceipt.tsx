@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Undo2 } from "lucide-react";
 
-import { ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ProblemNotice } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { useUndoAction } from "@/lib/api/copilot";
 import type { CopilotAction } from "@/lib/copilot/types";
@@ -35,6 +36,9 @@ export function ActionReceipt({
   realm: "client" | "admin";
 }) {
   const undo = useUndoAction(session, realm);
+  // The receipt itself turns to "Undone" with the server's sentence; a refusal is drawn
+  // under it.
+  const undoFeedback = useActionFeedback(undo, { errorDisplay: "inline" });
   const [open, setOpen] = useState(() => undoOpen(action));
 
   // One wake-up at the deadline, `ProposalCard`'s timer shape and its 32-bit ceiling.
@@ -69,16 +73,17 @@ export function ActionReceipt({
         </dl>
       )}
       {undone === undefined && open && action.action_id != null && (
-        <button
-          type="button"
-          onClick={() => undo.mutate(action.action_id as string)}
-          disabled={undo.isPending}
+        <ActionButton
+          variant="secondary"
+          status={undoFeedback.status}
+          onClick={() => undoFeedback.run(action.action_id as string)}
           aria-label={`Undo — ${action.title}`}
-          className={`${SECONDARY_BUTTON} mt-2 inline-flex items-center gap-1`}
+          className="mt-2"
+          successLabel="Undone"
         >
           <Undo2 aria-hidden className="h-3.5 w-3.5" />
-          {undo.isPending ? "Undoing…" : "Undo"}
-        </button>
+          Undo
+        </ActionButton>
       )}
       {undo.isError && (
         <div className="mt-2">

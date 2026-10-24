@@ -11,6 +11,8 @@
 
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { JsonViewer } from "@/components/arc/json-viewer";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import {
@@ -19,9 +21,8 @@ import {
   FIELD_LABEL,
   formatIST,
   NoticeBox,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
-  ScrollRegion,
+  Skeleton,
   ToggleSwitch,
 } from "@/components/ui";
 import {
@@ -59,6 +60,8 @@ export function ToolRow({
 }) {
   const setEnabled = useSetActionEnabled(session, agentId);
   const remove = useDeleteAction(session, agentId);
+  useActionFeedback(setEnabled, { errorDisplay: "inline" });
+  const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline" });
   const [managing, setManaging] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
   // A kind this build has no form for is listed and removable, never offered for editing.
@@ -170,7 +173,8 @@ export function ToolRow({
           title={`Remove the action “${tool.name}”?`}
           confirmLabel="Remove it"
           pendingLabel="Removing…"
-          pending={remove.isPending}
+          successLabel="Removed"
+          status={removeFeedback.status}
           error={remove.error}
           onCancel={() => setConfirmingRemoval(false)}
           onConfirm={() =>
@@ -198,6 +202,7 @@ export function TestPanel({
   session: Session;
 }) {
   const test = useTestAction(session, agentId);
+  const testFeedback = useActionFeedback(test, { errorDisplay: "inline" });
   // `tool.params` is a list of open dicts on the wire; read fields defensively (String())
   // rather than asserting onto a generated type (the wire-fixture guard bans that).
   // Values the agent collects, plus captured details: a test caller usually has no lead, so
@@ -263,27 +268,23 @@ export function TestPanel({
           );
         })}
       </div>
-      <button
-        type="button"
-        className={`${PRIMARY_BUTTON_SM} mt-2`}
-        disabled={test.isPending}
-        onClick={() =>
-          test.mutate({ toolId: tool.id, values, testPhone: testPhone.trim() || null })
-        }
+      <ActionButton
+        variant="primary-sm"
+        className="mt-2"
+        status={testFeedback.status}
+        pendingLabel="Running…"
+        successLabel="Ran"
+        onClick={() => testFeedback.run({ toolId: tool.id, values, testPhone: testPhone.trim() || null })}
       >
-        {test.isPending ? "Running…" : "Run test"}
-      </button>
+        Run test
+      </ActionButton>
       {test.isError ? <ProblemNotice error={test.error} /> : null}
       {test.data ? (
         <NoticeBox
           tone={test.data.ok ? "ok" : "warn"}
           title={lookup(RUN_STATUS_LABELS, test.data.status) ?? `Result: ${test.data.status}`}
         >
-          <ScrollRegion className="max-h-64" label="Test result">
-            <pre className="whitespace-pre-wrap break-words text-xs">
-              {JSON.stringify(test.data.payload, null, 2)}
-            </pre>
-          </ScrollRegion>
+          <JsonViewer value={test.data.payload} label="Test result" className="max-h-64 overflow-y-auto" />
         </NoticeBox>
       ) : null}
     </div>
@@ -305,7 +306,7 @@ export function RunsPanel({
     <div className="border-t border-line pt-3">
       <p className="text-xs font-medium text-ink">Recent runs</p>
       {runs.isPending ? (
-        <p className={FIELD_HINT}>Loading…</p>
+        <Skeleton rows={2} label="Loading recent runs…" />
       ) : runs.isError ? (
         <ProblemNotice error={runs.error} onRetry={() => void runs.refetch()} />
       ) : runs.data.length === 0 ? (

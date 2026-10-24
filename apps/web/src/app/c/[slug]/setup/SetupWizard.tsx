@@ -6,10 +6,10 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Check, Circle, SkipForward } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ProgressBar } from "@/components/interior/progress-bar";
 import { SectionEditor, stepProblem } from "@/components/businessProfile/SectionEditor";
 import {
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON,
@@ -93,6 +93,11 @@ function Wizard({
   const params = useSearchParams();
   const save = useSaveBusinessProfile(session);
   const setup = useSetupAction(session);
+  // Both show their failure in the ProblemNotice under the step, so neither toasts.
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
+  const setupFeedback = useActionFeedback(setup, { errorDisplay: "inline" });
+  // `setup` also records the wizard being opened; only a skip belongs on the Skip button.
+  const skipStatus = setup.variables?.action === "skip" ? setupFeedback.status : "idle";
   const reduced = useReducedMotion();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const moved = useRef(false);
@@ -237,19 +242,26 @@ function Wizard({
                         Back
                       </button>
                     )}
-                    <button type="button" onClick={skip} disabled={busy} className={SECONDARY_BUTTON}>
+                    <ActionButton
+                      variant="secondary"
+                      status={skipStatus}
+                      onClick={skip}
+                      disabled={save.isPending}
+                      successLabel="Skipped"
+                    >
                       <SkipForward aria-hidden className="h-4 w-4" />
                       Skip
-                    </button>
+                    </ActionButton>
                   </div>
-                  <button
+                  <ActionButton
                     type="submit"
-                    disabled={!canWrite || busy || Boolean(problem)}
-                    aria-busy={save.isPending || undefined}
-                    className={PRIMARY_BUTTON}
+                    status={saveFeedback.status}
+                    disabled={!canWrite || setup.isPending || Boolean(problem)}
+                    pendingLabel="Saving…"
+                    successLabel="Saved"
                   >
-                    {save.isPending ? "Saving…" : index === STEPS.length - 1 ? "Save and finish" : "Save and continue"}
-                  </button>
+                    {index === STEPS.length - 1 ? "Save and finish" : "Save and continue"}
+                  </ActionButton>
                 </div>
               </form>
             ) : (

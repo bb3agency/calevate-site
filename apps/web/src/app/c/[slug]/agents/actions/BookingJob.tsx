@@ -13,10 +13,11 @@
 
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { ServiceLogo } from "@/components/console/serviceLogo";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
-import { Disclosure, FIELD, ProblemNotice, SECONDARY_BUTTON, ToggleSwitch } from "@/components/ui";
+import { Disclosure, FIELD, FIELD_LABEL, ProblemNotice, ToggleSwitch } from "@/components/ui";
 import {
   RUN_STATUS_LABELS,
   useCredentials,
@@ -46,6 +47,7 @@ export function BookingJob({
 }) {
   const creds = useCredentials(session);
   const setEnabled = useSetActionEnabled(session, agentId);
+  useActionFeedback(setEnabled, { errorDisplay: "inline" });
   const settings = readBooking(check, book);
   const kept = keptHours(check, book);
   const parts = [check, book].filter((t): t is ActionTool => t !== undefined);
@@ -136,6 +138,7 @@ function TryIt({
   minutes: number;
 }) {
   const test = useTestAction(session, agentId);
+  const testFeedback = useActionFeedback(test, { errorDisplay: "inline" });
   const [at, setAt] = useState("");
   const startParam = typeof check.config.start_param === "string" ? check.config.start_param : "start";
   const endParam = typeof check.config.end_param === "string" ? check.config.end_param : "end";
@@ -167,17 +170,24 @@ function TryIt({
         }}
       >
         <label className="block">
-          <span className="sr-only">Time to check, India time</span>
+          <span className={FIELD_LABEL}>Time to check (India time)</span>
           <input
             type="datetime-local"
-            className={`${FIELD} mt-0 w-auto`}
+            className={`${FIELD} w-auto`}
             value={at}
             onChange={(e) => setAt(e.target.value)}
           />
         </label>
-        <button type="submit" className={SECONDARY_BUTTON} disabled={!at || test.isPending}>
-          {test.isPending ? "Checking…" : "Check this time"}
-        </button>
+        <ActionButton
+          type="submit"
+          variant="secondary"
+          status={testFeedback.status}
+          disabled={!at}
+          pendingLabel="Checking…"
+          successLabel="Checked"
+        >
+          Check this time
+        </ActionButton>
       </form>
       {test.isError ? (
         <div className="mt-3">

@@ -48,9 +48,8 @@
 import { useState } from "react";
 import { MessageSquareText, Power, PowerOff, Trash2, Undo2 } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
-  DANGER_BUTTON,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON,
@@ -74,6 +73,8 @@ interface MoveCopy {
   label: string;
   /** What it says while the request is in flight. */
   busy: string;
+  /** The move once it has happened, for the success toast (the button itself goes away). */
+  done: string;
   /** The sentence beside it — what pressing it does, not what it is called. */
   hint: string;
   icon: typeof Power;
@@ -91,24 +92,28 @@ export const MOVE_COPY: Record<LifecycleMove, MoveCopy> = {
   activate: {
     label: "Switch on",
     busy: "Switching on…",
+    done: "Switched on",
     hint: "Puts it on the calling system and starts it taking calls. We check the platform is really running your script and voice before it goes live, so this can take a moment — and it is refused if the script has not been written yet.",
     icon: Power,
   },
   prepare: {
     label: "Get it ready",
     busy: "Getting it ready…",
+    done: "Ready to try in the chat",
     hint: "Puts it on the calling system so you can try it in the chat, without taking or making any calls. Switch it on when you want it answering.",
     icon: MessageSquareText,
   },
   deactivate: {
     label: "Switch off",
     busy: "Switching off…",
+    done: "Switched off",
     hint: "Stops it answering and dialling straight away. The numbers it answers are released, so they stop being picked up by this agent. Everything else is kept and switching it back on is one button.",
     icon: PowerOff,
   },
   archive: {
     label: "Delete",
     busy: "Deleting…",
+    done: "Agent deleted",
     hint: "Use this when you are finished with an agent, rather than leaving it switched off forever.",
     icon: Trash2,
     danger: true,
@@ -126,6 +131,7 @@ export const MOVE_COPY: Record<LifecycleMove, MoveCopy> = {
   restore: {
     label: "Bring it back",
     busy: "Restoring…",
+    done: "Agent brought back, switched off",
     hint: "Takes it out of the deleted list. It comes back switched OFF — we do not put an agent straight back on the phone after it has been retired, because the calling system may have moved on while it was away. Switch it on when you are ready.",
     icon: Undo2,
   },
@@ -146,6 +152,12 @@ export function AgentLifecycle({
   const { session, href: realmHref } = useClientRealm();
   const href = (path: string) => realmHref(`/c/${session.orgSlug}${path}`);
   const move = useAgentLifecycle(session, agent.id);
+  /* A move changes which moves are offered, so the button pressed is usually gone by the
+     time it succeeds: the success is a toast. A refusal stays inline (`LifecycleError`). */
+  const moveFeedback = useActionFeedback(move, {
+    errorDisplay: "inline",
+    successToast: (_, key) => MOVE_COPY[key].done,
+  });
   // What the business profile still lacks stops this agent going live (D-695): said
   // before the button is pressed, with a link to each step, never as a silent failure.
   const profile = useBusinessProfile(session);
@@ -216,32 +228,33 @@ export function AgentLifecycle({
 
             <div className="mt-3 flex flex-wrap gap-2">
               {copy.confirm && !open ? (
-                <button
-                  type="button"
+                /* Both branches are an `ActionButton` in this one slot, so React keeps the
+                   same DOM button and focus stays on it as it becomes the confirm. */
+                <ActionButton
+                  variant="secondary"
                   onClick={() => setConfirming(key)}
                   disabled={!write.allowed}
                   title={write.reason ?? undefined}
-                  className={SECONDARY_BUTTON}
                 >
                   <Icon aria-hidden className="h-4 w-4" />
                   {copy.label}…
-                </button>
+                </ActionButton>
               ) : (
-                <button
-                  type="button"
+                <ActionButton
+                  variant={copy.danger ? "danger" : "primary"}
+                  status={move.variables === key ? moveFeedback.status : "idle"}
+                  pendingLabel={copy.busy}
+                  successLabel="Done"
                   onClick={() => {
                     setConfirming(null);
-                    move.mutate(key);
+                    moveFeedback.run(key);
                   }}
-                  disabled={!write.allowed || move.isPending}
+                  disabled={!write.allowed || (move.isPending && move.variables !== key)}
                   title={write.reason ?? undefined}
-                  className={copy.danger ? DANGER_BUTTON : PRIMARY_BUTTON}
                 >
                   <Icon aria-hidden className="h-4 w-4" />
-                  {move.isPending && move.variables === key
-                    ? copy.busy
-                    : (copy.confirm?.go ?? copy.label)}
-                </button>
+                  {copy.confirm?.go ?? copy.label}
+                </ActionButton>
               )}
               {copy.confirm && open && (
                 <button

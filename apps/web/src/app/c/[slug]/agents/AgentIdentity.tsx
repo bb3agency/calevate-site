@@ -31,6 +31,8 @@
 
 import { useState } from "react";
 
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
+
 import {
   FIELD,
   FIELD_HINT,
@@ -67,6 +69,14 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
   const languageChoices = useAgentLanguageChoices(session);
   const save = useUpdateAgent(session, agent.id);
   const rewrite = useRewriteOpeningInLanguage(session, agent.id);
+  /* The save bar leaves the screen once nothing differs, so its button cannot carry the
+     success: that is a toast, except after a main-language change, whose offer below says it. */
+  const saveFeedback = useActionFeedback(save, {
+    errorDisplay: "inline",
+    successToast: (_, vars) =>
+      vars.reply_languages && vars.reply_languages[0] !== agent.language_primary ? null : "Changes saved",
+  });
+  const rewriteFeedback = useActionFeedback(rewrite, { errorDisplay: "inline" });
   /* After a main-language change is saved: the language whose ready-made opening line is
      offered, until the owner takes it or closes the offer (D-838). */
   const [rewriteOffer, setRewriteOffer] = useState<string | null>(null);
@@ -179,6 +189,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
         <OpeningLineOffer
           language={rewriteOffer}
           rewrite={rewrite}
+          rewriteStatus={rewriteFeedback.status}
           canWrite={write.allowed}
           onDismiss={() => setRewriteOffer(null)}
         />
@@ -276,7 +287,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
       {(changed || save.isPending) && (
         <SaveBar
           label="Save changes"
-          saving={save.isPending}
+          saving={saveFeedback.status === "pending"}
           disabled={!write.allowed}
           title={write.reason ?? undefined}
           onCancel={() => {
@@ -300,11 +311,13 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
 function OpeningLineOffer({
   language,
   rewrite,
+  rewriteStatus,
   canWrite,
   onDismiss,
 }: {
   language: string;
   rewrite: ReturnType<typeof useRewriteOpeningInLanguage>;
+  rewriteStatus: FeedbackStatus;
   canWrite: boolean;
   onDismiss: () => void;
 }) {
@@ -330,14 +343,16 @@ function OpeningLineOffer({
       </p>
       {rewrite.error ? <ProblemNotice error={rewrite.error} /> : null}
       <div className="flex flex-wrap gap-2 pt-1">
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          disabled={!canWrite || rewrite.isPending}
+        <ActionButton
+          variant="secondary-sm"
+          status={rewriteStatus}
+          pendingLabel="Writing it…"
+          successLabel="Written"
+          disabled={!canWrite}
           onClick={() => rewrite.mutate()}
         >
-          {rewrite.isPending ? "Writing it…" : `Use a ready-made opening line in ${name}`}
-        </button>
+          {`Use a ready-made opening line in ${name}`}
+        </ActionButton>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDismiss}>
           Keep mine
         </button>

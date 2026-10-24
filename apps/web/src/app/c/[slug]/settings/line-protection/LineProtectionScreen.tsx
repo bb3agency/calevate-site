@@ -6,18 +6,17 @@ import { useState } from "react";
 import Link from "next/link";
 import { PhoneCall } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { Field } from "@/components/arc/field";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
 import {
   FIELD,
-  FIELD_HINT,
-  FIELD_LABEL,
   NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
@@ -66,6 +65,9 @@ type Realm = ReturnType<typeof useClientRealm>;
 function BackupPhone({ session, allowed }: { session: Realm["session"]; allowed: boolean }) {
   const phone = useFallbackPhone(session);
   const save = useSetFallbackPhone(session);
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
+  // One write sets or clears the phone; its face shows on the button that was pressed.
+  const [pressed, setPressed] = useState<"save" | "remove">("save");
   const [draft, setDraft] = useState<string | null>(null);
   const value = draft ?? phone.data?.phone_e164 ?? "";
   const normalised = normaliseIndianMobile(value);
@@ -83,6 +85,7 @@ function BackupPhone({ session, allowed }: { session: Realm["session"]; allowed:
           onSubmit={(event) => {
             event.preventDefault();
             if (invalid || normalised === "") return;
+            setPressed("save");
             save.mutate(normalised, { onSuccess: () => setDraft(null) });
           }}
         >
@@ -92,45 +95,51 @@ function BackupPhone({ session, allowed }: { session: Realm["session"]; allowed:
               : "If your agent stops taking calls properly, callers hear a short message asking them to try again later."}{" "}
             Use a mobile someone in your team will answer.
           </p>
-          <div>
-            <label htmlFor="backup-phone" className={FIELD_LABEL}>
-              Indian mobile number
-            </label>
-            <input
-              id="backup-phone"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              className={FIELD}
-              value={value}
-              disabled={!allowed || save.isPending}
-              placeholder="+91 98765 43210"
-              aria-invalid={invalid}
-              aria-describedby="backup-phone-hint"
-              onChange={(event) => setDraft(event.target.value)}
-            />
-            <span id="backup-phone-hint" className={FIELD_HINT}>
-              {invalid ? "Enter an Indian mobile number, like +91 98765 43210." : "Starts with +91."}
-            </span>
-          </div>
+          <Field
+            id="backup-phone"
+            label="Indian mobile number"
+            hint="Starts with +91."
+            error={invalid ? "Enter an Indian mobile number, like +91 98765 43210." : null}
+          >
+            {(control) => (
+              <input
+                {...control}
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                className={FIELD}
+                value={value}
+                disabled={!allowed || save.isPending}
+                placeholder="+91 98765 43210"
+                onChange={(event) => setDraft(event.target.value)}
+              />
+            )}
+          </Field>
           {save.error != null && <ProblemNotice error={save.error} />}
           <div className="flex flex-wrap gap-2">
-            <button
+            <ActionButton
               type="submit"
-              className={PRIMARY_BUTTON}
-              disabled={!allowed || invalid || normalised === "" || save.isPending}
+              status={pressed === "save" ? saveFeedback.status : "idle"}
+              successLabel="Saved"
+              disabled={
+                !allowed || invalid || normalised === "" || (pressed === "remove" && save.isPending)
+              }
             >
-              {save.isPending ? "Saving…" : "Save backup phone"}
-            </button>
+              Save backup phone
+            </ActionButton>
             {phone.data?.phone_e164 && (
-              <button
-                type="button"
-                className={SECONDARY_BUTTON}
-                disabled={!allowed || save.isPending}
-                onClick={() => save.mutate(null, { onSuccess: () => setDraft(null) })}
+              <ActionButton
+                variant="secondary"
+                status={pressed === "remove" ? saveFeedback.status : "idle"}
+                successLabel="Removed"
+                disabled={!allowed || (pressed === "save" && save.isPending)}
+                onClick={() => {
+                  setPressed("remove");
+                  save.mutate(null, { onSuccess: () => setDraft(null) });
+                }}
               >
                 Remove
-              </button>
+              </ActionButton>
             )}
           </div>
         </form>
@@ -152,6 +161,12 @@ function Problems({
 }) {
   const incidents = useLineIncidents(session);
   const restore = useRestoreLine(session);
+  // The dialog shows a refusal inside itself and closes on success, so the success is said
+  // in a toast where the person is still looking.
+  const restoreFeedback = useActionFeedback(restore, {
+    errorDisplay: "inline",
+    successToast: "Your line is back on",
+  });
   const [confirming, setConfirming] = useState<LineIncident | null>(null);
 
   return (
@@ -217,7 +232,7 @@ function Problems({
           title={`Turn ${confirming.agent_name ?? "this line"} back on?`}
           confirmLabel="Turn it back on"
           pendingLabel="Turning it on…"
-          pending={restore.isPending}
+          status={restoreFeedback.status}
           error={restore.error}
           onCancel={() => setConfirming(null)}
           onConfirm={() =>
@@ -258,6 +273,13 @@ function Suggestions({
 }) {
   const proposals = useHealerProposals(session);
   const decide = useDecideProposal(session);
+  // A decided suggestion leaves the list, so its outcome is said in a toast.
+  const decideFeedback = useActionFeedback(decide, {
+    errorDisplay: "inline",
+    successToast: (_data, vars) =>
+      vars.decision === "apply" ? "Fix applied" : "Suggestion dismissed",
+  });
+  const [deciding, setDeciding] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<HealerProposal | null>(null);
   if (proposals.error || !proposals.data) {
     return proposals.error ? (
@@ -300,14 +322,18 @@ function Suggestions({
                   {p.action_label}
                 </Link>
               )}
-              <button
-                type="button"
-                className={SECONDARY_BUTTON}
-                disabled={!allowed || decide.isPending}
-                onClick={() => decide.mutate({ id: p.id, decision: "dismiss" })}
+              <ActionButton
+                variant="secondary"
+                status={deciding === p.id && !confirming ? decideFeedback.status : "idle"}
+                successLabel="Dismissed"
+                disabled={!allowed || (decide.isPending && deciding !== p.id)}
+                onClick={() => {
+                  setDeciding(p.id);
+                  decide.mutate({ id: p.id, decision: "dismiss" });
+                }}
               >
                 Dismiss
-              </button>
+              </ActionButton>
             </div>
           </li>
         ))}
@@ -318,15 +344,16 @@ function Suggestions({
           title={confirming.title}
           confirmLabel={confirming.action_label}
           pendingLabel="Applying…"
-          pending={decide.isPending}
+          status={decideFeedback.status}
           error={decide.error}
           onCancel={() => setConfirming(null)}
-          onConfirm={() =>
+          onConfirm={() => {
+            setDeciding(confirming.id);
             decide.mutate(
               { id: confirming.id, decision: "apply" },
               { onSuccess: () => setConfirming(null) },
-            )
-          }
+            );
+          }}
         >
           {confirming.body}
         </ConfirmDialog>

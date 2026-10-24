@@ -3,7 +3,7 @@
 import { useEffect, useRef, type FormEvent, type ReactNode } from "react";
 import { ArrowLeft, Check } from "lucide-react";
 
-import { PRIMARY_BUTTON_LG } from "@/components/ui";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 
 /**
  * ONE STEP OF "MEET YOUR AGENT": its question as the heading, what it needs, and its one
@@ -17,6 +17,9 @@ import { PRIMARY_BUTTON_LG } from "@/components/ui";
  *
  * Each step is a form, so Enter in a field is the primary action. Moving to a step puts focus
  * on its heading, so a keyboard or screen-reader user starts at the question.
+ *
+ * The primary action carries its own state (`status`, from `useActionFeedback`): pending on
+ * the button, then its tick or "Try again". `pending` is the older boolean, read as status.
  */
 export function StepScreen({
   title,
@@ -25,6 +28,8 @@ export function StepScreen({
   primary,
   onSubmit,
   pending = false,
+  status,
+  successLabel = "Saved",
   disabled = false,
   onBack,
   aside,
@@ -37,6 +42,9 @@ export function StepScreen({
   primary?: ReactNode;
   onSubmit?: () => void;
   pending?: boolean;
+  status?: FeedbackStatus;
+  /** One past-tense word for the primary action's success face. */
+  successLabel?: string;
   disabled?: boolean;
   onBack?: () => void;
   /** A second way on, beside the primary action ("Skip the rest and build"). */
@@ -49,9 +57,10 @@ export function StepScreen({
     heading.current?.focus({ preventScroll: true });
   }, [title]);
 
+  const shown: FeedbackStatus = status ?? (pending ? "pending" : "idle");
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!pending && !disabled) onSubmit?.();
+    if (shown !== "pending" && !disabled) onSubmit?.();
   };
 
   return (
@@ -76,14 +85,16 @@ export function StepScreen({
         <div className="fixed inset-x-0 bottom-0 z-sticky border-t border-line bg-surface/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-surface/85 lg:sticky lg:mt-4 lg:bg-app lg:px-0 lg:pt-3 lg:pb-4 lg:backdrop-blur-none supports-[backdrop-filter]:lg:bg-app">
           <div className="mx-auto flex max-w-xl flex-col gap-1.5 lg:mx-0 lg:flex-row lg:items-center lg:gap-4">
             {primary ? (
-              <button
+              <ActionButton
                 type="submit"
-                disabled={disabled || pending}
-                aria-busy={pending || undefined}
-                className={`${PRIMARY_BUTTON_LG} w-full justify-center lg:w-auto`}
+                variant="primary-lg"
+                status={shown}
+                successLabel={successLabel}
+                disabled={disabled}
+                className="w-full lg:w-auto"
               >
                 {primary}
-              </button>
+              </ActionButton>
             ) : null}
             {aside ? (
               <div className="flex flex-wrap items-center justify-center gap-x-4 lg:justify-start">{aside}</div>

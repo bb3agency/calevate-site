@@ -5,13 +5,8 @@ import { ChevronDown } from "lucide-react";
 
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
-import {
-  PRIMARY_BUTTON,
-  ProblemNotice,
-  SECONDARY_BUTTON,
-  Skeleton,
-  formatIST,
-} from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import {
   useApprovalPreview,
@@ -81,10 +76,13 @@ function ApprovalRow({
   const [open, setOpen] = useState(false);
   const preview = useApprovalPreview(session, open ? row.id : null);
   const approve = useApproveAction(session);
+  // A decided row leaves the inbox; the server's sentence stays above the list (`onResult`)
+  // and a refusal is drawn in the row.
+  const approveFeedback = useActionFeedback(approve, { errorDisplay: "inline" });
   const reject = useRejectAction(session);
+  const rejectFeedback = useActionFeedback(reject, { errorDisplay: "inline" });
   const detailsId = `approval-${row.id}`;
   const ready = preview.data !== undefined && preview.data.still_applies;
-  const busy = approve.isPending || reject.isPending;
 
   return (
     <li>
@@ -156,31 +154,32 @@ function ApprovalRow({
           {approve.error != null && <ProblemNotice error={approve.error} />}
           {reject.error != null && <ProblemNotice error={reject.error} />}
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={!ready || busy}
+            <ActionButton
+              status={approveFeedback.status}
+              disabled={!ready || reject.isPending}
               onClick={() =>
                 approve.mutate(row.id, {
                   onSuccess: (result) =>
                     onResult(`${result.applied ? "Approved and done" : "Nothing to do"}. ${result.detail}`),
                 })
               }
-              className={PRIMARY_BUTTON}
+              successLabel="Approved"
             >
-              {approve.isPending ? "Approving…" : "Approve"}
-            </button>
-            <button
-              type="button"
-              disabled={busy}
+              Approve
+            </ActionButton>
+            <ActionButton
+              variant="secondary"
+              status={rejectFeedback.status}
+              disabled={approve.isPending}
               onClick={() =>
                 reject.mutate(row.id, {
                   onSuccess: () => onResult("Declined. Nothing was changed."),
                 })
               }
-              className={SECONDARY_BUTTON}
+              successLabel="Declined"
             >
-              {reject.isPending ? "Declining…" : "Decline"}
-            </button>
+              Decline
+            </ActionButton>
           </div>
         </div>
       )}

@@ -33,7 +33,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 
 import {
@@ -44,6 +44,7 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
 } from "@/components/ui";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { Drawer } from "@/components/console/drawer";
@@ -58,6 +59,7 @@ import { ApiProblem } from "@/lib/api/client";
 import { useClientSession } from "@/lib/api/session";
 import { isDeleted } from "@/lib/agentState";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import { useAgent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { usePendingChanges } from "@/lib/api/publishing";
@@ -73,7 +75,7 @@ import {
   type ScriptOut,
 } from "@/lib/api/script";
 
-import { OpeningSection, StrictnessSection, VariableBar, type Focusable } from "./ScriptSections";
+import { OpeningEditor, StrictnessSection } from "./ScriptSections";
 import { ScriptParts } from "./ScriptParts";
 import { PipAsk, WHOLE_REQUEST } from "./PipAsk";
 import { PipProposal } from "./PipProposal";
@@ -263,7 +265,12 @@ function Editor({
 
   const write = useWriteAccess(session, "org:manage", "change this script");
   const saveDraft = useSaveDraft(session, agentId);
+  // The autosave and the room count run on their own; their outcome is the save line in
+  // the bar and the notices above the editor (conflict, could not save), never a toast.
+  useActionFeedback(saveDraft, { errorDisplay: "inline" });
   const previewMut = usePreviewScript(session, agentId);
+  useActionFeedback(previewMut, { errorDisplay: "inline" });
+  const eg = useVerticalExamples();
   const putLive = usePutLive(session, agentId);
   // Read for the voice tier the Put it live step names; the same cached read the agent page uses.
   const pending = usePendingChanges(session, agentId);
@@ -326,24 +333,6 @@ function Editor({
     );
     return () => clearTimeout(timer);
   }, [script, issues.length, previewMutate]);
-
-  // The merge-field buttons drop a field at the caret of the last text box the owner used.
-  const lastFocused = useRef<Focusable | null>(null);
-  const trackFocus = useCallback((el: Focusable | null) => {
-    if (el) lastFocused.current = el;
-  }, []);
-  const insertVariable = useCallback((key: string) => {
-    const el = lastFocused.current;
-    if (!el) return;
-    const token = `{{${key}}}`;
-    const start = el.selectionStart ?? el.value.length;
-    const end = el.selectionEnd ?? el.value.length;
-    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(el, el.value.slice(0, start) + token + el.value.slice(end));
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.focus();
-    el.setSelectionRange(start + token.length, start + token.length);
-  }, []);
 
   const setField = useCallback(
     <K extends keyof CallScript>(key: K, value: CallScript[K]) => edit((s) => ({ ...s, [key]: value })),
@@ -673,19 +662,20 @@ function Editor({
               <HandWritten script={script} readOnly={!write.allowed} onChange={(text) => setField("raw_override", text)} />
             </section>
           ) : (
-            <fieldset disabled={!write.allowed} className="min-w-0 space-y-3">
-              <legend className="sr-only">Opening line</legend>
-              <OpeningSection
-                value={script.opening_line}
-                onChange={(v) => setField("opening_line", v)}
-                trackFocus={trackFocus}
+            <fieldset disabled={!write.allowed} className="min-w-0">
+              <legend className="sr-only">How the call opens</legend>
+              <OpeningEditor
+                script={script}
+                set={setField}
+                direction={context?.direction}
                 room={openingRoom}
-              />
-              <VariableBar
-                standard={out.standard_variables}
-                custom={script.variables}
-                direction={out.context?.direction}
-                onInsert={insertVariable}
+                standardVariables={out.standard_variables}
+                eg={eg}
+                previewAction={
+                  <Link href={trainingHref} className={TEXT_ACTION}>
+                    Hear it in Training
+                  </Link>
+                }
               />
             </fieldset>
           )}
@@ -707,7 +697,6 @@ function Editor({
                   knowledgeHref={knowledgeHref}
                   setField={setField}
                   edit={edit}
-                  trackFocus={trackFocus}
                 />
               </fieldset>
               </div>
@@ -748,6 +737,7 @@ function Editor({
           agentOn={agentOn}
           voiceLine={voiceTierLine(pending.data)}
           pending={putLive.pending}
+          status={putLive.status}
           error={putLive.error}
           onCancel={() => {
             setPublishing(false);

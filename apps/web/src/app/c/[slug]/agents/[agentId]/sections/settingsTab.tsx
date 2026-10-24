@@ -18,6 +18,7 @@
 
 import Link from "next/link";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { NoticeBox, ProblemNotice } from "@/components/ui";
 import { movesFor } from "@/lib/agentState";
@@ -90,6 +91,8 @@ export function SettingsTab({ agent, slug }: { agent: Agent; slug: string }) {
 function SwitchOffFirst({ agent }: { agent: Agent }) {
   const session = useClientSession();
   const move = useAgentLifecycle(session, agent.id);
+  // Once it is off this notice gives way to the delete panel, so the success is a toast.
+  const moveFeedback = useActionFeedback(move, { errorDisplay: "inline", successToast: "Switched off. You can delete it now." });
   const write = useWriteAccess(session, "org:manage", "change whether this agent is working");
   const canSwitchOff = movesFor(agent.status).includes("deactivate");
   return (
@@ -102,11 +105,19 @@ function SwitchOffFirst({ agent }: { agent: Agent }) {
             <button
               type="button"
               className={TEXT_ACTION}
-              disabled={!write.allowed || move.isPending}
+              disabled={!write.allowed}
+              aria-disabled={moveFeedback.status === "pending" || undefined}
+              aria-busy={moveFeedback.status === "pending" || undefined}
               title={write.reason ?? undefined}
-              onClick={() => move.mutate("deactivate")}
+              onClick={() => {
+                if (moveFeedback.status !== "pending") moveFeedback.run("deactivate");
+              }}
             >
-              {move.isPending ? "Switching off…" : "Switch off"}
+              {moveFeedback.status === "pending"
+                ? "Switching off…"
+                : moveFeedback.status === "error"
+                  ? "Try switching off again"
+                  : "Switch off"}
             </button>
           ) : undefined
         }

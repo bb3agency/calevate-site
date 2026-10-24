@@ -3,8 +3,9 @@
 import { useId, useState } from "react";
 import { ArrowRight, Pencil, RotateCcw } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
-import { FIELD_INLINE, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
+import { FIELD_INLINE, ProblemNotice } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { useBuildAgent, useRenameAgent, type FirstRun, type FirstRunBuildStep } from "@/lib/api/firstRun";
 import { useClientSession } from "@/lib/api/session";
@@ -94,6 +95,7 @@ export function BuildStep({
 }) {
   const session = useClientSession();
   const retry = useBuildAgent(session);
+  const retryFeedback = useActionFeedback(retry, { errorDisplay: "inline" });
   const language = run.language_primary ?? "te-IN";
   const built = run.build.status === "built";
   const failed = run.build.status === "failed";
@@ -137,15 +139,15 @@ export function BuildStep({
         footer={
           failed ? (
             run.build.builds_left > 0 ? (
-              <button
-                type="button"
-                className={PRIMARY_BUTTON}
-                disabled={retry.isPending}
-                onClick={() => retry.mutate(null)}
+              <ActionButton
+                status={retryFeedback.status}
+                pendingLabel="Starting again…"
+                successLabel="Started"
+                onClick={() => retryFeedback.run(null)}
               >
                 <RotateCcw aria-hidden className="h-4 w-4" />
-                {retry.isPending ? "Starting again…" : "Try again"}
-              </button>
+                Try again
+              </ActionButton>
             ) : (
               <p className="text-meta text-ink-muted">Build it from the Agents screen instead.</p>
             )
@@ -163,6 +165,7 @@ export function BuildStep({
 function Rename({ agent }: { agent: Agent }) {
   const session = useClientSession();
   const rename = useRenameAgent(session);
+  const renameFeedback = useActionFeedback(rename, { errorDisplay: "inline" });
   const id = useId();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(agent.name);
@@ -197,19 +200,20 @@ function Rename({ agent }: { agent: Agent }) {
             // The step's own form would take Enter as "Hear it".
             if (event.key === "Enter") {
               event.preventDefault();
-              if (clean) rename.mutate({ name: clean }, { onSuccess: () => setEditing(false) });
+              if (clean && !rename.isPending) rename.mutate({ name: clean }, { onSuccess: () => setEditing(false) });
             }
           }}
           className={`${FIELD_INLINE} flex-1 basis-48 text-[16px]`}
         />
-        <button
-          type="button"
-          className={SECONDARY_BUTTON}
-          disabled={!clean || clean === agent.name || rename.isPending}
+        <ActionButton
+          variant="secondary"
+          status={renameFeedback.status}
+          successLabel="Saved"
+          disabled={!clean || clean === agent.name}
           onClick={() => rename.mutate({ name: clean }, { onSuccess: () => setEditing(false) })}
         >
-          {rename.isPending ? "Saving…" : "Save name"}
-        </button>
+          Save name
+        </ActionButton>
       </div>
       {rename.error ? <ProblemNotice error={rename.error} /> : null}
     </div>

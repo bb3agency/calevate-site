@@ -34,14 +34,12 @@ import {
   ObjectionsSection,
   PoliciesSection,
   StyleSection,
-  type Focusable,
 } from "./ScriptSections";
 import type { Issue } from "./scriptModel";
 
 /** The anchors a part answers to, and the whole-script issue fields that belong to it. */
 export const PART_ISSUES: Record<string, (field: string) => boolean> = {
   identity: (f) => f === "business_line",
-  goal: (f) => f === "outbound_purpose",
   style: (f) => f.startsWith("pronunciation-"),
   objections: (f) => f.startsWith("objection-"),
   example: (f) => f.startsWith("example-"),
@@ -65,7 +63,7 @@ export function partSummaries(script: CallScript, context: ScriptContext | null)
   const lines = script.example_exchange.length;
   return {
     identity: script.business_line.trim() || script.identity.trim() || none,
-    goal: script.goal.trim() || script.outbound_purpose.trim() || none,
+    goal: script.goal.trim() || none,
     style:
       [
         style.tone.trim(),
@@ -95,7 +93,6 @@ export function ScriptParts({
   knowledgeHref,
   setField,
   edit,
-  trackFocus,
 }: {
   script: CallScript;
   context: ScriptContext | null;
@@ -105,7 +102,6 @@ export function ScriptParts({
   knowledgeHref: string;
   setField: <K extends keyof CallScript>(key: K, value: CallScript[K]) => void;
   edit: (next: (s: CallScript) => CallScript) => void;
-  trackFocus: (el: Focusable | null) => void;
 }) {
   const said = partSummaries(script, context);
   const eg = useVerticalExamples();
@@ -143,16 +139,15 @@ export function ScriptParts({
         About the agent
       </h3>
       <div className="border-y border-line">
-        {row("identity", "Who it is", <IdentitySection script={script} set={setField} eg={eg} trackFocus={trackFocus} />)}
+        {row("identity", "Who it is", <IdentitySection script={script} set={setField} eg={eg} />)}
         {row(
           "goal",
           "What a good call achieves",
           <GoalSection
             script={script}
             set={setField}
-            direction={context?.direction ?? "inbound"}
             eg={eg}
-            trackFocus={trackFocus}
+           
           />,
         )}
         {row(
@@ -163,20 +158,20 @@ export function ScriptParts({
             onChange={(v) => setField("style", v)}
             context={context}
             eg={eg}
-            trackFocus={trackFocus}
+           
           />,
         )}
         {row(
           "objections",
           "When callers push back",
-          <ObjectionsSection objections={script.objections} onChange={(v) => setField("objections", v)} trackFocus={trackFocus} />,
+          <ObjectionsSection objections={script.objections} onChange={(v) => setField("objections", v)} />,
         )}
         {row(
           "policies",
           "What it may do",
           <PoliciesSection policies={script.policies} onChange={(v) => setField("policies", v)} context={context} />,
         )}
-        {row("ending", "How it ends the call", <EndingSection value={script.ending} onChange={(v) => setField("ending", v)} eg={eg} trackFocus={trackFocus} />)}
+        {row("ending", "How it ends the call", <EndingSection value={script.ending} onChange={(v) => setField("ending", v)} eg={eg} />)}
         {row(
           "example",
           "An example call",
@@ -186,7 +181,7 @@ export function ScriptParts({
             onChange={(lines, stillNeedsReview) =>
               edit((s) => ({ ...s, example_exchange: lines, example_needs_review: stillNeedsReview }))
             }
-            trackFocus={trackFocus}
+           
           />,
         )}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2">

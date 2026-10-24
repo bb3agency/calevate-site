@@ -16,15 +16,8 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 
-import {
-  FIELD,
-  FIELD_LABEL,
-  NoticeBox,
-  PRIMARY_BUTTON_SM,
-  ProblemNotice,
-  SECONDARY_BUTTON_SM,
-  Skeleton,
-} from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FIELD, FIELD_LABEL, NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
 import { Slider as KitSlider } from "@/components/arc/slider";
 import { TEXT_ACTION } from "@/components/console/section";
 import { ApiProblem } from "@/lib/api/client";
@@ -185,6 +178,10 @@ export function ClientVoiceTuning({
   const held = useClientVoiceTuning(session, agentId, voiceId);
   const save = useSetClientVoiceTuning(session, agentId, voiceId);
   const preview = useClientVoiceTuningPreview(session, agentId, voiceId);
+  // Both refusals are drawn under the form (a used-up day and a voice that keeps its pace
+  // each have their own sentence), so neither is toasted.
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
+  const previewFeedback = useActionFeedback(preview, { errorDisplay: "inline" });
   // Null follows the saved settings; set only by an edit, so a sample's refetch of the count
   // left today never throws away settings being tried.
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -257,6 +254,7 @@ export function ClientVoiceTuning({
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
+          if (!dirty || save.isPending) return;
           save.mutate(bodyOf(form), {
             onSuccess: () => {
               setDraft(null);
@@ -304,21 +302,25 @@ export function ClientVoiceTuning({
           </select>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={preview.isPending || usedUp}
-            onClick={() => preview.mutate(bodyOf(form))}
+          <ActionButton
+            variant="secondary-sm"
+            status={previewFeedback.status}
+            pendingLabel="Getting it…"
+            successLabel="Playing"
+            disabled={usedUp}
+            onClick={() => previewFeedback.run(bodyOf(form))}
           >
-            {preview.isPending ? "Playing…" : "Hear it"}
-          </button>
-          <button
+            Hear it
+          </ActionButton>
+          <ActionButton
             type="submit"
-            className={PRIMARY_BUTTON_SM}
-            disabled={!dirty || save.isPending}
+            variant="primary-sm"
+            status={saveFeedback.status}
+            successLabel="Saved"
+            disabled={saveFeedback.status === "idle" && !dirty}
           >
-            {save.isPending ? "Saving…" : "Save"}
-          </button>
+            Save
+          </ActionButton>
           {left !== null && (
             <span className="text-meta text-ink-muted">
               {left} of {options.previews_per_day} samples left today

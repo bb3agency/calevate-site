@@ -57,7 +57,7 @@ const page = (
 );
 
 function opening(): HTMLTextAreaElement {
-  return screen.getByLabelText("Opening line") as HTMLTextAreaElement;
+  return screen.getByRole("textbox", { name: "Opening line" }) as HTMLTextAreaElement;
 }
 
 function client(): QueryClient {

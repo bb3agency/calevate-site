@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { StepFlow } from "@/components/console/stepFlow";
 import { DIRECTION_COPY, LANGUAGE_NAMES } from "@/lib/agentState";
@@ -69,6 +70,9 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
   const router = useRouter();
   const lanes = useLanes(session);
   const create = useCreateAgent(session);
+  // StepFlow's submit button shows the pending state and the refusal sits on its review step;
+  // success replaces the flow with the created agent's panel.
+  useActionFeedback(create, { errorDisplay: "inline" });
   /* `org:manage`, the OWNER's permission that the route requires — `agents:write` is
      admin-only and would close this for the person it was built for. */
   const write = useWriteAccess(session, "org:manage", "create an agent");

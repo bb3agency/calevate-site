@@ -10,10 +10,10 @@ import { StatusPill } from "@/components/console/statusPill";
 import { EmptyState } from "@/components/console/emptyState";
 import { NewItemsPill, useNewItems } from "@/components/interior/new-items-pill";
 import { useEnterClass } from "@/components/live/arrivals";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
   ProblemNotice,
   SECONDARY_BUTTON,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
   type NoticeTone,
@@ -141,6 +141,9 @@ function ActivityRow({
   realm: Realm;
 }) {
   const undo = useUndoAction(session, realm);
+  // The row's pill turns to "Undone" with the server's sentence; a refusal is drawn in
+  // the row.
+  const undoFeedback = useActionFeedback(undo, { errorDisplay: "inline" });
   const client = useQueryClient();
   const status = lookup(STATUS, row.status) ?? STATUS.done;
   const undone = undo.data !== undefined;
@@ -169,8 +172,9 @@ function ActivityRow({
         )}
       </div>
       {row.can_undo && !undone && (
-        <button
-          type="button"
+        <ActionButton
+          variant="secondary-sm"
+          status={undoFeedback.status}
           onClick={() =>
             undo.mutate(row.id, {
               onSuccess: () => {
@@ -178,13 +182,13 @@ function ActivityRow({
               },
             })
           }
-          disabled={undo.isPending}
           aria-label={`Undo: ${row.summary ?? "this change"}`}
-          className={`${SECONDARY_BUTTON_SM} inline-flex shrink-0 items-center gap-1 self-start`}
+          successLabel="Undone"
+          className="shrink-0 self-start"
         >
           <Undo2 aria-hidden className="h-3.5 w-3.5" />
-          {undo.isPending ? "Undoing…" : "Undo"}
-        </button>
+          Undo
+        </ActionButton>
       )}
     </li>
   );

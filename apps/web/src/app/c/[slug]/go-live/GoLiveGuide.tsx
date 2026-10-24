@@ -6,9 +6,10 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowRight } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { TaskSteps, type TaskStep } from "@/components/interior/task-steps";
-import { ProblemNotice, RestrictionNote, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
+import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import { isDeleted } from "@/lib/agentState";
 import { useAgentLifecycle, useAgents, type Agent } from "@/lib/api/agents";
 import {
@@ -61,6 +62,9 @@ export function GoLiveGuide({ slug }: { slug: string }) {
   const guide = useGoLive(session);
   const write = useWriteAccess(session, "org:manage", "go live");
   const dismiss = useDismissGoLive(session);
+  // The skip leaves this page whatever the answer, so a failure is told in the toast stack
+  // (it outlives the navigation); an inline notice here would never be seen.
+  const dismissFeedback = useActionFeedback(dismiss, { errorTitle: "Could not put the guide away" });
   const [stage, setStage] = useState<Stage | null>(null);
   if (stage === null && guide.data !== undefined) setStage(stageOf(guide.data.current));
 
@@ -119,11 +123,16 @@ export function GoLiveGuide({ slug }: { slug: string }) {
             Four steps from your first payment to taking real calls.
           </p>
         </div>
-        <button type="button" className={`${TEXT_ACTION} shrink-0`} onClick={skip} disabled={dismiss.isPending}>
-          Skip for now
+        <button
+          type="button"
+          className={`${TEXT_ACTION} shrink-0`}
+          onClick={skip}
+          disabled={dismissFeedback.status === "pending"}
+          aria-busy={dismissFeedback.status === "pending" || undefined}
+        >
+          {dismissFeedback.status === "pending" ? "Skipping…" : "Skip for now"}
         </button>
       </div>
-      {dismiss.error ? <ProblemNotice error={dismiss.error} /> : null}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-8">
         <aside className="min-w-0" aria-label="Your progress">
@@ -350,6 +359,7 @@ function SwitchOnStep({
   const { session } = useClientRealm();
   const agents = useAgents(session);
   const finish = useFinishGoLive(session);
+  const finishFeedback = useActionFeedback(finish, { errorDisplay: "inline" });
   // The server's word decides "you're live"; the roster read below refreshes it after a switch.
   const live = guide.switch_on === "done";
   const listed = agents.isSuccess ? agents.data.filter((agent) => !isDeleted(agent)) : [];
@@ -363,7 +373,8 @@ function SwitchOnStep({
       }
       onBack={onBack}
       primary={live ? "Go to my dashboard" : undefined}
-      pending={finish.isPending}
+      status={finishFeedback.status}
+      successLabel="Done"
       onSubmit={() => finish.mutate(undefined, { onSuccess: onFinished })}
     >
       {agents.isError ? <ProblemNotice error={agents.error} onRetry={() => void agents.refetch()} /> : null}
@@ -384,6 +395,7 @@ function SwitchOnStep({
 function SwitchRow({ agent, agentHref }: { agent: Agent; agentHref: string }) {
   const { session } = useClientRealm();
   const lifecycle = useAgentLifecycle(session, agent.id);
+  const lifecycleFeedback = useActionFeedback(lifecycle, { errorDisplay: "inline" });
   const client = useQueryClient();
   const isLive = agent.status === "live";
   return (
@@ -396,19 +408,19 @@ function SwitchRow({ agent, agentHref }: { agent: Agent; agentHref: string }) {
           <p className="text-meta text-ink-muted">{isLive ? "Taking calls" : agent.status === "draft" ? "Not ready yet" : "Ready"}</p>
         </div>
         {isLive ? null : (
-          <button
-            type="button"
-            className={`${SECONDARY_BUTTON} touch:min-h-11`}
-            disabled={lifecycle.isPending}
-            aria-busy={lifecycle.isPending || undefined}
+          <ActionButton
+            variant="secondary"
+            status={lifecycleFeedback.status}
+            pendingLabel="Switching on…"
+            successLabel="Switched on"
             onClick={() =>
               lifecycle.mutate("activate", {
                 onSuccess: () => void client.invalidateQueries({ queryKey: goLiveKey(session.orgSlug) }),
               })
             }
           >
-            {lifecycle.isPending ? "Switching on…" : "Switch on"}
-          </button>
+            Switch on
+          </ActionButton>
         )}
       </div>
       {lifecycle.error ? <ProblemNotice error={lifecycle.error} /> : null}

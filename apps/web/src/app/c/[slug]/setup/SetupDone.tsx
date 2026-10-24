@@ -57,7 +57,9 @@ export function SetupDone({
           </p>
         </div>
       </div>
-      <Checklist label="Business setup" items={items} />
+      {/* Not `foldDone`: a skipped step counts as done here, and folding would hide its
+          "Answer now" with the finished ones. */}
+      <Checklist label="Business setup" items={items} emphasizeNext />
       <div className="flex flex-wrap gap-2">
         {/* An account with no agent yet goes on to build its first (D-854): the facts just
             answered are what its ready-made script is written from. */}
