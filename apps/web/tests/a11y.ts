@@ -330,11 +330,19 @@ export const UNSWEPT_SCREENS: Record<string, string> = {
     "invitations are one People page — it renders no markup to scan, and under jsdom " +
     "`redirect()` throws `NEXT_REDIRECT`. What it redirects TO is swept, with invitations."
   ),
+  "(auth)/auth/layout.tsx": (
+    "an async SERVER layout that reads the sign-in options and passes them down in a " +
+    "context provider; it renders no element of its own, so there is no subtree for axe " +
+    "to scan, and an async server component cannot be mounted in jsdom. Every page under " +
+    "it IS swept (sign-in, accept-invitation, admin sign-in, reset and forgot password). " +
+    "CLOSED BY: nothing while it renders no markup; the day it does it moves into SCREENS."
+  ),
   "signup/layout.tsx": (
-    "a METADATA-ONLY layout: it exists because `signup/page.tsx` is a client component " +
-    "and a client component cannot export `metadata`, so `/signup` would otherwise " +
-    "inherit the root layout's title and description (see the file's own header). It " +
-    "returns `{children}` and renders no element of its own, so there is no subtree for " +
+    "a layout for metadata and the server-read sign-in options: it exists because " +
+    "`signup/page.tsx` is a client component and cannot export `metadata`, so `/signup` " +
+    "would otherwise inherit the root layout's title and description (see the file's own " +
+    "header). It returns `{children}` inside a context provider and renders no element " +
+    "of its own, so there is no subtree for " +
     "axe to scan and nothing it could contribute to one. The page it wraps IS swept, " +
     "both here (`signup/page.tsx`) and in a real browser by `tests/browser/gate.ts`. " +
     "CLOSED BY: nothing — this entry is correct for as long as the file renders no " +

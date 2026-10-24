@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+import { SignInOptionsFromServer } from "@/components/authn/googleSignIn";
+import { readSignInOptionsOnServer } from "@/lib/authn/signInOptionsServer";
 import { publicPageMetadata } from "@/lib/seo/metadata";
 
 /**
- * A LAYOUT THAT EXISTS ONLY TO CARRY `/signup`'s METADATA, and could not be anything else.
+ * A LAYOUT THAT CARRIES `/signup`'s METADATA, which could live nowhere else (and, below, the
+ * sign-in options read on the server).
  *
  * `app/signup/page.tsx` opens with `"use client"` — it is a form with state, validation and
  * a session provider. A client component MAY NOT export `metadata`: Next's metadata is
@@ -13,7 +16,7 @@ import { publicPageMetadata } from "@/lib/seo/metadata";
  * and went to search engines as "Calevate / AI phone agents for Indian businesses" — the
  * same title and the same description as `/`, on the two public pages that matter most.
  *
- * It renders `{children}` and NOTHING ELSE, deliberately. The marketing chrome is a
+ * It renders nothing VISIBLE besides `{children}`, deliberately. The marketing chrome is a
  * COMPONENT (`components/marketing/pageShell.MarketingPage`) rather than a layout, and
  * `pageShell.tsx`'s own header says why: `tests/a11y.test.tsx` renders each `page.tsx`
  * without its layout, so chrome in a layout would be chrome no accessibility gate ever
@@ -31,6 +34,12 @@ export const metadata: Metadata = publicPageMetadata({
     "languages an agent can answer in, and who to contact if self-serve signup is closed.",
 });
 
-export default function SignupLayout({ children }: { children: ReactNode }) {
-  return children;
+/**
+ * Besides the metadata, it hands the page the deployment's sign-in options read on the
+ * server, so the signup form (or the "closed" panel) and the Google button are on the first
+ * paint rather than behind a skeleton. A context provider, so still nothing visible here.
+ */
+export default async function SignupLayout({ children }: { children: ReactNode }) {
+  const options = await readSignInOptionsOnServer();
+  return <SignInOptionsFromServer options={options}>{children}</SignInOptionsFromServer>;
 }

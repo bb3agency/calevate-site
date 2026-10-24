@@ -10,18 +10,38 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 
 import { SECONDARY_BUTTON } from "@/components/ui";
 import { AuthProblemNotice } from "@/components/authn/fields";
-import { readSignInOptions, startGoogleSignIn } from "@/lib/authn/clientAuthn";
+import { readSignInOptions, startGoogleSignIn, type SignInOptions } from "@/lib/authn/clientAuthn";
+
+/**
+ * The server's answer, read while the page was rendered (`lib/authn/signInOptionsServer`,
+ * provided by the auth and signup layouts), so the button and the signup form are on the
+ * first paint. Null when the server could not read it; the browser then asks as before.
+ */
+const ServerSignInOptions = createContext<SignInOptions | null>(null);
+
+export function SignInOptionsFromServer({
+  options,
+  children,
+}: {
+  options: SignInOptions | null;
+  children: ReactNode;
+}) {
+  return <ServerSignInOptions.Provider value={options}>{children}</ServerSignInOptions.Provider>;
+}
 
 export function useSignInOptions() {
+  const fromServer = useContext(ServerSignInOptions);
   return useQuery({
     queryKey: ["authn", "client", "sign-in-options"],
-    queryFn: readSignInOptions,
+    queryFn: () => readSignInOptions(),
     staleTime: 5 * 60_000,
     retry: false,
+    // Fresh as of the render; the browser re-reads only once `staleTime` has passed.
+    ...(fromServer ? { initialData: fromServer, initialDataUpdatedAt: Date.now() } : {}),
   });
 }
 

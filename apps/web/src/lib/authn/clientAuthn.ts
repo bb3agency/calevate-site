@@ -87,8 +87,9 @@ export interface SignInOptions {
   self_serve_signup: boolean;
 }
 
-export function readSignInOptions(): Promise<SignInOptions> {
-  return authnRequest<SignInOptions>("/v1/auth/client/sign-in-options");
+/** `signal` lets the server-side read (`signInOptionsServer`) give up quickly. */
+export function readSignInOptions(signal?: AbortSignal): Promise<SignInOptions> {
+  return authnRequest<SignInOptions>("/v1/auth/client/sign-in-options", { signal });
 }
 
 /**
