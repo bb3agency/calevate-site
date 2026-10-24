@@ -114,7 +114,7 @@ function RoleControl({
         value={staged ?? member.role}
         disabled={busy}
         onChange={(e) => setStaged(e.target.value as MemberRole)}
-        className={`${FIELD_INLINE} w-36`}
+        className={`${FIELD_INLINE} w-28 sm:w-36`}
       >
         {ROLES.map((value) => (
           <option key={value} value={value}>
@@ -151,7 +151,7 @@ function NameCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
     return (
       <span className="block min-w-0">
         <span className="break-all font-mono text-ink">{row.invitation.email}</span>
-        <span className="block text-meta text-ink-muted sm:hidden">
+        <span className="block text-meta text-ink-muted">
           Invited · expires {formatIST(row.invitation.expires_at)}
         </span>
       </span>
@@ -206,47 +206,42 @@ function RoleCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
   );
 }
 
-function StatusCell({ row }: { row: TeamRow }) {
-  if (row.kind === "member") return <span className="text-ink-muted">Active</span>;
-  return (
-    <span className="whitespace-nowrap text-ink-muted">
-      Invited · expires {formatIST(row.invitation.expires_at)}
-    </span>
-  );
-}
-
 function ActionsCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
   if (!ctx.canManage) return null;
   if (row.kind === "invite") {
-    // Both actions in view rather than behind a menu: an unanswered invitation has only
-    // these two next steps, and the owner came to this row to take one of them.
+    // Both actions in view rather than behind a menu from `sm` up: an unanswered invitation
+    // has only these two next steps, and the owner came to this row to take one of them.
+    // Below `sm` the two buttons are wider than the column a phone can give them, so they
+    // sit behind the row's ⋯ like a member's; the outcome is the resend's toast and the
+    // refusal notice above the table, since a closed menu has no face to show it on.
     const revoking = ctx.busyInvite === row.invitation.id;
     const sending = ctx.resendingInvite === row.invitation.id;
     const who = row.invitation.email;
     return (
-      <span className="flex flex-wrap items-center justify-end gap-2">
-        <ActionButton
-          variant="secondary-sm"
-          status={statusFor(ctx.resendStatus, row.invitation.id)}
-          disabled={revoking}
-          onClick={() => ctx.onResend(row.invitation)}
-          aria-label={`Send the invitation to ${who} again`}
-          successLabel="Sent"
-          className="whitespace-nowrap"
-        >
-          Send again
-        </ActionButton>
-        <button
-          type="button"
-          disabled={sending || revoking}
-          aria-busy={revoking || undefined}
-          onClick={() => ctx.onRevoke(row.invitation)}
-          aria-label={`Cancel the invitation to ${who}`}
-          className={TEXT_ACTION_DANGER}
-        >
-          {revoking ? "Cancelling…" : statusFor(ctx.revokeStatus, row.invitation.id) === "error" ? "Try again" : "Cancel"}
-        </button>
-      </span>
+      <>
+        <RowMenu
+          label={`the invitation to ${who}`}
+          className="sm:hidden"
+          items={[
+            {
+              id: "resend",
+              label: "Send again",
+              disabled: sending || revoking,
+              hint: sending ? "Sending…" : undefined,
+              onSelect: () => ctx.onResend(row.invitation),
+            },
+            {
+              id: "revoke",
+              label: "Cancel invitation",
+              tone: "danger",
+              disabled: sending || revoking,
+              hint: revoking ? "Cancelling…" : undefined,
+              onSelect: () => ctx.onRevoke(row.invitation),
+            },
+          ]}
+        />
+        <InviteButtons row={row} ctx={ctx} revoking={revoking} sending={sending} who={who} />
+      </>
     );
   }
   if (ctx.myId !== null && row.member.id === ctx.myId) return null;
@@ -264,6 +259,46 @@ function ActionsCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
         },
       ]}
     />
+  );
+}
+
+function InviteButtons({
+  row,
+  ctx,
+  revoking,
+  sending,
+  who,
+}: {
+  row: Extract<TeamRow, { kind: "invite" }>;
+  ctx: TeamTableContext;
+  revoking: boolean;
+  sending: boolean;
+  who: string;
+}) {
+  return (
+    <span className="hidden flex-wrap items-center justify-end gap-2 sm:flex">
+      <ActionButton
+        variant="secondary-sm"
+        status={statusFor(ctx.resendStatus, row.invitation.id)}
+        disabled={revoking}
+        onClick={() => ctx.onResend(row.invitation)}
+        aria-label={`Send the invitation to ${who} again`}
+        successLabel="Sent"
+        className="whitespace-nowrap"
+      >
+        Send again
+      </ActionButton>
+      <button
+        type="button"
+        disabled={sending || revoking}
+        aria-busy={revoking || undefined}
+        onClick={() => ctx.onRevoke(row.invitation)}
+        aria-label={`Cancel the invitation to ${who}`}
+        className={TEXT_ACTION_DANGER}
+      >
+        {revoking ? "Cancelling…" : statusFor(ctx.revokeStatus, row.invitation.id) === "error" ? "Try again" : "Cancel"}
+      </button>
+    </span>
   );
 }
 
@@ -298,12 +333,6 @@ export function teamColumns(ctx: TeamTableContext): DataColumn<TeamRow>[] {
         </span>
       ),
       cell: (row) => <RoleCell row={row} ctx={ctx} />,
-    },
-    {
-      id: "status",
-      header: "Status",
-      hideBelow: "sm",
-      cell: (row) => <StatusCell row={row} />,
     },
     {
       id: "actions",
