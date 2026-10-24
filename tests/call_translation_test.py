@@ -15,13 +15,14 @@ import json
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 from uuid import UUID
 
 import pytest
-from apps.api.billing import ai_quota
+from apps.api.billing import ai_quota, rates
 from apps.api.billing.models import (
     ABSORBED_ASSIST_FEATURES,
     ASSIST_FEATURE_CALL_LANGUAGE,
@@ -36,6 +37,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import call_language, call_translation, chat
 from apps.workers.call_language import LanguagePass
+from calevate_shared.engine import SARVAM_DEFAULT_LLM
 from sqlalchemy import text
 from tests.lead_dial_routes_test import (
     _client,
@@ -598,3 +600,111 @@ async def test_a_pass_over_its_time_budget_keeps_what_it_has_and_says_failed(
     assert done.failed is True
     assert done.turns_en == {0: "Line zero."}
     assert done.summary_local == "సారాంశం"
+
+
+async def test_the_pass_asks_with_reasoning_off_and_the_wire_carries_null(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: the language pass leaves `reasoning_effort` unset. Sarvam then thinks at its
+    default and bills the thinking as output: 19.5k output tokens for 2.2k in on one
+    1.5-minute call (24 Oct 2026)."""
+    asked: list[dict[str, Any]] = []
+
+    async def _complete(leg: chat.ChatLeg, messages: Any, **kw: Any) -> chat.ChatOutcome:
+        asked.append(kw)
+        body = {"turns": [{"i": 0, "en": "Hello."}], "summary_local": "సారాంశం"}
+        return chat.ChatOutcome(content=json.dumps(body), finish_reason="stop", usage=None)
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    done = await call_language.run_language_pass(
+        api_key="k", language="te-IN", turns=[(0, "నమస్కారం")], summary_en="Hi.", summary_local=""
+    )
+
+    assert done.failed is False
+    assert [kw["reasoning_effort"] for kw in asked] == ["off"]
+    leg = chat.ChatLeg(
+        url="https://x.test", api_key="k", wire_model="sarvam-105b", dialect="sarvam"
+    )
+    wire = chat._request_body(
+        leg,
+        [],
+        temperature=0,
+        response_format=None,
+        tools=None,
+        tool_choice=None,
+        stream=False,
+        reasoning_effort=call_language.REASONING_EFFORT,
+    )
+    assert "reasoning_effort" in wire and wire["reasoning_effort"] is None
+
+
+async def test_an_unreadable_answer_says_failed_rather_than_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: an answer with no `turns` list (prose, or a broken object) reads as a pass
+    that found every line already English, so the call says `ready` with no English."""
+
+    async def _complete(leg: chat.ChatLeg, messages: Any, **kw: Any) -> chat.ChatOutcome:
+        return chat.ChatOutcome(
+            content="Here is the translation.", finish_reason="stop", usage=None
+        )
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    done = await call_language.run_language_pass(
+        api_key="k", language="te-IN", turns=[(0, "పంక్తి")], summary_en="", summary_local=""
+    )
+    assert done.failed is True
+    assert done.turns_en == {}
+
+
+async def test_the_language_pass_is_metered_with_its_call_its_source_and_its_tokens() -> None:
+    """FAILS IF: a language pass row loses the call it was for, or the step that ran it, so
+    per-call AI cost and a second pass on one call cannot be read from the ledger."""
+    tenant_id, call_id, _slug, _headers = await _telugu_call()
+    rates.install_inr_llm_price_attestations(
+        lambda: {
+            SARVAM_DEFAULT_LLM: rates.InrLlmPriceAttestation(
+                model=SARVAM_DEFAULT_LLM,
+                in_inr_per_mtok=Decimal("15"),
+                cached_in_inr_per_mtok=None,
+                out_inr_per_mtok=Decimal("60"),
+                attested_by="founder",
+                source="test",
+            )
+        }
+    )
+    try:
+        async with tenant_session(tenant_id) as session:
+            await call_translation.meter_language_pass(
+                session,
+                tenant_id,
+                call_id,
+                chat.TokenUsage(prompt_tokens=1_720, output_tokens=1_100),
+                feature=ASSIST_FEATURE_CALL_LANGUAGE,
+                source="call_reading",
+            )
+    finally:
+        rates.install_inr_llm_price_attestations(None)
+
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT unit_type, qty, unit_cost_paid, call_id, meta FROM usage_events "
+                    "WHERE tenant_id = :t AND meta->>'call_id' = :c ORDER BY unit_type"
+                ),
+                {"t": tenant_id, "c": str(call_id)},
+            )
+        ).all()
+    assert [(r[0], Decimal(str(r[1]))) for r in rows] == [
+        ("ai_assist_ktok_in", Decimal("1.72")),
+        ("ai_assist_ktok_out", Decimal("1.1")),
+    ]
+    # The column stays NULL so the ref keeps the row idempotent (`UsageEvent`).
+    assert all(r[3] is None for r in rows)
+    for row in rows:
+        meta = row[4] if isinstance(row[4], dict) else json.loads(row[4])
+        assert meta["feature"] == ASSIST_FEATURE_CALL_LANGUAGE
+        assert (meta["source"], meta["reasoning_effort"]) == ("call_reading", "off")
+    cost = sum((Decimal(str(r[1])) * Decimal(str(r[2])) for r in rows), Decimal("0"))
+    assert cost == Decimal("0.0918")

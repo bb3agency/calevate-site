@@ -56,6 +56,13 @@ _SCRIPT_BLOCKS: Final[tuple[tuple[int, int, str], ...]] = (
 #: translations stay well inside `MAX_TOKENS` while a long call costs a few requests.
 TURNS_PER_REQUEST: Final = 40
 MAX_TOKENS: Final = 4096
+#: Off, because translating lines and restating a summary needs no thinking, and Sarvam's
+#: default (`low`) bills its reasoning as completion tokens inside `MAX_TOKENS`: a 1.5-minute
+#: Telugu call (production usage rows, 24 Oct 2026) paid 19.5k output tokens for 2.2k in,
+#: and a second pass on it 16.0k for 1.7k. An answer that still comes back cut off or
+#: unreadable takes the failure path in `run_language_pass`, which leaves the call `failed`
+#: for "Try again" and the backfill rather than dropping its English.
+REASONING_EFFORT: Final[chat.ReasoningEffort] = "off"
 #: Seconds the whole pass may take, all chunks and splits together. It runs inside the
 #: post-call job (`WorkerSettings.job_timeout`, 300 s) after extraction; a slow provider
 #: answering chunk after chunk once ran past that limit, and arq's cancellation then cost
@@ -193,10 +200,9 @@ async def run_language_pass(
     wanted = {idx for idx, _ in turns}
     answered: list[TokenUsage | None] = []
     # (chunk, asks for the summaries), consumed from the front. A chunk cut off at
-    # `MAX_TOKENS` is split in half and both halves go back to the front, in order: Sarvam
-    # counts its reasoning in `max_tokens`, so a dense chunk can run out before its JSON
-    # closes, and 4096 is the highest cap its lowest tier accepts, so raising the cap is
-    # not an option (`extraction.EXTRACTION_MAX_TOKENS`).
+    # `MAX_TOKENS` is split in half and both halves go back to the front, in order: 4096 is
+    # the highest cap Sarvam's lowest tier accepts, so raising the cap is not an option
+    # (`extraction.EXTRACTION_MAX_TOKENS`).
     work: list[tuple[Sequence[tuple[int, str]], bool]] = [
         (chunk, number == 0 and not is_english(language)) for number, chunk in enumerate(chunks)
     ]
@@ -221,6 +227,7 @@ async def run_language_pass(
                         temperature=0,
                         response_format={"type": "json_object"},
                         max_tokens=MAX_TOKENS,
+                        reasoning_effort=REASONING_EFFORT,
                     )
                 except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
                     log.warning("call_language_pass_failed", extra={"error": type(exc).__name__})
@@ -242,6 +249,11 @@ async def run_language_pass(
                     result.failed = True
                 body = _first_json_object(outcome.content)
                 rows = body.get("turns")
+                if chunk and not isinstance(rows, list):
+                    # An answer with no readable lines is a failed chunk, not a call whose
+                    # lines were all English already: `ready` here would hide the gap.
+                    log.warning("call_language_pass_unreadable", extra={"turns": len(chunk)})
+                    result.failed = True
                 for row in rows if isinstance(rows, list) else []:
                     if not isinstance(row, dict):
                         continue
@@ -291,6 +303,7 @@ def english_lines(pending: Sequence[tuple[int, str]], done: LanguagePass) -> dic
 
 __all__ = [
     "MAX_TOKENS",
+    "REASONING_EFFORT",
     "TURNS_PER_REQUEST",
     "LanguagePass",
     "call_language",
