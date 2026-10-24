@@ -209,6 +209,24 @@ class AgentCallHandlingIn(BaseModel):
     ambience_volume_pct: int | None = Field(default=None)
 
 
+class AgentOwnCallHandlingOut(BaseModel):
+    """One agent's own values (`null`: it follows the account default for that setting)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    name: str
+    turn_silence_ms: int | None
+    end_call_on_finish: bool | None
+    nudge_after_seconds: int | None
+    nudge_count: int | None
+    nudge_phrase: str | None
+    end_after_silence_seconds: int | None
+    filler_lines: list[str] | None
+    ambience: Ambience | None
+    ambience_volume_pct: int | None
+
+
 class OrganizationCallHandlingOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -231,6 +249,11 @@ class OrganizationCallHandlingOut(BaseModel):
     ambience_effective: Ambience
     ambience_volume_pct: int | None
     ambience_volume_pct_effective: int
+    #: The agents that set any value of their own, which these defaults do not reach for
+    #: that value; at most `call_handling.AGENTS_WITH_OWN_MAX`, by name.
+    agents_with_own: list[AgentOwnCallHandlingOut]
+    #: How many agents set any value of their own, including any past the ones listed.
+    agents_with_own_total: int
     bounds: CallHandlingBoundsOut
 
 
@@ -320,7 +343,16 @@ def _agent_out(state: AgentCallHandling) -> AgentCallHandlingOut:
 
 def _org_out(state: OrganizationCallHandling) -> OrganizationCallHandlingOut:
     return OrganizationCallHandlingOut.model_validate(
-        {**_own(state.own), **_effective(state.resolved.values), "bounds": _bounds()}
+        {
+            **_own(state.own),
+            **_effective(state.resolved.values),
+            "agents_with_own": [
+                {"agent_id": agent.agent_id, "name": agent.name, **_own(agent.own)}
+                for agent in state.agents_with_own
+            ],
+            "agents_with_own_total": state.agents_with_own_total,
+            "bounds": _bounds(),
+        }
     )
 
 

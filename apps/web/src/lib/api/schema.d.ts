@@ -12829,6 +12829,37 @@ export interface components {
             /** Truthful Answer Rule */
             truthful_answer_rule: string;
         };
+        /**
+         * AgentOwnCallHandlingOut
+         * @description One agent's own values (`null`: it follows the account default for that setting).
+         */
+        AgentOwnCallHandlingOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Ambience */
+            ambience: ("off" | "office" | "office-quiet") | null;
+            /** Ambience Volume Pct */
+            ambience_volume_pct: number | null;
+            /** End After Silence Seconds */
+            end_after_silence_seconds: number | null;
+            /** End Call On Finish */
+            end_call_on_finish: boolean | null;
+            /** Filler Lines */
+            filler_lines: string[] | null;
+            /** Name */
+            name: string;
+            /** Nudge After Seconds */
+            nudge_after_seconds: number | null;
+            /** Nudge Count */
+            nudge_count: number | null;
+            /** Nudge Phrase */
+            nudge_phrase: string | null;
+            /** Turn Silence Ms */
+            turn_silence_ms: number | null;
+        };
         /** AgentReadinessOut */
         AgentReadinessOut: {
             /**
@@ -23324,6 +23355,10 @@ export interface components {
         };
         /** OrganizationCallHandlingOut */
         OrganizationCallHandlingOut: {
+            /** Agents With Own */
+            agents_with_own: components["schemas"]["AgentOwnCallHandlingOut"][];
+            /** Agents With Own Total */
+            agents_with_own_total: number;
             /** Ambience */
             ambience: ("off" | "office" | "office-quiet") | null;
             /**

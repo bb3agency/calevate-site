@@ -48,8 +48,9 @@ interface RowProps<T> {
   /** In force now, and the level that chose it. */
   effective: T;
   source: CallHandlingSource;
-  /** Overrides the words for `source`, for a reader who is not the account's owner. */
-  sourceHint?: string;
+  /** Overrides the words for `source`, for a reader who is not the account's owner, or to add
+   * which agents do not follow an account default. */
+  sourceHint?: ReactNode;
   /** This level's own value; `null` follows the level above. */
   own: T | null;
   /** The default and what it resolves to, "Calevate default: Quick (0.25 s)". */
@@ -376,6 +377,7 @@ export function HangUpRow({
 export const OPENING_WAITS_LINE =
   "Your agent speaks right after the person who picks up says hello, or after four seconds " +
   "if they stay silent.";
+const OPENING_SPEAKS_LINE = "Your agent speaks as soon as the call connects.";
 
 const OPENING_WAITS_INFO =
   "On, the agent lets the person who picks up speak first, so it does not talk over their " +
@@ -417,7 +419,9 @@ export function OpeningWaitsRow({
     <div>
       <SettingRow
         label="Wait for them to say hello"
-        hint={OPENING_WAITS_LINE}
+        // The line describes the value in force, so an agent switched off never reads as
+        // one that waits.
+        hint={on ? OPENING_WAITS_LINE : OPENING_SPEAKS_LINE}
         info={<p>{OPENING_WAITS_INFO}</p>}
         value={on ? "On" : "Off"}
         action={
@@ -448,7 +452,7 @@ export function OpeningWaitsRow({
           <div className={CALL_HANDLING_EDITOR}>
             <ToggleSwitch
               label="Wait for them to say hello"
-              hint={next ? OPENING_WAITS_LINE : "Your agent speaks as soon as the call connects."}
+              hint={next ? OPENING_WAITS_LINE : OPENING_SPEAKS_LINE}
               checked={next}
               onChange={setNext}
             />
