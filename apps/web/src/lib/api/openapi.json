@@ -3486,6 +3486,113 @@
         "title": "AgentOwnCallHandlingOut",
         "type": "object"
       },
+      "AgentPromptLayersOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "caller_memory": {
+            "enum": [
+              "off",
+              "kept_by_engine",
+              "in_prompt"
+            ],
+            "title": "Caller Memory",
+            "type": "string"
+          },
+          "drift_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drift Checked At"
+          },
+          "drift_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drift State"
+          },
+          "engine_added_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Added Chars"
+          },
+          "has_script": {
+            "title": "Has Script",
+            "type": "boolean"
+          },
+          "layers": {
+            "items": {
+              "$ref": "#/components/schemas/PromptLayerOut"
+            },
+            "title": "Layers",
+            "type": "array"
+          },
+          "limit_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Chars"
+          },
+          "on_engine": {
+            "title": "On Engine",
+            "type": "boolean"
+          },
+          "over_chars": {
+            "title": "Over Chars",
+            "type": "integer"
+          },
+          "separator_chars": {
+            "title": "Separator Chars",
+            "type": "integer"
+          },
+          "total_chars": {
+            "title": "Total Chars",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agent_id",
+          "has_script",
+          "layers",
+          "separator_chars",
+          "total_chars",
+          "limit_chars",
+          "over_chars",
+          "engine_added_chars",
+          "caller_memory",
+          "on_engine",
+          "drift_state",
+          "drift_checked_at"
+        ],
+        "title": "AgentPromptLayersOut",
+        "type": "object"
+      },
       "AgentReadinessOut": {
         "additionalProperties": false,
         "properties": {
@@ -34611,6 +34718,69 @@
         "title": "ProgressOut",
         "type": "object"
       },
+      "PromptLayerOut": {
+        "additionalProperties": false,
+        "properties": {
+          "chars": {
+            "title": "Chars",
+            "type": "integer"
+          },
+          "from_agent_settings": {
+            "title": "From Agent Settings",
+            "type": "boolean"
+          },
+          "key": {
+            "enum": [
+              "preamble",
+              "how_to_speak",
+              "languages",
+              "spoken_register",
+              "business_facts",
+              "notices",
+              "caller_memory",
+              "client_script",
+              "what_you_can_do",
+              "confidentiality",
+              "truthful_answers",
+              "this_call"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "owner": {
+            "enum": [
+              "platform",
+              "client",
+              "per_call"
+            ],
+            "title": "Owner",
+            "type": "string"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "purpose",
+          "owner",
+          "from_agent_settings",
+          "text",
+          "chars"
+        ],
+        "title": "PromptLayerOut",
+        "type": "object"
+      },
       "PromptVersionOut": {
         "additionalProperties": false,
         "properties": {
@@ -56560,6 +56730,57 @@
           "admin"
         ],
         "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/layers": {
+      "get": {
+        "description": "The instructions a publish of this agent would send now, in engine order, with the engine's limit and the last drift sweep's verdict. Reads our tables only; it never calls the engine. Caller memory is per call and appears unfilled.",
+        "operationId": "prompt_layers_v1_admin_tenants__tenant_id__agents__agent_id__prompt_layers_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentPromptLayersOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What the agent is told: the composed prompt by layer, with each layer's size",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
       }
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/rollback": {

@@ -22,6 +22,7 @@ import { ReplyLengthPanel } from "./sections/replyLength";
 import { ExperimentPanel } from "./sections/experiment";
 import { GoLivePanel, PublishingPanel } from "./sections/live";
 import { ScriptSection } from "./sections/script";
+import { PromptLayersPanel } from "./sections/told";
 import { ModelPanel } from "./sections/model";
 import { VoicePanel } from "./sections/voice";
 
@@ -46,6 +47,7 @@ import { VoicePanel } from "./sections/voice";
 const SECTIONS_BASE: SettingsSection[] = [
   { id: "live", label: "Live" },
   { id: "script", label: "Script" },
+  { id: "told", label: "What it is told" },
   { id: "voice", label: "Voice" },
   { id: "model", label: "Model" },
   { id: "limits", label: "Call handling" },
@@ -204,6 +206,8 @@ export function AgentPromptScreen({ tenantId, agentId }: { tenantId: string; age
                   onWritten={() => void refreshPublishing()}
                 />
               );
+            case "told":
+              return <PromptLayersPanel tenantId={tenantId} agentId={agentId} />;
             case "voice":
               return (
                 <VoicePanel

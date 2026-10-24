@@ -20,23 +20,27 @@ from datetime import datetime
 from typing import Annotated, Final
 from uuid import UUID
 
+from calevate_shared.engine import PromptLayer
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import prompts
+from apps.api.agents import prompt_anatomy, prompts
+from apps.api.agents.prompt_anatomy import CallerMemory, LayerOwner
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
+from apps.api.engine import get_engine
 
 router = APIRouter(prefix="/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt", tags=["admin"])
 
 # Reads the tenant DIRECTORY (organizations) cross-tenant; nothing else.
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 AgentsWrite = Annotated[Principal, Depends(requires("agents:write", realm="admin"))]
+Operator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
 
 
 class PromptVersionOut(BaseModel):
@@ -182,6 +186,97 @@ async def rollback_prompt(
             summary={"to_version": payload.version, "new_version": new_version},
         )
     return RollbackOut(to_version=payload.version, new_version=new_version)
+
+
+class PromptLayerOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: PromptLayer
+    title: str
+    purpose: str
+    owner: LayerOwner
+    #: True when this agent's settings change the words; False when every agent gets them.
+    from_agent_settings: bool
+    text: str
+    chars: int
+
+
+class AgentPromptLayersOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    #: False for an agent with nothing written yet; `layers` is then empty.
+    has_script: bool
+    #: In the order the engine reads them.
+    layers: list[PromptLayerOut]
+    #: The line breaks `compose_engine_prompt` puts between layers.
+    separator_chars: int
+    total_chars: int
+    #: The engine's ceiling on the instructions; null where it has none.
+    limit_chars: int | None
+    over_chars: int
+    #: About what the engine adds around this on every turn (its estimate); null if unknown.
+    engine_added_chars: int | None
+    caller_memory: CallerMemory
+    #: True when the agent has an engine object of its own.
+    on_engine: bool
+    #: The last scheduled comparison of the engine's copy with this composition
+    #: (`engine_agent_routes.drift_state`); null when it has not been checked.
+    drift_state: str | None
+    drift_checked_at: datetime | None
+
+
+@router.get(
+    "/layers",
+    response_model=AgentPromptLayersOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="What the agent is told: the composed prompt by layer, with each layer's size",
+    description=(
+        "The instructions a publish of this agent would send now, in engine order, with the "
+        "engine's limit and the last drift sweep's verdict. Reads our tables only; it never "
+        "calls the engine. Caller memory is per call and appears unfilled."
+    ),
+)
+async def prompt_layers(
+    tenant_id: UUID, agent_id: UUID, request: Request, principal: Operator
+) -> AgentPromptLayersOut:
+    async with tenant_session(tenant_id) as scoped:
+        anatomy = await prompt_anatomy.read_anatomy(
+            scoped, tenant_id=tenant_id, agent_id=agent_id, engine=get_engine()
+        )
+        # The client's script is their record, read here without impersonation (D-482 L-1).
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
+    size = anatomy.size
+    separators = (
+        sum(p.chars for p in size.layers if p.key == "separator") if size is not None else 0
+    )
+    return AgentPromptLayersOut(
+        agent_id=agent_id,
+        has_script=anatomy.has_script,
+        layers=[
+            PromptLayerOut(
+                key=layer.key,
+                title=layer.title,
+                purpose=layer.guide.purpose,
+                owner=layer.guide.owner,
+                from_agent_settings=layer.guide.from_agent_settings,
+                text=layer.text,
+                chars=len(layer.text),
+            )
+            for layer in anatomy.layers
+        ],
+        separator_chars=separators,
+        total_chars=size.total if size is not None else 0,
+        limit_chars=size.limit if size is not None else None,
+        over_chars=size.over if size is not None else 0,
+        engine_added_chars=size.engine_added if size is not None else None,
+        caller_memory=anatomy.caller_memory,
+        on_engine=anatomy.on_engine,
+        drift_state=anatomy.drift_state,
+        drift_checked_at=anatomy.drift_checked_at,
+    )
 
 
 __all__ = ["router"]

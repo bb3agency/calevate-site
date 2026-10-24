@@ -160,6 +160,7 @@ import {
   callLinesRoute,
   CALL_HANDLING_BOUNDS as SHARED_CALL_HANDLING_BOUNDS,
   agentReplyLength,
+  agentPromptLayers,
   VOICE_EFFECTIVE_DEFAULTS,
   VOICE_ORGANIZATION_NONE,
   VOICE_OWN_NONE,
@@ -5530,17 +5531,30 @@ const OPS_CONFIG_SECTION_SCREENS: Screen[] = [
 const ADMIN_AGENT_PAGE = ADMIN_SCREENS.find(
   (entry) => entry.file === "admin/tenants/[tenantId]/agents/[agentId]/prompt/page.tsx",
 ) as Screen;
-const ADMIN_AGENT_SECTION_SCREENS: Screen[] = ["script", "voice", "model", "limits", "test"].map(
-  (id) => ({
-    ...ADMIN_AGENT_PAGE,
-    search: `section=${id}`,
-    // The Voice and Model sections list the voice platform's voices and its real models,
-    // with their makers' marks.
-    ...(id === "model" || id === "voice"
-      ? { routes: { ...ADMIN_AGENT_PAGE.routes, "/v1/agents/engine-catalogue": operatorEngineCatalogue() } }
-      : {}),
-  }),
-);
+const ADMIN_AGENT_SECTION_SCREENS: Screen[] = [
+  "script",
+  "told",
+  "voice",
+  "model",
+  "limits",
+  "test",
+].map((id) => ({
+  ...ADMIN_AGENT_PAGE,
+  search: `section=${id}`,
+  // The Voice and Model sections list the voice platform's voices and its real models,
+  // with their makers' marks.
+  ...(id === "model" || id === "voice"
+    ? { routes: { ...ADMIN_AGENT_PAGE.routes, "/v1/agents/engine-catalogue": operatorEngineCatalogue() } }
+    : {}),
+  ...(id === "told"
+    ? {
+        routes: {
+          ...ADMIN_AGENT_PAGE.routes,
+          "/v1/admin/tenants/t1/agents/agent-1/prompt/layers": agentPromptLayers(),
+        },
+      }
+    : {}),
+}));
 
 export const SCREENS: Screen[] = [
   ...CLIENT_SCREENS,

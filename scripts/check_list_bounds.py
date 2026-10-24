@@ -80,6 +80,12 @@ class BoundedByConstruction:
 
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/layers": BoundedByConstruction(
+        by=(
+            "one entry per `calevate_shared.engine.PromptLayer` (twelve), the layers "
+            "`engine_prompt_layers` composes, whatever the agent holds (D-882)."
+        )
+    ),
     # --- the UI wave's backend lane (D-869, D-870) ------------------------------------------
     "GET /v1/agents/{agent_id}/readiness": BoundedByConstruction(
         by=(
