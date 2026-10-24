@@ -97,6 +97,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.engine_limits import refuse_notice_without_room
 from apps.api.agents.hosted_voices import parse_hosted_voice_id, source_rate_key
+from apps.api.agents.models import is_published
 from apps.api.agents.service import (
     effective_call_cap,
     publish_agent,
@@ -474,8 +475,8 @@ class DisclosureResult:
     #: The notices callers hear before the agent's opening line, composed server-side.
     #: Empty string = the agent volunteers neither and opens on its opening line (D-708).
     opening_line: str
-    #: Did the change reach the voice platform? False for an agent that is not live —
-    #: there is nothing to push to, and the next publish carries it.
+    #: Did the change reach the voice platform? False for an agent it does not hold (a
+    #: draft): there is nothing to push to, and the first publish carries it.
     engine_synced: bool
     #: The fields this call actually changed, so a caller (and the audit writer above it)
     #: can tell a real flip from a re-assertion of the state that was already there.
@@ -491,8 +492,8 @@ class CallerMemoryResult:
     #: The notices said at the start of a call, recomposed. The memory sentence is not among
     #: them: it is said with the goodbye (D-865), so this does not change with the switch.
     opening_line: str
-    #: Did the change reach the voice platform? False for an agent that is not live — there
-    #: is nothing to push to, and the next publish carries it.
+    #: Did the change reach the voice platform? False for an agent it does not hold (a
+    #: draft): there is nothing to push to, and the first publish carries it.
     engine_synced: bool
     #: True when this call was a no-op because the switch was already where it was asked to
     #: be. Lets the route write one audit row per DECISION rather than per double-click.
@@ -1438,7 +1439,7 @@ async def set_disclosure_posture(
             language=str(row[10]),
             turned_on=tuple(field for field in changed if wanted[field]),
         )
-        is_live = str(row[4]) == "live" and bool(row[5])
+        on_engine = is_published(row[4], row[5])
         if changed:
             await session.execute(
                 text(
@@ -1452,8 +1453,10 @@ async def set_disclosure_posture(
                     "aid": agent_id,
                 },
             )
-            if is_live:
-                await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+            if on_engine:
+                await publish_agent(
+                    session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False
+                )
 
     # Ids, booleans and field NAMES. The sentences themselves are a client's own business
     # copy and stay out of the log (hard rule 6's neighbourhood — they are not PII, but
@@ -1465,7 +1468,7 @@ async def set_disclosure_posture(
             "ai_disclosure_enabled": posture.ai_disclosure_enabled,
             "recording_notice_enabled": posture.recording_notice_enabled,
             "changed": list(changed),
-            "engine_synced": bool(changed) and is_live,
+            "engine_synced": bool(changed) and on_engine,
         },
     )
     return DisclosureResult(
@@ -1475,7 +1478,7 @@ async def set_disclosure_posture(
         opening_line=compose_opening_line(
             posture, call_is_recorded=engine_capabilities().records_audio
         ),
-        engine_synced=bool(changed) and is_live,
+        engine_synced=bool(changed) and on_engine,
         changed=changed,
     )
 
@@ -1630,9 +1633,9 @@ async def set_caller_memory(
                 ),
                 {"on": enabled, "aid": agent_id},
             )
-        is_live = str(row[6]) == "live" and bool(row[7])
-        if current != enabled and is_live:
-            await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+        on_engine = is_published(row[6], row[7])
+        if current != enabled and on_engine:
+            await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
 
     # Ids and booleans (hard rule 6). The sentence itself is the client's own copy and
     # nothing is served by putting it in a log line.
@@ -1642,7 +1645,7 @@ async def set_caller_memory(
             "agent_id": str(agent_id),
             "enabled": enabled,
             "changed": current != enabled,
-            "engine_synced": (current != enabled) and is_live,
+            "engine_synced": (current != enabled) and on_engine,
         },
     )
     return CallerMemoryResult(
@@ -1651,7 +1654,7 @@ async def set_caller_memory(
         opening_line=compose_opening_line(
             posture, call_is_recorded=engine_capabilities().records_audio
         ),
-        engine_synced=(current != enabled) and is_live,
+        engine_synced=(current != enabled) and on_engine,
         unchanged=current == enabled,
         attested_at=attested_at,
         attested_by_name=attested_by_name,
@@ -1663,7 +1666,7 @@ async def set_call_cap(
 ) -> CallCapResult:
     """Set (or clear) the per-agent max call length — the cost-runaway guard.
 
-    FAST lane: a live agent is re-published in the SAME transaction, because a cap
+    FAST lane: a live or ready agent is re-published in the SAME transaction, because a cap
     that only lands in our table protects nobody. That is safe here and was not safe
     before `live_prompt_id`: the republish sends the APPLIED script, so raising a
     guard cannot smuggle an unapproved script onto a live phone line.
@@ -1691,23 +1694,23 @@ async def set_call_cap(
         agent = result.first()
         if agent is None:
             raise ProblemError.not_found("Agent")
-        is_live = str(agent[0]) == "live" and bool(agent[1])
-        if is_live:
-            await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+        on_engine = is_published(agent[0], agent[1])
+        if on_engine:
+            await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
         rate = await worst_case_rate(session, tenant_id)
 
     cap = effective_call_cap(max_call_duration_s)
     # Seconds and a boolean; nothing here identifies a caller (hard rule 6).
     log.info(
         "agent_call_cap_set",
-        extra={"agent_id": str(agent_id), "cap_s": cap, "engine_synced": is_live},
+        extra={"agent_id": str(agent_id), "cap_s": cap, "engine_synced": on_engine},
     )
     return CallCapResult(
         agent_id=agent_id,
         max_call_duration_s=max_call_duration_s,
         effective_call_cap_s=cap,
         is_platform_default=max_call_duration_s is None,
-        engine_synced=is_live,
+        engine_synced=on_engine,
         worst_case_call_cost_inr=worst_case_cost(cap, rate),
     )
 

@@ -16,7 +16,8 @@ message in the transaction that saved the change. Three jobs carry it out:
   what makes the outbox's at-least-once delivery enough.
 
 Which agents: the active engine's routes (`engine_agent_routes`, readable from an untenanted
-session), each confirmed live under its own tenant session before it is touched.
+session), each confirmed live or ready (D-838, D-876) under its own tenant session before it
+is touched.
 """
 
 from __future__ import annotations

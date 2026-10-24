@@ -22,9 +22,11 @@ the APPLIED one (migration a4e7b2c95d18), and the rule this module enforces is:
 - **live agent + hand-written script edit** -> STAGE. The draft pointer moves, the
   applied pointer does not, the engine is not touched. `agents/publishing.py` owns
   Apply and Undo.
-- **draft or paused agent** -> APPLY. There is no blast radius to split: nothing of
-  this agent is on the engine, so staging would only manufacture a pending change
-  with no live counterpart. Two-speed publishing is a property of LIVE agents.
+- **draft or paused agent** -> APPLY. No caller hears it, so staging would only
+  manufacture a pending change with no live counterpart. Two-speed publishing is a
+  property of LIVE agents. A READY agent (paused with an engine agent, D-838) is
+  republished as it stands in the same transaction, because its Try it chat and trial
+  test calls run what the engine holds (D-876).
 - **rollback** -> APPLY, and publish immediately, unchanged. FLOWS §7 defines
   rollback as "republish an earlier version", which IS an apply: someone watching a
   bad script take calls is not asking to stage a fix. Staging a rollback would make
@@ -53,6 +55,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.models import is_published
 from apps.api.agents.service import publish_agent
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -205,7 +208,8 @@ async def write_prompt_version(
     until somebody presses Apply — `agents.publishing.apply_to_live` — so a script
     edit can never reach a client's callers as a side effect of saving a draft.
     A draft or paused agent has nothing live to protect, so its edits are applied as
-    they are written and the first publish sends them.
+    they are written; a ready one (D-838) is republished with them at once, and a draft's
+    first publish sends them.
 
     `structured_script` is the authored `CallScript` this `body` was compiled from
     (`agents/script_builder.py`), or None for a freeform (raw) write — stamped at INSERT
@@ -223,6 +227,8 @@ async def write_prompt_version(
         structured_script=structured_script,
         apply_live=not live,
     )
+    if not live and is_published(status, engine_ref):
+        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
     # ids and version only — prompt bodies can embed client business detail (rule 6).
     log.info(
         "prompt_version_written",
@@ -314,8 +320,8 @@ async def rollback_prompt(
         structured_script=target[1],
         apply_live=True,
     )
-    if _is_live(status, engine_ref):
-        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+    if is_published(status, engine_ref):
+        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
     log.info(
         "prompt_rolled_back",
         extra={"agent_id": str(agent_id), "to_version": version, "new_version": new_version},
