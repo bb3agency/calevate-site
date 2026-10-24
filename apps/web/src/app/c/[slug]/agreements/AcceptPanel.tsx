@@ -28,8 +28,8 @@ export function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
 
   if (outstanding.length === 0) {
     return (
-      <p className="mt-4 flex items-center gap-2 text-body text-ink-muted">
-        <CircleCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
+      <p className="mt-4 flex items-start gap-2 text-meta text-ink-muted">
+        <CircleCheck className="mt-px h-4 w-4 shrink-0 text-brand-strong" aria-hidden="true" />
         Every agreement here has been accepted at its current version. We will
         ask again when one of them changes in a way that needs it.
       </p>
@@ -77,28 +77,29 @@ export function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
   return (
     <form
       noValidate
-      className="mt-6"
+      className="mt-5 rounded-card border border-line bg-surface p-4 sm:p-5"
       onSubmit={(event) => {
         event.preventDefault();
         if (ticked && !accept.isPending) void submit();
       }}
     >
-      <label className="flex items-start gap-3 text-body text-ink">
+      {/* The whole sentence is the tap target, not the 20px box beside it. */}
+      <label className="-m-2 flex cursor-pointer items-start gap-3 rounded-md p-2 text-body text-ink hover:bg-ink/[0.03]">
         <input
           type="checkbox"
           checked={ticked}
           onChange={(event) => setTicked(event.target.checked)}
-          className="mt-1 h-4 w-4 shrink-0"
+          className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer accent-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         />
-        <span>{readiness.acceptance_statement}</span>
+        <span className="[text-wrap:pretty]">{readiness.acceptance_statement}</span>
       </label>
       {accept.error ? (
         <div className="mt-4">
           <ProblemNotice error={accept.error} />
         </div>
       ) : null}
-      <div className="mt-5 flex flex-wrap items-center justify-end gap-x-5 gap-y-3">
-        <p className="mr-auto text-meta text-ink-muted">
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-x-5 gap-y-3 border-t border-line pt-4">
+        <p className="mr-auto min-w-0 basis-56 grow text-meta text-ink-muted">
           We record which documents you accepted, at which version, and when.
         </p>
         <ActionButton
@@ -107,6 +108,7 @@ export function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
           disabled={!ticked}
           pendingLabel="Recording…"
           successLabel="Accepted"
+          className="max-sm:w-full"
         >
           {`Accept ${outstanding.length} agreement${outstanding.length === 1 ? "" : "s"}`}
         </ActionButton>

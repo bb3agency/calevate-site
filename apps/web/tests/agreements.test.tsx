@@ -139,7 +139,7 @@ describe("the screen renders the server's verdict and never its own", () => {
     // The server's own sentence, not a composed one.
     expect(screen.getByText(readiness().verdict)).toBeTruthy();
     expect(screen.getAllByText("Not accepted")).toHaveLength(4);
-    expect(screen.getByText("Reading only")).toBeTruthy();
+    expect(screen.getByText("Sub-processors")).toBeTruthy();
 
     // The blocker arrives with its actor already decided; the screen labels, never infers.
     expect(screen.getByText("Agreements not accepted")).toBeTruthy();
@@ -166,7 +166,41 @@ describe("the screen renders the server's verdict and never its own", () => {
       [READINESS_PATH]: readiness(),
     });
     await screen.findByText("Outgoing calls are blocked.");
-    expect(screen.getAllByText("not yet dated").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("No effective date yet").length).toBeGreaterThan(0);
+  });
+});
+
+describe("the layout", () => {
+  it("prints the effective day as a date a person reads, never the ISO string", async () => {
+    await renderClientPage(<AgreementsPage />, {
+      ...ME_ROUTE,
+      [READINESS_PATH]: readiness({ documents: [doc({ effective_date: "2026-09-02" })] }),
+    });
+    await screen.findByText("Outgoing calls are blocked.");
+    expect(screen.getByText(/^In force from 2 Sept? 2026$/)).toBeTruthy();
+    expect(screen.queryByText(/2026-09-02/)).toBeNull();
+  });
+
+  it("offers one primary next step, and a second destination as a quiet link", async () => {
+    const verify = {
+      reason: "We have not verified this business yet.",
+      actor: "client" as const,
+      next_step: "Upload your documents on Verify your business.",
+    };
+    await renderClientPage(<AgreementsPage />, {
+      ...ME_ROUTE,
+      [READINESS_PATH]: readiness({
+        blockers: [
+          ...readiness().blockers,
+          { rule: "kyc_not_verified", title: "Business not verified", ...verify },
+          { rule: "kyc_missing", title: "No business documents", ...verify },
+        ],
+      }),
+    });
+    await screen.findByText("Outgoing calls are blocked.");
+    expect(screen.getByRole("link", { name: /Review and accept/ }).getAttribute("href")).toBe("#accept");
+    // Two verification rules are one trip to one page, so one link.
+    expect(screen.getAllByRole("link", { name: /Verify your business/ })).toHaveLength(1);
   });
 });
 
