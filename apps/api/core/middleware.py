@@ -290,14 +290,21 @@ class CorrelationIdMiddleware:
             principal_var.reset(principal_token)
 
 
+def _size_words(size: int) -> str:
+    """A byte limit as a person reads it: whole megabytes, else kilobytes."""
+    if size >= 1024 * 1024:
+        return f"{size / (1024 * 1024):.0f} MB"
+    return f"{max(1, round(size / 1024))} KB"
+
+
 def _payload_too_large(max_bytes: int) -> ProblemError:
     return ProblemError(
         kind="validation",
         code="payload_too_large",
         title="Too large to send",
-        detail=f"Request body exceeds {max_bytes} bytes.",
+        detail=f"That is more than we can take at once (up to {_size_words(max_bytes)}).",
         status=413,
-        remediation="Send a smaller body, or split the request.",
+        remediation="Send a smaller file, or send it in parts.",
     )
 
 
@@ -386,7 +393,7 @@ def _nul_character() -> ProblemError:
         kind="validation",
         code="nul_character",
         title="Text we cannot save",
-        detail="Part of this request contains a hidden null character, which cannot be saved.",
+        detail="Some of the text has a hidden character in it that we cannot save.",
         status=422,
         remediation=(
             "Remove the hidden character (it often comes with text copied from another "

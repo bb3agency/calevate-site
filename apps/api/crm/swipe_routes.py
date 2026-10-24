@@ -25,6 +25,7 @@ from apps.api.core.rbac import permission_meta
 from apps.api.crm import swipe
 from apps.api.db.session import tenant_session
 from apps.api.reliability.service import (
+    IdempotencyClaim,
     body_hash,
     claim_idempotency,
     complete_idempotency,
@@ -55,6 +56,24 @@ def _require_key(request: Request, what: str) -> str:
             remediation="Send an `Idempotency-Key` header — one fresh value per attempt.",
         )
     return key
+
+
+async def _claim(
+    principal: Principal, *, route: str, key: str, request_hash: str
+) -> IdempotencyClaim:
+    """The attempt's claim, committed on its own before the work starts, so a concurrent
+    repeat of the same key is answered from it. The work and its audit row then share the
+    request's session, one transaction."""
+    assert principal.tenant_id is not None
+    async with tenant_session(principal.tenant_id) as claim_session:
+        return await claim_idempotency(
+            claim_session,
+            scope=scope_key(tenant_id=principal.tenant_id, user_id=principal.user_id),
+            route=route,
+            method="POST",
+            key=key,
+            request_hash=request_hash,
+        )
 
 
 async def _release(tenant_id: UUID, record_id: UUID) -> None:
@@ -112,15 +131,12 @@ async def schedule_callback(
     assert principal.tenant_id is not None
     tenant_id = principal.tenant_id
     key = _require_key(request, "Scheduling a call")
-    async with tenant_session(tenant_id) as claim_session:
-        claim = await claim_idempotency(
-            claim_session,
-            scope=scope_key(tenant_id=tenant_id, user_id=principal.user_id),
-            route=SCHEDULE_ROUTE,
-            method="POST",
-            key=key,
-            request_hash=body_hash({"lead_id": str(lead_id), **payload.model_dump(mode="json")}),
-        )
+    claim = await _claim(
+        principal,
+        route=SCHEDULE_ROUTE,
+        key=key,
+        request_hash=body_hash({"lead_id": str(lead_id), **payload.model_dump(mode="json")}),
+    )
     if claim.state == "replay" and claim.response_payload:
         return swipe.ScheduleCallbackOut.model_validate(claim.response_payload)
     try:
@@ -196,15 +212,12 @@ async def send_whatsapp(
     assert principal.tenant_id is not None
     tenant_id = principal.tenant_id
     key = _require_key(request, "Sending a WhatsApp message")
-    async with tenant_session(tenant_id) as claim_session:
-        claim = await claim_idempotency(
-            claim_session,
-            scope=scope_key(tenant_id=tenant_id, user_id=principal.user_id),
-            route=WHATSAPP_ROUTE,
-            method="POST",
-            key=key,
-            request_hash=body_hash({"lead_id": str(lead_id), **payload.model_dump(mode="json")}),
-        )
+    claim = await _claim(
+        principal,
+        route=WHATSAPP_ROUTE,
+        key=key,
+        request_hash=body_hash({"lead_id": str(lead_id), **payload.model_dump(mode="json")}),
+    )
     if claim.state == "replay" and claim.response_payload:
         return swipe.WhatsAppSendOut.model_validate(claim.response_payload)
     try:

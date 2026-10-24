@@ -345,7 +345,6 @@ _UNSWEPT: dict[str, int] = {
     # rewriting first.
     "apps/api/agents/service.py": 1,
     "apps/api/authn/stepup.py": 1,
-    "apps/api/core/middleware.py": 2,
     "apps/api/core/stepup.py": 1,
     "apps/api/flags/service.py": 1,
     # The vendor leg. A voice-engine failure surfaces on an operator's screen, so these

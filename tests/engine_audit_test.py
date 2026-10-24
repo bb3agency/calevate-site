@@ -1566,6 +1566,9 @@ _VENDOR_ONLY_KEYS = frozenset(
         # ThinnestAI's per-call override block on `POST /calls` (D-697's call cap). Nothing
         # of ours is called this.
         "overrides",
+        # ThinnestAI's per-call calling window on `POST /calls` (D-872); ours is
+        # `calling_window.DEFAULT_WINDOW`.
+        "callingHours",
         # A transcript turn's wall-clock and the call's answer instant, which time key
         # moments (D-725); ours are `start_ms` and `started_at`.
         "answeredAt",
