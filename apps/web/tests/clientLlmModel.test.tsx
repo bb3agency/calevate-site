@@ -294,7 +294,10 @@ describe("the account's default model tier", () => {
     expect(refusal.textContent).toContain("Plus isn't switched on for your account yet.");
     // Nothing moved: the account still follows Calevate's default, which is what runs now.
     expect(radio(/^Calevate's default/).closest("label")?.textContent).toContain("the model running now");
-    expect(container.textContent).not.toMatch(/saved/i);
+    // The bar stays, its button on the error face; no saved tick anywhere.
+    expect(screen.getByRole("button", { name: /Save model/ }).getAttribute("data-status")).toBe("error");
+    expect(container.querySelector('[data-status="success"]')).toBeNull();
+    expect(screen.queryAllByRole("status").some((s) => /saved/i.test(s.textContent ?? ""))).toBe(false);
   });
 
   it("says so when the tier in force is one this platform cannot run yet", async () => {

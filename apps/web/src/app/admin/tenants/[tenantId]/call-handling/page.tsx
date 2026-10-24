@@ -38,9 +38,9 @@ export default function TenantCallHandlingPage({
   const tenant = useTenant(tenantId).data;
   const state = useAdminOrganizationCallHandling(tenantId);
   const save = useAdminSetOrganizationCallHandling(tenantId, tenant?.slug);
-  // The shared rows draw their own saving state and refusal beside each control, so this
-  // only keeps the outcome announced; a toast would say the refusal twice.
-  useActionFeedback(save, { errorDisplay: "inline" });
+  // The row that saved shows pending and the error face on its save bar, with the refusal
+  // beside it; the bar closes on success, so the success is a toast.
+  const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Call settings saved" });
   const write = useAdminAccess("admin:tenants", "change a client's call handling defaults");
   const data = state.data;
 
@@ -112,6 +112,7 @@ export default function TenantCallHandlingPage({
           <CallHandlingDefaultsRows
             data={data}
             save={save}
+            status={feedback.status}
             canChange={write.allowed}
             idPrefix={`tenant-${tenantId}`}
             ownLabel="This client's default"

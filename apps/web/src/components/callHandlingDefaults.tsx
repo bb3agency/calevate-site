@@ -13,6 +13,7 @@
 import { useState } from "react";
 import type { UseMutationResult } from "@tanstack/react-query";
 
+import { type FeedbackStatus } from "@/components/arc/feedback";
 import { HangUpRow, PauseRow } from "@/components/callHandlingRows";
 import {
   BackgroundSoundRow,
@@ -32,12 +33,15 @@ type Row = "pause" | "hang-up" | "silence" | "filler" | "sound";
 export function CallHandlingDefaultsRows({
   data,
   save,
+  status,
   canChange,
   idPrefix = "organization",
   ownLabel = "Your organisation default",
 }: {
   data: OrganizationCallHandling;
   save: UseMutationResult<OrganizationCallHandling, Error, OrganizationCallHandlingIn>;
+  /** The caller's `useActionFeedback(save).status`, shown on the row that saved. */
+  status: FeedbackStatus;
   canChange: boolean;
   idPrefix?: string;
   /** The hint on a row this account set itself, in the reader's words. */
@@ -63,7 +67,7 @@ export function CallHandlingDefaultsRows({
       { onSuccess: done },
     );
   };
-  const busy = (which: Row) => save.isPending && row === which;
+  const rowStatus = (which: Row): FeedbackStatus => (row === which ? status : "idle");
   const error = (which: Row) => (row === which ? save.error : null);
 
   return (
@@ -78,7 +82,7 @@ export function CallHandlingDefaultsRows({
         minMs={data.bounds.turn_silence_min_ms}
         maxMs={data.bounds.turn_silence_max_ms}
         canChange={canChange}
-        saving={busy("pause")}
+        status={rowStatus("pause")}
         error={error("pause")}
         onSave={(next, done) => send("pause", { turn_silence_ms: next }, done)}
       />
@@ -90,7 +94,7 @@ export function CallHandlingDefaultsRows({
         own={data.end_call_on_finish}
         inheritLabel={`Calevate default: ${data.bounds.platform_end_call_on_finish ? "On" : "Off"}`}
         canChange={canChange}
-        saving={busy("hang-up")}
+        status={rowStatus("hang-up")}
         error={error("hang-up")}
         onSave={(next, done) => send("hang-up", { end_call_on_finish: next }, done)}
       />
@@ -106,7 +110,7 @@ export function CallHandlingDefaultsRows({
         bounds={data.bounds}
         inherited={platformVoice(data.bounds)}
         canChange={canChange}
-        saving={busy("silence")}
+        status={rowStatus("silence")}
         error={error("silence")}
         own={{
           nudge_after_seconds: data.nudge_after_seconds,
@@ -128,7 +132,7 @@ export function CallHandlingDefaultsRows({
         bounds={data.bounds}
         inherited={platformVoice(data.bounds)}
         canChange={canChange}
-        saving={busy("filler")}
+        status={rowStatus("filler")}
         error={error("filler")}
         own={data.filler_lines}
         effective={data.filler_lines_effective}
@@ -140,7 +144,7 @@ export function CallHandlingDefaultsRows({
         bounds={data.bounds}
         inherited={platformVoice(data.bounds)}
         canChange={canChange}
-        saving={busy("sound")}
+        status={rowStatus("sound")}
         error={error("sound")}
         own={{ ambience: data.ambience, ambience_volume_pct: data.ambience_volume_pct }}
         effective={{

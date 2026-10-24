@@ -37,9 +37,9 @@ export function AgentModel({ agent, slug }: { agent: AgentWithLlm; slug: string 
   const view = agentLlmView(agent);
   const catalogue = useOrganizationLlmDefaults(session);
   const save = useUpdateAgent(session, agent.id);
-  // `ModelTierSetting` draws the busy face, the saved tick and the refusal beside its own
-  // save button, so a failure stays inline.
-  useActionFeedback(save, { errorDisplay: "inline" });
+  // `ModelTierSetting` draws the save bar's faces and the refusal beside it, so a failure
+  // stays inline. The bar closes on success; the summary row's `SavedTick` says it, not a toast.
+  const feedback = useActionFeedback(save, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "change this agent's model");
 
   useCopilotSurface(
@@ -108,7 +108,7 @@ export function AgentModel({ agent, slug }: { agent: AgentWithLlm; slug: string 
       followSurcharge={data.in_force_surcharge_inr_per_minute}
       baselineSurcharge={agentInForceSurcharge(view, data)}
       write={write}
-      saving={save.isPending}
+      status={feedback.status}
       error={save.error}
       savedAt={save.isSuccess ? save.submittedAt : 0}
       // Sends ONLY `llm_tier`: `null` follows the organisation, an omitted field leaves the

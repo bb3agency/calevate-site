@@ -107,7 +107,11 @@ export function TeamScreen() {
     successToast: "Invitation cancelled",
   });
   const resend = useResendInvitation(session);
-  const resendFeedback = useActionFeedback(resend, { errorDisplay: "inline" });
+  // A message sent, and on a phone it is sent from a menu that has closed: said in a toast.
+  const resendFeedback = useActionFeedback(resend, {
+    errorDisplay: "inline",
+    successToast: "Invitation sent again",
+  });
 
   /*
    * THE ADDRESS AND THE ROLE ARE HELD HERE, not in `InviteForm`, because the copilot

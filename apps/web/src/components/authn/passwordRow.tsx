@@ -26,10 +26,10 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Check } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { AuthField, AuthProblemNotice } from "@/components/authn/fields";
 import { TEXT_ACTION } from "@/components/console/section";
 import { SettingRow } from "@/components/console/settingRow";
-import { PRIMARY_BUTTON } from "@/components/ui";
 import {
   MAX_PASSWORD_CHARS,
   MIN_PASSWORD_CHARS_BY_REALM,
@@ -104,6 +104,9 @@ export function PasswordRow({ realm, changePassword }: PasswordRowProps) {
       close();
     },
   });
+  // The refusal is drawn on the field it concerns or in the notice; the success is the
+  // "Password changed" line the row shows once the form closes.
+  const feedback = useActionFeedback(submit, { errorDisplay: "inline" });
 
   /** Close the form and hand focus back to the control that opened it. */
   function close(): void {
@@ -171,7 +174,7 @@ export function PasswordRow({ realm, changePassword }: PasswordRowProps) {
             event.preventDefault();
             setAttempted(true);
             if (submit.isPending || !canSend) return;
-            submit.mutate();
+            feedback.run();
           }}
         >
           <AuthField
@@ -229,9 +232,14 @@ export function PasswordRow({ realm, changePassword }: PasswordRowProps) {
           </p>
 
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <button type="submit" className={PRIMARY_BUTTON} disabled={submit.isPending || !canSend}>
-              {submit.isPending ? "Saving…" : "Save new password"}
-            </button>
+            <ActionButton
+              type="submit"
+              status={feedback.status}
+              pendingLabel="Saving…"
+              disabled={!canSend && feedback.status !== "pending"}
+            >
+              Save new password
+            </ActionButton>
             <button
               type="button"
               className={TEXT_ACTION}

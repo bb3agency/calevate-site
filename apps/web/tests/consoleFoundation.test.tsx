@@ -12,7 +12,9 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { RowMenu } from "@/components/arc/menu";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { SettingsLayout } from "@/components/console/settingsLayout";
+import { SaveBar } from "@/components/console/saveBar";
 import { StepFlow } from "@/components/console/stepFlow";
+import type { FeedbackStatus } from "@/components/arc/feedback";
 import { formatPhone } from "@/components/ui";
 import { printDocument } from "@/lib/printDocument";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
@@ -245,7 +247,15 @@ describe("SettingsLayout", () => {
   });
 });
 
-function Flow({ onSubmit, onCancel }: { onSubmit: () => void; onCancel?: () => void }) {
+function Flow({
+  onSubmit,
+  onCancel,
+  status,
+}: {
+  onSubmit: () => void;
+  onCancel?: () => void;
+  status?: FeedbackStatus;
+}) {
   const [name, setName] = useState("");
   return (
     <StepFlow
@@ -263,6 +273,7 @@ function Flow({ onSubmit, onCancel }: { onSubmit: () => void; onCancel?: () => v
       review={{ content: <p>Review {name}</p> }}
       submitLabel="Create campaign"
       onSubmit={onSubmit}
+      status={status}
     />
   );
 }
@@ -299,6 +310,54 @@ describe("StepFlow", () => {
     expect((container.firstElementChild as HTMLElement).className).toContain("fixed inset-0");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalled();
+  });
+
+  it("draws its submit button from the feedback status: busy, then the error face", () => {
+    const onSubmit = vi.fn();
+    const { rerender } = render(<Flow onSubmit={onSubmit} status="pending" />);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Diwali recall" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    const submit = screen.getByRole("button", { name: "Create campaign" });
+    expect(submit.getAttribute("aria-busy")).toBe("true");
+    expect((screen.getByRole("button", { name: "Back" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(submit);
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    rerender(<Flow onSubmit={onSubmit} status="error" />);
+    expect(submit.getAttribute("data-status")).toBe("error");
+    expect(submit.textContent).toContain("Try again");
+    fireEvent.click(submit);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("SaveBar", () => {
+  function Bar(props: { status?: FeedbackStatus; saving?: boolean }) {
+    return (
+      <form onSubmit={(event) => event.preventDefault()}>
+        <SaveBar label="Use this voice" onCancel={vi.fn()} {...props} />
+      </form>
+    );
+  }
+
+  it("shows the busy face from `status`, and from `saving` when no status is given", () => {
+    const { rerender } = render(<Bar status="pending" />);
+    const save = screen.getByRole("button", { name: "Use this voice" });
+    expect(save.getAttribute("aria-busy")).toBe("true");
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
+    rerender(<Bar saving />);
+    expect(save.getAttribute("aria-busy")).toBe("true");
+    rerender(<Bar saving status="idle" />);
+    expect(save.getAttribute("aria-busy")).toBeNull();
+  });
+
+  it("keeps the bar on a failure with the error face, and Cancel usable", () => {
+    render(<Bar status="error" />);
+    const save = screen.getByRole("button", { name: "Use this voice" });
+    expect(save.getAttribute("data-status")).toBe("error");
+    expect(save.textContent).toContain("Try again");
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
 

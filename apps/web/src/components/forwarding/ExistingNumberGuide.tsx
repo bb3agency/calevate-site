@@ -98,7 +98,7 @@ export function ExistingNumberGuide({
       onCancel={onSkip}
       cancelLabel="Skip for now"
       submitLabel="Save and show my codes"
-      pending={addFeedback.status === "pending"}
+      status={addFeedback.status}
       error={add.error ? <ProblemNotice error={add.error} /> : null}
       onSubmit={() => {
         if (!mode || !attest) return;

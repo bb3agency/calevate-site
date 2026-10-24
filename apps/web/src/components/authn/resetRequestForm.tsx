@@ -25,8 +25,9 @@ import { useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { MailCheck, Send } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { AuthField, AuthProblemNotice } from "@/components/authn/fields";
-import { Card, NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
+import { Card, NoticeBox } from "@/components/ui";
 import type { RealmAuthn } from "@/lib/authn/realm";
 import { useIdempotencyKey } from "@/lib/authn/useIdempotencyKey";
 
@@ -38,6 +39,8 @@ export function ResetRequestForm({ authn }: { authn: RealmAuthn }) {
   const request = useMutation({
     mutationFn: () => authn.requestPasswordReset(address, idempotencyKey),
   });
+  // The refusal stays in `AuthProblemNotice`'s generic words; the success is the card below.
+  const feedback = useActionFeedback(request, { errorDisplay: "inline" });
 
   if (request.isSuccess) {
     return (
@@ -80,7 +83,7 @@ export function ResetRequestForm({ authn }: { authn: RealmAuthn }) {
           // in-flight submit per form means a double-click and a double Enter cannot each
           // send a mail.
           if (request.isPending) return;
-          request.mutate();
+          feedback.run();
         }}
       >
         <AuthField
@@ -94,14 +97,15 @@ export function ResetRequestForm({ authn }: { authn: RealmAuthn }) {
 
         <AuthProblemNotice error={request.error} />
 
-        <button
+        <ActionButton
           type="submit"
-          className={PRIMARY_BUTTON}
-          disabled={request.isPending || address === ""}
+          status={feedback.status}
+          pendingLabel="Sending…"
+          disabled={address === "" && feedback.status !== "pending"}
         >
           <Send aria-hidden className="h-4 w-4" />
-          {request.isPending ? "Sending…" : "Email me a reset link"}
-        </button>
+          Email me a reset link
+        </ActionButton>
       </form>
     </Card>
   );

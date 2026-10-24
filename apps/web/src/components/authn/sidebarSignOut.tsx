@@ -46,6 +46,7 @@ import { useCallback, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { SidebarLabel } from "@/components/sidebarCollapse";
 import { TEXT_ACTION } from "@/components/console/section";
 import { NoticeBox } from "@/components/ui";
@@ -90,7 +91,10 @@ export function SidebarSignOut({ authn, signInPath, isCollapsed }: SidebarSignOu
     // is the exception, and it is handled where the refusal would otherwise be drawn.
   });
 
-  const busy = signOut.isPending;
+  // The refusal is the notice below (or the sign-in screen's, from the collapsed rail), so
+  // it is not toasted; a success leaves the console.
+  const feedback = useActionFeedback(signOut, { errorDisplay: "inline" });
+  const busy = feedback.status === "pending";
   const refused = signOut.error != null;
 
   // 72px of rail cannot state a refusal, so it carries one instead — to the sign-in
@@ -110,7 +114,8 @@ export function SidebarSignOut({ authn, signInPath, isCollapsed }: SidebarSignOu
       // the second reliably 401s — turning a successful sign-out into the incomplete
       // notice.
       disabled={busy}
-      onClick={() => signOut.mutate()}
+      aria-busy={busy || undefined}
+      onClick={() => feedback.run()}
       title={isCollapsed ? "Sign out" : undefined}
       aria-label="Sign out"
       // `px-4` inside the footer's `px-3` puts this glyph's centre on 36px — the collapsed

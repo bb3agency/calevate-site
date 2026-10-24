@@ -4,7 +4,7 @@ import { useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { CheckCircle2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { useActionFeedback } from "@/components/arc/feedback";
+import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { InfoTip } from "@/components/console/infoTip";
 import { ModelLogo } from "@/components/console/modelLogo";
@@ -56,7 +56,8 @@ const NEXT_CALL_NOTE = "Applies from the next call. A call in progress finishes 
 interface SaveControl {
   /** Why this reader may not change it, or null when they may. */
   disabledReason: string | null;
-  saving: boolean;
+  /** The mount's `useActionFeedback` status, drawn on the save bar. */
+  status: FeedbackStatus;
   error: Error | null;
   onSave: (value: string | null, done: () => void) => void;
 }
@@ -116,7 +117,7 @@ export function EngineVoiceList({
   if (!data.available) return null;
 
   const lockReason = !data.choosable ? (data.choice_note ?? null) : (control?.disabledReason ?? null);
-  const locked = !control || lockReason !== null || control.saving;
+  const locked = !control || lockReason !== null || control.status === "pending";
   // A Studio voice runs only beside a model the platform allows with it; the server refuses
   // the pair by name (`engine_model_not_with_studio_voice`) and this says so before the save.
   const savedModel = data.models.find((entry) => entry.model_id === modelId);
@@ -220,11 +221,11 @@ export function EngineVoiceList({
       }}
     >
       {cards}
-      {(changed || control.saving) && (
+      {(changed || control.status === "pending") && (
         <SaveBar
           label="Use this voice"
-          saving={control.saving}
-          disabled={locked && !control.saving}
+          status={control.status}
+          disabled={locked && control.status !== "pending"}
           onCancel={() => setPicked(null)}
           note={NEXT_CALL_NOTE}
         />
@@ -285,7 +286,7 @@ export function EngineModelList({
   if (!data.available) return null;
 
   const lockReason = !data.choosable ? (data.choice_note ?? null) : (control?.disabledReason ?? null);
-  const locked = !control || lockReason !== null || control.saving;
+  const locked = !control || lockReason !== null || control.status === "pending";
   // On a Studio voice the platform runs only the models it allows beside our own voice key;
   // the rest are not offered at all rather than listed as refusals (founder, 11 Oct 2026).
   const studio = data.voices.find((entry) => entry.voice_id === voiceId)?.rung === "studio";
@@ -365,11 +366,11 @@ export function EngineModelList({
       }}
     >
       {list}
-      {(changed || control.saving) && (
+      {(changed || control.status === "pending") && (
         <SaveBar
           label="Save model"
-          saving={control.saving}
-          disabled={locked && !control.saving}
+          status={control.status}
+          disabled={locked && control.status !== "pending"}
           onCancel={() => setPicked(null)}
           note={NEXT_CALL_NOTE}
         />
@@ -479,18 +480,20 @@ function ChoiceCard({
  * ═══════════════════════════════════════════════════════════════════════════════════ */
 
 /**
- * Each mount passes its write through `useActionFeedback` with `errorDisplay: "inline"`:
- * the list draws the busy save bar and the refusal itself (`SaveControl`).
+ * Each mount passes its write through `useActionFeedback` with `errorDisplay: "inline"`: the
+ * list draws the save bar's faces and the refusal itself (`SaveControl`). The bar closes on
+ * success, so the success is a toast.
  */
 function saveControl(
   save: ReturnType<typeof useUpdateAgent>,
+  status: FeedbackStatus,
   disabledReason: string | null,
   field: "engine_voice_id" | "engine_model_id",
   onSaved?: () => void,
 ): SaveControl {
   return {
     disabledReason,
-    saving: save.isPending,
+    status,
     error: save.error,
     onSave: (value, done) =>
       save.mutate({ [field]: value }, {
@@ -514,7 +517,7 @@ export function TenantEngineVoices({
 }) {
   const client = useQueryClient();
   const save = useUpdateAgent(viewAsSession(slug), agent?.id ?? "");
-  useActionFeedback(save, { errorDisplay: "inline" });
+  const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Voice saved" });
   // The console reads this agent from its own roster query, which the client hook's refresh
   // does not know about.
   const refreshRoster = () => void client.invalidateQueries({ queryKey: ["admin", "agents", slug] });
@@ -523,7 +526,7 @@ export function TenantEngineVoices({
       catalogue={useTenantEngineCatalogue(slug)}
       voiceId={agent?.engine_voice_id ?? null}
       modelId={agent?.engine_model_id ?? null}
-      control={agent ? saveControl(save, disabledReason, "engine_voice_id", refreshRoster) : undefined}
+      control={agent ? saveControl(save, feedback.status, disabledReason, "engine_voice_id", refreshRoster) : undefined}
       previewSession={viewAsSession(slug)}
       audience="operator"
     />
@@ -544,14 +547,14 @@ export function TenantEngineModels({
 }) {
   const client = useQueryClient();
   const save = useUpdateAgent(viewAsSession(slug), agent?.id ?? "");
-  useActionFeedback(save, { errorDisplay: "inline" });
+  const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Model saved" });
   const refreshRoster = () => void client.invalidateQueries({ queryKey: ["admin", "agents", slug] });
   return (
     <EngineModelList
       catalogue={useTenantEngineCatalogue(slug)}
       voiceId={agent?.engine_voice_id ?? null}
       modelId={agent?.engine_model_id ?? null}
-      control={agent ? saveControl(save, disabledReason, "engine_model_id", refreshRoster) : undefined}
+      control={agent ? saveControl(save, feedback.status, disabledReason, "engine_model_id", refreshRoster) : undefined}
       bandControl={bandControl}
     />
   );
@@ -561,13 +564,13 @@ export function TenantEngineModels({
 export function ClientEngineVoices({ session, agentId }: { session: Session; agentId: string }) {
   const agent = useAgent(session, agentId);
   const save = useUpdateAgent(session, agentId);
-  useActionFeedback(save, { errorDisplay: "inline" });
+  const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Voice saved" });
   return (
     <EngineVoiceList
       catalogue={useEngineCatalogue(session)}
       voiceId={agent.data?.engine_voice_id ?? null}
       modelId={agent.data?.engine_model_id ?? null}
-      control={agent.data ? saveControl(save, null, "engine_voice_id") : undefined}
+      control={agent.data ? saveControl(save, feedback.status, null, "engine_voice_id") : undefined}
       previewSession={session}
       audience="client"
     />

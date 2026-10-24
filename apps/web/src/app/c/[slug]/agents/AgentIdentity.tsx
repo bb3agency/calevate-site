@@ -287,7 +287,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
       {(changed || save.isPending) && (
         <SaveBar
           label="Save changes"
-          saving={saveFeedback.status === "pending"}
+          status={saveFeedback.status}
           disabled={!write.allowed}
           title={write.reason ?? undefined}
           onCancel={() => {

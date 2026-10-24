@@ -31,9 +31,9 @@ export function CallHandlingPanel({
 }) {
   const state = useTenantAgentCallHandling(slug, agentId);
   const save = useAdminSetAgentCallHandling({ tenantId, agentId, slug });
-  // The shared rows draw their own saving state and refusal beside the control, so the
-  // feedback here only keeps the outcome announced; a toast would say it twice.
-  useActionFeedback(save, { errorDisplay: "inline" });
+  // The row that saved shows pending and the error face on its save bar, with the refusal
+  // beside it; the bar closes on success, so the success is a toast.
+  const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Call settings saved" });
 
   if (state.isLoading) return <Skeleton rows={2} />;
   if (state.error || !state.data) {
@@ -60,7 +60,7 @@ export function CallHandlingPanel({
           minMs={data.bounds.turn_silence_min_ms}
           maxMs={data.bounds.turn_silence_max_ms}
           canChange={write.allowed}
-          saving={save.isPending && save.variables?.turn_silence_ms !== undefined}
+          status={save.variables?.turn_silence_ms !== undefined ? feedback.status : "idle"}
           error={save.variables?.turn_silence_ms !== undefined ? save.error : null}
           onSave={(next, done) => save.mutate({ turn_silence_ms: next }, { onSuccess: done })}
         />
@@ -71,7 +71,7 @@ export function CallHandlingPanel({
           own={data.end_call_on_finish}
           inheritLabel={labels.hangUp}
           canChange={write.allowed}
-          saving={save.isPending && save.variables?.end_call_on_finish !== undefined}
+          status={save.variables?.end_call_on_finish !== undefined ? feedback.status : "idle"}
           error={save.variables?.end_call_on_finish !== undefined ? save.error : null}
           onSave={(next, done) => save.mutate({ end_call_on_finish: next }, { onSuccess: done })}
         />
@@ -80,6 +80,7 @@ export function CallHandlingPanel({
           data={data}
           canChange={write.allowed}
           save={save}
+          status={feedback.status}
         />
       </SettingRows>
     </div>

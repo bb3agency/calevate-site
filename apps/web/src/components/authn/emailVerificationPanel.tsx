@@ -17,10 +17,10 @@ import { useRef, useState } from "react";
 
 import { useMutation } from "@tanstack/react-query";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { AuthProblemNotice } from "@/components/authn/fields";
 import { TEXT_ACTION } from "@/components/console/section";
 import { OtpInput } from "@/components/interior/otp-input";
-import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
 import type { RealmAuthn } from "@/lib/authn/realm";
 import { OTP_LENGTH, OTP_RESEND_COOLDOWN_MS } from "@/lib/authn/otp";
 import { useCountdown } from "@/lib/authn/useCountdown";
@@ -64,17 +64,21 @@ export function EmailVerificationPanel({
     },
   });
 
+  // Refusals are `AuthProblemNotice`'s generic words beside the field, never toasted.
+  const requestFeedback = useActionFeedback(requestCode, { errorDisplay: "inline" });
+  const verifyFeedback = useActionFeedback(verify, { errorDisplay: "inline" });
+
   // One submission per code: the last digit submits it, and a paste, an autofill and an
   // Enter landing together must not send it twice.
   const submitOnce = (value: string) => {
     if (inFlight.current || value.length !== OTP_LENGTH) return;
     inFlight.current = true;
-    verify.mutate(value);
+    verifyFeedback.run(value);
   };
 
   const resend = () => {
     if (requestCode.isPending || cooldown > 0) return;
-    requestCode.mutate();
+    requestFeedback.run();
   };
 
   if (!sent) {
@@ -84,14 +88,14 @@ export function EmailVerificationPanel({
           We email a six-digit code to this address. It works for ten minutes.
         </p>
         <AuthProblemNotice error={requestCode.error} />
-        <button
-          type="button"
-          className={SECONDARY_BUTTON}
-          disabled={requestCode.isPending}
+        <ActionButton
+          variant="secondary"
+          status={requestFeedback.status}
+          pendingLabel="Sending…"
           onClick={resend}
         >
-          {requestCode.isPending ? "Sending…" : "Email me a code"}
-        </button>
+          Email me a code
+        </ActionButton>
       </div>
     );
   }
@@ -117,13 +121,15 @@ export function EmailVerificationPanel({
       />
       <AuthProblemNotice error={verify.error ?? requestCode.error} />
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-        <button
+        <ActionButton
           type="submit"
-          className={PRIMARY_BUTTON}
-          disabled={verify.isPending || code.length !== OTP_LENGTH}
+          status={verifyFeedback.status}
+          pendingLabel="Checking…"
+          successLabel="Verified"
+          disabled={code.length !== OTP_LENGTH && verifyFeedback.status !== "pending"}
         >
-          {verify.isPending ? "Checking…" : "Verify"}
-        </button>
+          Verify
+        </ActionButton>
         <button
           type="button"
           className={TEXT_ACTION}

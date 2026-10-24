@@ -24,6 +24,7 @@ import {
   DefaultCheckbox,
   SliderField,
 } from "@/components/callHandlingRows";
+import { type FeedbackStatus } from "@/components/arc/feedback";
 import { SaveBar } from "@/components/console/saveBar";
 import { TEXT_ACTION } from "@/components/console/section";
 import { SettingRow } from "@/components/console/settingRow";
@@ -55,7 +56,8 @@ interface Common {
   /** What "use the default" resolves to, and whose default it is. */
   inherited: InheritedVoice;
   canChange: boolean;
-  saving: boolean;
+  /** This row's save, from the caller's `useActionFeedback`. */
+  status: FeedbackStatus;
   error: Error | null;
 }
 
@@ -69,22 +71,22 @@ function ChangeButton({ onClick }: { onClick: () => void }) {
 
 function Footer({
   changed,
-  saving,
+  status,
   label,
   disabled,
   onClose,
 }: {
   changed: boolean;
-  saving: boolean;
+  status: FeedbackStatus;
   label: string;
   disabled?: boolean;
   onClose: () => void;
 }) {
-  if (changed || saving) {
+  if (changed || status === "pending") {
     return (
       <SaveBar
         label={label}
-        saving={saving}
+        status={status}
         disabled={disabled}
         onCancel={onClose}
         note={CALL_HANDLING_NEXT_CALL}
@@ -134,7 +136,7 @@ export function SilenceRow({
   bounds,
   inherited,
   canChange,
-  saving,
+  status,
   error,
   own,
   effective,
@@ -362,7 +364,7 @@ export function SilenceRow({
               />
             )}
           </fieldset>
-          <Footer changed={changed} saving={saving} label="Save" disabled={!valid} onClose={close} />
+          <Footer changed={changed} status={status} label="Save" disabled={!valid} onClose={close} />
         </form>
       )}
     </div>
@@ -379,7 +381,7 @@ export function FillerLinesRow({
   bounds,
   inherited,
   canChange,
-  saving,
+  status,
   error,
   own,
   effective,
@@ -505,7 +507,7 @@ export function FillerLinesRow({
               </div>
             )}
           </div>
-          <Footer changed={changed} saving={saving} label="Save lines" disabled={!valid} onClose={close} />
+          <Footer changed={changed} status={status} label="Save lines" disabled={!valid} onClose={close} />
         </form>
       )}
     </div>
@@ -536,7 +538,7 @@ export function BackgroundSoundRow({
   bounds,
   inherited,
   canChange,
-  saving,
+  status,
   error,
   own,
   effective,
@@ -639,7 +641,7 @@ export function BackgroundSoundRow({
               />
             )}
           </div>
-          <Footer changed={changed} saving={saving} label="Save sound" onClose={close} />
+          <Footer changed={changed} status={status} label="Save sound" onClose={close} />
         </form>
       )}
     </div>
@@ -657,11 +659,14 @@ export function AgentVoiceRows({
   data,
   canChange,
   save,
+  status,
 }: {
   idPrefix: string;
   data: AgentCallHandling;
   canChange: boolean;
   save: UseMutationResult<AgentCallHandling, Error, AgentCallHandlingIn>;
+  /** The caller's `useActionFeedback(save).status`, shown on the row that saved. */
+  status: FeedbackStatus;
 }) {
   const [row, setRow] = useState<VoiceRow | null>(null);
   const inherited = inheritedVoice(data);
@@ -669,7 +674,7 @@ export function AgentVoiceRows({
     setRow(which);
     save.mutate(payload, { onSuccess: done });
   };
-  const busy = (which: VoiceRow) => save.isPending && row === which;
+  const rowStatus = (which: VoiceRow): FeedbackStatus => (row === which ? status : "idle");
   const failed = (which: VoiceRow) => (row === which ? save.error : null);
   return (
     <>
@@ -684,7 +689,7 @@ export function AgentVoiceRows({
         bounds={data.bounds}
         inherited={inherited}
         canChange={canChange}
-        saving={busy("silence")}
+        status={rowStatus("silence")}
         error={failed("silence")}
         own={{
           nudge_after_seconds: data.nudge_after_seconds,
@@ -706,7 +711,7 @@ export function AgentVoiceRows({
         bounds={data.bounds}
         inherited={inherited}
         canChange={canChange}
-        saving={busy("filler")}
+        status={rowStatus("filler")}
         error={failed("filler")}
         own={data.filler_lines}
         effective={data.filler_lines_effective}
@@ -718,7 +723,7 @@ export function AgentVoiceRows({
         bounds={data.bounds}
         inherited={inherited}
         canChange={canChange}
-        saving={busy("sound")}
+        status={rowStatus("sound")}
         error={failed("sound")}
         own={{ ambience: data.ambience, ambience_volume_pct: data.ambience_volume_pct }}
         effective={{

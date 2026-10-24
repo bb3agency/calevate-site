@@ -50,9 +50,10 @@ import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { AuthField, AuthProblemNotice } from "@/components/authn/fields";
 import { OtpInput } from "@/components/interior/otp-input";
-import { NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
+import { NoticeBox } from "@/components/ui";
 import {
   SIGN_OUT_INCOMPLETE_PARAM,
   SIGN_OUT_INCOMPLETE_VALUE,
@@ -64,8 +65,8 @@ import { AUTHN_CODES, codeOf } from "@/lib/authn/problems";
 import type { AuthnSession, RealmAuthn } from "@/lib/authn/realm";
 import { useCountdown } from "@/lib/authn/useCountdown";
 
-/** The full-width primary action an auth card ends with. */
-const SUBMIT = `${PRIMARY_BUTTON} w-full justify-center py-2.5`;
+/** The full-width primary action an auth card ends with, on top of `ActionButton`'s look. */
+const SUBMIT = "w-full py-2.5";
 /** A quiet text action: the resend and the step back. */
 const TEXT_ACTION =
   "inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-brand-strong underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:text-brand-bright touch:min-h-11";
@@ -169,14 +170,20 @@ export function SignInForm({
     },
   });
 
+  // Every refusal is `AuthProblemNotice`'s generic sentence beside the form, never a toast
+  // carrying the server's words: those must not say whether an address has an account.
+  const signInFeedback = useActionFeedback(signIn, { errorDisplay: "inline" });
+  const submitCodeFeedback = useActionFeedback(submitCode, { errorDisplay: "inline" });
+  const runSubmitCode = submitCodeFeedback.run;
+
   const submitOnce = useCallback(
     (value: string) => {
       if (codeInFlight.current || value.length !== OTP_LENGTH) return;
       codeInFlight.current = true;
       setResent(false);
-      submitCode.mutate(value);
+      runSubmitCode(value);
     },
-    [submitCode],
+    [runSubmitCode],
   );
 
   const resend = useMutation({
@@ -203,6 +210,8 @@ export function SignInForm({
     },
   });
 
+  const resendFeedback = useActionFeedback(resend, { errorDisplay: "inline" });
+
   const startOver = useCallback(() => {
     // Ends the half-authenticated session rather than merely hiding it.
     void authn.signOut().catch(() => {
@@ -225,7 +234,7 @@ export function SignInForm({
     // Single flight: Enter in a text field submits the form, and a second Enter before
     // React re-renders would otherwise dispatch a second sign-in.
     if (signIn.isPending) return;
-    signIn.mutate();
+    signInFeedback.run();
   };
 
   const onCode = (event: FormEvent) => {
@@ -272,13 +281,14 @@ export function SignInForm({
           {checking ? "Checking the code…" : resent ? "A new code is on its way. It replaces the last one." : ""}
         </p>
 
-        <button
+        <ActionButton
           type="submit"
           className={SUBMIT}
-          disabled={checking || code.length !== OTP_LENGTH}
+          status={submitCodeFeedback.status}
+          disabled={!checking && code.length !== OTP_LENGTH}
         >
           Finish signing in
-        </button>
+        </ActionButton>
 
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <button
@@ -287,7 +297,7 @@ export function SignInForm({
             disabled={resend.isPending || cooldown > 0}
             onClick={() => {
               if (resend.isPending || cooldown > 0) return;
-              resend.mutate();
+              resendFeedback.run();
             }}
           >
             {cooldown > 0 ? (
@@ -361,13 +371,15 @@ export function SignInForm({
 
       <AuthProblemNotice error={signIn.error} />
 
-      <button
+      <ActionButton
         type="submit"
         className={SUBMIT}
-        disabled={signIn.isPending || email.trim() === "" || password === ""}
+        status={signInFeedback.status}
+        pendingLabel="Signing in…"
+        disabled={signInFeedback.status !== "pending" && (email.trim() === "" || password === "")}
       >
-        {signIn.isPending ? "Signing in…" : "Sign in"}
-      </button>
+        Sign in
+      </ActionButton>
 
       {footer}
     </form>
