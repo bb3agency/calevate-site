@@ -51422,6 +51422,10 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                /** @description The last IST day of the period (YYYY-MM-DD). When sent, the panel covers `days` IST calendar days ending on it, like /v1/analytics; when left out, the last `days` days of 24 hours up to now. */
+                to?: string | null;
+                /** @description False leaves out the owner's own test calls (D-697, D-859). */
+                test_calls?: boolean;
             };
             header?: never;
             path?: never;

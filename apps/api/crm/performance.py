@@ -64,10 +64,29 @@ IST_DAY_SQL = f"{IST_STARTED_AT_SQL}::date"
 IST_TODAY_SQL = f"(now() AT TIME ZONE '{IST_ZONE}')::date"
 
 
-async def performance(session: AsyncSession, *, days: int = 30) -> dict[str, Any]:
-    """The whole tab in three aggregate queries over tenant-scoped tables."""
-    days = max(1, min(days, 365))
-    since = datetime.now(UTC) - timedelta(days=days)
+#: The calls the panel covers. `:until` NULL is "up to now"; `:test` False leaves out
+#: free-trial and paid test calls (D-697, D-859), the owner ringing their own agent.
+_CALLS_IN_WINDOW = (
+    "created_at >= :since AND (CAST(:until AS timestamptz) IS NULL OR created_at < :until) "
+    "AND (CAST(:test AS boolean) OR NOT (trial_call OR paid_test_call))"
+)
+
+
+async def performance(
+    session: AsyncSession,
+    *,
+    days: int = 30,
+    window: tuple[datetime, datetime] | None = None,
+    test_calls: bool = True,
+) -> dict[str, Any]:
+    """The whole tab in three aggregate queries over tenant-scoped tables.
+
+    `window` is a half-open instant range (the screen's IST calendar days, resolved by
+    the route); without one the panel covers the last `days` days of 24 hours up to now.
+    """
+    days = max(1, min(days, 366))
+    since, until = window if window else (datetime.now(UTC) - timedelta(days=days), None)
+    params = {"since": since, "until": until, "test": test_calls}
 
     funnel_row = (
         await session.execute(
@@ -77,9 +96,9 @@ async def performance(session: AsyncSession, *, days: int = 30) -> dict[str, Any
                 "  count(*) FILTER (WHERE direction = 'inbound') AS inbound, "
                 "  count(*) FILTER (WHERE direction = 'outbound') AS outbound, "
                 "  avg(duration_s) FILTER (WHERE status = 'completed') AS avg_duration "
-                "FROM calls WHERE created_at >= :since"
+                f"FROM calls WHERE {_CALLS_IN_WINDOW}"
             ),
-            {"since": since},
+            params,
         )
     ).first()
     calls = int(funnel_row[0] or 0) if funnel_row else 0
@@ -89,9 +108,10 @@ async def performance(session: AsyncSession, *, days: int = 30) -> dict[str, Any
         await session.execute(
             text(
                 "SELECT count(*) FROM leads WHERE deleted_at IS NULL "
-                f"AND status IN {QUALIFIED_STATUSES!r} AND updated_at >= :since"
+                f"AND status IN {QUALIFIED_STATUSES!r} AND updated_at >= :since "
+                "AND (CAST(:until AS timestamptz) IS NULL OR updated_at < :until)"
             ),
-            {"since": since},
+            {"since": since, "until": until},
         )
     ).scalar()
 
@@ -99,9 +119,9 @@ async def performance(session: AsyncSession, *, days: int = 30) -> dict[str, Any
         await session.execute(
             text(
                 "SELECT COALESCE(outcome_tag, status), count(*) FROM calls "
-                "WHERE created_at >= :since GROUP BY 1 ORDER BY 2 DESC"
+                f"WHERE {_CALLS_IN_WINDOW} GROUP BY 1 ORDER BY 2 DESC"
             ),
-            {"since": since},
+            params,
         )
     ).all()
 
@@ -112,10 +132,10 @@ async def performance(session: AsyncSession, *, days: int = 30) -> dict[str, Any
         await session.execute(
             text(
                 f"SELECT {IST_HOUR_SQL}::int, "
-                "count(*) FROM calls WHERE started_at IS NOT NULL AND created_at >= :since "
+                f"count(*) FROM calls WHERE started_at IS NOT NULL AND {_CALLS_IN_WINDOW} "
                 "GROUP BY 1"
             ),
-            {"since": since},
+            params,
         )
     ).all():
         hours[int(hour)] = int(count)

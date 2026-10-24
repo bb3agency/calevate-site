@@ -28,10 +28,23 @@ type Schemas = components["schemas"];
 
 export type Performance = Schemas["PerformanceOut"];
 
-export function usePerformance(session: Session, days: number): UseQueryResult<Performance> {
+/**
+ * `to` (an IST date, YYYY-MM-DD) makes the panel cover `days` IST calendar days ending on
+ * it, the same window /v1/analytics reads; without it, the last `days` days up to now.
+ * `testCalls: false` leaves out the owner's own test calls.
+ */
+export function usePerformance(
+  session: Session,
+  days: number,
+  options: { to?: string; testCalls?: boolean } = {},
+): UseQueryResult<Performance> {
+  const { to, testCalls = true } = options;
+  const query = new URLSearchParams({ days: String(days) });
+  if (to) query.set("to", to);
+  if (!testCalls) query.set("test_calls", "false");
   return useQuery({
-    queryKey: ["performance", session.orgSlug, days],
-    queryFn: () => apiRequest<Performance>(session, `/v1/performance?days=${days}`),
+    queryKey: ["performance", session.orgSlug, days, to ?? null, testCalls],
+    queryFn: () => apiRequest<Performance>(session, `/v1/performance?${query.toString()}`),
     // Aggregates over closed calls; nothing here moves second-to-second.
     staleTime: 60_000,
     // Switching 7 → 30 → 90 keeps the previous numbers on screen instead of

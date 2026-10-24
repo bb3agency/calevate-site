@@ -31,7 +31,7 @@ free-form object any more.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -39,11 +39,12 @@ from apps.api.admin.routes import MarginOut, TierSplitOut
 from apps.api.agents import prompts
 from apps.api.agents.llm_tiers import client_model_labels
 from apps.api.agents.prompt_routes import PromptVersionOut
+from apps.api.analytics.service import today_ist
 from apps.api.billing import service as billing
 from apps.api.billing.attribution import month_trial_cost_inr, paid_margin
 from apps.api.billing.gst import GST_STATUS_SENTENCE
 from apps.api.billing.invoice import build_invoice
-from apps.api.billing.plans import ist_month_window
+from apps.api.billing.plans import IST, ist_month_window
 from apps.api.billing.routes import AdminInvoiceOut, InvoiceOut
 from apps.api.billing.trials import trial_overlaps
 from apps.api.crm.attention import attention_queue
@@ -437,6 +438,47 @@ async def test_the_performance_panel_answers_a_declared_model_with_calls_in_it()
     assert panel.outcomes["no_answer"] == 1, "an untagged call reports its status honestly"
     assert len(panel.busiest_hours_ist) == 24, "all 24 buckets, even the silent ones"
     assert panel.busiest_hours_ist[11] == 2 and panel.busiest_hours_ist[5] == 0
+
+
+async def test_the_performance_panel_covers_the_ist_days_asked_and_can_leave_out_tests() -> None:
+    tenant_id, agent_id, headers = await _owner_tenant("pwin")
+    yesterday = today_ist() - timedelta(days=1)
+    async with tenant_session(tenant_id) as session:
+        # Noon IST yesterday (two calls, one a test call) and noon IST today (one call).
+        for day_offset, trial in ((1, False), (1, True), (0, False)):
+            await session.execute(
+                text(
+                    "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                    "to_e164, status, duration_s, trial_call, started_at, created_at, "
+                    "updated_at) VALUES (:i, :t, :a, :e, 'outbound', '+919876500001', "
+                    "'completed', 60, :trial, :at, :at, now())"
+                ),
+                {
+                    "i": uuid7(),
+                    "t": tenant_id,
+                    "a": agent_id,
+                    "e": f"pwin_{uuid.uuid4().hex[:12]}",
+                    "trial": trial,
+                    "at": datetime.combine(
+                        today_ist() - timedelta(days=day_offset), time(12), tzinfo=IST
+                    ),
+                },
+            )
+
+    async with _client() as http:
+        day = await http.get(f"{PERFORMANCE}?days=1&to={yesterday}", headers=headers)
+        no_tests = await http.get(
+            f"{PERFORMANCE}?days=1&to={yesterday}&test_calls=false", headers=headers
+        )
+        future = await http.get(
+            f"{PERFORMANCE}?days=1&to={today_ist() + timedelta(days=1)}", headers=headers
+        )
+
+    assert day.status_code == 200, day.text
+    assert PerformanceOut.model_validate(day.json()).funnel.calls == 2, "yesterday only"
+    assert PerformanceOut.model_validate(no_tests.json()).funnel.calls == 1
+    assert future.status_code == 422
+    assert future.json()["type"].endswith("/analytics_range_in_future")
 
 
 async def test_the_performance_rates_stay_null_rather_than_zero_over_the_wire() -> None:

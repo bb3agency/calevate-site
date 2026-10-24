@@ -57,17 +57,14 @@ import {
  * How the agents are doing over a range of IST days the owner picks (SURFACES §2).
  *
  * Every figure is the server's. The range drives the analytics reads (`days` ending on
- * `to`, D-869); the funnel and the outcome list come from `/v1/performance`, which only
- * measures the last N days ending today, so for a range that ends earlier those two panels
- * say so instead of showing figures for a different period.
+ * `to`, D-869), and so do the funnel and the outcome list from `/v1/performance`, which
+ * takes the same `days`, `to` and test-call switch.
  *
  * The activity timeline reads a longer stretch than the range (at least 90 days) so the
  * brush has context, and opens on the chosen range.
  */
 
 const MAX_DAYS = 366;
-/** `/v1/performance` caps `days` at 365. */
-const PERFORMANCE_MAX_DAYS = 365;
 const TIMELINE_MIN_DAYS = 90;
 
 function defaultRange(): DateRange {
@@ -85,7 +82,6 @@ export function PerformanceScreen() {
 
   const today = todayIST();
   const days = Math.min(MAX_DAYS, daysBetween(range.start, range.end));
-  const endsToday = range.end === today;
   const window: AnalyticsRange = { days, to: range.end, testCalls };
 
   const stats = useAnalyticsStats(session, window);
@@ -93,8 +89,7 @@ export function PerformanceScreen() {
   const durations = useCallDurations(session, { ...window, groupBy, binSeconds: 30 });
   const timelineDays = Math.min(MAX_DAYS, Math.max(days, TIMELINE_MIN_DAYS));
   const timeline = useActivityTimeline(session, { days: timelineDays, to: range.end, testCalls });
-  const perfDays = Math.min(PERFORMANCE_MAX_DAYS, days);
-  const perf = usePerformance(session, perfDays);
+  const perf = usePerformance(session, days, { to: range.end, testCalls });
   // A stretch with no calls at all is the chart's empty state, not a flat line to drag along.
   const drawnDays = timeline.data && timeline.data.calls > 0 ? timeline.data.days : [];
 
@@ -131,7 +126,7 @@ export function PerformanceScreen() {
             value: `${metric.value ?? "nothing to measure"}; before: ${metric.previous ?? "nothing to measure"}`,
           }))
         : []),
-      ...(perf.data && endsToday
+      ...(perf.data
         ? [
             { key: "calls", label: "Calls in the period", value: String(perf.data.funnel.calls) },
             { key: "connected", label: "Of those, answered", value: String(perf.data.funnel.connected) },
@@ -236,10 +231,10 @@ export function PerformanceScreen() {
 
       <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-12">
         <Section title="From calls to customers" info={FUNNEL_NOTE} className="lg:col-span-7">
-          <PerformancePanel perf={perf} endsToday={endsToday} testCalls={testCalls} kind="funnel" />
+          <PerformancePanel perf={perf} kind="funnel" />
         </Section>
         <Section title="How calls ended" info={OUTCOMES_NOTE} className="lg:col-span-5">
-          <PerformancePanel perf={perf} endsToday={endsToday} testCalls={testCalls} kind="outcomes" />
+          <PerformancePanel perf={perf} kind="outcomes" />
         </Section>
       </div>
 
@@ -315,32 +310,17 @@ function formatCountOfCalls(n: number): string {
 /** The two `/v1/performance` panels, with its own loading and failure arms. */
 function PerformancePanel({
   perf,
-  endsToday,
-  testCalls,
   kind,
 }: {
   perf: ReturnType<typeof usePerformance>;
-  endsToday: boolean;
-  testCalls: boolean;
   kind: "funnel" | "outcomes";
 }) {
-  if (!endsToday) {
-    return (
-      <p className="text-body text-ink-muted [text-wrap:pretty]">
-        This part is counted up to today only. Choose dates that end today to see it.
-      </p>
-    );
-  }
   if (perf.error && !perf.data) {
     return <ProblemNotice error={perf.error} onRetry={() => void perf.refetch()} />;
   }
   if (!perf.data) return <Skeleton rows={3} />;
   // `perf.data.days` is the period the server measured, which can trail the control while a
   // new range loads.
-  // This read cannot leave test calls out; say so rather than let the toggle imply it did.
-  const testNote = testCalls ? null : (
-    <p className="text-meta text-ink-muted">Your test calls are counted here.</p>
-  );
   return kind === "funnel" ? (
     <div className="space-y-3">
       <Funnel funnel={perf.data.funnel} days={perf.data.days} />
@@ -349,12 +329,10 @@ function PerformancePanel({
           {formatCount(perf.data.inbound)} incoming, {formatCount(perf.data.outbound)} outgoing
         </p>
       ) : null}
-      {testNote}
     </div>
   ) : (
     <div className="space-y-3">
       <Outcomes outcomes={perf.data.outcomes} days={perf.data.days} />
-      {testNote}
     </div>
   );
 }

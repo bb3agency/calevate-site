@@ -11,7 +11,7 @@ raw transcript, recording link, and "call this lead".
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID
@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.llm_tiers import client_model_labels
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.agents.trial_panel import read_trial_panel
+from apps.api.analytics.service import MAX_RANGE_DAYS, resolve_window
 from apps.api.billing import service as billing
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.billing.rates import PREPAID_TIERS
@@ -1427,13 +1428,28 @@ async def performance_panel(
     # aggregate any `calls:read` holder could ask for, repeatedly, inside the ordinary
     # rate limit. A year is past every window this panel offers and is a cheap ceiling;
     # `ge=1` refuses the zero-width window that returned a panel of zeroes.
-    days: int = Query(30, ge=1, le=365),
+    days: int = Query(30, ge=1, le=MAX_RANGE_DAYS),
+    to: date | None = Query(
+        None,
+        description="The last IST day of the period (YYYY-MM-DD). When sent, the panel "
+        "covers `days` IST calendar days ending on it, like /v1/analytics; when left out, "
+        "the last `days` days of 24 hours up to now.",
+    ),
+    test_calls: bool = Query(
+        True, description="False leaves out the owner's own test calls (D-697, D-859)."
+    ),
     _: Principal = Depends(requires("calls:read")),
 ) -> PerformanceOut:
+    window = None
+    if to is not None:
+        span = resolve_window(days=days, to=to)
+        window = (span.start_at, span.end_at)
     # `model_validate`, not a passthrough: the model is `extra="forbid"`, so a key the
     # service grows without the schema growing with it fails HERE, loudly, instead of
     # reaching a browser as a field no generated type knows about.
-    return PerformanceOut.model_validate(await performance(session, days=days))
+    return PerformanceOut.model_validate(
+        await performance(session, days=days, window=window, test_calls=test_calls)
+    )
 
 
 @router.get(

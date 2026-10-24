@@ -3451,7 +3451,7 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <PerformancePage />,
     routes: {
       "/v1/me": ME,
-      "/v1/performance?days=30": {
+      [`/v1/performance?days=30&to=${todayIST()}`]: {
         days: 30,
         funnel: { calls: 51, connected: 39, qualified: 14 },
         connect_rate_pct: 76,

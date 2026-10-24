@@ -47,7 +47,7 @@ const PATHS = {
   heatmap: `/v1/analytics/heatmap?${Q}&metric=calls`,
   durations: `/v1/analytics/durations?${Q}&group_by=agent&bin_s=30`,
   timeline: `/v1/analytics/timeline?days=90&to=${TODAY}&test_calls=true`,
-  performance: "/v1/performance?days=30",
+  performance: `/v1/performance?days=30&to=${TODAY}`,
 };
 
 type MetricKey = Stats["metrics"][number]["key"];
@@ -171,7 +171,7 @@ describe("the performance report", () => {
     expect(row.textContent).toContain("10");
   });
 
-  it("draws the funnel and the outcomes for a range that ends today", async () => {
+  it("draws the funnel and the outcomes for the chosen range", async () => {
     await renderClientPage(page, routes());
     const funnel = await screen.findByRole("table", { name: "From calls to customers" });
     expect(funnel.textContent).toContain("51");
@@ -189,13 +189,16 @@ describe("the performance report", () => {
         [`/v1/analytics/heatmap?${without}&metric=calls`]: heatmap(),
         [`/v1/analytics/durations?${without}&group_by=agent&bin_s=30`]: durations(),
         [`/v1/analytics/timeline?days=90&to=${TODAY}&test_calls=false`]: timeline(),
+        [`/v1/performance?days=30&to=${TODAY}&test_calls=false`]: performance(),
       }),
     );
     const toggle = await screen.findByRole("switch", { name: "Include my test calls" });
     await act(async () => fireEvent.click(toggle));
     await waitFor(() => expect(calls.some((call) => call.path === `/v1/analytics/stats?${without}`)).toBe(true));
-    // The funnel's read cannot leave them out, and says so rather than implying it did.
-    await screen.findAllByText("Your test calls are counted here.");
+    // The funnel and outcomes leave them out too.
+    await waitFor(() =>
+      expect(calls.some((call) => call.path === `/v1/performance?days=30&to=${TODAY}&test_calls=false`)).toBe(true),
+    );
   });
 
   it("explains a missing permission instead of answering with an error", async () => {
