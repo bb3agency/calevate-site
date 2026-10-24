@@ -297,6 +297,40 @@ async def replace_business_fields(
     return written
 
 
+async def refresh_field_reason(
+    session: AsyncSession, *, agent_id: UUID, key: str, old_reason: str, new_reason: str
+) -> bool:
+    """Give one agent a template field's new wording, if it still has the old one verbatim.
+
+    For a standard set whose wording we improved after agents were made from it: matching
+    the whole old reason, not the key alone, is what leaves a reason the owner rewrote
+    untouched. The fields are read under the agent's row lock, so an edit saved meanwhile
+    is the list this compares against rather than one it overwrites. A new schema version,
+    like every other write. Returns whether one was written.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT es.fields FROM agents a "
+                "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
+                "WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
+            ),
+            {"aid": agent_id},
+        )
+    ).first()
+    fields = business_only(row[0] or []) if row is not None else []
+    if not any(f.key == key and f.reason == old_reason for f in fields):
+        return False
+    updated = [
+        f.model_copy(update={"reason": new_reason})
+        if f.key == key and f.reason == old_reason
+        else f
+        for f in fields
+    ]
+    validate_fields(updated)
+    return (await write_schema(session, agent_id=agent_id, fields=updated)).changed
+
+
 async def agents_with_fields(session: AsyncSession) -> list[dict[str, Any]]:
     """Every agent that is not deleted, with its current business fields and version."""
     rows = (
@@ -334,6 +368,7 @@ __all__ = [
     "has_standard_set",
     "maybe_request_draft",
     "read_draft",
+    "refresh_field_reason",
     "replace_business_fields",
     "request_draft",
     "review_draft",

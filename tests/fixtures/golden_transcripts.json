@@ -126,7 +126,7 @@
       "key": "budget_lakhs",
       "label": "Budget (lakhs)",
       "type": "number",
-      "reason": "Budget in LAKHS of rupees: '50 lakhs' is 50, '1.2 crore' is 120. Never rupees, never a range — take the upper figure the caller states, and leave it empty if they state none.",
+      "reason": "Budget in LAKHS of rupees: '50 lakhs' is 50, '2 crore' is 200. Two numbers before one unit are a range, never a decimal: 'one two crores', 'ఒకటి రెండు కోట్లు' and '1-2 crore' mean one to two crore, so 200; 'two three lakhs' is 3. A decimal needs a point or a half: 'one point two crore' or '1.2 crore' is 120, 'ఒకటిన్నర కోటి' is 150. Never rupees; take the upper figure of a range; leave it empty if they state none.",
       "required": false
     },
     {
@@ -1448,6 +1448,70 @@
       ],
       "expect_outcome": "answered",
       "note": "The shipped template's description says 'never a range — take the upper figure'. A fixture is the only thing that makes a description in a prompt into a behaviour anybody has checked."
+    },
+    {
+      "id": "re_budget_spoken_range_one_two_crores",
+      "vertical": "real_estate",
+      "scenario": 1,
+      "title": "\"One two crores\" is one to two crore, not 1.2 crore",
+      "transcript": [
+        "agent: Namaskaram, idi Skyline Ventures AI assistant. Ee call record avutundi.",
+        "caller: Hello, my name is Prakash. I am looking for a villa in Kokapet.",
+        "agent: What budget are you looking at, sir?",
+        "caller: One two crores, sir.",
+        "agent: వన్ టూ క్రోర్స్, sir. Noted."
+      ],
+      "expect": {
+        "name": "Prakash",
+        "budget_lakhs": 200,
+        "preferred_location": "Kokapet"
+      },
+      "expect_absent": [
+        "bhk_size",
+        "timeline",
+        "site_visit_interest",
+        "intent",
+        "party_size",
+        "urgency",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
+      ],
+      "expect_outcome": "answered",
+      "note": "A production call of 24 Oct 2026, word for word: the lead was saved at 120 (1.2 crore). Two numbers before one unit are a range in Indian English, and the column takes the upper figure, so 200."
+    },
+    {
+      "id": "re_budget_spoken_range_telugu_okati_rendu_kotlu",
+      "vertical": "real_estate",
+      "scenario": 1,
+      "title": "\"ఒకటి రెండు కోట్లు\" is one to two crore, in Telugu letters",
+      "transcript": [
+        "agent: Namaskaram, idi Skyline Ventures AI assistant. Ee call record avutundi.",
+        "caller: Naa peru Srinivas. Tellapur lo villa chustunnanu.",
+        "agent: Budget entha varaku anukuntunnaru?",
+        "caller: ఒకటి రెండు కోట్లు అండి.",
+        "agent: Sare andi."
+      ],
+      "expect": {
+        "name": "Srinivas",
+        "budget_lakhs": 200,
+        "preferred_location": "Tellapur"
+      },
+      "expect_absent": [
+        "bhk_size",
+        "timeline",
+        "site_visit_interest",
+        "intent",
+        "party_size",
+        "urgency",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
+      ],
+      "expect_outcome": "answered",
+      "note": "The Telugu form of the same range. 120 here is the 24 Oct 2026 defect; 12 or 2 is the unit or the range lost."
     },
     {
       "id": "re_nri_caller_english",
