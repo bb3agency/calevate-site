@@ -2,7 +2,9 @@ import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import DashboardPage from "@/app/c/[slug]/page";
+import type { Stats } from "@/lib/api/analytics";
 import type { CallSummary, Dashboard, Me } from "@/lib/api/client";
+import type { AccountReadiness } from "@/lib/api/readiness";
 import type { UsagePanel } from "@/lib/api/hooks";
 import type { Wallet } from "@/lib/api/wallet";
 
@@ -136,6 +138,40 @@ const WEEK: Dashboard["daily_7d"] = [
     in_flight: 2,
   },
 ];
+
+/** The last 7 IST days against the 7 before, as `/v1/analytics/stats` sends them. */
+function stats(
+  over: Partial<Record<Stats["metrics"][number]["key"], Partial<Stats["metrics"][number]>>> = {},
+): Stats {
+  const metric = (
+    key: Stats["metrics"][number]["key"],
+    value: string | null,
+    previous: string | null,
+    change: string | null,
+    higher = true,
+  ) => ({ key, value, previous, change_pct: change, higher_is_better: higher, ...over[key] });
+  return {
+    window: { days: 7, from_date: "2026-08-07", to_date: "2026-08-13", timezone: "Asia/Kolkata" },
+    previous_window: { days: 7, from_date: "2026-07-31", to_date: "2026-08-06", timezone: "Asia/Kolkata" },
+    metrics: [
+      metric("calls", "0", "0", null),
+      metric("answered", "0", "0", null),
+      metric("answer_rate_pct", null, null, null),
+      metric("leads", "0", "0", null),
+      metric("hot_leads", "0", "0", null),
+      metric("avg_duration_s", null, null, null),
+      metric("talk_minutes", "0.0", "0.0", null),
+    ],
+  };
+}
+
+/** No agent scored yet: the account's readiness read with nothing on the roster. */
+const NO_READINESS: AccountReadiness = {
+  score: null,
+  agents: [],
+  top_fixes: [],
+  computed_at: "2026-08-13T05:00:00Z",
+};
 
 const USAGE: UsagePanel = {
   month: "2026-08",
@@ -273,6 +309,8 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/business-profile": businessProfileFixture(),
     "/v1/healer/incidents?days=30&limit=20": { open: 0, items: [] },
     "/v1/business-copy": NO_BUSINESS_COPY,
+    "/v1/analytics/stats": stats(),
+    "/v1/readiness": NO_READINESS,
     ...over,
   };
 }
@@ -516,7 +554,7 @@ describe("the dashboard renders what the server said, or says it could not", () 
       page,
       routes({ "/v1/dashboard": { ...EMPTY_DASHBOARD, daily_7d: WEEK } }),
     );
-    await screen.findByText("Calls each day");
+    await screen.findByRole("heading", { name: "Calls each day" });
 
     // Seven labels, including the two days nothing happened: a silent day is a fact
     // about that day, and dropping it would slide the week and misdate every bar.
@@ -901,32 +939,41 @@ describe("this week", () => {
       .map((link) => ({ name: link.textContent, primary: link.className.includes("bg-brand-strong") }));
   }
 
-  it("reads a busy week as the page's one block of figures and compares it with the week before", async () => {
+  /** One figure of the band: its label's parent holds the value, the change and the hint. */
+  async function figure(card: HTMLElement, label: string) {
+    return ((await within(card).findByText(label)).parentElement?.textContent ?? "").replace(/\s+/g, " ");
+  }
+
+  const BUSY_WEEK = {
+    ...EMPTY_DASHBOARD,
+    calls_today: 4,
+    calls_7d: 29,
+    calls_prev_7d: 17,
+    calls_connected_7d: 20,
+    calls_not_connected_7d: 7,
+    leads_new_7d: 6,
+    leads_new_prev_7d: 2,
+    avg_duration_s_7d: 94,
+    daily_7d: WEEK,
+  };
+
+  it("reads a busy week as the page's one block of figures, each against the week before", async () => {
     const card = await recap({
-      "/v1/dashboard": {
-        ...EMPTY_DASHBOARD,
-        calls_today: 4,
-        calls_7d: 29,
-        calls_prev_7d: 17,
-        calls_connected_7d: 20,
-        calls_not_connected_7d: 7,
-        leads_new_7d: 6,
-        leads_new_prev_7d: 2,
-        avg_duration_s_7d: 94,
-        daily_7d: WEEK,
-      },
+      "/v1/dashboard": BUSY_WEEK,
+      "/v1/analytics/stats": stats({
+        calls: { value: "29", previous: "17", change_pct: "70.6" },
+        answer_rate_pct: { value: "69.0", previous: "64.5" },
+        leads: { value: "6", previous: "2", change_pct: "200.0" },
+        avg_duration_s: { value: "94", previous: "120", change_pct: "-21.7" },
+      }),
       "/v1/agents": [agentRow()],
       "/v1/campaigns": [{ id: "c1", name: "Recall", status: "completed" }],
     });
-    const text = card.textContent ?? "";
-    expect(text).toContain("12 more than the week before");
-    expect(within(card).getByText("Connected").parentElement?.textContent).toContain("20");
-    expect(text).toContain("69% of calls");
-    expect(within(card).getByText("Did not connect").parentElement?.textContent).toContain("7");
-    expect(text).toContain("No answer, busy or failed");
-    expect(within(card).getByText("Calls today").parentElement?.textContent).toContain("4");
-    expect(within(card).getByText("New leads").parentElement?.textContent).toContain("4 more than the week before");
-    expect(within(card).getByText("Average call length").parentElement?.textContent).toContain("1:34");
+    expect(await figure(card, "Calls")).toContain("29↑ +70.6% vs the previous 7 days");
+    // A rate moves in points, not as a percentage of a percentage.
+    expect(await figure(card, "Answer rate")).toContain("69%↑ +4.5 points");
+    expect(await figure(card, "New leads")).toContain("6↑ +200%");
+    expect(await figure(card, "Average call length")).toContain("1:34↓ −21.7%");
     // Nothing urgent: the week's calls lead; an inbound agent cannot dial, so no campaign.
     expect(await actions(card)).toEqual([
       { name: "See calls", primary: true },
@@ -935,23 +982,24 @@ describe("this week", () => {
     ]);
   });
 
-  it("says every call connected when none was missed", async () => {
-    const card = await recap({
-      "/v1/dashboard": { ...EMPTY_DASHBOARD, calls_7d: 8, calls_prev_7d: 8, calls_connected_7d: 8 },
-      "/v1/agents": [agentRow()],
-    });
-    expect(card.textContent).toContain("Every one of them");
-    expect(card.textContent).toContain("None missed");
-    expect(card.textContent).toContain("Same as the week before");
-  });
-
   it("does not invent a comparison in a first week", async () => {
     const card = await recap({
       "/v1/dashboard": { ...EMPTY_DASHBOARD, calls_7d: 8, calls_connected_7d: 8 },
+      "/v1/analytics/stats": stats({ calls: { value: "8", previous: "0", change_pct: null } }),
       "/v1/agents": [agentRow()],
     });
-    expect(card.textContent).toContain("None the week before");
-    expect(card.textContent).not.toContain("more than the week before");
+    expect(await figure(card, "Calls")).toContain("None in the previous 7 days");
+    expect(card.textContent).not.toContain("vs the previous 7 days");
+  });
+
+  it("says the figures could not load rather than showing zeros", async () => {
+    const card = await recap({
+      "/v1/dashboard": BUSY_WEEK,
+      "/v1/analytics/stats": problem(503, { title: "Service unavailable" }),
+      "/v1/agents": [agentRow()],
+    });
+    await within(card).findByRole("alert");
+    expect(within(card).queryByText("Calls")).toBeNull();
   });
 
   it("says a quiet week in one sentence instead of a row of zeroes", async () => {
@@ -1204,7 +1252,7 @@ describe("the dashboard arrives in one paint", () => {
     );
     await screen.findByRole("heading", { name: "This week" });
     expect(screen.getByText("Your free trial")).toBeTruthy();
-    expect(screen.getByText("26 of 30")).toBeTruthy();
+    expect(screen.getByText("26 of 30 minutes left")).toBeTruthy();
     expect(calls.some((call) => call.path === "/v1/trial")).toBe(false);
   });
 

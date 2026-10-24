@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { BarChart } from "@/components/arc/bar-chart";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { Metric } from "@/components/console/metric";
@@ -23,35 +24,6 @@ import {
 import type { Session } from "@/lib/api/client";
 
 const WINDOWS: SpendWindowDays[] = [7, 30, 90];
-
-// `BigInt(…)` rather than `0n` literals: the project's TS target predates them.
-const ZERO = BigInt(0);
-const HUNDRED = BigInt(100);
-const THOUSAND = BigInt(1000);
-
-/**
- * Whole paise from the server's decimal string, for GEOMETRY ONLY.
- *
- * Bar heights are a ratio of two amounts, and a ratio of floats is how ₹10,159.00 becomes
- * a bar a hair shorter than ₹10,159.00 (hard rule 7). Every figure a reader sees is still
- * the server's string through `formatINR`; this exists so the picture is exact too.
- * Sub-paise digits are dropped (they cannot move a bar a pixel) and a negative day draws
- * as zero, because a bar below the baseline would be a second axis.
- */
-export function toPaise(value: string): bigint {
-  const match = /^\s*(-?)(\d*)(?:\.(\d*))?\s*$/.exec(value);
-  if (match === null) return ZERO;
-  const [, sign, whole, fraction = ""] = match;
-  const paise = BigInt(whole || "0") * HUNDRED + BigInt((fraction + "00").slice(0, 2));
-  return sign === "-" ? ZERO : paise;
-}
-
-/** A bar's height as a percentage of the busiest day, from integer arithmetic. */
-export function barPercent(value: bigint, max: bigint): number {
-  if (max <= ZERO || value <= ZERO) return 0;
-  // Per-mille in integers, then one small Number for the CSS length.
-  return Number((value * THOUSAND) / max) / 10;
-}
 
 /** "2026-10-01" → "1 Oct", built and read in UTC so the day is the one the string names. */
 function dayLabel(date: string): string {
@@ -150,62 +122,29 @@ export function SpendOverTime({ session, allowed }: { session: Session; allowed:
   );
 }
 
+/**
+ * What left the wallet each day. `Number()` sizes the bars only (the kit's chart rule);
+ * the readout and the table print the server's string through `formatINR`. A negative day
+ * draws as no bar rather than one below the baseline, which would be a second axis.
+ */
 function DailyBars({ days }: { days: SpendDay[] }) {
-  const values = days.map((day) => toPaise(day.spent_inr));
-  const max = values.reduce((top, value) => (value > top ? value : top), ZERO);
-  const first = days[0];
-  const last = days[days.length - 1];
-  const middle = days[Math.floor(days.length / 2)];
   return (
-    <div>
-      {/* The text alternative: the bars tie each amount to its day by position alone. */}
-      {/* `sr-only` on a wrapper, not the table: a table ignores the 1px box and widens the page on a phone. */}
-      <div className="sr-only">
-      <table>
-        <caption>Spending by day (IST)</caption>
-        <thead>
-          <tr>
-            <th scope="col">Day</th>
-            <th scope="col">Spent</th>
-          </tr>
-        </thead>
-        <tbody>
-          {days.map((day) => (
-            <tr key={day.date}>
-              <th scope="row">{dayLabel(day.date)}</th>
-              <td>{formatINR(day.spent_inr)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      </div>
-      <div aria-hidden className="flex h-32 items-end gap-[2px] border-b border-line">
-        {days.map((day, index) => {
-          const percent = barPercent(values[index] ?? ZERO, max);
-          return (
-            <div
-              key={day.date}
-              title={`${dayLabel(day.date)}: ${formatINR(day.spent_inr)}`}
-              className="flex h-full min-w-0 flex-1 items-end hover:[&>div]:bg-brand-strong"
-            >
-              {/* 4px rounded data-end anchored to the baseline; a zero day keeps no bar,
-                  because a stub would read as a small amount. Bars grow once on first
-                  paint and never on a period switch. */}
-              <div
-                className="w-full origin-bottom rounded-t-[4px] bg-brand transition-[scale,opacity] duration-(--duration-slow) ease-out starting:scale-y-90 starting:opacity-0 motion-reduce:transition-none"
-                style={{ height: percent > 0 ? `max(${percent}%, 2px)` : "0" }}
-              />
-            </div>
-          );
-        })}
-      </div>
-      {first && last && middle && (
-        <div aria-hidden className="mt-1.5 flex justify-between text-[11px] text-ink-faint">
-          <span>{dayLabel(first.date)}</span>
-          {days.length > 2 && <span>{dayLabel(middle.date)}</span>}
-          <span>{dayLabel(last.date)}</span>
-        </div>
-      )}
-    </div>
+    <BarChart
+      title="Spending by day (IST)"
+      hideTitle
+      description="Rupees spent each day"
+      labelColumn="Day"
+      categories={days.map((day) => dayLabel(day.date))}
+      series={[
+        {
+          label: "Spent",
+          values: days.map((day) => Math.max(0, Number(day.spent_inr))),
+          display: days.map((day) => formatINR(day.spent_inr)),
+        },
+      ]}
+      height={160}
+      empty="No spending on any day in this period."
+    />
   );
 }
+

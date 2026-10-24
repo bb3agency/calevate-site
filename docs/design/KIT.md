@@ -307,7 +307,7 @@ Plain SVG on Calevate tokens; no chart library. Kit page: `/admin/ops/kit#charts
 `labels`, `values`, `display?`, `seriesLabel`, `defaultRange?: [from, to]` (default the last quarter), `onRangeChange?`, `startLabel?`, `endLabel?`, `rangeText?(from, to)`, `height?`, + states. Detail is a `LineChart` of the window; the overview strip has a draggable window and two edges that are `role="slider"` (arrows ±1 bucket, Page Up/Down ±7, Home/End), and the selection is said in words (polite live region). Use for long dated series (leads per day over a quarter, a campaign since launch).
 
 ### Ridgeline (`arc/ridgeline.tsx`)
-`series: { label, values: number[] }[]` (raw durations), `formatValue?` (default m:ss), `maxValue?` (cut a long tail), `rowHeight?`, column labels, + states. Gaussian KDE with Silverman bandwidth; one colour (same measure), median tick; table gives median, middle half, count. Use to compare call lengths across agents or weeks.
+`series: { label, values: number[], median?, p90?, count? }[]` (raw durations), `formatValue?` (default m:ss), `maxValue?` (cut a long tail), `rowHeight?`, column labels (`p90Column` "9 in 10 under"), + states. Gaussian KDE with Silverman bandwidth; one colour (same measure), median tick; table gives median, middle half, count. When the server measured a row exactly (a binned read such as `/v1/analytics/durations`), pass its `median`, `p90` and `count`: the tick, readout and table then state those, and the table's third column becomes the 90th percentile. Use to compare call lengths across agents or weeks.
 
 ### Gauge — agent readiness (`arc/gauge.tsx`)
 `value: number | null` (0–100), `label`, `bands?` (default `READINESS_BANDS`: <50 Needs work, <80 Nearly ready, ≥80 Ready), `pendingText?`, `fixes?: { id, label, detail?, points?, href?, action? }[]`, `fixesTitle?`, `allDoneText?`, `pointsLabel?`, `size?`. `role="meter"` with the band in `aria-valuetext`; the band is always written, never colour alone. `null` is "—" with its reason, never 0. Presentational: the score and fixes come from the server (Lane B). Use on each agent and on the dashboard.
@@ -335,15 +335,9 @@ uiarc `metric-card` was reviewed and lost; `Metric` gained `delta?: { text, dire
 - Don't put a number on every mark; the table and readout carry them.
 
 ### Screens still to migrate (dashboard/analytics lane unless noted)
-- `apps/web/src/app/c/[slug]/DailyCalls.tsx` → `BarChart` (vertical) or `LineChart`.
-- `apps/web/src/app/c/[slug]/OutcomeSplit.tsx`, `apps/web/src/app/c/[slug]/SentimentSplit.tsx` → `DonutChart` or horizontal `BarChart`.
-- `apps/web/src/app/c/[slug]/performance/PerformanceCharts.tsx` (HourHistogram and the rest) → `BarChart`; hour-by-weekday → `ActivityHeatmap` (needs Lane B's endpoint).
-- `apps/web/src/app/c/[slug]/billing/SpendChart.tsx` → `BarChart`/`LineChart` with `display` from `formatINR`; `billing/WhereItWent.tsx` → `DonutChart`.
-- `apps/web/src/app/c/[slug]/billing/UsageView.tsx` (and UsageTab figures) → `UsageMeter` for minutes and the cap; `StatsBand` for the headline.
-- `apps/web/src/app/c/[slug]/TrialCallPanel.tsx` / `TrialBanner.tsx` free-minutes line → `UsageMeter` (TrialBanner is owned by the structure lane).
-- Readiness gauge on each agent and the dashboard → `Gauge` once Lane B ships the score endpoint.
-- Leads / campaigns dated series → `BrushChart` once Lane B ships the series.
-- Already migrated: `leads/[leadId]/LeadTimeline.tsx` renders through `Timeline`/`TimelineItem`; `agents/[agentId]/script/ScriptToolbar.tsx` `RoomLeft` renders through `UsageMeter` (inline).
+- Readiness gauge on each agent → `Gauge` (`useAgentReadiness`).
+- Leads / campaigns dated series → `BrushChart` (`useCampaignTimelines`).
+- Already migrated: `leads/[leadId]/LeadTimeline.tsx` renders through `Timeline`/`TimelineItem`; `agents/[agentId]/script/ScriptToolbar.tsx` `RoomLeft` renders through `UsageMeter` (inline); the client dashboard (`StatsBand` from `/v1/analytics/stats`, the account readiness `Gauge`, `DailyCalls` stacked `BarChart`, `OutcomeSplit` horizontal `BarChart`, `SentimentSplit` `DonutChart`, `SetupChecklist` with `emphasizeNext` + `foldDone`); Performance (`DateRangePicker` in IST, `StatsBand`, `BrushChart` timeline, funnel and outcomes as horizontal `BarChart`, `ActivityHeatmap` calls/leads, `Ridgeline` by agent/outcome; the hour histogram is gone, the heatmap carries it); billing (`SpendChart` → `BarChart`, `WhereItWent` → `DonutChart` + `PeriodToggle` on `/v1/billing/credit-usage`, `TierComparison` on `/v1/billing/voice-tiers`, `UsageTab` → `StatsBand` + `UsageMeter` for plan minutes and the cap, the spending limit on `NumberField` + `MoneyInput`); `TrialCallPanel` and the `TrialBanner` chip's free minutes and test calls → `UsageMeter`.
 
 ## Structure, overlays and gestures
 
@@ -361,11 +355,11 @@ One dialog family. Below 640px every one of them is a **bottom sheet**: anchored
 
 The top-bar bell in both shells. A popover listing what needs attention.
 
-Props: `label` (bell's accessible name, includes the count or the failure in words), `title?`, `count?` (the server's total — never `items.length`), `state: "ready" | "loading" | "error"`, `partial?` (some sources failed: warn dot, list still shown), `items: { id, title, detail?, meta?, href?, at? (ISO, shown IST), tone?: "default" | "warn" | "danger" }[]`, `heading`, `seeAll?: { href, label }`, `shortfall?`, `emptyText`, `loadingText`, `errorText`, `onRetry?`, `onDismiss?` (once the server records dismissals; report its result with `useActionFeedback`), `dismissLabel?`, `closeLabel?`.
+Props: `label` (bell's accessible name, includes the count or the failure in words), `title?`, `count?` (the server's total — never `items.length`), `state: "ready" | "loading" | "error"`, `partial?` (some sources failed: warn dot, list still shown), `items: { id, title, detail?, meta?, href?, at? (ISO, shown IST), tone?: "default" | "warn" | "danger" }[]`, `heading`, `seeAll?: { href, label }`, `shortfall?`, `emptyText`, `loadingText`, `errorText`, `onRetry?`, `onDismiss?` (once the server records dismissals; report its result with `useActionFeedback`), `dismissLabel?`, `closeLabel?`, `onOpenChange?` (a feed with read marks records what was seen), `unreadLabel?` ("New"). An item may carry `unread` (bold title on a brand tint, "New:" said first).
 
 - Badge: `99+` cap; nothing at 0, while loading, or unknown. Failure = warn dot (`data-testid="attention-unchecked"`), never a "?" or a fake 0.
 - Row links and "See all" close the popover (the bar stays mounted across navigation).
-- Wired: client `ClientTopHeader` (useAttention, newest 6, tone by kind, "The newest 6 of N." shortfall, retry refetches) and admin `AttentionBell` (held accounts + identity checks as two rows with "n waiting").
+- Wired: client `ClientTopHeader` (`useNotifications`: attention items and announcements in one feed, badge = the server's `unread`, marked seen on CLOSE through the newest item shown via `useMarkNotificationsSeen`; a failed refetch keeps the list with the warn dot) and admin `AttentionBell` (held accounts + identity checks as two rows with "n waiting").
 
 ### `SwipeActions` (`arc/swipe-actions`)
 
@@ -385,7 +379,7 @@ Desktop-only preview of a row's record on a resting pointer or keyboard focus (5
 
 ### `AnnouncementBar` (`arc/announcement-bar`)
 
-The site strip (D-771: white, hairline, tone dot, no tinted band). Props: `title` (always shown), `detail?` (from `sm`), `tone?: "info" | "success" | "warn" | "critical"`, `action?: { href, label }`, `onDismiss?` (omit = cannot be closed), `dismissLabel?`, `dismissStatus?: FeedbackStatus` (busy ignores repeat presses), `role?: "status" | "alert" | "region"`, `label?`. Presentational: the caller remembers dismissal. The trial strip (`TrialBanner.TrialStrip`) now renders through it. Lane B's announcements endpoint + admin composer plug in here: shell reads the active announcement for the viewer's audience, renders `AnnouncementBar` above the top bar, `onDismiss` → dismissal mutation through `useActionFeedback`. Feed it through `platformAnnouncementProps(announcement)` (server tone `warning` → `warn`, a link with no label reads "Learn more", `critical` → `role="alert"`): the admin composer at `/admin/announcements` previews with the same function, so the preview is what clients see.
+The site strip (D-771: white, hairline, tone dot, no tinted band). Props: `title` (always shown), `detail?` (from `sm`), `tone?: "info" | "success" | "warn" | "critical"`, `action?: { href, label }`, `onDismiss?` (omit = cannot be closed), `dismissLabel?`, `dismissStatus?: FeedbackStatus` (busy ignores repeat presses), `role?: "status" | "alert" | "region"`, `label?`. Presentational: the caller remembers dismissal. The trial strip (`TrialBanner.TrialStrip`) now renders through it. Announcements are fed through `platformAnnouncementProps(announcement)` (server tone `warning` → `warn`, a link with no label reads "Learn more", `critical` → `role="alert"`), which both the admin composer's preview at `/admin/announcements` and the client shell (`c/[slug]/ClientAnnouncements.tsx`) use, so the preview is what clients see. The client shell shows the most urgent announcement from `useAnnouncements`, one at a time, `onDismiss` → `useDismissAnnouncement` through `useActionFeedback`; while an operator views the account, close says only the account can dismiss and sends nothing (the server refuses that dismissal); a console path link ("/billing") stays inside the account through the realm's `href`.
 
 ### `ButtonGroup`, `SplitButton` (`arc/button-group`)
 
@@ -428,7 +422,7 @@ States: within budget, near (≥90%, amber), over (`aria-invalid`, "N characters
 Use for any client-authored text the agent works from or speaks. Do not use for free notes (plain `FIELD` textarea). No contenteditable chips: they break Telugu IMEs and Android paste.
 
 ### TierComparison — `components/arc/tier-comparison.tsx`
-Clear vs Studio. `tiers: {id, name, ratePerMinute: decimal string, summary?, includes[], bestFor, cta?}[]`, `currentId`, `onChoose(id)`, `chooseStatus` + `choosingId` (feedback on the chosen button), `guidance` ("Which is right for me?"), `title`, `strings`. Rates print through `formatRupeeRate`; never pass a number or a constant; never name a provider (D-679). Cards stack on phones, two columns from `md`; current tier has a brand ring and the words "Your agents use this".
+Clear vs Studio. `tiers: {id, name, ratePerMinute: decimal string, rateTo?: decimal string (prints "₹A – ₹B" while no single rate is true yet), rateNote?, summary?, includes[], bestFor, cta?}[]`, `currentId`, `onChoose(id)`, `chooseStatus` + `choosingId` (feedback on the chosen button), `guidance` ("Which is right for me?"), `title`, `strings`. Rates print through `formatRupeeRate`; never pass a number or a constant; never name a provider (D-679). Cards stack on phones, two columns from `md`; current tier has a brand ring and the words "Your agents use this".
 
 ### Checklist — `components/console/checklist.tsx` (merged, not a second checklist)
 New props (all opt-in, the 25 existing callers unchanged): `emphasizeNext` (first actionable todo row tinted, labelled "Next", link as `PRIMARY_BUTTON_SM`), `foldDone` (done rows fold into an "N done" disclosure), `allDoneLabel`, `countLabel(done,total)`, `nextLabel`, `foldedLabel(n)`. When a row turns done while focus was in the list, focus moves to the next step's action. State still comes only from the server — no manual tick-off (Arc's model was refused for that reason).

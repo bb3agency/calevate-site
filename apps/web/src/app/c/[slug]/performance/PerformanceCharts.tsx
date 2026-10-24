@@ -1,257 +1,120 @@
 "use client";
 
-import { EmptyState } from "@/components/console/emptyState";
-import { ScrollRegion, formatCount } from "@/components/ui";
+import { BarChart } from "@/components/arc/bar-chart";
+import type { RidgeSeries } from "@/components/arc/ridgeline";
+import { formatCount } from "@/components/ui";
+import type { Durations } from "@/lib/api/analytics";
 import type { Performance } from "@/lib/api/performance";
-import { lookup } from "@/lib/lookup";
+
+import { outcomeWords } from "../OutcomeSplit";
 
 /**
- * The four readings under the tiles — a rate, a funnel, an outcome list and the hour
- * histogram — with the two label helpers the histogram needs. One subject: how this
- * period's numbers are DRAWN, kept out of the screen that decides which period to ask for.
+ * How the report's server figures become chart props. One subject: how the numbers are
+ * DRAWN, kept out of the screen that decides which period to ask for.
  */
 
-/**
- * A whole-number percentage, or null when the server said there is nothing to measure.
- *
- * `=== null` alone would let an `undefined` — a field the response omitted — render as
- * "undefined%", which is the one output worse than a wrong number.
- */
-export function ratePct(value: number | null | undefined): string | null {
-  return value === null || value === undefined ? null : `${value}%`;
-}
-
-/**
- * What each panel's figures mean, behind the panel's ⓘ. Explanation only — the conditional
- * shortfall sentence under the histogram is a fact about this period and stays visible.
- */
+/** What each panel's figures mean, behind the panel's ⓘ. */
 export const FUNNEL_NOTE =
   "Answered means the call reached a real conversation — not voicemail or a missed call. " +
   "Interested counts customers, not calls: three calls to the same person count once.";
 export const OUTCOMES_NOTE =
   "The tag your agent recorded, or how the call ended when it recorded none.";
-export const HOURS_NOTE =
-  "Each bar counts the calls that STARTED in that hour, Indian Standard Time.";
-
-/**
- * Bars grow once, on first paint (`@starting-style`), and never on a period switch: the
- * width and height change in place, because re-animating every switch is motion on a
- * repeated action. Reduced motion paints the final frame.
- */
-const BAR_ENTER =
-  "transition-[scale,opacity] duration-(--duration-slow) ease-out starting:opacity-0 motion-reduce:transition-none";
+export const HEATMAP_NOTE =
+  "Each square counts what started in that hour on that day of the week, Indian Standard Time.";
+export const DURATIONS_NOTE =
+  "Completed calls only. The tick on each row is the middle call: half were shorter, half longer. " +
+  "The right-hand edge holds every call that ran longer.";
 
 /** Said, rather than left for the reader to notice numbers moving under them. */
 export function Updating({ busy }: { busy: boolean }) {
   if (!busy) return null;
-  return <span className="text-meta text-ink-faint">Updating…</span>;
+  return (
+    <span role="status" className="text-meta text-ink-faint">
+      Updating…
+    </span>
+  );
 }
 
-/**
- * Calls → answered → interested, as three bars against the top of the funnel.
- *
- * Widths are a share of `calls`, so the bars are read against each other rather than
- * against an axis nobody drew — and each prints its own count, so the shape can be
- * checked without hovering anything. A non-zero stage keeps a 2% floor: "3 of 900" must
- * still be visible, and a stage that exists must not render as one that does not.
- */
-const FUNNEL_SHADES = ["bg-brand-strong", "bg-brand", "bg-brand-bright"] as const;
-
-export function Funnel({ funnel }: { funnel: Performance["funnel"] }) {
-  if (funnel.calls === 0) {
-    return (
-      <EmptyState message="No calls in this period. Once your agent takes or makes calls, they appear here." />
-    );
-  }
+/** Calls → answered → interested, each a bar against the top of the funnel. */
+export function Funnel({ funnel, days }: { funnel: Performance["funnel"]; days: number }) {
   const stages = [
     { label: "Calls", count: funnel.calls },
     { label: "Answered", count: funnel.connected },
     { label: "Interested", count: funnel.qualified },
   ];
   return (
-    <div className="space-y-3">
-      {stages.map((stage, index) => (
-        <div key={stage.label} className="flex items-center gap-3">
-          <div className="w-20 shrink-0 text-body text-ink-muted">{stage.label}</div>
-          <div className="h-6 flex-1 overflow-hidden rounded-md bg-ink/[0.05]">
-            <div
-              className={`h-full origin-left rounded-md ${FUNNEL_SHADES[index]} ${BAR_ENTER} starting:scale-x-90`}
-              style={{
-                width: `${stage.count > 0 ? Math.max((stage.count / funnel.calls) * 100, 2) : 0}%`,
-              }}
-              title={`${stage.label}: ${stage.count}`}
-            />
-          </div>
-          <div className="w-14 shrink-0 text-right text-body font-semibold tabular-nums text-ink">
-            {formatCount(stage.count)}
-          </div>
-        </div>
-      ))}
-    </div>
+    <BarChart
+      title="From calls to customers"
+      hideTitle
+      description={`Last ${formatCount(days)} days`}
+      orientation="horizontal"
+      showValues
+      labelColumn="Stage"
+      categories={stages.map((stage) => stage.label)}
+      series={[
+        {
+          label: "Count",
+          values: stages.map((stage) => stage.count),
+          display: stages.map((stage) => formatCount(stage.count)),
+        },
+      ]}
+      empty="No calls in this period. Once your agent takes or makes calls, they appear here."
+    />
   );
 }
 
-/**
- * Outcome → count, busiest first.
- *
- * The key is the agent's outcome tag where it set one and the call's own status where it
- * did not (`COALESCE(outcome_tag, status)` in crm/performance.py), which is why the
- * caption says so: a reader who thinks these are all tags will read "no_answer" as an
- * outcome someone chose.
- *
- * The key indexes `OUTCOME_FILL` through `lookup()`, because it is a wire string the
- * agent's own schema chose and could name an `Object.prototype` member.
- */
-/**
- * The mark colour for an outcome, on the same roles the dashboard's daily chart uses: a
- * missed connection is a warning, a failure is danger, everything else is brand. The
- * label beside each bar carries the meaning; colour is the second channel (WCAG 1.4.1).
- */
-const OUTCOME_FILL: Record<string, string> = {
-  no_answer: "bg-chart-warn",
-  busy: "bg-chart-warn",
-  voicemail: "bg-chart-warn",
-  failed: "bg-chart-danger",
-};
-
-export function Outcomes({ outcomes }: { outcomes: Record<string, number> }) {
-  const rows = Object.entries(outcomes).sort(([, a], [, b]) => b - a);
-  if (rows.length === 0) {
-    return (
-      <EmptyState message="Nothing to show yet. Call results appear after your first calls." />
-    );
-  }
-  const busiest = Math.max(...rows.map(([, count]) => count));
+/** Outcome → count, busiest first. */
+export function Outcomes({ outcomes, days }: { outcomes: Record<string, number>; days: number }) {
+  const rows = Object.entries(outcomes)
+    .filter(([, count]) => count > 0)
+    .sort(([, a], [, b]) => b - a);
   return (
-    <div className="space-y-2.5">
-      {rows.map(([outcome, count]) => (
-        <div key={outcome}>
-          <div className="flex items-baseline justify-between gap-3">
-            {/* An outcome tag comes from the agent's own extraction schema, so its
-                length is the client's choice and nothing else on this screen repeats it. */}
-            <span
-              title={outcome.replace(/_/g, " ")}
-              className="truncate text-meta capitalize text-ink-muted"
-            >
-              {outcome.replace(/_/g, " ")}
-            </span>
-            <span className="text-meta font-semibold tabular-nums text-ink">
-              {formatCount(count)}
-            </span>
-          </div>
-          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink/[0.05]">
-            <div
-              className={`h-full origin-left rounded-full ${lookup(OUTCOME_FILL, outcome) ?? "bg-brand"} ${BAR_ENTER} starting:scale-x-90`}
-              style={{ width: `${busiest > 0 ? Math.max((count / busiest) * 100, 2) : 0}%` }}
-            />
-          </div>
-        </div>
-      ))}
-    </div>
+    <BarChart
+      title="How calls ended"
+      hideTitle
+      description={`Last ${formatCount(days)} days`}
+      orientation="horizontal"
+      showValues
+      labelColumn="Outcome"
+      categories={rows.map(([outcome]) => outcomeWords(outcome))}
+      series={[
+        {
+          label: "Calls",
+          values: rows.map(([, count]) => count),
+          display: rows.map(([, count]) => formatCount(count)),
+        },
+      ]}
+      empty="Nothing to show yet. Call results appear after your first calls."
+    />
   );
-}
-
-/** "9 am", "12 midnight" — plain words beat "0900 IST" for this reader. */
-function hourLabel(hour: number): string {
-  if (hour === 0) return "12 midnight";
-  if (hour === 12) return "12 noon";
-  return hour < 12 ? `${hour} am` : `${hour - 12} pm`;
-}
-
-/** The axis form: "12a", "3p". */
-function shortHourLabel(hour: number): string {
-  if (hour === 0) return "12a";
-  if (hour === 12) return "12p";
-  return hour < 12 ? `${hour}a` : `${hour - 12}p`;
 }
 
 /**
- * 24 vertical bars, one per IST hour, each printing its own count.
- *
- * All 24 always render: the server guarantees 24 buckets and zero-fills the silent ones
- * (`PerformanceOut.busiest_hours_ist`), and a chart that omits them reads as data loss to
- * the one reader who would notice 3am missing. A zero hour keeps a baseline stub and
- * prints its 0 in the faint ink, so "nothing happened" and "nothing was measured" cannot
- * be confused.
- *
- * Heights are relative to the busiest hour, never to a fixed axis — a clinic doing 20
- * calls a week would otherwise see 24 invisible stubs under a scale nobody told them was
- * arbitrary. The axis labels sit INSIDE each bar's own column (every third hour), so they
- * are aligned by construction rather than by four equal-width cells that happen to line
- * up with a 24-bar row.
- *
- * `calls` is the funnel's total for the same period, and it is here to explain a gap the
- * chart would otherwise be blamed for: the API counts only calls that have a start time,
- * so a dial that never reached the network is in the funnel and not in these bars.
+ * The most calls a row is redrawn from. The server sends counts per bin; the ridgeline
+ * smooths a sample, and a year of calls expanded one value per call would make the
+ * smoothing cost scale with the account's size. Above this the bins are scaled down in
+ * proportion (a non-empty bin keeps at least one point), which keeps the shape, while the
+ * median, 90th percentile and count shown are always the server's exact figures.
  */
-export function HourHistogram({ hours, calls }: { hours: number[]; calls: number }) {
-  const busiest = Math.max(...hours, 0);
-  const started = hours.reduce((sum, count) => sum + count, 0);
-  return (
-    <div>
-      {/* Text alternative (ux-audit D1): the visual chart associates each count with its
-          hour by position alone, which a screen reader cannot follow. Same
-          `busiest_hours_ist` numbers, no second computation. */}
-      {/* `sr-only` on a wrapper, not the table: a table ignores the 1px box and widens the page on a phone. */}
-      <div className="sr-only">
-      <table>
-        <caption>Calls by hour of day (IST)</caption>
-        <thead>
-          <tr>
-            <th scope="col">Hour</th>
-            <th scope="col">Calls</th>
-          </tr>
-        </thead>
-        <tbody>
-          {hours.map((count, hour) => (
-            <tr key={hour}>
-              <th scope="row">{hourLabel(hour)}</th>
-              <td>{count}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      </div>
-      <ScrollRegion label="Calls by hour of day">
-        <div aria-hidden="true" className="flex min-w-[620px] items-end gap-1">
-          {hours.map((count, hour) => (
-            <div
-              key={hour}
-              className="flex min-w-0 flex-1 flex-col items-center gap-1.5"
-              title={`${hourLabel(hour)}: ${count} ${count === 1 ? "call" : "calls"}`}
-            >
-              <span
-                className={`text-[10px] tabular-nums ${
-                  count > 0 ? "font-semibold text-ink" : "text-ink-faint"
-                }`}
-              >
-                {count}
-              </span>
-              <div className="flex h-[120px] w-full items-end">
-                <div
-                  className={`w-full origin-bottom rounded-t-sm ${BAR_ENTER} starting:scale-y-90 ${
-                    count > 0 ? "bg-brand" : "bg-ink/[0.08]"
-                  }`}
-                  // Relative to the busiest hour; a silent hour keeps a 2px baseline so
-                  // the axis stays legible on an all-zero day.
-                  style={{
-                    height: count > 0 ? `${Math.max((count / busiest) * 100, 4)}%` : "2px",
-                  }}
-                />
-              </div>
-              <span className="h-3 text-[10px] font-medium text-ink-faint">
-                {hour % 3 === 0 ? shortHourLabel(hour) : ""}
-              </span>
-            </div>
-          ))}
-        </div>
-      </ScrollRegion>
-      {started < calls && (
-        <p className="mt-2 text-meta text-ink-muted">
-          {formatCount(started)} of {formatCount(calls)} calls in this period have a start
-          time; the rest never reached the network, so they are not in this chart.
-        </p>
-      )}
-    </div>
-  );
+const DRAWN_PER_ROW = 1500;
+
+/** The durations read as ridgeline rows: one point per call at its bin's middle. */
+export function durationRows(data: Durations): RidgeSeries[] {
+  const half = data.bin_s / 2;
+  return data.groups.map((group) => {
+    const scale = group.calls > DRAWN_PER_ROW ? DRAWN_PER_ROW / group.calls : 1;
+    const values: number[] = [];
+    group.counts.forEach((count, i) => {
+      const drawn = count === 0 ? 0 : Math.max(1, Math.round(count * scale));
+      const at = (data.bin_edges_s[i] ?? i * data.bin_s) + half;
+      for (let k = 0; k < drawn; k += 1) values.push(at);
+    });
+    return { label: group.label, values, median: group.median_s, p90: group.p90_s, count: group.calls };
+  });
+}
+
+/** Where the shared axis ends: the top of the last, open-ended bin. */
+export function durationAxisEnd(data: Durations): number {
+  const last = data.bin_edges_s[data.bin_edges_s.length - 1] ?? 0;
+  return last + data.bin_s;
 }

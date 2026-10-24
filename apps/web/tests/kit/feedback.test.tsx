@@ -136,6 +136,9 @@ describe("toast stack", () => {
   }
 
   it("updates a toast in place, and errors stay until dismissed", async () => {
+    // Fake timers throughout, exits included. Switching to real timers part-way strands
+    // motion's frame loop on a frame scheduled under the fake clock, and its exit settles
+    // through promises between frames, so only the async advance lets a card leave.
     vi.useFakeTimers();
     try {
       let api!: ReturnType<typeof useToast>;
@@ -152,14 +155,16 @@ describe("toast stack", () => {
       expect(screen.getByRole("group", { name: "Error: The call did not connect" })).toBeTruthy();
       act(() => api.toast({ kind: "success", title: "Saved" }));
       act(() => vi.advanceTimersByTime(5_100));
+      // The card plays its short exit before it leaves the DOM.
+      await act(() => vi.advanceTimersByTimeAsync(1_000));
+      expect(screen.queryByRole("group", { name: "Done: Saved" })).toBeNull();
+      expect(screen.getByRole("group", { name: "Error: The call did not connect" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+      await act(() => vi.advanceTimersByTimeAsync(1_000));
+      expect(screen.queryByRole("group", { name: /Error/ })).toBeNull();
     } finally {
       vi.useRealTimers();
     }
-    await waitFor(() => expect(screen.queryByRole("group", { name: "Done: Saved" })).toBeNull());
-    expect(screen.getByRole("group", { name: "Error: The call did not connect" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
-    // The card plays its short exit before it leaves the DOM.
-    await waitFor(() => expect(screen.queryByRole("group", { name: /Error/ })).toBeNull());
   });
 
   it("is a safe no-op outside a provider", () => {

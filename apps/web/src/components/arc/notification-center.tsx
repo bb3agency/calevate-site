@@ -36,6 +36,8 @@ export type NotificationItem = {
   /** When it happened, ISO; shown in IST. */
   at?: string;
   tone?: "default" | "warn" | "danger";
+  /** Not yet seen by this person: the title is bold and "New" is said before it. */
+  unread?: boolean;
 };
 
 export type NotificationCenterProps = {
@@ -66,6 +68,10 @@ export type NotificationCenterProps = {
   /** Shown under the list when the server holds more than `items` (a page of a larger set). */
   shortfall?: ReactNode;
   closeLabel?: string;
+  /** Opening the panel is when a feed with read marks records what was seen. */
+  onOpenChange?: (open: boolean) => void;
+  /** Said before an unread row's title. */
+  unreadLabel?: string;
 };
 
 const TONE_DOT: Record<NonNullable<NotificationItem["tone"]>, string> = {
@@ -92,10 +98,13 @@ export function NotificationCenter({
   dismissLabel = (item) => `Dismiss ${item.title}`,
   shortfall,
   closeLabel = "Close",
+  onOpenChange,
+  unreadLabel = "New",
 }: NotificationCenterProps) {
   return (
     <Popover
       label={heading}
+      onOpenChange={onOpenChange}
       align="end"
       className="w-[min(24rem,calc(100vw-1rem))]"
       trigger={
@@ -163,7 +172,7 @@ export function NotificationCenter({
           <ul className="max-h-[min(24rem,60dvh)] divide-y divide-line overflow-y-auto overscroll-contain">
             {items.map((item) => (
               <li key={item.id} className="group relative flex items-start gap-2">
-                <Row item={item} />
+                <Row item={item} unreadLabel={unreadLabel} />
                 {onDismiss ? (
                   <button
                     type="button"
@@ -199,13 +208,16 @@ export function NotificationCenter({
   );
 }
 
-function Row({ item }: { item: NotificationItem }) {
+function Row({ item, unreadLabel }: { item: NotificationItem; unreadLabel: string }) {
   const body = (
     <>
       <span aria-hidden className={clsx("mt-1.5 h-2 w-2 shrink-0 rounded-full", TONE_DOT[item.tone ?? "default"])} />
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline justify-between gap-3">
-          <span className="min-w-0 break-words text-body font-medium text-ink">{item.title}</span>
+          <span className={clsx("min-w-0 break-words text-body text-ink", item.unread ? "font-semibold" : "font-medium")}>
+            {item.unread ? <><span className="sr-only">{unreadLabel}:</span>{" "}</> : null}
+            {item.title}
+          </span>
           {item.meta ? (
             <span className="shrink-0 text-meta tabular-nums text-ink-muted">{item.meta}</span>
           ) : null}
@@ -217,7 +229,7 @@ function Row({ item }: { item: NotificationItem }) {
       </span>
     </>
   );
-  const rowClass = "flex min-w-0 flex-1 items-start gap-2.5 px-3 py-2.5";
+  const rowClass = clsx("flex min-w-0 flex-1 items-start gap-2.5 px-3 py-2.5", item.unread && "bg-brand-soft/50");
   // A row link closes the popover: the bar stays mounted across navigation, so an open
   // panel would otherwise sit over the screen it just opened.
   return item.href ? (

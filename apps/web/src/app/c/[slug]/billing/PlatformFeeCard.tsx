@@ -4,11 +4,11 @@ import { useState } from "react";
 
 import { Receipt } from "lucide-react";
 
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import {
   Card,
   MonoValue,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
@@ -62,10 +62,24 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
   const write = useWriteAccess(session, "org:manage", "pay the platform fee");
   const order = useFeeOrder(session);
   const confirm = useConfirmTopUp(session);
+  // The card says each outcome itself (the stage notices below), so nothing is toasted.
+  const orderFeedback = useActionFeedback(order, { errorDisplay: "inline" });
+  const confirmFeedback = useActionFeedback(confirm, { errorDisplay: "inline" });
   const queries = useQueryClient();
   const [stage, setStage] = useState<PayStage>({ at: "idle" });
   const owed = oldestUnpaid(fee);
   const amount = fee.amount_inr;
+
+  /* One button covers the order, the checkout window and the confirmation; it is busy
+     while we wait on our server, not while the person is in the checkout window. */
+  const payStatus: FeedbackStatus =
+    stage.at === "opening" || stage.at === "verifying" || orderFeedback.status === "pending"
+      ? "pending"
+      : stage.at === "failed"
+        ? "error"
+        : confirmFeedback.status === "success"
+          ? "success"
+          : "idle";
 
   const refresh = () => void queries.invalidateQueries({ queryKey: platformFeeKey(session.orgSlug) });
 
@@ -149,15 +163,16 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
               </p>
             </div>
             <div className="space-y-2">
-              <button
-                type="button"
-                className={PRIMARY_BUTTON}
-                disabled={!write.allowed || stage.at === "opening" || stage.at === "verifying"}
+              <ActionButton
+                status={payStatus}
+                successLabel="Paid"
+                pendingLabel={stage.at === "verifying" ? "Checking the payment" : undefined}
+                disabled={!write.allowed}
                 onClick={() => pay(owed.id)}
               >
                 <Receipt aria-hidden className="h-4 w-4" />
                 Pay {formatINR(owed.amount_inr)}
-              </button>
+              </ActionButton>
               <RestrictionNote reason={write.reason} />
             </div>
           </div>
@@ -169,11 +184,6 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
             quote the reference <MonoValue>{stage.order.receipt}</MonoValue>; we record it as
             soon as it arrives.
           </NoticeBox>
-        )}
-        {stage.at === "verifying" && (
-          <p className="text-meta text-ink-muted">
-            <span className="text-shimmer">Checking the payment…</span>
-          </p>
         )}
         {stage.at === "received" && (
           <NoticeBox tone="ok" title="Payment received">

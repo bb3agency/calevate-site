@@ -11,17 +11,12 @@ import {
 import type { ReactNode } from "react";
 
 import { Section } from "@/components/console/section";
-import { Disclosure, formatRupeeRate } from "@/components/ui";
+import { Disclosure } from "@/components/ui";
 import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 import type { CreditPacks } from "@/lib/api/billing";
-import { ladderFalls, voiceNotOffered, voiceNotOfferedNotice } from "@/lib/api/rateCard";
+import { voiceNotOffered, voiceNotOfferedNotice } from "@/lib/api/rateCard";
 
-import {
-  VOICE_TIERS,
-  cheapestRate,
-  dearestRate,
-  type TierLabels,
-} from "./lots";
+import type { TierLabels } from "./lots";
 
 /**
  * WHAT CALLS COST — the plain-language explainer, and the only place this console makes
@@ -115,50 +110,13 @@ export function WhatCallsCost({
   /** What a client calls each quality, from the same card. */
   labels: TierLabels | undefined;
 }) {
-  const band = card && labels ? rateBand(card) : undefined;
   return (
     <Section title="What calls cost">
+      {/* The per-minute rates themselves are on "Clear or Studio" above, from the server's
+          comparison; this panel explains how they are charged. */}
       <p className="text-body text-ink-muted">
         Calling is charged out of your credit as you use it, and 1 credit is ₹1.
-        {band &&
-          " What a minute costs depends on the voice the agent speaks with, and on"}
-        {band && " how big a pack you buy:"}
       </p>
-      {/* A LIST rather than a sentence, because it is four figures in two pairs and a
-          sentence makes the reader hold the first pair while reading the second. Each rate
-          sits under the name of the quality it prices — never two bare numbers side by
-          side, which a reader assigns to whichever voice they had in mind. */}
-      {band && labels && (
-        <dl className="mt-2 space-y-1 text-body">
-          {VOICE_TIERS.map((tier) => (
-            <div key={tier} className="flex flex-wrap items-baseline gap-x-2">
-              <dt className="font-medium text-ink">{labels[tier]}</dt>
-              {/* The "down to X on the largest pack" half is CONDITIONAL because a card
-                  may price a voice flat: `credit_packs.py::card_refusals` refuses only a
-                  bigger pack that buys a DEARER minute, so equal rungs are a legal card.
-                  Unguarded a flat voice renders "₹X a minute, down to ₹X on the largest
-                  pack" — a discount offered where the card grants none, in a paying
-                  client's own billing screen. Same guard as
-                  `/pricing`'s `bandSentence`, from the same helper. */}
-              <dd className="tabular-nums text-ink-muted">
-                <strong className="font-semibold text-ink">
-                  {formatRupeeRate(band[tier].dearest)}
-                </strong>{" "}
-                a minute
-                {band[tier].falls && (
-                  <>
-                    , down to{" "}
-                    <strong className="font-semibold text-ink">
-                      {formatRupeeRate(band[tier].cheapest)}
-                    </strong>{" "}
-                    on the largest pack
-                  </>
-                )}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
 
       <div className="mt-3 border-t border-line/60">
         <Fact
@@ -245,43 +203,6 @@ export function WhatCallsCost({
       </div>
     </Section>
   );
-}
-
-/**
- * The two ends of the ladder on each quality, or `undefined` when the card cannot supply
- * both.
- *
- * Both ends, because one is not the sentence: "from ₹4.50" is the largest pack's rate and
- * describes nobody's first purchase, while the entry rate alone hides the whole reason a
- * bigger pack is worth buying. `cheapestRate` is the server's own published minimum
- * (`from_*_inr_per_min`) and `dearestRate` is a comparison across the rows it sent — no
- * price is computed here.
- */
-function rateBand(
-  card: CreditPacks,
-):
-  | Record<
-      "clear" | "studio",
-      { cheapest: string; dearest: string; falls: boolean }
-    >
-  | undefined {
-  const clearLow = cheapestRate(card, "clear");
-  const clearHigh = dearestRate(card, "clear");
-  const studioLow = cheapestRate(card, "studio");
-  const studioHigh = dearestRate(card, "studio");
-  if (!clearLow || !clearHigh || !studioLow || !studioHigh) return undefined;
-  return {
-    clear: {
-      cheapest: clearLow,
-      dearest: clearHigh,
-      falls: ladderFalls(card, "clear"),
-    },
-    studio: {
-      cheapest: studioLow,
-      dearest: studioHigh,
-      falls: ladderFalls(card, "studio"),
-    },
-  };
 }
 
 /**

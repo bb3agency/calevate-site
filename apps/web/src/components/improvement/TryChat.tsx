@@ -2,6 +2,7 @@
 
 import { useId, useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import { useTestConversations } from "@/lib/api/script";
@@ -32,6 +33,8 @@ export function TryChat({
   const session = useClientSession();
   const eg = useVerticalExamples();
   const send = useTryChat(session, agentId);
+  // A refused line is said under the conversation, so it is not toasted.
+  const sendFeedback = useActionFeedback(send, { errorDisplay: "inline" });
   /* The same readiness the saved tests read: the chat talks to the agent the engine holds,
      so until it has been published there is nothing to talk to, and the server says why. */
   const readiness = useTestConversations(session, agentId);
@@ -43,7 +46,7 @@ export function TryChat({
 
   const submit = () => {
     const text = message.trim();
-    if (!text || send.isPending) return;
+    if (!text || sendFeedback.status === "pending") return;
     setTurns((all) => [...all, { from: "you", text }]);
     send.mutate(
       { message: text, chatSession: chat },
@@ -133,7 +136,7 @@ export function TryChat({
                 ) : null}
               </li>
             ))}
-            {send.isPending ? (
+            {sendFeedback.status === "pending" ? (
               <li className="text-meta text-ink-muted" role="status">
                 The agent is answering…
               </li>
@@ -161,13 +164,15 @@ export function TryChat({
             placeholder={eg.factQuestion}
             className={`${FIELD} mt-0`}
           />
-          <button
+          <ActionButton
             type="submit"
-            className={SECONDARY_BUTTON_SM}
-            disabled={!canWrite || !message.trim() || send.isPending}
+            variant="secondary-sm"
+            status={sendFeedback.status}
+            successLabel="Sent"
+            disabled={!canWrite || !message.trim()}
           >
             Send
-          </button>
+          </ActionButton>
         </form>
         {note ? <p className="text-meta text-ink-faint">{note}</p> : null}
       </div>

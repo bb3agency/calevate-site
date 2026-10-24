@@ -42,6 +42,8 @@ export const HUB_SPEND_ROUTE = `/v1/billing/spend?month=${encodeURIComponent(
 )}`;
 export const HUB_STATEMENTS_ROUTE = statementsPath(6);
 export const HUB_SPEND_SERIES_ROUTE = spendSeriesPath({ days: 30 });
+export const CREDIT_USAGE_PATH = "/v1/billing/credit-usage";
+export const VOICE_TIERS_PATH = "/v1/billing/voice-tiers";
 
 /** The five Usage-view reads, never answering — for a suite that renders the hub itself. */
 export function hubUsageIdle(): Routes {
@@ -54,6 +56,9 @@ export function hubUsageIdle(): Routes {
     // The auto-recharge card on the Overview (D-699); its own suite answers these.
     "/v1/billing/auto-recharge": stillLoading(),
     "/v1/billing/auto-recharge/charges?limit=20": stillLoading(),
+    // Where the credit went (this month / all time) and Clear against Studio (D-869).
+    [CREDIT_USAGE_PATH]: stillLoading(),
+    [VOICE_TIERS_PATH]: stillLoading(),
     // The monthly platform fee card (D-707), switched off: it renders nothing.
     "/v1/billing/platform-fee": PLATFORM_FEE_OFF,
   };

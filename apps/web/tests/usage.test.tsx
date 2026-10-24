@@ -439,26 +439,17 @@ describe("the usage panel", () => {
     expect(container.textContent).toContain("About 0 minutes");
   });
 
-  it("refuses a minute limit it cannot read rather than sending it as 'no limit'", async () => {
-    // `Number("1,000")` is NaN and JSON sends NaN as null — which is the instruction
-    // "remove my own limit". An owner typing a limit the Indian way got the opposite of it.
-    const { calls } = await renderBillingHub(routes(), "Usage");
-
-    fireEvent.change(await screen.findByLabelText("Minutes"), { target: { value: "1,000" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save limit" }));
-
-    expect(await screen.findByText(/whole number in digits only/i)).toBeTruthy();
-    expect(screen.getByLabelText("Minutes").getAttribute("aria-invalid")).toBe("true");
-    expect(calls.some((call) => call.method === "PUT")).toBe(false);
-  });
-
-  it("sends a minute limit typed as digits", async () => {
+  it("sends a minute limit typed the Indian way as the number it is, never as 'no limit'", async () => {
+    // `Number("1,000")` is NaN and JSON sends NaN as null — the instruction "remove my own
+    // limit". The field reads the grouping and sends the number.
     const { calls } = await renderBillingHub(
       routes({ "PUT /v1/billing/caps": { ...CAPS, client_cap_minutes: 1000 } }),
       "Usage",
     );
 
-    fireEvent.change(await screen.findByLabelText("Minutes"), { target: { value: " 1000 " } });
+    const minutes = await screen.findByLabelText("Minutes");
+    fireEvent.change(minutes, { target: { value: "1,000" } });
+    fireEvent.blur(minutes);
     fireEvent.click(screen.getByRole("button", { name: "Save limit" }));
 
     await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));

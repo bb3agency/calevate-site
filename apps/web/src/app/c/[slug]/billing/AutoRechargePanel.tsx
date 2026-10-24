@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 
 import { Section, TEXT_ACTION_DANGER } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
+import { ConfirmDialog } from "@/components/confirmDialog";
 import {
   FIELD,
   NoticeBox,
   ProblemNotice,
-  SECONDARY_BUTTON,
   Skeleton,
   ToggleSwitch,
   formatINR,
@@ -48,6 +49,21 @@ export function AutoRechargePanel({ session }: { session: Session }) {
   const start = useStartMandate(session);
   const confirm = useConfirmMandate(session);
   const withdraw = useWithdrawMandate(session);
+  // Every failure here is said in the one ProblemNotice under the rows, so none is toasted.
+  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
+  const startFeedback = useActionFeedback(start, { errorDisplay: "inline" });
+  const confirmFeedback = useActionFeedback(confirm, {
+    errorDisplay: "inline",
+    successToast: "Payment method approved",
+    successDescription: "Turn on automatic top-ups when you are ready.",
+  });
+  const withdrawFeedback = useActionFeedback(withdraw, {
+    errorDisplay: "inline",
+    successToast: "Approval withdrawn",
+    successDescription: "We will not top up your credit automatically.",
+  });
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [savingAmounts, setSavingAmounts] = useState(false);
 
   const [threshold, setThreshold] = useState("");
   const [amount, setAmount] = useState("");
@@ -70,8 +86,20 @@ export function AutoRechargePanel({ session }: { session: Session }) {
   const fieldProblem = rupeeProblem(threshold) ?? rupeeProblem(amount) ?? rupeeProblem(cap);
   const confirmed = data.mandate_status === "confirmed";
 
+  // The three amounts are saved with the switch, or on their own with "Save amounts".
+  const edited =
+    threshold.trim() !== data.threshold_inr ||
+    amount.trim() !== data.amount_inr ||
+    cap.trim() !== data.monthly_cap_inr;
+  /* Approving runs two requests with the checkout window between them; the button shows
+     whichever is in flight, and its tick once the approval is confirmed. */
+  const approveStatus: FeedbackStatus =
+    startFeedback.status === "pending" || startFeedback.status === "error"
+      ? startFeedback.status
+      : confirmFeedback.status;
+
   const persist = (enabled: boolean) =>
-    save.mutate({
+    saveFeedback.run({
       enabled,
       threshold_inr: threshold.trim(),
       amount_inr: amount.trim(),
@@ -93,7 +121,7 @@ export function AutoRechargePanel({ session }: { session: Session }) {
       receipt: checkout.order_id,
       notes: checkout.notes,
       recurringCustomerId: checkout.customer_id,
-      onSuccess: (response) => confirm.mutate(response),
+      onSuccess: (response) => confirmFeedback.run(response),
       onDismissed: () => setWindowNote("The approval window was closed. Nothing was set up."),
       onFailed: () =>
         setWindowNote("The approval did not go through. You can try again or use another method."),
@@ -104,7 +132,7 @@ export function AutoRechargePanel({ session }: { session: Session }) {
   return (
     <Section
       title="Auto-recharge"
-      info="We top up your credit automatically when it runs low, using a payment method you approve once. Razorpay, our payment gateway, holds the approval; we never see card or UPI details."
+      info="We top up your credit automatically when it runs low, using a payment method you approve once. Our payment provider holds the approval; we never see card or UPI details."
     >
       {data.disabled_reason && (
         <NoticeBox tone="warn" title="Auto-recharge is off" className="mb-4">
@@ -136,25 +164,21 @@ export function AutoRechargePanel({ session }: { session: Session }) {
                   <option value="upi">UPI Autopay</option>
                   <option value="card">Debit or credit card</option>
                 </select>
-                <button
-                  type="button"
-                  className={SECONDARY_BUTTON}
-                  disabled={fieldProblem !== null || start.isPending}
+                <ActionButton
+                  variant="secondary"
+                  status={approveStatus}
+                  successLabel="Approved"
+                  disabled={fieldProblem !== null}
                   onClick={() => void approve()}
                 >
                   Approve a payment method (₹1)
-                </button>
+                </ActionButton>
               </span>
             ) : undefined
           }
           action={
             canManage && (confirmed || data.mandate_status === "paused") ? (
-              <button
-                type="button"
-                className={TEXT_ACTION_DANGER}
-                disabled={withdraw.isPending}
-                onClick={() => withdraw.mutate()}
-              >
+              <button type="button" className={TEXT_ACTION_DANGER} onClick={() => setWithdrawing(true)}>
                 Withdraw approval
               </button>
             ) : undefined
@@ -222,11 +246,30 @@ export function AutoRechargePanel({ session }: { session: Session }) {
               <ToggleSwitch
                 label="Auto-recharge"
                 checked={data.enabled}
-                disabled={!confirmed || fieldProblem !== null || save.isPending}
-                onChange={(next) => persist(next)}
+                disabled={!confirmed || fieldProblem !== null || saveFeedback.status === "pending"}
+                onChange={(next) => {
+                  setSavingAmounts(false);
+                  persist(next);
+                }}
               />
             }
           />
+        )}
+        {canManage && (edited || (savingAmounts && saveFeedback.status !== "idle")) && (
+          <div className="flex justify-end py-3">
+            <ActionButton
+              variant="secondary"
+              status={saveFeedback.status}
+              successLabel="Saved"
+              disabled={fieldProblem !== null}
+              onClick={() => {
+                setSavingAmounts(true);
+                persist(data.enabled);
+              }}
+            >
+              Save amounts
+            </ActionButton>
+          </div>
         )}
       </SettingRows>
 
@@ -246,9 +289,27 @@ export function AutoRechargePanel({ session }: { session: Session }) {
       {windowNote && <p className="mt-2 text-meta text-ink-muted">{windowNote}</p>}
       <div className="mt-3">
         <ProblemNotice
-          error={save.error ?? start.error ?? checkoutProblem ?? confirm.error ?? withdraw.error}
+          error={save.error ?? start.error ?? checkoutProblem ?? confirm.error}
         />
       </div>
+
+      {withdrawing && (
+        <ConfirmDialog
+          title="Withdraw the payment approval?"
+          confirmLabel="Withdraw approval"
+          pendingLabel="Withdrawing"
+          status={withdrawFeedback.status}
+          error={withdraw.error}
+          onCancel={() => {
+            withdraw.reset();
+            setWithdrawing(false);
+          }}
+          onConfirm={() => withdraw.mutate(undefined, { onSuccess: () => setWithdrawing(false) })}
+        >
+          Automatic top-ups stop, and your credit is no longer refilled when it runs low. To
+          turn them on again you approve a payment method again.
+        </ConfirmDialog>
+      )}
 
       {charges.data && charges.data.length > 0 && (
         <div className="mt-6">

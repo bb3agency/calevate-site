@@ -15,7 +15,7 @@ import {
   type SurfaceHolder,
 } from "@/lib/copilot/registry";
 
-import { hubUsageIdle, renderBillingHub } from "./billingHub";
+import { CREDIT_USAGE_PATH, hubUsageIdle, renderBillingHub } from "./billingHub";
 import { PLATFORM_FEE_OFF, activeTrialBlock } from "./fixtures/sharedReads";
 import { problem, renderClientPage, stillLoading } from "./harness";
 
@@ -843,85 +843,87 @@ describe("the credit itself: what is left, and at which rates", () => {
   });
 });
 
-describe("where the money went", () => {
-  it("names the things that draw the wallet down and never invents another", async () => {
-    const { container } = await renderBillingHub(routes());
-
-    // SCOPED TO THE CARD. "Calls" is also a ledger row's label now that this realm words
-    // an entry for the person whose money it is rather than for an operator, and an
-    // unscoped query for it would match whichever rendered first.
-    const card = (
-      await screen.findByText(/Where your credit went in the last 30 days/)
-    ).closest("section") as HTMLElement;
-    within(card).getByText("Calls");
-    within(card).getByText("Extra AI help");
-    within(card).getByText("₹8,700.00");
-    // MESSAGING IS NOT A BUCKET. Nothing on this platform debits the wallet for a message,
-    // so a "Messaging ₹0.00" row would be a category invented to look complete — and a
-    // client reading it would reasonably conclude they are being charged for messages.
-    expect(container.textContent).not.toContain("Messaging");
-    // A zero row is hidden rather than inviting a question about nothing.
-    expect(screen.queryByText("Corrections")).toBeNull();
+/** `/v1/billing/credit-usage`: this IST month and all time, in the drawdown buckets. */
+function creditUsage(
+  thisMonth: Partial<Record<string, string>> = {},
+  allTime: Partial<Record<string, string>> = {},
+) {
+  const period = (name: "this_month" | "all_time", over: Partial<Record<string, string>>) => ({
+    period: name,
+    added_inr: "0.00",
+    spent_inr: "0.00",
+    calls_inr: "0.00",
+    ai_assist_inr: "0.00",
+    number_rental_inr: "0.00",
+    adjustments_inr: "0.00",
+    ...over,
   });
+  return { month: "2026-10", this_month: period("this_month", thisMonth), all_time: period("all_time", allTime) };
+}
 
-  it("names a phone number rental as its own row (D-665)", async () => {
-    await renderBillingHub(
+describe("where the money went", () => {
+  async function card() {
+    return (await screen.findByRole("heading", { name: "Where your credit went" })).closest("section") as HTMLElement;
+  }
+
+  it("names the things that draw the wallet down and never invents another", async () => {
+    const { container } = await renderBillingHub(
       routes({
-        [WALLET]: wallet({
-          drawdown: {
-            calls_inr: "8400.00",
-            ai_assist_inr: "0.00",
-            number_rental_inr: "499.00",
-            adjustments_inr: "0.00",
-            spent_inr: "8899.00",
-            added_inr: "12100.00",
-            refunded_inr: "0.00",
-          },
-        }),
+        [CREDIT_USAGE_PATH]: creditUsage(
+          { calls_inr: "8400.00", ai_assist_inr: "300.00", spent_inr: "8700.00", added_inr: "12100.00" },
+          { calls_inr: "20400.00", ai_assist_inr: "300.00", spent_inr: "20700.00", added_inr: "30000.00" },
+        ),
       }),
     );
-    const card = (
-      await screen.findByText(/Where your credit went in the last 30 days/)
-    ).closest("section") as HTMLElement;
-    const row = within(card).getByText("Phone number rental").closest("div")
-      ?.parentElement?.parentElement as HTMLElement;
-    expect(row.textContent).toContain("₹499.00");
-    within(card).getByText("₹8,899.00");
-    // A zero bucket stays hidden, rental included.
-    expect(within(card).queryByText("Extra AI help")).toBeNull();
+    const panel = await card();
+    const table = await within(panel).findByRole("table");
+    expect(table.textContent).toContain("Calls");
+    expect(table.textContent).toContain("₹8,400.00");
+    expect(table.textContent).toContain("Extra AI help");
+    within(panel).getByText("₹8,700.00");
+    expect(panel.textContent).toContain("₹12,100.00");
+    // MESSAGING IS NOT A BUCKET, and a zero bucket is left out.
+    expect(container.textContent).not.toContain("Messaging");
+    expect(table.textContent).not.toContain("Corrections");
+  });
+
+  it("switches to the wallet's whole life on All time", async () => {
+    await renderBillingHub(
+      routes({
+        [CREDIT_USAGE_PATH]: creditUsage(
+          { calls_inr: "8400.00", spent_inr: "8400.00" },
+          { calls_inr: "20400.00", number_rental_inr: "499.00", spent_inr: "20899.00" },
+        ),
+      }),
+    );
+    const panel = await card();
+    await within(panel).findAllByText("₹8,400.00");
+    fireEvent.click(within(panel).getByRole("radio", { name: "All time" }));
+    await within(panel).findAllByText("₹20,899.00");
+    // Phone number rental is its own part (D-665).
+    expect(within(panel).getByRole("table").textContent).toContain("Phone number rental");
   });
 
   it("designs the day-one empty state rather than showing headers over nothing", async () => {
     await renderBillingHub(
       routes({
-        [WALLET]: wallet({
-          drawdown: {
-            calls_inr: "0.00",
-            ai_assist_inr: "0.00",
-            number_rental_inr: "0.00",
-            adjustments_inr: "0.00",
-            spent_inr: "0.00",
-            added_inr: "0.00",
-            refunded_inr: "0.00",
-          },
-        }),
+        [CREDIT_USAGE_PATH]: creditUsage(),
         [LEDGER]: { entries: [], payments: [] },
       }),
     );
-
-    // ONE empty state per view, and both SAY what will appear rather than rendering a
-    // blank. They are on different views (D-525, D-655), so the count is asserted per
-    // view: "where it went" is at the foot of Usage and the history is Transactions'.
-    await waitFor(() =>
-      expect(
-        screen.getAllByText(/Nothing has moved on your credit yet/),
-      ).toHaveLength(1),
-    );
+    await within(await card()).findByText(/Nothing has moved on your credit this month/);
     fireEvent.click(await screen.findByRole("radio", { name: "Transactions" }));
     await screen.findByText(/Payments you make and calls your agents handle/);
-    // And the export offers nothing to download rather than a file with a header row
-    // and no rows.
     await screen.findByText(/There is nothing to download yet/);
+  });
+
+  it("is the owner's: a session without billing access is not sent the read", async () => {
+    const { calls } = await renderBillingHub(
+      routes({ "/v1/me": { ...ME, permissions: ["wallet:read"] } }),
+    );
+    await screen.findByText("₹3,400.00");
+    expect(calls.some((call) => call.path === CREDIT_USAGE_PATH)).toBe(false);
+    expect(screen.queryByRole("heading", { name: "Where your credit went" })).toBeNull();
   });
 });
 
@@ -1153,10 +1155,6 @@ describe("the ledger and its receipts", () => {
       }),
     );
 
-    // Money that went back to the client is named for its direction below the total on
-    // OVERVIEW, rather than being buried in the spend it is not part of.
-    await screen.findByText("Refunded to you", { selector: "dt" });
-
     fireEvent.click(await screen.findByRole("radio", { name: "Transactions" }));
     const table = await screen.findByRole("table", { name: /credit history/i });
     const rows = within(table).getAllByRole("row");
@@ -1347,10 +1345,13 @@ describe("the states that are not a balance", () => {
 describe("the explainer's claims about the money", () => {
   it("names extra AI help as something that draws the credit down", async () => {
     // "Nothing runs it down except your own calls" is contradicted two cards below by
-    // "Extra AI help", which `WhereItWent` renders from `drawdown.ai_assist_inr` (₹300.00
-    // on this fixture) because a block of dashboard AI a person accepts is a debit on this
-    // wallet (`apps/api/billing/ai_quota.py`).
-    const { container } = await renderBillingHub(routes());
+    // "Extra AI help", which `WhereItWent` renders from `ai_assist_inr` because a block of
+    // dashboard AI a person accepts is a debit on this wallet (`apps/api/billing/ai_quota.py`).
+    const { container } = await renderBillingHub(
+      routes({
+        [CREDIT_USAGE_PATH]: creditUsage({ calls_inr: "8400.00", ai_assist_inr: "300.00", spent_inr: "8700.00" }),
+      }),
+    );
     const explainer = (await screen.findByText("What calls cost")).closest(
       "section",
     ) as HTMLElement;
@@ -1362,9 +1363,9 @@ describe("the explainer's claims about the money", () => {
     expect(explainer.textContent).toMatch(/monthly rent for your phone\s+numbers/i);
     // The panel it used to contradict is on the same screen, saying the same thing.
     const spend = (
-      await screen.findByText(/Where your credit went in the last 30 days/)
+      await screen.findByRole("heading", { name: "Where your credit went" })
     ).closest("section") as HTMLElement;
-    within(spend).getByText("Extra AI help");
+    expect((await within(spend).findByRole("table")).textContent).toContain("Extra AI help");
     expect(container.textContent).toContain("₹300.00");
   });
 

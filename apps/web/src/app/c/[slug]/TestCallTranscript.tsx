@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import { useCall, useCalls, useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
@@ -42,6 +43,8 @@ function TestCall({ callId }: { callId: string }) {
   const callHref = href(`/c/${session.orgSlug}/calls/${callId}`);
   const englishWrite = useWriteAccess(session, "org:manage", "prepare the English of a call");
   const retryEnglish = useRetryEnglish(session, callId);
+  // `TranscriptCard` shows the failure beside its retry control, so it is not toasted.
+  const retryFeedback = useActionFeedback(retryEnglish, { errorDisplay: "inline" });
   const [view, setView] = useState<CallView | null>(null);
   if (view === null && detail.data) setView(initialView(detail.data));
 
@@ -64,8 +67,8 @@ function TestCall({ callId }: { callId: string }) {
         onViewChange={setView}
         english={{
           access: englishWrite,
-          onRetry: () => retryEnglish.mutate(),
-          pending: retryEnglish.isPending,
+          onRetry: () => retryFeedback.run(),
+          pending: retryFeedback.status === "pending",
           error: retryEnglish.error,
         }}
         player={null}

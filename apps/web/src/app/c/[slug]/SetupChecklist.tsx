@@ -1,7 +1,7 @@
 "use client";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
-import { ProblemNotice } from "@/components/ui";
 import {
   STEPS,
   setupHref,
@@ -29,6 +29,13 @@ export function SetupChecklist({ placement = "dashboard" }: { placement?: "dashb
   const profile = useBusinessProfile(session);
   const write = useWriteAccess(session, "org:manage", "hide the setup checklist");
   const dismiss = useSetupAction(session);
+  // On success the list leaves the dashboard with the button that hid it, so the toast is
+  // the only place the result can be said, with where to find the list again.
+  const dismissFeedback = useActionFeedback(dismiss, {
+    errorTitle: "Could not hide the setup list",
+    successToast: "Setup list hidden",
+    successDescription: "It is always under Settings, Business profile.",
+  });
 
   const data = profile.data;
   if (!data) return null;
@@ -67,17 +74,25 @@ export function SetupChecklist({ placement = "dashboard" }: { placement?: "dashb
 
   return (
     <div className={onDashboard ? "border-y border-line py-4" : ""}>
-      <Checklist label={label} items={items} collapsible={onDashboard} headingLevel={2} />
-      {dismiss.error && <ProblemNotice error={dismiss.error} />}
+      <Checklist
+        label={label}
+        items={items}
+        collapsible={onDashboard}
+        headingLevel={2}
+        emphasizeNext
+        foldDone
+      />
       {write.allowed && onDashboard && (
-        <button
-          type="button"
-          onClick={() => dismiss.mutate({ action: "dismiss" })}
-          disabled={dismiss.isPending}
-          className="press mt-3 rounded-sm text-meta font-medium text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+        <ActionButton
+          variant="secondary-sm"
+          status={dismissFeedback.status}
+          pendingLabel="Hiding"
+          successLabel="Hidden"
+          onClick={() => dismissFeedback.run({ action: "dismiss" })}
+          className="mt-3"
         >
           Hide this list
-        </button>
+        </ActionButton>
       )}
     </div>
   );

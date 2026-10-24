@@ -29,6 +29,13 @@ export type Tier = {
   name: string;
   /** Decimal string from the server, e.g. "4.50". */
   ratePerMinute: string;
+  /**
+   * When the rate is not one figure yet (it depends on the pack bought), the top of the
+   * range: the card then reads "₹A – ₹B". A decimal string from the server, like the rate.
+   */
+  rateTo?: string;
+  /** One line under the rate: whose rate it is, or what fixes it. */
+  rateNote?: ReactNode;
   /** One line under the name: what it sounds like to a caller. */
   summary?: string;
   includes: string[];
@@ -108,10 +115,18 @@ export function TierComparison({
                 </div>
                 {tier.summary ? <p className="text-body text-ink-muted">{tier.summary}</p> : null}
               </div>
-              <p className="flex items-baseline gap-1.5">
-                <span className="text-figure tabular-nums text-ink">{formatRupeeRate(tier.ratePerMinute)}</span>
-                <span className="text-meta text-ink-muted">{strings.perMinute}</span>
-              </p>
+              <div>
+                <p className="flex flex-wrap items-baseline gap-x-1.5">
+                  <span className="text-figure tabular-nums text-ink">
+                    {formatRupeeRate(tier.ratePerMinute)}
+                    {tier.rateTo !== undefined && tier.rateTo !== tier.ratePerMinute
+                      ? ` – ${formatRupeeRate(tier.rateTo)}`
+                      : null}
+                  </span>
+                  <span className="text-meta text-ink-muted">{strings.perMinute}</span>
+                </p>
+                {tier.rateNote ? <p className="mt-1 text-meta text-ink-muted">{tier.rateNote}</p> : null}
+              </div>
               <div className="space-y-2">
                 <h4 className="text-meta font-semibold text-ink-muted">{strings.includes}</h4>
                 <ul className="space-y-1.5">

@@ -138,6 +138,7 @@ import {
 import { renderAdminRoute } from "./adminRoute";
 import { hubUsageIdle } from "./billingHub";
 import { workspaceRoutes } from "./copilotWorkspaceFixture";
+import { addDays, todayIST } from "@/components/arc/ist-dates";
 import { noReply, problem, renderClientPage, type Routes } from "./harness";
 import { ADMIN_WHATSAPP, WHATSAPP_OFF_ROUTES } from "./fixtures/whatsapp";
 import { adminBusinessProfileFixture, businessProfileFixture } from "./businessProfileFixture";
@@ -149,6 +150,7 @@ import {
   activeTrialBlock,
   prepaidWallet,
   LIVE_CALLS_PATH,
+  NOTIFICATIONS_PATH,
   OWN_NUMBERS_OFF,
   OWN_NUMBERS_STATUS_PATH,
   clientLlmTiers,
@@ -1122,6 +1124,54 @@ const AI_QUOTA_AT_CEILING = {
   extra_available: true,
   extra_unavailable_reason: null,
 } satisfies AiQuota;
+
+const ANALYTICS_WINDOW = { days: 30, from_date: "2026-09-25", to_date: todayIST(), timezone: "Asia/Kolkata" as const };
+
+/** The stats band with changes both ways and a figure with nothing to measure. */
+const ANALYTICS_STATS = {
+  window: ANALYTICS_WINDOW,
+  previous_window: ANALYTICS_WINDOW,
+  metrics: [
+    { key: "calls", value: "29", previous: "17", change_pct: "70.6", higher_is_better: true },
+    { key: "answered", value: "20", previous: "11", change_pct: "81.8", higher_is_better: true },
+    { key: "answer_rate_pct", value: "69.0", previous: "64.7", change_pct: "6.6", higher_is_better: true },
+    { key: "leads", value: "6", previous: "8", change_pct: "-25.0", higher_is_better: true },
+    { key: "hot_leads", value: "2", previous: "0", change_pct: null, higher_is_better: true },
+    { key: "avg_duration_s", value: null, previous: null, change_pct: null, higher_is_better: true },
+    { key: "talk_minutes", value: "31.5", previous: "20.0", change_pct: "57.5", higher_is_better: true },
+  ],
+};
+
+/** The performance screen's analytics reads for the default range, each with data to draw. */
+function performanceAnalytics(): Routes {
+  const q = `days=30&to=${todayIST()}&test_calls=true`;
+  const cells = [];
+  for (let weekday = 1; weekday <= 7; weekday += 1) {
+    for (let hour = 0; hour < 24; hour += 1) cells.push({ weekday, hour, count: (weekday * hour) % 5 });
+  }
+  return {
+    [`/v1/analytics/stats?${q}`]: ANALYTICS_STATS,
+    [`/v1/analytics/heatmap?${q}&metric=calls`]: { metric: "calls", cells, max_count: 4, total: 300, window: ANALYTICS_WINDOW },
+    [`/v1/analytics/durations?${q}&group_by=agent&bin_s=30`]: {
+      group_by: "agent",
+      bin_s: 30,
+      bin_edges_s: Array.from({ length: 20 }, (_, i) => i * 30),
+      groups: [
+        { key: "a1", label: "Front desk", calls: 12, counts: Array.from({ length: 20 }, (_, i) => (i < 6 ? i : 0)).map((n) => n % 4), median_s: 95, p90_s: 151 },
+        { key: "a2", label: "Recall", calls: 6, counts: Array.from({ length: 20 }, (_, i) => (i === 3 ? 6 : 0)), median_s: 105, p90_s: 110 },
+      ],
+      other_calls: 0,
+      window: ANALYTICS_WINDOW,
+    },
+    [`/v1/analytics/timeline?days=90&to=${todayIST()}&test_calls=true`]: {
+      calls: 45,
+      answered: 30,
+      leads: 6,
+      days: Array.from({ length: 90 }, (_, i) => ({ ist_date: addDays(todayIST(), i - 89), calls: i % 3, answered: i % 2, leads: 0 })),
+      window: { ...ANALYTICS_WINDOW, days: 90 },
+    },
+  };
+}
 
 const DASHBOARD = {
   calls_today: 3,
@@ -2119,6 +2169,39 @@ const CLIENT_SCREENS: Screen[] = [
       // On the last day of a trial, so the sweep covers the trial strip in its fullest
       // state: the warning tone and the Add credit link.
       "/v1/billing/wallet": prepaidWallet({ trial: activeTrialBlock({ days_remaining: 1 }) }),
+      // An announcement with a link, so the strip and its dismiss button are swept.
+      "/v1/announcements": {
+        items: [
+          {
+            id: "ann-1",
+            message: "Calls may be slow tonight from 11pm",
+            tone: "warning",
+            link_url: "/billing",
+            link_label: "Check your credit",
+            starts_at: "2026-10-24T00:00:00Z",
+            ends_at: null,
+          },
+        ],
+      },
+      [NOTIFICATIONS_PATH]: {
+        items: [
+          {
+            id: "lead-1",
+            source: "attention",
+            kind: "lead_hot",
+            title: "Ravi is interested",
+            detail: "Asked for a call back",
+            href: "/leads/lead-1",
+            link_label: null,
+            occurred_at: "2026-10-24T05:00:00Z",
+            tone: "info",
+            unread: true,
+          },
+        ],
+        unread: 1,
+        attention_total: 1,
+        seen_through: null,
+      },
     },
   },
   {
@@ -2197,6 +2280,17 @@ const CLIENT_SCREENS: Screen[] = [
         items: [KNOWLEDGE_GAP],
         open_count: 1,
         total: 1,
+      },
+      // Figures with changes both ways, and a readiness score with fixes to make.
+      "/v1/analytics/stats": ANALYTICS_STATS,
+      "/v1/readiness": {
+        score: 62,
+        agents: [],
+        top_fixes: [
+          { component: "tests", action: "Run the practice tests to see how it handles real questions.", href: "/agents/agent-1?section=training", points: 30 },
+          { component: "knowledge", action: "Add what your business does to Knowledge.", href: "/knowledge", points: 10 },
+        ],
+        computed_at: "2026-10-24T05:00:00Z",
       },
     },
   },
@@ -3371,6 +3465,7 @@ const CLIENT_SCREENS: Screen[] = [
           0,
         ],
       },
+      ...performanceAnalytics(),
     },
   },
   {

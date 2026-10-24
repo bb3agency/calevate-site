@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Printer } from "lucide-react";
 
+import { ActionButton } from "@/components/arc/feedback";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { Drawer } from "@/components/console/drawer";
 import { EmptySketch } from "@/components/console/emptySketch";
@@ -12,7 +13,6 @@ import {
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
@@ -115,14 +115,13 @@ export function StatementsView({ session, allowed }: { session: Session; allowed
             className="border-y border-line"
           />
           {statements.hasNextPage && (
-            <button
-              type="button"
+            <ActionButton
+              variant="secondary"
+              status={statements.isFetchingNextPage ? "pending" : statements.isFetchNextPageError ? "error" : "idle"}
               onClick={() => void statements.fetchNextPage()}
-              disabled={statements.isFetchingNextPage}
-              className={SECONDARY_BUTTON}
             >
-              {statements.isFetchingNextPage ? "Loading…" : "Show earlier months"}
-            </button>
+              Show earlier months
+            </ActionButton>
           )}
         </>
       )}

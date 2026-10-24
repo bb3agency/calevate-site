@@ -1,7 +1,6 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { barPercent, toPaise } from "@/app/c/[slug]/billing/SpendChart";
 import { walletStatementCsv } from "@/app/c/[slug]/billing/statementCsv";
 import { formatBillingMonth } from "@/lib/billingMonth";
 
@@ -59,29 +58,16 @@ function routes(over: Record<string, unknown> = {}) {
   };
 }
 
-describe("drawing spend in paise, never floats", () => {
-  it("reads the server's decimal string as whole paise", () => {
-    expect(toPaise("10159.00")).toBe(BigInt(1015900));
-    expect(toPaise("0.5")).toBe(BigInt(50));
-    expect(toPaise("12")).toBe(BigInt(1200));
-    // A negative day draws as no bar rather than one below the baseline.
-    expect(toPaise("-3.00")).toBe(BigInt(0));
-  });
-
-  it("sizes a bar from integer arithmetic, relative to the busiest day", () => {
-    expect(barPercent(BigInt(507950), BigInt(1015900))).toBe(50);
-    expect(barPercent(BigInt(0), BigInt(1015900))).toBe(0);
-    expect(barPercent(BigInt(1), BigInt(0))).toBe(0);
-  });
-
-  it("draws the window the server sent, zero days included, with a table behind it", async () => {
+describe("drawing spend", () => {
+  it("draws the window the server sent, zero days included, with the server's figures in its table", async () => {
     const { container } = await renderBillingHub(routes({ [HUB_SPEND_SERIES_ROUTE]: SERIES }));
     const table = await screen.findByRole("table", { name: "Spending by day (IST)" });
+    // A header row and one row per day, the empty day included.
     expect(within(table).getAllByRole("row")).toHaveLength(4);
+    expect(table.textContent).toContain("₹10,159.00");
+    expect(table.textContent).toContain("₹0.00");
+    expect(table.textContent).toContain("₹5,079.50");
     expect(container.textContent).toContain("₹15,238.50");
-    // The busiest day is the full height; the half day is half of it, exactly.
-    const bars = [...container.querySelectorAll<HTMLElement>("[title$='₹10,159.00'] > div, [title$='₹5,079.50'] > div")];
-    expect(bars.map((bar) => bar.style.height)).toEqual(["max(100%, 2px)", "max(50%, 2px)"]);
     await screen.findByText("Front desk");
     // A zero rental is not a metric.
     expect(container.textContent).not.toContain("Phone number rental");

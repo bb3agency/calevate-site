@@ -8,6 +8,7 @@ import {
   RestrictionNote,
   formatINR,
 } from "@/components/ui";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
 import { useBuyAiExtra, type AiQuota } from "@/lib/api/aiQuota";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -52,6 +53,8 @@ export function StateNotice({ quota, session }: { quota: AiQuota; session: Sessi
 function CeilingReached({ quota, session }: { quota: AiQuota; session: Session }) {
   const [asking, setAsking] = useState(false);
   const buy = useBuyAiExtra(session);
+  // The dialog shows a failure beside its button, and success closes it onto the "Added" notice.
+  const buyFeedback = useActionFeedback(buy, { errorDisplay: "inline" });
   // `POST /v1/billing/ai-quota/extra` requires `org:manage` — a MUTATING permission, so
   // `staff` does not hold it and an impersonating operator is refused it (D-22).
   // Disabled with the reason beside it, rather than a 403 after the click.
@@ -83,7 +86,7 @@ function CeilingReached({ quota, session }: { quota: AiQuota; session: Session }
       {asking && (
         <AcceptChargeDialog
           quota={quota}
-          pending={buy.isPending}
+          pending={buyFeedback.status === "pending"}
           error={buy.error}
           onCancel={() => {
             buy.reset();

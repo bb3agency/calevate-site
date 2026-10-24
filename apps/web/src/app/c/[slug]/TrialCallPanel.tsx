@@ -4,13 +4,15 @@ import Link from "next/link";
 import { useState } from "react";
 import { CheckCircle2, PhoneOutgoing } from "lucide-react";
 
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
+import { UsageMeter } from "@/components/arc/usage-meter";
 import {
   Card,
   FIELD_INLINE,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
+  formatCount,
   formatIST,
 } from "@/components/ui";
 import { DefaultCheckbox } from "@/components/callHandlingRows";
@@ -56,28 +58,36 @@ export function TrialCallPanel({ slug, trial }: { slug: string; trial: TrialPane
   );
 }
 
-/** What is left of the free trial: its days and its free minutes. */
-function TrialFigures({ trial }: { trial: TrialPanel }) {
+/** What is left of the free trial's days. */
+function TrialDays({ trial }: { trial: TrialPanel }) {
   return (
-    <>
-      <div>
-        <dt className={FIELD_LABEL}>Days left</dt>
-        <dd className="mt-1 font-semibold text-ink">
-          {trial.days_remaining === null || trial.days_remaining === undefined
-            ? "Ended"
-            : `${trial.days_remaining} ${trial.days_remaining === 1 ? "day" : "days"}`}
-        </dd>
-        {trial.ends_at ? <dd className="text-xs text-ink-muted">Ends {formatIST(trial.ends_at)} IST</dd> : null}
-      </div>
-      <div>
-        <dt className={FIELD_LABEL}>Free minutes left</dt>
-        <dd className="mt-1 font-semibold text-ink">
-          {trial.free_minutes === null || trial.free_minutes === undefined
-            ? "No minute limit"
-            : `${trial.minutes_left ?? trial.free_minutes} of ${trial.free_minutes}`}
-        </dd>
-      </div>
-    </>
+    <div>
+      <dt className={FIELD_LABEL}>Days left</dt>
+      <dd className="mt-1 font-semibold text-ink">
+        {trial.days_remaining === null || trial.days_remaining === undefined
+          ? "Ended"
+          : `${trial.days_remaining} ${trial.days_remaining === 1 ? "day" : "days"}`}
+      </dd>
+      {trial.ends_at ? <dd className="text-xs text-ink-muted">Ends {formatIST(trial.ends_at)} IST</dd> : null}
+    </div>
+  );
+}
+
+/** The free minutes as a meter; a trial with no minute limit draws no bar. */
+function TrialMinutes({ trial }: { trial: TrialPanel }) {
+  const free = trial.free_minutes ?? 0;
+  const left = Math.max(0, Math.min(free, trial.minutes_left ?? free));
+  return (
+    <UsageMeter
+      label="Free minutes"
+      used={free - left}
+      limit={free}
+      usedText={formatCount(free - left)}
+      limitText={formatCount(free)}
+      caption={`${formatCount(left)} of ${formatCount(free)} minutes left`}
+      noLimitText="No minute limit"
+      hint={free > 0 && left === 0 ? "Your free minutes are used up. Add credit to keep calling." : undefined}
+    />
   );
 }
 
@@ -116,19 +126,29 @@ export function TrialCallCard({
   const chosen = agentId || (dialers !== undefined && dialers.length > 0 ? dialers[0].id : "");
   const chosenAgent = dialers?.find((agent) => agent.id === chosen);
   const prepare = useAgentLifecycle(session, chosen);
-  const busy = prepare.isPending || place.isPending;
-  const ready = trial.can_call && chosen !== "" && number.trim() !== "" && !busy;
+  // Both failures are said beside the form (ProblemNotice below), so neither is toasted.
+  const prepareFeedback = useActionFeedback(prepare, { errorDisplay: "inline" });
+  const placeFeedback = useActionFeedback(place, { errorDisplay: "inline" });
+  const ready = trial.can_call && chosen !== "" && number.trim() !== "";
+  /* One button runs both steps, so it shows the step in flight. A refusal (`blocked`) is an
+     answer the status line gives, not a success to tick. */
+  const callStatus: FeedbackStatus =
+    prepareFeedback.status === "pending" || prepareFeedback.status === "error"
+      ? prepareFeedback.status
+      : placeFeedback.status === "success" && place.data?.status !== "queued"
+        ? "idle"
+        : placeFeedback.status;
 
   const call = async () => {
     if (chosenAgent && !canTestCall(chosenAgent)) await prepare.mutateAsync("prepare");
-    place.mutate({ agentId: chosen, number: number.trim(), numberIsMine });
+    placeFeedback.run({ agentId: chosen, number: number.trim(), numberIsMine });
   };
 
   return (
     <Card title={paid ? "Test calls" : "Your free trial"}>
       <div className="space-y-4">
-        <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
-          {paid ? null : <TrialFigures trial={trial} />}
+        <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+          {paid ? null : <TrialDays trial={trial} />}
           <div>
             <dt className={FIELD_LABEL}>Test calls today</dt>
             <dd className="mt-1 font-semibold text-ink">
@@ -136,6 +156,7 @@ export function TrialCallCard({
             </dd>
           </div>
         </dl>
+        {paid ? null : <TrialMinutes trial={trial} />}
 
         <p className="text-sm text-ink-muted">
           {paid
@@ -166,7 +187,7 @@ export function TrialCallCard({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            if (ready) call().catch(() => undefined);
+            if (ready && callStatus !== "pending") call().catch(() => undefined);
           }}
         >
           <label className="block w-full min-w-0 sm:w-auto">
@@ -216,10 +237,16 @@ export function TrialCallCard({
               className={`${FIELD_INLINE} mt-1 w-full font-mono sm:w-72`}
             />
           </label>
-          <button type="submit" disabled={!ready} className={PRIMARY_BUTTON}>
+          <ActionButton
+            type="submit"
+            disabled={!ready}
+            status={callStatus}
+            pendingLabel={prepare.isPending ? "Getting it ready" : "Calling"}
+            successLabel="Calling"
+          >
             <PhoneOutgoing aria-hidden className="h-4 w-4" />
-            {prepare.isPending ? "Getting it ready…" : place.isPending ? "Calling…" : "Make a test call"}
-          </button>
+            Make a test call
+          </ActionButton>
           <div className="basis-full">
             <DefaultCheckbox
               label="This number is my own. Test calls to it can ring at any hour."

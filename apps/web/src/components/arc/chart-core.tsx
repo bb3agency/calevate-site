@@ -73,16 +73,26 @@ export function niceTicks(max: number, count = 4): number[] {
 /** The rendered width of a container, following it as the layout changes. */
 export function useMeasuredWidth(ref: RefObject<HTMLElement | null>, fallback = 560): number {
   const [width, setWidth] = useState(fallback);
+  const observer = useRef<ResizeObserver | null>(null);
+  const observed = useRef<HTMLElement | null>(null);
+  // Checked after every render rather than once on mount: a chart first renders its loading,
+  // error or empty state, where the plot (and so the measured node) does not exist yet, and
+  // a mount-only effect would never see the node that appears when the data lands.
   useEffect(() => {
     const node = ref.current;
-    if (!node || typeof ResizeObserver === "undefined") return undefined;
-    const observer = new ResizeObserver(([entry]) => {
-      const next = Math.round(entry.contentRect.width);
-      if (next > 0) setWidth(next);
+    if (node === observed.current) return;
+    observer.current?.disconnect();
+    observer.current = null;
+    observed.current = node;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const next = new ResizeObserver(([entry]) => {
+      const measured = Math.round(entry.contentRect.width);
+      if (measured > 0) setWidth(measured);
     });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [ref]);
+    next.observe(node);
+    observer.current = next;
+  });
+  useEffect(() => () => observer.current?.disconnect(), []);
   return width;
 }
 

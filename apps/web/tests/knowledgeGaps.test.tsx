@@ -112,7 +112,7 @@ describe("the knowledge-gaps card", () => {
       page,
       routes({ [`POST /v1/knowledge-gaps/${GAP.id}/dismiss`]: GAP }),
     );
-    fireEvent.click(await screen.findByText("Dismiss"));
+    fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
     // The POST is the whole action; the optimistic removal + invalidation follow it.
     await screen.findByText("Nothing unanswered").catch(() => undefined);
     expect(
@@ -135,7 +135,7 @@ describe("the knowledge-gaps card", () => {
       "What should the agent say next time?",
     );
     fireEvent.change(box, { target: { value: "It is 500 rupees." } });
-    fireEvent.click(screen.getByText("Save answer"));
+    fireEvent.click(screen.getByRole("button", { name: "Save answer" }));
     await screen.findByText("Nothing unanswered").catch(() => undefined);
     const teach = calls.find(
       (c) => c.path.endsWith(`/teach`) && c.method === "POST",
@@ -161,14 +161,14 @@ describe("the knowledge-gaps card", () => {
       }),
     );
     writesTakeARealRoundTrip();
-    fireEvent.click(await screen.findByText("Dismiss"));
+    fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
     await screen.findByText("Nothing unanswered");
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Somebody else already taught this one.");
     // The card is back, with its actions, so the person can act on what they just read.
     expect(screen.getByText("Pricing")).toBeTruthy();
-    expect(screen.getByText("Dismiss")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
   });
 
   it("keeps the typed answer and says why when a Teach fails", async () => {
@@ -187,7 +187,7 @@ describe("the knowledge-gaps card", () => {
       { target: { value: "It is 500 rupees." } },
     );
     writesTakeARealRoundTrip();
-    fireEvent.click(screen.getByText("Save answer"));
+    fireEvent.click(screen.getByRole("button", { name: "Save answer" }));
     await screen.findByText("Nothing unanswered");
 
     const alert = await screen.findByRole("alert");
@@ -209,7 +209,7 @@ describe("the knowledge-gaps card", () => {
       await screen.findByText("Only an account owner can teach or dismiss these."),
     ).toBeTruthy();
     expect(screen.queryByText("Teach the answer")).toBeNull();
-    expect(screen.queryByText("Dismiss")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
     expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
 });

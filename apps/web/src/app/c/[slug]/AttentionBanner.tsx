@@ -31,7 +31,7 @@ export function AttentionBanner({
       <button
         type="button"
         onClick={() => void attention.refetch()}
-        className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 font-medium text-brand-strong underline"
+        className="rounded-sm font-medium text-brand-strong underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:inline-flex touch:min-h-11 touch:items-center"
       >
         Try again
       </button>
@@ -41,7 +41,7 @@ export function AttentionBanner({
     attention.data.total > 0 && (
       <Link
         href={href}
-        className={`${NOTICE_BASE} ${NOTICE_BAR.warn} flex items-center justify-between gap-3 transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2`}
+        className={`${NOTICE_BASE} ${NOTICE_BAR.warn} flex items-center justify-between gap-3 touch:min-h-11 transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2`}
       >
         <span className="flex items-center gap-2">
           <span>

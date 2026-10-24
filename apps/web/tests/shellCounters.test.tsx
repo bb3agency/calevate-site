@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
@@ -10,13 +10,15 @@ import { HOLDS_PATH } from "@/lib/api/holds";
 import { KYC_REVIEWS_PATH } from "@/lib/api/kycReview";
 
 import {
+  noContent,
   problem,
   renderAdminPage,
   stillLoading,
   stubApi,
+  type ApiCall,
   type Routes,
 } from "./harness";
-import { CLIENT_SHELL_ROUTES, LIVE_CALLS_PATH } from "./fixtures/sharedReads";
+import { CLIENT_SHELL_ROUTES, LIVE_CALLS_PATH, NOTIFICATIONS_PATH } from "./fixtures/sharedReads";
 
 /**
  * The two counters in the shell chrome — the operator's hold queue and the client's
@@ -78,8 +80,8 @@ function renderAdminShell(routes: Partial<Routes> = {}) {
  */
 async function renderClientShell(
   routes: Record<string, unknown>,
-): Promise<void> {
-  stubApi({
+): Promise<ApiCall[]> {
+  const calls = stubApi({
     ...CLIENT_SHELL_ROUTES,
     "/v1/me": { organization: { name: "Acme" }, role: "owner" },
     ...routes,
@@ -97,6 +99,7 @@ async function renderClientShell(
     );
     render(ui);
   });
+  return calls;
 }
 
 /** A hold, in the shape `/v1/admin/compliance/holds` sends. */
@@ -186,31 +189,138 @@ describe("the admin shell's bell (held accounts and identity checks)", () => {
   });
 });
 
-describe("the client shell's attention bell", () => {
-  it("says the queue could not be read, instead of looking like an all-clear", async () => {
+/** One unread attention item and one read announcement, as `/v1/notifications` sends them. */
+const FEED = {
+  items: [
+    {
+      id: "lead-1",
+      source: "attention",
+      kind: "lead_hot",
+      title: "Ravi is interested",
+      detail: "Asked for a call back",
+      href: "/leads/lead-1",
+      link_label: null,
+      occurred_at: "2026-10-24T05:00:00Z",
+      tone: "info",
+      unread: true,
+    },
+    {
+      id: "ann-1",
+      source: "announcement",
+      kind: "announcement",
+      title: "New voices are ready",
+      detail: null,
+      href: "https://calevate.tech/changes",
+      link_label: "See what changed",
+      occurred_at: "2026-10-23T05:00:00Z",
+      tone: "success",
+      unread: false,
+    },
+  ],
+  unread: 3,
+  attention_total: 4,
+  seen_through: "2026-10-23T06:00:00Z",
+};
+
+describe("the client shell's notification bell", () => {
+  it("says the feed could not be read, instead of looking like an all-clear", async () => {
     await renderClientShell({
-      "/v1/attention": problem(503, { title: "Service unavailable" }),
+      [NOTIFICATIONS_PATH]: problem(503, { title: "Service unavailable" }),
     });
 
     const link = await screen.findByLabelText(
-      "Needs attention: we couldn't check for new items. Open to try again.",
+      "Notifications: we couldn't check for new items. Open to try again.",
     );
     expect(link.getAttribute("title")).toContain("couldn't check");
     expect(link.querySelector("[data-testid=attention-unchecked]")).toBeTruthy();
   });
 
-  it("counts what the server sent when the server answered", async () => {
-    await renderClientShell({ "/v1/attention": { total: 3, items: [] } });
+  it("badges the server's unread count, not the number of rows", async () => {
+    await renderClientShell({ [NOTIFICATIONS_PATH]: FEED });
 
-    const link = await screen.findByLabelText("Needs attention: 3 items");
+    const link = await screen.findByLabelText("Notifications: 3 unread");
     expect(link.textContent).toContain("3");
   });
 
   it("shows no badge, and no mark, on a real all-clear", async () => {
-    await renderClientShell({ "/v1/attention": { total: 0, items: [] } });
+    await renderClientShell({});
 
-    const link = await screen.findByLabelText("Needs attention");
+    const link = await screen.findByRole("button", { name: "Notifications" });
     expect(link.textContent).not.toContain("?");
+    expect(link.querySelector("[data-testid=attention-unchecked]")).toBeNull();
+  });
+
+  it("marks what was shown as seen when the panel closes, through the newest item", async () => {
+    const calls = await renderClientShell({
+      [NOTIFICATIONS_PATH]: FEED,
+      "POST /v1/notifications/seen": { seen_through: "2026-10-24T05:00:00Z" },
+    });
+    const bell = await screen.findByLabelText("Notifications: 3 unread");
+    await act(async () => fireEvent.click(bell));
+    // An unread row says so to a screen reader; a console path stays inside the account.
+    const panel = document.querySelector("[role=dialog]") as HTMLElement;
+    const row = await within(panel).findByRole("link", { name: /New: Ravi is interested/ });
+    expect(row.getAttribute("href")).toBe("/c/acme/leads/lead-1");
+    expect(within(panel).getByRole("link", { name: /New voices are ready/ }).getAttribute("href")).toBe(
+      "https://calevate.tech/changes",
+    );
+    expect(calls.some((call) => call.path === "/v1/notifications/seen")).toBe(false);
+    await act(async () => fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" }));
+    await waitFor(() =>
+      expect(JSON.parse(calls.find((call) => call.path === "/v1/notifications/seen")?.body ?? "null")).toEqual({
+        through: "2026-10-24T05:00:00Z",
+      }),
+    );
+  });
+});
+
+describe("the client shell's announcement strip", () => {
+  const ANNOUNCED = {
+    items: [
+      {
+        id: "a1",
+        message: "Calls may be slow tonight from 11pm",
+        tone: "critical",
+        link_url: "/billing",
+        link_label: "Check your credit",
+        starts_at: "2026-10-24T00:00:00Z",
+        ends_at: null,
+      },
+      {
+        id: "a2",
+        message: "A quieter note",
+        tone: "info",
+        link_url: null,
+        link_label: null,
+        starts_at: "2026-10-24T00:00:00Z",
+        ends_at: null,
+      },
+    ],
+  };
+
+  it("shows the most urgent one, with its link inside the account, and dismisses it", async () => {
+    const calls = await renderClientShell({
+      "/v1/announcements": ANNOUNCED,
+      "POST /v1/announcements/a1/dismiss": noContent(),
+    });
+    const strip = (await screen.findByText("Calls may be slow tonight from 11pm")).closest("[role=alert]") as HTMLElement;
+    expect(strip.textContent).toContain("Calls may be slow tonight from 11pm");
+    expect(strip.textContent).not.toContain("A quieter note");
+    expect(within(strip).getByRole("link", { name: "Check your credit" }).getAttribute("href")).toBe(
+      "/c/acme/billing",
+    );
+    await act(async () =>
+      fireEvent.click(within(strip).getByRole("button", { name: "Dismiss this announcement" })),
+    );
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "POST" && call.path === "/v1/announcements/a1/dismiss")).toBe(true),
+    );
+  });
+
+  it("renders nothing when nothing is announced", async () => {
+    await renderClientShell({});
+    await screen.findByRole("button", { name: "Notifications" });
+    expect(screen.queryByRole("button", { name: "Dismiss this announcement" })).toBeNull();
   });
 });
 

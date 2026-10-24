@@ -4,22 +4,6 @@
  * each mutation onto `useActionFeedback`; nothing is ever added here.
  */
 export const FEEDBACK_BASELINE: readonly string[] = [
-  "src/app/c/[slug]/KnowledgeGaps.tsx::dismiss",
-  "src/app/c/[slug]/KnowledgeGaps.tsx::teach",
-  "src/app/c/[slug]/SetupChecklist.tsx::dismiss",
-  "src/app/c/[slug]/TestCallTranscript.tsx::retryEnglish",
-  "src/app/c/[slug]/TrialCallPanel.tsx::place",
-  "src/app/c/[slug]/TrialCallPanel.tsx::prepare",
-  "src/app/c/[slug]/ai-assist/notices.tsx::buy",
-  "src/app/c/[slug]/billing/AutoRechargePanel.tsx::confirm",
-  "src/app/c/[slug]/billing/AutoRechargePanel.tsx::save",
-  "src/app/c/[slug]/billing/AutoRechargePanel.tsx::start",
-  "src/app/c/[slug]/billing/AutoRechargePanel.tsx::withdraw",
-  "src/app/c/[slug]/billing/PlatformFeeCard.tsx::confirm",
-  "src/app/c/[slug]/billing/PlatformFeeCard.tsx::order",
-  "src/app/c/[slug]/billing/TopUp.tsx::confirm",
-  "src/app/c/[slug]/billing/TopUp.tsx::intent",
-  "src/app/c/[slug]/billing/UsageTab.tsx::save",
   "src/app/c/[slug]/callbacks/CallbacksScreen.tsx::cancel",
   "src/app/c/[slug]/calls/CallsScreen.tsx::exportCalls",
   "src/app/c/[slug]/calls/[callId]/CallDetailScreen.tsx::callback",
@@ -81,9 +65,4 @@ export const FEEDBACK_BASELINE: readonly string[] = [
   "src/components/authn/signInForm.tsx::submitCode",
   "src/components/forwarding/ExistingNumberGuide.tsx::add",
   "src/components/forwarding/TestPanel.tsx::run",
-  "src/components/improvement/MakeCallTest.tsx::discard",
-  "src/components/improvement/MakeCallTest.tsx::make",
-  "src/components/improvement/SavedTests.tsx::remove",
-  "src/components/improvement/SavedTests.tsx::run",
-  "src/components/improvement/TryChat.tsx::send",
 ];

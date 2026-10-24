@@ -5,9 +5,10 @@ import Link from "next/link";
 
 import { AnnouncementBar } from "@/components/arc/announcement-bar";
 import { Popover } from "@/components/arc/popover";
+import { UsageMeter } from "@/components/arc/usage-meter";
 import { BAR_STATUS } from "@/components/console/statusPill";
 import { TrialMeter, trialShareLeft } from "@/components/illustration/trialMeter";
-import { FIELD_LABEL, PRIMARY_BUTTON, istDateStamp } from "@/components/ui";
+import { FIELD_LABEL, PRIMARY_BUTTON, formatCount, istDateStamp } from "@/components/ui";
 import { useClientRealm } from "@/lib/api/session";
 import { useTrialPanel } from "@/lib/api/trialCalls";
 import {
@@ -228,6 +229,9 @@ export function TrialChipView({
     .filter(Boolean)
     .join(" · ");
   const asksForCredit = running.testCallsOnly || running.prepaid;
+  const free = running.trial.free_minutes;
+  const freeMinutes = free === null || free === undefined || free <= 0 ? null : free;
+  const minutesLeft = Math.max(0, Math.min(freeMinutes ?? 0, running.trial.minutes_left ?? freeMinutes ?? 0));
 
   return (
     <Popover
@@ -240,7 +244,7 @@ export function TrialChipView({
         <button
           type="button"
           aria-label={`Free trial: ${long}. Show details`}
-          className={`${BAR_STATUS} text-ink-muted hover:text-ink max-sm:px-1.5`}
+          className={`${BAR_STATUS} text-ink-muted hover:text-ink max-sm:gap-1 max-sm:px-1.5`}
         >
           <TrialMeter left={trialShareLeft(running.trial)} className="h-4 w-4" />
           <span className="sm:hidden">
@@ -258,23 +262,33 @@ export function TrialChipView({
             <dt className={FIELD_LABEL}>Ends</dt>
             <dd className="text-right text-ink">{trialEndsAt(running.trial)}</dd>
           </div>
-          {running.trial.free_minutes !== null && running.trial.free_minutes !== undefined && (
-            <div className="flex items-baseline justify-between gap-3">
-              <dt className={FIELD_LABEL}>Free minutes left</dt>
-              <dd className="text-right text-ink">
-                {running.trial.minutes_left ?? running.trial.free_minutes} of {running.trial.free_minutes}
-              </dd>
-            </div>
-          )}
-          {running.testCallsOnly && callsToday !== null && callsToday !== undefined && (
+          {running.testCallsOnly && callsToday === "loading" && (
             <div className="flex items-baseline justify-between gap-3">
               <dt className={FIELD_LABEL}>Test calls today</dt>
-              <dd className="text-right text-ink">
-                {callsToday === "loading" ? "Checking…" : `${callsToday.used} of ${callsToday.cap}`}
-              </dd>
+              <dd className="text-right text-ink">Checking…</dd>
             </div>
           )}
         </dl>
+        {freeMinutes !== null ? (
+          <UsageMeter
+            label="Free minutes"
+            used={freeMinutes - minutesLeft}
+            limit={freeMinutes}
+            usedText={formatCount(freeMinutes - minutesLeft)}
+            caption={`${formatCount(minutesLeft)} of ${formatCount(freeMinutes)} left`}
+            hint={minutesLeft <= 0 ? "Your free minutes are used up." : undefined}
+          />
+        ) : null}
+        {running.testCallsOnly && callsToday !== null && callsToday !== undefined && callsToday !== "loading" ? (
+          <UsageMeter
+            label="Test calls today"
+            used={callsToday.used}
+            limit={callsToday.cap}
+            usedText={formatCount(callsToday.used)}
+            limitText={formatCount(callsToday.cap)}
+            hint={callsToday.used >= callsToday.cap ? "That is today's limit. More open tomorrow." : undefined}
+          />
+        ) : null}
         <p className="text-ink-muted">
           {!running.testCallsOnly
             ? "Calls are on us until then: nothing is taken from your calling credit, and an empty balance does not stop your agents."
