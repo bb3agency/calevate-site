@@ -154,7 +154,7 @@ function Columns({
 
   return (
     <div ref={ref} className="w-full">
-      <svg width={width} height={height} className="block max-w-full">
+      <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="block max-w-full">
         {ticks.map((t) => (
           <g key={t}>
             <line x1={MARGIN.left} x2={width - MARGIN.right} y1={y(t)} y2={y(t)} stroke="var(--line)" strokeWidth={1} />

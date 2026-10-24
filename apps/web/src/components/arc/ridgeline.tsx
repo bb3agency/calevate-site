@@ -132,7 +132,7 @@ export function Ridgeline({
       {...state}
     >
       <div ref={ref} className="relative w-full">
-        <svg width={width} height={height} className="block max-w-full">
+        <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} className="block max-w-full">
           {rows.map((r, i) => {
             const base = rowHeight * i + rowHeight * overlap;
             const curve = curves[i];

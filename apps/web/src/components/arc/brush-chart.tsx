@@ -78,6 +78,9 @@ export function BrushChart({
 
   const step = width / Math.max(1, last);
   const xOf = (i: number) => (last === 0 ? 0 : (i / last) * width);
+  // The window and its handles are HTML over the SVG, so they are placed as a share of the
+  // strip rather than in pixels: right at any width, before the strip is measured too.
+  const pctOf = (i: number) => `${last === 0 ? 0 : (i / last) * 100}%`;
   const peak = Math.max(1, ...values);
   const overview =
     n > 1
@@ -132,16 +135,17 @@ export function BrushChart({
         {...state}
       />
       {n > 1 && !state.loading && !state.error ? (
-        <div className="mt-3 space-y-1">
+        // Clipped sideways: the end handle's touch area reaches past the strip's edge.
+        <div className="mt-3 space-y-1 overflow-x-clip">
           <div ref={ref} className="relative w-full select-none" style={{ height: STRIP }} onPointerMove={onMove} onPointerUp={onUp}>
-            <svg aria-hidden width={width} height={STRIP} className="block max-w-full rounded-md bg-surface-muted">
+            <svg aria-hidden width="100%" height={STRIP} viewBox={`0 0 ${width} ${STRIP}`} className="block max-w-full rounded-md bg-surface-muted">
               <path d={overview} fill="none" stroke="var(--text-faint)" strokeWidth={1.5} />
             </svg>
             <div
               aria-hidden
               onPointerDown={onDown("window")}
               className="absolute top-0 h-full cursor-grab touch-none rounded-md border-2 border-brand bg-brand/10 active:cursor-grabbing"
-              style={{ left: xOf(from), width: Math.max(4, xOf(to) - xOf(from)) }}
+              style={{ left: pctOf(from), width: `max(4px, calc(${pctOf(to)} - ${pctOf(from)}))` }}
             />
             {(["start", "end"] as const).map((edge) => {
               const index = edge === "start" ? from : to;
@@ -158,7 +162,7 @@ export function BrushChart({
                   onKeyDown={onKey(edge)}
                   onPointerDown={onDown(edge)}
                   className={thumb}
-                  style={{ left: xOf(index) }}
+                  style={{ left: pctOf(index) }}
                 >
                   <span aria-hidden className="h-5 w-1.5 rounded-full bg-brand-strong" />
                 </div>
