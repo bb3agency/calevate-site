@@ -153,7 +153,7 @@ export function ModelPricingPanel({
         )}
 
         {state.status === "read" && (
-          <ul className="divide-y divide-line border-y border-line">
+          <ul className="divide-y divide-line border-t border-line">
             {state.list.prices.map((price) => (
               <li key={price.model}>
                 <ModelPriceRow price={price} access={access} />
@@ -578,7 +578,7 @@ function EmbeddingPricesSection({
           </p>
         </NoticeBox>
       ) : (
-        <ul className="divide-y divide-line border-y border-line">
+        <ul className="divide-y divide-line border-t border-line">
           {rows.map((row) => (
             <li key={row.model}>
               <EmbeddingPriceRow price={row} access={access} />
@@ -874,7 +874,7 @@ function TtsPricesSection({
           </p>
         </NoticeBox>
       ) : (
-        <ul className="divide-y divide-line border-y border-line">
+        <ul className="divide-y divide-line border-t border-line">
           {rows.map((row) => (
             <li key={row.provider}>
               <TtsPriceRow price={row} access={access} />
@@ -1137,7 +1137,7 @@ function InrLlmPricesSection({
           No platform model is billed in rupees on this deployment.
         </p>
       ) : (
-        <ul className="divide-y divide-line border-y border-line">
+        <ul className="divide-y divide-line border-t border-line">
           {query.data.prices.map((row) => (
             <li key={row.model}>
               <InrLlmPriceRow price={row} access={access} />
