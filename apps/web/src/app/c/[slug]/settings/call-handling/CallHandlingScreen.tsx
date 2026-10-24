@@ -30,9 +30,9 @@ export function CallHandlingScreen() {
   const session = useClientSession();
   const state = useOrganizationCallHandling(session);
   const save = useSetOrganizationCallHandling(session);
-  // Each row shows its own busy state and refusal, so failures stay inline; the toast stack
-  // only clears a stale failure once a later save succeeds.
-  useActionFeedback(save, { errorDisplay: "inline" });
+  // The row that saved shows pending and the error face on its save bar, with the refusal
+  // beside it; the bar closes on success, so the success is a toast.
+  const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Call settings saved" });
   const write = useWriteAccess(session, "org:manage", "change how your agents end turns and calls");
 
   const data = state.data;
@@ -95,7 +95,7 @@ export function CallHandlingScreen() {
       ) : !data ? null : (
         <>
           <RestrictionNote reason={write.allowed ? null : write.reason} />
-          <CallHandlingDefaultsRows data={data} save={save} canChange={write.allowed} />
+          <CallHandlingDefaultsRows data={data} save={save} status={feedback.status} canChange={write.allowed} />
         </>
       )}
     </div>

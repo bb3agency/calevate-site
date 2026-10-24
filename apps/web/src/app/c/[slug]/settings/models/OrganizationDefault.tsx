@@ -30,9 +30,9 @@ export function OrganizationDefault({
   const { href } = useClientRealm();
   const session = useClientSession();
   const save = useSetOrganizationLlmDefault(session);
-  // `ModelTierSetting` draws the busy face, the saved tick and the refusal beside its own
-  // save button, so a failure stays inline.
-  useActionFeedback(save, { errorDisplay: "inline" });
+  // `ModelTierSetting` draws the save bar's faces and the refusal beside it, so a failure
+  // stays inline. The bar closes on success; the summary row's `SavedTick` says it, not a toast.
+  const feedback = useActionFeedback(save, { errorDisplay: "inline" });
   /**
    * `org:manage` — the owner's own permission, the one that already governs the account's
    * settings and its spending limit. An operator in view-as holds it too (D-587).
@@ -63,7 +63,7 @@ export function OrganizationDefault({
         }
         baselineSurcharge={defaults.in_force_surcharge_inr_per_minute}
         write={write}
-        saving={save.isPending}
+        status={feedback.status}
         error={save.error}
         savedAt={save.isSuccess ? save.submittedAt : 0}
         onSave={(tier, done) =>

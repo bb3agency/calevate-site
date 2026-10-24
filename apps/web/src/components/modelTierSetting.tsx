@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 
+import { type FeedbackStatus } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
 import { SaveBar } from "@/components/console/saveBar";
 import { SavedTick } from "@/components/console/savedTick";
@@ -77,7 +78,8 @@ type ModelTierSettingProps = {
   /** What the tier in force adds per minute; every row is compared with it. */
   baselineSurcharge: string | null;
   write: { allowed: boolean; reason: string | null };
-  saving: boolean;
+  /** The caller's `useActionFeedback` status, drawn on the save bar. */
+  status: FeedbackStatus;
   error: unknown;
   /** The save's `submittedAt` once it succeeded, 0 otherwise. */
   savedAt: number;
@@ -108,13 +110,14 @@ function TierChoice({
   followSurcharge,
   baselineSurcharge,
   write,
-  saving,
+  status,
   error,
   savedAt,
   onSave,
   readOnly,
   notice,
 }: ModelTierSettingProps) {
+  const saving = status === "pending";
   const copy = COPY[mode];
   // Wrapped, because `null` is a real choice here ("follow"), not "nothing picked yet".
   const [picked, setPicked] = useState<{ tier: LlmTier | null } | null>(null);
@@ -183,7 +186,7 @@ function TierChoice({
           {(changed || saving) && (
             <SaveBar
               label="Save model"
-              saving={saving}
+              status={status}
               disabled={!write.allowed}
               title={write.reason ?? undefined}
               onCancel={() => setPicked(null)}

@@ -227,10 +227,9 @@ function RoutineEditor({
   const update = useUpdateRoutine(session);
   // The drawer closes on success, so the save is confirmed in a toast; StepFlow draws a
   // refusal inside the drawer.
-  useActionFeedback(create, { errorDisplay: "inline", successToast: "Routine added" });
-  useActionFeedback(update, { errorDisplay: "inline", successToast: "Routine saved" });
+  const createFeedback = useActionFeedback(create, { errorDisplay: "inline", successToast: "Routine added" });
+  const updateFeedback = useActionFeedback(update, { errorDisplay: "inline", successToast: "Routine saved" });
   const ids = { name: useId(), instruction: useId(), time: useId(), days: useId() };
-  const pending = create.isPending || update.isPending;
   const error = create.error ?? update.error;
   const ordered = WEEKDAYS.map((day) => day.value).filter((day) => days.includes(day));
   const schedule = { days: ordered, time };
@@ -246,7 +245,7 @@ function RoutineEditor({
       label={routine === null ? "New routine" : "Edit routine"}
       submitLabel={routine === null ? "Add routine" : "Save routine"}
       onSubmit={save}
-      pending={pending}
+      status={routine === null ? createFeedback.status : updateFeedback.status}
       error={error != null ? <ProblemNotice error={error} /> : undefined}
       steps={[
         {

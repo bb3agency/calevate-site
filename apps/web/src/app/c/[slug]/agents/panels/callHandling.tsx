@@ -27,8 +27,9 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
   const session = useClientSession();
   const state = useAgentCallHandling(session, agentId);
   const save = useSetAgentCallHandling(session, agentId);
-  // Each row shows its own saving state and its refusal under itself.
-  useActionFeedback(save, { errorDisplay: "inline" });
+  // The row that saved shows pending and the error face on its save bar, with the refusal
+  // beside it; the bar closes on success, so the success is a toast.
+  const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Call settings saved" });
   const write = useWriteAccess(session, "org:manage", "change how this agent ends its turn and its calls");
 
   if (state.isLoading) return <Skeleton rows={2} />;
@@ -55,7 +56,7 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
           minMs={data.bounds.turn_silence_min_ms}
           maxMs={data.bounds.turn_silence_max_ms}
           canChange={write.allowed}
-          saving={save.isPending && save.variables?.turn_silence_ms !== undefined}
+          status={save.variables?.turn_silence_ms !== undefined ? feedback.status : "idle"}
           error={save.variables?.turn_silence_ms !== undefined ? save.error : null}
           onSave={(next, done) => save.mutate({ turn_silence_ms: next }, { onSuccess: done })}
         />
@@ -66,7 +67,7 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
           own={data.end_call_on_finish}
           inheritLabel={labels.hangUp}
           canChange={write.allowed}
-          saving={save.isPending && save.variables?.end_call_on_finish !== undefined}
+          status={save.variables?.end_call_on_finish !== undefined ? feedback.status : "idle"}
           error={save.variables?.end_call_on_finish !== undefined ? save.error : null}
           onSave={(next, done) => save.mutate({ end_call_on_finish: next }, { onSuccess: done })}
         />
@@ -75,6 +76,7 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
           data={data}
           canChange={write.allowed}
           save={save}
+          status={feedback.status}
         />
       </SettingRows>
     </div>

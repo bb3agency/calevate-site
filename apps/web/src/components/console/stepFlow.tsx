@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { X } from "lucide-react";
 
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
 
 export type FlowStep = {
@@ -31,9 +32,9 @@ export type FlowStep = {
  * - On a phone the flow is full screen with the actions pinned to the bottom. That needs
  *   a way out, so it applies only when `onCancel` is given; without one the flow renders
  *   in place at every width.
- * - Nothing here talks to the server: `onSubmit` is the caller's mutation, `pending` its
- *   in-flight state and `error` its refusal, rendered above the buttons in the caller's
- *   (server's) words.
+ * - Nothing here talks to the server: `onSubmit` is the caller's mutation, `status` its
+ *   `useActionFeedback` state (shown on the submit button: pending, the tick, "Try again")
+ *   and `error` its refusal, rendered above the buttons in the caller's (server's) words.
  */
 export function StepFlow({
   label,
@@ -42,6 +43,7 @@ export function StepFlow({
   submitLabel,
   onSubmit,
   pending = false,
+  status,
   error,
   onCancel,
   cancelLabel = "Cancel",
@@ -55,7 +57,9 @@ export function StepFlow({
   /** The consequence as a verb: "Create campaign", never "Submit". */
   submitLabel: string;
   onSubmit: () => void;
+  /** Read only when `status` is not given: `true` is the pending face. */
   pending?: boolean;
+  status?: FeedbackStatus;
   error?: ReactNode;
   onCancel?: () => void;
   cancelLabel?: string;
@@ -69,6 +73,8 @@ export function StepFlow({
   const step = all[index];
   const last = index === all.length - 1;
   const fullScreen = onCancel !== undefined;
+  const shown: FeedbackStatus = status ?? (pending ? "pending" : "idle");
+  const busy = shown === "pending";
 
   useEffect(() => {
     if (!moved.current) return;
@@ -85,7 +91,7 @@ export function StepFlow({
   const next = (event: FormEvent) => {
     event.preventDefault();
     if (last) {
-      if (!pending) onSubmit();
+      if (!busy) onSubmit();
       return;
     }
     const problem = steps[index]?.validate?.() ?? null;
@@ -162,15 +168,21 @@ export function StepFlow({
           }`}
         >
           {index > 0 ? (
-            <button type="button" onClick={() => go(index - 1)} className={SECONDARY_BUTTON} disabled={pending}>
+            <button type="button" onClick={() => go(index - 1)} className={SECONDARY_BUTTON} disabled={busy}>
               Back
             </button>
           ) : (
             <span />
           )}
-          <button type="submit" className={PRIMARY_BUTTON} disabled={pending} aria-busy={pending || undefined}>
-            {last ? (pending ? "Working…" : submitLabel) : "Next"}
-          </button>
+          {last ? (
+            <ActionButton type="submit" status={shown}>
+              {submitLabel}
+            </ActionButton>
+          ) : (
+            <button type="submit" className={PRIMARY_BUTTON}>
+              Next
+            </button>
+          )}
         </div>
       </form>
     </div>

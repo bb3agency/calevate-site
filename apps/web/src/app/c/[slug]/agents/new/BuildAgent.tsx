@@ -72,7 +72,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
   const create = useCreateAgent(session);
   // StepFlow's submit button shows the pending state and the refusal sits on its review step;
   // success replaces the flow with the created agent's panel.
-  useActionFeedback(create, { errorDisplay: "inline" });
+  const createFeedback = useActionFeedback(create, { errorDisplay: "inline" });
   /* `org:manage`, the OWNER's permission that the route requires — `agents:write` is
      admin-only and would close this for the person it was built for. */
   const write = useWriteAccess(session, "org:manage", "create an agent");
@@ -221,7 +221,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
         onCancel={() => (onBack ? onBack() : router.push(href(`/c/${slug}/agents`)))}
         cancelLabel={onBack ? "Back to the two jobs" : "Cancel and go back to your agents"}
         submitLabel="Build this agent"
-        pending={create.isPending}
+        status={createFeedback.status}
         error={create.error ? <ProblemNotice error={create.error} /> : undefined}
         onSubmit={() => {
           if (!write.allowed) return;

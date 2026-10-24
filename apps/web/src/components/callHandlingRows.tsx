@@ -16,6 +16,7 @@
 
 import { useState, type ReactNode } from "react";
 
+import { type FeedbackStatus } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
 import { SaveBar } from "@/components/console/saveBar";
 import { TEXT_ACTION } from "@/components/console/section";
@@ -51,7 +52,8 @@ interface RowProps<T> {
   /** The default and what it resolves to, "Calevate default: Quick (0.25 s)". */
   inheritLabel: string;
   canChange: boolean;
-  saving: boolean;
+  /** This row's save, from the caller's `useActionFeedback`. */
+  status: FeedbackStatus;
   error: Error | null;
   onSave: (next: T | null, done: () => void) => void;
 }
@@ -141,12 +143,13 @@ export function PauseRow({
   own,
   inheritLabel,
   canChange,
-  saving,
+  status,
   error,
   onSave,
   minMs,
   maxMs,
 }: RowProps<number> & { minMs: number; maxMs: number }) {
+  const saving = status === "pending";
   // Unticking the default starts from this level's own value, else from the one in force,
   // which is the default's when this level has none.
   const initial = () => ({ useDefault: own === null, ms: clamp(own ?? effective, minMs, maxMs) });
@@ -242,7 +245,7 @@ export function PauseRow({
           {(changed || saving) && (
             <SaveBar
               label="Save pause"
-              saving={saving}
+              status={status}
               onCancel={close}
               note={CALL_HANDLING_NEXT_CALL}
             />
@@ -271,10 +274,11 @@ export function HangUpRow({
   own,
   inheritLabel,
   canChange,
-  saving,
+  status,
   error,
   onSave,
 }: RowProps<boolean>) {
+  const saving = status === "pending";
   const initial = () => ({ useDefault: own === null, on: own ?? effective });
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(initial);
@@ -349,7 +353,7 @@ export function HangUpRow({
           {(changed || saving) && (
             <SaveBar
               label="Save"
-              saving={saving}
+              status={status}
               onCancel={close}
               note={CALL_HANDLING_NEXT_CALL}
             />

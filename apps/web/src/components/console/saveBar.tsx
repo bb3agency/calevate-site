@@ -2,7 +2,8 @@
 
 import type { ReactNode } from "react";
 
-import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { SECONDARY_BUTTON_SM } from "@/components/ui";
 
 /**
  * THE SAVE FOR A CHOICE THAT IS ALWAYS ON SCREEN (a voice, a model, what an agent is): it
@@ -16,10 +17,15 @@ import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM } from "@/components/ui";
  * Render it inside the `<form>` it submits. The negative bottom offset cancels the shell's
  * bottom padding (`SHELL_MAIN_CLASS`), so the bar sits on the window's edge. On a phone the
  * two buttons take the full width.
+ *
+ * Pass the caller's `useActionFeedback(...).status` as `status`. A failure keeps the bar (the
+ * choice still differs) and shows the button's error face. A success unmounts the bar before
+ * its tick could be seen, so the caller's feedback carries a `successToast`.
  */
 export function SaveBar({
   label,
-  saving,
+  saving = false,
+  status,
   onCancel,
   note,
   disabled = false,
@@ -27,27 +33,35 @@ export function SaveBar({
 }: {
   /** The consequence, as the button says it ("Use this voice", "Save model"). */
   label: string;
-  saving: boolean;
+  /** Read only when `status` is not given: `true` is the pending face. */
+  saving?: boolean;
+  status?: FeedbackStatus;
   onCancel: () => void;
   /** One line on when the change takes effect. */
   note?: ReactNode;
   disabled?: boolean;
   title?: string;
 }) {
+  const shown: FeedbackStatus = status ?? (saving ? "pending" : "idle");
+  const busy = shown === "pending";
   return (
     <div className="settings-enter sticky -bottom-4 z-sticky -mx-1 flex flex-wrap items-center gap-3 border-t border-line bg-surface px-1 py-3 lg:-bottom-8">
       <div className="flex w-full gap-2 sm:w-auto">
-        <button
+        <ActionButton
           type="submit"
-          disabled={saving || disabled}
+          variant="primary-sm"
+          status={shown}
+          pendingLabel="Saving…"
+          successLabel="Saved"
+          disabled={disabled}
           title={title}
-          className={`${PRIMARY_BUTTON_SM} flex-1 justify-center sm:flex-none`}
+          className="flex-1 sm:flex-none"
         >
-          {saving ? "Saving…" : label}
-        </button>
+          {label}
+        </ActionButton>
         <button
           type="button"
-          disabled={saving}
+          disabled={busy}
           onClick={onCancel}
           className={`${SECONDARY_BUTTON_SM} flex-1 justify-center sm:flex-none`}
         >
