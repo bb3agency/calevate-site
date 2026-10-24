@@ -42,6 +42,11 @@ IST = timedelta(hours=5, minutes=30)
 #: The platform calling window, IST wall clock (TRAI/TCCCPR; SEC-COMP §3). Half-open.
 DEFAULT_WINDOW = (time(9, 0), time(21, 0))
 
+#: The refusal code for a dial outside `DEFAULT_WINDOW`, whether our gate refused it or the
+#: voice platform refused it against the hours we sent (D-872). One code, so every caller
+#: defers both the same way.
+CALLING_HOURS_RULE = "calling_hours"
+
 #: How soon a booked callback may be. A caller who says "call me back in a minute" is
 #: asking for something the tick cannot promise (it runs every 30 seconds and the dial
 #: takes a round trip), and a slot already in the past is a slot the dispatcher fires
@@ -248,6 +253,7 @@ def resolve_slot(
 
 
 __all__ = [
+    "CALLING_HOURS_RULE",
     "DEFAULT_WINDOW",
     "IST",
     "MAX_AHEAD",

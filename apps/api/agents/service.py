@@ -3800,6 +3800,7 @@ async def dispatch_call(
     trial: TrialDial | None = None,
     number_id: UUID | None = None,
     owner_test: OwnerTestDial | None = None,
+    rings_at_any_hour: bool = False,
 ) -> str:
     """Place ONE outbound call. The caller has already passed the compliance gate.
 
@@ -3873,7 +3874,14 @@ async def dispatch_call(
     time limit, and takes part in no experiment. Alone it rings from the agent's own number;
     with `trial` too it takes the shared trial line exactly as a trial call does (option A),
     through `trial.agent_ref` when that is the agent's developer-workspace test copy.
+
+    `rings_at_any_hour` is the owner's own-number test call (D-866), the one dial the gate
+    lets ring outside the window; every other dial carries the window to the engine (D-872).
     """
+    if rings_at_any_hour and trial is None and owner_test is None:
+        # Only a test call can be exempt from the window; a campaign, callback or lead dial
+        # that asked for it would be a night call to the public.
+        raise ValueError("rings_at_any_hour is for a test call only")
     await _assert_dialling_tenant_owns_the_session(session, tenant_id=tenant_id)
 
     agent = await _load_agent(session, tenant_id, agent_id)
@@ -4030,6 +4038,7 @@ async def dispatch_call(
                 )
                 if trial is not None or owner_test is not None
                 else None,
+                rings_at_any_hour=rings_at_any_hour,
             ),
         )
     except Exception as exc:

@@ -51,6 +51,7 @@ from urllib.parse import quote, urlsplit
 
 import httpx
 from calevate_shared.call_script import business_line_of, substitute_variables
+from calevate_shared.calling_window import CALLING_HOURS_RULE, DEFAULT_WINDOW
 from calevate_shared.engine import (
     CALL_INSTRUCTIONS,
     E164,
@@ -326,6 +327,13 @@ PLATFORM_VOICE_VALUES: Final[dict[str, Any]] = {
     "endPhrases": [],
 }
 CALL_VARIABLES_MAX: Final = 20
+#: Our calling window as Place Call's `callingHours` (`start`/`end` "HH:MM"; an Indian number
+#: is read in India's time, so no `timezone`; docs.thinnest.ai/api-reference/calls/place-call,
+#: read 24 Oct 2026). Built from `DEFAULT_WINDOW` so the hours have one spelling.
+CALLING_HOURS: Final = {
+    "start": DEFAULT_WINDOW[0].strftime("%H:%M"),
+    "end": DEFAULT_WINDOW[1].strftime("%H:%M"),
+}
 #: `name` on a placed call (place-call.md:895-899).
 LEAD_NAME_MAX: Final = 120
 #: `text` on `POST /byok/voices/preview` (snapshots/2026-10-07b/pages/api-reference/
@@ -1096,15 +1104,15 @@ def _dial_refusal(exc: EngineRejectedError) -> ProblemError:
         )
     refusal.setup_refused = setup
     if code == "outside_calling_hours":
-        # The vendor holds every call to 09:00-21:00 in the callee's own time whatever our
-        # gate allows (place-call.md:7, 19 Oct 2026 snapshot), so the owner's own-number
-        # tick (D-866) cannot ring a phone at night. A rule, not a fault: 422 and not
-        # retryable, so it neither reads as a broken platform nor pages an operator (the
-        # handler alarms on every 5xx).
+        # Only for hours WE sent (`CALLING_HOURS`; the vendor has no window of its own since
+        # 24 Oct 2026, place-call): a dial our gate allowed that reached the vendor after
+        # 21:00. Our gate's own code, so each caller defers it exactly as it defers the
+        # gate's refusal; a person placing the call gets a 422 rather than a 5xx that pages.
+        refusal.code = CALLING_HOURS_RULE
         refusal.kind = "business_rule"
         refusal.status = 422
         refusal.title = "Calls can only ring between 9am and 9pm"
-        refusal.detail = "Phones can be rung only between 9am and 9pm IST, test calls included."
+        refusal.detail = "Calls are placed only between 9am and 9pm IST."
         refusal.remediation = "Try again after 9am IST."
     return refusal
 
@@ -2400,14 +2408,17 @@ class ThinnestEngine:
     ) -> str:
         """`POST /calls` from a platform number to a client's published number, in the
         developer workspace. `purpose` is what a person hears first; the shortest per-call
-        limit (60 s) bounds a leg we fail to hang up. `ifOutsideHours: refuse`, so a request
-        outside 09:00-21:00 is a 409 rather than a call queued for later. The idempotency key
-        is the leg's own id, so a retried request places no second call."""
+        limit (60 s) bounds a leg we fail to hang up. `forwarding.testing` holds this test to
+        our window, so it carries `CALLING_HOURS` like any gated dial, with
+        `ifOutsideHours: refuse` making a leg that crosses 21:00 a 409 rather than a call
+        queued for the morning. The idempotency key is the leg's own id, so a retried request
+        places no second call."""
         body: dict[str, Any] = {
             "to": to_e164,
             "purpose": TEST_CALL_PURPOSE,
             "agent": agent_ref,
             "from": from_e164,
+            "callingHours": dict(CALLING_HOURS),
             "ifOutsideHours": "refuse",
             "overrides": {
                 "maxCallSeconds": TEST_CALL_MAX_SECONDS,
@@ -2978,12 +2989,16 @@ class ThinnestEngine:
     ) -> CallHandle:
         """`POST /calls` (place-call.md).
 
-        Not sent, deliberately: `retry` (our campaign ladder owns retries), `callingHours`
-        (our compliance gate owns the window; their 09:00-21:00 check runs regardless,
-        place-call.md:103-113), `extract` (our own extraction is the record), `summary` (left
-        out so the call follows the agent's own `summariseCalls`, place-call.md:942-946).
-        `ifOutsideHours: refuse` makes an out-of-hours request a 409 rather than a call
-        queued for tomorrow behind our back (place-call.md:115-121).
+        `callingHours` is our gate's window (`CALLING_HOURS`) on every dial but the owner's
+        own-number test call (`ctx.rings_at_any_hour`, D-866), which sends none and so may
+        ring at any hour: the vendor has had no window of its own since 24 Oct 2026, so the
+        hours we send are the vendor's only check (D-872; docs.thinnest.ai/api-reference/
+        calls/place-call, read 24 Oct 2026). `ifOutsideHours: refuse` makes a dial outside
+        them a 409 rather than a call queued for tomorrow behind our back.
+
+        Not sent, deliberately: `retry` (our campaign ladder owns retries), `extract` (our
+        own extraction is the record), `summary` (left out so the call follows the agent's
+        own `summariseCalls`, place-call.md:942-946).
         """
         # The truthful-answer rule is agent-record state on this engine, verified at publish.
         require_call_compliance_floor(engine=self, prompt_on_the_wire=None)
@@ -3009,6 +3024,8 @@ class ThinnestEngine:
             "agent": raw_agent,
             "ifOutsideHours": "refuse",
         }
+        if not ctx.rings_at_any_hour:
+            body["callingHours"] = dict(CALLING_HOURS)
         if ctx.from_e164:
             body["from"] = ctx.from_e164
         if ctx.lead_name:

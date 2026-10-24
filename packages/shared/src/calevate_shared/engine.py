@@ -4630,6 +4630,12 @@ class CallContext(BaseModel):
     #: `test_call` line, so hard rule 5 and D-163 hold as on any call. Only an engine whose dial
     #: takes per-call first words reads it (ThinnestAI's `purpose`).
     opening: str | None = None
+    #: TRUE ONLY FOR THE OWNER'S TEST CALL TO A NUMBER THEY ATTESTED AS THEIR OWN (D-866):
+    #: the one dial our gate lets ring outside `calling_window.DEFAULT_WINDOW`. Every other
+    #: dial is False, and an engine that takes per-call hours sends the window with it, so
+    #: the vendor refuses a night call too if our gate ever let one through (D-872). Set by
+    #: `agents.service.dispatch_call` from `trial_calls.place_trial_call` and nowhere else.
+    rings_at_any_hour: bool = False
 
 
 class NumberSearch(BaseModel):

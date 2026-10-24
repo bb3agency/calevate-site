@@ -25,8 +25,10 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import long_running_statements, tenant_session
+from apps.api.engine import get_engine
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.main import app
+from calevate_shared.engine import CallContext
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.first_run_test import _owner
@@ -354,3 +356,45 @@ async def test_at_night_only_a_number_attested_as_the_owners_own_is_rung(
         )
     assert placed.status == "queued"
     assert len(line.lent_to) == 1
+
+
+@pytest.mark.parametrize("attested", [True, False])
+async def test_only_the_own_number_test_call_reaches_the_engine_without_calling_hours(
+    line: Line, monkeypatch: pytest.MonkeyPatch, attested: bool
+) -> None:
+    """D-872: the attested call is the one dial the engine is told may ring at any hour;
+    any other test call carries the window like every dial."""
+    engine = get_engine()
+    contexts: list[CallContext] = []
+    dial = engine.start_outbound_call
+
+    async def _recording(ref: str, to: str, ctx: CallContext) -> str:
+        contexts.append(ctx)
+        return await dial(ref, to, ctx)
+
+    monkeypatch.setattr(engine, "start_outbound_call", _recording)
+    _tenant_id, agent_id, principal = await _account(line)
+    assert principal.tenant_id is not None
+    async with tenant_session(principal.tenant_id) as session:
+        placed = await trial_calls.place_trial_call(
+            session,
+            principal=principal,
+            agent_id=agent_id,
+            number="98765 43210",
+            idempotency_key=str(uuid.uuid4()),
+            own_number_attested=attested,
+        )
+    assert placed.status == "queued"
+    assert [ctx.rings_at_any_hour for ctx in contexts] == [attested]
+
+
+async def test_a_dial_that_is_not_a_test_call_cannot_ask_to_ring_at_any_hour() -> None:
+    with pytest.raises(ValueError):
+        await agents_service.dispatch_call(
+            None,  # type: ignore[arg-type]
+            tenant_id=uuid.uuid4(),
+            agent_id=uuid.uuid4(),
+            lead_id=None,
+            phone_e164="+919876543210",
+            rings_at_any_hour=True,
+        )

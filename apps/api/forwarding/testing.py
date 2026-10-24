@@ -14,7 +14,7 @@ public. It has its own, narrower checks instead, every one of them explicit here
 * only `org:manage` may run it, and only on a number a person of the business confirmed is
   its own (`forwarded_lines.attested_*`); it can dial nothing else, because the number is
   read from that row and never taken from the request;
-* 09:00 to 21:00 IST (the voice platform refuses outside it anyway, place-call.md:12-13);
+* 09:00 to 21:00 IST (`DEFAULT_WINDOW`), sent with each leg as its calling hours (D-872);
 * a daily cap per client (`forwarding_test_daily_cap`) and one open test per client;
 * every run is audited.
 
@@ -40,12 +40,12 @@ unit instead of the client's.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Final, Literal
 from uuid import UUID
 
-from calevate_shared.calling_window import ist_wall_clock
+from calevate_shared.calling_window import ist_wall_clock, within_window
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -89,8 +89,6 @@ HANG_UP_AFTER_ARRIVAL_S: Final = 8
 SETTLE_GRACE: Final = timedelta(seconds=90)
 #: A leg left in `placing`/`live` longer than this no longer holds the shared line.
 LEG_HORIZON: Final = timedelta(minutes=10)
-OPENS: Final = time(9, 0)
-CLOSES: Final = time(21, 0)
 
 SETTLE_JOB: Final = "settle_forwarding_test"
 HANG_UP_JOB: Final = "hang_up_forwarding_test"
@@ -213,8 +211,7 @@ async def _gate(session: AsyncSession, *, tenant_id: UUID, now: datetime) -> Non
     stopped = await account_stopped_blocker(session, tenant_id=tenant_id)
     if stopped is not None:
         raise _refuse(stopped[0], stopped[1], "Contact us about your account.")
-    wall = ist_wall_clock(now).time()
-    if not OPENS <= wall < CLOSES:
+    if not within_window(ist_wall_clock(now)):
         raise _refuse(
             "forwarding_test_outside_hours",
             "Test calls run between 9 am and 9 pm.",

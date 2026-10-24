@@ -38,7 +38,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from calevate_shared.calling_window import IST, ist_wall_clock, next_window_opening
+from calevate_shared.calling_window import (
+    DEFAULT_WINDOW,
+    IST,
+    ist_wall_clock,
+    next_window_opening,
+    within_window,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -686,6 +692,22 @@ async def ingest_lead(
             )
             record_speed_to_lead(time.time() - received_at, outcome=f"blocked_{refused.code}")
             return {"lead_id": resolved_lead, "dispatched": False, "blocked": refused.code}
+        if refused.code == CALLING_HOURS_RULE:
+            # The phone system refused the calling hours we sent (D-872): the dial reached
+            # it after 21:00. Booked for the next opening as the gate's refusal is above.
+            due = retry_after_engine_hours_refusal(compliance_service.ist_now() - IST)
+            due = align(plan, due) or due
+            return await _defer_to_callback(
+                session,
+                config=config,
+                agent_id=agent_id,
+                lead_id=resolved_lead,
+                phone=phone,
+                rule=CALLING_HOURS_RULE,
+                due=due,
+                execution_key=f"{resolved_lead}:{due.isoformat()}",
+                received_at=received_at,
+            )
         if refused.code not in LINE_REFUSALS:
             raise
         # Every line, or every dial slot this second, was taken: nothing rang, and the
@@ -747,6 +769,28 @@ async def next_allowed_dial(rule: str, *, now: datetime) -> datetime:
     elif rule == BIG_RED_SWITCH_RULE:
         earliest = now + RETRY_AFTER
     return next_window_opening(ist_wall_clock(earliest)) - IST
+
+
+def retry_after_engine_hours_refusal(now: datetime) -> datetime:
+    """The first instant (UTC) to retry a dial the engine refused against the calling hours
+    we sent it (D-872).
+
+    Those hours are `DEFAULT_WINDOW`, so this is the window's next opening by our clock, and
+    the refusal's own `nextOpening` would name the same instant. The one exception is our
+    clock still reading inside the window, which means the two clocks disagree by the
+    moment between our gate and the vendor: in the window's second half the vendor has
+    passed the close, so the next morning; in its first half it has not reached the
+    opening, so now.
+    """
+    wall = ist_wall_clock(now)
+    if not within_window(wall):
+        return next_window_opening(wall) - IST
+    start, end = DEFAULT_WINDOW
+    midpoint = (start.hour * 60 + start.minute + end.hour * 60 + end.minute) / 2
+    if wall.hour * 60 + wall.minute < midpoint:
+        return now
+    closed = wall.replace(hour=end.hour, minute=end.minute, second=0, microsecond=0)
+    return next_window_opening(closed) - IST
 
 
 async def _defer_to_callback(

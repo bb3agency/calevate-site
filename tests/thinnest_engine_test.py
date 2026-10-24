@@ -22,6 +22,7 @@ from apps.api.engine.thinnest import (
     vendor_agent_name,
 )
 from apps.api.engine.vendor_http import EngineRejectedError
+from calevate_shared.calling_window import DEFAULT_WINDOW
 from calevate_shared.engine import AgentConfig, CallContext, RecallOutcome
 from calevate_shared.webhook_signature import (
     sha256_signature,
@@ -309,7 +310,7 @@ def _agent_with_greeting(greeting: str | None) -> httpx.Response:
     return httpx.Response(200, json={"id": "ag_1", "greeting": greeting})
 
 
-async def test_a_dial_speaks_the_held_greeting_and_leaves_retries_and_hours_to_us() -> None:
+async def test_a_dial_speaks_the_held_greeting_and_sends_our_calling_hours() -> None:
     handler, seen = _recorder(
         {
             ("GET", "/agents/ag_1"): _agent_with_greeting("Idi AI assistant."),
@@ -328,10 +329,43 @@ async def test_a_dial_speaks_the_held_greeting_and_leaves_retries_and_hours_to_u
     assert body["purpose"] == "Idi AI assistant."
     assert body["agent"] == "ag_1" and body["from"] == "+918045678901"
     assert body["ifOutsideHours"] == "refuse"
+    # D-872: the gate's window, from its one definition, so the vendor refuses a night dial.
+    assert body["callingHours"] == {
+        "start": DEFAULT_WINDOW[0].strftime("%H:%M"),
+        "end": DEFAULT_WINDOW[1].strftime("%H:%M"),
+    }
+    assert body["callingHours"] == {"start": "09:00", "end": "21:00"}
     assert body["reference"] == ctx.call_id
     assert body["variables"] == {"lead_name": "Asha"}
-    assert "retry" not in body and "callingHours" not in body and "extract" not in body
+    assert "retry" not in body and "extract" not in body
     assert dial.headers["Idempotency-Key"] == f"calevate-call-{ctx.call_id}"
+
+
+async def test_the_owners_own_number_test_call_sends_no_calling_hours() -> None:
+    """D-866/D-872: the one dial our gate lets ring at any hour sends no window, so the
+    vendor (which has no window of its own) rings it at any hour too."""
+    handler, seen = _recorder(
+        {("POST", "/calls"): httpx.Response(202, json={"id": "out_1", "status": "ringing"})}
+    )
+    ctx = CallContext(opening="Hello, this is your test call.", rings_at_any_hour=True)
+    await _engine(handler).start_outbound_call("ag_1", "+919876543210", ctx)
+    body = _body(seen[-1])
+    assert "callingHours" not in body
+    assert body["ifOutsideHours"] == "refuse"
+
+
+async def test_a_forwarding_test_leg_carries_our_calling_hours() -> None:
+    """`forwarding.testing` holds the forwarding test to our window, so its legs carry it."""
+    handler, seen = _recorder(
+        {("POST", "/calls"): httpx.Response(202, json={"id": "fwd_1", "status": "ringing"})}
+    )
+    handle = await _engine(handler).place_forwarding_test_call(
+        agent_ref="ag_fwd", from_e164="+918045678901", to_e164="+919876543210", reference="leg-1"
+    )
+    assert handle == "fwd_1"
+    body = _body(seen[-1])
+    assert body["callingHours"] == {"start": "09:00", "end": "21:00"}
+    assert body["ifOutsideHours"] == "refuse"
 
 
 @pytest.mark.parametrize("greeting", [None, "", "   "])

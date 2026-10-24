@@ -285,6 +285,8 @@ async def place_trial_call(
             phone_e164=phone,
             trial=trial,
             owner_test=owner_test,
+            # The gate let this one ring outside the window, so the engine must too (D-866).
+            rings_at_any_hour=own_number_attested,
         )
     except DialUnconfirmedError as unconfirmed:
         raise ProblemError(

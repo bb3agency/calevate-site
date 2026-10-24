@@ -1375,6 +1375,36 @@ async def test_a_dial_the_vendor_refused_outright_keeps_its_place_on_the_ladder(
     assert [str(s) for s in statuses] == ["failed"], statuses
 
 
+async def test_a_dial_refused_past_the_hours_we_sent_waits_under_the_gates_rule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-872: the voice platform's `outside_calling_hours` now fires only for the hours we
+    sent, i.e. a dial that crossed 21:00 after our gate allowed it. The contact goes back
+    on the ladder with its attempt refunded, recorded under the gate's own rule."""
+    from apps.api.compliance.service import CALLING_HOURS_RULE
+    from apps.api.engine.thinnest import _dial_refusal
+    from apps.api.engine.vendor_http import EngineRejectedError
+
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876820002",), slider=1)
+
+    async def past_hours(self: FakeEngine, ref: str, to: str, ctx: CallContext) -> str:
+        raise _dial_refusal(
+            EngineRejectedError(
+                status=409, refused_statuses=frozenset({409}), vendor_code="outside_calling_hours"
+            )
+        )
+
+    rules: list[str] = []
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", past_hours)
+    monkeypatch.setattr(
+        campaign_dispatch, "record_compliance_block", lambda rule: rules.append(rule)
+    )
+    outcome = await _tick_one_campaign(tenant_id, campaign_id, slots=1)
+    assert outcome == {"dialled": 0, "blocked": 1, "exhausted": 0}, outcome
+    assert await _contacts(tenant_id, campaign_id) == [("pending", 0)]
+    assert rules == [CALLING_HOURS_RULE]
+
+
 async def test_the_retry_ladder_is_measured_by_the_database_clock() -> None:
     """`_record_failure` used to schedule the next rung from the WORKER's clock while the
     claim reads it back against the DATABASE's (`next_attempt_at <= now()`). A worker

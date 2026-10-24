@@ -249,3 +249,47 @@ async def test_a_refusal_about_the_person_books_nothing(
     assert body["blocked"] == "dnc"
     assert body["callback_at"] is None
     assert await _callbacks(tenant_id, "+919876507715") == []
+
+
+# ------------------------------------------- the phone system refusing the hours we sent
+
+
+def test_a_refusal_of_our_hours_is_retried_at_the_next_opening() -> None:
+    """D-872. Outside the window by our clock: the next 09:00. Inside it by our clock the
+    clocks disagree by seconds: near the close the vendor is past it (next morning), near
+    the opening it has not reached it (now)."""
+    night = _utc_at_ist(2026, 10, 3, 21, 0)
+    late = _utc_at_ist(2026, 10, 3, 20, 59)
+    early = _utc_at_ist(2026, 10, 4, 9, 0)
+    tomorrow_nine = _utc_at_ist(2026, 10, 4, 9)
+    assert ingest_service.retry_after_engine_hours_refusal(night) == tomorrow_nine
+    assert ingest_service.retry_after_engine_hours_refusal(late) == tomorrow_nine
+    assert ingest_service.retry_after_engine_hours_refusal(early) == early
+
+
+async def test_a_lead_whose_dial_crossed_nine_pm_is_booked_for_nine_am(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Our gate allowed it at 20:59; the phone system refused it against the hours we sent.
+    The lead is kept and booked for the morning exactly as a night lead is."""
+    from apps.api.engine.thinnest import _dial_refusal
+    from apps.api.engine.vendor_http import EngineRejectedError
+
+    _pin_gate_clock(monkeypatch, _utc_at_ist(2026, 10, 3, 20, 59))
+
+    async def _past_hours(*_args: object, **_kwargs: object) -> str:
+        raise _dial_refusal(
+            EngineRejectedError(
+                status=409, refused_statuses=frozenset({409}), vendor_code="outside_calling_hours"
+            )
+        )
+
+    monkeypatch.setattr(ingest_service, "dispatch_call", _past_hours)
+    tenant_id, _agent_id, webhook_id = await _tenant_with_ingest()
+
+    body = await _post(webhook_id, "9876507716")
+
+    assert body["dispatched"] is False
+    assert body["blocked"] == CALLING_HOURS_RULE
+    rows = await _callbacks(tenant_id, "+919876507716")
+    assert [(row[0], row[1]) for row in rows] == [(_utc_at_ist(2026, 10, 4, 9), "scheduled")]

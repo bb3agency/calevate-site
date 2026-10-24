@@ -23,6 +23,8 @@ from apps.api.compliance.platform_dnc import ENGINE_PERSON_REFUSALS
 from apps.api.compliance.service import (
     BIG_RED_SWITCH_REASON,
     BIG_RED_SWITCH_RULE,
+    CALLING_HOURS_REASON,
+    CALLING_HOURS_RULE,
     PERSON_LEVEL_REFUSALS,
     DispatchDecision,
     check_dispatch,
@@ -69,9 +71,14 @@ LINES_BUSY_REASON = "All our phone lines were busy; we will try again shortly."
 #: ...and when the phone system has this person marked as not to be called.
 OPTED_OUT_REASON = "This number is marked as not to be called, so the call-back was not placed."
 
-#: The refusals that say the LINE was not free rather than that the phone system refused,
-#: each with the sentence the client reads on the deferred call-back.
-_LINE_REFUSALS = {LINES_BUSY_RULE: LINES_BUSY_REASON}
+#: The refusals that waiting lifts rather than that the phone system refused, each with the
+#: sentence the client reads on the deferred call-back: no line was free, or the dial reached
+#: the phone system after the calling hours we sent it had closed (D-872), which is deferred
+#: under the gate's own rule exactly as if the gate had refused it a moment later.
+_WAIT_REFUSALS = {
+    LINES_BUSY_RULE: LINES_BUSY_REASON,
+    CALLING_HOURS_RULE: CALLING_HOURS_REASON,
+}
 
 #: ...and when a new lead's retry stood down because they answered (or rang in) since.
 RETRY_NOT_NEEDED_REASON = "They answered an earlier call, so this retry was not needed."
@@ -249,9 +256,9 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                     )
                     blocked += 1
                     continue
-                if code in _LINE_REFUSALS:
+                if code in _WAIT_REFUSALS:
                     await callbacks.defer(
-                        session, callback.id, rule=code, reason=_LINE_REFUSALS[code]
+                        session, callback.id, rule=code, reason=_WAIT_REFUSALS[code]
                     )
                 else:
                     await callbacks.defer(

@@ -360,6 +360,38 @@ async def test_busy_lines_defer_the_callback_under_their_own_rule(
     assert row["attempts"] == 0
 
 
+async def test_a_dial_the_phone_system_refused_past_our_hours_waits_like_the_gates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-872: a dial our gate allowed that reached the phone system after 21:00 is refused
+    against the hours we sent, and the call-back waits under the gate's own rule and
+    sentence rather than reading as a failed dial."""
+    from apps.api.compliance.service import CALLING_HOURS_REASON, CALLING_HOURS_RULE
+    from apps.api.engine.thinnest import _dial_refusal
+
+    tenant_id, agent_id = await _dialable_tenant()
+    callback_id = await _book(tenant_id, agent_id)
+
+    async def _past_hours(*_args: object, **_kwargs: object) -> None:
+        raise _dial_refusal(
+            EngineRejectedError(
+                status=409,
+                refused_statuses=frozenset({409}),
+                vendor_code="outside_calling_hours",
+            )
+        )
+
+    monkeypatch.setattr(get_engine(), "start_outbound_call", _past_hours)
+    outcome = await dispatch_due_callbacks(tenant_id, slots=5)
+    assert outcome == {"dialled": 0, "blocked": 1, "settled": 0}
+
+    row = await _row(tenant_id, callback_id)
+    assert row["status"] == "scheduled"
+    assert row["last_refusal_rule"] == CALLING_HOURS_RULE
+    assert row["last_refusal_reason"] == CALLING_HOURS_REASON
+    assert row["attempts"] == 0
+
+
 async def test_a_dialled_callback_is_settled_by_the_call_it_became() -> None:
     """`settle_dialled` reads OUR `calls` row rather than hooking the post-call pipeline,
     so it settles a call-back whose call the RECONCILIATION POLLER discovered as well as

@@ -60,6 +60,7 @@ from datetime import UTC, datetime, time
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.calling_window import CALLING_HOURS_RULE as _CALLING_HOURS_RULE
 from calevate_shared.calling_window import DEFAULT_WINDOW as _DEFAULT_WINDOW
 from calevate_shared.calling_window import IST as _IST
 from sqlalchemy import Row, text
@@ -186,9 +187,10 @@ MAINTENANCE_DRAIN_REASON = (
     "its place, and dialling resumes by itself when the window closes."
 )
 
-#: The refusal outside 09:00-21:00 IST. Named because ingest books the refused call for
-#: the window's next opening, and a literal spelled in two places drifts.
-CALLING_HOURS_RULE = "calling_hours"
+#: The refusal outside 09:00-21:00 IST (`calevate_shared.calling_window.CALLING_HOURS_RULE`,
+#: shared with the engine adapter's refusal of the same hours) and its sentence.
+CALLING_HOURS_RULE = _CALLING_HOURS_RULE
+CALLING_HOURS_REASON = "Outbound calls are only placed between 9:00 and 21:00 IST."
 
 #: The refusals that are facts about the PERSON, not about the account, the agent, the
 #: paperwork or the clock — the ones that do not become false by waiting.
@@ -1106,11 +1108,12 @@ async def check_dispatch(
     # A test call the owner places to a number they have attested as their own is not a
     # commercial communication to a subscriber, which is what the 21:00-09:00 band forbids;
     # without the attestation the trial could ring anyone at night, so it keeps the window.
+    # The same exemption is carried to the engine as `CallContext.rings_at_any_hour` (D-872).
     if not (trial_call and own_number_attested) and not within_calling_hours():
         return DispatchDecision(
             allowed=False,
             rule=CALLING_HOURS_RULE,
-            reason="Outbound calls are only placed between 9:00 and 21:00 IST.",
+            reason=CALLING_HOURS_REASON,
         )
 
     person = await person_level_refusal(session, tenant_id=tenant_id, phone_e164=phone_e164)
@@ -1240,6 +1243,7 @@ __all__ = [
     "ACCOUNT_SUSPENDED_REASON",
     "BIG_RED_SWITCH_REASON",
     "BIG_RED_SWITCH_RULE",
+    "CALLING_HOURS_REASON",
     "CALLING_HOURS_RULE",
     "DEFAULT_WINDOW",
     "DESTINATION_NOT_INDIA_REASON",

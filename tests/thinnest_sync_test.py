@@ -185,10 +185,21 @@ async def test_the_sentence_is_logged_from_error_and_never_carried(
     assert "9876543210" not in str(logged.vendor_message)
 
 
-async def test_a_call_outside_the_platforms_hours_says_so_in_plain_words() -> None:
+async def test_a_dial_past_the_hours_we_sent_is_the_gates_own_refusal_in_plain_words() -> None:
+    """D-872: the 409 now fires only for hours we sent, so it carries the gate's code and
+    every caller defers it as it defers the gate's own outside-hours refusal."""
     from apps.api.agents.service import dial_was_not_placed
+    from apps.api.compliance.service import CALLING_HOURS_RULE
 
-    refused = await _dial(409, {"error": "Outside hours", "code": "outside_calling_hours"})
+    refused = await _dial(
+        409,
+        {
+            "error": "Outside hours",
+            "code": "outside_calling_hours",
+            "nextOpening": "2026-10-25T09:00:00+05:30",
+        },
+    )
+    assert refused.code == CALLING_HOURS_RULE
     assert refused.title == "Calls can only ring between 9am and 9pm"
     assert "9am and 9pm IST" in refused.detail
     # A rule, not an outage: below 500, so the error handler raises no operator alarm.

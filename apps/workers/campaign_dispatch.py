@@ -117,6 +117,7 @@ from apps.api.compliance import service as compliance_service
 from apps.api.compliance.platform_dnc import ENGINE_PERSON_REFUSALS
 from apps.api.compliance.service import (
     BIG_RED_SWITCH_RULE,
+    CALLING_HOURS_RULE,
     PERSON_LEVEL_REFUSALS,
     check_dispatch,
 )
@@ -1302,7 +1303,12 @@ def _refused_on_our_side(exc: BaseException) -> bool:
 
 
 def _refusal_rule(exc: BaseException) -> str:
-    """The rule a refunded refusal is recorded under: our code, never vendor text."""
+    """The rule a refunded refusal is recorded under: our code, never vendor text.
+
+    The engine's refusal of the calling hours we sent is recorded under the gate's own rule
+    (D-872), so the contact reads exactly as one the gate refused at 21:00."""
+    if isinstance(exc, ProblemError) and exc.code == CALLING_HOURS_RULE:
+        return CALLING_HOURS_RULE
     if isinstance(exc, EngineRejectedError):
         return f"{exc.code}_{exc.vendor_status}"
     return exc.code if isinstance(exc, ProblemError) else type(exc).__name__
