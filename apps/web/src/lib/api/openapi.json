@@ -35886,7 +35886,6 @@
             "enum": [
               "tests",
               "knowledge",
-              "notices",
               "opening",
               "live",
               "missed"
@@ -35938,7 +35937,6 @@
             "enum": [
               "tests",
               "knowledge",
-              "notices",
               "opening",
               "live",
               "missed"

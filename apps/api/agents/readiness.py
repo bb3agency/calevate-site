@@ -1,29 +1,35 @@
-"""The agent readiness score, 0-100, and what to fix to raise it (D-870).
+"""The agent readiness score, 0-100, and what to fix to raise it (D-870, weights D-873).
 
 The gauge on each agent and on the dashboard (founder decision f7d9f716, point 2). It is
 computed on every read from what is already stored; nothing is written and nothing is
-cached, so the number moves the moment a test finishes or a notice is switched on.
+cached, so the number moves the moment a test finishes or knowledge is added.
 
-THE FORMULA (six components, 100 points; `score()` is the whole of it and is pure):
+THE FORMULA (five components, 100 points; `score()` is the whole of it and is pure):
 
 | component  | max | points                                                                 |
 |------------|-----|------------------------------------------------------------------------|
-| tests      |  30 | 30 * passed / counted, rounded half up, on the latest finished run,   |
+| tests      |  35 | 35 * passed / counted, rounded half up, on the latest finished run,   |
 |            |     | the owner's score (`trial_results.owner_score`); 0 with no such run    |
-| knowledge  |  20 | 10 for live knowledge (live sources + facts on file: 0 → 0, 1-4 → 5,   |
-|            |     | 5+ → 10) plus max(0, 10 - 2 * this agent's open knowledge gaps)        |
-| notices    |  15 | 10 when the AI notice is on, 5 when the recording notice is on         |
+| knowledge  |  25 | D-870's 20-point reading scaled by 25/20, rounded half up. That        |
+|            |     | reading is 10 for live knowledge (live sources + facts on file: 0 → 0, |
+|            |     | 1-4 → 5, 5+ → 10) plus max(0, 10 - 2 * this agent's open knowledge     |
+|            |     | gaps); the sum is scaled once, so the rounding happens once           |
 | opening    |  15 | 15 when the opening line is set, at most `OPENING_LINE_MAX_CHARS` and  |
-|            |     | fits the greeting budget with the notices on; 5 when set but too long; |
-|            |     | 0 when empty                                                           |
-| live       |  10 | 5 when published and live; 5 more when no draft is waiting and the     |
+|            |     | fits the greeting budget with the notices as they are; 5 when set but  |
+|            |     | too long; 0 when empty                                                 |
+| live       |  15 | 8 when published and live; 7 more when no draft is waiting and the     |
 |            |     | calling system's copy is not out of sync (`DRIFT_STATES_OUT_OF_SYNC`)  |
 | missed     |  10 | max(0, 10 - 2 * questions it could not answer in the last 7 days)      |
 
 Why these weights: the practice tests are the closest thing to a real caller and carry the
 most; knowledge and missed questions are the two halves of "does it know the business";
-the notices and the opening line are what every caller hears first; being live and in sync
-is binary and so is worth least. A component never goes below 0, so the total is 0-100.
+the opening line is what every caller hears first; being live and in sync is binary.
+
+The opening notices (D-163) are not a component: whether an agent volunteers "I am an AI"
+or "this call is recorded" is the owner's choice and does not make it more or less ready
+(D-873). The truthful answers when a caller asks (hard rule 5) are on every agent whatever
+the switches say, so there is nothing for the score to measure there either. A component
+never goes below 0, so the total is 0-100.
 
 Every component that is not full contributes one `fix` with a realm-relative link to the
 screen where it is fixed. Fixes are ordered by the points they would recover, largest
@@ -48,22 +54,20 @@ from apps.api.agents.roster import agent_by_id
 from apps.api.agents.schemas import AgentOut
 from apps.api.core.errors import ProblemError
 
-ComponentKey = Literal["tests", "knowledge", "notices", "opening", "live", "missed"]
+ComponentKey = Literal["tests", "knowledge", "opening", "live", "missed"]
 ComponentState = Literal["full", "partial", "none"]
 
 MAX_POINTS: Final[dict[ComponentKey, int]] = {
-    "tests": 30,
-    "knowledge": 20,
-    "notices": 15,
+    "tests": 35,
+    "knowledge": 25,
     "opening": 15,
-    "live": 10,
+    "live": 15,
     "missed": 10,
 }
 COMPONENT_ORDER: Final[tuple[ComponentKey, ...]] = tuple(MAX_POINTS)
 COMPONENT_LABELS: Final[dict[ComponentKey, str]] = {
     "tests": "Practice tests",
     "knowledge": "What it knows",
-    "notices": "Notices to callers",
     "opening": "Opening line",
     "live": "Live and up to date",
     "missed": "Questions it missed this week",
@@ -71,6 +75,10 @@ COMPONENT_LABELS: Final[dict[ComponentKey, str]] = {
 MISSED_WINDOW: Final = timedelta(days=7)
 #: How many knowledge items count as "plenty" for the first half of the knowledge points.
 KNOWLEDGE_PLENTY: Final = 5
+#: D-870's knowledge reading, which D-873 scales to `MAX_POINTS["knowledge"]`.
+KNOWLEDGE_READING_MAX: Final = 20
+#: The share of the live points for being published and live; the rest is for being in sync.
+LIVE_POINTS_PUBLISHED: Final = 8
 
 
 class ReadinessFixOut(BaseModel):
@@ -135,8 +143,6 @@ class ReadinessInputs:
     has_test_run: bool
     knowledge_items: int
     open_gaps: int
-    ai_notice_on: bool
-    recording_notice_on: bool
     opening_chars: int
     #: Room the greeting leaves for the opening line with the notices as they are; None when
     #: the calling system sets no ceiling.
@@ -156,8 +162,13 @@ def _plural(n: int, one: str, many: str) -> str:
     return f"{n} {one if n == 1 else many}"
 
 
+def _scaled_half_up(value: int, maximum: int, of: int) -> int:
+    """`maximum * value / of`, rounded half up, in integers."""
+    return (2 * maximum * value + of) // (2 * of)
+
+
 def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
-    """The D-870 formula over one agent's inputs. Pure and deterministic."""
+    """The D-873 formula over one agent's inputs. Pure and deterministic."""
     base = f"/agents/{i.agent_id}"
     components: list[ReadinessComponentOut] = []
     fixes: list[ReadinessFixOut] = []
@@ -194,7 +205,7 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
     else:
         add(
             "tests",
-            (MAX_POINTS["tests"] * i.tests_passed * 2 + i.tests_counted) // (2 * i.tests_counted),
+            _scaled_half_up(i.tests_passed, MAX_POINTS["tests"], i.tests_counted),
             f"{i.tests_passed} of {i.tests_counted} practice tests passed.",
             ("Fix the practice tests that failed, then test again.", f"{base}?section=training"),
         )
@@ -208,27 +219,10 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
         knowledge_fix = ("Answer the questions it could not.", f"{base}?section=training")
     add(
         "knowledge",
-        stock + gaps,
+        _scaled_half_up(stock + gaps, MAX_POINTS["knowledge"], KNOWLEDGE_READING_MAX),
         f"{_plural(i.knowledge_items, 'item', 'items')} of knowledge; "
         f"{_plural(i.open_gaps, 'open question', 'open questions')} to answer.",
         knowledge_fix,
-    )
-
-    # notices
-    notices = (10 if i.ai_notice_on else 0) + (5 if i.recording_notice_on else 0)
-    missing = [
-        name
-        for name, on in (
-            ("the AI notice", i.ai_notice_on),
-            ("the recording notice", i.recording_notice_on),
-        )
-        if not on
-    ]
-    add(
-        "notices",
-        notices,
-        "Both notices are on." if not missing else f"Off: {' and '.join(missing)}.",
-        (f"Switch on {' and '.join(missing)}.", f"{base}?section=overview") if missing else None,
     )
 
     # opening line
@@ -261,12 +255,12 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
     elif i.draft_waiting or i.out_of_sync:
         add(
             "live",
-            5,
+            LIVE_POINTS_PUBLISHED,
             "Live, with changes callers do not hear yet.",
             ("Apply your saved changes to live calls.", f"{base}?section=script"),
         )
     else:
-        add("live", 10, "Live, and callers hear the latest version.", None)
+        add("live", MAX_POINTS["live"], "Live, and callers hear the latest version.", None)
 
     # missed questions
     add(
@@ -342,8 +336,6 @@ async def gather(
         has_test_run=latest is not None,
         knowledge_items=await knowledge_items(session) if knowledge is None else knowledge,
         open_gaps=int(facts.open_gaps),
-        ai_notice_on=agent.ai_disclosure_enabled,
-        recording_notice_on=agent.recording_notice_enabled,
         opening_chars=len(agent.script_opening_line.strip()),
         opening_room=None if budget is None else budget.opening_room,
         published=agent.published,
@@ -378,9 +370,7 @@ async def account_readiness(
     order = {key: n for n, key in enumerate(COMPONENT_ORDER)}
     every_fix.sort(key=lambda f: (-f.points, order[f.component], f.href))
     return AccountReadinessOut(
-        score=(2 * sum(s.score for s in scored) + len(scored)) // (2 * len(scored))
-        if scored
-        else None,
+        score=_scaled_half_up(sum(s.score for s in scored), 1, len(scored)) if scored else None,
         agents=scored,
         top_fixes=every_fix[:MAX_ACCOUNT_FIXES],
         computed_at=at,
