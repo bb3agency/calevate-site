@@ -404,7 +404,7 @@ async def test_the_call_translation_meter_passes_the_cached_count(
         prompt_tokens=100, output_tokens=10, cached_prompt_tokens=60, cached_reported=True
     )
     await call_translation.meter_language_pass(
-        None, uuid.uuid4(), uuid.uuid4(), usage, feature="call_translation"
+        None, uuid.uuid4(), uuid.uuid4(), usage, feature="call_translation", source="test"
     )
     assert seen["cached_tokens_in"] == 60
 

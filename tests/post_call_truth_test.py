@@ -383,6 +383,52 @@ async def test_the_english_turns_and_the_call_language_summary_are_written_after
     assert detail.summary_local == TELUGU_SUMMARY and detail.summary_language == "te-IN"
 
 
+async def test_a_call_whose_english_is_ready_pays_for_no_second_language_pass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: a re-drive or re-read of a call whose language pass succeeded sends its
+    turns again. A line the pass handed back unchanged keeps `text_en` NULL, so without the
+    guard every re-run re-buys it (24 Oct 2026: one call, two paid passes)."""
+    engine_summary = "The caller wants a callback about chilli."
+    _with_engine_summary(monkeypatch, engine_summary)
+    passes: list[list[tuple[int, str]]] = []
+
+    async def _pass(**kwargs: Any) -> LanguagePass:
+        turns = list(kwargs["turns"])
+        passes.append(turns)
+        # The first line comes back as it was, so it is not stored as English.
+        return LanguagePass(
+            turns_en={
+                idx: (body if idx == turns[0][0] else f"english {idx}") for idx, body in turns
+            },
+            summary_local=TELUGU_SUMMARY,
+        )
+
+    monkeypatch.setattr(call_language, "run_language_pass", _pass)
+    monkeypatch.setattr(pipeline, "get_settings", lambda: SimpleNamespace(sarvam_api_key="k"))
+    tenant_id, execution_id, call_id = await _completed_call("lang_once")
+    await _run_pipeline(tenant_id, call_id, execution_id)
+    assert len(passes) == 1
+    assert (
+        await _scalar(tenant_id, "SELECT translation_state FROM calls WHERE id = :c", c=call_id)
+        == "ready"
+    )
+    assert (
+        await _scalar(
+            tenant_id,
+            "SELECT count(*) FROM transcript_turns WHERE call_id = :c AND text_en IS NULL",
+            c=call_id,
+        )
+        == 1
+    )
+
+    snapshot = SimpleNamespace(engine_summary=engine_summary, transcript=[])
+    reading = await pipeline._record_reading(tenant_id, call_id, snapshot, None)  # type: ignore[arg-type]
+
+    assert len(passes) == 1, "a call already translated is not sent again"
+    assert reading.translation_state == "ready"
+
+
 # --- 6. trial accounts promise no call backs ------------------------------------------
 
 

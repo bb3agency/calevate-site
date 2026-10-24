@@ -358,6 +358,7 @@ async def test_the_pass_is_metered_at_our_cost_with_its_measured_tokens(attested
         assert m["feature"] == ASSIST_FEATURE_CALL_EXTRACTION, "our cost, not the allowance"
         assert (m["prompt_tokens"], m["output_tokens"]) == ("2400", "620")
         assert m["moments_returned"] == "3"
+        assert m["call_id"] == str(call_id), "per-call AI cost reads meta.call_id"
     assert all(Decimal(str(r[1])) > 0 for r in rows)
 
 

@@ -2544,12 +2544,19 @@ async def _record_reading(
         language=language,
     )
 
-    pending_turns = call_language.untranslated_turns(
-        [(int(idx), body, english_text) for idx, body, english_text in turns], language=language
+    translation_state = str(row[2] or "pending")
+    # A call already `ready` sends no turns again: a line the pass handed back unchanged
+    # keeps `text_en` NULL and would otherwise be paid for on every re-drive and re-read.
+    pending_turns = (
+        []
+        if translation_state == "ready"
+        else call_language.untranslated_turns(
+            [(int(idx), body, english_text) for idx, body, english_text in turns],
+            language=language,
+        )
     )
     want_local = bool(english) and not local and not call_language.is_english(language)
     want_english = not english and bool(local)
-    translation_state = str(row[2] or "pending")
     if translation_state in ("pending", "unavailable", "failed"):
         translation_state = "not_needed" if not pending_turns else translation_state
     turns_en: dict[int, str] = {}
@@ -2625,7 +2632,12 @@ async def _record_reading(
             )
         if usage is not None:
             await call_translation.meter_language_pass(
-                session, tenant_id, call_id, usage, feature=ASSIST_FEATURE_CALL_LANGUAGE
+                session,
+                tenant_id,
+                call_id,
+                usage,
+                feature=ASSIST_FEATURE_CALL_LANGUAGE,
+                source="call_reading",
             )
     return _Reading(
         summary=english or None,

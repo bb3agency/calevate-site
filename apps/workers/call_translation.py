@@ -99,10 +99,22 @@ _CANDIDATES_SQL: Final = (
 
 
 async def meter_language_pass(
-    session: AsyncSession, tenant_id: UUID, call_id: UUID, usage: TokenUsage, *, feature: str
+    session: AsyncSession,
+    tenant_id: UUID,
+    call_id: UUID,
+    usage: TokenUsage,
+    *,
+    feature: str,
+    source: str,
 ) -> None:
     """One language pass on the AI ledger (hard rule 7): the attested Sarvam price or
-    nothing, never a zero row. `feature` decides who pays (`billing/models`).
+    nothing, never a zero row. `feature` decides who pays (`billing/models`); `source` names
+    the step that ran it (`call_reading` for the pipeline and the re-read, `translate_call`
+    for "Try again" and the backfill), so a second pass on one call says where it came from.
+
+    The call is `meta.call_id`, not `usage_events.call_id`: an AI row keeps that column NULL
+    so its `ref` stays inside `ux_usage_events_tenant_unit_ref`, the index that makes a
+    replayed write meter nothing (`billing/models.UsageEvent`).
 
     In the caller's transaction, the one that writes the pass's English. The ref is fresh
     per pass, so a meter committed apart from its result would be charged again when a
@@ -126,6 +138,8 @@ async def meter_language_pass(
         extra_meta={
             "call_id": str(call_id),
             "cached_prompt_tokens": str(usage.cached_prompt_tokens),
+            "source": source,
+            "reasoning_effort": call_language.REASONING_EFFORT,
         },
     )
 
@@ -225,7 +239,9 @@ async def translate_call(tenant_id: UUID, call_id: UUID, *, feature: str) -> str
                 {"en": english_text, "cid": call_id, "tid": tenant_id, "idx": idx},
             )
         if usage is not None:
-            await meter_language_pass(session, tenant_id, call_id, usage, feature=feature)
+            await meter_language_pass(
+                session, tenant_id, call_id, usage, feature=feature, source="translate_call"
+            )
     log.info(
         "call_translation_settled",
         extra={"call_id": str(call_id), "state": state, "turns": len(turns_en)},
