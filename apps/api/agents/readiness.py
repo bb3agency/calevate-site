@@ -228,7 +228,7 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
         "notices",
         notices,
         "Both notices are on." if not missing else f"Off: {' and '.join(missing)}.",
-        (f"Switch on {' and '.join(missing)}.", f"{base}?section=settings") if missing else None,
+        (f"Switch on {' and '.join(missing)}.", f"{base}?section=overview") if missing else None,
     )
 
     # opening line

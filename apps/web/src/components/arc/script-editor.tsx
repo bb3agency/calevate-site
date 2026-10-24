@@ -24,7 +24,8 @@
  *
  * ## The budget
  *
- * Counted in code points (Python's `len`, so it agrees with the server). Near the limit
+ * Counted in code points with the ends trimmed (Python's `len(text.strip())`, so a trailing
+ * newline does not read as one over the server's count). Near the limit
  * the meter turns amber; over it, the section is marked invalid and says by how much. It
  * does not cut the text off: a paste that runs over keeps everything so the person can
  * choose what to remove, and the caller holds the save while `overBudget` is true.
@@ -158,7 +159,7 @@ function SectionBlock({
   const hintId = `${base}-hint`;
   const meterId = `${base}-meter`;
   const fieldsId = `${base}-fields`;
-  const used = codePoints(section.value);
+  const used = codePoints(section.value.trim());
   const over = section.maxChars !== undefined && used > section.maxChars;
   const known = new Map(variables.map((v) => [v.key, v]));
   const keys = variablesIn(section.value);
@@ -285,9 +286,9 @@ export type ScriptEditorProps = {
 
 /** True when any section, or the whole script, is over its budget. */
 export function scriptOverBudget(sections: ScriptEditorSection[], totalMaxChars?: number): boolean {
-  const total = sections.reduce((sum, s) => sum + codePoints(s.value), 0);
+  const total = sections.reduce((sum, s) => sum + codePoints(s.value.trim()), 0);
   return (
-    sections.some((s) => s.maxChars !== undefined && codePoints(s.value) > s.maxChars) ||
+    sections.some((s) => s.maxChars !== undefined && codePoints(s.value.trim()) > s.maxChars) ||
     (totalMaxChars !== undefined && total > totalMaxChars)
   );
 }
@@ -312,7 +313,7 @@ export function ScriptEditor({
   className,
 }: ScriptEditorProps) {
   const strings = { ...DEFAULT_STRINGS, ...overrides };
-  const total = sections.reduce((sum, s) => sum + codePoints(s.value), 0);
+  const total = sections.reduce((sum, s) => sum + codePoints(s.value.trim()), 0);
   const samples = Object.fromEntries(variables.filter((v) => v.sample).map((v) => [v.key, v.sample as string]));
   const spoken = sections
     .map((s) => s.value.trim())

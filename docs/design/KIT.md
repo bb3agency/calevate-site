@@ -495,8 +495,8 @@ moves), `DataTable` `selection` + `SelectionBar` (leads' `BulkActionBar` merges 
 the script page (its sections map to `opening_line`, `goal`/`outbound_purpose`, each stage's
 `instruction` and `ending`; `VariableBar` and the caret insert in `ScriptBuilder` then go);
 `TierComparison` and `PeriodToggle` on billing; `MoneyInput` for the top-up custom amount
-and `ConfigInput`'s money kind; `JsonViewer` for the actions tool-test result and the
-integrations delivery log; `AnnouncementBar` above both shells once Lane B's announcements
+and `ConfigInput`'s money kind; `JsonViewer` for the actions tool-test result (the
+integrations delivery log stays plain text: its test pins the body byte for byte); `AnnouncementBar` above both shells once Lane B's announcements
 endpoint lands, with `onDismiss` through `useActionFeedback`; `NotificationCenter`'s
 `onDismiss` when the server records dismissals. Modals built directly on `MODAL_PANEL`
 (such as `aiExtraDialog`) move onto `ModalDialog` to get the sheet's grab strip.
