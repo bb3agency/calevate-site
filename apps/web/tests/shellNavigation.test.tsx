@@ -121,7 +121,7 @@ async function renderClientShell(at: string): Promise<HTMLElement> {
   pathname = at;
   stubApi({
     ...CLIENT_SHELL_ROUTES,
-    "/v1/me": { organization: { name: "Acme" }, role: "owner" },
+    "/v1/me": { organization: { name: "Acme" }, role: "owner", permissions: ["org:read", "org:manage", "leads:read", "leads:write"] },
     "/v1/attention": { total: 0 },
   });
   const client = new QueryClient({

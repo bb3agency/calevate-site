@@ -4,6 +4,7 @@ import { AnnouncementBar, platformAnnouncementProps } from "@/components/arc/ann
 import { useActionFeedback } from "@/components/arc/feedback";
 import { useToast } from "@/components/arc/toast";
 import { useAnnouncements, useDismissAnnouncement } from "@/lib/api/announcements";
+import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 
 /**
@@ -24,6 +25,7 @@ export function consoleHref(
  * has not dismissed (the server sends critical first), one at a time. Dismissing puts it
  * away for the whole account and the next one, if any, takes its place.
  *
+ * Dismissing is an account setting (`org:manage`): someone without it sees no close button.
  * An operator viewing the account cannot dismiss for the client (the server refuses it), so
  * pressing close then says so in a note and sends nothing. A failed read shows nothing: the strip is news,
  * and the bell carries the same items with its own failure state.
@@ -34,6 +36,7 @@ export function ClientAnnouncements({ slug }: { slug: string }) {
   const dismiss = useDismissAnnouncement(session);
   const feedback = useActionFeedback(dismiss, { errorTitle: "Could not dismiss the announcement" });
   const toasts = useToast();
+  const access = useWriteAccess(session, "org:manage", "put announcements away");
   const current = announcements.data?.items[0];
   if (!current) return null;
   const viewingAs = Boolean(session.impersonateOrg);
@@ -43,7 +46,9 @@ export function ClientAnnouncements({ slug }: { slug: string }) {
       {...bar}
       action={bar.action && { ...bar.action, href: consoleHref(bar.action.href, slug, href) }}
       onDismiss={
-        viewingAs
+        !access.allowed && !viewingAs
+          ? undefined
+          : viewingAs
           ? () =>
               toasts.toast({
                 kind: "info",

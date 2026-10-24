@@ -3,21 +3,24 @@
 import Link from "next/link";
 
 import { SwipeActions } from "@/components/arc/swipe-actions";
-import { formatPhone } from "@/components/ui";
-import { leadNextStep, stageSetBy } from "@/lib/leadLabels";
+import { formatIST, formatPhone } from "@/components/ui";
+import { needsAttention, outcomeWords } from "@/lib/callReview";
+import { leadNextStep } from "@/lib/leadLabels";
 
 import { CallControl } from "./CallControl";
 import { cellValue } from "./leadsTable";
 import type { LeadRowKit } from "./leadRowKit";
 
 /**
- * The leads on a phone: who, where they stand, what is next, and the follow-up actions a
- * swipe away (right: call now; left: mark, call back later, WhatsApp). The business's own
- * columns (what its agents capture) follow as one quiet line, so a phone row still shows
- * what the table would; the full set is on each lead's own screen.
+ * The leads on a phone (founder, 24 Oct 2026): who and why on the left — name, number and
+ * what the last call was about (its headline, else what is next) — and how it ended and
+ * when on the right, with the follow-up actions a swipe away (right: call now; left: mark,
+ * call back later, WhatsApp). The row fits the screen, so a sideways swipe only ever means
+ * the actions. The business's own captured fields follow as one quiet line; the full set
+ * is on the lead's own screen. No select box: picking many is the wider table's job.
  */
 export function LeadsPhoneList({ kit }: { kit: LeadRowKit }) {
-  const { items, columns, maySelect, ticked, toggleRow, rowFailure, hrefFor, followUp, targetOf } = kit;
+  const { items, columns, rowFailure, hrefFor, followUp, targetOf } = kit;
   const captured = columns.filter((column) => column.kind !== "fixed");
   return (
     <ul aria-label="Leads" className="divide-y divide-line">
@@ -25,45 +28,43 @@ export function LeadsPhoneList({ kit }: { kit: LeadRowKit }) {
         const target = targetOf(lead);
         const { primary, secondary } = followUp.actionsFor(target);
         const answer = followUp.callResult(lead.id);
-        const next = leadNextStep(lead);
+        const reason = lead.last_call_headline ?? leadNextStep(lead);
+        const call = { outcome_tag: lead.last_call_outcome ?? null, business_outcome_label: lead.last_call_business_outcome_label };
+        // A lead no call has reached yet is described by its stage instead.
+        const outcome = lead.last_call_id ? outcomeWords(call) : null;
+        const warn = outcome !== null && needsAttention({ outcome_tag: call.outcome_tag, callback: null });
+        const when = formatIST(lead.last_call_at ?? lead.created_at);
         const details = captured
           .map((column) => ({ label: column.label, value: cellValue(lead, column.key) }))
           .filter((detail) => detail.value !== "—")
           .map((detail) => `${detail.label}: ${detail.value}`)
           .join(" · ");
         return (
-          <li key={lead.id} className={ticked.has(lead.id) ? "bg-brand-soft/50" : undefined}>
+          <li key={lead.id}>
             <SwipeActions label={target.name} primary={primary} secondary={secondary}>
-              <div className="flex min-w-0 items-start gap-2 py-2.5">
-                {maySelect ? (
-                  <label className="flex h-11 w-9 shrink-0 cursor-pointer items-center justify-center">
-                    <input
-                      type="checkbox"
-                      aria-label={`Select ${target.name}`}
-                      checked={ticked.has(lead.id)}
-                      onChange={() => toggleRow(lead.id)}
-                      className="h-5 w-5 accent-brand-strong"
-                    />
-                  </label>
-                ) : null}
-                <Link
-                  href={hrefFor(lead)}
-                  className="block min-w-0 flex-1 rounded-sm py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand"
-                >
-                  <span className="flex min-w-0 items-baseline justify-between gap-2">
-                    <span className="truncate font-medium text-ink">{target.name}</span>
-                    <span className="shrink-0 text-meta font-medium capitalize text-ink-muted">{lead.status}</span>
+              <Link
+                href={hrefFor(lead)}
+                className="block min-w-0 px-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand"
+              >
+                <span className="flex min-w-0 items-start justify-between gap-3">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium text-ink">{target.name}</span>
+                    {lead.name ? (
+                      <span className="block text-meta tabular-nums text-ink-faint">{formatPhone(lead.phone_e164)}</span>
+                    ) : null}
+                    {reason ? <span className="mt-0.5 block line-clamp-2 text-meta text-ink-muted">{reason}</span> : null}
+                    {details ? <span className="block truncate text-meta text-ink-faint">{details}</span> : null}
                   </span>
-                  {lead.name ? (
-                    <span className="block text-meta tabular-nums text-ink-faint">{formatPhone(lead.phone_e164)}</span>
-                  ) : null}
-                  {next ? <span className="mt-0.5 block truncate text-meta text-ink-muted">{next}</span> : null}
-                  {details ? <span className="block truncate text-meta text-ink-faint">{details}</span> : null}
-                  <span className="block text-meta text-ink-faint">{stageSetBy(lead.status_set_by)}</span>
-                </Link>
-              </div>
+                  <span className="flex max-w-[42%] shrink-0 flex-col items-end text-right">
+                    <span className={`text-meta font-medium ${warn ? "text-warn" : "text-ink"} ${outcome ? "" : "capitalize"}`}>
+                      {outcome ?? lead.status}
+                    </span>
+                    <span className="text-meta tabular-nums text-ink-faint">{when}</span>
+                  </span>
+                </span>
+              </Link>
               {answer ? (
-                <div className={maySelect ? "pb-2 pl-11" : "pb-2"}>
+                <div className="px-3 pb-3">
                   <CallControl result={answer} pending={false} onCall={() => followUp.startCall(target)} />
                 </div>
               ) : null}

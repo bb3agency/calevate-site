@@ -65,6 +65,8 @@ const SHELL_IMPERSONATING = {
     organization: { id: "org_1", name: "Sunrise Dental Care", slug: "acme" },
     role: "owner",
     impersonating: true,
+    // View-as reports the effective set: the reads, no writes.
+    permissions: ["org:read", "leads:read"],
   },
   "GET /v1/attention": stillLoading(),
   "GET /v1/maintenance": stillLoading(),

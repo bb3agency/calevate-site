@@ -21630,6 +21630,8 @@ export interface components {
             id: string;
             /** Is Repeat Caller */
             is_repeat_caller: boolean;
+            /** Last Call At */
+            last_call_at?: string | null;
             /** Last Call Business Outcome Label */
             last_call_business_outcome_label?: string | null;
             /** Last Call Headline */

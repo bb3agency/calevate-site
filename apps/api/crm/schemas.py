@@ -394,6 +394,8 @@ class LeadOut(Strict):
     last_call_outcome: CallOutcome | None = None
     #: The last call's own business outcome (`CallSummaryOut.business_outcome_label`).
     last_call_business_outcome_label: str | None = None
+    #: When the last call started (when it was created, for one that never connected).
+    last_call_at: datetime | None = None
     #: What the business should do next, from the last call. NULL when nothing.
     next_step: str | None = None
     #: The soonest call back still to be placed for this lead. NULL when none is booked.

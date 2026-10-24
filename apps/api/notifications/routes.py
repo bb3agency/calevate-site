@@ -24,6 +24,9 @@ router = APIRouter(prefix="/v1/notifications", tags=["notifications"])
 
 Session = Annotated[AsyncSession, Depends(db)]
 Reader = Annotated[Principal, Depends(requires("leads:read", realm="client"))]
+#: Marking the bell read writes a per-person row, so it needs a mutating permission (D-22);
+#: `leads:write` is the one every client role that works the queue holds.
+Worker = Annotated[Principal, Depends(requires("leads:write", realm="client"))]
 
 
 @router.get(
@@ -46,10 +49,10 @@ async def get_feed(
 @router.post(
     "/seen",
     response_model=SeenOut,
-    openapi_extra=permission_meta("leads:read"),
+    openapi_extra=permission_meta("leads:write"),
     summary="Mark the bell read up to an instant (now by default)",
 )
-async def mark_seen(payload: SeenIn, session: Session, principal: Reader) -> SeenOut:
+async def mark_seen(payload: SeenIn, session: Session, principal: Worker) -> SeenOut:
     assert principal.tenant_id is not None
     person = principal.client_user_id
     if person is None:

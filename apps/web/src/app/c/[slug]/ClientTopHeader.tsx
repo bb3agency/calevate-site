@@ -12,6 +12,7 @@ import { LiveCallsPill } from "@/components/console/liveCalls";
 import { BAR_STATUS } from "@/components/console/statusPill";
 import { NOTICE_DOT, SHELL_RAIL_CLASS, formatCount, formatCountOf } from "@/components/ui";
 import { useAttention } from "@/lib/api/attention";
+import { useWriteAccess } from "@/lib/api/hooks";
 import {
   useMarkNotificationsSeen,
   useNotifications,
@@ -96,6 +97,9 @@ function NotificationBell({ slug }: { slug: string }) {
   const feed = useNotifications(session, BELL_ROWS);
   const markSeen = useMarkNotificationsSeen(session);
   const markFeedback = useActionFeedback(markSeen, { errorDisplay: "inline" });
+  // Recording "seen" is a write (`leads:write`); a session without it, such as an operator
+  // viewing the account, only reads the bell.
+  const mayMark = useWriteAccess(session, "leads:write", "mark notifications read").allowed;
   const data = feed.data;
   const unread = data?.unread;
   const attentionShown = data?.items.filter((item) => item.source === "attention").length ?? 0;
@@ -125,7 +129,7 @@ function NotificationBell({ slug }: { slug: string }) {
           shownThrough.current = unread !== undefined && unread > 0 ? newest : undefined;
           return;
         }
-        if (shownThrough.current) markFeedback.run(shownThrough.current);
+        if (shownThrough.current && mayMark) markFeedback.run(shownThrough.current);
         shownThrough.current = undefined;
       }}
       emptyText="Nothing new. We will put anything that needs you here."

@@ -26535,6 +26535,18 @@
             "title": "Is Repeat Caller",
             "type": "boolean"
           },
+          "last_call_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call At"
+          },
           "last_call_business_outcome_label": {
             "anyOf": [
               {
@@ -64068,7 +64080,7 @@
         "tags": [
           "announcements"
         ],
-        "x-calevate-permission": "org:read"
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/attention": {
@@ -76361,7 +76373,7 @@
         "tags": [
           "notifications"
         ],
-        "x-calevate-permission": "leads:read"
+        "x-calevate-permission": "leads:write"
       }
     },
     "/v1/numbers/available": {

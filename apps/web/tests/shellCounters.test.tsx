@@ -83,7 +83,7 @@ async function renderClientShell(
 ): Promise<ApiCall[]> {
   const calls = stubApi({
     ...CLIENT_SHELL_ROUTES,
-    "/v1/me": { organization: { name: "Acme" }, role: "owner" },
+    "/v1/me": { organization: { name: "Acme" }, role: "owner", permissions: ["org:read", "org:manage", "leads:read", "leads:write"] },
     ...routes,
   });
   const client = new QueryClient({

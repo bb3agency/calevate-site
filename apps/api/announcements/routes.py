@@ -41,6 +41,10 @@ AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 Session = Annotated[AsyncSession, Depends(db)]
 Operator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
 Member = Annotated[Principal, Depends(requires("org:read", realm="client"))]
+#: Dismissing puts an announcement away for the whole account, an account setting, so it is
+#: gated like the other account-wide dismissals (go-live) on the mutating `org:manage`; a
+#: read permission would let a D-22 view-as session write here.
+Manager = Annotated[Principal, Depends(requires("org:manage", realm="client"))]
 
 
 def _audit_summary(row: AnnouncementAdminOut) -> dict[str, object]:
@@ -171,11 +175,11 @@ async def my_announcements(
     "/{announcement_id}/dismiss",
     status_code=204,
     response_class=Response,
-    openapi_extra=permission_meta("org:read"),
+    openapi_extra=permission_meta("org:manage"),
     summary="Put an announcement away for this account",
 )
 async def dismiss_announcement(
-    announcement_id: UUID, session: Session, principal: Member, request: Request
+    announcement_id: UUID, session: Session, principal: Manager, request: Request
 ) -> Response:
     assert principal.tenant_id is not None
     if principal.client_user_id is None:

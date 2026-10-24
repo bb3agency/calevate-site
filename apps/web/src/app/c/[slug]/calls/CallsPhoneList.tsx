@@ -39,7 +39,7 @@ export function CallsPhoneList({
             <SwipeActions label={target.name} primary={primary} secondary={secondary}>
               <Link
                 href={callHref(call.id)}
-                className="block min-w-0 px-1 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand"
+                className="block min-w-0 px-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand"
               >
                 <span className="flex min-w-0 items-center gap-2">
                   {isLive(call) && <LiveDot />}

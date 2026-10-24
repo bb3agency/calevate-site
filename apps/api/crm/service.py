@@ -830,7 +830,9 @@ _LEAD_COLUMNS = (
     " AND sc.tenant_id = l.tenant_id AND sc.status IN ('scheduled', 'dialing')) "
     "AS next_callback_at, "
     "(SELECT lc.business_outcome_label FROM calls lc WHERE lc.id = l.last_call_id) "
-    "AS last_call_business_outcome_label"
+    "AS last_call_business_outcome_label, "
+    "(SELECT COALESCE(lc.started_at, lc.created_at) FROM calls lc WHERE lc.id = l.last_call_id) "
+    "AS last_call_at"
 )
 _LEAD_OWNER_JOIN = (
     "LEFT JOIN memberships m ON m.user_id = l.assigned_to AND m.tenant_id = l.tenant_id "
@@ -1285,6 +1287,7 @@ def _lead_out(r: Any) -> LeadOut:
         next_step=r[18],
         next_callback_at=r[19],
         last_call_business_outcome_label=r[20],
+        last_call_at=r[21],
     )
 
 

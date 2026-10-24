@@ -14,7 +14,7 @@
  */
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import clsx from "clsx";
 
@@ -92,6 +92,20 @@ export function AnnouncementBar({
   label,
 }: AnnouncementBarProps) {
   const busy = dismissStatus === "pending";
+  // On a phone a long announcement would push the screen it sits above out of view, so it
+  // shows two lines and "More" opens the rest. Measured, so a short one gets no control.
+  const text = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  useLayoutEffect(() => {
+    const el = text.current;
+    if (!el || expanded) return undefined;
+    const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(el);
+    return () => observer?.disconnect();
+  }, [title, detail, expanded]);
   return (
     <div
       role={role}
@@ -101,10 +115,22 @@ export function AnnouncementBar({
     >
       <div className={clsx(SHELL_RAIL_CLASS, "flex items-center gap-3 py-1 text-sm")}>
         <span aria-hidden className={clsx("h-2 w-2 shrink-0 rounded-full", TONE_DOT[tone])} />
-        <p className="min-w-0 flex-1 break-words py-1">
-          <span className="font-semibold">{title}</span>
-          {detail ? <span className="hidden sm:inline"> {detail}</span> : null}
-        </p>
+        <div className="min-w-0 flex-1 py-1">
+          <p ref={text} className={clsx("break-words", !expanded && "max-sm:line-clamp-2")}>
+            <span className="font-semibold">{title}</span>
+            {detail ? <span className="hidden sm:inline"> {detail}</span> : null}
+          </p>
+          {clipped || expanded ? (
+            <button
+              type="button"
+              aria-expanded={expanded}
+              onClick={() => setExpanded((open) => !open)}
+              className={clsx(TEXT_ACTION, "touch:min-h-11 sm:hidden")}
+            >
+              {expanded ? "Less" : "More"}
+            </button>
+          ) : null}
+        </div>
         {action ? (
           <Link href={action.href} className={clsx(TEXT_ACTION, "max-w-[45%] shrink-0")}>
             {action.label}
