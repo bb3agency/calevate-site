@@ -755,15 +755,42 @@ async def test_a_draft_stores_a_valid_choice_and_refuses_an_invalid_one(
     assert tuple(row) == (voice, None)
 
 
-async def test_a_published_choice_can_be_cleared(attested: set[str]) -> None:
+async def test_a_choice_is_cleared_on_a_draft_and_refused_on_a_published_agent(
+    attested: set[str],
+) -> None:
     """`null` puts a vendor agent back on its default (snapshots/2026-10-08/pages/
-    api-reference/agents/update-agent.md:536-545, :951-961), so clearing is stored (D-690);
-    the next publish sends `null`, and refuses a cleared VOICE (`engine_voice_required`)."""
+    api-reference/agents/update-agent.md:536-545, :951-961), so clearing is stored (D-690)
+    on an agent the engine does not hold. A ready agent is republished by the edit itself
+    (D-876), and a publish refuses a cleared VOICE (`engine_voice_required`), so the edit is
+    refused whole and the voice stays."""
     tenant_id, agent_id = await _agent()
     await _set_columns(tenant_id, agent_id, "engine:anjali", None)
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agents SET engine_agent_ref = 'ag_x', status = 'paused' WHERE id = :a"),
+            {"a": agent_id},
+        )
+    with selected(HostingEngine()), pytest.raises(ProblemError) as caught:
+        async with tenant_session(tenant_id) as session:
+            await lifecycle.update_agent(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                engine_voice_id=None,
+                set_engine_voice_id=True,
+            )
+    assert caught.value.code == "engine_voice_required"
+    async with tenant_session(tenant_id) as session:
+        kept = (
+            await session.execute(
+                text("SELECT engine_voice_id FROM agents WHERE id = :a"), {"a": agent_id}
+            )
+        ).scalar_one()
+    assert kept == "engine:anjali"
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET engine_agent_ref = NULL, status = 'draft' WHERE id = :a"),
             {"a": agent_id},
         )
     with selected(HostingEngine()):
@@ -837,14 +864,11 @@ async def test_under_byok_the_picker_is_locked_with_a_reason(
     assert "ThinnestAI" not in out.choice_note
 
 
-async def test_under_byok_a_published_choice_may_be_cleared(attested: set[str], byok: None) -> None:
+async def test_under_byok_a_choice_may_be_cleared(attested: set[str], byok: None) -> None:
+    """Clearing is not a choice, so BYOK does not refuse it (on a draft: a published agent's
+    edit is also a publish, which has its own BYOK checks)."""
     tenant_id, agent_id = await _agent()
     await _set_columns(tenant_id, agent_id, "engine:anjali", None)
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET engine_agent_ref = 'ag_x', status = 'paused' WHERE id = :a"),
-            {"a": agent_id},
-        )
     with selected(HostingEngine()):
         async with tenant_session(tenant_id) as session:
             await lifecycle.update_agent(
@@ -854,6 +878,13 @@ async def test_under_byok_a_published_choice_may_be_cleared(attested: set[str], 
                 engine_voice_id=None,
                 set_engine_voice_id=True,
             )
+    async with tenant_session(tenant_id) as session:
+        held = (
+            await session.execute(
+                text("SELECT engine_voice_id FROM agents WHERE id = :a"), {"a": agent_id}
+            )
+        ).scalar_one()
+    assert held is None
 
 
 async def test_a_studio_voice_is_refused_while_our_voice_keys_synthesis_is_unpriced(
