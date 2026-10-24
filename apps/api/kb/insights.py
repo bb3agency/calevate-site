@@ -309,9 +309,9 @@ def render_digest(insights: AgentInsights, *, agent_name: str, limit: int = 5) -
         ]
         lines += [
             "",
-            "Adding a line of knowledge about these usually fixes them. Open Knowledge in "
-            "your Calevate dashboard and write what the agent should say — it goes live "
-            "after review, like any other knowledge you add.",
+            "Adding a fact about these usually fixes them. Open What your agents know in "
+            "your Calevate dashboard and write what the agent should say — it reaches your "
+            "agents in a minute or two, like anything else you write there.",
         ]
     if follow_up is not None:
         lines += [

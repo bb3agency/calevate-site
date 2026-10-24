@@ -107,12 +107,12 @@ async def test_staff_may_teach_only_when_the_owner_lets_them() -> None:
         )
 
 
-async def test_confirming_starts_the_sort_and_it_waits_in_the_teach_box() -> None:
+async def test_confirming_starts_the_sort_and_it_waits_in_the_add_area() -> None:
     tenant_id, slug, token = await _make_tenant()
     words = "Red chilli powder is 120 rupees for 250 g. Never promise same-day delivery."
     proposal = await _propose(tenant_id, token, "knowledge_teach", {"words": words, "gap_id": None})
     outcome = await _confirm(tenant_id, _user_of(token), proposal.token)
-    assert outcome.applied and "teach box" in outcome.detail
+    assert outcome.applied and "Add area on the What your agents know screen" in outcome.detail
     assert teaching.TEACH_JOB in await _outbox_jobs(tenant_id)
     assert any(action == "kb_teaching.start" for action, _, _ in await _audit(tenant_id))
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:

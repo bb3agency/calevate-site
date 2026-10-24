@@ -209,7 +209,7 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
     add(
         "knowledge",
         stock + gaps,
-        f"{_plural(i.knowledge_items, 'item', 'items')} of knowledge; "
+        f"{_plural(i.knowledge_items, 'thing', 'things')} added for your agents; "
         f"{_plural(i.open_gaps, 'open question', 'open questions')} to answer.",
         knowledge_fix,
     )

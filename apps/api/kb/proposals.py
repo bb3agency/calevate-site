@@ -161,7 +161,7 @@ def proposable_refusal(name: str, body: str) -> str | None:
         return (
             "it contains something shaped like a phone number, an email address or an "
             "identity number, and you may not write those into an agent's knowledge — "
-            "say that the person should add it themselves under Knowledge"
+            "say that the person should add it themselves on What your agents know"
         )
     return None
 

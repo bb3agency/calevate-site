@@ -2686,7 +2686,7 @@ async def _plan_knowledge_link(
         current=None,
         proposed=name or parts.hostname,
         cost=None,
-        reversal="You can remove it from the Knowledge base screen.",
+        reversal="You can remove it from the What your agents know screen.",
         args={"name": name, "url": url},
     )
 
@@ -2712,7 +2712,10 @@ async def _execute_knowledge_link(
     )
     return Executed(
         applied=True,
-        detail="The page is added; it is being read now and appears under Knowledge.",
+        detail=(
+            "The link is saved and appears on the What your agents know screen. Your agents "
+            "cannot read web pages yet, so they will not use it until that is added."
+        ),
         audit_summary={"upload_id": str(created["id"]), "source_id": str(created["source_id"])},
         object_id=str(created["source_id"]),
     )
@@ -2726,7 +2729,7 @@ KNOWLEDGE_LINK_ADD: Final = ActionTool(
     permission="kb:write",
     object_type="kb_source",
     audit_action="kb.link_added",
-    where="under Knowledge",
+    where="on the What your agents know screen",
     schema=action_schema(
         "knowledge_link_add",
         "Propose adding a web page the person names to the business's knowledge. Only a page "
@@ -2806,12 +2809,12 @@ KNOWLEDGE_REMOVE: Final = ActionTool(
     permission="kb:write",
     object_type="kb_source",
     audit_action="kb.removed",
-    where="under Knowledge",
+    where="on the What your agents know screen",
     schema=action_schema(
         "knowledge_remove",
         "Propose removing a document or web page from the business's knowledge. Take the "
-        "`upload_id` from `knowledge_sources`; typed facts are edited on the Knowledge "
-        "base screen." + PROPOSES_ONLY,
+        "`upload_id` from `knowledge_sources`; typed facts are edited on the What your "
+        "agents know screen." + PROPOSES_ONLY,
         {"upload_id": {"type": "string", "description": "From `knowledge_sources`."}},
     ),
     plan=_plan_knowledge_remove,

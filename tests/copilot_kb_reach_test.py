@@ -153,18 +153,18 @@ async def test_an_unapproved_upload_is_not_reachable_and_the_client_is_told_why(
     assert "waiting for approval" in answer or "NONE of them" in answer
 
 
-async def test_a_published_pdf_is_live_knowledge_the_copilot_cannot_read(
+async def test_a_published_pdf_is_said_to_reach_neither_the_copilot_nor_the_agents(
     s3: FakeS3,
 ) -> None:
-    """A PDF and a scraped link are LIVE knowledge the copilot cannot read.
+    """A published PDF has no text on our side, so neither the copilot nor the agents use it.
 
-    Not a bug in the tool and not one to fix by widening it: `kb_uploads.document_key`
-    points at the client's own bytes precisely so the reviewer's artefact and the agent's
-    are the same object, and the engine scrapes a link itself. Neither leaves `kb_documents`
-    a row, so neither tier of the retrieval port has anything to match.
+    Neither a PDF nor a link leaves `kb_documents` a row, so neither tier of the retrieval
+    port has anything to match, and the engine adapter sends a source as that text alone
+    (`engine/thinnest.attach_kb`), so the agents get nothing from it either (D-868).
 
-    What WOULD be a defect is the answer the client gets. `_NOTHING_PUBLISHED` tells them to
-    add it under Knowledge — about a price list they uploaded this morning.
+    The answer must say so and name the file: `_NOTHING_PUBLISHED` would tell the client to
+    add something they uploaded this morning, and "the agent can answer from it" would be
+    false.
     """
     tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
@@ -187,5 +187,5 @@ async def test_a_published_pdf_is_live_knowledge_the_copilot_cannot_read(
     assert "Tariff card" in answer, (
         "the tool did not name the published source whose text it cannot read"
     )
-    # …and it must not send the client to do work they have already done.
-    assert "already live" in answer
+    # …and it says the agents cannot use it either, rather than claiming they can.
+    assert "nor the agents can use them" in answer

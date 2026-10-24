@@ -201,10 +201,21 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
     ),
     Screen(
         route="/c/{slug}/knowledge",
-        name="Knowledge base",
+        name="What your agents know",
         group=None,
-        summary="What the agents know and are allowed to tell callers.",
-        aliases=("knowledge", "faq", "training", "documents", "what the agent knows"),
+        summary=(
+            "Everything the agents can tell callers: facts and answers, files and links, and "
+            "the questions they could not answer."
+        ),
+        aliases=(
+            "knowledge",
+            "knowledge base",
+            "faq",
+            "training",
+            "documents",
+            "what the agent knows",
+            "what my agents know",
+        ),
     ),
     Screen(
         route="/c/{slug}/phone-number",
