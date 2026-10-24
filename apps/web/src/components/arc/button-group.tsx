@@ -51,6 +51,11 @@ export type ButtonGroupProps = {
   phoneVisible?: number;
   /** Buttons shown before the menu from `sm`. */
   desktopVisible?: number;
+  /**
+   * False when the page's one filled action lives elsewhere (a call's "call back now" in
+   * its verdict): every button here is then secondary, so the page keeps one primary.
+   */
+  primaryFirst?: boolean;
   className?: string;
 };
 
@@ -102,6 +107,7 @@ export function ButtonGroup({
   moreLabel,
   phoneVisible = 1,
   desktopVisible = 3,
+  primaryFirst = true,
   className,
 }: ButtonGroupProps) {
   const phoneMenu = actions.slice(phoneVisible);
@@ -116,7 +122,7 @@ export function ButtonGroup({
             index >= desktopVisible && "sm:hidden",
           )}
         >
-          <GroupButton action={action} primary={index === 0} />
+          <GroupButton action={action} primary={primaryFirst && index === 0} />
         </div>
       ))}
       {phoneMenu.length > 0 ? (

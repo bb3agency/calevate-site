@@ -327,6 +327,7 @@ export function CallDetailScreen({
                 .filter((action) => action.id !== "call"),
             ]}
             phoneVisible={1}
+            primaryFirst={false}
             desktopVisible={3}
           />
         }

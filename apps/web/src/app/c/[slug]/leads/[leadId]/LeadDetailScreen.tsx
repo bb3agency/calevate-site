@@ -207,6 +207,17 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
     },
   });
 
+  const headerActions = lead.data
+    ? followUp.groupActions({
+        key: lead.data.id,
+        name: leadTitle(lead.data),
+        phone: lead.data.phone_e164,
+        leadId: lead.data.id,
+        leadStatus: lead.data.status,
+      })
+    : [];
+  const callHeld = headerActions.find((action) => action.id === "call" && action.disabled);
+
   return (
     <div className="max-w-4xl space-y-8 pb-12">
       <PageHeader back={{ href: href(`/c/${slug}/leads`), label: "Leads" }} />
@@ -246,13 +257,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
                 label={`Actions for ${leadTitle(lead.data)}`}
                 moreLabel={`More actions for ${leadTitle(lead.data)}`}
                 actions={[
-                  ...followUp.groupActions({
-                    key: lead.data.id,
-                    name: leadTitle(lead.data),
-                    phone: lead.data.phone_e164,
-                    leadId: lead.data.id,
-                    leadStatus: lead.data.status,
-                  }),
+                  ...headerActions,
                   ...(lead.data.last_call_id
                     ? [{ id: "last-call", label: "Open the last call", href: href(`/c/${slug}/calls/${lead.data.last_call_id}`) }]
                     : []),
@@ -260,6 +265,10 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
               />
             }
           />
+
+          {/* A held call says why on the page: a disabled button's title is out of reach on
+              a phone and to a keyboard. */}
+          {callHeld?.hint ? <p className="mt-2 text-meta text-ink-muted">{callHeld.hint}</p> : null}
 
           {(leadNextStep(lead.data) || lead.data.last_call_headline) && (
             <dl className="mt-4 max-w-2xl space-y-1 border-t border-line pt-4">

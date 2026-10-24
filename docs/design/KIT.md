@@ -376,7 +376,7 @@ Props: `label` (row name), `primary?: SwipeAction`, `secondary?: SwipeAction[]`,
 - Built on CSS scroll-snap (modern-web-guidance `swipe-to-reveal`), no JS gesture code: the browser owns momentum, vertical-scroll disambiguation and keyboard scrolling. A swipe only REVEALS; nothing commits on swipe (a call must be a deliberate press).
 - `confirm` routes through `ConfirmDialog`, which closes itself when that action's `status` becomes `success`.
 - Undo is the caller's: `useActionFeedback(m, { successToast, undo })`.
-- Disabled actions show their `hint` in the menu (e.g. WhatsApp without consent on record) rather than disappearing.
+- Disabled actions show their `hint` in the menu (e.g. WhatsApp without consent on record) rather than disappearing; a revealed swipe button that is disabled is dimmed and, when pressed, says its `hint` in an info toast (the menu is hidden on touch).
 - Wrap each `<li>` of a phone list; keep the row's own link inside `children`.
 
 ### `HoverCard` (`arc/hover-card`)
@@ -389,7 +389,7 @@ The site strip (D-771: white, hairline, tone dot, no tinted band). Props: `title
 
 ### `ButtonGroup`, `SplitButton` (`arc/button-group`)
 
-- `ButtonGroup` — a record's header actions in priority order; `phoneVisible` (default 1) and `desktopVisible` (default 3) shown as buttons, the rest in a ⋯ `Menu`. Props: `label`, `actions: { id, label, icon?, onSelect?, href?, status?, successLabel?, pendingLabel?, tone?: "danger", disabled?, hint? }[]`, `moreLabel`, `phoneVisible?`, `desktopVisible?`. First action is primary. Each button is an `ActionButton` carrying its own state.
+- `ButtonGroup` — a record's header actions in priority order; `phoneVisible` (default 1) and `desktopVisible` (default 3) shown as buttons, the rest in a ⋯ `Menu`. Props: `label`, `actions: { id, label, icon?, onSelect?, href?, status?, successLabel?, pendingLabel?, tone?: "danger", disabled?, hint? }[]`, `moreLabel`, `phoneVisible?`, `desktopVisible?`, `primaryFirst?` (default true). First action is primary, unless `primaryFirst={false}` because the page's one filled action lives elsewhere (a call's "call back now" in its verdict). Each button is an `ActionButton` carrying its own state.
 - `SplitButton` — one action and its variants behind a chevron. Props: `children`, `onClick`, `status?`, `pendingLabel?`, `successLabel?`, `disabled?`, `items: MenuItem[]`, `menuLabel`, `variant?: "primary" | "secondary"`.
 - Don't use a segmented/joined look for actions; that is for choosing a value (`SegmentedControl`).
 
