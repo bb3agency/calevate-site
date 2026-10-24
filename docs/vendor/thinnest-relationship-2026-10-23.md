@@ -146,7 +146,9 @@ raise.
 
 ## 6. Costs
 
-Rates are VENDOR-STATED (18 Oct email) and VENDOR-PUBLISHED (page). Our top-up fee is 2.36%
+Rates are VENDOR-STATED (18 Oct email) and VENDOR-PUBLISHED (page). ⚠ Band rates superseded by
+D-878: ThinnestAI's console read Studio ₹2.50, Premium ₹2.00 on 24 Oct 2026 (founder-relayed);
+the first two rows below are the 23 Oct figures, the two dated rows the current ones. Our top-up fee is 2.36%
 (D-754). Cartesia is ₹4.84 per 1,000 characters, operator-attested (rememory 12f1aa47). FX is
 ₹95 (D-768). Client prices: Clear ₹4.50, Studio ₹6.00 (D-728).
 
@@ -154,6 +156,8 @@ Rates are VENDOR-STATED (18 Oct email) and VENDOR-PUBLISHED (page). Our top-up f
 |---|---|---|---|
 | Clear, Studio band (`llm`) | ₹3.00 → ₹3.071 with fee | ₹2.85 → ₹2.917 | ₹0.154 |
 | Clear, Premium band | ₹2.50 → ₹2.559 | ₹2.375 → ₹2.431 | ₹0.128 |
+| Clear, Studio band, from 24 Oct (D-878) | ₹2.50 → ₹2.559 | not re-confirmed | — |
+| Clear, Premium band, from 24 Oct (D-878) | ₹2.00 → ₹2.0472 | not re-confirmed | — |
 | Studio (`llm_voice`) | ₹1.00 → ₹1.024 | no discount (own-key price) | ₹0 |
 
 - **Our model is extra on both rungs** (D-834). On one 20 Oct call our Gemini cost ₹0.76/min

@@ -67,7 +67,7 @@ DEFAULT_MODELS: Final = ("GPT-OSS 120B", "Prana [Voice]", "GPT-5 Mini", "GPT-4.1
 #: Between test messages: the vendor refuses messages faster than a person types
 #: (test-chat.md 429), and the test loop's worker waits the same.
 PAUSE_S: Final = 4.0
-_BAND: Final = {"none": "no surcharge: the voice's band", "premium": "Premium band ₹2.50/min"}
+_BAND: Final = {"none": "no surcharge: the voice's band", "premium": "Premium band"}
 
 
 @dataclass(slots=True)

@@ -14,9 +14,9 @@ release is rolled back by redeploying the previous image. D-687 and D-688 (8 Oct
 
 - **Clear** = ThinnestAI's speech-to-text and telephony, speaking the ThinnestAI voice band the
   console setting `thinnest_clear_voice_band` names: **Studio** (default, D-792; catalogue voices
-  with `tier: studio` plus voices our **admin** clones; ₹3.00/min, on our pay-as-you-go account with up to 25 clones, VENDOR-STATED 23 Oct 2026, replies §28;
+  with `tier: studio` plus voices our **admin** clones; ₹2.50/min, on our pay-as-you-go account with up to 25 clones, VENDOR-STATED 23 Oct 2026, replies §28;
   `thinnest-findings/mirror/snapshots/2026-10-07b/pages/channels/voice-clone.md:9-12,81-89`)
-  or **Premium** (pay-as-you-go, ₹2.50/min). VENDOR-STATED rates, operator-attested. The model is
+  or **Premium** (pay-as-you-go, ₹2.00/min). Rates VENDOR-PUBLISHED in ThinnestAI's console (Voice section, founder-relayed 24 Oct 2026, D-878), operator-attested. The model is
   our Gemini (D-834), agent `byok: "llm"`; while `thinnest_own_model` is off, ThinnestAI's own,
   agent `byok: "off"`.
 - **Studio** = Cartesia on OUR key with ThinnestAI's STT and telephony, and our Gemini (D-834):

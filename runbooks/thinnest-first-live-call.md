@@ -89,10 +89,11 @@ rule 7). Record each from your own invoice or plan page; each needs a step-up co
 - [ ] **Platform minute.** Needed before any voice is offered at all. The row says
       "Not sold on its own".
 - [ ] **The band sold as Clear** (`thinnest_clear_voice_band`, D-688, D-792): `studio`
-      (₹3.00 quoted, also our clones; the default, needs Pro) or `premium` (₹2.50 quoted) on
-      pay-as-you-go; VENDOR-STATED, gate T-14. Clients pay the Clear rate (₹4.50 on every
-      pack, D-728): with the 2.36% top-up fee (D-754) that leaves about 31.8% on Studio and
-      43.1% on Premium, before the Pro plan fee (`docs/THINNEST-INTEGRATION.md` §5).
+      (₹2.50 posted, also our clones; the default) or `premium` (₹2.00 posted) on
+      pay-as-you-go; ThinnestAI console, founder-relayed 24 Oct 2026 (D-878), gate T-14.
+      Clients pay the Clear rate (₹4.50 on every pack, D-728): with the 2.36% top-up fee
+      (D-754) that leaves about 43.1% on Studio and 54.5% on Premium
+      (`docs/THINNEST-INTEGRATION.md` §5).
 - [ ] **Voice-only BYOK** (`byok_voice`, the Studio rung, D-687): ₹1.50 quoted. Cartesia's
       own charge to our key is priced separately and is not recorded here.
 - [ ] Leave the other bands unrecorded. Only the band named by `thinnest_clear_voice_band` is
