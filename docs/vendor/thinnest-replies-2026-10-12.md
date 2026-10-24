@@ -1904,8 +1904,12 @@ outbound, Telugu, `voice.openingWaitsForCaller: true` (D-871), agent read back i
    voices and voices from your own voice account keep their own pace." Confirm a clone keeps
    the pace of its sample, so a re-recorded, conversational sample is the way to a faster
    clone, and say whether a speed control for clones is planned.
-3. **Studio voices.** The founder sees no Studio voices to choose from. §28 (23 Oct) switched
-   the Studio band on for our pay-as-you-go account; update-agent still says "A Studio voice
-   needs the Pro plan or above". Which is current, and why is the list empty?
+3. **A Cartesia clone missing from `GET /byok/voices`.** The founder cloned "Anusha" in our
+   own Cartesia account (Cartesia's My voices shows it beside "Akshita"). Our refresh at
+   24 Oct 2026 16:43 IST, in the developer workspace, listed 1,050 voices on our key with
+   "Akshita" marked `own` and no "Anusha", and a refresh after that still did not list it. Is
+   the list cached, and for how long; can it be re-read now; and does it list every voice
+   the key's Cartesia account owns? (Not a Studio-band question: our Voices page reads 305
+   ThinnestAI Studio voices.)
 
 Until answered: the founder switches "Wait for the caller to say hello" off for Anjali.
