@@ -150,9 +150,10 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
 #: call rule but the call frame from `CALL_INSTRUCTIONS` into the instructions, so a call
 #: reads each rule once; before it, D-849 left 6,137 + 1,112 = 7,249 (three languages) and
 #: 5,160 + 1,112 = 6,272 (one). D-856 cut both by 476 while adding the reaction, half-answer,
-#: offer and who-is-calling rules.
-PER_CALL_MAX = 6_751
-PER_CALL_ONE_LANGUAGE_MAX = 5_774
+#: offer and who-is-calling rules. D-883 (25 Oct 2026) trimmed restatements and added the
+#: ambiguous-amount read-back: 6,708 to 6,485 (three) and 5,768 to 5,610 (one).
+PER_CALL_MAX = 6_485
+PER_CALL_ONE_LANGUAGE_MAX = 5_610
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:

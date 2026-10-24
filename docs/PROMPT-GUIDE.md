@@ -73,7 +73,7 @@ rules, the date line and per-turn blocks such as a transfer instruction. Three t
   call rules (`docs/vendor/thinnest-speaking-rules-2026-10-18.md`) are read on calls only, never
   in the practice chat, and `voice.callInstructions` replaces them (D-850). So HOW TO SPEAK,
   BUSINESS FACTS and WHAT YOU CAN DO say every rule a call is judged by, and
-  `engine.CALL_INSTRUCTIONS` keeps only the call frame (149 characters; never blank, which
+  `engine.CALL_INSTRUCTIONS` keeps only the call frame (139 characters; never blank, which
   would restore the engine's 1,675). `tests/call_instructions_test.py` maps each default
   sentence to its place. Two are turned round on purpose: "never reply with only an
   acknowledgement and a question" became "react in a few words, then ask the next thing", and
@@ -119,7 +119,9 @@ After the script, in WHAT YOU CAN DO, where a script cannot override them:
 
 In HOW TO SPEAK:
 - Never write actions or notes (no brackets is ThinnestAI's rule, D-814).
-- Take a number a few digits at a time; a mobile number has ten digits, never fewer.
+- Take a number a few digits at a time; a mobile number has ten digits, never fewer. An
+  amount that could be a range or a decimal ("one two crores") is read back as the one meant
+  ("one to two crores?") before going on: on 24 Oct 2026 an echo saved 120 for 200 (D-883).
 - Amounts the English way, written in the call's own letters ("వన్ ట్వంటీ రూపీస్", "టూ
   క్రోర్స్"), never ₹ or digits (D-861; times are said as people say them).
 - Asked to repeat, say it shorter.
