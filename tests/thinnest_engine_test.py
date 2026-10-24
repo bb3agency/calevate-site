@@ -158,6 +158,8 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         "summariseCalls": True,
         "pastConversations": "fresh",
         "endCallOnFinish": True,
+        # The agent's own switch, stated at its default (D-871).
+        "openingWaitsForCaller": False,
         # Always stated: 0.25 s, Calevate's default (D-751).
         "turnSilenceSeconds": 0.25,
         # Silence ends the turn, stated rather than left to the platform's default.

@@ -49,6 +49,8 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         # The line is released when the agent ends the call (D-749), unless the client
         # switched it off (D-751).
         "end_call_on_finish",
+        # The opening waits for the person who picked up to speak (D-871).
+        "opening_waits_for_caller",
         # The silence that ends the caller's turn (D-751), and the turn mode that makes it so.
         "turn_silence",
         # Whether a reply may start before the caller has finished (D-852).

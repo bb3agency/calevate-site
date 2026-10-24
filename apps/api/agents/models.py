@@ -515,6 +515,12 @@ class Agent(PKMixin, TimestampMixin, Base):
     # (D-751). NULL inherits the account's default, then Calevate's.
     turn_silence_ms: Mapped[int | None] = mapped_column(Integer)
     end_call_on_finish: Mapped[bool | None] = mapped_column(Boolean)
+    # The opening waits for the person who picked up to speak (D-871). The agent's own,
+    # with no account default: set by direction at creation
+    # (`call_handling.opening_waits_default`).
+    opening_waits_for_caller: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
     # The client's voice settings (F3, F9): the silence prompt, hanging up after silence,
     # filler lines and the background sound. NULL inherits the account's, then Calevate's.
     nudge_after_seconds: Mapped[int | None] = mapped_column(Integer)

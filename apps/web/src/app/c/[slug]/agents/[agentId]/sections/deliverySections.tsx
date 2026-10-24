@@ -88,6 +88,11 @@ export function CallHandlingSection({ agent }: { agent: Agent }) {
           ? `${handling.data.end_call_on_finish_effective ? "yes" : "no, the call stays connected and charged until the caller hangs up"}, ${sourceLabel(handling.data.end_call_on_finish_source).toLowerCase()}`
           : unread,
       },
+      {
+        key: "waits_for_hello",
+        label: "Waits for the person who picks up to say hello before speaking",
+        value: handling.data ? (handling.data.opening_waits_for_caller ? "yes" : "no") : unread,
+      },
     ],
     apply: noFill,
   });

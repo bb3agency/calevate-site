@@ -1688,7 +1688,9 @@ export interface paths {
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
-         *     Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
+         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or four seconds of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls.
+         *
+         *     Each other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
          *
          *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.
          */
@@ -1704,7 +1706,9 @@ export interface paths {
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
-         *     Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
+         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or four seconds of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls.
+         *
+         *     Each other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
          *
          *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.
          */
@@ -3508,7 +3512,9 @@ export interface paths {
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
-         *     Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
+         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or four seconds of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls.
+         *
+         *     Each other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
          *
          *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.
          */
@@ -3524,7 +3530,9 @@ export interface paths {
          *
          *     If the caller goes quiet: `nudge_after_seconds` (5-180, or 0 for never) is when the agent asks whether they are still there, `nudge_count` (1-5) how many times, `nudge_phrase` (up to 120 characters, "" for the standard question in the caller's language) what it says, and `end_after_silence_seconds` (5-180) when it hangs up. `filler_lines` (up to 8 of 60 characters, [] for the standard ones) are said while the agent looks something up. `ambience` is a background sound (`off`, `office`, `office-quiet`) at `ambience_volume_pct` (5-100).
          *
-         *     Each resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
+         *     `opening_waits_for_caller` holds the agent's first words until the person who picked up speaks, or four seconds of silence; it is the agent's own (true or false, never inherited), on by default for an agent that only places calls.
+         *
+         *     Each other setting resolves agent, then the account default, then Calevate's (250 ms, hang-up on, ask once after 8 s, hang up after 20 s, standard lines, no sound); `*_source` names the level in force.
          *
          *     A change reaches a live agent straight after the save and applies from its next call; a call in progress finishes as it started. Out-of-range values are refused with `turn_silence_out_of_range` or `call_setting_out_of_range`.
          */
@@ -12453,7 +12461,8 @@ export interface components {
         };
         /**
          * AgentCallHandlingIn
-         * @description Any of the settings. A field left out is untouched; `null` goes back to inheriting.
+         * @description Any of the settings. A field left out is untouched; `null` goes back to inheriting,
+         *     except `opening_waits_for_caller`, which inherits nothing and takes only true or false.
          */
         AgentCallHandlingIn: {
             /** Ambience */
@@ -12472,6 +12481,8 @@ export interface components {
             nudge_count?: number | null;
             /** Nudge Phrase */
             nudge_phrase?: string | null;
+            /** Opening Waits For Caller */
+            opening_waits_for_caller?: boolean | null;
             /** Turn Silence Ms */
             turn_silence_ms?: number | null;
         };
@@ -12562,6 +12573,8 @@ export interface components {
              * @enum {string}
              */
             nudge_phrase_source: "agent" | "organization" | "platform";
+            /** Opening Waits For Caller */
+            opening_waits_for_caller: boolean;
             /** Organization Ambience */
             organization_ambience: ("off" | "office" | "office-quiet") | null;
             /** Organization Ambience Volume Pct */

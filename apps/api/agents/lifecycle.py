@@ -69,6 +69,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.call_handling import opening_waits_default
 from apps.api.agents.engine_choice import (
     refuse_choice_under_byok,
     require_engine_choice,
@@ -359,9 +360,10 @@ async def create_agent(
             "disclosure_line, ai_disclosure_line, recording_notice_line, "
             "caller_memory_notice_line, "
             "ai_disclosure_enabled, recording_notice_enabled, max_call_duration_s, "
+            "opening_waits_for_caller, "
             "status, engine, created_at, updated_at) VALUES (:id, :tid, :name, :dir, :lang, "
-            ":extra, :bundle, :ai_line, :rec_line, :mem_line, false, false, :cap, 'draft', "
-            ":engine, now(), now())"
+            ":extra, :bundle, :ai_line, :rec_line, :mem_line, false, false, :cap, :waits, "
+            "'draft', :engine, now(), now())"
         ),
         {
             "id": agent_id,
@@ -387,6 +389,8 @@ async def create_agent(
             "rec_line": recording_line,
             "mem_line": memory_line,
             "cap": max_call_duration_s,
+            # By direction (D-871); the owner changes it on the agent's Settings.
+            "waits": opening_waits_default(direction),
             "engine": get_settings().engine,
         },
     )

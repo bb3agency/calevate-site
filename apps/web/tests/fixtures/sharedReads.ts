@@ -198,6 +198,7 @@ export function agentCallHandling(agentId = "agent-1") {
     end_call_on_finish_source: "platform",
     organization_turn_silence_ms: null,
     organization_end_call_on_finish: null,
+    opening_waits_for_caller: false,
     ...VOICE_OWN_NONE,
     ...VOICE_EFFECTIVE_DEFAULTS,
     ...VOICE_SOURCES_PLATFORM,

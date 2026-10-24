@@ -7,7 +7,7 @@
  */
 
 import { useActionFeedback } from "@/components/arc/feedback";
-import { HangUpRow, PauseRow } from "@/components/callHandlingRows";
+import { HangUpRow, OpeningWaitsRow, PauseRow } from "@/components/callHandlingRows";
 import { AgentVoiceRows } from "@/components/callHandlingVoiceRows";
 import { SettingRows } from "@/components/console/settingRow";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
@@ -74,6 +74,13 @@ export function CallHandlingPanel({
           status={save.variables?.end_call_on_finish !== undefined ? feedback.status : "idle"}
           error={save.variables?.end_call_on_finish !== undefined ? save.error : null}
           onSave={(next, done) => save.mutate({ end_call_on_finish: next }, { onSuccess: done })}
+        />
+        <OpeningWaitsRow
+          on={data.opening_waits_for_caller}
+          canChange={write.allowed}
+          status={save.variables?.opening_waits_for_caller !== undefined ? feedback.status : "idle"}
+          error={save.variables?.opening_waits_for_caller !== undefined ? save.error : null}
+          onSave={(next, done) => save.mutate({ opening_waits_for_caller: next }, { onSuccess: done })}
         />
         <AgentVoiceRows
           idPrefix={`admin-${agentId}`}

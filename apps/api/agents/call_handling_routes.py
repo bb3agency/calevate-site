@@ -172,6 +172,9 @@ class AgentCallHandlingOut(BaseModel):
     ambience_volume_pct: int | None
     ambience_volume_pct_effective: int
     ambience_volume_pct_source: SettingSource
+    #: The opening waits for the person who picked up to speak (D-871). The agent's own,
+    #: never inherited.
+    opening_waits_for_caller: bool
     #: The account defaults an agent with no value of its own follows (`null`: Calevate's).
     organization_turn_silence_ms: int | None
     organization_end_call_on_finish: bool | None
@@ -186,10 +189,13 @@ class AgentCallHandlingOut(BaseModel):
 
 
 class AgentCallHandlingIn(BaseModel):
-    """Any of the settings. A field left out is untouched; `null` goes back to inheriting."""
+    """Any of the settings. A field left out is untouched; `null` goes back to inheriting,
+    except `opening_waits_for_caller`, which inherits nothing and takes only true or false."""
 
     model_config = ConfigDict(extra="forbid")
 
+    # Optional in the schema like its siblings; the writer refuses an explicit null.
+    opening_waits_for_caller: bool | None = Field(default=None)
     turn_silence_ms: int | None = Field(default=None)
     end_call_on_finish: bool | None = Field(default=None)
     nudge_after_seconds: int | None = Field(default=None)
@@ -305,6 +311,7 @@ def _agent_out(state: AgentCallHandling) -> AgentCallHandlingOut:
                 for field in call_handling.SETTING_FIELDS
                 if field not in ("turn_silence_ms", "end_call_on_finish")
             },
+            "opening_waits_for_caller": state.opening_waits_for_caller,
             **_own(state.organization, "organization_"),
             "bounds": _bounds(),
         }
@@ -320,7 +327,7 @@ def _org_out(state: OrganizationCallHandling) -> OrganizationCallHandlingOut:
 def _changes(payload: BaseModel) -> dict[str, object]:
     return {
         f: getattr(payload, f)
-        for f in call_handling.SETTING_FIELDS
+        for f in (*call_handling.SETTING_FIELDS, *call_handling.AGENT_ONLY_FIELDS)
         if f in payload.model_fields_set
     }
 
@@ -367,7 +374,10 @@ _AGENT_DESCRIPTION = (
     "ones) are said while the agent looks something up. `ambience` is a background sound "
     f"(`off`, `office`, `office-quiet`) at `ambience_volume_pct` "
     f"({AMBIENCE_VOLUME_MIN_PCT}-{AMBIENCE_VOLUME_MAX_PCT}).\n\n"
-    "Each resolves agent, then the account default, then Calevate's "
+    "`opening_waits_for_caller` holds the agent's first words until the person who picked "
+    "up speaks, or four seconds of silence; it is the agent's own (true or false, never "
+    "inherited), on by default for an agent that only places calls.\n\n"
+    "Each other setting resolves agent, then the account default, then Calevate's "
     f"({TURN_SILENCE_DEFAULT_MS} ms, hang-up on, ask once after {NUDGE_AFTER_DEFAULT_S} s, "
     f"hang up after {END_AFTER_SILENCE_DEFAULT_S} s, standard lines, no sound); `*_source` "
     "names the level in force.\n\n"

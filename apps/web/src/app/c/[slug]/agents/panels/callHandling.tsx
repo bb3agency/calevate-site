@@ -2,7 +2,7 @@
 
 /**
  * One agent's call settings in Call handling: the pause before replying and the hang-up
- * (D-751), and what it does when the caller goes quiet, its lines while it looks something up
+ * (D-751), whether its first words wait for the person's hello (D-871), and what it does when the caller goes quiet, its lines while it looks something up
  * and a background sound (F3, F9).
  *
  * The owner changes them (`org:manage`: switching the hang-up off is a decision about the
@@ -11,7 +11,7 @@
  */
 
 import { useActionFeedback } from "@/components/arc/feedback";
-import { HangUpRow, PauseRow } from "@/components/callHandlingRows";
+import { HangUpRow, OpeningWaitsRow, PauseRow } from "@/components/callHandlingRows";
 import { AgentVoiceRows } from "@/components/callHandlingVoiceRows";
 import { SettingRows } from "@/components/console/settingRow";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
@@ -70,6 +70,13 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
           status={save.variables?.end_call_on_finish !== undefined ? feedback.status : "idle"}
           error={save.variables?.end_call_on_finish !== undefined ? save.error : null}
           onSave={(next, done) => save.mutate({ end_call_on_finish: next }, { onSuccess: done })}
+        />
+        <OpeningWaitsRow
+          on={data.opening_waits_for_caller}
+          canChange={write.allowed}
+          status={save.variables?.opening_waits_for_caller !== undefined ? feedback.status : "idle"}
+          error={save.variables?.opening_waits_for_caller !== undefined ? save.error : null}
+          onSave={(next, done) => save.mutate({ opening_waits_for_caller: next }, { onSuccess: done })}
         />
         <AgentVoiceRows
           idPrefix={`agent-${agentId}`}

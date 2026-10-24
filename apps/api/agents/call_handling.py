@@ -87,6 +87,19 @@ AMBIENCE_VOLUME_DEFAULT_PCT: Final = 15
 
 SettingSource = Literal["agent", "organization", "platform"]
 
+#: The agent's own settings with no account default and no inheritance: always a value,
+#: written beside `SETTING_FIELDS` by the same writer. `opening_waits_for_caller` holds the
+#: opening until the person who picked up speaks (D-871).
+AGENT_ONLY_FIELDS: Final[tuple[str, ...]] = ("opening_waits_for_caller",)
+
+
+def opening_waits_default(direction: str) -> bool:
+    """A new agent's `opening_waits_for_caller` (D-871): on for an agent that only places
+    calls, because the person who picks up speaks first and an opening played over their
+    "Hello" is greeted twice; off for one that answers calls, because a caller ringing a
+    business expects it to speak first and four seconds of silence reads as a dead line."""
+    return direction == "outbound"
+
 
 @dataclass(frozen=True, slots=True)
 class CallSettings:
@@ -336,6 +349,8 @@ class AgentCallHandling:
     #: The account's values; None follows Calevate's.
     organization: CallSettings
     resolved: ResolvedSettings
+    #: The agent's own, never inherited (`AGENT_ONLY_FIELDS`).
+    opening_waits_for_caller: bool = False
 
     @property
     def turn_silence_ms(self) -> int | None:
@@ -389,7 +404,9 @@ class OrganizationCallHandling:
 AGENT_SETTING_COLUMNS: Final = ", ".join(f"a.{f}" for f in SETTING_FIELDS)
 ORG_SETTING_COLUMNS: Final = ", ".join(f"o.{f}" for f in ORG_SETTING_FIELDS)
 _AGENT_ROW: Final = (
-    f"SELECT {AGENT_SETTING_COLUMNS}, {ORG_SETTING_COLUMNS} "
+    f"SELECT {AGENT_SETTING_COLUMNS}, {ORG_SETTING_COLUMNS}, "
+    + ", ".join(f"a.{f}" for f in AGENT_ONLY_FIELDS)
+    + " "
     "FROM agents a LEFT JOIN organizations o ON o.id = a.tenant_id "
     "WHERE a.id = :aid AND a.deleted_at IS NULL"
 )
@@ -399,12 +416,12 @@ _ORG_ROW: Final = (
 _ORG_ROW_FOR_UPDATE: Final = _ORG_ROW + " FOR UPDATE"
 _AGENT_FOR_UPDATE: Final = (
     "SELECT "
-    + ", ".join(SETTING_FIELDS)
+    + ", ".join((*SETTING_FIELDS, *AGENT_ONLY_FIELDS))
     + ", status, engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
 )
 _UPDATE_AGENT: Final = (
     "UPDATE agents SET "
-    + ", ".join(f"{f} = :{f}" for f in SETTING_FIELDS)
+    + ", ".join(f"{f} = :{f}" for f in (*SETTING_FIELDS, *AGENT_ONLY_FIELDS))
     + ", updated_at = now() WHERE id = :aid"
 )
 _UPDATE_ORG: Final = (
@@ -477,6 +494,7 @@ def _agent_state(agent_id: UUID, row: Sequence[object]) -> AgentCallHandling:
         own=own,
         organization=organization,
         resolved=resolve_settings(own, organization),
+        opening_waits_for_caller=bool(row[2 * width]),
     )
 
 
@@ -517,21 +535,40 @@ async def set_agent_call_handling(
     The row is locked first so "did this change?" and the write are one step, and a repeat
     of the value already held writes nothing and queues nothing. Answers the new state and the
     fields that moved."""
-    unknown = set(changes) - set(SETTING_FIELDS)
+    unknown = set(changes) - set(SETTING_FIELDS) - set(AGENT_ONLY_FIELDS)
     if unknown:
         raise ValueError(f"not a call handling field: {sorted(unknown)}")
-    cleaned = _clean(changes)
+    own_only = {f: changes[f] for f in AGENT_ONLY_FIELDS if f in changes}
+    for field, value in own_only.items():
+        if not isinstance(value, bool):
+            # Never inherited, so null cannot mean "follow the default" as it does above.
+            raise _refuse(
+                field,
+                "This setting is on or off",
+                "This setting belongs to the agent alone and has no default to follow.",
+                "Send true or false.",
+            )
+    cleaned = _clean({f: v for f, v in changes.items() if f in SETTING_FIELDS})
     refuse_invalid_settings(settings_of(cleaned))
     row = (await session.execute(text(_AGENT_FOR_UPDATE), {"aid": agent_id})).first()
     if row is None:
         raise ProblemError.not_found("Agent")
     width = len(SETTING_FIELDS)
     current = settings_from_row(tuple(row)[:width])
-    moved = tuple(f for f in SETTING_FIELDS if f in cleaned and cleaned[f] != getattr(current, f))
+    held_own = {f: bool(row[width + i]) for i, f in enumerate(AGENT_ONLY_FIELDS)}
+    moved = tuple(
+        f for f in SETTING_FIELDS if f in cleaned and cleaned[f] != getattr(current, f)
+    ) + tuple(f for f in AGENT_ONLY_FIELDS if f in own_only and own_only[f] != held_own[f])
     if moved:
-        wanted = settings_of({**as_mapping(current), **{f: cleaned[f] for f in moved}})
-        await session.execute(text(_UPDATE_AGENT), {**_binds(wanted), "aid": agent_id})
-        status, ref = row[width], row[width + 1]
+        wanted = settings_of(
+            {**as_mapping(current), **{f: cleaned[f] for f in moved if f in cleaned}}
+        )
+        await session.execute(
+            text(_UPDATE_AGENT),
+            {**_binds(wanted), **held_own, **own_only, "aid": agent_id},
+        )
+        extra = len(AGENT_ONLY_FIELDS)
+        status, ref = row[width + extra], row[width + extra + 1]
         if str(status) == "live" and ref:
             await queue_live_apply(
                 session,
@@ -603,6 +640,7 @@ async def set_organization_call_handling(
 
 __all__ = [
     "AGENT_FIELDS",
+    "AGENT_ONLY_FIELDS",
     "AGENT_SETTING_COLUMNS",
     "AMBIENCE_DEFAULT",
     "AMBIENCE_VOLUME_DEFAULT_PCT",
@@ -626,6 +664,7 @@ __all__ = [
     "TurnSilence",
     "as_mapping",
     "normalise_filler_lines",
+    "opening_waits_default",
     "read_agent_call_handling",
     "read_organization_call_handling",
     "refuse_invalid_settings",

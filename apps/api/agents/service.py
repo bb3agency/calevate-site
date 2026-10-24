@@ -517,6 +517,8 @@ class AgentRow(TypedDict):
     max_reply_tokens: NotRequired[int | None]
     #: The business the agent speaks for (`organizations.name`), for the role sentence.
     business_name: NotRequired[str | None]
+    #: The opening waits for the person who picked up to speak (D-871).
+    opening_waits_for_caller: NotRequired[bool]
 
 
 def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
@@ -619,7 +621,9 @@ async def _load_agent(
                 # The reply ceiling an operator set (`agents/reply_length`).
                 "a.max_reply_tokens, "
                 # The business the prompt's role sentence names (`role_sentence`).
-                "o.name "
+                "o.name, "
+                # Whether the opening waits for the person's first words (D-871).
+                "a.opening_waits_for_caller "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -703,6 +707,7 @@ async def _load_agent(
         "voice_tuning": tuple(row[48:53]),
         "max_reply_tokens": row[53],
         "business_name": row[54],
+        "opening_waits_for_caller": bool(row[55]),
         # A restricted free trial never places a call back (D-697), so its agents must not
         # offer one (founder decision 1, 10 Oct 2026).
         "callbacks_offered": await restricting_trial(session, tenant_id=tenant_id) is None,
@@ -881,6 +886,7 @@ def _to_config(
         # Our call rules in place of the engine's default call rules (D-850).
         engine_call_instructions=engine.name == "thinnest" and settings.thinnest_call_instructions,
         detect_machines=bool(agent.get("detect_machines", False)),
+        opening_waits_for_caller=bool(agent.get("opening_waits_for_caller", False)),
         **_call_settings_fields(
             agent,
             languages=(

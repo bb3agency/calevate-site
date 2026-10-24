@@ -3730,6 +3730,10 @@ class AgentConfig(BaseModel):
     #: settings reads them; excluded from every dump for `detect_machines`' reason.
     turn_silence_ms: int = Field(default=250, exclude=True)
     end_call_on_finish: bool = Field(default=True, exclude=True)
+    #: Hold the opening until the person who picked up speaks, or four seconds of silence
+    #: (D-871): the agent's own switch, `agents.opening_waits_for_caller`. Only an engine with
+    #: the setting reads it; excluded from every dump for `detect_machines`' reason.
+    opening_waits_for_caller: bool = Field(default=False, exclude=True)
     #: How the engine decides the caller has finished, and whether it says a short "haan ji"
     #: while they explain (D-849): the console's `thinnest_turn_detection` and
     #: `thinnest_acknowledgements`. Excluded from every dump for `detect_machines`' reason.

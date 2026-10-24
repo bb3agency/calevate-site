@@ -12,6 +12,9 @@
  * value it resolves to. Ticked, it saves `null`, so the value follows the level above rather
  * than freezing a copy of it. The server resolves every value; nothing here works out what
  * is in force.
+ *
+ * `OpeningWaitsRow` (D-871) is an agent's own switch with no default to follow, shown only
+ * on an agent's Call handling.
  */
 
 import { useState, type ReactNode } from "react";
@@ -357,6 +360,101 @@ export function HangUpRow({
               onCancel={close}
               note={CALL_HANDLING_NEXT_CALL}
             />
+          )}
+          {!changed && !saving && (
+            <button type="button" onClick={close} className={TEXT_ACTION}>
+              Close
+            </button>
+          )}
+        </form>
+      )}
+    </div>
+  );
+}
+
+/** The row's one plain line (D-871). */
+export const OPENING_WAITS_LINE =
+  "Your agent speaks right after the person who picks up says hello, or after four seconds " +
+  "if they stay silent.";
+
+const OPENING_WAITS_INFO =
+  "On, the agent lets the person who picks up speak first, so it does not talk over their " +
+  "hello or greet them twice. This suits an agent that calls people. Off, the agent speaks " +
+  "the moment the call connects, which suits people calling your business.";
+
+/**
+ * Whether the agent's first words wait for the person's hello (D-871). The agent's own
+ * setting with no organisation default, so unlike the rows above there is no "use the
+ * default" choice: the editor is the switch alone.
+ */
+export function OpeningWaitsRow({
+  on,
+  canChange,
+  status,
+  error,
+  onSave,
+}: {
+  on: boolean;
+  canChange: boolean;
+  /** This row's save, from the caller's `useActionFeedback`. */
+  status: FeedbackStatus;
+  error: Error | null;
+  onSave: (next: boolean, done: () => void) => void;
+}) {
+  const saving = status === "pending";
+  const [editing, setEditing] = useState(false);
+  const [next, setNext] = useState(on);
+  const changed = editing && next !== on;
+  useUnsavedGuard(changed);
+
+  // From the saved value each time it opens, so a save made since is what it starts on.
+  const close = () => {
+    setEditing(false);
+    setNext(on);
+  };
+
+  return (
+    <div>
+      <SettingRow
+        label="Wait for them to say hello"
+        hint={OPENING_WAITS_LINE}
+        info={<p>{OPENING_WAITS_INFO}</p>}
+        value={on ? "On" : "Off"}
+        action={
+          editing || !canChange ? undefined : (
+            <button
+              type="button"
+              onClick={() => {
+                setNext(on);
+                setEditing(true);
+              }}
+              className={TEXT_ACTION}
+            >
+              Change
+            </button>
+          )
+        }
+      />
+      {error && <ProblemNotice error={error} />}
+      {editing && (
+        <form
+          className="settings-enter space-y-3 pb-4"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSave(next, () => setEditing(false));
+          }}
+        >
+          <div className={CALL_HANDLING_EDITOR}>
+            <ToggleSwitch
+              label="Wait for them to say hello"
+              hint={next ? OPENING_WAITS_LINE : "Your agent speaks as soon as the call connects."}
+              checked={next}
+              onChange={setNext}
+            />
+          </div>
+          {(changed || saving) && (
+            <SaveBar label="Save" status={status} onCancel={close} note={CALL_HANDLING_NEXT_CALL} />
           )}
           {!changed && !saving && (
             <button type="button" onClick={close} className={TEXT_ACTION}>

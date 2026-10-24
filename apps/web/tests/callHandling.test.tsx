@@ -75,6 +75,7 @@ function agent(over: Partial<AgentCallHandling> = {}): AgentCallHandling {
     end_call_on_finish_source: "platform",
     organization_turn_silence_ms: 500,
     organization_end_call_on_finish: null,
+    opening_waits_for_caller: false,
     ...VOICE_OWN_NONE,
     ...VOICE_EFFECTIVE_DEFAULTS,
     ...VOICE_SOURCES_PLATFORM,
@@ -269,6 +270,47 @@ describe("one agent's call handling", () => {
     });
     await screen.findByText(/Finished calls stay connected, and charged/);
   });
+
+  it("switches waiting for the person's hello on, with its one plain line", async () => {
+    const { calls, container } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
+      "/v1/me": OWNER,
+      [AGENT_PATH]: agent(),
+      [`PATCH ${AGENT_PATH}`]: agent({ opening_waits_for_caller: true }),
+    });
+    await screen.findByText("Wait for them to say hello");
+    expect(
+      screen.getByText(
+        "Your agent speaks right after the person who picks up says hello, or after four seconds if they stay silent.",
+      ),
+    ).toBeTruthy();
+    const changes = screen.getAllByRole("button", { name: "Change" });
+    await act(async () => {
+      fireEvent.click(changes[2]);
+    });
+    // The agent's own setting: no default to follow, so no "Use the … default" box.
+    expect(screen.queryByRole("checkbox", { name: /^Use the/ })).toBeNull();
+    const waits = screen.getByRole("switch", { name: /^Wait for them to say hello/ });
+    expect((waits as HTMLInputElement).checked).toBe(false);
+    await act(async () => {
+      fireEvent.click(waits);
+    });
+    await press("Save");
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).toEqual({
+      opening_waits_for_caller: true,
+    });
+    await waitFor(() => expect(screen.queryByRole("switch", { name: /^Wait for them/ })).toBeNull());
+    expect(container.textContent).not.toMatch(/thinnest|cartesia|sarvam/i);
+  });
+
+  it("offers no change to the switch to someone who cannot make it", async () => {
+    await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
+      "/v1/me": STAFF,
+      [AGENT_PATH]: agent({ opening_waits_for_caller: true }),
+    });
+    await screen.findByText("Wait for them to say hello");
+    expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
+  });
 });
 
 /**
@@ -321,7 +363,7 @@ describe("the voice settings", () => {
     await screen.findByText("Asks after 8 s, once · hangs up after 20 s of silence");
     const changes = screen.getAllByRole("button", { name: "Change" });
     await act(async () => {
-      fireEvent.click(changes[2]);
+      fireEvent.click(changes[3]);
     });
     // Nothing is offered as a bare number box; the rule for an empty box is gone with it.
     expect(screen.queryByRole("spinbutton")).toBeNull();
@@ -378,7 +420,7 @@ describe("the voice settings", () => {
     await screen.findByText("The standard lines");
     const changes = screen.getAllByRole("button", { name: "Change" });
     await act(async () => {
-      fireEvent.click(changes[3]);
+      fireEvent.click(changes[4]);
     });
     await toggle("Use the Calevate default: the standard lines");
     await pick("Our own lines");
@@ -414,7 +456,7 @@ describe("the voice settings", () => {
     await screen.findByText("Background sound");
     const changes = screen.getAllByRole("button", { name: "Change" });
     await act(async () => {
-      fireEvent.click(changes[4]);
+      fireEvent.click(changes[5]);
     });
     const followDefault = screen.getByRole("checkbox", { name: "Use the Calevate default: Off" });
     expect((followDefault as HTMLInputElement).checked).toBe(true);

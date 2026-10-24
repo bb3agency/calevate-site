@@ -1302,6 +1302,7 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "caller_memory": ("voice.pastConversations",),
     "machine_detection": ("voice.detectMachines",),
     "end_call_on_finish": ("voice.endCallOnFinish",),
+    "opening_waits_for_caller": ("voice.openingWaitsForCaller",),
     "turn_silence": ("voice.turnSilenceSeconds", "voice.turnDetection", "voice.acknowledgements"),
     "early_answers": ("voice.earlyAnswers",),
     "do_not_call_tool": ("voice.recordDoNotCall",),
@@ -1994,6 +1995,12 @@ class ThinnestEngine:
             # `voice.endCallOnFinish`, read 11 Oct 2026). The client's setting, on unless
             # they switch it off (D-749, D-751). When to end is the prompt's rule.
             "endCallOnFinish": cfg.end_call_on_finish,
+            # Hold the opening until the person who picked up speaks, or four seconds of
+            # silence, so their "Hello" is not answered a second time (D-871; boolean,
+            # default false, phone calls on a voice agent; docs.thinnest.ai api-reference/
+            # agents/update-agent, read 24 Oct 2026). Always stated, so a console change
+            # reads as drift.
+            "openingWaitsForCaller": cfg.opening_waits_for_caller,
             # Seconds of quiet that end the caller's turn, a number 0.2 to 3 that reads back
             # null until set, "0.25 s on most lines" (same pages, read 11 Oct 2026). Always
             # stated, so a console reset to null reads as drift. Whole milliseconds on our

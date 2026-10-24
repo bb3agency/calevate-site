@@ -211,6 +211,7 @@ const AGENT_CALL_HANDLING = {
   end_call_on_finish_source: "agent",
   organization_turn_silence_ms: 500,
   organization_end_call_on_finish: null,
+  opening_waits_for_caller: true,
   ...VOICE_OWN_NONE,
   ...VOICE_EFFECTIVE_DEFAULTS,
   ...VOICE_SOURCES_PLATFORM,
