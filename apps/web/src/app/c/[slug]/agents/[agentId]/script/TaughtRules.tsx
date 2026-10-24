@@ -61,10 +61,10 @@ export function TaughtRules({
   return (
     <section aria-labelledby="taught-heading" className="rounded-card border border-line px-4 py-3">
       <h3 id="taught-heading" className="text-sm font-semibold text-ink">
-        Taught in Knowledge
+        Rules you taught
       </h3>
       <p className="mt-1 text-meta text-ink-muted">
-        Rules you taught for this agent. Choose where each one goes in the script.
+        Rules you taught this agent on What your agents know. Choose where each one goes in the script.
       </p>
       <ul className="mt-2 divide-y divide-line">
         {waiting.map((rule) => {

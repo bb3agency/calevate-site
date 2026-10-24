@@ -102,7 +102,7 @@ async def _plan_teach(session: AsyncSession, actor: ToolActor, args: Mapping[str
         title="Teach your agents",
         summary=(
             f"{ASSISTANT_NAME} sorts these words into facts every agent gets and rules for "
-            "one agent. They wait in the teach box on the Knowledge base screen for you to "
+            "one agent. They wait in the Add area on the What your agents know screen for you to "
             "check before anything is saved."
         ),
         current=None,
@@ -133,7 +133,7 @@ async def _execute_teach(
         applied=True,
         detail=(
             f"{ASSISTANT_NAME} is sorting it; it takes a few seconds. Check the facts and "
-            "rules in the teach box on the Knowledge base screen: nothing is saved until "
+            "rules in the Add area on the What your agents know screen: nothing is saved until "
             "you keep them."
         ),
         audit_summary={"teaching_id": str(started.id), "gap": parsed.gap_id is not None},
@@ -149,11 +149,11 @@ KNOWLEDGE_TEACH: Final = ActionTool(
     permission=CURATE_PERMISSION,
     object_type="kb_teaching",
     audit_action="kb_teaching.start",
-    where="in the teach box on the Knowledge base screen",
+    where="in the Add area on the What your agents know screen",
     schema=action_schema(
         "knowledge_teach",
         "Teach the agents something about the business: the words are sorted into facts "
-        "and rules the person keeps on the Knowledge base screen. Pass what they typed, or "
+        "and rules the person keeps on the What your agents know screen. Pass what they typed, or "
         "the words of a photo or file they attached, as written. For one fact to add to "
         "knowledge directly, use `propose_knowledge`." + PROPOSES_ONLY,
         {

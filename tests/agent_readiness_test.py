@@ -157,3 +157,30 @@ async def test_the_reads_score_the_stored_agent_and_stay_inside_the_account() ->
     assert account.json()["score"] == body["score"]
     assert [a["agent_id"] for a in account.json()["agents"]] == [str(agent_id)]
     assert neighbour.status_code == 404
+
+
+async def test_a_saved_file_with_no_text_for_the_agents_is_not_counted_as_knowledge() -> None:
+    """A PDF or a link is saved but reaches the agents as empty text until D-868; only a
+    source with text to send raises the knowledge score."""
+    tenant_id, _slug, _token = await _make_tenant()
+    async with tenant_session(tenant_id) as session:
+        before = await readiness.knowledge_items(session)
+        empty, read = uuid7(), uuid7()
+        for source_id, name in ((empty, "Price list.pdf"), (read, "Price list.docx")):
+            await session.execute(
+                text(
+                    "INSERT INTO kb_sources (id, tenant_id, kind, name, status, version, "
+                    "is_active, created_at, updated_at) VALUES (:i, :t, 'file', :n, 'live', 1, "
+                    "true, now(), now())"
+                ),
+                {"i": source_id, "t": tenant_id, "n": name},
+            )
+        await session.execute(
+            text(
+                "INSERT INTO kb_documents (id, tenant_id, source_id, idx, title, content, "
+                "created_at, updated_at) VALUES (:id, :tid, :sid, 0, 'Prices', "
+                "'A 2BHK starts at 60 lakh.', now(), now())"
+            ),
+            {"id": uuid7(), "tid": tenant_id, "sid": read},
+        )
+        assert await readiness.knowledge_items(session) == before + 1

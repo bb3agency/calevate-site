@@ -136,8 +136,8 @@ export function QualityScreen() {
             call.{" "}
             <InfoTip label="this report" className="-my-3">
               <p>
-                Before any change to your agent — a new script, a new model, a new knowledge
-                base — we replay a fixed set of recorded call scenarios against it and check
+                Before any change to your agent — a new script, a new model, new facts or
+                files — we replay a fixed set of recorded call scenarios against it and check
                 what it did. This is that run. It contains nothing from any real call.
               </p>
             </InfoTip>

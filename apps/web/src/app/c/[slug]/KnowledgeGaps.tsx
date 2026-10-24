@@ -74,7 +74,7 @@ export function KnowledgeGaps({
   const teachFeedback = useActionFeedback(teach, {
     errorDisplay: "inline",
     successToast: "Answer saved",
-    successDescription: "It is in your agent's knowledge now.",
+    successDescription: "Your agents will know it in a minute or two.",
   });
   const actions: GapActions = {
     dismiss: (gapId) => dismissFeedback.run({ gapId }),
@@ -105,7 +105,7 @@ export function KnowledgeGaps({
     return (
       <Section title={title} headingLevel={headingLevel} className={className}>
         <ProblemNotice
-          error={gaps.error ?? new Error("Your knowledge gaps did not load.")}
+          error={gaps.error ?? new Error("The questions your agents could not answer did not load.")}
           onRetry={() => void gaps.refetch()}
         />
       </Section>
@@ -148,7 +148,7 @@ export function KnowledgeGaps({
           </span>
         </p>
       ) : (
-        <ul className="divide-y divide-line" aria-label="Knowledge gaps needing attention">
+        <ul className="divide-y divide-line" aria-label="Questions your agents could not answer">
           {items.map((gap) => (
             <GapRow
               eg={eg}

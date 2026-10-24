@@ -190,7 +190,7 @@ export function ScriptParts({
             <p className="text-meta text-ink-muted">Prices and timings, shared by all your agents.</p>
           </div>
           <Link href={knowledgeHref} className={TEXT_ACTION}>
-            Open Knowledge
+            Open What your agents know
           </Link>
         </div>
       </div>

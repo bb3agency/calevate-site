@@ -27,7 +27,7 @@ export function useKnowledgeCopilot({
 }) {
   useCopilotSurface({
     route: "/c/{slug}/knowledge",
-    title: "Teach your agents something",
+    title: "What your agents know",
     realm: "client",
     fields: [
       {

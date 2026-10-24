@@ -558,7 +558,7 @@ export function PoliciesSection({
       />
       <ToggleSwitch
         label="Tell callers prices"
-        hint="Only prices it finds in your knowledge or quick facts. When off, it says the team will share them."
+        hint="Only prices it finds in what you taught it. When off, it says the team will share them."
         checked={policies.share_prices}
         onChange={(next) => onChange({ ...policies, share_prices: next })}
       />

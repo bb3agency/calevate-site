@@ -863,7 +863,8 @@ MAX_PASSAGE_CHARS: Final = 400
 #: prompt instruction with no code behind it, reaching the dashboard leg.
 _NOTHING_PUBLISHED = (
     "Nothing in this account's published knowledge matches that. Say so — do not guess "
-    "what the agent might say — and suggest adding it under Knowledge if it should be "
+    "what the agent might say — and suggest adding it on the What your agents know screen "
+    "if it should be "
     "there."
 )
 
@@ -901,13 +902,13 @@ _MAX_NAMED_SOURCES: Final = 5
 def _sources_this_tool_cannot_read(sources: Sequence[Mapping[str, Any]]) -> list[str]:
     """The names of LIVE sources whose content neither retrieval tier can see.
 
-    A published source with ZERO `kb_documents` rows is a PDF or a scraped link (D-534):
-    `workers/kb_ingest.ingest_kb_source` extracts text for every other kind and deliberately
-    not for those two — a PDF *is* the object the engine is handed, so the artefact a
-    reviewer approved and the one an agent answers from are the same bytes, and a link is
-    scraped by the engine itself. Neither leaves us any text, and BOTH retrieval tiers are
-    built from `kb_documents` (T0 through `kb.service.active_knowledge`'s join, T3 through
-    `kb/service._PROJECT_SQL`'s), so neither can match a word of them.
+    A published source with ZERO `kb_documents` rows is a PDF or a link (D-534):
+    `workers/kb_ingest.ingest_kb_source` extracts text for every other kind and not for those
+    two. Neither leaves us any text, and BOTH retrieval tiers are built from `kb_documents`
+    (T0 through `kb.service.active_knowledge`'s join, T3 through
+    `kb/service._PROJECT_SQL`'s), so neither can match a word of them. The agents get none
+    of it either: the engine adapter sends a source as its chunks' text and nothing else
+    (`engine/thinnest.attach_kb`), so the answer says the agents cannot use them (D-868).
 
     THE FIX IS THE SENTENCE, NOT A WIDER TOOL. Making this reachable would mean extracting a
     PDF into chunks, which changes what `agents/t0.py` compiles into the agent's PROMPT and
@@ -946,8 +947,8 @@ async def _nothing_published(session: AsyncSession) -> str:
         return (
             "This account has not added anything to its knowledge base yet, so its agents "
             "know only what is in its business profile. Nothing is missing or "
-            "broken — there is simply nothing published to search. Knowledge is added on "
-            "the Knowledge screen."
+            "broken — there is simply nothing published to search. Facts, files and links "
+            "are added on the What your agents know screen."
         )
     if not any(source["published_at"] is not None for source in sources):
         waiting = sum(1 for source in sources if source["status"] == "pending_approval")
@@ -963,13 +964,12 @@ async def _nothing_published(session: AsyncSession) -> str:
         # about US. See `_sources_this_tool_cannot_read`.
         return (
             "Nothing in the text this account has published matches that — but "
-            f"{len(opaque)} live source(s) hold their content as a file or a web page we "
-            "do not keep the text of, so this search could not look inside them: "
-            f"{', '.join(opaque)}. The agent CAN still answer from them on a call. Say "
-            "exactly that, name them, and do NOT suggest adding them again — they are "
-            "already live. To make one searchable here as well, its content can be pasted "
-            "or re-uploaded as a text, Word, spreadsheet or image file on the Knowledge "
-            "screen."
+            f"{len(opaque)} source(s) are a PDF or a web page whose words are not read yet, "
+            f"so neither this search nor the agents can use them: {', '.join(opaque)}. "
+            "Say exactly that and name them: they are saved, and reading them is being "
+            "added. Until then the person can type the key details as facts, or send the "
+            "same content as a Word, text, spreadsheet or photo file, on the What your "
+            "agents know screen."
         )
     return _NOTHING_PUBLISHED
 

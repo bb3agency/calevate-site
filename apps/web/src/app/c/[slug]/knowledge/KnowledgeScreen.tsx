@@ -4,24 +4,25 @@ import { useState } from "react";
 
 import { PageHeader } from "@/components/console/pageHeader";
 import { Tabs } from "@/components/interior/tabs";
-import { ProblemNotice, RestrictionNote } from "@/components/ui";
+import { ProblemNotice, RestrictionNote, formatCount } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useKbSources } from "@/lib/api/kb";
+import { useStruggles } from "@/lib/api/teach";
 
-import { AddDocument } from "./AddDocument";
-import { SourcesList } from "./SourcesList";
-import { TeachBox } from "./TeachBox";
+import { AddArea } from "./AddArea";
 import { WhatItKnows } from "./WhatItKnows";
 import { WhereItStruggled } from "./WhereItStruggled";
-import { StaffCurationSwitch, SubmissionConsequence } from "./permissions";
+import { StaffCurationSwitch } from "./permissions";
 
 /**
- * Client-side knowledge (FLOWS §7), shared by every agent of the business (D-689).
+ * "What your agents know" (D-874): the business's knowledge (FLOWS §7), shared by every
+ * agent of the business (D-689). The route keeps its old path, `/c/{slug}/knowledge`, so
+ * every link, bookmark and copilot route that names it still lands here.
  *
- * One teach box at the top (type, photo or file, or say it; sorted into facts and rules for
- * review, founder decision 9), then three peer views: what the agents know (pinned facts
- * first), where they struggled on real calls (founder decision 11), and files and pages.
+ * One Add area at the top (write it, send a file, save a link), then two views: everything
+ * the agents were given, grouped by kind with each item's plain status, and the questions
+ * they could not answer on real calls (founder decision 11).
  *
  * The screen renders no `<h1>`: the shell prints the page title from the nav list.
  *
@@ -32,20 +33,21 @@ import { StaffCurationSwitch, SubmissionConsequence } from "./permissions";
 export function KnowledgeScreen() {
   const session = useClientSession();
   const sources = useKbSources(session);
+  const struggles = useStruggles(session);
 
   /**
    * TEACHING IS `kb:write` AND NOTHING ELSE. Reading what an agent knows is `agents:read`
-   * and stays open, which is the other half of "view as client": support can see the
-   * knowledge base they are being asked about.
+   * and stays open, which is the other half of "view as client": support can see what the
+   * agents were given while they are asked about it.
    */
-  const write = useWriteAccess(session, "kb:write", "add knowledge to this account");
+  const write = useWriteAccess(session, "kb:write", "teach your agents on this account");
 
   /**
-   * THE OWNER'S SWITCH: may this account's `staff` members curate knowledge at all.
+   * THE OWNER'S SWITCH: may this account's `staff` members add things here at all.
    * Reading it is `org:read`; changing it is `org:manage`, so this disables the control for
    * everyone else, including a view-as operator (D-22).
    */
-  const curationWrite = useWriteAccess(session, "org:manage", "change who may add knowledge");
+  const curationWrite = useWriteAccess(session, "org:manage", "change who may add things here");
 
   const [tab, setTab] = useState("knows");
   const [answering, setAnswering] = useState<{
@@ -54,22 +56,27 @@ export function KnowledgeScreen() {
     key: number;
   } | null>(null);
 
+  // A count only from a read that answered: while it is out or after it failed, the tab
+  // says nothing about how many there are, and its panel says why.
+  const unanswered = struggles.isSuccess && struggles.data.length > 0 ? struggles.data.length : null;
+
   return (
     <div className="max-w-4xl space-y-8 pb-12">
-      <PageHeader description="What your agents know about your business, shared by every one of your agents. What you add reaches them without anyone approving it." />
+      <PageHeader description="Everything your agents can tell callers about your business. All your agents share it." />
 
       <RestrictionNote reason={write.reason} />
       {sources.error && <ProblemNotice error={sources.error} onRetry={() => sources.refetch()} />}
 
-      <TeachBox allowed={write.allowed} reason={write.reason} answering={answering} />
+      <AddArea allowed={write.allowed} reason={write.reason} answering={answering} />
 
-      {/* Three peer views of one knowledge base (D-655). */}
       <Tabs
-        label="Your business knowledge"
+        label="What your agents know"
         items={[
-          { value: "knows", label: "What it knows" },
-          { value: "struggled", label: "Where it struggled" },
-          { value: "files", label: "Files and pages" },
+          { value: "knows", label: "What they know" },
+          {
+            value: "struggled",
+            label: unanswered ? `Couldn’t answer · ${formatCount(unanswered)}` : "Couldn’t answer",
+          },
         ]}
         value={tab}
         onValueChange={setTab}
@@ -86,19 +93,15 @@ export function KnowledgeScreen() {
                 })
               }
             />
-          ) : current === "files" ? (
-            <div className="space-y-10">
-              <SubmissionConsequence />
-              <AddDocument allowed={write.allowed} reason={write.reason} />
-              <SourcesList sources={sources} only="files" />
-            </div>
           ) : (
             <WhatItKnows canWrite={write.allowed} sources={sources} />
           )
         }
       />
 
-      <StaffCurationSwitch write={curationWrite} />
+      <div className="border-t border-line pt-6">
+        <StaffCurationSwitch write={curationWrite} />
+      </div>
     </div>
   );
 }

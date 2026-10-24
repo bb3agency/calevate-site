@@ -132,7 +132,7 @@ export function TryChat({
                 <span className="sr-only">{turn.from === "you" ? "You: " : "Agent: "}</span>
                 {turn.text}
                 {turn.lookedUp ? (
-                  <span className="block text-meta text-ink-faint">Looked it up in your knowledge</span>
+                  <span className="block text-meta text-ink-faint">Found it in what you taught</span>
                 ) : null}
               </li>
             ))}

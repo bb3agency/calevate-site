@@ -127,7 +127,7 @@ const NEUTRAL_UNTIL_GENERATED = {
   scriptChangeIdea: "Ask for a good time to call back",
   factQuestion: "Are you open on Sundays?",
   factAnswer: "No, we are open Monday to Saturday, 9 to 6.",
-  testExpectation: "Look up the price in our knowledge and give it.",
+  testExpectation: "Give the price from what we taught it.",
   campaignName: "Festival offer reminder",
   messageTitle: "Request received",
   messageBody: "Thank you, {{1}}. We have your request and will call you back today.",

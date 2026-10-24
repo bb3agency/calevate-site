@@ -71,6 +71,7 @@ export function TeachBox({
   reason,
   answering,
   headingLevel = 2,
+  framed = true,
 }: {
   allowed: boolean;
   reason: string | null;
@@ -78,6 +79,8 @@ export function TeachBox({
   answering?: { gapId: string | null; question: string; key: number } | null;
   /** 3 inside an agent's Training tab, whose tab label is the h2. */
   headingLevel?: 2 | 3;
+  /** False inside a container that already names the box (the knowledge page's Add area). */
+  framed?: boolean;
 }) {
   const session = useClientSession();
   const eg = useVerticalExamples();
@@ -136,18 +139,8 @@ export function TeachBox({
   const listening = hear.isPending || (heardId !== null && note?.status !== "heard" && note?.status !== "failed");
   const current = open.data ?? null;
 
-  return (
-    <Section
-      headingLevel={headingLevel}
-      title="Teach your agents"
-      info={
-        <p>
-          Type it or say it, or attach a photo of a price list or a file in {ASSISTANT_NAME}.{" "}
-          {ASSISTANT_NAME} sorts it into facts, which every agent gets, and rules for how one agent
-          should behave. You check each one here before it is saved.
-        </p>
-      }
-    >
+  const body = (
+    <>
       {current && current.status === "ready" ? (
         <Review
           teaching={current}
@@ -214,13 +207,16 @@ export function TeachBox({
             {saved ? <SavedTick at={saved.at} /> : null}
           </div>
           {saved ? <p className="text-meta text-ink-muted">{saved.note}</p> : null}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line pt-3">
-            <p className="text-meta text-ink-muted">
-              A photo of a price list or menu, or a Word, text, CSV or Excel file: attach it in{" "}
-              {ASSISTANT_NAME}.
-            </p>
-            <AskAssistant label={`Let ${ASSISTANT_NAME} read a photo or file`} prompt={READ_FILE_REQUEST} disabled={!allowed} />
-          </div>
+          {/* Unframed, the Add area offers files in its own File view, Pip's reading included. */}
+          {framed ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line pt-3">
+              <p className="text-meta text-ink-muted">
+                A photo of a price list or menu, or a Word, text, CSV or Excel file: attach it in{" "}
+                {ASSISTANT_NAME}.
+              </p>
+              <AskAssistant label={`Let ${ASSISTANT_NAME} read a photo or file`} prompt={READ_FILE_REQUEST} disabled={!allowed} />
+            </div>
+          ) : null}
           {asked ? (
             <p className="text-meta text-ink-muted">
               Answering a caller who asked &ldquo;{asked}&rdquo;.{" "}
@@ -239,6 +235,24 @@ export function TeachBox({
         </form>
       )}
       {open.error ? <ProblemNotice error={open.error} onRetry={() => void open.refetch()} /> : null}
+    </>
+  );
+
+  // Unframed inside the knowledge page's Add area, which carries its own heading.
+  if (!framed) return <div className="space-y-3">{body}</div>;
+  return (
+    <Section
+      headingLevel={headingLevel}
+      title="Teach your agents"
+      info={
+        <p>
+          Type it or say it, or attach a photo of a price list or a file in {ASSISTANT_NAME}.{" "}
+          {ASSISTANT_NAME} sorts it into facts, which every agent gets, and rules for how one agent
+          should behave. You check each one here before it is saved.
+        </p>
+      }
+    >
+      {body}
     </Section>
   );
 }

@@ -2085,10 +2085,12 @@ describe("Training shows what the agent knows (D-689: the business's knowledge, 
     const heading = await screen.findByRole("heading", { level: 3, name: "What it knows" });
     const panel = heading.closest("section") as HTMLElement;
     await within(panel).findByText("Red chilli powder is ₹120 for 250 g.");
-    expect(panel.textContent).toContain("2 facts and 1 file or page, shared by all your agents.");
+    // A file or link is counted as saved, never as known: a PDF's or a link's words do
+    // not reach the agents yet (D-868), and this read cannot tell which files those are.
+    expect(panel.textContent).toContain("2 facts, shared by all your agents. 1 file or link saved.");
     const facts = within(panel).getAllByRole("listitem").map((row) => row.textContent);
     expect(facts).toEqual(["Red chilli powder is ₹120 for 250 g.", "We deliver in Kukatpally."]);
-    const link = within(panel).getByRole("link", { name: /Manage knowledge/ });
+    const link = within(panel).getByRole("link", { name: /Open What your agents know/ });
     expect(link.getAttribute("href")).toBe("/c/acme/knowledge");
   });
 

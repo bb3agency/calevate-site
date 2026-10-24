@@ -676,10 +676,10 @@ async def _plan_propose_knowledge(
         proposed=name,
         cost=None,
         reversal=(
-            "You can edit or remove it under Knowledge afterwards."
+            "You can edit or remove it on What your agents know afterwards."
             if live
             else "Nothing reaches a caller until somebody approves it. Whoever reviews it "
-            "can reject it, and you can edit or remove it under Knowledge afterwards."
+            "can reject it, and you can edit or remove it on What your agents know afterwards."
         ),
         args={
             "agent_id": str(parsed.agent_id),
@@ -720,7 +720,7 @@ async def _execute_propose_knowledge(
             code="kb_proposal_not_proposable",
             title="That suggestion cannot be saved",
             detail="The assistant's suggestion is no longer something it may write.",
-            remediation="Add it yourself under Knowledge in your dashboard.",
+            remediation="Add it yourself on What your agents know in your dashboard.",
         )
     await assert_visible(session, "agent", parsed.agent_id)
     created = await kb_proposals.submit_proposed_source(
@@ -875,7 +875,7 @@ PROPOSE_KNOWLEDGE: Final = WriteTool(
     # instead, so the row still answers "which source did this produce".
     object_type="agent",
     audit_action="kb.source_proposed",
-    where="under Knowledge",
+    where="on the What your agents know screen",
     schema=action_schema(
         "propose_knowledge",
         "Propose adding a fact to the business's knowledge, which every one of its agents "

@@ -369,12 +369,21 @@ async def _callbacks_list(
 # --- knowledge_sources -----------------------------------------------------------------
 
 
+#: Upload kinds whose words do not reach the agents today: `kb/models.text_is_read` treats
+#: both as engine-native, so nothing is extracted, and the publish sends only text.
+_NOT_READ_BY_AGENTS: Final = frozenset({"pdf", "url"})
+
+
 async def _knowledge_sources(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
 ) -> str:
-    """`kb_service.list_sources` and `kb_uploads.list_uploads` — the Knowledge base
+    """`kb_service.list_sources` and `kb_uploads.list_uploads` — the What your agents know
     screen's two lists. A document or a link carries the `upload_id` its Remove button
-    uses; typed facts have no remove button and so no id to remove by."""
+    uses; typed facts have no remove button and so no id to remove by.
+
+    A PDF or a link is marked as not reaching the agents, whatever its live flag says: no text
+    is taken from either, so the agents are handed nothing from it (D-868), and the screen
+    says the same (`knowledge/uploadCopy.ts::NOT_READ_BY_AGENTS`)."""
     del context, args
     sources = await kb_service.list_sources(session, limit=MAX_ROWS)
     uploads = {
@@ -388,6 +397,8 @@ async def _knowledge_sources(
             + (" · live" if source["is_active"] else " · not live")
             + f" · version {source['version']}"
         )
+        if upload is not None and upload["source_kind"] in _NOT_READ_BY_AGENTS:
+            line += " · saved, but its words do not reach the agents yet"
         if upload is not None:
             line += f" [upload_id {upload['id']}]"
         lines.append(line)
@@ -396,7 +407,7 @@ async def _knowledge_sources(
         shown_of="knowledge sources",
         nothing=_nothing(
             "knowledge",
-            next_step="Facts, documents and web pages are added on the Knowledge base screen.",
+            next_step="Facts, files and links are added on the What your agents know screen.",
         ),
     )
 
@@ -882,8 +893,9 @@ CONSOLE_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="knowledge_sources",
         description=(
-            "Everything in this account's knowledge base — typed facts, documents and web "
-            "pages — with whether each is live, waiting for review or rejected."
+            "Everything this account's agents were given — typed facts, files and links — "
+            "with whether each is live, waiting for review or rejected. A PDF or a link is "
+            "saved but its words do not reach the agents yet."
         ),
         parameters=_object({}),
         permission="agents:read",

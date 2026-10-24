@@ -190,7 +190,7 @@ export const SETTING_LINK: Record<TestSetting["area"], { label: string; section:
 };
 
 export const ACTION_LABEL: Record<TestAction, string> = {
-  knowledge: "Looked it up in knowledge",
+  knowledge: "Found it in what you taught",
   do_not_call: "Used its step that removes a number",
   call_back: "Used its call-back step",
   other: "Used one of its actions",

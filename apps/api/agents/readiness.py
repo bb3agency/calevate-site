@@ -220,7 +220,7 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
     add(
         "knowledge",
         _scaled_half_up(stock + gaps, MAX_POINTS["knowledge"], KNOWLEDGE_READING_MAX),
-        f"{_plural(i.knowledge_items, 'item', 'items')} of knowledge; "
+        f"{_plural(i.knowledge_items, 'thing', 'things')} added for your agents; "
         f"{_plural(i.open_gaps, 'open question', 'open questions')} to answer.",
         knowledge_fix,
     )
@@ -295,8 +295,11 @@ _AGENT_FACTS_SQL: Final = (
     "  AND r.agent_id = a.id AND r.active AND r.drift_state = ANY(:out_of_sync)) AS out_of_sync "
     "FROM agents a WHERE a.id = :aid AND a.deleted_at IS NULL"
 )
+#: Only a source with text to send counts: a PDF or a link is saved but reaches the agents
+#: as empty text until D-868 (it has no `kb_documents` rows), so it does not raise the score.
 _KNOWLEDGE_SQL: Final = (
-    "SELECT (SELECT count(*) FROM kb_sources WHERE is_active) "
+    "SELECT (SELECT count(*) FROM kb_sources s WHERE s.is_active "
+    "AND EXISTS (SELECT 1 FROM kb_documents d WHERE d.source_id = s.id)) "
     "+ (SELECT count(*) FROM kb_facts WHERE removed_at IS NULL)"
 )
 

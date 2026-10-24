@@ -31,7 +31,7 @@ export function StaffCurationSwitch({ write }: { write: WriteAccess }) {
   // The switch's own position is the success; the refusal is drawn under it.
   useActionFeedback(setCuration, { errorDisplay: "inline" });
 
-  if (curation.isPending) return <Skeleton rows={1} label="Checking who may add knowledge…" />;
+  if (curation.isPending) return <Skeleton rows={1} label="Checking who may add things here…" />;
   if (curation.isError) {
     return <ProblemNotice error={curation.error} onRetry={() => curation.refetch()} />;
   }
@@ -40,11 +40,11 @@ export function StaffCurationSwitch({ write }: { write: WriteAccess }) {
   return (
     <div className="space-y-2">
       <ToggleSwitch
-        label="Let staff add knowledge"
+        label="Let staff add to what your agents know"
         hint={
           on
-            ? "Team members with the staff role can add knowledge. What they add goes to your agent without review, the same as yours."
-            : "Only owners can add knowledge on this account."
+            ? "Team members with the staff role can add facts, files and links here. Nobody approves what they add, the same as yours."
+            : "Only owners can add things here."
         }
         checked={on}
         disabled={!write.allowed || setCuration.isPending}
@@ -75,8 +75,7 @@ export function SubmissionConsequence() {
   return (
     <p className="text-xs text-ink-muted">
       <span>
-        What you add goes to your agent as soon as we have finished reading it — nobody
-        approves it first, and you do not wait for us.
+        Nobody approves what you add, so you never wait for us.
       </span>
     </p>
   );

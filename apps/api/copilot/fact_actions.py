@@ -68,8 +68,8 @@ def _clean(fact: _Fact) -> tuple[str, str]:
         # The value is never named: this reason reaches a log line and the next prompt.
         raise WriteRefusedError(
             "a fact contains something shaped like a phone number, an email address or an "
-            "identity number, which you may not write; say the person can add it under "
-            "Knowledge themselves"
+            "identity number, which you may not write; say the person can add it on "
+            "What your agents know themselves"
         )
     return question, answer
 
@@ -103,7 +103,7 @@ async def _plan_pin(session: AsyncSession, actor: ToolActor, args: Mapping[str, 
         current=None,
         proposed="\n".join(f"{question} — {answer}" for question, answer in pairs),
         cost=None,
-        reversal="Change or unpin any of them under Knowledge at any time.",
+        reversal="Change or unpin any of them on What your agents know at any time.",
         args={"facts": [{"question": q, "answer": a} for q, a in pairs]},
     )
 
@@ -146,7 +146,7 @@ KNOWLEDGE_FACTS_PIN: Final = ActionTool(
     permission=CURATE_PERMISSION,
     object_type="kb_fact",
     audit_action="kb_fact.add",
-    where="under Knowledge, in what your agents know",
+    where="on the What your agents know screen",
     schema=action_schema(
         "knowledge_facts_pin",
         "Pin up to three questions callers ask, each with the business's answer in the "

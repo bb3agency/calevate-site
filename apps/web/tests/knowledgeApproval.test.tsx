@@ -26,13 +26,13 @@ import {
  * The decision the screen encodes is a two-step ladder, and the interesting thing about
  * it is that the second step is NOT `status`:
  *
- *     is_active  →  "Live"          (the agent is saying this now)
- *     otherwise  →  status copy     ("In review", "Approved, not live yet", …)
+ *     is_active  →  "In use"        (the agent is saying this now)
+ *     otherwise  →  status copy     ("In review", "Approved, not in use yet", …)
  *
  * `approved` and `live` are different facts, separated by a publish that has not
  * happened yet. Collapsing them — keying the badge on `status === "approved"` — is the
  * exact divergence FLOWS §7 exists to prevent, and it is invisible to a type checker
- * because both fields are on every row. A client told "Live" about text no caller will
+ * because both fields are on every row. A client told "In use" about text no caller will
  * hear will assume the agent is answering with it, and stop chasing the publish.
  *
  * The reverse error is just as reachable and lands the other way: a source that IS live
@@ -142,6 +142,7 @@ async function renderKnowledge(
     "/v1/kb/sources": sources,
     "/v1/kb/staff-curation": STAFF_CURATION,
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
+    "/v1/kb/struggles": [],
     "/v1/kb/teach/open": { teaching: null },
     // The document list (D-534). Empty by default: every assertion in this file is about
     // the PASTED-TEXT ladder, and an unrouted endpoint would leave a second `role="alert"`
@@ -166,9 +167,9 @@ describe("the approval gate as the client sees it", () => {
     ]);
 
     await screen.findByText("Opening hours");
-    expect(container.textContent).toContain("Approved, not live yet");
-    expect(container.textContent).not.toContain("Live");
-    expect(container.textContent).toContain("not live yet");
+    expect(container.textContent).toContain("Approved, not in use yet");
+    expect(container.textContent).not.toContain("In use");
+    expect(container.textContent).toContain("not in use yet");
   });
 
   it("says a submission is in review rather than showing an approval control", async () => {
@@ -183,7 +184,7 @@ describe("the approval gate as the client sees it", () => {
     expect(container.textContent).toContain("In review");
     expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /publish/i })).toBeNull();
-    expect(container.textContent).not.toContain("Live");
+    expect(container.textContent).not.toContain("In use");
   });
 
   it("calls a live source live, and lets its stale status go", async () => {
@@ -198,9 +199,9 @@ describe("the approval gate as the client sees it", () => {
     ]);
 
     await screen.findByText("Opening hours");
-    expectTextCount(container, "Live", 1);
-    expect(container.textContent).not.toContain("Approved, not live yet");
-    expect(container.textContent).not.toContain("not live yet");
+    expectTextCount(container, "In use", 1);
+    expect(container.textContent).not.toContain("Approved, not in use yet");
+    expect(container.textContent).not.toContain("not in use yet");
   });
 
   it("tells a client their submission was refused, in words and not in silence", async () => {
@@ -210,7 +211,7 @@ describe("the approval gate as the client sees it", () => {
 
     await screen.findByText("Opening hours");
     expect(container.textContent).toContain("Not accepted");
-    expect(container.textContent).not.toContain("Live");
+    expect(container.textContent).not.toContain("In use");
   });
 
   it("does not let a superseded version read as the one in force", async () => {
@@ -234,7 +235,7 @@ describe("the approval gate as the client sees it", () => {
 
     await screen.findByText("v3");
     // Exactly one row is live, and exactly one is queued behind the gate.
-    expectTextCount(container, "Live", 1);
+    expectTextCount(container, "In use", 1);
     expectTextCount(container, "In review", 1);
     expect(container.textContent).not.toContain("Replaced by a newer version");
   });
@@ -249,7 +250,7 @@ describe("the approval gate as the client sees it", () => {
 
     await screen.findByText("Opening hours");
     expect(container.textContent).toContain("withdrawn_by_reviewer");
-    expect(container.textContent).not.toContain("Live");
+    expect(container.textContent).not.toContain("In use");
     // The `Object.prototype` failure this app has a whole module about: a bare index
     // would have rendered a stringified function into the badge's class list.
     expect(container.innerHTML).not.toContain("native code");
@@ -272,7 +273,7 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(container.textContent).not.toContain("Nothing submitted yet");
     expect(screen.queryByText("Submitted")).toBeNull();
-    expect(container.textContent).not.toContain("Live");
+    expect(container.textContent).not.toContain("In use");
   });
 
   it("keeps the form open on an account with no agent yet", async () => {
@@ -294,7 +295,7 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
     await screen.findByText("Opening hours");
     expect(submitButton().disabled).toBe(true);
     expect(container.textContent).toContain(
-      "Only an account owner can add knowledge to this account.",
+      "Only an account owner can teach your agents on this account.",
     );
     // The reason travels with the control as well: on a phone the note at the top of the
     // screen is nowhere near the button that is refusing to work.
@@ -450,8 +451,17 @@ describe("one body of knowledge for the whole business (D-689)", () => {
  */
 describe("what the screen says the agent does with the text", () => {
   it("says the approved facts become part of what the agent already knows", async () => {
-    const { container } = await renderKnowledge([]);
-    await screen.findByText(/Nothing submitted yet/i);
+    const { container } = await renderKnowledge([], {
+      "/v1/kb/knows": {
+        facts: [
+          { id: "f1", text: "Open 9 to 9.", question: null, pinned: true, origin: "taught", created_at: "2026-10-10T10:00:00Z" },
+        ],
+        facts_state: "live",
+        items: [],
+        pinned_not_yet_on: [],
+      },
+    });
+    await screen.findByText("Open 9 to 9.");
     const text = container.textContent ?? "";
     // The mechanism, in the owner's words. Pinned rather than merely un-banned: deleting
     // the sentence would leave a client to assume the document-retrieval product that
@@ -460,13 +470,13 @@ describe("what the screen says the agent does with the text", () => {
     expect(text).toContain("Pinned facts");
     // And how it gets there, in the same sentence: D-658 — nobody approves what the
     // account's own people add, and saying otherwise has a client waiting on nobody.
-    expect(text).toContain("without anyone approving it");
+    expect(text).toContain("Nobody approves what you add");
     expect(text).not.toMatch(/reviewed by your account manager/i);
   });
 
   it("never tells a client the agent retrieves or looks anything up mid-call", async () => {
     const { container } = await renderKnowledge([]);
-    await screen.findByText(/Nothing submitted yet/i);
+    await screen.findByText(/Your agents don.t know anything yet/i);
     const text = container.textContent ?? "";
     // The exact shape that was here, plus the family it belongs to. Bounded to one
     // sentence (`[^.]{0,40}`) so a legitimate "during the call" elsewhere on a future
@@ -486,9 +496,9 @@ describe("what the screen says the agent does with the text", () => {
     // up while a caller is on the line — and that is still asserted, twice.
     //
     // The one file sentence worth pinning positively is the limit, because a client who
-    // learns it from a 413 has already spent the upload. It is on the Files tab since
-    // REDESIGN-2, beside the upload it limits.
-    fireEvent.click(screen.getByRole("tab", { name: "Files and pages" }));
+    // learns it from a 413 has already spent the upload. It is in the Add area's File view
+    // (D-874), beside the upload it limits.
+    fireEvent.click(screen.getByRole("radio", { name: "File" }));
     expect(container.textContent).toMatch(/20 MB/);
   });
 });

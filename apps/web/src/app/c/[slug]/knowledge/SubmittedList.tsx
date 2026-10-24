@@ -23,7 +23,7 @@ interface StatusCopy {
  */
 const STATUS_COPY: Record<string, StatusCopy> = {
   pending_approval: { label: "In review", tone: "warn" },
-  approved: { label: "Approved, not live yet", tone: "neutral" },
+  approved: { label: "Approved, not in use yet", tone: "neutral" },
   rejected: { label: "Not accepted", tone: "stop" },
   archived: { label: "Replaced by a newer version", tone: "neutral" },
 };
@@ -56,7 +56,7 @@ export function FactRow({
             <SourceBadge source={source} />
           </div>
           <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-ink-faint">
-            <span>Typed fact</span>
+            <span>Note</span>
             <span className="tabular-nums">v{source.version}</span>
             <span className="tabular-nums">
               {formatCount(source.chunks)} {source.chunks === 1 ? "answer" : "answers"}
@@ -118,7 +118,7 @@ export function FactRow({
 
 function SourceBadge({ source }: { source: { status: string; is_active: boolean } }) {
   // `is_active` is the publish, not the review: only a published source is live.
-  if (source.is_active) return <StatusPill tone="ok">Live</StatusPill>;
+  if (source.is_active) return <StatusPill tone="ok">In use</StatusPill>;
   // A status this build cannot name fails VISIBLE, with the server's own word.
   // `lookup()`: a wire string indexing a literal walks the prototype chain (lib/lookup.ts).
   const copy = lookup(STATUS_COPY, source.status) ?? { label: source.status, tone: "neutral" };
