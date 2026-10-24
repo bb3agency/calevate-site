@@ -64,7 +64,7 @@ function memoryNote(memory: PromptLayers["caller_memory"]): string | null {
 }
 
 function LayerSubtitle({ layer, total }: { layer: PromptLayer; total: number }) {
-  const share = total > 0 ? Math.max((layer.chars / total) * 100, 0.5) : 0;
+  const share = total > 0 ? Math.min(Math.max((layer.chars / total) * 100, 0.5), 100) : 0;
   return (
     <span className="mt-1 block space-y-1.5">
       <span className="flex flex-wrap gap-x-2">
