@@ -1910,6 +1910,7 @@ outbound, Telugu, `voice.openingWaitsForCaller: true` (D-871), agent read back i
    "Akshita" marked `own` and no "Anusha", and a refresh after that still did not list it. Is
    the list cached, and for how long; can it be re-read now; and does it list every voice
    the key's Cartesia account owns? (Not a Studio-band question: our Voices page reads 305
-   ThinnestAI Studio voices.)
+   ThinnestAI Studio voices.) Later the same day a refresh did list "Anusha" (`own`), so the
+   list lags rather than omits; the open question is how long it is cached.
 
 Until answered: the founder switches "Wait for the caller to say hello" off for Anjali.
