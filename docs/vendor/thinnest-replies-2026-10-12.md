@@ -1887,3 +1887,25 @@ unanswered, so D-868 keeps waiting.
 
    Until answered: our rule now reads "then one goodbye and nothing more", and the practice
    checks flag a second goodbye in one reply (`agents/turn_checks._repeated_sentence`).
+
+## 34. Questions for the next email (Anjali's call of 24 Oct 2026, 16:31 IST)
+
+Call `out_fa60146c-c81b-4381-ac5a-f72b08fbb292`, placed 24 Oct 2026 16:31:21 IST, 23 s,
+outbound, Telugu, `voice.openingWaitsForCaller: true` (D-871), agent read back in step
+(`drift_state = applied`), voice a clone made on ThinnestAI.
+
+1. **The opening was never spoken.** The founder answered and said "Hello" three times. The
+   transcript holds the opening as the agent's first turn at 0:00, then one caller "Hello" at
+   0:08, then a reply the model wrote (a new greeting), so the first two hellos were not heard
+   and neither the "after their first words" nor the "after four seconds" path of §32 item 3
+   played the opening. Please read this call in your logs: was the opening synthesised, was it
+   sent to the line, and did the clone's first synthesis delay or fail it?
+2. **Clone pace.** update-agent `speakingSpeed` (read 24 Oct 2026): "Studio voices, cloned
+   voices and voices from your own voice account keep their own pace." Confirm a clone keeps
+   the pace of its sample, so a re-recorded, conversational sample is the way to a faster
+   clone, and say whether a speed control for clones is planned.
+3. **Studio voices.** The founder sees no Studio voices to choose from. §28 (23 Oct) switched
+   the Studio band on for our pay-as-you-go account; update-agent still says "A Studio voice
+   needs the Pro plan or above". Which is current, and why is the list empty?
+
+Until answered: the founder switches "Wait for the caller to say hello" off for Anjali.
