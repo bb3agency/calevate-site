@@ -20,8 +20,21 @@ from apps.api.copilot import service
 from apps.api.copilot.admin_prompt import ADMIN_SYSTEM_PROMPT
 from apps.api.copilot.prompt import SCREEN_OPEN
 from apps.api.copilot.schemas import CopilotStepEvent
+from apps.api.core import redis as redis_module
 from apps.workers import chat
 from scripts import copilot_tool_eval as harness
+
+
+@pytest.fixture(autouse=True)
+def _harness_owns_its_redis_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`harness.main` runs its own `asyncio.run` loops, not the suite's session loop.
+
+    A connection it opened in the process-wide Redis client would stay pooled after its loop
+    closed, and the next test to draw it fails with "Event loop is closed" (the signup quota
+    then refuses with a 503). So the harness builds a client of its own, which it closes in
+    its own loop, and the suite's client is put back untouched afterwards.
+    """
+    monkeypatch.setattr(redis_module, "_client", None)
 
 
 def _case(case_id: str) -> harness.Case:

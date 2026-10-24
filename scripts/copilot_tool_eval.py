@@ -301,8 +301,14 @@ async def _load_console_settings() -> None:
     """The keys an operator saved on the ops console, as Pip reads them in production. On a
     host whose Gemini key lives only there, `chat_leg` would otherwise find no credential."""
     from apps.api.core.platform_config import refresh
+    from apps.api.core.redis import close_redis
 
-    await refresh(force=True)
+    try:
+        await refresh(force=True)
+    finally:
+        # `main` scores in a second `asyncio.run`. A Redis connection pooled here is bound
+        # to this loop and fails on the next one, so the client is closed before it ends.
+        await close_redis()
 
 
 def model_turn(provider: str, model: str | None) -> ChooseTurn | None:
