@@ -10,7 +10,7 @@ import { ConfirmDialog } from "@/components/confirmDialog";
 import { PipMark } from "@/components/illustration/pip";
 import { NewItemsPill } from "@/components/interior/new-items-pill";
 import { selectionSummary } from "@/lib/copilot/selection";
-import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
+import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, ScrollRegion, Skeleton } from "@/components/ui";
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
 import type { Session } from "@/lib/api/client";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
@@ -417,11 +417,13 @@ export function CopilotPanel({
                   : (intro ?? openingLine(surface.route, surface.fields.length > 0))}
             </p>
             {realm === "client" && quickReplies.length === 0 && (
-              // One row that scrolls sideways on a phone, rather than three tall pills.
-              <ul
-                aria-label="Questions you could ask"
-                className="flex gap-2 max-sm:-mx-4 max-sm:overflow-x-auto max-sm:px-4 max-sm:pb-1 max-sm:[scrollbar-width:none] sm:flex-wrap"
+              // One row that scrolls sideways on a phone, rather than three tall pills; a
+              // ScrollRegion so the row can be scrolled from a keyboard too.
+              <ScrollRegion
+                label="Questions you could ask"
+                className="max-sm:-mx-4 max-sm:px-4 max-sm:pb-1 max-sm:[scrollbar-width:none] sm:overflow-visible"
               >
+              <ul className="flex gap-2 max-sm:w-max sm:flex-wrap">
                 {suggestedQuestions(surface.route).map((question) => (
                   <li key={question}>
                     <button
@@ -435,6 +437,7 @@ export function CopilotPanel({
                   </li>
                 ))}
               </ul>
+              </ScrollRegion>
             )}
             <p className="text-meta text-ink-muted">
               {panelNotice(surface)}
