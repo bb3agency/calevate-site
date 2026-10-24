@@ -170,7 +170,7 @@ async def test_a_saved_file_with_no_text_for_the_agents_is_not_counted_as_knowle
             await session.execute(
                 text(
                     "INSERT INTO kb_sources (id, tenant_id, kind, name, status, version, "
-                    "is_active, created_at, updated_at) VALUES (:i, :t, 'file', :n, 'live', 1, "
+                    "is_active, created_at, updated_at) VALUES (:i, :t, 'file', :n, 'approved', 1, "
                     "true, now(), now())"
                 ),
                 {"i": source_id, "t": tenant_id, "n": name},
