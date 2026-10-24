@@ -189,16 +189,23 @@ export function AgentHeader({
           </div>
         }
       />
-      {!deleted && tour}
-      <RestrictionNote reason={write.reason} />
-      {onTrial && agent.published && agent.status === "paused" && (
-        <p role="status" className="text-meta text-ink-muted">
-          On for test calls from our shared trial number.{" "}
-          <Link href={href(`/c/${slug}`)} className="font-medium text-brand-strong underline underline-offset-2">
-            Make a test call
-          </Link>
-        </p>
+      {/* The state is said once, in the header line above; on a trial this row only adds
+          the place a test call is made from. */}
+      {!deleted && (tour || (onTrial && agent.published && agent.status === "paused")) && (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+          {tour}
+          {onTrial && agent.published && agent.status === "paused" && (
+            <Link
+              href={href(`/c/${slug}`)}
+              className="inline-flex items-center text-body font-medium text-brand-strong underline-offset-2 hover:underline touch:min-h-11"
+            >
+              Make a test call
+            </Link>
+          )}
+        </div>
       )}
+      <RestrictionNote reason={write.reason} />
+
       <LifecycleError error={move.error} />
       {undo.error && <ProblemNotice error={undo.error} />}
     </div>

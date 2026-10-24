@@ -743,7 +743,7 @@ export function agentReadiness(agentId = "agent-1", name = "Reception"): AgentRe
     score: 85,
     max_score: 100,
     components: [
-      { key: "tests", label: "Practice tests", points: 30, max_points: 30, state: "full", detail: "All 4 tests passed." },
+      { key: "tests", label: "Practice tests", points: 35, max_points: 35, state: "full", detail: "All 4 tests passed." },
       { key: "opening", label: "Opening line", points: 0, max_points: 15, state: "none", detail: "No opening line yet." },
     ],
     fixes: [

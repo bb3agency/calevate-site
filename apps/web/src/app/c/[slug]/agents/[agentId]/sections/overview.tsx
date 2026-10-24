@@ -1,14 +1,14 @@
 "use client";
 
 /**
- * OVERVIEW — what is left before this agent's first call, anything waiting to go live, the
- * opening notices, how ready it is (the D-870 score and what would raise it), and its
- * latest calls (the old Calls entry, D-825).
+ * OVERVIEW — how ready this agent is (the readiness score and what would raise it, first at
+ * every width, D-873), what is left before its first call, anything waiting to go live, the
+ * opening notices, and its latest calls (the old Calls entry, D-825).
  *
  * The notices are HERE and nowhere else: this is the tab that opens first, so the
  * truthful-answer guarantee and the two switches under it are never behind a tab switch
- * (doctrine §8 rule 7). On a phone the checklist folds to its "N of M done" summary so they
- * are on the first screen. Hearing the agent for yourself is in Training.
+ * (doctrine §8 rule 7). On a phone the checklist folds to its "N of M done" summary so the
+ * notices stay near the top. Hearing the agent for yourself is in Training.
  */
 
 import { ProblemNotice, Skeleton, formatINR } from "@/components/ui";
@@ -84,6 +84,7 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
 
   return (
     <div className="space-y-10">
+      <AgentReadinessPanel agentId={agent.id} slug={slug} />
       <SetupChecklist
         agent={agent}
         slug={slug}
@@ -98,8 +99,6 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
       )}
       {pending.data && <PendingBanner state={pending.data} />}
       <OpeningNotices agent={agent} />
-      {/* After the notices, which stay on a phone's first screen (see above). */}
-      <AgentReadinessPanel agentId={agent.id} slug={slug} />
       <LatestCalls
         recent={recent}
         allHref={href(`/c/${slug}/calls?agent_id=${agent.id}`)}
@@ -263,14 +262,12 @@ function SetupChecklist({
     id: "live",
     label: "Switch it on",
     state: working ? "done" : "todo",
-    detail: onTrial
-      ? working
-        ? "On for test calls from our shared trial number."
-        : "Use the Taking calls switch at the top of this page. On your free trial it gets the agent ready for test calls."
-      : working
-        ? undefined
+    // Once it is working, the header says how and offers the test call on a trial.
+    detail: working
+      ? undefined
+      : onTrial
+        ? "Use the Taking calls switch at the top of this page. On your free trial it gets the agent ready for test calls."
         : "Use the Taking calls switch at the top of this page.",
-    ...(onTrial && working ? { link: { href: href(`/c/${slug}`), label: "Make a test call" } } : {}),
     ...(scriptDone === false && !working
       ? { disabledReason: "An agent with no script cannot be switched on." }
       : agreementsOutstanding && !working
