@@ -95,6 +95,11 @@ def _function(source: str, tree: ast.AST, name: str) -> tuple[ast.FunctionDef | 
 #: below re-derives whether it is really data-only rather than trusting the listing — an
 #: exemption that took the author's word for it would be a hole with a comment over it.
 DATA_ONLY_REPAIRS: dict[str, str] = {
+    "cdd375802099": (
+        "re-runs a7d3e9c2f416's first_runs.jobs backfill that FORCE-RLS swallowed; no DDL "
+        "beyond the RLS bracket, the predicate is false once applied, and a7d3e9c2f416's "
+        "own downgrade writes `job` back from `jobs` before dropping the column"
+    ),
     "b7e35c2f81da": (
         "re-runs three backfills that FORCE-RLS swallowed; no DDL, every statement "
         "idempotent, and the disclosure column's reversal is not expressible"
