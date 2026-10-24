@@ -93,7 +93,7 @@ describe("marking a call (a person's mark, apart from the outcome)", () => {
       }),
     );
     await openMenuItem(/Mark this call/);
-    fireEvent.click(within(await screen.findByRole("dialog", { name: /Mark the call/ })).getByRole("button", { name: /^Done/ }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Mark this call" })).getByRole("button", { name: /^Done/ }));
     await waitFor(() => expect(calls.some((c) => c.method === "PUT" && c.path === "/v1/calls/c1/follow-up")).toBe(true));
     const first = calls.find((c) => c.method === "PUT");
     expect(JSON.parse(first?.body ?? "{}")).toEqual({ state: "resolved" });
@@ -118,7 +118,7 @@ describe("marking a call (a person's mark, apart from the outcome)", () => {
       }),
     );
     await openMenuItem(/Mark this call/);
-    const dialog = await screen.findByRole("dialog", { name: /Mark the call/ });
+    const dialog = await screen.findByRole("dialog", { name: "Mark this call" });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Needs you/ }));
     expect(await screen.findByText("A colleague changed this first")).toBeTruthy();
   });
@@ -153,7 +153,7 @@ describe("the actions that reach a person", () => {
       }),
     );
     await openMenuItem(/Call back later/);
-    const dialog = await screen.findByRole("dialog", { name: /Call Ramesh Kumar back later/ });
+    const dialog = await screen.findByRole("dialog", { name: "Call back later" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Book the call back" }));
     expect(await within(dialog).findByText("This person asked not to be called.")).toBeTruthy();
     expect(within(dialog).queryByText(/dnc_tenant/)).toBeNull();

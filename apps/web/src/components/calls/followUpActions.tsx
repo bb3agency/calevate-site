@@ -579,11 +579,14 @@ function MarkDialog({
       }));
   return (
     <ModalDialog
-      title={isCall ? `Mark the call with ${target.name}` : `Mark ${target.name}`}
+      title={isCall ? "Mark this call" : "Mark this lead"}
       description={
-        isCall
-          ? "A mark is for your team. It does not change how the call ended."
-          : "Choose where this lead stands. You can undo it straight after."
+        <>
+          <span className="block break-words font-medium text-ink">{target.name}</span>
+          {isCall
+            ? "A mark is for your team. It does not change how the call ended."
+            : "Choose where this lead stands. You can undo it straight after."}
+        </>
       }
       onClose={onClose}
       actions={
@@ -652,8 +655,13 @@ function LaterDialog({
 
   return (
     <ModalDialog
-      title={`Call ${target.name} back later`}
-      description="Your agent rings them at the time you choose, between 9am and 9pm India time, within the next 30 days."
+      title="Call back later"
+      description={
+        <>
+          <span className="block break-words font-medium text-ink">{target.name}</span>
+          Your agent rings them at the time you choose, between 9am and 9pm India time, within the next 30 days.
+        </>
+      }
       onClose={onClose}
       actions={
         <>
@@ -829,8 +837,13 @@ function WhatsAppDialog({
 
   return (
     <ModalDialog
-      title={`Send ${target.name} a WhatsApp follow-up`}
-      description="Only your approved messages can be sent, from your own WhatsApp number."
+      title="Send a WhatsApp follow-up"
+      description={
+        <>
+          <span className="block break-words font-medium text-ink">{target.name}</span>
+          Only your approved messages can be sent, from your own WhatsApp number.
+        </>
+      }
       onClose={onClose}
       actions={
         <>
