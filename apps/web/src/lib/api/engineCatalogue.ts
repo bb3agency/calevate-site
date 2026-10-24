@@ -25,17 +25,18 @@ export const ENGINE_CATALOGUE_PATH = "/v1/agents/engine-catalogue";
  * With `agentId`, the list also carries that agent's own voice when it is no longer on offer
  * (`standing` `kept` or `unavailable`, D-880), so its picker shows the voice it speaks.
  */
-function catalogueOptions(session: Session, audienceKey: string, agentId?: string) {
+function catalogueOptions(session: Session, audienceKey: string, agentId?: string, enabled = true) {
   const path = agentId
     ? `${ENGINE_CATALOGUE_PATH}?agent_id=${encodeURIComponent(agentId)}`
     : ENGINE_CATALOGUE_PATH;
   return {
     // Keyed by audience as well as path: the refusal sentences differ by realm.
-    queryKey: agentId ? (["engine-catalogue", audienceKey, agentId] as const) : (["engine-catalogue", audienceKey] as const),
+    queryKey: ["engine-catalogue", audienceKey, agentId ?? "all"] as const,
     queryFn: () => apiRequest<EngineCatalogue>(session, path),
     // A live read of the platform's list and of the attested rates; five minutes is fresh
     // enough for a picker and spares the platform a request on every render.
     staleTime: 5 * 60_000,
+    enabled,
   };
 }
 
@@ -68,7 +69,7 @@ export function useHeldVoice(
   const missing = Boolean(
     agentId && voiceId && catalogue?.available && !catalogue.voices.some((entry) => entry.voice_id === voiceId),
   );
-  const read = useQuery({ ...catalogueOptions(session, audienceKey, agentId), enabled: missing });
+  const read = useQuery(catalogueOptions(session, audienceKey, agentId, missing));
   if (!missing) return null;
   return read.data?.voices.find((entry) => entry.voice_id === voiceId && entry.standing !== "offered") ?? null;
 }

@@ -358,7 +358,7 @@ export const HOSTED_STATE: Record<string, { label: string; meaning: string }> = 
   },
   archived: {
     label: "Archived",
-    meaning: "Not offered, and kept out of the list. Only a voice no agent uses can be archived.",
+    meaning: "Not offered, and kept out of the list. An agent still on it keeps speaking it until moved.",
   },
 };
 
