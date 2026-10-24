@@ -78,6 +78,12 @@
     "re_budget_refused": [
       "capture_miss"
     ],
+    "re_budget_spoken_range_one_two_crores": [
+      "capture_miss"
+    ],
+    "re_budget_spoken_range_telugu_okati_rendu_kotlu": [
+      "capture_miss"
+    ],
     "re_budget_stated_in_dollars": [
       "capture_miss"
     ],

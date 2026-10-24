@@ -187,10 +187,18 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "key": "budget_lakhs",
             "label": "Budget (lakhs)",
             "type": "number",
+            # Spoken Indian budgets run two numbers into one unit ("one two crores") to
+            # mean a range; with only a decimal example the model read that as 1.2 crore
+            # and saved 120 for a 1-2 crore buyer (production call, 24 Oct 2026). So the
+            # range and decimal forms are both spelled out, in English and Telugu.
+            # Migration b3d7e2a9c461 refreshes agents still carrying the previous wording.
             "reason": (
-                "Budget in LAKHS of rupees: '50 lakhs' is 50, '1.2 crore' is 120. "
-                "Never rupees, never a range — take the upper figure the caller "
-                "states, and leave it empty if they state none."
+                "Budget in LAKHS of rupees: '50 lakhs' is 50, '2 crore' is 200. Two "
+                "numbers before one unit are a range, never a decimal: 'one two crores', "
+                "'ఒకటి రెండు కోట్లు' and '1-2 crore' mean one to two crore, so 200; 'two "
+                "three lakhs' is 3. A decimal needs a point or a half: 'one point two "
+                "crore' or '1.2 crore' is 120, 'ఒకటిన్నర కోటి' is 150. Never rupees; take "
+                "the upper figure of a range; leave it empty if they state none."
             ),
             "required": True,
         },
@@ -249,7 +257,13 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "key": "sum_assured",
             "label": "Sum assured",
             "type": "number",
-            "reason": "Cover amount in lakhs",
+            # The same spoken-range rule as `budget_lakhs` (D-881).
+            "reason": (
+                "Cover amount in LAKHS of rupees: '5 lakhs' is 5, '1 crore' is 100. Two "
+                "numbers before one unit are a range, take the upper figure: 'ten fifteen "
+                "lakhs' or 'పది పదిహేను లక్షలు' is 15. A decimal needs a point or a half: "
+                "'1.5 crore' is 150. Never rupees; leave it empty if they state none."
+            ),
             "required": False,
         },
         {

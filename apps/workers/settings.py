@@ -175,6 +175,7 @@ from apps.workers.extraction_reread import (
     reread_call_extraction,
     sweep_failed_extractions,
 )
+from apps.workers.field_reason_refresh import refresh_field_reason
 from apps.workers.first_run import (
     build_first_agent,
     hear_first_run_recording,
@@ -348,6 +349,9 @@ FUNCTIONS: list[Any] = [
         # suggestion where nobody chose a type (D-722), from the outbox
         # (`admin/business_type.queue_apply`, migration d7a3c91e5b20).
         apply_business_type,
+        # A standard field's improved wording onto agents still carrying the old one word
+        # for word (D-881), from the outbox (migration b3d7e2a9c461).
+        refresh_field_reason,
         # Test conversations against the agent and the auto-improve proposal that follows
         # a run with failures (D-724), from the outbox (`agents/test_conversations`).
         improve_agent_test_run,
