@@ -380,9 +380,29 @@ class AgentCallHandling:
 
 
 @dataclass(frozen=True, slots=True)
+class AgentOwnSettings:
+    """An agent holding a value of its own for at least one setting, which the account
+    default therefore does not reach."""
+
+    agent_id: UUID
+    name: str
+    own: CallSettings
+
+
+#: The agents with values of their own read beside the account defaults, at most this many:
+#: a ceiling against a pathological roster, not a product limit. `agents_with_own_total`
+#: still counts every one, so a screen can say how many it is not listing.
+AGENTS_WITH_OWN_MAX: Final = 50
+
+
+@dataclass(frozen=True, slots=True)
 class OrganizationCallHandling:
     own: CallSettings
     resolved: ResolvedSettings
+    #: Who does not follow these defaults. Without it a screen of account defaults reads
+    #: "Background sound: Off" while an agent that set its own plays an office on every call.
+    agents_with_own: tuple[AgentOwnSettings, ...] = ()
+    agents_with_own_total: int = 0
 
     @property
     def turn_silence_ms(self) -> int | None:
@@ -414,6 +434,13 @@ _ORG_ROW: Final = (
     "SELECT " + ", ".join(ORG_SETTING_FIELDS) + " FROM organizations WHERE deleted_at IS NULL"
 )
 _ORG_ROW_FOR_UPDATE: Final = _ORG_ROW + " FOR UPDATE"
+_AGENTS_WITH_OWN: Final = (
+    "SELECT id, name, "
+    + ", ".join(SETTING_FIELDS)
+    + ", count(*) OVER () FROM agents WHERE deleted_at IS NULL AND ("
+    + " OR ".join(f"{f} IS NOT NULL" for f in SETTING_FIELDS)
+    + ") ORDER BY lower(name), id LIMIT :limit"
+)
 _AGENT_FOR_UPDATE: Final = (
     "SELECT "
     + ", ".join((*SETTING_FIELDS, *AGENT_ONLY_FIELDS))
@@ -584,15 +611,28 @@ async def set_agent_call_handling(
     return await read_agent_call_handling(session, agent_id), moved
 
 
-def _org_state(own: CallSettings) -> OrganizationCallHandling:
-    return OrganizationCallHandling(own=own, resolved=resolve_settings(CallSettings(), own))
-
-
 async def read_organization_call_handling(session: AsyncSession) -> OrganizationCallHandling:
+    """The account's defaults and the agents that override any of them; RLS scopes both
+    reads to the session's tenant."""
     row = (await session.execute(text(_ORG_ROW))).first()
     if row is None:
         raise ProblemError.not_found("Organization")
-    return _org_state(settings_from_row(tuple(row)))
+    own = settings_from_row(tuple(row))
+    width = len(SETTING_FIELDS)
+    agents = (await session.execute(text(_AGENTS_WITH_OWN), {"limit": AGENTS_WITH_OWN_MAX})).all()
+    return OrganizationCallHandling(
+        own=own,
+        resolved=resolve_settings(CallSettings(), own),
+        agents_with_own=tuple(
+            AgentOwnSettings(
+                agent_id=UUID(str(r[0])),
+                name=str(r[1]),
+                own=settings_from_row(tuple(r)[2 : 2 + width]),
+            )
+            for r in agents
+        ),
+        agents_with_own_total=int(agents[0][2 + width]) if agents else 0,
+    )
 
 
 _LIVE_AGENT: Final = (
@@ -639,6 +679,7 @@ async def set_organization_call_handling(
 
 
 __all__ = [
+    "AGENTS_WITH_OWN_MAX",
     "AGENT_FIELDS",
     "AGENT_ONLY_FIELDS",
     "AGENT_SETTING_COLUMNS",
@@ -656,6 +697,7 @@ __all__ = [
     "TURN_SILENCE_MAX_MS",
     "TURN_SILENCE_MIN_MS",
     "AgentCallHandling",
+    "AgentOwnSettings",
     "CallSettings",
     "EndCallOnFinish",
     "OrganizationCallHandling",

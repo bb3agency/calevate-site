@@ -490,3 +490,68 @@ async def test_an_operator_reads_and_sets_both_levels() -> None:
             f"/v1/admin/tenants/{uuid.uuid4()}/agents/{agent_id}/call-handling", headers=headers
         )
         assert missing.status_code == 404
+
+
+async def test_the_account_read_names_the_agents_that_override_it() -> None:
+    tenant_id, agent_id, headers = await _tenant()
+    _other_tenant, other_agent, other_headers = await _tenant()
+    operator = await _operator()
+    async with _client() as client:
+        before = (await client.get("/v1/organization/call-handling", headers=headers)).json()
+        assert before["agents_with_own"] == []
+        assert before["agents_with_own_total"] == 0
+
+        own = await client.patch(
+            f"/v1/agents/{agent_id}/call-handling",
+            headers=headers,
+            json={"ambience": "office", "ambience_volume_pct": 15},
+        )
+        assert own.status_code == 200, own.text
+        other = await client.patch(
+            f"/v1/agents/{other_agent}/call-handling",
+            headers=other_headers,
+            json={"turn_silence_ms": 700},
+        )
+        assert other.status_code == 200, other.text
+
+        for read in (
+            await client.get("/v1/organization/call-handling", headers=headers),
+            await client.get(
+                f"/v1/admin/organizations/{tenant_id}/call-handling", headers=operator
+            ),
+        ):
+            assert read.status_code == 200, read.text
+            got = read.json()
+            assert got["ambience"] is None
+            assert got["ambience_effective"] == "off"
+            assert got["agents_with_own_total"] == 1
+            (listed,) = got["agents_with_own"]
+            assert listed["agent_id"] == str(agent_id)
+            assert listed["ambience"] == "office"
+            assert listed["ambience_volume_pct"] == 15
+            # The other client's agent set a pause; it never reaches this account's list.
+            assert listed["turn_silence_ms"] is None
+
+        # Following the default again takes the agent off the list.
+        await client.patch(
+            f"/v1/agents/{agent_id}/call-handling",
+            headers=headers,
+            json={"ambience": None, "ambience_volume_pct": None},
+        )
+        after = (await client.get("/v1/organization/call-handling", headers=headers)).json()
+        assert after["agents_with_own"] == []
+
+
+async def test_a_deleted_agent_is_not_named_as_overriding() -> None:
+    tenant_id, agent_id, headers = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE agents SET end_call_on_finish = false, deleted_at = now() WHERE id = :aid"
+            ),
+            {"aid": agent_id},
+        )
+    async with _client() as client:
+        got = (await client.get("/v1/organization/call-handling", headers=headers)).json()
+    assert got["agents_with_own"] == []
+    assert got["agents_with_own_total"] == 0

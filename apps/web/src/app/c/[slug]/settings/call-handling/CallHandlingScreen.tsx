@@ -14,6 +14,7 @@ import { CallHandlingDefaultsRows } from "@/components/callHandlingDefaults";
 import { PageHeader } from "@/components/console/pageHeader";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import {
+  agentOverridesSummary,
   ambienceSummary,
   fillerSummary,
   pauseLabel,
@@ -22,12 +23,12 @@ import {
   useSetOrganizationCallHandling,
 } from "@/lib/api/callHandling";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
 export function CallHandlingScreen() {
-  const session = useClientSession();
+  const { session, href } = useClientRealm();
   const state = useOrganizationCallHandling(session);
   const save = useSetOrganizationCallHandling(session);
   // The row that saved shows pending and the error face on its save bar, with the refusal
@@ -75,6 +76,11 @@ export function CallHandlingScreen() {
               state.data.ambience_volume_pct_effective,
             ),
           },
+          {
+            key: "agents_with_own",
+            label: "Agents that do not follow these defaults, and what they use instead",
+            value: agentOverridesSummary(state.data),
+          },
         ]
       : [
           {
@@ -95,7 +101,14 @@ export function CallHandlingScreen() {
       ) : !data ? null : (
         <>
           <RestrictionNote reason={write.allowed ? null : write.reason} />
-          <CallHandlingDefaultsRows data={data} save={save} status={feedback.status} canChange={write.allowed} />
+          <CallHandlingDefaultsRows
+            data={data}
+            save={save}
+            status={feedback.status}
+            canChange={write.allowed}
+            // Call handling is the first thing on an agent's Settings.
+            agentHref={(agentId) => href(`/c/${session.orgSlug}/agents/${agentId}?section=settings`)}
+          />
         </>
       )}
     </div>

@@ -130,7 +130,8 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             by=(
                 "filler lines capped at `agents.models.FILLER_LINES_MAX` by the writer and "
                 "a CHECK on `cardinality`; the sound choices are `agents.models.AMBIENCES`, "
-                "three values declared in code."
+                "three values declared in code; the account read's agents with their own "
+                "values are read with `LIMIT` `agents/call_handling.AGENTS_WITH_OWN_MAX`."
             )
         )
         for key in (

@@ -34,6 +34,7 @@ export type AgentCallHandling = Schemas["AgentCallHandlingOut"];
 export type AgentCallHandlingIn = Schemas["AgentCallHandlingIn"];
 export type OrganizationCallHandling = Schemas["OrganizationCallHandlingOut"];
 export type OrganizationCallHandlingIn = Schemas["OrganizationCallHandlingIn"];
+export type AgentOwnCallHandling = Schemas["AgentOwnCallHandlingOut"];
 export type CallHandlingSource = AgentCallHandling["turn_silence_source"];
 
 export const ORGANIZATION_CALL_HANDLING_PATH = "/v1/organization/call-handling";
@@ -208,6 +209,8 @@ export function useSetAgentCallHandling(
       }),
     onSuccess: (data) => {
       client.setQueryData(callHandlingKeys.agent(session.orgSlug, agentId), data);
+      // The account read lists the agents with values of their own.
+      return client.invalidateQueries({ queryKey: callHandlingKeys.organization(session.orgSlug) });
     },
   });
 }
@@ -271,6 +274,11 @@ export function useAdminSetAgentCallHandling({
       ),
     onSuccess: (data) => {
       client.setQueryData(callHandlingKeys.agent(slug, agentId), data);
+      // The account read lists the agents with values of their own.
+      return Promise.all([
+        client.invalidateQueries({ queryKey: adminOrganizationKey(tenantId) }),
+        client.invalidateQueries({ queryKey: callHandlingKeys.organization(slug) }),
+      ]);
     },
   });
 }
@@ -337,6 +345,91 @@ export function platformVoice(bounds: CallHandlingBounds): InheritedVoice {
       ambience_volume_pct: OURS,
     },
   };
+}
+
+/** One row of the account defaults, as `CallHandlingDefaultsRows` lays them out. */
+export type DefaultsRow = "pause" | "hang-up" | "silence" | "filler" | "sound";
+
+/** An agent that does not follow one account default, and what it uses instead. */
+export interface AgentOverride {
+  agentId: string;
+  name: string;
+  /** The agent's value in force for that row, in the row's own words ("Office at 15%"). */
+  value: string;
+}
+
+/**
+ * Per row of the account defaults, the agents that set their own value for it and what they
+ * use. A part the agent left unset (say, the volume but not the sound) follows the account,
+ * so it is filled from the account's value in force, as the server resolves it.
+ */
+export function agentOverrides(data: OrganizationCallHandling): Record<DefaultsRow, AgentOverride[]> {
+  const rows: Record<DefaultsRow, AgentOverride[]> = {
+    pause: [],
+    "hang-up": [],
+    silence: [],
+    filler: [],
+    sound: [],
+  };
+  for (const agent of data.agents_with_own) {
+    const add = (row: DefaultsRow, value: string) =>
+      rows[row].push({ agentId: agent.agent_id, name: agent.name, value });
+    if (agent.turn_silence_ms !== null) add("pause", pauseLabel(agent.turn_silence_ms));
+    if (agent.end_call_on_finish !== null) add("hang-up", agent.end_call_on_finish ? "On" : "Off");
+    if (
+      agent.nudge_after_seconds !== null ||
+      agent.nudge_count !== null ||
+      agent.nudge_phrase !== null ||
+      agent.end_after_silence_seconds !== null
+    ) {
+      const summary = silenceSummary(
+        agent.nudge_after_seconds ?? data.nudge_after_seconds_effective,
+        agent.nudge_count ?? data.nudge_count_effective,
+        agent.end_after_silence_seconds ?? data.end_after_silence_seconds_effective,
+      );
+      // The summary names no question, so an agent that differs only in its words says so.
+      add("silence", agent.nudge_phrase ? `${summary} · its own question` : summary);
+    }
+    if (agent.filler_lines !== null) add("filler", fillerSummary(agent.filler_lines));
+    if (agent.ambience !== null || agent.ambience_volume_pct !== null) {
+      add(
+        "sound",
+        ambienceSummary(
+          agent.ambience ?? data.ambience_effective,
+          agent.ambience_volume_pct ?? data.ambience_volume_pct_effective,
+        ),
+      );
+    }
+  }
+  return rows;
+}
+
+const DEFAULTS_ROW_NAMES: Record<DefaultsRow, string> = {
+  pause: "pause before replying",
+  "hang-up": "hang up when finished",
+  silence: "if the caller goes quiet",
+  filler: "lines while looking something up",
+  sound: "background sound",
+};
+
+/** For the assistant: "Anjali (background sound: Office at 15%)", or that every agent follows. */
+export function agentOverridesSummary(data: OrganizationCallHandling): string {
+  if (data.agents_with_own_total === 0) return "none; every agent follows these defaults";
+  const rows = agentOverrides(data);
+  // By id: two agents may share a name.
+  const byAgent = new Map<string, { name: string; parts: string[] }>();
+  for (const [row, agents] of Object.entries(rows) as [DefaultsRow, AgentOverride[]][]) {
+    for (const agent of agents) {
+      const entry = byAgent.get(agent.agentId) ?? { name: agent.name, parts: [] };
+      entry.parts.push(`${DEFAULTS_ROW_NAMES[row]}: ${agent.value}`);
+      byAgent.set(agent.agentId, entry);
+    }
+  }
+  const listed = [...byAgent.values()]
+    .map(({ name, parts }) => `${name} (${parts.join("; ")})`)
+    .join(", ");
+  const unlisted = data.agents_with_own_total - data.agents_with_own.length;
+  return unlisted > 0 ? `${listed}, and ${unlisted} more not listed` : listed;
 }
 
 /** One hint for a row whose values may come from different levels. */

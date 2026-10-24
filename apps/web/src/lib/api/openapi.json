@@ -3349,6 +3349,143 @@
         "title": "AgentOut",
         "type": "object"
       },
+      "AgentOwnCallHandlingOut": {
+        "additionalProperties": false,
+        "description": "One agent's own values (`null`: it follows the account default for that setting).",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "ambience": {
+            "anyOf": [
+              {
+                "enum": [
+                  "off",
+                  "office",
+                  "office-quiet"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience"
+          },
+          "ambience_volume_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience Volume Pct"
+          },
+          "end_after_silence_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End After Silence Seconds"
+          },
+          "end_call_on_finish": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Call On Finish"
+          },
+          "filler_lines": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filler Lines"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "nudge_after_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge After Seconds"
+          },
+          "nudge_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge Count"
+          },
+          "nudge_phrase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge Phrase"
+          },
+          "turn_silence_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Silence Ms"
+          }
+        },
+        "required": [
+          "agent_id",
+          "name",
+          "turn_silence_ms",
+          "end_call_on_finish",
+          "nudge_after_seconds",
+          "nudge_count",
+          "nudge_phrase",
+          "end_after_silence_seconds",
+          "filler_lines",
+          "ambience",
+          "ambience_volume_pct"
+        ],
+        "title": "AgentOwnCallHandlingOut",
+        "type": "object"
+      },
       "AgentReadinessOut": {
         "additionalProperties": false,
         "properties": {
@@ -30935,6 +31072,17 @@
       "OrganizationCallHandlingOut": {
         "additionalProperties": false,
         "properties": {
+          "agents_with_own": {
+            "items": {
+              "$ref": "#/components/schemas/AgentOwnCallHandlingOut"
+            },
+            "title": "Agents With Own",
+            "type": "array"
+          },
+          "agents_with_own_total": {
+            "title": "Agents With Own Total",
+            "type": "integer"
+          },
           "ambience": {
             "anyOf": [
               {
@@ -31109,6 +31257,8 @@
           "ambience_effective",
           "ambience_volume_pct",
           "ambience_volume_pct_effective",
+          "agents_with_own",
+          "agents_with_own_total",
           "bounds"
         ],
         "title": "OrganizationCallHandlingOut",

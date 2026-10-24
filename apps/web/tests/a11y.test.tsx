@@ -3563,6 +3563,8 @@ const CLIENT_SCREENS: Screen[] = [
         end_call_on_finish_effective: false,
         ...VOICE_OWN_NONE,
         ...VOICE_EFFECTIVE_DEFAULTS,
+        agents_with_own: [],
+        agents_with_own_total: 0,
         bounds: CALL_HANDLING_BOUNDS,
       },
     },
@@ -5119,8 +5121,8 @@ const ADMIN_SCREENS: Screen[] = [
     },
   },
   {
-    // A client with a pause of its own beside rows on Calevate's defaults, so both hints
-    // and every row's markup are scanned.
+    // A client with a pause of its own beside rows on Calevate's defaults, and an agent with
+    // its own background sound, so both hints, the agent link and every row are scanned.
     file: "admin/tenants/[tenantId]/call-handling/page.tsx",
     realm: "admin",
     element: () => <TenantCallHandlingPage params={tenant} />,
@@ -5133,6 +5135,18 @@ const ADMIN_SCREENS: Screen[] = [
         end_call_on_finish_effective: true,
         ...VOICE_OWN_NONE,
         ...VOICE_EFFECTIVE_DEFAULTS,
+        agents_with_own: [
+          {
+            agent_id: "agent-1",
+            name: "Anjali",
+            turn_silence_ms: null,
+            end_call_on_finish: null,
+            ...VOICE_OWN_NONE,
+            ambience: "office",
+            ambience_volume_pct: 15,
+          },
+        ],
+        agents_with_own_total: 1,
         bounds: CALL_HANDLING_BOUNDS,
       },
     },

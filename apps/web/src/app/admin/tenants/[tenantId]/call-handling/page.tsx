@@ -17,6 +17,7 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import { useTenant } from "@/lib/api/admin";
 import {
+  agentOverridesSummary,
   ambienceSummary,
   fillerSummary,
   pauseLabel,
@@ -83,6 +84,11 @@ export default function TenantCallHandlingPage({
               label: "Background sound on calls",
               value: ambienceSummary(data.ambience_effective, data.ambience_volume_pct_effective),
             },
+            {
+              key: "agents_with_own",
+              label: "Agents that do not follow these defaults, and what they use instead",
+              value: agentOverridesSummary(data),
+            },
           ]
         : [
             {
@@ -116,6 +122,7 @@ export default function TenantCallHandlingPage({
             canChange={write.allowed}
             idPrefix={`tenant-${tenantId}`}
             ownLabel="This client's default"
+            agentHref={(agentId) => `/admin/tenants/${tenantId}/agents/${agentId}/prompt?section=limits`}
           />
         </>
       )}

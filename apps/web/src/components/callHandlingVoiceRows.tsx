@@ -16,7 +16,7 @@
  */
 
 import type { UseMutationResult } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import {
   CALL_HANDLING_EDITOR,
@@ -50,8 +50,9 @@ import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 interface Common {
   idPrefix: string;
-  /** "Set for this agent", "Your organisation default", "Calevate default", or mixed. */
-  hint: string;
+  /** "Set for this agent", "Your organisation default", "Calevate default", or mixed; on an
+   * account default, also the agents that do not follow it. */
+  hint: ReactNode;
   bounds: CallHandlingBounds;
   /** What "use the default" resolves to, and whose default it is. */
   inherited: InheritedVoice;

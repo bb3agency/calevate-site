@@ -59,7 +59,23 @@ function organization(over: Partial<OrganizationCallHandling> = {}): Organizatio
     end_call_on_finish_effective: true,
     ...VOICE_OWN_NONE,
     ...VOICE_EFFECTIVE_DEFAULTS,
+    agents_with_own: [],
+    agents_with_own_total: 0,
     bounds: BOUNDS,
+    ...over,
+  };
+}
+
+/** An agent in the account read that set some values of its own. */
+function ownAgent(
+  over: Partial<OrganizationCallHandling["agents_with_own"][number]> = {},
+): OrganizationCallHandling["agents_with_own"][number] {
+  return {
+    agent_id: "agent-1",
+    name: "Anjali",
+    turn_silence_ms: null,
+    end_call_on_finish: null,
+    ...VOICE_OWN_NONE,
     ...over,
   };
 }
@@ -117,6 +133,44 @@ describe("organisation call handling", () => {
     expect(screen.getAllByText("Calevate default")).toHaveLength(5);
     expect(screen.getByText("On")).toBeTruthy();
     expect(container.textContent).not.toMatch(/thinnest/i);
+  });
+
+  it("names, under each default, the agents that use their own value and links to each", async () => {
+    const { container } = await renderClientPage(<ClientCallHandlingPage />, {
+      "/v1/me": OWNER,
+      [ORG_PATH]: organization({
+        agents_with_own: [
+          ownAgent({ ambience: "office", ambience_volume_pct: 15 }),
+          ownAgent({ agent_id: "agent-2", name: "Ravi", ambience_volume_pct: 40, turn_silence_ms: 700 }),
+        ],
+        agents_with_own_total: 2,
+      }),
+    });
+    await screen.findByText("Quick (0.25 s)");
+    // The default stays the default; the agents that do not follow it are named beside it.
+    expect(screen.getAllByText("Calevate default")).toHaveLength(5);
+    const anjali = screen.getByRole("link", { name: "Anjali" });
+    expect(anjali.getAttribute("href")).toBe("/c/acme/agents/agent-1?section=settings");
+    expect(anjali.parentElement?.textContent).toBe("Anjali uses its own: Office at 15%");
+    // Ravi set only the volume, so its sound is the account's ("Off").
+    const ravi = screen.getAllByRole("link", { name: "Ravi" });
+    expect(ravi.map((link) => link.parentElement?.textContent)).toEqual([
+      "Ravi uses its own: Unhurried (0.7 s)",
+      "Ravi uses its own: Off",
+    ]);
+    expect(container.textContent).not.toMatch(/more agents? ha(s|ve) settings/);
+  });
+
+  it("says how many agents with their own values it does not list", async () => {
+    await renderClientPage(<ClientCallHandlingPage />, {
+      "/v1/me": OWNER,
+      [ORG_PATH]: organization({
+        agents_with_own: [ownAgent({ turn_silence_ms: 700 })],
+        agents_with_own_total: 3,
+      }),
+    });
+    await screen.findByText("Anjali");
+    expect(screen.getByText(/2 more agents have settings of their own that are not listed here/)).toBeTruthy();
   });
 
   it("says the pause is the quiet before the agent decides the caller has finished", async () => {
@@ -278,11 +332,9 @@ describe("one agent's call handling", () => {
       [`PATCH ${AGENT_PATH}`]: agent({ opening_waits_for_caller: true }),
     });
     await screen.findByText("Wait for them to say hello");
-    expect(
-      screen.getByText(
-        "Your agent speaks right after the person who picks up says hello, or after four seconds if they stay silent.",
-      ),
-    ).toBeTruthy();
+    // Off, the row's line says what off does, never what on would.
+    expect(screen.getByText("Your agent speaks as soon as the call connects.")).toBeTruthy();
+    expect(screen.queryByText(/Your agent speaks right after the person who picks up/)).toBeNull();
     const changes = screen.getAllByRole("button", { name: "Change" });
     await act(async () => {
       fireEvent.click(changes[2]);
@@ -309,6 +361,7 @@ describe("one agent's call handling", () => {
       [AGENT_PATH]: agent({ opening_waits_for_caller: true }),
     });
     await screen.findByText("Wait for them to say hello");
+    expect(screen.getByText(/Your agent speaks right after the person who picks up/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
   });
 });
@@ -516,6 +569,21 @@ describe("a client's call handling defaults, from the operator console", () => {
     expect(put?.path).toBe(ADMIN_PATH);
     expect(JSON.parse(put?.body ?? "{}")).toEqual({ turn_silence_ms: 700, end_call_on_finish: null });
     await screen.findByText("Unhurried (0.7 s)");
+  });
+
+  it("names the agent that plays its own sound while the client's default is off, linked to it", async () => {
+    await renderAdminRoute(<TenantCallHandlingPage params={routeParams({ tenantId: TENANT })} />, {
+      ...routes(["org:read", "admin:tenants"]),
+      [ADMIN_PATH]: organization({
+        agents_with_own: [ownAgent({ ambience: "office", ambience_volume_pct: 15 })],
+        agents_with_own_total: 1,
+      }),
+    });
+    const link = await screen.findByRole("link", { name: "Anjali" });
+    expect(link.getAttribute("href")).toBe(`/admin/tenants/${TENANT}/agents/agent-1/prompt?section=limits`);
+    expect(link.parentElement?.textContent).toBe("Anjali uses its own: Office at 15%");
+    // The opening wait is an agent's own setting: never offered as an account default.
+    expect(screen.queryByText("Wait for them to say hello")).toBeNull();
   });
 
   it("offers no change to an operator without the tenant permission", async () => {
