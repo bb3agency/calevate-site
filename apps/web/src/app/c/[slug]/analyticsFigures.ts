@@ -1,5 +1,6 @@
 import type { StatItem } from "@/components/arc/stats-band";
 import type { MetricDelta } from "@/components/console/metric";
+import { formatDateShort } from "@/components/arc/ist-dates";
 import { formatCount, formatDuration } from "@/components/ui";
 import type { Stats, StatsMetric } from "@/lib/api/analytics";
 
@@ -21,6 +22,11 @@ const HINTS: Partial<Record<MetricKey, string>> = {
   avg_duration_s: "Completed calls",
   talk_minutes: "Minutes spent talking on answered calls",
 };
+
+/** "24 Oct" from an IST calendar day "2026-10-24", read and never re-parsed as an instant. */
+export function istDayLabel(istDate: string): string {
+  return formatDateShort(istDate).replace(/ \d{4}$/, "");
+}
 
 /** The server's decimal string as the figure a reader sees; "—" when nothing was measured. */
 export function statValue(metric: StatsMetric): string {

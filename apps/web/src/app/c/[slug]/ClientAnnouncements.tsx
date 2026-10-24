@@ -2,6 +2,7 @@
 
 import { AnnouncementBar, type AnnouncementTone } from "@/components/arc/announcement-bar";
 import { useActionFeedback } from "@/components/arc/feedback";
+import { useToast } from "@/components/arc/toast";
 import { useAnnouncements, useDismissAnnouncement, type Announcement } from "@/lib/api/announcements";
 import { useClientRealm } from "@/lib/api/session";
 
@@ -30,7 +31,7 @@ export function consoleHref(
  * away for the whole account and the next one, if any, takes its place.
  *
  * An operator viewing the account cannot dismiss for the client (the server refuses it), so
- * the strip offers no close button then. A failed read shows nothing: the strip is news,
+ * pressing close then says so in a note and sends nothing. A failed read shows nothing: the strip is news,
  * and the bell carries the same items with its own failure state.
  */
 export function ClientAnnouncements({ slug }: { slug: string }) {
@@ -38,6 +39,7 @@ export function ClientAnnouncements({ slug }: { slug: string }) {
   const announcements = useAnnouncements(session);
   const dismiss = useDismissAnnouncement(session);
   const feedback = useActionFeedback(dismiss, { errorTitle: "Could not dismiss the announcement" });
+  const toasts = useToast();
   const current = announcements.data?.items[0];
   if (!current) return null;
   const viewingAs = Boolean(session.impersonateOrg);
@@ -51,7 +53,16 @@ export function ClientAnnouncements({ slug }: { slug: string }) {
           ? { href: consoleHref(current.link_url, slug, href), label: current.link_label ?? "See details" }
           : undefined
       }
-      onDismiss={viewingAs ? undefined : () => feedback.run(current.id)}
+      onDismiss={
+        viewingAs
+          ? () =>
+              toasts.toast({
+                kind: "info",
+                title: "Only the account can dismiss this",
+                description: "You are viewing as this account, so the announcement stays for its people to read.",
+              })
+          : () => feedback.run(current.id)
+      }
       dismissLabel="Dismiss this announcement"
       dismissStatus={feedback.status}
     />

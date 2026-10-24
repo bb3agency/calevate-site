@@ -244,7 +244,7 @@ export function TrialChipView({
         <button
           type="button"
           aria-label={`Free trial: ${long}. Show details`}
-          className={`${BAR_STATUS} text-ink-muted hover:text-ink max-sm:px-1.5`}
+          className={`${BAR_STATUS} text-ink-muted hover:text-ink max-sm:gap-1 max-sm:px-1.5`}
         >
           <TrialMeter left={trialShareLeft(running.trial)} className="h-4 w-4" />
           <span className="sm:hidden">

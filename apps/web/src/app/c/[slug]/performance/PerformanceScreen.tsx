@@ -9,8 +9,8 @@ import {
   addDays,
   compareDates,
   daysBetween,
-  formatDateRange,
   formatDateShort,
+  formatDateRange,
   isISODate,
   todayIST,
 } from "@/components/arc/ist-dates";
@@ -39,7 +39,7 @@ import { useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
-import { statItems } from "../analyticsFigures";
+import { istDayLabel, statItems } from "../analyticsFigures";
 import { chartError } from "../ChartRetry";
 import {
   DURATIONS_NOTE,
@@ -95,6 +95,8 @@ export function PerformanceScreen() {
   const timeline = useActivityTimeline(session, { days: timelineDays, to: range.end, testCalls });
   const perfDays = Math.min(PERFORMANCE_MAX_DAYS, days);
   const perf = usePerformance(session, perfDays);
+  // A stretch with no calls at all is the chart's empty state, not a flat line to drag along.
+  const drawnDays = timeline.data && timeline.data.calls > 0 ? timeline.data.days : [];
 
   const refused = me.data !== undefined && !me.data.permissions.includes("calls:read");
   const rangeWords = formatDateRange(range.start, range.end);
@@ -207,16 +209,22 @@ export function PerformanceScreen() {
 
       <Section title="Activity over time" description="Calls each day. Drag the window below the chart to look closer.">
         <BrushChart
-          // A new range opens a new window; the brush does not carry a stale selection over.
-          key={`${range.end}:${timelineDays}:${days}`}
+          // A new range, or the data arriving, opens a new window on the chosen days; the
+          // brush keeps its selection in state from its first render.
+          key={`${range.end}:${timelineDays}:${days}:${drawnDays.length}`}
           title="Calls each day"
           description="India time"
           seriesLabel="Calls"
-          labels={timeline.data ? timeline.data.days.map((day) => formatDateShort(day.ist_date)) : []}
-          values={timeline.data ? timeline.data.days.map((day) => day.calls) : []}
+          // The year only when the stretch crosses one, where "24 Oct" would name two days.
+          labels={drawnDays.map((day) =>
+            drawnDays[0]?.ist_date.slice(0, 4) === drawnDays[drawnDays.length - 1]?.ist_date.slice(0, 4)
+              ? istDayLabel(day.ist_date)
+              : formatDateShort(day.ist_date),
+          )}
+          values={drawnDays.map((day) => day.calls)}
           defaultRange={
-            timeline.data && timeline.data.days.length > 1
-              ? [Math.max(0, timeline.data.days.length - days), timeline.data.days.length - 1]
+            drawnDays.length > 1
+              ? [Math.max(0, drawnDays.length - days), drawnDays.length - 1]
               : undefined
           }
           // Not arrived and not failed is still waiting (a paused query offline included), never "no calls".

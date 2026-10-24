@@ -83,7 +83,7 @@ export function CallingCreditTile({
         {minutesLeftPhrase(wallet.data) !== null ? (
           <span className="block text-body text-ink-muted">{formatINR(wallet.data.balance_inr)} in your account</span>
         ) : null}
-        <Link href={href} className="underline decoration-ink/30 underline-offset-2 hover:text-ink">
+        <Link href={href} className="underline decoration-ink/30 underline-offset-2 hover:text-ink touch:inline-flex touch:min-h-11 touch:items-center">
           {trial !== null
             ? trialHint(trial)
             : state === "stopped"

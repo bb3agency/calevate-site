@@ -1,8 +1,9 @@
 "use client";
 
 import { BarChart } from "@/components/arc/bar-chart";
-import { formatDateShort } from "@/components/arc/ist-dates";
 import type { Dashboard } from "@/lib/api/client";
+
+import { istDayLabel } from "./analyticsFigures";
 
 /**
  * Calls each day for the last 7 days, stacked by how they ended, from `daily_7d`.
@@ -29,7 +30,7 @@ export function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
       description="Last 7 days, India time"
       labelColumn="Day"
       // `ist_date` is already an IST calendar day; it is read, never re-parsed as an instant.
-      categories={days.map((day) => formatDateShort(day.ist_date).replace(/ \d{4}$/, ""))}
+      categories={days.map((day) => istDayLabel(day.ist_date))}
       series={shown.map((cls) => ({ label: cls.label, values: days.map((day) => day[cls.key]) }))}
       stacked
       height={180}

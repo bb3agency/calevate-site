@@ -47,9 +47,9 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
     // The header spans the window (its border and background are the shell's, not the
     // page's) while its CONTENTS ride the same rail as the content below — see
     // `SHELL_RAIL_CLASS`. Padding is unchanged and was never the defect.
-    <header className="sticky top-0 z-header flex h-[72px] shrink-0 items-center border-b border-line bg-surface px-4 lg:px-8">
-      <div className={`${SHELL_RAIL_CLASS} flex items-center justify-between gap-3`}>
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+    <header className="sticky top-0 z-header flex h-[72px] shrink-0 items-center border-b border-line bg-surface px-3 sm:px-4 lg:px-8">
+      <div className={`${SHELL_RAIL_CLASS} flex items-center justify-between gap-2 sm:gap-3`}>
+        <div className="flex min-w-0 items-center gap-1.5 sm:gap-3">
           <button
             type="button"
             onClick={onMenuToggle}
@@ -63,7 +63,7 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
           <h1 className="truncate text-heading text-ink sm:text-title">{title}</h1>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1 sm:gap-2 lg:gap-3">
+        <div className="flex shrink-0 items-center gap-0.5 sm:gap-2 lg:gap-3">
           {/* Calls in progress now, from the existing 20-second call poll. Renders
               nothing unless at least one call is live. */}
           <LiveCallsPill slug={slug} />

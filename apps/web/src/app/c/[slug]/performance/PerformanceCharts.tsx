@@ -22,7 +22,8 @@ export const OUTCOMES_NOTE =
 export const HEATMAP_NOTE =
   "Each square counts what started in that hour on that day of the week, Indian Standard Time.";
 export const DURATIONS_NOTE =
-  "Completed calls only. The tick on each row is the middle call: half were shorter, half longer.";
+  "Completed calls only. The tick on each row is the middle call: half were shorter, half longer. " +
+  "The right-hand edge holds every call that ran longer.";
 
 /** Said, rather than left for the reader to notice numbers moving under them. */
 export function Updating({ busy }: { busy: boolean }) {
