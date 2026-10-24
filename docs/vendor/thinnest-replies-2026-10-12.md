@@ -1817,3 +1817,54 @@ Asked:
 5. replacing a document in place (no update endpoint today);
 6. a webhook when a document finishes indexing or fails;
 7. reading back a document's indexed text or passages.
+
+## 32. Ashutosh's answer to §30, received 24 Oct 2026
+
+Founder-relayed email (VENDOR-STATED, 24 Oct 2026). Each answer was checked against the live
+docs the same day (VERIFIED-VENDOR-DOCS where noted). §31 (knowledge files) is still
+unanswered, so D-868 keeps waiting.
+
+1. **Calling hours (§30 q3).** ThinnestAI removed its platform-wide 09:00–21:00 limit; the
+   caller of the API now owns the hours.
+   - Per call: Place Call takes `callingHours` (`start`, `end` as `HH:MM`, `days` `mon`..`sun`,
+     `timezone`). Left out, "the call may ring at any hour of any day". With
+     `ifOutsideHours: "refuse"` the `409 outside_calling_hours` comes only when the call falls
+     outside hours WE set (it carries `nextOpening`); with `schedule` (the default) it is
+     queued for the next opening. An Indian number is "always read in India's time"; the
+     `timezone` field is used only for a number whose country cannot be placed.
+     VERIFIED-VENDOR-DOCS: docs.thinnest.ai/api-reference/calls/place-call, read 24 Oct 2026;
+     the page no longer states any 9am–9pm limit.
+   - Campaigns have their own calling window; their form starts on 09:00–21:00. He advises
+     keeping that for bulk and campaign calls.
+   - Callbacks and the owner's test calls: with no hours set, a callback rings at the time the
+     customer asked for, and a test call to the owner's own number rings at any hour.
+   - No field marks a callback; nothing treats callbacks differently. Hours are per call and
+     per campaign; there is no workspace-wide setting.
+   - Compliance: TRAI's rules limit promotional calls to daytime, and whoever places a call is
+     responsible for the rules that apply to it. ThinnestAI is updating its terms to say so,
+     and asks us to confirm with our own counsel which rules apply to each kind of call.
+
+   **What this changes on our side (D-872).** Our gate stays the one source of the window:
+   every dial it allows at 09:00–21:00 IST now also sends that window as `callingHours`, so
+   the vendor refuses the call too if a bug ever let one through at night (the vendor's own
+   check no longer does this for us). The owner's own-number test call (D-866) sends none and
+   now rings at any hour, which is what the D-866 tick promised. Widening requested
+   callbacks to 06:00–22:00 is NOT done: the vendor's answer puts the obligation on us, and
+   the §30 q3 condition stands (the TRAI direction or counsel's answer on whether a callback
+   the person asked for is a commercial communication).
+
+2. **Does the model see the opening (§30 q1)?** Yes. On outbound calls the line spoken first
+   (the call's `purpose`; the agent's greeting on inbound) is added to the history the model
+   reads, as the agent's own first turn, and stays there on every later turn. The repeated
+   greeting on the 23 Oct call had another cause: the customer's "Hello" arrived while the
+   opening was playing, was held, and was answered once the opening finished, so the agent
+   greeted again. Item 3 fixes that case; if it recurs, send him the call's time. Our
+   `_start_of_call_section` (D-864) quoting the opening stays: it costs a sentence and still
+   tells the model not to greet again.
+
+3. **Can the opening wait for the "Hello" (§30 q2)?** Added: `voice.openingWaitsForCaller`,
+   boolean, default `false`. On: the opening plays right after the person's first words, or
+   after four seconds of silence, and their "Hello" is not answered a second time. Phone calls
+   on a voice agent only; not used on a realtime model. Also on the agent's Playground page
+   under the opening line. VERIFIED-VENDOR-DOCS: docs.thinnest.ai/api-reference/agents/
+   update-agent, read 24 Oct 2026. Built as D-871.
