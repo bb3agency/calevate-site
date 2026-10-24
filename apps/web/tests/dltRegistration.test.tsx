@@ -1,7 +1,12 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import VerificationPage from "@/app/c/[slug]/verification/page";
+import { OWN_NUMBERS_PATHS } from "@/lib/api/ownNumbers";
+import { PLEDGE_PATH, type OutboundPledge } from "@/lib/api/verifyBusiness";
+
+import { OWNER_ME } from "./fixtures/sharedReads";
+
+import VerifyBusinessPage from "@/app/c/[slug]/verify-business/page";
 import {
   PE_REGISTRATION_PATH,
   type PeRegistration,
@@ -11,7 +16,7 @@ import { KYC_PATH, type KycRecord } from "@/lib/api/kyc";
 import { problem, renderClientPage } from "./harness";
 
 /**
- * The client's own DLT Principal Entity registration, on `/verification`.
+ * The client's own DLT Principal Entity registration, on Verify your business (D-875).
  *
  * `GET /v1/compliance/dlt-registration` shipped with no caller: the operator console could
  * WRITE a client's PE registration and the client could not READ it, while three of the
@@ -85,14 +90,26 @@ function registration(over: Partial<PeRegistration> = {}): PeRegistration {
   };
 }
 
+const PLEDGE_ACCEPTED: OutboundPledge = {
+  version: 1,
+  pledge_text: "We do not cold-call.",
+  text_sha256: "0".repeat(64),
+  is_current: true,
+  accepted_version: 1,
+  accepted_at: "2026-02-01T06:00:00Z",
+};
+
 function render(pe: unknown, kyc: unknown = KYC) {
-  return renderClientPage(<VerificationPage />, {
+  return renderClientPage(<VerifyBusinessPage />, {
+    "/v1/me": OWNER_ME,
+    [PLEDGE_PATH]: PLEDGE_ACCEPTED,
+    [OWN_NUMBERS_PATHS.status]: { available: false },
     [KYC_PATH]: kyc,
     [PE_REGISTRATION_PATH]: pe,
   });
 }
 
-describe("the client's DLT registration on /verification", () => {
+describe("the client's DLT registration on Verify your business", () => {
   it("reads the client-realm route, once, and prints what is on file", async () => {
     const { container, calls } = await render(registration());
 
@@ -130,7 +147,7 @@ describe("the client's DLT registration on /verification", () => {
     );
     // Inbound is unaffected and it is said, for the same reason the KYC half says it.
     // D-692: an inactive DLT registration no longer pauses outgoing calls.
-    expect(container.textContent).not.toContain("Calls coming IN are unaffected");
+    expect(container.textContent).not.toContain("Calls coming in are unaffected");
   });
 
   it("never renders an active verdict off the statuses alone", async () => {
@@ -201,7 +218,7 @@ describe("the client's DLT registration on /verification", () => {
       }),
     );
 
-    await screen.findByText("Verify your business");
+    await screen.findByText("Outgoing calls are open");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(container.textContent).not.toContain("DLT registration");
   });
@@ -228,15 +245,15 @@ describe("the client's DLT registration on /verification", () => {
   });
 
   it("offers no control to change either status", async () => {
-    // There is no client-realm write, and there should never be one. The only button this
-    // screen may ever grow is a retry on a refusal — so under a clean read, none.
-    const { container } = await render(
-      registration({ is_active: false, status: "suspended" }),
-    );
+    // There is no client-realm write, and there should never be one: the section has
+    // nothing to press under a clean read.
+    await render(registration({ is_active: false, status: "suspended" }));
 
     await screen.findByText("Your DLT registration is not active yet.");
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
-    expect(container.querySelectorAll("form")).toHaveLength(0);
+    const section = document.querySelector<HTMLElement>('section[aria-labelledby="dlt-heading"]');
+    expect(section).not.toBeNull();
+    expect(within(section as HTMLElement).queryAllByRole("button")).toHaveLength(0);
+    expect(section?.querySelectorAll("form, input")).toHaveLength(0);
   });
 
   it("prints an unnameable status verbatim rather than inventing a meaning", async () => {

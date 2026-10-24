@@ -107,7 +107,6 @@ import ClientCallHandlingPage from "@/app/c/[slug]/settings/call-handling/page";
 import TeamPage from "@/app/c/[slug]/settings/team/page";
 import BillingPage from "@/app/c/[slug]/billing/page";
 import AgreementsPage from "@/app/c/[slug]/agreements/page";
-import VerificationPage from "@/app/c/[slug]/verification/page";
 import VerifyBusinessPage from "@/app/c/[slug]/verify-business/page";
 import InvitePage from "@/app/invite/page";
 import OAuthCallbackPage from "@/app/oauth/callback/[provider]/page";
@@ -3661,15 +3660,15 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
-    file: "c/[slug]/verification/page.tsx",
+    file: "c/[slug]/verify-business/page.tsx",
     realm: "client",
-    element: () => <VerificationPage />,
+    element: () => <VerifyBusinessPage />,
     routes: {
       "/v1/me": ME,
-      "/v1/usage": USAGE,
-      "/v1/compliance/kyc": KYC_RECORD,
-      // The DLT half of the screen. Populated and NOT active, so both status rows and the
-      // "what is on file" list render — the state with the most markup in it.
+      "/v1/compliance/kyc": KYC_RECORD_D692,
+      "/v1/compliance/outbound-pledge": PLEDGE,
+      // The DLT section. Populated and NOT active, so both status rows and the "what is on
+      // file" list render — the state with the most markup in it.
       "/v1/compliance/dlt-registration": {
         recorded: true,
         status: "submitted",
@@ -3680,16 +3679,6 @@ const CLIENT_SCREENS: Screen[] = [
         verified_at: "2026-08-01T04:00:00Z",
         is_active: false,
       },
-    },
-  },
-  {
-    file: "c/[slug]/verify-business/page.tsx",
-    realm: "client",
-    element: () => <VerifyBusinessPage />,
-    routes: {
-      "/v1/me": ME,
-      "/v1/compliance/kyc": KYC_RECORD_D692,
-      "/v1/compliance/outbound-pledge": PLEDGE,
       // The phone-numbers step card (D-693), on a deployment that does not show it; its
       // populated states are swept by `ownNumbers.test.tsx`.
       [OWN_NUMBERS_STATUS_PATH]: OWN_NUMBERS_OFF,

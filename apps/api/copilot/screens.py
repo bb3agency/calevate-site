@@ -271,7 +271,8 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         group="Compliance & data",
         summary=(
             "Where the owner verifies the business and their own ID and accepts the "
-            "no-cold-calls pledge, which together unlock outbound calling."
+            "no-cold-calls pledge, which together unlock outbound calling; it also shows "
+            "what is on file from the business checks and anything still blocking calls."
         ),
         aliases=(
             "kyc",
@@ -280,14 +281,11 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
             "digilocker",
             "pledge",
             "activation",
+            "verification",
+            "identity",
+            "documents check",
+            "verification status",
         ),
-    ),
-    Screen(
-        route="/c/{slug}/verification",
-        name="Verification",
-        group="Compliance & data",
-        summary="What is on file from the business checks, and anything still blocking calls.",
-        aliases=("identity", "documents check", "verification status"),
     ),
     Screen(
         route="/c/{slug}/do-not-call",

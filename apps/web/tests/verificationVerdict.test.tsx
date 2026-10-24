@@ -1,12 +1,14 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import VerificationPage from "@/app/c/[slug]/verification/page";
+import VerifyBusinessPage from "@/app/c/[slug]/verify-business/page";
 import { KYC_PATH, type KycRecord } from "@/lib/api/kyc";
+import { OWN_NUMBERS_PATHS } from "@/lib/api/ownNumbers";
+import { PLEDGE_PATH } from "@/lib/api/verifyBusiness";
 
 import { renderClientPage } from "./harness";
 import { PE_REGISTRATION_PATH } from "@/lib/api/dltRegistration";
-import { DLT_NOT_RECORDED } from "./fixtures/sharedReads";
+import { DLT_NOT_RECORDED, OWNER_ME } from "./fixtures/sharedReads";
 
 /**
  * The green tick comes from `is_verified`, never from `status === "verified"`.
@@ -31,8 +33,8 @@ import { DLT_NOT_RECORDED } from "./fixtures/sharedReads";
  * Anchoring on it rather than on a heading: the app shell renders the page title from
  * the nav list, so the screen deliberately has no `<h1>` of its own to wait for.
  */
-// Anchored to the header sentence: the number card says "Indian telecom rules require …" too.
-const SCREEN = /To verify it, or to accept the no-cold-calls pledge/;
+// Anchored to the header sentence, which is on screen whatever the records say.
+const SCREEN = /Outgoing calls open once we verify your business/;
 
 function record(over: Partial<KycRecord> = {}): KycRecord {
   return {
@@ -69,7 +71,17 @@ function record(over: Partial<KycRecord> = {}): KycRecord {
 }
 
 async function renderWith(data: KycRecord) {
-  return await renderClientPage(<VerificationPage />, {
+  return await renderClientPage(<VerifyBusinessPage />, {
+    "/v1/me": OWNER_ME,
+    [PLEDGE_PATH]: {
+      version: 1,
+      pledge_text: "We do not cold-call.",
+      text_sha256: "0".repeat(64),
+      is_current: true,
+      accepted_version: 1,
+      accepted_at: "2026-01-04T06:00:00Z",
+    },
+    [OWN_NUMBERS_PATHS.status]: { available: false },
     [KYC_PATH]: data,
     // The DLT half of the screen, registered and active, so every sentence about what is
     // still outstanding on this screen belongs to the KYC verdict under test.
@@ -102,12 +114,12 @@ describe("business verification verdict", () => {
     );
 
     await screen.findByText(SCREEN);
-    expect(container.textContent).toContain("Calls coming IN are unaffected");
-    // The not-verified branch renders the two remediation panels; the cleared one does not.
+    expect(container.textContent).toContain("Calls coming in are unaffected");
+    // The not-verified branch says calls are paused and explains what that affects.
     expect(
       screen.queryByText("What this affects while it is outstanding"),
     ).not.toBeNull();
-    expect(screen.queryByText("What we need")).not.toBeNull();
+    expect(screen.queryByText("Outgoing calls are paused")).not.toBeNull();
 
     // THE VERDICT BOX ITSELF, which is the sentence the client reads first and the half
     // that was wrong: it carried `KYC_STATUS_COPY["verified"]` — headline, "next" and
@@ -133,7 +145,7 @@ describe("business verification verdict", () => {
 
     await screen.findByText(SCREEN);
     expect(container.textContent).toContain("Your business is verified.");
-    expect(screen.queryByText("What we need")).toBeNull();
+    expect(screen.queryByText("Outgoing calls are open")).not.toBeNull();
     // Fails VISIBLE: the unrecognised word is still on screen, in the record we hold,
     // so a client can quote it back to us.
     expect(container.textContent).toContain("verified_by_operator");
@@ -146,9 +158,9 @@ describe("business verification verdict", () => {
     expect(
       screen.queryByText("What this affects while it is outstanding"),
     ).toBeNull();
-    expect(screen.queryByText("What we need")).toBeNull();
+    expect(screen.queryByText("Outgoing calls are open")).not.toBeNull();
     expect(container.textContent).not.toContain(
-      "Calls coming IN are unaffected",
+      "Calls coming in are unaffected",
     );
   });
 

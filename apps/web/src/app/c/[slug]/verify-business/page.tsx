@@ -1,699 +1,201 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-
-import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
-import { RadioGroup } from "@/components/arc/radio-group";
-import { FileDrop, FileSummary } from "@/components/fileDrop";
-
-import { ChecklistRows, type ChecklistRow } from "@/components/console/checklist";
 import { PageHeader } from "@/components/console/pageHeader";
-import {
-  Card,
-  FIELD,
-  FIELD_HINT,
-  FIELD_LABEL,
-  NoticeBox,
-  ProblemNotice,
-  RestrictionNote,
-  Skeleton,
-  formatIST,
-  formatISTDay,
-} from "@/components/ui";
-import { useActAccess, useWriteAccess, type WriteAccess } from "@/lib/api/hooks";
-import { ENTITY_TYPES, useKycRecord, type KycRecord } from "@/lib/api/kyc";
+import { NoticeBox, PRIMARY_BUTTON_SM, ProblemNotice, Skeleton } from "@/components/ui";
+import { usePeRegistration } from "@/lib/api/dltRegistration";
+import { useActAccess, useWriteAccess } from "@/lib/api/hooks";
+import { useKycRecord, type KycRecord } from "@/lib/api/kyc";
 import { useClientSession } from "@/lib/api/session";
-import type { Session, UploadProgress } from "@/lib/api/client";
-import { ViewerBlockedError } from "@/lib/api/protectedFile";
-import {
-  ACCEPT_ATTRIBUTE,
-  BUSINESS_DOCUMENT_KINDS,
-  DIGILOCKER_OUTCOME,
-  GSTIN_PATTERN,
-  OWNER_ID_KIND,
-  fileProblem,
-  forgetPendingRun,
-  openOwnCertificate,
-  outboundSteps,
-  panProblem,
-  readPendingRun,
-  rememberPendingRun,
-  useAcceptPledge,
-  useCompleteDigiLocker,
-  useOutboundPledge,
-  useSaveBusinessDetails,
-  useStartDigiLocker,
-  useSubmitForReview,
-  useUploadKycDocument,
-  type OutboundPledge,
-} from "@/lib/api/verifyBusiness";
-import { lookup } from "@/lib/lookup";
+import { outboundSteps, useOutboundPledge, type OutboundPledge } from "@/lib/api/verifyBusiness";
 
+import { AboutVerification } from "./About";
+import { UNNAMED_STATUS, describeVerification, verdictCopy } from "./copy";
+import { useVerifyBusinessCopilot } from "./copilot";
+import { DltDetails } from "./DltRegistration";
 import { PhoneNumbersNext } from "./PhoneNumbersNext";
+import { DigiLockerReturn, VerificationSteps, stepStatuses, type Access, type StepStatus } from "./Steps";
 import { TrialLockNotice } from "../TrialLockNotice";
 
-/** Who may change what on this page, as the server will rule it. Uploads and the pledge are
- *  the business's own acts: a view-as operator is refused those even holding `org:manage`. */
-type Access = { write: WriteAccess; upload: WriteAccess };
-
 /**
- * Verify your business (D-692) — the page that opens outbound calling.
+ * Verify your business (D-692, one screen since D-875) — the page somebody opens because
+ * their outgoing calls stopped, and the page that starts them again.
  *
- * Outbound needs a verified business and an accepted no-cold-calls pledge, on every plan.
- * Inbound calls never depend on either, and the page says so first. The client chooses
- * the path: upload the owner's ID for our review, or verify through DigiLocker. The
- * business certificate and details are needed on both, so they come first.
+ * `check_dispatch` refuses a self-serve account's outbound with `kyc_missing` /
+ * `kyc_not_verified` or a missing pledge, `launch_blockers` previews the same names, and
+ * `POST /v1/numbers/purchase` refuses every tier on the same fact; this is where they all
+ * send the client. It used to be two screens, one doing and one explaining, and a client
+ * whose calls had stopped had to guess which to open (founder, 24 Oct 2026). Now: the
+ * verdict and the one next thing at the top, the four steps with their forms, the DLT
+ * registration where one is on file, and the explanations folded at the foot.
  *
- * Client-facing text names no telecom or voice vendor, and no identity provider either.
+ * WHY THERE IS NO "BUY A NUMBER" CONTROL ON THIS PAGE: the number is ours to provide.
+ * Calevate provides the calling number on its own telephony account, naming no provider
+ * (white label, founder 6 Oct 2026), and a number is arranged from the phone-number screen.
+ * No self-serve provisioning adapter exists
+ * either: `campaigns.provisioning.PROVISIONING_IMPLEMENTED = False`.
+ *
+ * That sentence is also load-bearing for a guard. `scripts/check_docs_drift.py` §5
+ * compares prose that STATES a capability constant's value against the constant itself,
+ * across three prose kinds — markdown, Python docstrings, and the console's JSDoc — and
+ * this file is the console's only such claim, so `tests/capability_claim_guard_test.py`
+ * uses it to prove the TSX scanner still works, BY THIS EXACT PATH. Moving it to a sibling
+ * module fails that test; deleting it leaves that arm of the scanner unproven.
+ *
+ * What the page has to get right, each a decision the API already made:
+ *
+ * 1. **Inbound is unaffected, and it is said before anything else.** The gate lives in
+ *    `compliance.service.check_dispatch`, which an inbound call never enters. A client
+ *    reading "verification required" will otherwise assume their receptionist is down.
+ * 2. **The client cannot self-verify.** They supply details, documents and the pledge; our
+ *    review or a DigiLocker result decides the status (Telecom Act 2023 s.3(7)).
+ * 3. **The green state comes from `is_verified`, never from `status`.** The server computes
+ *    the predicate every gate asks, and a screen that re-derived it would disagree with the
+ *    gate on the day it matters (`copy.verdictCopy`).
+ * 4. **A failed read is a refusal, never a state.** The KYC record, the pledge and the DLT
+ *    registration are three reads; each failure is its own notice with a retry and none
+ *    blanks the others, and "outgoing calls are open" is said only when every record it
+ *    rests on arrived.
+ * 5. **Client-facing text names no telecom or voice vendor.** DigiLocker is named because
+ *    it is the government service the owner signs in to, not a supplier of ours.
  */
 export default function VerifyBusinessPage() {
   const session = useClientSession();
   const kyc = useKycRecord(session);
   const pledge = useOutboundPledge(session);
+  const dlt = usePeRegistration(session);
   const access: Access = {
     write: useWriteAccess(session, "org:manage", "verify the business"),
     upload: useActAccess(session, "org:manage", "compliance.kyc_documents", "upload verification documents"),
+    pledge: useActAccess(session, "org:manage", "compliance.outbound_pledge", "accept the pledge"),
   };
-  const pledgeAccess = useActAccess(session, "org:manage", "compliance.outbound_pledge", "accept the pledge");
+  const record = kyc.data;
+  const outgoingOpen = record ? outgoingState(record, pledge.data) : null;
+
+  useVerifyBusinessCopilot(kyc, pledge, dlt, outgoingOpen);
 
   if (kyc.isLoading || pledge.isLoading) return <Skeleton rows={8} />;
-  const record = kyc.data;
 
   return (
-    <div className="max-w-3xl space-y-6 pb-12">
+    <div className="max-w-3xl space-y-8 pb-12">
       <PageHeader
-        description={
-          <>
-            Before this account can place outgoing calls, we verify the business and you
-            promise not to cold-call. Calls coming in are never affected.
-          </>
-        }
+        description="Outgoing calls open once we verify your business and you accept the no-cold-calls pledge. Calls coming in are never affected."
       />
-      {kyc.error && <ProblemNotice error={kyc.error} onRetry={() => void kyc.refetch()} />}
-      {pledge.error && <ProblemNotice error={pledge.error} onRetry={() => void pledge.refetch()} />}
-      {record && <OutboundStatus record={record} pledge={pledge.data} />}
-      {pledge.data && <PledgeCard session={session} pledge={pledge.data} access={pledgeAccess} />}
-      <TrialLockNotice lock="kyc" />
-      {record && <VerifyCards session={session} record={record} access={access} />}
-      <PhoneNumbersNext />
-    </div>
-  );
-}
-
-/**
- * What stands between this account and outgoing calls: one row per step, its state in a
- * word, and the cards below to do it. `outboundSteps` decides whether anything is left.
- */
-function OutboundStatus({ record, pledge }: { record: KycRecord; pledge: OutboundPledge | undefined }) {
-  if (outboundSteps(record, pledge).length === 0) {
-    return <NoticeBox tone="ok" title="Outgoing calls are open">Your business is verified and the pledge is accepted.</NoticeBox>;
-  }
-  const inReview = record.status === "submitted" || record.status === "in_review";
-  const rows: ChecklistRow[] = [
-    {
-      id: "business",
-      label: "Business verification",
-      ...(record.is_verified
-        ? { status: "done" as const }
-        : inReview
-          ? { status: "waiting" as const, statusText: "In review" }
-          : { status: "not_started" as const, statusText: "Not started" }),
-    },
-  ];
-  if (record.is_verified && record.digilocker_outstanding) {
-    rows.push({
-      id: "digilocker",
-      label: "DigiLocker check",
-      status: "not_started",
-      statusText: "Needed",
-      info: record.digilocker_required_reason ? `Why we asked: ${record.digilocker_required_reason}` : undefined,
-    });
-  }
-  if (pledge) {
-    rows.push({
-      id: "pledge",
-      label: "No-cold-calls pledge",
-      ...(pledge.is_current
-        ? { status: "done" as const, statusText: "Accepted" }
-        : { status: "not_started" as const, statusText: pledge.accepted_version === null ? "Not accepted" : "Updated, accept again" }),
-    });
-  }
-  return (
-    <ChecklistRows
-      heading="Outgoing calls are paused"
-      headingLevel={2}
-      tone="warn"
-      summary="Calls coming in are unaffected. Your agent keeps answering."
-      rows={rows}
-    />
-  );
-}
-
-function PledgeCard({
-  session,
-  pledge,
-  access,
-}: {
-  session: Session;
-  pledge: OutboundPledge;
-  access: WriteAccess;
-}) {
-  const accept = useAcceptPledge(session);
-  const acceptFeedback = useActionFeedback(accept, { errorDisplay: "inline" });
-  const [read, setRead] = useState(false);
-  const acceptedOn = formatISTDay(pledge.accepted_at);
-  return (
-    <Card title="No-cold-calls pledge and calling disclosure">
-      {/* The server separates the pledge and the disclosure with a blank line (D-762). A rule
-          on the left, not a grey box: a box inside the card is a second container that adds
-          no level to the hierarchy. */}
-      <blockquote className="whitespace-pre-line border-l-2 border-line pl-4 text-sm text-ink">
-        {pledge.pledge_text}
-      </blockquote>
-      {pledge.is_current ? (
-        <p className="mt-3 text-sm text-ink">
-          {acceptedOn ? `Accepted on ${acceptedOn}.` : "Accepted."}
-        </p>
-      ) : (
-        <div className="mt-3 space-y-3">
-          {pledge.accepted_version !== null && (
-            <p className="text-sm text-ink">
-              The pledge changed since you accepted version {pledge.accepted_version}. Please read and accept it again.
-            </p>
-          )}
-          <RestrictionNote reason={access.reason} />
-          <label className="flex items-start gap-2 text-sm text-ink">
-            <input
-              type="checkbox"
-              checked={read}
-              disabled={!access.allowed}
-              onChange={(event) => setRead(event.target.checked)}
-            />
-            I have read the pledge and the disclosure, and accept them on behalf of the business.
-          </label>
-          <ActionButton
-            status={acceptFeedback.status}
-            disabled={!access.allowed || !read}
-            onClick={() => acceptFeedback.run(pledge)}
-            pendingLabel="Accepting…"
-            successLabel="Accepted"
-          >
-            Accept the pledge
-          </ActionButton>
-          <ProblemNotice error={accept.error} />
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function VerifyCards({ session, record, access }: { session: Session; record: KycRecord; access: Access }) {
-  const locked = record.is_verified || record.status === "submitted" || record.status === "in_review";
-  const business = record.documents.find((document) => document.slot === "business");
-  const [path, setPath] = useState<"manual" | "digilocker">(record.kyc_path === "digilocker" ? "digilocker" : "manual");
-  const detailsDone = Boolean(record.legal_business_name && record.entity_type && record.gst_registered !== null);
-
-  return (
-    <>
-      <DigiLockerReturn session={session} />
-      {record.status === "rejected" && record.rejection_reason && (
-        <NoticeBox tone="stop" title="We could not verify the business from what was sent">
-          {record.rejection_reason}
-        </NoticeBox>
-      )}
-      {!locked && <RestrictionNote reason={access.write.reason ?? access.upload.reason} />}
-      {!locked && <DetailsCard session={session} record={record} access={access.write} />}
-      {(!locked || business) && <BusinessDocumentCard session={session} record={record} access={access.upload} />}
-      {locked && !record.digilocker_outstanding && (
-        <Card title="Your verification">
-          <p className="text-sm text-ink">
-            {record.is_verified
-              ? "Your business is verified."
-              : "Your documents are with our review team. We will let you know when the review is done."}
-          </p>
-          {record.owner_id_masked && (
-            <p className={FIELD_HINT}>
-              Owner ID on record: {record.owner_id_type === "pan" ? "PAN" : "Aadhaar"} {record.owner_id_masked}
-            </p>
-          )}
-        </Card>
-      )}
-      {(!locked || record.digilocker_outstanding) && detailsDone && business && (
-        <Card title="Verify the owner">
-          {!record.digilocker_outstanding && (
-            <RadioGroup
-              className="mb-4"
-              label="How would you like to verify?"
-              name="kyc-path"
-              options={[
-                { value: "manual", label: "Upload the owner's PAN card for our review" },
-                { value: "digilocker", label: "Verify with DigiLocker" },
-              ]}
-              value={path}
-              onChange={(value) => setPath(value === "digilocker" ? "digilocker" : "manual")}
-            />
-          )}
-          {locked && <RestrictionNote reason={access.write.reason} />}
-          {path === "manual" && !record.digilocker_outstanding ? (
-            <ManualPath session={session} record={record} access={access} />
-          ) : (
-            <DigiLockerPath session={session} record={record} access={access.write} />
-          )}
-        </Card>
-      )}
-    </>
-  );
-}
-
-function DetailsCard({ session, record, access }: { session: Session; record: KycRecord; access: WriteAccess }) {
-  const save = useSaveBusinessDetails(session);
-  const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
-  const [entityType, setEntityType] = useState(record.entity_type ?? "");
-  const [name, setName] = useState(record.legal_business_name ?? "");
-  const [gst, setGst] = useState<boolean | null>(record.gst_registered ?? null);
-  const [gstin, setGstin] = useState(record.gstin ?? "");
-  const [owner, setOwner] = useState(record.signatory_name ?? "");
-  const gstinBad = gst === true && !GSTIN_PATTERN.test(gstin.trim().toUpperCase());
-  const ready = entityType && name.trim().length >= 2 && gst !== null && owner.trim().length >= 2 && !gstinBad;
-
-  return (
-    <Card title="1. Business details">
-      <form
-        noValidate
-        className="grid grid-cols-1 gap-4 sm:grid-cols-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!ready || gst === null) return;
-          save.mutate({
-            entity_type: entityType,
-            legal_business_name: name.trim(),
-            gst_registered: gst,
-            gstin: gst ? gstin.trim().toUpperCase() : null,
-            owner_name: owner.trim(),
-          });
-        }}
-      >
-        <label className="block">
-          <span className={FIELD_LABEL}>Legal name, as on the certificate</span>
-          <input className={FIELD} value={name} onChange={(event) => setName(event.target.value)} maxLength={200} />
-        </label>
-        <label className="block">
-          <span className={FIELD_LABEL}>How the business is registered</span>
-          <select className={FIELD} value={entityType} onChange={(event) => setEntityType(event.target.value)}>
-            <option value="">Choose…</option>
-            {Object.entries(ENTITY_TYPES).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <RadioGroup
-          label="Registered for GST?"
-          name="gst"
-          inline
-          options={[
-            { value: "yes", label: "Yes" },
-            { value: "no", label: "No" },
-          ]}
-          value={gst === null ? null : gst ? "yes" : "no"}
-          onChange={(value) => setGst(value === "yes")}
-        />
-        {gst && (
-          <label className="block">
-            <span className={FIELD_LABEL}>GSTIN</span>
-            <input
-              className={FIELD}
-              value={gstin}
-              onChange={(event) => setGstin(event.target.value)}
-              maxLength={15}
-              aria-invalid={gstinBad}
-            />
-            {gstinBad && gstin && (
-              <span className="mt-1 block text-sm text-danger">A GSTIN is 15 characters, like 36AABCT1234C1Z5.</span>
-            )}
-          </label>
-        )}
-        <label className="block">
-          <span className={FIELD_LABEL}>Owner or authorised signatory, as on their ID</span>
-          <input className={FIELD} value={owner} onChange={(event) => setOwner(event.target.value)} maxLength={120} />
-        </label>
-        <div className="sm:col-span-2">
-          <ActionButton
-            type="submit"
-            status={saveFeedback.status}
-            disabled={!access.allowed || !ready}
-            title={access.reason ?? undefined}
-            pendingLabel="Saving…"
-            successLabel="Saved"
-          >
-            Save details
-          </ActionButton>
-          <ProblemNotice error={save.error} />
-        </div>
-      </form>
-    </Card>
-  );
-}
-
-/** What a KYC upload takes, as `fileProblem` and the server check it. */
-const KYC_FILE_HINT = "PDF, JPEG or PNG, up to 5 MB.";
-
-/**
- * A KYC file control: the kit's `FileDrop` with this page's rules (`fileProblem`, the
- * preview of the server's), sending on pick with real progress.
- */
-function KycFileDrop({
-  label,
-  disabled,
-  onPick,
-}: {
-  label: string;
-  disabled: boolean;
-  onPick: (file: File, onProgress: (progress: UploadProgress) => void) => Promise<unknown>;
-}) {
-  const [sending, setSending] = useState<{ file: File; percent: number | null } | null>(null);
-  return (
-    <FileDrop
-      label={label}
-      hint={KYC_FILE_HINT}
-      accept={ACCEPT_ATTRIBUTE}
-      validate={fileProblem}
-      disabled={disabled || sending !== null}
-      sending={sending}
-      onFiles={([file]) => {
-        setSending({ file, percent: 0 });
-        // Cleared on both outcomes: a bar left at 100% under a refusal says the file arrived.
-        void onPick(file, ({ loaded, total }) =>
-          setSending({ file, percent: total ? Math.min(100, Math.round((loaded / total) * 100)) : null }),
-        )
-          .catch(() => undefined)
-          .finally(() => setSending(null));
-      }}
-    />
-  );
-}
-
-/** The review state, in the client's words, for the certificate on file. */
-function certificateStatus(record: KycRecord): string {
-  if (record.is_verified) return "Verified";
-  if (record.status === "submitted" || record.status === "in_review") return "With our review team";
-  if (record.status === "rejected") return "Not accepted — see the note above";
-  return "Not sent for review yet";
-}
-
-function BusinessDocumentCard({
-  session,
-  record,
-  access,
-}: {
-  session: Session;
-  record: KycRecord;
-  access: WriteAccess;
-}) {
-  const upload = useUploadKycDocument(session);
-  // The drop zone shows the upload's progress, and the notice under it any refusal.
-  useActionFeedback(upload, { errorDisplay: "inline" });
-  const current = record.documents.find((document) => document.slot === "business");
-  const options = record.gst_registered
-    ? (["gst"] as const)
-    : (["incorporation", "udyam"] as const);
-  const [kind, setKind] = useState<string>(options[0]);
-  const view = useAsyncAction((id: string) => openOwnCertificate(session, id), { errorDisplay: "inline" });
-  const openError = view.status === "error" ? view.error : null;
-  // The server's own lock: replaceable until the review starts, and never once verified.
-  const inReview = record.status === "submitted" || record.status === "in_review";
-  const replaceable = !record.is_verified && !inReview;
-
-  return (
-    <Card title="2. Business certificate">
-      {current ? (
-        <FileSummary
-          name={current.filename}
-          type={current.content_type}
-          size={current.size_bytes}
-          meta={
-            <>
-              {lookup(BUSINESS_DOCUMENT_KINDS, current.kind) ?? "Certificate"} · uploaded {formatIST(current.uploaded_at)}
-              <span className="mt-1 block font-medium text-ink">{certificateStatus(record)}</span>
-            </>
-          }
-          action={
-            current.held && (
-              <ActionButton
-                variant="secondary-sm"
-                status={view.status}
-                onClick={() => view.run(current.id)}
-                pendingLabel="Opening…"
-                successLabel="Opened"
-              >
-                View
-              </ActionButton>
-            )
-          }
-        />
-      ) : (
-        <p className="text-sm text-ink">
-          {record.gst_registered === null
-            ? "Save the business details first, so we know which certificate to ask for."
-            : record.gst_registered
-              ? "Upload the GST registration certificate."
-              : "Upload the Certificate of Incorporation, or the Udyam registration certificate."}
-        </p>
-      )}
-      {openError instanceof ViewerBlockedError ? (
-        <p role="alert" className="mt-2 text-sm text-danger">
-          {openError.message}
-        </p>
-      ) : (
-        openError != null && (
-          <div className="mt-2">
-            <ProblemNotice error={openError} />
-          </div>
-        )
-      )}
-      {record.is_verified && current && (
-        <p className={FIELD_HINT}>Your business is verified, so the certificate can no longer be changed.</p>
-      )}
-      {inReview && current && (
-        <p className={FIELD_HINT}>It is with our review team, so it cannot be changed until the review is done.</p>
-      )}
-      {replaceable && record.gst_registered !== null && (
-        <div className="mt-3 space-y-3">
-          {!record.gst_registered && (
-            <label className="block">
-              <span className={FIELD_LABEL}>Which certificate</span>
-              <select className={FIELD} value={kind} onChange={(event) => setKind(event.target.value)}>
-                {options.map((value) => (
-                  <option key={value} value={value}>
-                    {BUSINESS_DOCUMENT_KINDS[value]}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <KycFileDrop
-            disabled={!access.allowed || upload.isPending}
-            label={current ? "Replace the certificate" : "Choose the certificate"}
-            onPick={(file, onProgress) =>
-              upload.mutateAsync({ slot: "business", kind: record.gst_registered ? "gst" : kind, file, onProgress })
-            }
+      <div className="space-y-3">
+        <DigiLockerReturn session={session} />
+        {kyc.error || !record ? (
+          <ProblemNotice
+            error={kyc.error ?? new Error("The verification record did not load.")}
+            onRetry={() => void kyc.refetch()}
           />
-          <ProblemNotice error={upload.error} />
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function ManualPath({ session, record, access }: { session: Session; record: KycRecord; access: Access }) {
-  const upload = useUploadKycDocument(session);
-  useActionFeedback(upload, { errorDisplay: "inline" });
-  const submit = useSubmitForReview(session);
-  const submitFeedback = useActionFeedback(submit, { errorDisplay: "inline" });
-  const owner = record.documents.find((document) => document.slot === "owner_id" && document.held);
-  const [number, setNumber] = useState("");
-  const numberProblem = number ? panProblem(number) : null;
-
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-ink">
-        Upload a clear photo or scan of the owner&apos;s PAN card. We check the PAN, the name and the date of birth
-        with the Income Tax Department. We cannot accept an Aadhaar card here.
-        {record.self_verification_available && " To use your Aadhaar, verify with DigiLocker instead."}
-      </p>
-      {owner && <FileSummary name={owner.filename} type={owner.content_type} size={owner.size_bytes} />}
-      <KycFileDrop
-        disabled={!access.upload.allowed || upload.isPending}
-        label={owner ? "Replace the PAN card" : "Choose the PAN card"}
-        onPick={(file, onProgress) => upload.mutateAsync({ slot: "owner_id", kind: OWNER_ID_KIND, file, onProgress })}
-      />
-      <ProblemNotice error={upload.error} />
-      <label className="block">
-        <span className={FIELD_LABEL}>PAN</span>
-        <input
-          className={FIELD}
-          value={number}
-          onChange={(event) => setNumber(event.target.value)}
-          maxLength={10}
-          autoComplete="off"
-          aria-invalid={Boolean(numberProblem)}
+        ) : (
+          <OutgoingSummary record={record} pledge={pledge.data} open={outgoingOpen} />
+        )}
+        <TrialLockNotice lock="kyc" />
+      </div>
+      {record && (
+        <VerificationSteps
+          session={session}
+          record={record}
+          pledge={pledge.data}
+          pledgeError={pledge.error}
+          onPledgeRetry={() => void pledge.refetch()}
+          access={access}
         />
-        <span className={FIELD_HINT}>We keep only a masked form, like XXXXX1234X.</span>
-        {numberProblem && <span className="mt-1 block text-sm text-danger">{numberProblem}</span>}
-      </label>
-      <p className={FIELD_HINT}>
-        The PAN card file is deleted as soon as our review is done, and after 30 days if it is not reviewed.
-      </p>
-      <ActionButton
-        status={submitFeedback.status}
-        disabled={!access.write.allowed || !owner || !number || Boolean(numberProblem)}
-        onClick={() => submitFeedback.run({ owner_id_type: "pan", owner_id_number: number.trim().toUpperCase() })}
-        pendingLabel="Sending…"
-        successLabel="Sent"
-      >
-        Send for review
-      </ActionButton>
-      <ProblemNotice error={submit.error} />
+      )}
+      <PhoneNumbersNext />
+      {dlt.error ? (
+        <ProblemNotice error={dlt.error} onRetry={() => void dlt.refetch()} />
+      ) : (
+        // Only a registration somebody filed: since D-692 none is needed to call.
+        dlt.data?.recorded && <DltDetails registration={dlt.data} />
+      )}
+      <AboutVerification record={record} outgoingOpen={outgoingOpen === true} />
     </div>
   );
 }
 
-function DigiLockerPath({ session, record, access }: { session: Session; record: KycRecord; access: WriteAccess }) {
-  const start = useStartDigiLocker(session);
-  const startFeedback = useActionFeedback(start, { errorDisplay: "inline" });
-  const [document, setDocument] = useState<"aadhaar" | "pan">("aadhaar");
-  if (!record.self_verification_available) {
-    // We asked for DigiLocker on this account, and only a DigiLocker run clears that
-    // request (`kyc.KycState.digilocker_outstanding`): an uploaded ID cannot, so pointing
-    // the client at the upload would send them round in a circle.
-    return record.digilocker_outstanding ? (
-      <p className="text-sm text-ink">
-        DigiLocker verification is temporarily unavailable, and uploading the owner&apos;s PAN card
-        cannot replace the DigiLocker check we asked for. Please contact us and we will sort it
-        out with you.
-      </p>
-    ) : (
-      <p className="text-sm text-ink">
-        DigiLocker verification is not available yet. Please upload the owner&apos;s PAN card for our review instead.
-      </p>
+/**
+ * `true` when outgoing calls are open, `false` when something is left, `null` when the
+ * answer rests on a record that did not load (the pledge): never "open" on a failed read.
+ */
+function outgoingState(record: KycRecord, pledge: OutboundPledge | undefined): boolean | null {
+  if (outboundSteps(record, pledge).length > 0) return false;
+  return pledge === undefined ? null : true;
+}
+
+/** The sentence for the one next thing, in the owner's words. */
+function nextSentence(step: StepStatus, record: KycRecord, pledge: OutboundPledge | undefined): string {
+  switch (step.id) {
+    case "details":
+      return "Next: add your business details.";
+    case "certificate":
+      return "Next: upload the business certificate.";
+    case "owner":
+      if (record.digilocker_outstanding) return "Next: complete the DigiLocker check we asked for.";
+      return record.status === "rejected" ? "Next: correct it and send the owner's ID again." : "Next: verify the owner's identity.";
+    case "pledge":
+      return pledge?.accepted_version != null
+        ? "Next: accept the updated no-cold-calls pledge."
+        : "Next: accept the no-cold-calls pledge.";
+  }
+}
+
+/**
+ * Where outgoing calls stand, first on the page: open, or paused with the one next thing and
+ * a jump to it. Inbound is said before the verdict, because "paused" read alone sounds like
+ * the phone line is down.
+ */
+function OutgoingSummary({
+  record,
+  pledge,
+  open,
+}: {
+  record: KycRecord;
+  pledge: OutboundPledge | undefined;
+  open: boolean | null;
+}) {
+  if (open === null) return null;
+  if (open) {
+    const checked = describeVerification(record);
+    return (
+      <NoticeBox tone="ok" title="Outgoing calls are open">
+        Your business is verified and the no-cold-calls pledge is accepted.{checked ? ` ${checked}` : ""}
+      </NoticeBox>
     );
   }
+  const next = stepStatuses(record, pledge).find((step) => step.state === "todo");
+  const verdict = record.is_verified ? null : verdictCopy(record);
   return (
-    <div className="space-y-3">
-      <p className="text-sm text-ink">
-        You sign in to DigiLocker on its own page and share one record. We receive only whether it succeeded, the
-        name on it and a masked number — never the document.
-      </p>
-      <RadioGroup
-        label="Which record to share"
-        name="id-doc"
-        inline
-        options={[
-          { value: "aadhaar", label: "Aadhaar" },
-          { value: "pan", label: "PAN" },
-        ]}
-        value={document}
-        onChange={(value) => setDocument(value === "pan" ? "pan" : "aadhaar")}
-      />
-      <ActionButton
-        // Success hands the page to DigiLocker, so the tick reads as the redirect starting.
-        status={startFeedback.status}
-        disabled={!access.allowed || !record.entity_type}
-        title={access.reason ?? undefined}
-        pendingLabel="Opening DigiLocker…"
-        successLabel="Opening DigiLocker…"
-        onClick={() =>
-          start.mutate(
-            { entity_type: record.entity_type ?? "", id_document: document },
-            {
-              onSuccess: (run) => {
-                rememberPendingRun(session.orgSlug, run.provider_ref);
-                window.location.assign(run.redirect_url);
-              },
-            },
-          )
-        }
-      >
-        Continue to DigiLocker
-      </ActionButton>
-      <ProblemNotice error={start.error} />
-    </div>
+    <NoticeBox
+      tone={record.status === "rejected" && !record.is_verified ? "stop" : "warn"}
+      title="Outgoing calls are paused"
+      action={
+        next && (
+          <a href={`#step-${next.id}`} className={PRIMARY_BUTTON_SM}>
+            Go to step {next.number}
+          </a>
+        )
+      }
+    >
+      <div className="space-y-1.5">
+        <p>Calls coming in are unaffected. Your agent keeps answering the phone.</p>
+        {verdict && (
+          <p>
+            <span>{verdict.headline}</span>
+            {verdict === UNNAMED_STATUS && <span> {verdict.next}</span>}
+          </p>
+        )}
+        {verdict && record.rejection_reason && (
+          <p>
+            <span className="font-semibold">What we said:</span> {record.rejection_reason}
+          </p>
+        )}
+        <p className="text-ink-muted">
+          {next
+            ? nextSentence(next, record, pledge)
+            : "Nothing for you to do now. We will let you know when our review is done."}
+        </p>
+      </div>
+    </NoticeBox>
   );
-}
-
-/** Finishes a run when the client comes back from DigiLocker. */
-function DigiLockerReturn({ session }: { session: Session }) {
-  const complete = useCompleteDigiLocker(session);
-  // Every outcome, a refusal included, renders as this component's own notice.
-  const completeFeedback = useActionFeedback(complete, { errorDisplay: "inline" });
-  const asked = useRef(false);
-  const [ref, setRef] = useState<string | null>(null);
-
-  const org = session.orgSlug;
-
-  useEffect(() => {
-    if (asked.current) return;
-    asked.current = true;
-    const fromUrl = new URLSearchParams(window.location.search).get("provider_ref");
-    const run = readPendingRun(org) ?? fromUrl;
-    if (!run) return;
-    setRef(run);
-    complete.mutate(run, {
-      onSuccess: (result) => {
-        // `pending` is the only outcome worth asking about again.
-        if (result.status !== "pending") finished(org);
-      },
-      // A refusal is final for this reference too (another account's run, an unknown one,
-      // verification switched off), so it must not greet every later visit to the page.
-      onError: () => forgetPendingRun(org),
-    });
-  }, [complete, org]);
-
-  if (!ref) return null;
-  if (complete.isPending) return <Skeleton rows={2} />;
-  if (complete.error) return <ProblemNotice error={complete.error} />;
-  if (complete.data?.status === "pending") {
-    return (
-      <NoticeBox
-        tone="warn"
-        title="DigiLocker has not finished yet"
-        action={
-          <ActionButton
-            variant="secondary"
-            status={completeFeedback.status}
-            onClick={() => completeFeedback.run(ref)}
-            successLabel="Checked"
-          >
-            Check again
-          </ActionButton>
-        }
-      >
-        If you completed it, wait a moment and check again.
-      </NoticeBox>
-    );
-  }
-  const outcome = complete.data ? lookup(DIGILOCKER_OUTCOME, complete.data.status) : undefined;
-  if (outcome) {
-    return (
-      <NoticeBox tone={outcome.tone} title={outcome.title}>
-        {outcome.body}
-      </NoticeBox>
-    );
-  }
-  return null;
-}
-
-/** The run has an outcome: forget it, and drop the reference from the address so a reload
- *  does not ask about it again. */
-function finished(org: string): void {
-  forgetPendingRun(org);
-  try {
-    const url = new URL(window.location.href);
-    if (!url.searchParams.has("provider_ref")) return;
-    url.searchParams.delete("provider_ref");
-    window.history.replaceState(window.history.state, "", url.toString());
-  } catch {
-    // The address keeps the reference; a reload answers "already recorded".
-  }
 }

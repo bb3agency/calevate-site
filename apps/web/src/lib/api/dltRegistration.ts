@@ -75,16 +75,16 @@ export const PE_STATUS_COPY: Record<PeStatus, StatusCopy> = {
   },
   submitted: {
     label: "With the registrar",
-    next: "Your registration has been filed and the registrar has not approved it yet. Campaigns stay blocked until it is active.",
+    next: "Your registration has been filed and the registrar has not approved it yet.",
   },
   active: { label: "Active", next: "The registrar has approved your business as a Principal Entity." },
   suspended: {
     label: "Suspended",
-    next: "The registrar has suspended this registration, so campaigns cannot launch. Ask us what the registrar asked for.",
+    next: "The registrar has suspended this registration. Ask us what the registrar asked for.",
   },
   rejected: {
     label: "Rejected",
-    next: "The registrar refused this registration. It has to be re-filed before campaigns can launch — ask us.",
+    next: "The registrar refused this registration. It has to be re-filed — ask us.",
   },
 };
 
@@ -103,7 +103,7 @@ export const TM_LINK_COPY: Record<TmLinkStatus, StatusCopy> = {
   },
   revoked: {
     label: "Withdrawn",
-    next: "The authorisation naming Calevate as your telemarketer has been withdrawn, so campaigns cannot launch. Re-authorise us on the registrar's portal.",
+    next: "The authorisation naming Calevate as your telemarketer has been withdrawn. You can re-authorise us on the registrar's portal.",
   },
 };
 

@@ -8,7 +8,7 @@ import type { Me } from "@/lib/api/client";
 import { OWN_NUMBERS_PATHS, type OwnNumbersStatus } from "@/lib/api/ownNumbers";
 
 import { expectNoA11yViolations } from "./a11y";
-import { KYC_NOT_STARTED } from "./fixtures/sharedReads";
+import { DLT_NOT_RECORDED, KYC_NOT_STARTED } from "./fixtures/sharedReads";
 import { problem, renderClientPage, type ApiCall, type Routes } from "./harness";
 import { NO_FORWARDING_ROUTES } from "./fixtures/forwarding";
 
@@ -628,6 +628,7 @@ describe("the step card on Verify your business", () => {
       "/v1/me": OWNER,
       ...NO_FORWARDING_ROUTES,
       "/v1/compliance/kyc": KYC_NOT_STARTED,
+      "/v1/compliance/dlt-registration": DLT_NOT_RECORDED,
       "/v1/compliance/outbound-pledge": {
         version: 1,
         pledge_text: "We do not cold-call.",
@@ -651,6 +652,7 @@ describe("the step card on Verify your business", () => {
       "/v1/me": OWNER,
       ...NO_FORWARDING_ROUTES,
       "/v1/compliance/kyc": KYC_NOT_STARTED,
+      "/v1/compliance/dlt-registration": DLT_NOT_RECORDED,
       "/v1/compliance/outbound-pledge": {
         version: 1,
         pledge_text: "We do not cold-call.",

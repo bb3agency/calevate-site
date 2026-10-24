@@ -1,13 +1,14 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import VerifyBusinessPage from "@/app/c/[slug]/verify-business/page";
 import type { Me } from "@/lib/api/client";
+import { PE_REGISTRATION_PATH } from "@/lib/api/dltRegistration";
 import { KYC_PATH, type KycRecord } from "@/lib/api/kyc";
 import { OWN_NUMBERS_PATHS } from "@/lib/api/ownNumbers";
 import { PLEDGE_PATH, pendingRunKey } from "@/lib/api/verifyBusiness";
 
-import { KYC_NOT_STARTED } from "./fixtures/sharedReads";
+import { DLT_NOT_RECORDED, KYC_NOT_STARTED } from "./fixtures/sharedReads";
 import { problem, renderClientPage, type Routes } from "./harness";
 
 /**
@@ -74,6 +75,7 @@ function routes(me: Me, kyc: KycRecord = KYC_NOT_STARTED, extra: Routes = {}): R
     [KYC_PATH]: kyc,
     [PLEDGE_PATH]: PLEDGE,
     [OWN_NUMBERS_PATHS.status]: { available: false },
+    [PE_REGISTRATION_PATH]: DLT_NOT_RECORDED,
     ...extra,
   };
 }
@@ -227,7 +229,8 @@ describe("the business certificate on file", () => {
       routes(OWNER, { ...READY_FOR_OWNER, status: "verified", is_verified: true, recorded: true }),
     );
     expect(await screen.findByText("gst.pdf")).toBeTruthy();
-    expect(screen.getByText("Verified")).toBeTruthy();
+    // The certificate's own review state, beside the file it describes.
+    expect(within(document.getElementById("step-certificate") as HTMLElement).getByText("Verified")).toBeTruthy();
     expect(screen.getByRole("button", { name: "View" })).toBeTruthy();
     expect(
       screen.getByText("Your business is verified, so the certificate can no longer be changed."),

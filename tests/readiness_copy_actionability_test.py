@@ -28,10 +28,10 @@ from pathlib import Path
 from apps.api.legal.readiness import ROW_COPY
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-#: The WHOLE verification route, not just `page.tsx`. The screen is three modules — the
-#: route, `SubscriberVerification.tsx` and `DltRegistration.tsx` — and a guard that read
-#: only the route module would have gone on passing while a form landed in a sibling,
-#: which is the failure mode this file exists to make impossible.
+#: The retired Verification route. Since D-875 it is a server redirect into Verify your
+#: business, which DOES take input, so copy may send a client there to act; what it may not
+#: do is send them to "the Verification screen" to enter something, because no such
+#: screen exists to enter it on.
 VERIFICATION_ROUTE = REPO_ROOT / "apps/web/src/app/c/[slug]/verification"
 
 #: Verbs that promise the reader can ENTER something where they are being sent. "Shows",
@@ -45,22 +45,19 @@ _FROM_SCREEN = re.compile(
 )
 
 
-def test_the_verification_screen_is_still_read_only() -> None:
+def test_the_verification_route_is_only_a_redirect() -> None:
     """The premise of the test below, asserted rather than assumed.
 
-    If somebody gives that screen a form, this fails and the guard below should be
-    re-aimed rather than deleted — the copy would then be free to point at it again.
+    If somebody puts a screen back at this route, this fails and the guard below should be
+    re-aimed rather than deleted: the copy would then be free to point at it again.
     """
     modules = sorted(VERIFICATION_ROUTE.glob("*.ts*"))
-    assert modules, f"no verification screen modules under {VERIFICATION_ROUTE}"
-    offenders = [
-        module.name
-        for module in modules
-        if any(token in module.read_text(encoding="utf-8") for token in ("useMutation", "<form"))
-    ]
-    assert not offenders, (
-        "the Verification screen now takes input; re-check `readiness.ROW_COPY`, whose "
-        f"wording was corrected precisely because that screen could not take any: {offenders}"
+    assert [module.name for module in modules] == ["page.tsx"], modules
+    source = modules[0].read_text(encoding="utf-8")
+    assert "redirect(" in source and "/verify-business" in source
+    assert not any(token in source for token in ("useMutation", "<form")), (
+        "the Verification route renders a screen again; re-check `readiness.ROW_COPY`, "
+        "whose wording names Verify your business for every step a client takes"
     )
 
 
@@ -76,10 +73,10 @@ def test_no_client_step_asks_for_input_on_a_screen_that_takes_none() -> None:
             if match and match.group(2).lower() == "verification":
                 offenders.append(f"{rule}: {step!r}")
     assert not offenders, (
-        "these tell a client to enter something on the Verification screen, which renders "
-        "no form and issues no mutation — the value is recorded by an admin. Say what the "
-        "client actually does (send it to us) and what the screen actually does (show what "
-        f"we hold): {offenders}"
+        "these tell a client to enter something on the Verification screen, which is a "
+        "redirect into Verify your business since D-875, and the value is recorded by an "
+        "admin. Say what the client actually does (send it to us) and name the screen they "
+        f"land on: {offenders}"
     )
 
 

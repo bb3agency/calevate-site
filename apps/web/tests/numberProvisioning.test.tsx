@@ -165,7 +165,7 @@ describe("a deployment that may not supply a number says so", () => {
     );
 
     const link = await screen.findByRole("link", { name: /verify your business/i });
-    expect(link.getAttribute("href")).toBe("/c/acme/verification");
+    expect(link.getAttribute("href")).toBe("/c/acme/verify-business");
   });
 
   it("refuses rather than guessing when it could not ask at all", async () => {
@@ -380,7 +380,7 @@ describe("buying", () => {
     ).toBeTruthy();
     expect(
       screen.getAllByRole("link", { name: /verify your business/i })[0].getAttribute("href"),
-    ).toBe("/c/acme/verification");
+    ).toBe("/c/acme/verify-business");
   });
 });
 

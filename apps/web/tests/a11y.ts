@@ -325,6 +325,12 @@ export const UNSWEPT_SCREENS: Record<string, string> = {
         "swept: the agent page under `section=training` and `section=script`.",
     ]),
   ),
+  "c/[slug]/verification/page.tsx": (
+    "a server redirect into c/[slug]/verify-business (D-875), where what we hold about the " +
+    "business sits beside the steps that change it — it renders no markup to scan, and " +
+    "under jsdom `redirect()` throws `NEXT_REDIRECT`. What it redirects TO is swept. " +
+    "CLOSED BY: deleting the file, a decision about old links."
+  ),
   "admin/tenants/[tenantId]/invitations/page.tsx": (
     "a server redirect into admin/tenants/[tenantId]/members (D-661), where members and " +
     "invitations are one People page — it renders no markup to scan, and under jsdom " +

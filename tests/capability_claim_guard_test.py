@@ -99,7 +99,7 @@ class TestWiring:
         assert "docs/BUILD-LOG.md" in scanned
         assert "apps/api/billing/payments.py" in scanned
         assert "apps/workers/whatsapp_cloud.py" in scanned
-        assert "apps/web/src/app/c/[slug]/verification/page.tsx" in scanned
+        assert "apps/web/src/app/c/[slug]/verify-business/page.tsx" in scanned
         assert "tests/capability_claim_guard_test.py" in scanned, "this file is judged too"
 
     def test_it_finds_the_real_sentences_that_quote_a_value(self) -> None:
@@ -110,7 +110,7 @@ class TestWiring:
         assert ("apps/api/ingest/meta.py", "LEAD_RETRIEVAL_IMPLEMENTED", True) in found
         assert ("apps/api/billing/rates.py", "ENGINE_REPORTS_TTS_MODEL", False) in found
         assert (
-            "apps/web/src/app/c/[slug]/verification/page.tsx",
+            "apps/web/src/app/c/[slug]/verify-business/page.tsx",
             "PROVISIONING_IMPLEMENTED",
             False,
         ) in found
@@ -185,7 +185,7 @@ class TestDetection:
         assert any("PROVISIONING_IMPLEMENTED" in f for f in failures), failures
 
     def test_catches_a_stale_value_in_the_consoles_jsdoc(self, tmp_path: Path) -> None:
-        """`/c/[slug]/verification` explains to a client why there is no purchase form,
+        """`/c/[slug]/verify-business` explains to a client why there is no purchase form,
         quoting the constant. A screen that keeps explaining an absence after the thing
         exists is the same defect one layer out."""
         web = tmp_path / "src"
