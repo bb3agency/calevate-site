@@ -162,7 +162,7 @@ function WhatItKnows({ slug }: { slug: string }) {
       className={`${TEXT_ACTION} inline-flex items-center gap-1.5`}
     >
       <BookOpen aria-hidden className="h-4 w-4" />
-      Manage knowledge
+      Open What your agents know
     </Link>
   );
 
@@ -196,11 +196,13 @@ function WhatItKnows({ slug }: { slug: string }) {
       ) : (
         <div className="space-y-3">
           <p className="text-meta text-ink-muted">
-            {countLine(facts.length, "fact", "facts")}
+            {countLine(facts.length, "fact", "facts")}, shared by all your agents.
+            {/* Files and links are counted, not claimed as known: a PDF's or a link's
+                words do not reach the agents yet (D-868), and `/v1/kb/knows` does not say
+                which files are PDFs. The page it links to says it per file. */}
             {items.length > 0
-              ? ` and ${countLine(items.length, "file or page", "files and pages")}`
+              ? ` ${countLine(items.length, "file or link", "files and links")} saved.`
               : ""}
-            , shared by all your agents.
           </p>
           {shown.length > 0 && (
             <ul className="divide-y divide-line border-y border-line">

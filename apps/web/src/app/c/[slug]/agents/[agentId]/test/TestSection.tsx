@@ -112,7 +112,7 @@ export function TestSection({
               key: "what_is_here",
               label: "What this section does",
               value:
-                "each test is tried several times against the agent callers hear now; 'Test again' asks the same tests so before and after compare; failures the script or knowledge can fix become suggested fixes",
+                "each test is tried several times against the agent callers hear now; 'Test again' asks the same tests so before and after compare; failures the script or what you teach can fix become suggested fixes",
             },
             // Pip's `agent_tests_fix` names the failures to fix by these keys: only those the
             // script or the knowledge owns and that failed on most of their tries.

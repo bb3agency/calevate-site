@@ -115,7 +115,7 @@ const FIELD_LABELS: Record<string, string> = {
   script: "What the agent says",
   max_call_duration_s: "Longest a call may run",
   extraction_fields: "What it writes down",
-  training: "Knowledge and training",
+  training: "What it knows and training",
   voice: "Its voice",
   /* D-163's two rows shipped in `LANES` without a label here, so they rendered as
      "ai disclosure enabled" and "recording notice enabled" — our column names, in a list a

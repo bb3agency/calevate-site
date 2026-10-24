@@ -25,7 +25,7 @@ export const KIND_COPY: Record<AttentionKind, { label: string; dot: string; acti
   delivery_failed: { label: "Delivery failed", dot: "bg-danger", action: "Check the connection", rank: 5 },
   campaign_stalled: { label: "Campaign stalled", dot: "bg-warn", action: "Open campaigns", rank: 6 },
   lead_blocked: { label: "Call blocked", dot: "bg-warn", action: "Open leads", rank: 7 },
-  kb_rejected: { label: "Knowledge not accepted", dot: "bg-ink-faint", action: "Open knowledge", rank: 8 },
+  kb_rejected: { label: "Something you added was not accepted", dot: "bg-ink-faint", action: "Open What your agents know", rank: 8 },
   // D-746: a forwarded number that normally brings calls has had none for three days.
   forwarded_line_quiet: { label: "No calls on your number", dot: "bg-warn", action: "Test forwarding", rank: 1 },
 };

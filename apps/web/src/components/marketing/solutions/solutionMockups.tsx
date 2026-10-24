@@ -429,22 +429,22 @@ export function DeliveryMock() {
 /* ----------------------------------------------------------------------- answers */
 
 /**
- * Your answers — "Knowledge base" (`app/c/[slug]/knowledge`: the "Add knowledge" form's
- * "What this knowledge is about" / "What the agent should say" / "Add to agent", facts
- * "Live", and "Files and web pages" with an upload at "Being read" — `knowledge/uploadCopy.ts`).
+ * Your answers — "What your agents know" (`app/c/[slug]/knowledge`, D-874: a fact being
+ * added, facts "In use", and a Word price list at "Being read" — `knowledge/uploadCopy.ts`).
+ * The file is a Word document on purpose: a PDF's words do not reach the agents yet (D-868).
  */
 export function AnswersMock() {
   const facts = [
-    { topic: "Sunday timings", says: "Sundays 10 AM to 1 PM, by appointment only.", state: "Live", tone: "emerald" },
-    { topic: "Braces for adults", says: "Yes — a consultation first, with Dr Rao.", state: "Live", tone: "emerald" },
-    { topic: "Parking", says: "Free parking behind the building.", state: "Live", tone: "emerald" },
+    { topic: "Sunday timings", says: "Sundays 10 AM to 1 PM, by appointment only.", state: "In use", tone: "emerald" },
+    { topic: "Braces for adults", says: "Yes — a consultation first, with Dr Rao.", state: "In use", tone: "emerald" },
+    { topic: "Parking", says: "Free parking behind the building.", state: "In use", tone: "emerald" },
   ] as const;
   return (
     <span className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] lg:items-start">
       <Panel elevation="raised" className="mk-rise mk-s1 flex flex-col gap-3 p-4">
-        <CardTitle>Add knowledge</CardTitle>
+        <CardTitle>Add something</CardTitle>
         <span className="flex flex-col gap-1">
-          <span className="text-[11px] font-semibold text-ink-muted">What this knowledge is about</span>
+          <span className="text-[11px] font-semibold text-ink-muted">What callers ask</span>
           <span className="rounded-lg border border-line px-3 py-2 text-[12px] text-ink">Root canal</span>
         </span>
         <span className="flex flex-col gap-1">
@@ -455,13 +455,13 @@ export function AnswersMock() {
         </span>
         <span className="flex justify-end">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-strong px-4 py-1.5 text-[12px] font-semibold text-white">
-            Add to agent
+            Add it
             <ArrowRight aria-hidden className="h-3 w-3" />
           </span>
         </span>
       </Panel>
 
-      <Window title="Knowledge base">
+      <Window title="What your agents know">
         {facts.map(({ topic, says, state, tone }, i) => (
           <span
             key={topic}
@@ -475,10 +475,10 @@ export function AnswersMock() {
           </span>
         ))}
         <span className="flex flex-col gap-2 bg-app/50 px-4 py-3">
-          <span className="text-[11px] font-semibold text-ink-muted">Files and web pages</span>
+          <span className="text-[11px] font-semibold text-ink-muted">Files</span>
           <span className="mk-rise mk-s4 flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2">
             <FileText aria-hidden className="h-4 w-4 shrink-0 text-ink-muted" />
-            <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-ink">Price list.pdf</span>
+            <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-ink">Price list.docx</span>
             <Tag tone="sky">Being read</Tag>
           </span>
         </span>

@@ -233,7 +233,7 @@ function DraftOffer({
       <p className="mt-1 max-w-prose text-sm text-ink-muted [text-wrap:pretty]">
         {audience === "client" ? ASSISTANT_NAME : "Calevate"} can draft these once from the
         business details — what {audience === "client" ? "you sell" : "it sells"}, the questions
-        callers ask and the knowledge on file. You keep the ones that fit before any agent gets
+        callers ask and what your agents already know. You keep the ones that fit before any agent gets
         them, and they are not drafted again. For the best draft, fill in the business profile
         first.
       </p>

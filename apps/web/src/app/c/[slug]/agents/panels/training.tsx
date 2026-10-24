@@ -25,16 +25,16 @@ export function TrainingPanel({ agent }: { agent: Agent }) {
   return (
     <div>
       <p className="text-sm text-ink-muted">
-        {agent.name} uses your business knowledge — the opening hours, prices, documents
-        and web pages that every one of your agents answers from. Add to it or change it in
-        one place, and all your agents pick it up.
+        {agent.name} answers from what your agents know — the opening hours, prices and
+        answers you have taught, shared by every one of your agents. Add to it or change it
+        in one place, and all your agents pick it up.
       </p>
       <Link
         href={href(`/c/${session.orgSlug}/knowledge`)}
         className={`${SECONDARY_BUTTON} mt-4`}
       >
         <BookOpen aria-hidden className="h-4 w-4" />
-        Open your business knowledge
+        Open What your agents know
       </Link>
     </div>
   );
