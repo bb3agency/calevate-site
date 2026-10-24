@@ -168,6 +168,8 @@ hides it (`src/components/tabs/index.md`, read 25 Aug 2026). Splitting beats hid
 **What may never be disclosed** (this is §8 and it is absolute): a compliance control or
 the sentence that qualifies it; the screen's primary job; anything a first-time owner must
 find without being told it exists; an error, refusal or `ProblemNotice`.
+The qualifying sentence is ONE sentence that states the consequence; a longer
+explanation behind it may be disclosed (D-873: the agent's opening-notice switches).
 
 **How to disclose.** `<Disclosure>` (`components/ui.tsx`) — a native `<details>/<summary>`.
 It is keyboard-operable, announces its own state, needs no focus management, and survives a
