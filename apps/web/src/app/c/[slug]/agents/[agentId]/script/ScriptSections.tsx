@@ -442,7 +442,7 @@ export function StyleSection({
             {style.pronunciations.map((word, i) => (
               <li key={i} className="flex items-start gap-2">
                 <input
-                  className={`${FIELD} mt-0`}
+                  className={`${FIELD} mt-0 min-w-0`}
                   aria-label={`Word ${i + 1}`}
                   value={word.word}
                   placeholder={eg.pronounceWord}
@@ -451,7 +451,7 @@ export function StyleSection({
                   }
                 />
                 <input
-                  className={`${FIELD} mt-0`}
+                  className={`${FIELD} mt-0 min-w-0`}
                   aria-label={`Say word ${i + 1} as`}
                   value={word.say_as}
                   placeholder={eg.pronounceSayAs}
@@ -625,7 +625,7 @@ export function ExampleSection({
           {lines.map((line, i) => (
             <li key={i} className="flex items-start gap-2">
               <select
-                className={`${FIELD} mt-0 w-28 shrink-0`}
+                className={`${FIELD} mt-0 max-w-28 shrink-0`}
                 aria-label={`Line ${i + 1}: who speaks`}
                 value={line.speaker}
                 onChange={(e) =>
@@ -636,7 +636,7 @@ export function ExampleSection({
                 <option value="agent">Agent</option>
               </select>
               <input
-                className={`${FIELD} mt-0`}
+                className={`${FIELD} mt-0 min-w-0`}
                 aria-label={`Line ${i + 1}`}
                 value={line.text}
                 maxLength={500}

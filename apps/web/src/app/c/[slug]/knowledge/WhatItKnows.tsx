@@ -486,7 +486,8 @@ function FactRow({
             </p>
           </div>
           {canWrite ? (
-            <div className="flex shrink-0 flex-wrap gap-1.5">
+            // Wraps within itself on a phone: the kit buttons are as wide as their widest face.
+            <div className="flex min-w-0 flex-wrap gap-1.5">
               {ordering}
               <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setEditing(true)} disabled={busy}>
                 Edit
@@ -506,7 +507,6 @@ function FactRow({
               <ActionButton
                 variant="secondary-sm"
                 status={removeFeedback.status}
-                pendingLabel="Removing…"
                 successLabel="Removed"
                 disabled={edit.isPending}
                 onClick={() => removeFeedback.run(fact.id)}
