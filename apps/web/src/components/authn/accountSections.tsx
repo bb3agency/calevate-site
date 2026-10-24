@@ -13,6 +13,7 @@ import { useCallback, useState } from "react";
 
 import { useMutation } from "@tanstack/react-query";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { EmailVerificationPanel } from "@/components/authn/emailVerificationPanel";
 import { AuthProblemNotice } from "@/components/authn/fields";
 import { ConfirmDialog } from "@/components/confirmDialog";
@@ -117,7 +118,11 @@ export function SessionsSection({
     mutationFn: () => authn.signOutEverywhere(),
     onSuccess: leave,
   });
-  const busy = signOut.isPending || signOutAll.isPending;
+  // Both refusals are drawn here (`AuthProblemNotice`, the dialog's own notice) in the
+  // generic sign-in words, so neither is toasted; a success leaves the page.
+  const signOutFeedback = useActionFeedback(signOut, { errorDisplay: "inline" });
+  const signOutAllFeedback = useActionFeedback(signOutAll, { errorDisplay: "inline" });
+  const busy = signOutFeedback.status === "pending" || signOutAllFeedback.status === "pending";
 
   return (
     <Section title="Sessions" description={lifetime}>
@@ -129,11 +134,16 @@ export function SessionsSection({
               type="button"
               className={TEXT_ACTION}
               disabled={busy}
+              aria-busy={signOutFeedback.status === "pending" || undefined}
               onClick={() => {
-                if (!signOut.isPending) signOut.mutate();
+                if (!signOut.isPending) signOutFeedback.run();
               }}
             >
-              {signOut.isPending ? "Signing out…" : "Sign out"}
+              {signOutFeedback.status === "pending"
+                ? "Signing out…"
+                : signOutFeedback.status === "error"
+                  ? "Try again"
+                  : "Sign out"}
             </button>
           }
         />
@@ -163,14 +173,14 @@ export function SessionsSection({
           title="Sign out everywhere?"
           confirmLabel="Sign out everywhere"
           pendingLabel="Signing out…"
-          pending={signOutAll.isPending}
+          status={signOutAllFeedback.status}
           error={signOutAll.error}
           onCancel={() => {
             signOutAll.reset();
             setConfirming(false);
           }}
           onConfirm={() => {
-            if (!signOutAll.isPending) signOutAll.mutate();
+            if (!signOutAll.isPending) signOutAllFeedback.run();
           }}
         >
           <p>{everywhereConsequence}</p>

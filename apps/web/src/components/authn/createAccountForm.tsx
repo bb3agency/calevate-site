@@ -14,17 +14,18 @@ import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { AuthField, AuthProblemNotice } from "@/components/authn/fields";
 import { GoogleSignIn } from "@/components/authn/googleSignIn";
 import { OtpInput } from "@/components/interior/otp-input";
-import { PRIMARY_BUTTON } from "@/components/ui";
 import { completeEmailSignup, startEmailSignup } from "@/lib/authn/clientAuthn";
 import { MAX_PASSWORD_CHARS, passwordProblem, passwordRule } from "@/lib/authn/password";
 import { useCountdown } from "@/lib/authn/useCountdown";
 
 const OTP_LENGTH = 6;
 const RESEND_COOLDOWN_MS = 60_000;
-const SUBMIT = `${PRIMARY_BUTTON} w-full justify-center py-2.5`;
+/** On top of `ActionButton`'s primary look. */
+const SUBMIT = "w-full py-2.5";
 const TEXT_ACTION =
   "inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-brand-strong underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:text-brand-bright touch:min-h-11";
 
@@ -65,6 +66,11 @@ export function CreateAccountForm({ onCreated }: { onCreated: () => void }) {
       }),
     onSuccess: onCreated,
   });
+  // Every refusal is `AuthProblemNotice`'s generic sentence beside the form, never a toast
+  // carrying the server's words: those must not say whether an address has an account.
+  const startFeedback = useActionFeedback(start, { errorDisplay: "inline" });
+  const resendFeedback = useActionFeedback(resend, { errorDisplay: "inline" });
+  const finishFeedback = useActionFeedback(finish, { errorDisplay: "inline" });
 
   // Focus follows a step change (never first paint), so the next field is where you type.
   useEffect(() => {
@@ -78,14 +84,14 @@ export function CreateAccountForm({ onCreated }: { onCreated: () => void }) {
   const onEmail = (event: FormEvent) => {
     event.preventDefault();
     if (start.isPending || email.trim() === "") return;
-    start.mutate();
+    startFeedback.run();
   };
   const onFinish = (event: FormEvent) => {
     event.preventDefault();
     if (finish.isPending || code.length !== OTP_LENGTH || passwordProblem(password, "client")) {
       return;
     }
-    finish.mutate();
+    finishFeedback.run();
   };
 
   if (step === "email") {
@@ -113,13 +119,15 @@ export function CreateAccountForm({ onCreated }: { onCreated: () => void }) {
           onChange={(event) => setEmail(event.target.value)}
         />
         <AuthProblemNotice error={start.error} />
-        <button
+        <ActionButton
           type="submit"
           className={SUBMIT}
-          disabled={start.isPending || email.trim() === ""}
+          status={startFeedback.status}
+          pendingLabel="Sending a code…"
+          disabled={email.trim() === ""}
         >
-          {start.isPending ? "Sending a code…" : "Email me a code"}
-        </button>
+          Email me a code
+        </ActionButton>
       </form>
     );
   }
@@ -175,24 +183,22 @@ export function CreateAccountForm({ onCreated }: { onCreated: () => void }) {
             ? "A new code is on its way. It replaces the last one."
             : ""}
       </p>
-      <button
+      <ActionButton
         type="submit"
         className={SUBMIT}
-        disabled={
-          finish.isPending ||
-          code.length !== OTP_LENGTH ||
-          passwordProblem(password, "client") !== null
-        }
+        status={finishFeedback.status}
+        pendingLabel="Creating your account…"
+        disabled={code.length !== OTP_LENGTH || passwordProblem(password, "client") !== null}
       >
         Create my account
-      </button>
+      </ActionButton>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <button
           type="button"
           className={TEXT_ACTION}
           disabled={resend.isPending || cooldown > 0}
           onClick={() => {
-            if (!resend.isPending && cooldown === 0) resend.mutate();
+            if (!resend.isPending && cooldown === 0) resendFeedback.run();
           }}
         >
           {cooldown > 0 ? (

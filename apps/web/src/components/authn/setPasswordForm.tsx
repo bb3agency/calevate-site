@@ -48,6 +48,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { KeyRound } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { AuthField, AuthProblemNotice } from "@/components/authn/fields";
 import { Card, NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
 import {
@@ -127,6 +128,8 @@ export function SetPasswordForm<T>({
       setConfirmation("");
     },
   });
+  // The refusal is drawn at the field or in the notice; the success replaces the form.
+  const feedback = useActionFeedback(submit, { errorDisplay: "inline" });
 
   const lengthProblem = passwordProblem(password, realm);
   /**
@@ -169,7 +172,7 @@ export function SetPasswordForm<T>({
           event.preventDefault();
           setAttempted(true);
           if (submit.isPending || !canSend || token === "") return;
-          submit.mutate();
+          feedback.run();
         }}
       >
         <div className="space-y-2 text-sm text-ink-muted">{typeof intro === "function" ? intro(token) : intro}</div>
@@ -221,14 +224,15 @@ export function SetPasswordForm<T>({
 
         {blocklistProblem === null && <AuthProblemNotice error={submit.error} />}
 
-        <button
+        <ActionButton
           type="submit"
-          className={PRIMARY_BUTTON}
-          disabled={submit.isPending || !canSend}
+          status={feedback.status}
+          pendingLabel="Saving…"
+          disabled={!canSend && feedback.status !== "pending"}
         >
           <KeyRound aria-hidden className="h-4 w-4" />
-          {submit.isPending ? "Saving…" : submitLabel}
-        </button>
+          {submitLabel}
+        </ActionButton>
 
         <p className="text-xs text-ink-faint">
           The link works once. If this fails, ask for a new one rather than reloading the
