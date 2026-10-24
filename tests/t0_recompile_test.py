@@ -197,20 +197,19 @@ async def test_a_knowledge_publish_never_lets_an_escalation_number_into_the_prom
 
 
 async def test_publishing_knowledge_does_not_promote_a_paused_agent() -> None:
-    """`publish_agent` writes `status = 'live'`. FLOWS §1 step 7 makes going live a
-    human gate — a test call plus the regression mini-suite — and a client pasting an
-    FAQ is not that gate. A paused agent is paused for a reason (a complaint, a cap, a
-    compliance question), and coming back must be somebody's decision.
+    """`publish_agent` used to write `status = 'live'` on every republish. FLOWS §1 step 7
+    makes going live a human gate — a test call plus the regression mini-suite — and a
+    client pasting an FAQ is not that gate, so a paused agent stays paused.
 
-    The version is still minted: the recompile is about our records being right, and
-    the block is correct the moment an operator does publish.
+    It is still republished, as it stands (D-876): a paused agent with an engine agent is
+    "Ready, not taking calls" (D-838), and its Try it chat and trial test calls answer from
+    what the engine holds, so the new facts must reach it.
     """
     tenant_id, agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agents SET status = 'paused' WHERE id = :aid"), {"aid": agent_id}
         )
-    before = await _engine_prompt(tenant_id, agent_id)
 
     await _publish_knowledge(tenant_id, agent_id, "Fees", "A consultation costs 500 rupees.")
 
@@ -221,13 +220,11 @@ async def test_publishing_knowledge_does_not_promote_a_paused_agent() -> None:
             )
         ).scalar()
     assert status == "paused", "a knowledge publish promoted a paused agent to live"
-    assert await _engine_prompt(tenant_id, agent_id) == before, (
-        "the paused agent's prompt was pushed to the engine anyway"
+    assert "500 rupees" in (await _engine_prompt(tenant_id, agent_id) or ""), (
+        "the ready agent's engine kept the old facts"
     )
     versions = await _versions(tenant_id, agent_id)
-    assert versions and "500 rupees" in versions[-1]["compiled"], (
-        "the recompile was skipped entirely — the block is wrong the moment it publishes"
-    )
+    assert versions and "500 rupees" in versions[-1]["compiled"]
 
 
 async def test_a_live_agent_answers_from_the_newly_approved_facts() -> None:

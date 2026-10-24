@@ -83,6 +83,18 @@ AGENT_STATUSES: tuple[AgentStatus, ...] = get_args(AgentStatus)
 #: come from (D-853); `scripts/check_compliance_invariants` holds it equal to the state
 #: `lifecycle.prepare_agent` moves to.
 AGENT_READY_STATUS: Final[AgentStatus] = "paused"
+#: The states in which the engine holds the agent, so an edit to it must be republished:
+#: on the phone, or ready and not taking calls, whose Try it chat and trial test calls run
+#: what the engine holds (D-838). A republish keeps the state (`publish_agent(take_calls=
+#: False)`). Republishing `live` alone left every edit to a ready agent in our rows only,
+#: and the drift sweep then read the engine back as `not_applied` (D-876).
+PUBLISHED_STATUSES: Final[tuple[AgentStatus, ...]] = ("live", AGENT_READY_STATUS)
+
+
+def is_published(status: object, engine_agent_ref: object) -> bool:
+    """Does the engine hold this agent, so a change to what it says must be sent to it?"""
+    return str(status) in PUBLISHED_STATUSES and bool(engine_agent_ref)
+
 
 #: Derived, never retyped (D-104). This WAS a hand-typed pair, and it is the copy that had
 #: teeth: it renders `ck_agents_engine_enum`, and

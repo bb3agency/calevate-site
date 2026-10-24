@@ -5,7 +5,9 @@ should be (an ops console platform setting, a client setting, an agent's own cha
 outside its publish) calls `queue_live_apply` in the SAME transaction as the write. That
 records a `live_apply_runs` row and an outbox message; the worker
 (`apps/workers/live_apply.py`) then brings every affected live agent to the state a publish
-would produce right now. Nobody switches an agent off and on, and no campaign is paused.
+would produce right now. "Live" here includes a READY agent (paused with an engine agent,
+D-838): the engine holds it, so it is republished as it stands and stays ready (D-876).
+Nobody switches an agent off and on, and no campaign is paused.
 
 HOW AN AGENT IS CONVERGED: `converge_agent`, which is `agents/service.publish_agent` (the
 one publish path: compose, push, read back and score, D-64) followed by
@@ -247,6 +249,11 @@ def platform_prompt_revision() -> str:
     from apps.api.engine.hosted_platform import PLATFORM_AGENT_VALUES
 
     parts.append(json.dumps(PLATFORM_AGENT_VALUES, sort_keys=True))
+    # Which agents a platform run converges: widening it (ready agents, D-876) walks the fleet
+    # once more, so agents a narrower walk skipped are brought onto this build's text.
+    from apps.api.agents.models import PUBLISHED_STATUSES
+
+    parts.append(",".join(PUBLISHED_STATUSES))
     return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:16]
 
 
@@ -382,9 +389,12 @@ async def read_run(session: AsyncSession, run_id: UUID) -> LiveApplyRunView | No
 
 # ------------------------------------------------------------------ converging one agent
 
-_LIVE_AGENT: Final = text(
+#: Live, or ready and not taking calls (D-838): both are agents the engine holds, and a ready
+#: one skipped here kept the old platform text and settings while its Try it chat and trial
+#: test calls ran them, and read as drift on every sweep (D-876).
+_PUBLISHED_AGENT: Final = text(
     "SELECT name FROM agents WHERE id = :aid AND deleted_at IS NULL AND archived_at IS NULL "
-    "AND status = 'live' AND engine_agent_ref IS NOT NULL"
+    "AND status IN ('live', 'paused') AND engine_agent_ref IS NOT NULL"
 )
 _REF: Final = text("SELECT engine_agent_ref FROM agents WHERE id = :aid")
 
@@ -403,20 +413,22 @@ class SettingsNotHeldError(Exception):
 
 
 async def converge_agent(*, tenant_id: UUID, agent_id: UUID) -> tuple[Outcome, str | None]:
-    """Republish one live agent from our rows and read its settings back. (outcome, name).
+    """Republish one published agent, as it stands, from our rows and read its settings
+    back. (outcome, name).
 
     Raises the publish's or the read-back's `ProblemError`; the caller decides whether a
-    retry can help. An agent no longer live is left alone: going live publishes it anyway.
+    retry can help. A ready agent stays ready (`take_calls=False`); a draft, archived or
+    deleted agent is left alone, since its first publish sends everything anyway.
     """
     from apps.api.agents.engine_settings import check_agent_settings
     from apps.api.agents.service import publish_agent
     from apps.api.db.session import tenant_session
 
     async with tenant_session(tenant_id) as session:
-        name = (await session.execute(_LIVE_AGENT, {"aid": agent_id})).scalar()
+        name = (await session.execute(_PUBLISHED_AGENT, {"aid": agent_id})).scalar()
         if name is None:
             return "not_live", None
-        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
         ref = (await session.execute(_REF, {"aid": agent_id})).scalar()
     if ref:
         checked = await check_agent_settings(

@@ -309,6 +309,7 @@ async def recompile_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: U
     that edit rather than publishing it.
     """
     # Local imports: `agents/` imports `teach/` (script saves splice through here).
+    from apps.api.agents.models import is_published
     from apps.api.agents.prompts import insert_prompt_version
     from apps.api.agents.service import publish_agent
 
@@ -346,8 +347,8 @@ async def recompile_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: U
         structured_script=structured,
         apply_live=not staged,
     )
-    if row[0] == "live" and row[1] and not staged:
-        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+    if is_published(row[0], row[1]) and not staged:
+        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
     log.info(
         "pinned_facts_recompiled",
         extra={"agent_id": str(agent_id), "prompt_version": version, "staged": staged},

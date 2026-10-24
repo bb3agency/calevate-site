@@ -60,6 +60,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.models import is_published
 from apps.api.agents.prompts import insert_prompt_version
 from apps.api.agents.service import publish_agent
 from apps.api.agents.t0_block import (
@@ -305,9 +306,9 @@ async def recompile_t0(
         apply_live=applies_now,
     )
 
-    live = agent.status == "live" and bool(agent.engine_agent_ref) and applies_now
+    live = is_published(agent.status, agent.engine_agent_ref) and applies_now
     if live:
-        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
 
     # Ids and counts only: the block is the client's own prices, staff names and FAQ
     # answers (hard rule 6). `chars` is what an operator needs to see the budget being

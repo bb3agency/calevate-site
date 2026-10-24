@@ -63,6 +63,7 @@ from apps.api.agents.models import (
     STUDIO_VOICE_SPEED_MIN,
     STUDIO_VOICE_VOLUME_MAX,
     STUDIO_VOICE_VOLUME_MIN,
+    is_published,
 )
 from apps.api.billing.plans import IST
 from apps.api.core.errors import ProblemError
@@ -299,9 +300,10 @@ async def set_voice_tuning(
     audience: Audience = "operator",
 ) -> tuple[VoiceTuningState, tuple[str, ...]]:
     """Write the named fields (None clears one; a field left out is kept) and queue the
-    agent's live apply when it is live. The row is locked first, so the comparison and the
-    write are one step and a repeat of the held values writes and queues nothing. Answers
-    the new state and the fields that moved. A client may name only `CLIENT_FIELDS`."""
+    agent's live apply when the engine holds it (live or ready). The row is locked first, so
+    the comparison and the write are one step and a repeat of the held values writes and
+    queues nothing. Answers the new state and the fields that moved. A client may name only
+    `CLIENT_FIELDS`."""
     unknown = set(changes) - set(FIELDS if audience == "operator" else CLIENT_FIELDS)
     if unknown:
         raise ValueError(f"not a voice tuning field: {sorted(unknown)}")
@@ -325,7 +327,7 @@ async def set_voice_tuning(
             text(_UPDATE_SQL), {**{f: getattr(wanted, f) for f in FIELDS}, "aid": agent_id}
         )
         status, ref = row[6], row[7]
-        if str(status) == "live" and ref and state.studio:
+        if is_published(status, ref) and state.studio:
             await queue_live_apply(
                 session,
                 scope="agent",

@@ -54,6 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import prompt_size
 from apps.api.agents.engine_limits import PromptTooLongError, refuse_opening_over_limit
+from apps.api.agents.models import is_published
 from apps.api.agents.prompts import insert_prompt_version, write_prompt_version
 from apps.api.agents.t0_block import block_of, splice_t0_block
 from apps.api.agents.write_guard import archived_refusal
@@ -491,7 +492,7 @@ async def rewrite_script(
 
     Unlike `save_agent_script`, which is the owner's save and stages on a live agent, this is
     for changes the platform makes on the owner's behalf: the version is applied, and a live
-    agent republished, unless the owner has a script edit staged, in which case it rides
+    or ready agent republished, unless the owner has a script edit staged, in which case it rides
     with that edit. A freeform draft is left alone. Returns the new version, or None when
     the compiled body would not change. `created_by` names the owner when they asked for it.
     """
@@ -533,8 +534,8 @@ async def rewrite_script(
         structured_script=script.model_dump(mode="json"),
         apply_live=not staged,
     )
-    if row[1] == "live" and row[2] and not staged:
-        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+    if is_published(row[1], row[2]) and not staged:
+        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
     return version
 
 

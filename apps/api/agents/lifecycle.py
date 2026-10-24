@@ -75,7 +75,7 @@ from apps.api.agents.engine_choice import (
     require_engine_choice,
 )
 from apps.api.agents.languages import default_extra_languages, published_extra_languages
-from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection, AgentStatus
+from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection, AgentStatus, is_published
 from apps.api.agents.own_model import refuse_own_model_choice
 from apps.api.agents.service import (
     INBOUND_SILENCE_TRUTHFUL_ANSWER,
@@ -428,8 +428,8 @@ async def _check_engine_choice(
 ) -> None:
     """Refuse an engine-catalogue choice before the column write.
 
-    A live agent is checked by the republish that follows (`publish_agent`); any other
-    agent is checked here, so a draft cannot store a voice that would refuse its first
+    A live or ready agent is checked by the republish that follows (`publish_agent`); a
+    draft is checked here, so it cannot store a voice that would refuse its first
     publish. `held` is the row's current (voice, model); `voice`/`model` are (sent, value).
 
     Clearing a choice is allowed: the adapter sends `null`, which puts the vendor agent back
@@ -477,12 +477,12 @@ async def update_agent(
     Returns nothing: the caller re-reads the agent to answer with, and a boolean nobody
     consults is a value the next reader has to work out the meaning of.
 
-    All of them ride on `AgentConfig` — name, direction, language and the chosen model
-    reach the vendor's agent object — so a LIVE agent is republished in the same
-    transaction. That is the ordering `set_call_cap` and `set_disclosure_posture` already
-    use and the reason it is safe: the column write happens first, the engine push
-    second, so a vendor failure rolls the row back with it and our record never claims a
-    configuration the engine was not sent.
+    All of them ride on `AgentConfig` — name, direction, language and the chosen model reach the
+    vendor's agent object — so a live or ready agent is republished, as it stands, in the same
+    transaction. That is the ordering `set_call_cap` and `set_disclosure_posture` already use and
+    the reason it is safe: the column write happens first, the engine push second, so a vendor
+    failure rolls the row back with it and our record never claims a configuration the engine was
+    not sent.
 
     DIRECTION IS THE ONE THAT RINGS A PHONE. Republishing runs `route_inbound_numbers`,
     which BINDS this agent's numbers when it answers inbound and RELEASES them when it does
@@ -561,7 +561,7 @@ async def update_agent(
         raise ProblemError.not_found("Agent")
     if str(row[0]) == "archived":
         raise archived_refusal("edited")
-    republish = str(row[0]) == "live" and bool(row[1])
+    republish = is_published(row[0], row[1])
     # The screen sends the whole reply-language list whenever any of it moved, so a main
     # language that arrives is not necessarily a new one.
     language_changed = language_primary is not None and language_primary != str(row[4])
@@ -651,7 +651,7 @@ async def update_agent(
             session, tenant_id=tenant_id, agent_id=agent_id, old_name=str(row[5]), old_voice=row[2]
         )
     if republish:
-        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+        await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
     log.info(
         "agent_updated",
         extra={

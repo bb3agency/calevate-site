@@ -62,6 +62,7 @@ from apps.api.agents.models import (
     NUDGE_PHRASE_MAX_CHARS,
     TURN_SILENCE_MAX_MS,
     TURN_SILENCE_MIN_MS,
+    is_published,
 )
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -557,7 +558,8 @@ async def set_agent_call_handling(
     agent_id: UUID,
     changes: Mapping[str, object],
 ) -> tuple[AgentCallHandling, tuple[str, ...]]:
-    """Write the named fields on one agent and queue its live apply when it is live.
+    """Write the named fields on one agent and queue its live apply when the
+    engine holds it (live or ready).
 
     The row is locked first so "did this change?" and the write are one step, and a repeat
     of the value already held writes nothing and queues nothing. Answers the new state and the
@@ -596,7 +598,7 @@ async def set_agent_call_handling(
         )
         extra = len(AGENT_ONLY_FIELDS)
         status, ref = row[width + extra], row[width + extra + 1]
-        if str(status) == "live" and ref:
+        if is_published(status, ref):
             await queue_live_apply(
                 session,
                 scope="agent",
@@ -636,10 +638,11 @@ async def read_organization_call_handling(session: AsyncSession) -> Organization
 
 
 _LIVE_AGENT: Final = (
-    "SELECT 1 FROM agents WHERE deleted_at IS NULL AND status = 'live' "
+    "SELECT 1 FROM agents WHERE deleted_at IS NULL AND status IN ('live', 'paused') "
     "AND engine_agent_ref IS NOT NULL AND "
 )
-#: Per field: a live agent that inherits the account value, so changing it moves a line.
+#: Per field: a live or ready agent (D-838) that inherits the account value, so changing it
+#: moves a line.
 _INHERITING_LIVE_AGENT: Final = {f: _LIVE_AGENT + f + " IS NULL LIMIT 1" for f in SETTING_FIELDS}
 
 
