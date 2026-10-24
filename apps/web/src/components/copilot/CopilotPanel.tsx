@@ -314,7 +314,10 @@ export function CopilotPanel({
               </>
             )}
           </h2>
-          <p className="truncate text-meta text-ink-muted">{surface.title}</p>
+          {/* The workspace page is titled Pip already; "Pip / Pip" says nothing twice. */}
+          {surface.title !== ASSISTANT_NAME && (
+            <p className="truncate text-meta text-ink-muted">{surface.title}</p>
+          )}
           {/* WHAT IT WILL ACT ON. Shown only when the screen has rows ticked, so "summarise
               these" has a visible "these". */}
           {selected !== null && (
@@ -414,14 +417,18 @@ export function CopilotPanel({
                   : (intro ?? openingLine(surface.route, surface.fields.length > 0))}
             </p>
             {realm === "client" && quickReplies.length === 0 && (
-              <ul aria-label="Questions you could ask" className="flex flex-wrap gap-2">
+              // One row that scrolls sideways on a phone, rather than three tall pills.
+              <ul
+                aria-label="Questions you could ask"
+                className="flex gap-2 max-sm:-mx-4 max-sm:overflow-x-auto max-sm:px-4 max-sm:pb-1 max-sm:[scrollbar-width:none] sm:flex-wrap"
+              >
                 {suggestedQuestions(surface.route).map((question) => (
                   <li key={question}>
                     <button
                       type="button"
                       disabled={conversation.asking}
                       onClick={() => conversation.ask(question)}
-                      className="press rounded-full border border-line px-3 py-1.5 text-left text-meta text-ink hover:bg-ink/[0.04] disabled:cursor-not-allowed disabled:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+                      className="press whitespace-nowrap rounded-full border border-line px-3 py-1.5 text-left text-meta text-ink hover:bg-ink/[0.04] disabled:cursor-not-allowed disabled:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 sm:whitespace-normal"
                     >
                       {question}
                     </button>

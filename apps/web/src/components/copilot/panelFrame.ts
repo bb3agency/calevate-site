@@ -23,7 +23,8 @@ export function panelFrame(placement: PanelPlacement): string {
     case "side":
       return `${card} fixed inset-y-0 right-0 z-assistant h-dvh w-full border-l border-line pb-[env(safe-area-inset-bottom)] shadow-overlay sm:w-[min(26rem,100vw)]`;
     case "page":
-      return `${card} h-[min(44rem,calc(100dvh-12rem))] min-h-[24rem] w-full rounded-card border border-line`;
+      // On a phone the page IS the conversation: edge to edge, no card inside the page.
+      return `${card} h-[min(44rem,calc(100dvh-12rem))] min-h-[24rem] w-full border-y border-line max-sm:-mx-4 max-sm:w-[calc(100%+2rem)] sm:rounded-card sm:border`;
     default:
       return `${card} ${panelPlacement(placement)} w-[min(24rem,calc(100vw-2rem))] rounded-card border border-line shadow-overlay`;
   }

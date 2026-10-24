@@ -3,6 +3,7 @@
 import { FileText, Paperclip, RotateCw, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
+import { useToast } from "@/components/arc/toast";
 import { NOTICE_BAR, NOTICE_BASE, QUIET_ICON_BUTTON } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { ApiProblem } from "@/lib/api/client";
@@ -261,6 +262,7 @@ export function AttachButton({
   const id = useId();
   const reasonId = useId();
   const withheld = available !== true;
+  const toasts = useToast();
   return (
     <>
       <input
@@ -283,6 +285,11 @@ export function AttachButton({
         type="button"
         onClick={() => {
           if (!withheld) input.current?.click();
+          // On a phone the sentence beside the clip is hidden to keep the ask box small, so
+          // a tap on the withheld clip says it instead.
+          else if (available === false) {
+            toasts.toast({ id: "attach-unavailable", kind: "info", title: UPLOADS_UNAVAILABLE });
+          }
         }}
         disabled={disabled}
         aria-disabled={withheld || undefined}
@@ -294,7 +301,7 @@ export function AttachButton({
         <Paperclip aria-hidden className="h-4 w-4" />
       </button>
       {available === false && (
-        <p id={reasonId} className="min-w-0 px-1 text-meta text-ink-muted">
+        <p id={reasonId} className="min-w-0 px-1 text-meta text-ink-muted max-sm:sr-only">
           {UPLOADS_UNAVAILABLE}
         </p>
       )}
