@@ -106,3 +106,27 @@ export function useRollbackPrompt(
       void client.invalidateQueries({ queryKey: promptHistoryKey(tenantId, agentId) }),
   });
 }
+
+/** `GET .../prompt/layers`: what the agent is told, layer by layer (D-882). */
+export type PromptLayers = Schemas["AgentPromptLayersOut"];
+export type PromptLayer = Schemas["PromptLayerOut"];
+
+/**
+ * Under `promptHistoryKey`, so every write that refreshes the history (save, roll back,
+ * apply, undo) refreshes this too: the layers are built from the applied script.
+ */
+export function promptLayersKey(tenantId: string, agentId: string) {
+  return [...promptHistoryKey(tenantId, agentId), "layers"] as const;
+}
+
+export function usePromptLayers(
+  tenantId: string,
+  agentId: string,
+): UseQueryResult<PromptLayers> {
+  return useQuery({
+    queryKey: promptLayersKey(tenantId, agentId),
+    queryFn: () =>
+      apiRequest<PromptLayers>(adminSession(), `${promptPath(tenantId, agentId)}/layers`),
+    enabled: Boolean(tenantId) && Boolean(agentId),
+  });
+}

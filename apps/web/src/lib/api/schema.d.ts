@@ -1797,6 +1797,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/layers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the agent is told: the composed prompt by layer, with each layer's size
+         * @description The instructions a publish of this agent would send now, in engine order, with the engine's limit and the last drift sweep's verdict. Reads our tables only; it never calls the engine. Caller memory is per call and appears unfilled.
+         */
+        get: operations["prompt_layers_v1_admin_tenants__tenant_id__agents__agent_id__prompt_layers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/rollback": {
         parameters: {
             query?: never;
@@ -12859,6 +12879,39 @@ export interface components {
             nudge_phrase: string | null;
             /** Turn Silence Ms */
             turn_silence_ms: number | null;
+        };
+        /** AgentPromptLayersOut */
+        AgentPromptLayersOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /**
+             * Caller Memory
+             * @enum {string}
+             */
+            caller_memory: "off" | "kept_by_engine" | "in_prompt";
+            /** Drift Checked At */
+            drift_checked_at: string | null;
+            /** Drift State */
+            drift_state: string | null;
+            /** Engine Added Chars */
+            engine_added_chars: number | null;
+            /** Has Script */
+            has_script: boolean;
+            /** Layers */
+            layers: components["schemas"]["PromptLayerOut"][];
+            /** Limit Chars */
+            limit_chars: number | null;
+            /** On Engine */
+            on_engine: boolean;
+            /** Over Chars */
+            over_chars: number;
+            /** Separator Chars */
+            separator_chars: number;
+            /** Total Chars */
+            total_chars: number;
         };
         /** AgentReadinessOut */
         AgentReadinessOut: {
@@ -24493,6 +24546,29 @@ export interface components {
             /** Waiting For Calling Hours */
             waiting_for_calling_hours: boolean;
         };
+        /** PromptLayerOut */
+        PromptLayerOut: {
+            /** Chars */
+            chars: number;
+            /** From Agent Settings */
+            from_agent_settings: boolean;
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "preamble" | "how_to_speak" | "languages" | "spoken_register" | "business_facts" | "notices" | "caller_memory" | "client_script" | "what_you_can_do" | "confidentiality" | "truthful_answers" | "this_call";
+            /**
+             * Owner
+             * @enum {string}
+             */
+            owner: "platform" | "client" | "per_call";
+            /** Purpose */
+            purpose: string;
+            /** Text */
+            text: string;
+            /** Title */
+            title: string;
+        };
         /** PromptVersionOut */
         PromptVersionOut: {
             /** Active */
@@ -34178,6 +34254,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PromptWrittenOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    prompt_layers_v1_admin_tenants__tenant_id__agents__agent_id__prompt_layers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentPromptLayersOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

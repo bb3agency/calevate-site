@@ -12,6 +12,7 @@ import type { ClientLlmDefaults } from "@/lib/api/llmModels";
 import type { ClientMaintenance } from "@/lib/api/maintenance";
 import type { HostedVoices } from "@/lib/api/opsHostedVoices";
 import type { OwnNumbersStatus } from "@/lib/api/ownNumbers";
+import type { PromptLayers } from "@/lib/api/prompts";
 import type { Lanes } from "@/lib/api/publishing";
 import type { WalletLots } from "@/app/c/[slug]/billing/lots";
 import type { PlatformFee } from "@/lib/api/platformFee";
@@ -216,6 +217,56 @@ export function agentReplyLength(agentId = "agent-1") {
     effective: 300,
     min: 100,
     max: 800,
+  };
+}
+
+/**
+ * What one agent is told (D-882): a platform layer, the client's script and the truthful
+ * answers, with the engine's copy last found in step.
+ */
+export function agentPromptLayers(agentId = "agent-1"): PromptLayers {
+  const layers: PromptLayers["layers"] = [
+    {
+      key: "preamble",
+      title: "Calevate's opening rules",
+      purpose: "Names the agent and the business, and says platform rules come first.",
+      owner: "platform",
+      from_agent_settings: true,
+      text: "--- PLATFORM RULES ---\nYou are Asha, answering calls for Sri Bakery.",
+      chars: 68,
+    },
+    {
+      key: "client_script",
+      title: "The client's script",
+      purpose: "The client's own script: who the agent is, its steps and its facts.",
+      owner: "client",
+      from_agent_settings: true,
+      text: "<<CLIENT SCRIPT>>\n[IDENTITY]\nYou are Asha.\n[OPENING]\nNamaskaram, Sri Bakery.\n<</CLIENT SCRIPT>>",
+      chars: 93,
+    },
+    {
+      key: "truthful_answers",
+      title: "Truthful answers (AI and recording)",
+      purpose: "Always answer truthfully whether it is an AI and whether the call is recorded.",
+      owner: "platform",
+      from_agent_settings: false,
+      text: "If asked whether you are an AI, say yes.",
+      chars: 40,
+    },
+  ];
+  return {
+    agent_id: agentId,
+    has_script: true,
+    layers,
+    separator_chars: 4,
+    total_chars: 205,
+    limit_chars: 20000,
+    over_chars: 0,
+    engine_added_chars: 3500,
+    caller_memory: "kept_by_engine",
+    on_engine: true,
+    drift_state: "applied",
+    drift_checked_at: "2026-10-25T04:30:00Z",
   };
 }
 
