@@ -50,8 +50,9 @@ export function familyOf(queryKey: readonly unknown[]): string | null {
 }
 
 // What the client's home screen and its banners are built from. Most changes move one of
-// these, so they ride along with the topic that moved them.
-const SUMMARY = ["dashboard", "attention"] as const;
+// these, so they ride along with the topic that moved them. The bell's feed is the
+// attention queue plus announcements, so it moves with them.
+const SUMMARY = ["dashboard", "attention", "notifications"] as const;
 
 export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
   calls: [
@@ -61,6 +62,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "calls-log",
     "callback-check",
     "performance",
+    // Charts over calls and leads (D-869).
+    "analytics",
     "quality",
     "trial",
     "usage",
@@ -73,6 +76,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
   ],
   leads: [
     ...SUMMARY,
+    "analytics",
+    // Whether a WhatsApp follow-up may go: the lead's consent and the connection.
+    "lead-whatsapp",
     "lead",
     "leads",
     "lead-facets",
@@ -100,7 +106,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "admin/campaign-check",
   ],
   callbacks: [...SUMMARY, "callbacks", "callback-check"],
-  knowledge_gaps: [...SUMMARY, "knowledge-gaps", "kb-struggles"],
+  knowledge_gaps: [...SUMMARY, "knowledge-gaps", "kb-struggles", "readiness"],
   knowledge: [
     "kb",
     "kb-preview",
@@ -113,6 +119,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "kb-struggles",
     "admin/kb",
     "admin/kb-preview",
+    "readiness",
   ],
   wallet: [
     ...SUMMARY,
@@ -148,6 +155,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "agent-engine-state",
     "agent-experiment",
     "agent-handoff",
+    // The readiness score reads the agent, its practice runs, knowledge and open gaps.
+    "readiness",
     "agent-lanes",
     "agent-pending",
     "agent-proposed-rules",
@@ -235,6 +244,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "ingest-activity",
     "whatsapp",
     "admin/whatsapp",
+    "lead-whatsapp",
   ],
   // The caller's OWN Pip conversation (D-782). The server sends it on that person's channel
   // only, so it never moves when a colleague talks to Pip.
@@ -296,6 +306,11 @@ export const STATIC_FAMILIES: Record<string, string> = {
   // while a worker is on it, so nothing needs announcing.
   "first-run": "the first run, polled while its questions or build are being worked on",
   "first-run-recording": "one spoken piece of the brief, polled until it is heard",
+  // Platform announcements (D-869) are written only by an operator and no topic carries
+  // them to a client stream, so the client bar polls and the composer refreshes on its
+  // own writes.
+  announcements: "the platform's announcements, polled by the client bar",
+  "admin/announcements": "the operator's own announcement list, refreshed by its own writes",
   "junction-first-run": "read once by the sign-in junction to choose where to send an owner",
   // The go-live guide (D-859): the move is written by a worker and polled while it runs; the
   // checks it reflects are polled while they are out.

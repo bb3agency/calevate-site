@@ -66,6 +66,7 @@ function detail(): CallDetail {
 function routes(permissions: string[], download: unknown) {
   return {
     "/v1/me": me(permissions),
+    "/v1/agents": [],
     "/v1/calls/c1": detail(),
     "/v1/calls/c1/callback": { eligible: false, reason: "This call was answered.", rule: null },
     "/v1/calls/c1/recording": { url: "https://cdn.example.test/rec.mp3?sig=play", expires_in_s: 300, duration_s: 64 },

@@ -124,6 +124,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
 function routes(d: CallDetail, extra: Record<string, unknown> = {}) {
   return {
     "/v1/me": me(),
+    "/v1/agents": [],
     "/v1/calls/c1": d,
     "/v1/calls/c1/callback": {
       eligible: false,
