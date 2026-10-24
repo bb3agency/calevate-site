@@ -2256,25 +2256,26 @@ def voice_tier_label(voice: TtsProvider | VoiceTier) -> str:
 # engine the deployment runs (`cost_floor_inr_per_min(voice, engine=...)`):
 #
 # * Clear is sold on the voice band `Settings.thinnest_clear_voice_band` names: Studio,
-#   ₹3.00 a minute, by default (D-792; Studio voices need Pro), or Premium, ₹2.50.
+#   ₹2.50 a minute, by default (D-792), or Premium, ₹2.00.
 # * Studio is our Cartesia key on their stack: ₹1.50 a minute plus Cartesia's own synthesis
 #   at its worst marginal plan rate, at the fleet's measured speaking rate and the live
 #   dollar (`FloorInputs`, D-840).
 # * Every ThinnestAI rupee carries the attested wallet top-up fee (`billing/cost_attestations`).
 #
-# The minute rates are VENDOR-STATED (ThinnestAI's email of 7 Oct 2026, evaluation §10
-# item 7; the ₹1.50 is also published, bring-your-own-keys.md:19-24 in the 07b snapshot),
-# not an invoice. Any other engine (`fake`) is judged at the base floors. Hard rule 7: a
-# floor is a margin GUARD. Nothing here reaches `unit_cost_paid`, and the ThinnestAI minute
-# is metered only at the rate an operator attests (`engine_minutes`).
+# The band rates are VENDOR-PUBLISHED in ThinnestAI's console (Voice section, founder-relayed
+# 24 Oct 2026, D-878); the ₹1.50 is published, bring-your-own-keys.md:19-24 in the 07b
+# snapshot. Neither is an invoice. Any other engine (`fake`) is judged at the base floors.
+# Hard rule 7: a floor is a margin GUARD. Nothing here reaches `unit_cost_paid`, and the
+# ThinnestAI minute is metered only at the rate an operator attests (`engine_minutes`).
 
-#: ThinnestAI's Studio-band voice minute on pay-as-you-go, VENDOR-STATED (evaluation §10
-#: item 7, 7 Oct 2026). A floor input only; the billed cost is the attested `studio` rate.
-THINNEST_STUDIO_BAND_INR_PER_MIN: Final[Decimal] = Decimal("3.00")
+#: ThinnestAI's Studio-band voice minute, VENDOR-PUBLISHED in their console (Voice section,
+#: founder-relayed 24 Oct 2026, D-878). A floor input only; the billed cost is the attested
+#: `studio` rate.
+THINNEST_STUDIO_BAND_INR_PER_MIN: Final[Decimal] = Decimal("2.50")
 
-#: ThinnestAI's Premium-band voice minute, VENDOR-STATED (evaluation §10 item 7). A floor
-#: input only; the billed cost is the attested `premium` rate.
-THINNEST_PREMIUM_BAND_INR_PER_MIN: Final[Decimal] = Decimal("2.50")
+#: ThinnestAI's Premium-band voice minute, VENDOR-PUBLISHED in their console (same reading,
+#: D-878). A floor input only; the billed cost is the attested `premium` rate.
+THINNEST_PREMIUM_BAND_INR_PER_MIN: Final[Decimal] = Decimal("2.00")
 
 #: ThinnestAI's own-voice-key minute (BYOK scope `voice`), their phone line included:
 #: VENDOR-PUBLISHED, `thinnest-findings/mirror/snapshots/2026-10-07b/pages/api-reference/
@@ -2292,7 +2293,7 @@ THINNEST_OWN_VOICE_AND_MODEL_INR_PER_MIN: Final[Decimal] = Decimal("1.00")
 #: `agents/llm_models.QUOTED_CALL_MINUTES` quotes a model's per-minute cost at.
 OWN_MODEL_FLOOR_CALL_MINUTES: Final = 5
 
-#: The band minute Clear may be sold on (D-688), VENDOR-STATED as above. Derived.
+#: The band minute Clear may be sold on (D-688), as above. Derived.
 THINNEST_BAND_INR_PER_MIN: Final[Mapping[str, Decimal]] = MappingProxyType(
     {"premium": THINNEST_PREMIUM_BAND_INR_PER_MIN, "studio": THINNEST_STUDIO_BAND_INR_PER_MIN}
 )

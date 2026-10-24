@@ -98,7 +98,7 @@ async def test_each_model_is_scored_and_switched_back_after_drift(
     assert result.hard_failed >= 1
     assert result.problems["brackets"] >= 1
     table = compare._table([result])
-    assert "| Bad | Premium band ₹2.50/min | ~800 ms |" in table
+    assert "| Bad | Premium band | ~800 ms |" in table
 
 
 def test_the_run_refuses_without_the_no_calls_promise(capsys: pytest.CaptureFixture[str]) -> None:

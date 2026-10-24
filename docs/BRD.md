@@ -237,7 +237,7 @@ is TRD §10.0.
 
 | Rung | What speaks | Vendor rate (VENDOR-STATED) | All-in at the 2.36% wallet top-up fee (D-754) | Gross margin at the card |
 |---|---|---|---|---|
-| **Clear** | ThinnestAI's own stack end to end, in the band the console setting `thinnest_clear_voice_band` names | Studio band ₹3.00/min (default, D-792; needs ThinnestAI Pro) or Premium band ₹2.50/min | ₹3.071 or ₹2.559 | 31.8% or 43.1% at ₹4.50 |
+| **Clear** | ThinnestAI's own stack end to end, in the band the console setting `thinnest_clear_voice_band` names | Studio band ₹2.50/min (default, D-792) or Premium band ₹2.00/min; ThinnestAI console, founder-relayed 24 Oct 2026 (D-878) | ₹2.559 or ₹2.0472 | 43.1% or 54.5% at ₹4.50 |
 | **Studio** | Cartesia on our key through ThinnestAI's voice-only BYOK; ThinnestAI's STT, LLM and telephony | ₹1.50/min including the line, plus Cartesia's own charge to our key | ₹1.535 plus Cartesia's ₹2.06–3.42 per call-minute (at 571 characters a minute, by plan and volume; cartesia.ai/pricing read 11 Oct 2026), about ₹3.60–4.96 | 40% down to 17% at ₹6.00 |
 
 Both margins are before ThinnestAI Pro's ₹2,499 a month (needed for the Studio band and for more

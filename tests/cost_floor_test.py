@@ -753,25 +753,27 @@ def _inputs(
 
 
 def test_the_thinnest_floors_are_the_vendor_minutes_plus_the_attested_fee() -> None:
-    """D-687, D-688, D-840. Clear follows the band it is sold on: ₹2.50 Premium or ₹3.00 Studio
-    with the attested wallet fee (2.36% here); Studio is ₹1.50 own voice key with the fee plus
-    Cartesia's dearest overage per character times the speaking rate at the dollar passed."""
+    """D-687, D-688, D-840, D-878. Clear follows the band it is sold on: ₹2.00 Premium or ₹2.50
+    Studio, with the attested wallet fee (2.36% here); Studio is ₹1.50 own voice key with the fee
+    plus Cartesia's dearest overage per character times the speaking rate at the dollar passed."""
     from apps.api.billing.rates import (
         THINNEST_OWN_VOICE_INR_PER_MIN,
+        THINNEST_PREMIUM_BAND_INR_PER_MIN,
         THINNEST_STUDIO_BAND_INR_PER_MIN,
     )
 
-    assert Decimal("3.00") == THINNEST_STUDIO_BAND_INR_PER_MIN
+    assert Decimal("2.50") == THINNEST_STUDIO_BAND_INR_PER_MIN
+    assert Decimal("2.00") == THINNEST_PREMIUM_BAND_INR_PER_MIN
     assert Decimal("1.50") == THINNEST_OWN_VOICE_INR_PER_MIN
     at = _inputs()
     assert cost_floor_inr_per_min(
         "clear", engine="thinnest", clear_band="studio", inputs=at
-    ) == Decimal("3.0708")
+    ) == Decimal("2.5590")
     # Unnamed, the band is the one Clear is sold on by default (D-792): Studio.
-    assert cost_floor_inr_per_min("clear", engine="thinnest", inputs=at) == Decimal("3.0708")
+    assert cost_floor_inr_per_min("clear", engine="thinnest", inputs=at) == Decimal("2.5590")
     assert cost_floor_inr_per_min(
         "clear", engine="thinnest", clear_band="premium", inputs=at
-    ) == Decimal("2.5590")
+    ) == Decimal("2.0472")
     # ₹1.5354 + $65/1M x ₹95 x 540 chars = ₹1.5354 + ₹3.3345.
     assert cost_floor_inr_per_min("studio", engine="thinnest", inputs=at) == Decimal("4.8699")
 
@@ -792,7 +794,7 @@ def test_a_thinnest_floor_without_its_inputs_is_refused() -> None:
 
 def test_an_unattested_fee_is_left_out_and_named() -> None:
     bare = _inputs(wallet_fee=None)
-    assert cost_floor_inr_per_min("clear", engine="thinnest", inputs=bare) == Decimal("3.0000")
+    assert cost_floor_inr_per_min("clear", engine="thinnest", inputs=bare) == Decimal("2.5000")
     assert bare.unattested == ("thinnest_topup_fee", "razorpay_topup_fee")
     assert _inputs(gateway_fee="0.02").unattested == ()
 
@@ -812,10 +814,11 @@ def test_the_card_is_judged_at_the_deployments_engine() -> None:
 
     at = _inputs()
     thinnest = {(p, v): m for p, v, m in card_margins(PACK_CATALOGUE, engine="thinnest", inputs=at)}
-    # Clear sold on the Studio band by default (D-792): ₹3.00 with the 2.36% fee.
-    assert thinnest[("starter", "clear")].cost == Decimal("3.0708")
-    # 31.76% at the ₹4.50 Clear rate on the Studio band, above the 20% target.
-    assert gross_margin_ratio(rate=Decimal("4.50"), cost=Decimal("3.0708")) == Decimal("0.3176")
+    # Clear sold on the Studio band by default (D-792): ₹2.50 with the 2.36% fee (D-878).
+    assert thinnest[("starter", "clear")].cost == Decimal("2.5590")
+    # 43.13% at the ₹4.50 Clear rate on the Studio band, above the 20% target.
+    margin = gross_margin_ratio(rate=Decimal("4.50"), cost=Decimal("2.5590"))
+    assert margin.quantize(Decimal("0.0001")) == Decimal("0.4313")
     assert not thinnest[("max", "clear")].below_cost
     assert not thinnest[("max", "studio")].below_cost
 

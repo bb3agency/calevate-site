@@ -48,7 +48,8 @@ a screen and a test cannot disagree about what "thin" means:
 * **below `MIN_GROSS_MARGIN` is a WARNING.** The founder's card of 11 Oct 2026 (D-728:
   Clear ₹4.50, Studio ₹6.00, flat) earns against the engine's floor:
 
-      ThinnestAI  Clear 43.1% (₹2.5590)    Studio 18.8% (₹4.8699)
+      ThinnestAI  Clear 43.1% (₹2.5590, Studio band; 54.5% at ₹2.0472 on Premium)
+                  Studio 18.8% (₹4.8699)
 
   Nothing is below COST. The thin cells are a deliberate opening price, not a defect.
   ⚠ **DO NOT "FIX" A THIN CELL BY MOVING A RATE** — that is a pricing decision, not a test

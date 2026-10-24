@@ -16,9 +16,10 @@ the tag `pre-pipecat-removal` keeps it one checkout away. D-687 and D-688 (8 Oct
 
 - **Clear** = ThinnestAI's speech-to-text and telephony, speaking the ThinnestAI voice band the
   console setting `thinnest_clear_voice_band` names: **Studio** (default, D-792; catalogue voices
-  with `tier: studio` plus voices our **admin** clones; ₹3.00/min, switched on for our
+  with `tier: studio` plus voices our **admin** clones; ₹2.50/min, switched on for our
   pay-as-you-go account with up to 25 clones, VENDOR-STATED 23 Oct 2026, replies §28) or
-  **Premium** (pay-as-you-go, ₹2.50/min). VENDOR-STATED rates, operator-attested, never a constant.
+  **Premium** (pay-as-you-go, ₹2.00/min). Rates VENDOR-PUBLISHED in ThinnestAI's console
+  (Voice section, founder-relayed 24 Oct 2026, D-878), operator-attested, never a constant.
   The model is our Gemini on our Google key (D-834), agent `byok: "llm"`, billed at the band's
   minute; while the `thinnest_own_model` switch is off it is ThinnestAI's own model, agent
   `byok: "off"` (`engine/thinnest._byok_value`, `agents/own_model.py`).

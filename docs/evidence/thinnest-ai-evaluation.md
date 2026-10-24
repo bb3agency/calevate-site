@@ -30,7 +30,7 @@ ThinnestAI is a managed orchestrator that offered BYOK (our own STT, LLM and TTS
 | BYOK platform fee | **₹1/min, telephony included** | FOUNDER-RELAYED (email, 6 Oct 2026) |
 | Billing pulse | 30 seconds | FOUNDER-RELAYED (call) |
 | Their own models: standard / expressive | ₹1.5 / ₹2.5 per min | FOUNDER-RELAYED (call) |
-| Website: standard / premium / Studio | ₹2 / ₹2.5 / ₹3 per min; Scale ₹4,999/mo | VENDOR-PUBLISHED. **Resolved 18 Oct 2026 (VENDOR-STATED, ThinnestAI email):** Standard ₹2.00, Premium ₹2.50, Studio ₹3.00 on pay-as-you-go and Pro; Scale 5% off all three for that workspace only; no further volume rate. Standard is not offered (D-813). |
+| Website: standard / premium / Studio | ₹2 / ₹2.5 / ₹3 per min; Scale ₹4,999/mo | VENDOR-PUBLISHED. **Resolved 18 Oct 2026 (VENDOR-STATED, ThinnestAI email):** Standard ₹2.00, Premium ₹2.50, Studio ₹3.00 on pay-as-you-go and Pro; Scale 5% off all three for that workspace only; no further volume rate. Standard is not offered (D-813). ⚠ **Superseded 24 Oct 2026 (D-878):** the console's Voice section reads Voice Call ₹2, Premium ₹2, Studio ₹2.50 per minute (VENDOR-PUBLISHED, founder-relayed). |
 | Concurrency | 5 on pay-as-you-go; "reviewed based on volume" (email); "nothing extra" (call) | FOUNDER-RELAYED |
 | Limits generally | Raised on request by email (founder's reading of the call) | FOUNDER-RELAYED |
 | Calls per second | About 3, set by the carrier (Plivo) | FOUNDER-RELAYED |
