@@ -3,7 +3,8 @@
 import { useId, useState } from "react";
 import { Webhook } from "lucide-react";
 
-import { Drawer, DrawerSubmit } from "@/components/console/drawer";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { Drawer } from "@/components/console/drawer";
 import { IconTile } from "@/components/console/iconTile";
 import { ServiceLogo } from "@/components/console/serviceLogo";
 import { FieldMessage, useFormValidation } from "@/components/formValidation";
@@ -40,12 +41,15 @@ export function AddSourceDrawer({
   open,
   onClose,
   create,
+  createStatus,
   agents,
   canWrite,
 }: {
   open: boolean;
   onClose: () => void;
   create: ReturnType<typeof useCreateLeadSource>;
+  /** The add's state from the screen's `useActionFeedback`. */
+  createStatus: FeedbackStatus;
   agents: ReturnType<typeof useAgents>;
   canWrite: boolean;
 }) {
@@ -112,12 +116,15 @@ export function AddSourceDrawer({
             {/* Blocked while the agent list is unreadable: the form would otherwise POST
                 with no agent and make exactly the silent never-dialling source the
                 sentence beside the picker promises to prevent. */}
-            <DrawerSubmit
-              disabled={!canWrite || create.isPending || agentsUnread}
-              className={PRIMARY_BUTTON}
+            <ActionButton
+              type="submit"
+              form={formId}
+              status={createStatus}
+              successLabel="Added"
+              disabled={!canWrite || agentsUnread}
             >
-              {create.isPending ? "Adding…" : "Add lead source"}
-            </DrawerSubmit>
+              Add lead source
+            </ActionButton>
           </>
         )
       }

@@ -1,19 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
-import { Pause, Play, RotateCcw } from "lucide-react";
+import { Pause, Pencil, Play, RotateCcw } from "lucide-react";
 
-import { RowMenu, type RowMenuItem } from "@/components/arc/menu";
-import {
-  DANGER_BUTTON,
-  NOTICE_BAR,
-  NOTICE_BASE,
-  PRIMARY_BUTTON,
-  ProblemNotice,
-  SECONDARY_BUTTON,
-  formatCount,
-} from "@/components/ui";
+import { ButtonGroup, type GroupAction } from "@/components/arc/button-group";
+import { useActionFeedback, type ActionFeedback } from "@/components/arc/feedback";
+import { ConfirmDialog } from "@/components/confirmDialog";
+import { formatCount } from "@/components/ui";
 import {
   useDeleteCampaign,
   useDuplicateCampaign,
@@ -29,23 +22,22 @@ type Confirming = "stop" | "delete" | null;
 const HELD_PAUSES = ["complaint_spike", "out_of_credit", "spend_cap"];
 
 /**
- * The controls this state allows, and nothing the server would refuse.
+ * The controls this state allows, and nothing the server would refuse, as one
+ * `ButtonGroup`: the one move the state is about first (Edit a draft, Pause a running
+ * campaign, Resume a paused one, Call the unreached again once it is over), then Stop for
+ * good while it can still call, because a control that stops calls stays reachable however
+ * seldom it is used (UX-DOCTRINE §3). Duplicate always, Delete on a draft. Stop and Delete
+ * restate what they do in a `ConfirmDialog` before they act.
  *
- * In view: the one move the state is about (Edit a draft, Pause a running campaign,
- * Resume a paused one, Call the unreached again once it is over) and Stop for good while
- * it can still call, because a control that stops calls stays visible however seldom it
- * is used (UX-DOCTRINE §3). Behind ⋯: Duplicate always, Delete on a draft. Stop and
- * Delete restate what they do before they act.
- *
- * Resume is the filled button when pressing it is the whole fix (a pause the owner made).
- * A pause with a cause still outstanding keeps Resume quiet and disabled, and the notice
- * under the header carries the fix as its own action.
+ * A pause with a cause still outstanding keeps Resume disabled behind the review, and the
+ * notice under the header carries the fix as its own action.
  */
 export function CampaignHeaderActions({
   slug,
   campaignId,
   progress,
   setStatus,
+  setStatusFeedback,
   canWrite,
   refusal,
   onGone,
@@ -55,6 +47,7 @@ export function CampaignHeaderActions({
   campaignId: string;
   progress: CampaignProgress;
   setStatus: ReturnType<typeof usePauseCampaign>;
+  setStatusFeedback: ActionFeedback<"pause" | "resume">;
   canWrite: boolean;
   refusal: string | undefined;
   onGone: () => void;
@@ -64,122 +57,160 @@ export function CampaignHeaderActions({
   const stop = useStopCampaign(session, campaignId);
   const remove = useDeleteCampaign(session, campaignId);
   const duplicate = useDuplicateCampaign(session, campaignId);
+  const stopFeedback = useActionFeedback(stop, {
+    errorDisplay: "inline",
+    successToast: "Campaign stopped",
+    successDescription: "Nobody else on the list will be called.",
+  });
+  const removeFeedback = useActionFeedback(remove, {
+    errorDisplay: "inline",
+    successToast: "Draft deleted",
+  });
+  const duplicateFeedback = useActionFeedback(duplicate, {
+    errorTitle: "Could not copy this campaign",
+    successToast: (_copy, vars) =>
+      vars.with_unreached ? "New draft made with the people not reached" : "Copy made as a new draft",
+  });
   const [confirming, setConfirming] = useState<Confirming>(null);
   const status = progress.status;
   const finished = status === "completed" || status === "cancelled";
   const reviewOwed = progress.complaint_review_required;
   const held = HELD_PAUSES.includes(progress.pause_reason ?? "");
   const remaining = (progress.contacts.pending ?? 0) + (progress.contacts.dialing ?? 0);
+  const ownerOnly = canWrite ? undefined : (refusal ?? "Only the account owner can do this.");
 
-  const more: RowMenuItem[] = [
-    {
-      id: "duplicate",
-      label: duplicate.isPending ? "Duplicating…" : "Duplicate",
-      disabled: !canWrite || duplicate.isPending,
-      hint: canWrite ? undefined : "Owner only",
-      onSelect: () => duplicate.mutate({ with_unreached: false }, { onSuccess: (copy) => onCopied(copy.id) }),
-    },
-    ...(status === "draft"
-      ? [
-          {
-            id: "delete",
-            label: "Delete…",
-            tone: "danger" as const,
-            disabled: !canWrite,
-            onSelect: () => setConfirming("delete"),
-          },
-        ]
-      : []),
-  ];
+  const statusFor = (action: "pause" | "resume") =>
+    setStatus.variables === action ? setStatusFeedback.status : "idle";
+  const duplicateStatus = (withUnreached: boolean) =>
+    Boolean(duplicate.variables?.with_unreached) === withUnreached ? duplicateFeedback.status : "idle";
+  const copy = (withUnreached: boolean) =>
+    duplicate.mutate({ with_unreached: withUnreached }, { onSuccess: (made) => onCopied(made.id) });
+
+  const actions: GroupAction[] = [];
+  if (status === "draft") {
+    actions.push({
+      id: "edit",
+      label: "Edit",
+      icon: <Pencil className="h-3.5 w-3.5" />,
+      href: href(`/c/${slug}/campaigns/${campaignId}/edit`),
+    });
+  }
+  if (status === "running") {
+    actions.push({
+      id: "pause",
+      label: "Pause",
+      icon: <Pause className="h-3.5 w-3.5" />,
+      status: statusFor("pause"),
+      successLabel: "Paused",
+      disabled: !canWrite,
+      hint: ownerOnly,
+      onSelect: () => setStatusFeedback.run("pause"),
+    });
+  }
+  if (status === "paused") {
+    actions.push({
+      id: "resume",
+      label: "Resume",
+      icon: <Play className="h-3.5 w-3.5" />,
+      status: statusFor("resume"),
+      successLabel: "Resumed",
+      disabled: !canWrite || reviewOwed,
+      hint: reviewOwed
+        ? "Confirm you have reviewed the opt-outs first."
+        : held
+          ? "Clear the reason above first."
+          : ownerOnly,
+      onSelect: () => setStatusFeedback.run("resume"),
+    });
+  }
+  if (finished) {
+    actions.push({
+      id: "again",
+      label: "Call the unreached again",
+      icon: <RotateCcw className="h-3.5 w-3.5" />,
+      status: duplicateStatus(true),
+      successLabel: "Copied",
+      disabled: !canWrite,
+      hint: ownerOnly,
+      onSelect: () => copy(true),
+    });
+  }
+  if (status === "running" || status === "paused" || status === "scheduled") {
+    actions.push({
+      id: "stop",
+      label: "Stop for good…",
+      disabled: !canWrite,
+      hint: ownerOnly,
+      onSelect: () => setConfirming("stop"),
+    });
+  }
+  actions.push({
+    id: "duplicate",
+    label: "Duplicate",
+    status: duplicateStatus(false),
+    successLabel: "Copied",
+    disabled: !canWrite,
+    hint: ownerOnly,
+    onSelect: () => copy(false),
+  });
+  if (status === "draft") {
+    actions.push({
+      id: "delete",
+      label: "Delete draft…",
+      tone: "danger",
+      disabled: !canWrite,
+      hint: ownerOnly,
+      onSelect: () => setConfirming("delete"),
+    });
+  }
 
   return (
-    <div className="flex w-full flex-col gap-3 sm:w-auto sm:items-end">
-      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-        {status === "draft" && (
-          <Link href={href(`/c/${slug}/campaigns/${campaignId}/edit`)} className={SECONDARY_BUTTON}>
-            Edit
-          </Link>
-        )}
-        {status === "running" && (
-          <button
-            type="button"
-            title={refusal}
-            disabled={!canWrite || setStatus.isPending}
-            onClick={() => setStatus.mutate("pause")}
-            className={SECONDARY_BUTTON}
-          >
-            <Pause aria-hidden className="h-3.5 w-3.5" />
-            Pause
-          </button>
-        )}
-        {status === "paused" && (
-          <button
-            type="button"
-            title={reviewOwed ? "Confirm you have reviewed the opt-outs first." : refusal}
-            disabled={!canWrite || setStatus.isPending || reviewOwed}
-            onClick={() => setStatus.mutate("resume")}
-            className={held ? SECONDARY_BUTTON : PRIMARY_BUTTON}
-          >
-            <Play aria-hidden className="h-3.5 w-3.5" />
-            Resume
-          </button>
-        )}
-        {finished && (
-          <button
-            type="button"
-            title={refusal}
-            disabled={!canWrite || duplicate.isPending}
-            onClick={() => duplicate.mutate({ with_unreached: true }, { onSuccess: (copy) => onCopied(copy.id) })}
-            className={SECONDARY_BUTTON}
-          >
-            <RotateCcw aria-hidden className="h-3.5 w-3.5" />
-            Call the unreached again
-          </button>
-        )}
-        {(status === "running" || status === "paused" || status === "scheduled") && (
-          <button
-            type="button"
-            title={refusal}
-            disabled={!canWrite}
-            onClick={() => setConfirming("stop")}
-            className={SECONDARY_BUTTON}
-          >
-            Stop for good…
-          </button>
-        )}
-        <RowMenu label={progress.name} items={more} className="border border-line" />
-      </div>
-      {duplicate.error ? <ProblemNotice error={duplicate.error} /> : null}
-      {confirming && (
-        <div role="group" aria-label={confirming === "stop" ? "Stop this campaign" : "Delete this draft"} className={`${NOTICE_BASE} ${NOTICE_BAR.warn} max-w-md text-left`}>
-          <p className="font-semibold">
-            {confirming === "stop" ? "Stop this campaign for good?" : "Delete this draft?"}
-          </p>
-          <p className="text-ink-muted">
-            {confirming === "stop"
-              ? `Nobody else on the list is called${remaining ? ` (${formatCount(remaining)} still waiting)` : ""}. A call already ringing finishes. It can't be restarted; Duplicate makes a new draft from it.`
-              : "The draft and its list are removed. If calls or records already name it, it is kept as stopped instead."}
-          </p>
-          {(stop.error || remove.error) && <ProblemNotice error={stop.error ?? remove.error} />}
-          <div className="flex flex-wrap gap-2 pt-1">
-            <button
-              type="button"
-              disabled={stop.isPending || remove.isPending}
-              onClick={() =>
-                confirming === "stop"
-                  ? stop.mutate(undefined, { onSuccess: () => setConfirming(null) })
-                  : remove.mutate(undefined, { onSuccess: onGone })
-              }
-              className={DANGER_BUTTON}
-            >
-              {confirming === "stop" ? "Stop for good" : "Delete draft"}
-            </button>
-            <button type="button" onClick={() => setConfirming(null)} className={SECONDARY_BUTTON}>
-              Keep it
-            </button>
-          </div>
-        </div>
+    <>
+      <ButtonGroup
+        label="Campaign actions"
+        moreLabel={`More actions for ${progress.name}`}
+        actions={actions}
+        phoneVisible={1}
+        desktopVisible={2}
+        className="flex-wrap sm:justify-end"
+      />
+      {confirming === "stop" && (
+        <ConfirmDialog
+          title="Stop this campaign for good?"
+          confirmLabel="Stop for good"
+          pendingLabel="Stopping"
+          cancelLabel="Keep it"
+          status={stopFeedback.status}
+          error={stopFeedback.error ?? null}
+          onCancel={() => {
+            stopFeedback.reset();
+            setConfirming(null);
+          }}
+          onConfirm={() => stop.mutate(undefined, { onSuccess: () => setConfirming(null) })}
+        >
+          Nobody else on the list is called
+          {remaining ? ` (${formatCount(remaining)} still waiting)` : ""}. A call already ringing
+          finishes. It can&rsquo;t be restarted; Duplicate makes a new draft from it.
+        </ConfirmDialog>
       )}
-    </div>
+      {confirming === "delete" && (
+        <ConfirmDialog
+          title="Delete this draft?"
+          confirmLabel="Delete draft"
+          pendingLabel="Deleting"
+          cancelLabel="Keep it"
+          status={removeFeedback.status}
+          error={removeFeedback.error ?? null}
+          onCancel={() => {
+            removeFeedback.reset();
+            setConfirming(null);
+          }}
+          onConfirm={() => remove.mutate(undefined, { onSuccess: onGone })}
+        >
+          The draft and its list are removed. If calls or records already name it, it is kept as
+          stopped instead.
+        </ConfirmDialog>
+      )}
+    </>
   );
 }

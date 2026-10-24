@@ -2312,7 +2312,7 @@ const CLIENT_SCREENS: Screen[] = [
     file: "c/[slug]/calls/page.tsx",
     realm: "client",
     element: () => <CallsPage params={slug} />,
-    routes: { "/v1/me": ME, "/v1/calls?limit=100": [CALL] },
+    routes: { "/v1/me": ME, "/v1/calls?limit=100": [CALL], "/v1/agents": [AGENT] },
   },
   {
     file: "c/[slug]/calls/[callId]/page.tsx",
@@ -2324,6 +2324,7 @@ const CLIENT_SCREENS: Screen[] = [
     ),
     routes: {
       "/v1/me": ME,
+      "/v1/agents": [AGENT],
       // The REAL field names. This fixture used to send `turns` / `role` / `at_ms` /
       // `recording_available` — none of which the API has — so the page rendered an
       // empty transcript and no recording control, and axe was scanning a screen with
@@ -2466,6 +2467,7 @@ const CLIENT_SCREENS: Screen[] = [
     ),
     routes: {
       "/v1/me": ME,
+      "/v1/agents": [AGENT],
       "/v1/members": MEMBERS,
       "/v1/leads/lead-a": { ...LEAD, columns: LEAD_COLUMNS },
       "/v1/leads/lead-a/timeline?limit=50": {
@@ -3014,6 +3016,22 @@ const CLIENT_SCREENS: Screen[] = [
     ),
     routes: {
       "/v1/me": ME,
+      [`/v1/analytics/campaigns?days=366&campaign_id=${CAMPAIGN.id}`]: {
+        window: { ...ANALYTICS_WINDOW, days: 366 },
+        campaigns: [
+          {
+            campaign_id: CAMPAIGN.id,
+            name: "Diwali recall",
+            dials: 12,
+            connected: 7,
+            leads: 3,
+            days: [
+              { ist_date: addDays(todayIST(), -1), dials: 5, connected: 3, leads: 1 },
+              { ist_date: todayIST(), dials: 7, connected: 4, leads: 2 },
+            ],
+          },
+        ],
+      },
       [`/v1/campaigns/${CAMPAIGN.id}`]: progressFixture({
         id: CAMPAIGN.id,
         status: "running",

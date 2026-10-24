@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { PageHeader } from "@/components/console/pageHeader";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { ProblemNotice, RestrictionNote } from "@/components/ui";
@@ -44,6 +45,11 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
   const numbers = useCampaignNumbers(session);
   const templates = useDltTemplates(session);
   const create = useCreateCampaign(session);
+  // The review step shows the refusal beside "Create campaign"; success moves to the draft.
+  const createFeedback = useActionFeedback(create, {
+    errorDisplay: "inline",
+    successToast: "Campaign created as a draft",
+  });
   const form = useCampaignForm();
   const scheduleForm = useScheduleForm();
   const [followUp, setFollowUp] = useState<unknown>(null);
@@ -174,7 +180,8 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
         hasNoAgents={hasNoAgents}
         numbers={numbers}
         templates={templates}
-        create={create}
+        creating={createFeedback.status === "pending" || saving}
+        createError={createFeedback.error}
         canWrite={write.allowed && !saving && failed === null}
         onSubmit={submit}
         onCancel={() => router.push(href(`/c/${slug}/campaigns`))}

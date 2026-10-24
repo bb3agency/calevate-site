@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import {
-  DANGER_BUTTON,
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
   formatCount,
@@ -90,7 +90,7 @@ export function LaunchConfirm({
   numberE164,
   canWrite,
   writeReason,
-  pending,
+  status,
   onLaunch,
 }: {
   /** `ProgressOut.total` — `undefined` while it is unknown, and then there is no review. */
@@ -104,7 +104,8 @@ export function LaunchConfirm({
   canWrite: boolean;
   /** `undefined` when nothing refuses — the page's own `refusal`, unchanged. */
   writeReason: string | undefined;
-  pending: boolean;
+  /** The launch's `useActionFeedback` status: pending, then its tick or failure on the button. */
+  status: FeedbackStatus;
   onLaunch: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -129,6 +130,7 @@ export function LaunchConfirm({
   }
 
   const people = contacts === 1 ? "person" : "people";
+  const pending = status === "pending";
   const armed = canWrite && typed.trim() === String(contacts);
 
   if (!confirming) {
@@ -204,17 +206,20 @@ export function LaunchConfirm({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
+        <ActionButton
+          variant="danger"
           title={writeReason}
-          disabled={!armed || pending}
+          disabled={!armed}
+          status={status}
+          pendingLabel="Launching"
+          successLabel="Launched"
           onClick={onLaunch}
-          className={DANGER_BUTTON}
         >
-          {pending ? <span className="text-shimmer">Launching…</span> : `Call ${formatCount(contacts)} ${people}`}
-        </button>
+          {`Call ${formatCount(contacts)} ${people}`}
+        </ActionButton>
         <button
           type="button"
+          disabled={pending}
           onClick={() => setConfirming(false)}
           className={SECONDARY_BUTTON}
         >

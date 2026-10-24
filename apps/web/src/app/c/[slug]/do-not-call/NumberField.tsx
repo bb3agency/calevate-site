@@ -8,12 +8,11 @@ import {
   FIELD_INLINE,
   NOTICE_BAR,
   NOTICE_BASE,
-  PRIMARY_BUTTON,
   ProblemNotice,
-  SECONDARY_BUTTON,
   formatCount,
   type NoticeTone,
 } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
 import {
   MAX_NUMBERS_PER_ADD,
@@ -58,6 +57,10 @@ export function NumberField({
 }) {
   const check = useCheckDncNumber(session);
   const add = useAddDncNumbers(session);
+  // Both answers are drawn under the field (the verdict, the counts, a failure), so the
+  // buttons carry the state and nothing is toasted.
+  const checkFeedback = useActionFeedback(check, { errorDisplay: "inline" });
+  const addFeedback = useActionFeedback(add, { errorDisplay: "inline" });
   const fieldId = useId();
   const [empty, setEmpty] = useState(false);
   const many = parsed.length > 1;
@@ -69,7 +72,7 @@ export function NumberField({
       return;
     }
     add.reset();
-    check.mutate(parsed[0]);
+    checkFeedback.run(parsed[0]);
   };
   const runAdd = () => {
     check.reset();
@@ -156,23 +159,20 @@ export function NumberField({
 
       <div className="flex flex-wrap items-center gap-2">
         {!many && (
-          <button type="button" onClick={runCheck} disabled={check.isPending} className={PRIMARY_BUTTON}>
-            {check.isPending ? "Checking…" : "Check"}
-          </button>
+          <ActionButton onClick={runCheck} status={checkFeedback.status} successLabel="Checked">
+            Check
+          </ActionButton>
         )}
         {canAdd && parsed.length > 0 && (
-          <button
-            type="button"
+          <ActionButton
             onClick={runAdd}
-            disabled={add.isPending || tooMany}
-            className={many ? PRIMARY_BUTTON : SECONDARY_BUTTON}
+            status={addFeedback.status}
+            disabled={tooMany}
+            variant={many ? "primary" : "secondary"}
+            successLabel="Added"
           >
-            {add.isPending
-              ? "Adding…"
-              : parsed.length === 1
-                ? "Add 1 number"
-                : `Add ${formatCount(parsed.length)} numbers`}
-          </button>
+            {parsed.length === 1 ? "Add 1 number" : `Add ${formatCount(parsed.length)} numbers`}
+          </ActionButton>
         )}
       </div>
 

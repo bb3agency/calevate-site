@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { ChipGroup } from "@/components/arc/chip-group";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FilterToolbar } from "@/components/arc/filter-toolbar";
+import { SearchField } from "@/components/arc/search-field";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
+import { EmptyState } from "@/components/console/emptyState";
 import { StatusPill } from "@/components/console/statusPill";
 import { Pagination } from "@/components/interior/pagination";
 import {
-  FIELD,
-  FilterChip,
-  ProblemNotice,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
   formatIST,
@@ -67,10 +68,17 @@ export function ContactResults({
 }) {
   const { session, href } = useClientRealm();
   const [outcome, setOutcome] = useState<ContactOutcome | undefined>();
+  // What is typed, and the settled query the server is asked for (`SearchField.onSearch`).
+  const [typed, setTyped] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const people = useContactResults(session, campaignId, { page, pageSize: PAGE_SIZE, outcome, search }, live);
   const remove = useRemoveContacts(session, campaignId);
+  // The row leaves the list on success, so the toast is where the result is said.
+  const removeFeedback = useActionFeedback(remove, {
+    errorTitle: "Could not take this person off",
+    successToast: "Taken off this campaign",
+  });
   const data = people.data;
   const pages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
   const all = data ? Object.values(data.counts).reduce((a, b) => a + b, 0) : 0;
@@ -129,16 +137,18 @@ export function ContactResults({
             Open call
           </Link>
         ) : editable && row.outcome === "not_called" ? (
-          <button
-            type="button"
+          <ActionButton
+            variant="secondary-sm"
             title={refusal}
-            disabled={!canWrite || remove.isPending}
-            onClick={() => remove.mutate([row.id])}
+            disabled={!canWrite}
+            status={remove.variables?.[0] === row.id ? removeFeedback.status : "idle"}
+            pendingLabel="Removing"
+            successLabel="Removed"
+            onClick={() => removeFeedback.run([row.id])}
             aria-label={`Take ${row.name?.trim() || formatPhone(row.phone_e164)} off this campaign`}
-            className={SECONDARY_BUTTON_SM}
           >
             Remove
-          </button>
+          </ActionButton>
         ) : null,
     },
   ];
@@ -151,79 +161,75 @@ export function ContactResults({
     setPage(1);
   };
 
+  const runSearch = (query: string) => {
+    setSearch(query);
+    setPage(1);
+  };
+  const clearAll = () => {
+    setTyped("");
+    runSearch("");
+    choose(undefined);
+  };
+  const active = [
+    ...(outcome ? [{ id: "outcome", label: `Outcome: ${OUTCOME_WORDS[outcome]}`, onRemove: () => choose(undefined) }] : []),
+    ...(search ? [{ id: "search", label: `Search: ${search}`, onRemove: () => {
+      setTyped("");
+      runSearch("");
+    } }] : []),
+  ];
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        {!editable && (
-          <>
-            {/* Eight chips wrap to three rows on a phone; there it is one native picker. */}
-            <label className="block w-full sm:hidden">
-              <span className="sr-only">Show people by outcome</span>
-              <select
-                value={outcome ?? ""}
-                onChange={(e) => choose((e.target.value || undefined) as ContactOutcome | undefined)}
-                className={FIELD}
-              >
-                <option value="">{data ? `Everyone (${formatCount(all)})` : "Everyone"}</option>
-                {shown.map((o) => (
-                  <option key={o} value={o}>
-                    {OUTCOME_WORDS[o]} ({formatCount(data?.counts[o] ?? 0)})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div role="group" aria-label="Show people by outcome" className="hidden flex-wrap gap-1.5 sm:flex">
-              <FilterChip
-                label={data ? `Everyone ${formatCount(all)}` : "Everyone"}
-                active={outcome === undefined}
-                onClick={() => choose(undefined)}
-              />
-              {shown.map((o) => (
-                <FilterChip
-                  key={o}
-                  label={`${OUTCOME_WORDS[o]} ${formatCount(data?.counts[o] ?? 0)}`}
-                  active={outcome === o}
-                  onClick={() => choose(o)}
-                />
-              ))}
-            </div>
-          </>
-        )}
-        <label className="block w-full sm:w-56">
-          <span className="sr-only">Search people by name or the end of their number</span>
-          <input
-            type="search"
-            value={search}
+      <FilterToolbar
+        search={
+          <SearchField
+            label="Search people by name or the end of their number"
+            hideLabel
             placeholder="Name or last digits"
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            className={FIELD}
+            value={typed}
+            onValueChange={setTyped}
+            onSearch={runSearch}
+            className="w-full sm:w-56"
           />
-        </label>
-      </div>
-      {remove.error ? <ProblemNotice error={remove.error} /> : null}
+        }
+        filters={
+          !editable && shown.length > 0 ? (
+            <ChipGroup
+              mode="single"
+              label="Show people by outcome"
+              value={outcome ?? null}
+              onChange={(next) => choose((next ?? undefined) as ContactOutcome | undefined)}
+              allLabel={data ? `Everyone ${formatCount(all)}` : "Everyone"}
+              chips={shown.map((o) => ({ value: o, label: `${OUTCOME_WORDS[o]} ${formatCount(data?.counts[o] ?? 0)}` }))}
+            />
+          ) : undefined
+        }
+        active={active}
+        onClearAll={clearAll}
+        count={data ? { shown: data.total, total: all, noun: "person", nounPlural: "people" } : undefined}
+      />
       {people.isLoading ? (
         <Skeleton rows={4} />
       ) : !data ? (
-        <ProblemNotice
-          error={people.error ?? new Error("The people on this campaign did not load.")}
-          onRetry={() => people.refetch()}
+        <EmptyState
+          variant="error"
+          message="The people on this campaign did not load."
+          error={people.error}
+          onRetry={() => void people.refetch()}
         />
       ) : data.items.length === 0 ? (
-        <p className="text-body text-ink-muted">
-          {all === 0 ? "Nobody is on this campaign yet." : "Nobody matches. Clear the search or choose Everyone."}
-        </p>
+        all === 0 ? (
+          <EmptyState
+            message="Nobody is on this campaign yet."
+            hint={editable ? "Press Add people to paste a list or choose people from your leads." : undefined}
+          />
+        ) : (
+          <EmptyState variant="filtered" message="Nobody matches." onClear={clearAll} clearLabel="Show everyone" />
+        )
       ) : (
         <>
           <DataTable label="People on this campaign" rows={data.items} columns={columns} getRowId={(row) => row.id} />
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-meta text-ink-muted">
-              {formatCount(data.total)} {data.total === 1 ? "person" : "people"}
-            </p>
-            {pages > 1 && <Pagination count={pages} page={page} onPageChange={setPage} label="People pages" />}
-          </div>
+          {pages > 1 && <Pagination count={pages} page={page} onPageChange={setPage} label="People pages" />}
         </>
       )}
     </div>

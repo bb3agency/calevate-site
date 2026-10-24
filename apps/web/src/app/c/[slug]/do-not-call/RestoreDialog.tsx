@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import Link from "next/link";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { ChoiceCards } from "@/components/console/choiceCards";
 import { FIELD, MonoValue, ProblemNotice, Skeleton, formatIST, formatPhone } from "@/components/ui";
@@ -65,6 +66,12 @@ export function RestoreDialog({
   const { href } = useClientRealm();
   const evidence = useDncEvidence(session, entry.id);
   const restore = useRestoreDncEntry(session);
+  // A refusal stays inside the dialog; the toast says it happened once the dialog closes.
+  const restoreFeedback = useActionFeedback(restore, {
+    errorDisplay: "inline",
+    successToast: "Number restored",
+    successDescription: "It is off your do-not-call list, so your agents can ring it again.",
+  });
   const [ground, setGround] = useState<DncRestoreGround | null>(null);
   const [note, setNote] = useState("");
   const noteId = useId();
@@ -80,7 +87,7 @@ export function RestoreDialog({
       confirmLabel="Restore this number"
       pendingLabel="Restoring…"
       cancelLabel="Keep it on the list"
-      pending={restore.isPending}
+      status={restoreFeedback.status}
       confirmDisabled={!ready}
       error={restore.error}
       onCancel={() => {

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { PageHeader } from "@/components/console/pageHeader";
 import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { useAgents } from "@/lib/api/agents";
@@ -70,6 +71,38 @@ export function LeadSourcesScreen() {
   const held = useHeldLeads(session);
   const release = useReleaseHeldLead(session);
   const drop = useDropHeldLead(session);
+
+  /*
+   * Each action's state is drawn on its own button. Every one of them also has a place on
+   * the screen for its refusal (a drawer's notice, the plan's notice, the held-leads card,
+   * the notice above the sources), so failures stay inline rather than toasted twice. The
+   * two whose result lands where the person is not looking get a toast: a held lead leaves
+   * the list, and a source switched off or on can be switched back from the toast.
+   */
+  const createFeedback = useActionFeedback(create, { errorDisplay: "inline" });
+  const rotateFeedback = useActionFeedback(rotate, { errorDisplay: "inline" });
+  const setActiveFeedback = useActionFeedback(setActive, {
+    errorDisplay: "inline",
+    successToast: (_out, vars) => (vars.active ? "Lead source switched on" : "Lead source switched off"),
+    successDescription: (_out, vars) =>
+      vars.active ? "New leads from it are taken in again." : "New leads sent to it are not taken in until you switch it back on.",
+    undo: (_out, vars) => setActive.mutate({ webhookId: vars.webhookId, active: !vars.active }),
+  });
+  const testFeedback = useActionFeedback(test, { errorDisplay: "inline" });
+  // The setup is read when the drawer opens; the drawer's skeleton and notice show its state.
+  useActionFeedback(metaSetup, { errorDisplay: "inline" });
+  const redriveFeedback = useActionFeedback(redrive, { errorDisplay: "inline" });
+  const savePlanFeedback = useActionFeedback(savePlan, { errorDisplay: "inline" });
+  const releaseFeedback = useActionFeedback(release, {
+    errorDisplay: "inline",
+    successToast: "Call booked",
+    successDescription: "It is placed now, or at your next opening, after the usual checks.",
+  });
+  const dropFeedback = useActionFeedback(drop, {
+    errorDisplay: "inline",
+    successToast: "Not calling this lead",
+    successDescription: "It is off the waiting list and stays in Leads.",
+  });
 
   const [adding, setAdding] = useState(false);
   const [rotating, setRotating] = useState<LeadSource | null>(null);
@@ -165,22 +198,23 @@ export function LeadSourcesScreen() {
         agents={agents.data}
         canWrite={write.allowed}
         refusal={write.reason}
-        saving={savePlan.isPending}
+        saveStatus={savePlanFeedback.status}
         saveError={savePlan.error}
         savedAgents={savePlan.data?.agents_updated ?? null}
-        onSave={(next) => savePlan.mutate(next)}
+        onSave={(next) => savePlanFeedback.run(next)}
       />
 
       <HeldLeads
         held={held}
         holding={plan.data?.after_hours === "hold"}
         canWrite={write.allowed}
-        busyId={
-          release.isPending ? (release.variables ?? null) : drop.isPending ? (drop.variables ?? null) : null
-        }
+        statusOf={(id, action) => {
+          const [mutation, feedback] = action === "release" ? [release, releaseFeedback] : [drop, dropFeedback];
+          return mutation.variables === id ? feedback.status : "idle";
+        }}
         actionError={release.error ?? drop.error}
-        onRelease={(id) => release.mutate(id)}
-        onDrop={(id) => drop.mutate(id)}
+        onRelease={releaseFeedback.run}
+        onDrop={dropFeedback.run}
       />
 
       <h2 className="pt-2 text-base font-semibold text-ink">Where leads come from</h2>
@@ -189,10 +223,8 @@ export function LeadSourcesScreen() {
         agents={agents.data}
         activity={activity.data}
         canWrite={write.allowed}
-        busy={setActive.isPending}
-        onToggle={(item) =>
-          setActive.mutate({ webhookId: item.id, active: !item.active })
-        }
+        busy={setActiveFeedback.status === "pending"}
+        onToggle={(item) => setActiveFeedback.run({ webhookId: item.id, active: !item.active })}
         onTest={openTest}
         onRotate={setRotating}
         onMeta={(item) => openMeta(item.id)}
@@ -204,14 +236,21 @@ export function LeadSourcesScreen() {
         open={adding}
         onClose={() => setAdding(false)}
         create={create}
+        createStatus={createFeedback.status}
         agents={agents}
         canWrite={write.allowed}
       />
-      <RotateDrawer source={rotating} onClose={() => setRotating(null)} rotate={rotate} />
+      <RotateDrawer
+        source={rotating}
+        onClose={() => setRotating(null)}
+        rotate={rotate}
+        rotateStatus={rotateFeedback.status}
+      />
       <TestLeadDrawer
         source={testSource}
         onClose={closeTest}
         test={test}
+        testStatus={testFeedback.status}
         payloadText={payloadText}
         onPayloadText={(next) => {
           // An edit retracts the verdict: it was about the sample as it was.
@@ -229,6 +268,7 @@ export function LeadSourcesScreen() {
         onClose={() => openMeta("")}
         metaSetup={metaSetup}
         redrive={redrive}
+        redriveStatus={redriveFeedback.status}
         activity={activity}
         canWrite={write.allowed}
         refusal={write.reason}

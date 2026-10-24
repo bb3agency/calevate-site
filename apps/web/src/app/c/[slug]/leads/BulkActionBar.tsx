@@ -1,19 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
 
-import {
-  DANGER_BUTTON,
-  FIELD,
-  FIELD_LABEL,
-  PRIMARY_BUTTON_SM,
-  ProblemNotice,
-  SECONDARY_BUTTON_SM,
-  formatCount,
-  NOTICE_BAR,
-  NOTICE_BASE,
-} from "@/components/ui";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { SelectionBar } from "@/components/arc/filter-toolbar";
+import { ConfirmDialog } from "@/components/confirmDialog";
+import { FIELD_INLINE, formatCount, NOTICE_BAR, NOTICE_BASE } from "@/components/ui";
 import { TypedConfirmation } from "@/components/typedConfirmation";
 import type {
   LeadBulkAction,
@@ -99,7 +91,7 @@ export function BulkActionBar({
   members,
   canWrite,
   writeReason,
-  pending,
+  runStatus,
   error,
   result,
   nameFor,
@@ -116,7 +108,9 @@ export function BulkActionBar({
   members: Member[] | undefined;
   canWrite: boolean;
   writeReason: string | null;
-  pending: boolean;
+  /** The batch's state, from the screen's `useActionFeedback`; shown on the confirm button. */
+  runStatus: FeedbackStatus;
+  /** A failure of the request itself, shown inside the confirmation. */
   error: unknown;
   result: LeadBulkResult | null;
   /** A loaded row's display name, for naming failures. `null` when it is not on screen. */
@@ -175,13 +169,6 @@ export function BulkActionBar({
   const armed =
     count !== undefined && (!needsTyping || typed.trim() === String(count)) && canWrite;
 
-  const scopeSentence =
-    count === undefined
-      ? "We could not read how many leads these filters match, so this action cannot say what it would change."
-      : selection.wholeQuery
-        ? `All ${formatCount(count)} ${count === 1 ? "lead" : "leads"} matching these filters are selected — including ${formatCount(Math.max(count - pageSize, 0))} not on this page.`
-        : `${formatCount(count)} ${count === 1 ? "lead" : "leads"} on this page ${count === 1 ? "is" : "are"} selected.`;
-
   const verb =
     action === "status"
       ? `Set the stage to “${status}”`
@@ -208,169 +195,124 @@ export function BulkActionBar({
     <div className="space-y-2">
       {/* THE GMAIL BANNER, and the reason this component is not one ambiguous checkbox:
           it is offered only when there ARE rows off-screen, so the escape hatch never
-          appears for a set the person can already see whole. */}
-      {!selection.wholeQuery &&
+          appears for a set the person can already see whole. Once taken, it says which
+          set is chosen, because "1,240 leads selected" alone does not say which 1,240. */}
+      {selection.wholeQuery && count !== undefined ? (
+        <p className="rounded-md bg-ink/[0.03] px-4 py-2.5 text-body text-ink-muted">
+          All {formatCount(count)} {count === 1 ? "lead" : "leads"} matching these filters are selected, including{" "}
+          {formatCount(Math.max(count - pageSize, 0))} not on this page.
+        </p>
+      ) : !selection.wholeQuery &&
         filteredTotal !== undefined &&
         selection.ids.length === pageSize &&
-        filteredTotal > pageSize && (
-          <p className="rounded-md bg-ink/[0.03] px-4 py-2.5 text-body text-ink-muted">
-            All {formatCount(pageSize)} leads on this page are selected.{" "}
-            <button
-              type="button"
-              onClick={onSelectWholeQuery}
-              className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 font-semibold text-brand-strong underline dark:text-brand-bright"
-            >
-              Select all {formatCount(filteredTotal)} leads matching these filters
-            </button>
-          </p>
-        )}
-
-      <div
-        role="group"
-        aria-label="Bulk actions"
-        // A selection toolbar that stays in reach: pinned to the bottom of the scrolling
-        // console while rows are ticked, so the action is beside the rows wherever the
-        // reader has scrolled to. Enters with the pane fade (reduced motion: none).
-        className="settings-enter sticky bottom-3 z-sticky rounded-card border border-line bg-surface/95 px-4 py-3 shadow-overlay backdrop-blur supports-[backdrop-filter]:bg-surface/85"
-      >
-        {/* THE SCOPE, in words, above the controls — never a bare "N selected", which is
-            the sentence that does not say WHICH n. */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-body font-medium text-ink">{scopeSentence}</p>
+        filteredTotal > pageSize ? (
+        <p className="rounded-md bg-ink/[0.03] px-4 py-2.5 text-body text-ink-muted">
+          All {formatCount(pageSize)} leads on this page are selected.{" "}
           <button
             type="button"
-            onClick={onClear}
-            className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 flex items-center gap-1 text-meta font-medium text-ink-muted hover:text-ink touch:min-h-11"
+            onClick={onSelectWholeQuery}
+            className="rounded-sm font-semibold text-brand-strong underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:text-brand-bright touch:min-h-11"
           >
-            <X className="h-3.5 w-3.5" />
-            Clear selection
+            Select all {formatCount(filteredTotal)} leads matching these filters
           </button>
-        </div>
+        </p>
+      ) : null}
 
-        <div className="mt-3 flex flex-wrap items-end gap-3">
-          <label className="block">
-            {/* A persistent visible label, not a placeholder: the text has to survive
-                the choice being made (WCAG 3.3.2), and axe cannot tell the difference. */}
-            <span className={FIELD_LABEL}>Action</span>
-            <select
-              aria-label="Bulk action"
-              value={action}
-              onChange={(e) => setAction(e.target.value as LeadBulkAction)}
-              className={FIELD}
-            >
-              <option value="status">Change the stage</option>
-              <option value="assign">Change the owner</option>
-            </select>
-          </label>
+      {result && <BulkResultSummary result={result} nameFor={nameFor} onDismiss={onDismissResult} />}
 
-          {action === "status" ? (
-            <label className="block">
-              <span className={FIELD_LABEL}>New stage</span>
-              <select
-                aria-label="New stage"
-                value={status}
-                onChange={(e) => setStatus(e.target.value as LeadStatus)}
-                className={FIELD}
-              >
-                {STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <label className="block">
-              <span className={FIELD_LABEL}>New owner</span>
-              <select
-                aria-label="New owner"
-                value={assignTo}
-                onChange={(e) => setAssignTo(e.target.value)}
-                className={FIELD}
-                // No picker when the team list did not load: an empty dropdown would say
-                // "you have no colleagues", which is a claim about the business made from
-                // a request that never landed (BUILD-LOG §52).
-                disabled={!members}
-              >
-                <option value="">Unassigned</option>
-                {(members ?? []).map((member) => (
-                  <option key={member.id} value={member.id}>
-                    {member.name ?? "Unnamed member"}
-                  </option>
-                ))}
-              </select>
-            </label>
+      {/* THE SCOPE, in the count's own words — never a bare "N selected", which does not
+          say WHICH n. */}
+      <SelectionBar
+        count={count ?? pageSize}
+        noun={selection.wholeQuery ? "lead matching these filters" : "lead on this page"}
+        nounPlural={selection.wholeQuery ? "leads matching these filters" : "leads on this page"}
+        onClear={onClear}
+      >
+        <select
+          aria-label="Bulk action"
+          value={action}
+          onChange={(e) => setAction(e.target.value as LeadBulkAction)}
+          className={`${FIELD_INLINE} touch:min-h-11`}
+        >
+          <option value="status">Change the stage</option>
+          <option value="assign">Change the owner</option>
+        </select>
+        {action === "status" ? (
+          <select
+            aria-label="New stage"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as LeadStatus)}
+            className={`${FIELD_INLINE} capitalize touch:min-h-11`}
+          >
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <select
+            aria-label="New owner"
+            value={assignTo}
+            onChange={(e) => setAssignTo(e.target.value)}
+            className={`${FIELD_INLINE} touch:min-h-11`}
+            // No picker when the team list did not load: an empty dropdown would say
+            // "you have no colleagues", which is a claim about the business made from
+            // a request that never landed (BUILD-LOG §52).
+            disabled={!members}
+          >
+            <option value="">Unassigned</option>
+            {(members ?? []).map((member) => (
+              <option key={member.id} value={member.id}>
+                {member.name ?? "Unnamed member"}
+              </option>
+            ))}
+          </select>
+        )}
+        <ActionButton
+          variant="primary-sm"
+          disabled={!canWrite || count === undefined}
+          title={writeReason ?? undefined}
+          onClick={() => setConfirming(true)}
+        >
+          Review this change
+        </ActionButton>
+      </SelectionBar>
+      {count === undefined ? (
+        <p className="text-meta text-ink-muted">
+          We could not read how many leads these filters match, so this action cannot say what it would change.
+        </p>
+      ) : null}
+
+      {/* THE CONSEQUENCES, ABOVE THE CONTROL — the ops big-red-switch shape. The person
+          reads what will happen, to how many rows, in which scope, and only then meets the
+          button. */}
+      {confirming && count !== undefined ? (
+        <ConfirmDialog
+          title={`${verb} for ${formatCount(count)} ${count === 1 ? "lead" : "leads"}?`}
+          confirmLabel={`Apply to ${formatCount(count)}`}
+          pendingLabel="Applying…"
+          status={runStatus}
+          confirmDisabled={!armed}
+          error={error}
+          onCancel={() => setConfirming(false)}
+          onConfirm={run}
+        >
+          <p className="font-medium text-ink">
+            {selection.wholeQuery
+              ? "Every lead matching these filters, not only the ones on screen."
+              : "The leads you have ticked on this page."}
+          </p>
+          <p>
+            Each lead&rsquo;s history records the change. Leads that are already{" "}
+            {action === "status" ? "at that stage" : "owned by that person"} are left alone and reported
+            separately.
+          </p>
+          {needsTyping && (
+            <TypedConfirmation phrase={String(count)} value={typed} onChange={setTyped} inputMode="numeric" />
           )}
-
-          {!confirming ? (
-            <button
-              type="button"
-              disabled={!canWrite || count === undefined}
-              onClick={() => setConfirming(true)}
-              title={writeReason ?? undefined}
-              className={PRIMARY_BUTTON_SM}
-            >
-              Review this change
-            </button>
-          ) : null}
-        </div>
-
-        {/* THE CONSEQUENCES, ABOVE THE CONTROL — the ops big-red-switch shape. The
-            person reads what will happen, to how many rows, in which scope, and only
-            then meets the button. */}
-        {confirming && count !== undefined && (
-          <div className={`mt-3 ${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
-            <p className="font-semibold">
-              <span>
-                {verb} for {formatCount(count)} {count === 1 ? "lead" : "leads"}
-                {selection.wholeQuery
-                  ? ": every lead matching these filters, not only the ones on screen."
-                  : " you have ticked on this page."}
-              </span>
-            </p>
-            <p className="text-ink-muted">
-              Each lead&rsquo;s history records the change. Leads that are already{" "}
-              {action === "status" ? "at that stage" : "owned by that person"} are left
-              alone and reported separately.
-            </p>
-            {needsTyping && (
-              <div className="mt-2">
-                <TypedConfirmation
-                  phrase={String(count)}
-                  value={typed}
-                  onChange={setTyped}
-                  inputMode="numeric"
-                />
-              </div>
-            )}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={!armed || pending}
-                onClick={run}
-                className={DANGER_BUTTON}
-              >
-                {pending ? "Applying…" : `Apply to ${formatCount(count)}`}
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirming(false)}
-                className={SECONDARY_BUTTON_SM}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* A failure of the REQUEST — a 403, a refused filter, a set that moved, a cap
-            breach. Distinct from the per-lead outcomes below it, which arrive on a 200. */}
-        {error != null && <ProblemNotice error={error} />}
-
-        {result && (
-          <BulkResultSummary result={result} nameFor={nameFor} onDismiss={onDismissResult} />
-        )}
-      </div>
+        </ConfirmDialog>
+      ) : null}
     </div>
   );
 }

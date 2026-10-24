@@ -1,17 +1,14 @@
 "use client";
 
-import { Download, Search, SlidersHorizontal } from "lucide-react";
+import { Download, SlidersHorizontal } from "lucide-react";
+
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { SearchField } from "@/components/arc/search-field";
 
 import { InfoTip } from "@/components/console/infoTip";
-import {
-  FIELD_INLINE,
-  FIELD_INLINE_ICON,
-  RestrictionNote,
-  SECONDARY_BUTTON,
-  SECONDARY_BUTTON_SM,
-} from "@/components/ui";
+import { FIELD_INLINE, RestrictionNote, SECONDARY_BUTTON } from "@/components/ui";
 
-import { type LeadLens, type LeadList, type useExportLeads } from "@/lib/api/leads";
+import { type LeadList } from "@/lib/api/leads";
 
 import { ColumnChooser } from "./ColumnChooser";
 
@@ -42,12 +39,11 @@ export function LeadsToolbar({
   leads,
   chosenColumns,
   onColumns,
-  lens,
-  exportLeads,
+  exportStatus,
+  onExport,
   mayExport,
   exportRefusal,
   exportNote,
-  onExported,
   askExample,
   filtersOpen,
   onFiltersOpen,
@@ -63,8 +59,9 @@ export function LeadsToolbar({
   leads: { data: LeadList | undefined; error: unknown };
   chosenColumns: string[] | undefined;
   onColumns: (columns: string[] | undefined) => void;
-  lens: LeadLens;
-  exportLeads: ReturnType<typeof useExportLeads>;
+  /** The export's state, from the screen's `useActionFeedback`. */
+  exportStatus: FeedbackStatus;
+  onExport: () => void;
   mayExport: boolean;
   /**
    * WHY THE EXPORT IS REFUSED, or `null`. Derived once by the screen
@@ -76,7 +73,6 @@ export function LeadsToolbar({
   exportRefusal: string | null;
   /** What the file holds, in a sentence — behind the ⓘ beside the button. */
   exportNote: string;
-  onExported: () => void;
   /** A request in this business's own words, for the search placeholder. */
   askExample: string;
   /** Whether the phone's folded panel is open. Ignored from `sm`, where it always is. */
@@ -90,16 +86,17 @@ export function LeadsToolbar({
   const [panelId] = filtersPanelIds.split(" ");
   return (
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-1 sm:flex-none">
-          <Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
-          <input
+        <div className="min-w-0 flex-1 sm:w-56 sm:flex-none">
+          {/* The lens debounces what reaches the API (`useLeadsLens`), so every keystroke
+              goes to it. The API caps `search` at 60 characters and 422s beyond it. */}
+          <SearchField
+            label="Search leads"
+            hideLabel
             value={search}
-            onChange={(e) => onSearch(e.target.value)}
-            // The API caps `search` at 60 characters and 422s beyond it.
+            onValueChange={onSearch}
             maxLength={60}
-            aria-label="Search leads"
             placeholder="Name or last digits"
-            className={`${FIELD_INLINE_ICON} w-full sm:w-56`}
+            slashToFocus
           />
         </div>
 
@@ -181,19 +178,13 @@ export function LeadsToolbar({
             preview of its answer, never a substitute for it. */}
         {/* The button and its ⓘ wrap as one unit, so the ⓘ never sits alone on a line. */}
         <span className="inline-flex items-center gap-1">
-        <button
-          type="button"
-          disabled={exportLeads.isPending || !mayExport || Boolean(askTerm)}
-          onClick={() =>
-            // WITHOUT `ask`. The API refuses a lens carrying a question on the export
-            // (`_ASK_CANNOT_BE_EXPORTED`): a ranking is not "the whole filtered set" the
-            // file promises. The button is disabled with that sentence above, so this
-            // strip is the belt — a lens that reached the mutation with a question would
-            // otherwise be a 422 on a control we had already said was available.
-            exportLeads.mutate({ ...lens, ask: undefined }, {
-              onSuccess: onExported,
-            })
-          }
+        <ActionButton
+          variant="secondary-sm"
+          status={exportStatus}
+          pendingLabel="Preparing…"
+          successLabel="Downloaded"
+          disabled={!mayExport || Boolean(askTerm)}
+          onClick={onExport}
           title={
             // The refusal when there is one, in the server's own terms where the server
             // owns the wording — "Only an account owner can export leads." for a role
@@ -206,12 +197,10 @@ export function LeadsToolbar({
               ? "Downloads these leads: name and full phone number first, then the columns shown here."
               : "Checking whether you can export these leads…")
           }
-          // The small size, as Columns beside it is: the two are one pair of controls.
-          className={SECONDARY_BUTTON_SM}
         >
           <Download aria-hidden className="h-3.5 w-3.5" />
-          {exportLeads.isPending ? "Preparing…" : "Export this view as CSV"}
-        </button>
+          Export this view as CSV
+        </ActionButton>
         <InfoTip label="the CSV export" align="end">
           <p>{exportNote}</p>
         </InfoTip>

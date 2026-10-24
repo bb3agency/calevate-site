@@ -1,8 +1,9 @@
 "use client";
 
 import { useId, useMemo, useState, type DragEvent } from "react";
-import { ClipboardPaste, Download, FileUp, Plus, Search, Trash2, X } from "lucide-react";
+import { ClipboardPaste, Download, FileUp, Plus, Trash2, X } from "lucide-react";
 
+import { SearchField } from "@/components/arc/search-field";
 import { FileDrop } from "@/components/fileDrop";
 import { Pagination } from "@/components/interior/pagination";
 import {
@@ -290,20 +291,17 @@ export function ContactEditor({
                   Remove {formatCount(problems)} that won&apos;t be called
                 </button>
               )}
-              <label className="relative block">
-                <span className="sr-only">Search contacts</span>
-                <Search aria-hidden className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-faint" />
-                <input
-                  type="search"
-                  value={query}
-                  onChange={(e) => {
-                    setQuery(e.target.value);
-                    setPage(1);
-                  }}
-                  placeholder="Search"
-                  className={`${FIELD} w-40 pl-7`}
-                />
-              </label>
+              <SearchField
+                label="Search contacts"
+                hideLabel
+                placeholder="Search"
+                value={query}
+                onValueChange={(next) => {
+                  setQuery(next);
+                  setPage(1);
+                }}
+                className="w-full sm:w-48"
+              />
             </div>
           </div>
           {checked.refusal && (

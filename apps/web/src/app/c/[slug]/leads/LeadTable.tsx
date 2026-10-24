@@ -2,16 +2,21 @@
 
 import { useMemo } from "react";
 
-import { SECONDARY_BUTTON_SM, formatPhone } from "@/components/ui";
+import { formatPhone } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { RowMenu } from "@/components/arc/menu";
 import { copyText } from "@/components/interior/copy-button";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import type { Lead } from "@/lib/api/leads";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 
+import { LeadsPhoneList } from "./LeadsPhoneList";
 import { cellClass, sortFor } from "./leadsTable";
 import type { LeadRowKit } from "./leadRowKit";
+
+/** Below `sm` the leads are a swipeable list, not a table (different markup, so a query). */
+const PHONE = "(max-width: 639px)";
 
 /**
  * THE LEADS TABLE — every lead an agent captured, one row each.
@@ -21,52 +26,28 @@ import type { LeadRowKit } from "./leadRowKit";
  * columns. Headers sort the rows on this page; `partialNote` says so when the filter
  * matches more than one page. Loading and failure are given once by the screen, so this
  * only ever receives rows the server sent.
+ *
+ * On a phone the same leads are a list (`LeadsPhoneList`) whose rows swipe to their
+ * follow-up actions: a table there scrolls sideways under the thumb, which a swipe cannot
+ * share. The ⋯ menu carries the same actions wherever there is a mouse or a keyboard.
  */
 export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?: string }) {
   const {
-    items, columns, canCall, maySelect, ticked, allOfPageTicked,
-    toggleRow, toggleAllOnPage, renderCell, rowFailure, callCell,
-    filtered, askTerm, onClearFilters, hrefFor, callHref,
+    items, columns, canCall, maySelect, ticked, setTicked,
+    renderCell, rowFailure, callCell,
+    filtered, askTerm, onClearFilters, hrefFor, callHref, followUp, targetOf,
   } = kit;
+  const phone = useMediaQuery(PHONE);
 
   const tableColumns = useMemo(() => {
     const out: DataColumn<Lead>[] = [];
-    // THE HEADER CHECKBOX IS PAGE-SCOPED and says so; extending to the whole filtered
-    // query is a separate, named act on the bulk bar (PatternFly, Helios).
-    if (maySelect) {
-      out.push({
-        id: "select",
-        header: "Select",
-        // A fixed 3rem (a 24px touch checkbox and its padding), so the pinned Name
-        // column can sit exactly beside it.
-        pin: "left-0",
-        className: "w-12 min-w-12 max-w-12",
-        renderHeader: () => (
-          <input
-            type="checkbox"
-            aria-label="Select all leads on this page"
-            checked={allOfPageTicked}
-            onChange={toggleAllOnPage}
-          />
-        ),
-        cell: (lead) => (
-          <input
-            type="checkbox"
-            // Names the LEAD: a hundred boxes called "select" cannot be told apart.
-            aria-label={`Select ${lead.name ?? lead.phone_e164}`}
-            checked={ticked.has(lead.id)}
-            onChange={() => toggleRow(lead.id)}
-          />
-        ),
-      });
-    }
     columns.forEach((column, index) =>
       out.push({
         id: column.key,
         header: column.label,
         className: cellClass(column),
-        // Who the row is stays in view while a phone scrolls the rest sideways.
-        pin: column.key === "name" ? (maySelect ? "left-12" : "left-0") : undefined,
+        // Who the row is stays in view while the rest scrolls sideways.
+        pin: column.key === "name" ? "left-0" : undefined,
         sort: sortFor(column),
         cell: (lead) => (
           <>
@@ -88,9 +69,10 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
         <RowMenu
           label={lead.name ?? formatPhone(lead.phone_e164)}
           items={[
-            { id: "open", label: "Open lead", href: hrefFor(lead) },
+            ...followUp.menuItems(targetOf(lead)),
+            { id: "open", label: "Open lead", href: hrefFor(lead), separated: true },
             ...(lead.last_call_id
-              ? [{ id: "call", label: "Open the last call", href: callHref(lead.last_call_id) }]
+              ? [{ id: "last-call", label: "Open the last call", href: callHref(lead.last_call_id) }]
               : []),
             { id: "copy", label: "Copy phone number", onSelect: () => void copyText(lead.phone_e164) },
           ]}
@@ -98,21 +80,34 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
       ),
     });
     return out;
-  }, [maySelect, columns, canCall, allOfPageTicked, toggleAllOnPage, ticked, toggleRow, renderCell, rowFailure, callCell, hrefFor, callHref]);
+  }, [columns, canCall, renderCell, rowFailure, callCell, hrefFor, callHref, followUp, targetOf]);
 
   return (
     // On the white ground between two hairlines, as the call log is (REDESIGN-2): a table
     // is a list, and a card around it is chrome a reader has to look past.
     <div className="border-y border-line">
-      {items.length ? (
+      {items.length && phone ? (
+        <LeadsPhoneList kit={kit} />
+      ) : items.length ? (
         <DataTable
           rows={items}
           columns={tableColumns}
           getRowId={(lead) => lead.id}
           label="Leads"
           partialNote={partialNote}
-          // A ticked row stays tinted so the selection is legible away from the checkbox.
-          rowClassName={(lead) => (ticked.has(lead.id) ? "bg-brand-soft/50" : "")}
+          // THE HEADER CHECKBOX IS PAGE-SCOPED; extending to the whole filtered query is a
+          // separate, named act on the bulk bar (PatternFly, Helios).
+          selection={
+            maySelect
+              ? {
+                  selected: ticked,
+                  onChange: setTicked,
+                  // Names the LEAD: a hundred boxes called "select" cannot be told apart.
+                  rowLabel: (lead) => `Select ${lead.name ?? lead.phone_e164}`,
+                  allLabel: "Select all leads on this page",
+                }
+              : undefined
+          }
           // Said aloud only for what a person would turn round for (D-774); every other
           // arrival is visible, not spoken.
           announceArrivals={(arrived) => {
@@ -121,30 +116,21 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
             return hot === 1 ? "A new hot lead arrived." : `${hot} new hot leads arrived.`;
           }}
         />
-      ) : (
-        /* "No leads yet" only where the server said so; with a filter on, the emptiness
-           belongs to the filter (`filtered` is one answer over the whole lens). */
+      ) : filtered || askTerm ? (
+        /* With a filter on, the emptiness belongs to the filter (`filtered` is one answer
+           over the whole lens), never to the business. */
         <EmptyState
-          illustration={askTerm || filtered ? undefined : <EmptySketch kind="leads" />}
-          message={
-            askTerm
-              ? "No lead's captured answers match that question"
-              : filtered
-                ? "No leads match these filters"
-                : "No leads yet"
-          }
-          hint={
-            filtered
-              ? "Clear the filters to see everything."
-              : "Every answered call becomes a lead within two minutes."
-          }
-          action={
-            filtered && (
-              <button type="button" onClick={onClearFilters} className={SECONDARY_BUTTON_SM}>
-                Clear the filters
-              </button>
-            )
-          }
+          variant="filtered"
+          message={askTerm ? "No lead's captured answers match that question" : "No leads match these filters"}
+          hint="Clear the filters to see everything."
+          onClear={filtered ? onClearFilters : undefined}
+          clearLabel="Clear the filters"
+        />
+      ) : (
+        <EmptyState
+          illustration={<EmptySketch kind="leads" />}
+          message="No leads yet"
+          hint="Every answered call becomes a lead within two minutes."
         />
       )}
     </div>

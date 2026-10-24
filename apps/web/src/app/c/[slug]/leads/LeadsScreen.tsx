@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useState } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
+import { useFollowUpActions } from "@/components/calls/followUpActions";
 import { ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
@@ -9,7 +11,7 @@ import { SegmentedControl } from "@/components/interior/segmented-control";
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import { useClientRealm } from "@/lib/api/session";
-import { useActAccess, useCallLead, useMe, useWriteAccess } from "@/lib/api/hooks";
+import { useActAccess, useMe, useWriteAccess } from "@/lib/api/hooks";
 import {
   useBulkLeads,
   useExportLeads,
@@ -78,10 +80,14 @@ export function LeadsScreen() {
   const facets = useLeadFacets(session, lens);
   const savedViews = useSavedViews(session);
   const exportLeads = useExportLeads(session);
+  // The file arriving is the success; the button's tick says the export ran.
+  const exporting = useActionFeedback(exportLeads, { errorTitle: "Could not export these leads" });
   const members = useMembers(session);
   /** One mutation for every inline edit, with each failure kept against its lead. */
   const rows = useLeadRowEdit(session);
   const bulk = useBulkLeads(session);
+  // The batch's answer is the summary the bar keeps; a refused request shows in the dialog.
+  const bulkRun = useActionFeedback(bulk, { errorDisplay: "inline" });
   const mayEditLead = useWriteAccess(session, "leads:write", "edit a lead");
   const mayDispatch = useWriteAccess(session, "leads:dispatch", "call a lead from this table");
   const me = useMe(session);
@@ -97,7 +103,6 @@ export function LeadsScreen() {
   /** Derived once and shown twice (UX-DOCTRINE §4): on the button and on the screen. */
   const exportRefused = exportRefusal(f.askTerm, mayExport, exportAccess.reason);
   const agents = useAgents(session);
-  const callLead = useCallLead(session);
   const [agentId, setAgentId] = useState("");
 
   /** `ids` (rows ticked on this page) or `wholeQuery` (every lead the filters match). */
@@ -147,6 +152,15 @@ export function LeadsScreen() {
         ? "We could not check who you are signed in as, so calls from this table and the “Assigned to me” filter are closed. Reload the page to try again."
         : null;
 
+  const selectedDialer = dialers?.find((agent) => agent.id === selectedAgentId);
+  const followUp = useFollowUpActions(session, {
+    // Calls from this table are placed by the agent chosen under it, so a swipe rings with
+    // the same one, and a booked call back is made by it too.
+    dialerFor: () => (selectedDialer ? { id: selectedDialer.id, name: selectedDialer.name } : null),
+    noDialerReason: unavailable ?? undefined,
+    scheduleAgentId: selectedDialer?.id,
+  });
+
   useLeadsCopilotSurface({
     status: f.status,
     setStatus: f.setStatus,
@@ -174,8 +188,7 @@ export function LeadsScreen() {
     members,
     readOnly,
     canCall,
-    callLead,
-    selectedAgentId,
+    followUp,
     selection,
     setSelection,
     filtered: f.filtered,
@@ -223,12 +236,14 @@ export function LeadsScreen() {
         // column the server dropped is not shown ticked.
         chosenColumns={leads.data?.columns.map((c) => c.key) ?? lens.columns}
         onColumns={f.setChosenColumns}
-        lens={lens}
-        exportLeads={exportLeads}
+        exportStatus={exporting.status}
+        // WITHOUT `ask`. The API refuses a lens carrying a question on the export
+        // (`_ASK_CANNOT_BE_EXPORTED`): a ranking is not "the whole filtered set" the file
+        // promises. The button is disabled with that sentence, so this strip is the belt.
+        onExport={() => exporting.run({ ...lens, ask: undefined })}
         mayExport={mayExport}
         exportRefusal={exportRefused}
         exportNote={exportNote}
-        onExported={() => undefined}
         filtersOpen={filtersOpen}
         onFiltersOpen={setFiltersOpen}
         filtersInUse={(f.askTerm ? 1 : 0) + moreInUse}
@@ -338,7 +353,7 @@ export function LeadsScreen() {
         members={members.data}
         canWrite={mayEditLead.allowed}
         writeReason={mayEditLead.reason}
-        pending={bulk.isPending}
+        runStatus={bulkRun.status}
         error={bulk.error}
         result={bulkResult}
         nameFor={nameFor}
@@ -360,12 +375,8 @@ export function LeadsScreen() {
       />
 
       {leads.error && <ProblemNotice error={leads.error} onRetry={() => leads.refetch()} />}
-      {exportLeads.error && <ProblemNotice error={exportLeads.error} />}
       {/* The team list failing leaves the rows fine and only the owner picker dead. */}
       {members.error != null && <ProblemNotice error={members.error} />}
-      {/* Inline-edit failures are on their own row; a gate refusal (200) is on the row
-          too. This is for real failures of a dispatch. */}
-      {callLead.error != null && <ProblemNotice error={callLead.error} />}
 
       {/* Loading and failure are one answer for both views. `leads.data` can survive a
           failed REFETCH and those rows are real, so the guard is on data, not on error. */}
@@ -393,6 +404,8 @@ export function LeadsScreen() {
         selectedAgentId={selectedAgentId}
         onSelect={setAgentId}
       />
+
+      {followUp.dialogs}
 
       <LeadsFooter
         leads={leads}

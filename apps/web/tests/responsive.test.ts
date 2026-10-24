@@ -566,31 +566,32 @@ describe("the second mobile pass", () => {
 });
 
 /**
- * THE LEADS TABLE ON A PHONE (founder, 10 Oct 2026): it stays a TABLE that scrolls sideways
- * inside its own region, with the Name column pinned, and the page never scrolls. A
- * phone-only list of rows was tried and withdrawn; this keeps it from coming back by a
- * width switch, and keeps the pin on the column that says who the row is.
+ * THE LEADS ON A PHONE. Founder, 24 Oct 2026 (rememory f7d9f716 §7): leads and calls swipe
+ * to their follow-up actions on a phone, which a sideways-scrolling table cannot share
+ * (docs/design/UIARC-COMPONENTS.md, swipe-actions, "Table vs list"). This supersedes the
+ * 10 Oct 2026 rule that the phone kept the table. So below `sm` the leads are a list
+ * whose rows swipe, and from `sm` the table scrolls sideways inside its own region with
+ * the Name column pinned; the page never scrolls either way.
  */
-describe("the leads table on a phone", () => {
+describe("the leads on a phone", () => {
   const leads = join(SRC, "app", "c", "[slug]", "leads");
   const source = (file: string) => blankComments(readFileSync(file, "utf8").split("\n")).join("\n");
-  const screenSource = source(join(leads, "LeadsScreen.tsx"));
   const tableSource = source(join(leads, "LeadTable.tsx"));
+  const listSource = source(join(leads, "LeadsPhoneList.tsx"));
   const dataTable = source(join(SRC, "components", "console", "dataTable.tsx"));
 
-  it("renders the one table at every width, with no width switch to a list", () => {
-    expect(screenSource).toMatch(/<LeadTable\b/);
-    expect(screenSource).not.toMatch(/useMediaQuery|matchMedia|LeadList/);
+  it("switches to the swipeable list only below sm", () => {
+    expect(tableSource).toMatch(/const PHONE = "\(max-width: 639px\)"/);
+    expect(tableSource).toMatch(/<LeadsPhoneList\b/);
+    expect(listSource).toMatch(/<SwipeActions\b/);
   });
 
   it("scrolls inside its own named region, never the page", () => {
     expect(dataTable).toMatch(/<ScrollRegion label=\{label\}/);
   });
 
-  it("pins the Name column, beside a fixed-width select column when there is one", () => {
-    expect(tableSource).toMatch(/pin: column\.key === "name" \? \(maySelect \? "left-12" : "left-0"\)/);
-    expect(tableSource).toMatch(/className: "w-12 min-w-12 max-w-12"/);
-    expect(dataTable).toMatch(/"left-12": "sticky left-12 z-raised bg-surface"/);
+  it("pins the Name column", () => {
+    expect(tableSource).toMatch(/pin: column\.key === "name" \? "left-0"/);
   });
 });
 

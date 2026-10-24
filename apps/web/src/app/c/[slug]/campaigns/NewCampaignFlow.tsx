@@ -22,10 +22,9 @@ import { useRef, useState, type ReactNode } from "react";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { WizardSteps } from "@/components/interior/wizard-steps";
-import { useFormValidation } from "@/components/formValidation";
 import { ProblemNotice, formatCount, formatPhone } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
-import type { CampaignNumber, DltTemplate, useCreateCampaign } from "@/lib/api/campaigns";
+import type { CampaignNumber, DltTemplate } from "@/lib/api/campaigns";
 import { lookup } from "@/lib/lookup";
 
 import { ConsentProvenanceFields } from "./ConsentProvenance";
@@ -69,7 +68,8 @@ export function NewCampaignFlow({
   hasNoAgents,
   numbers,
   templates,
-  create,
+  creating,
+  createError,
   canWrite,
   onSubmit,
   onCancel,
@@ -83,12 +83,14 @@ export function NewCampaignFlow({
   hasNoAgents: boolean;
   numbers: ListQuery<CampaignNumber>;
   templates: ListQuery<DltTemplate>;
-  create: ReturnType<typeof useCreateCampaign>;
+  /** The draft is being created, or what it carries is being sent. */
+  creating: boolean;
+  /** Why creating the draft was refused, shown on the review step. */
+  createError: unknown;
   canWrite: boolean;
   onSubmit: () => void;
   onCancel: () => void;
 }) {
-  const valid = useFormValidation();
   const { counts, refusal } = form.checked;
   const [step, setStep] = useState(0);
   // Which steps the person has tried to leave. A step's problem shows only after that,
@@ -186,7 +188,6 @@ export function NewCampaignFlow({
             <ContactEditor entries={form.contacts} onChange={form.setContacts} />
             <LeadsChoice form={form} />
             <ConsentProvenanceFields
-              validation={valid}
               idPrefix="new"
               source={form.consentSource}
               collectedAt={form.consentDate}
@@ -280,7 +281,7 @@ export function NewCampaignFlow({
                         {problem}
                       </p>
                     ) : null}
-                    {index === STEP_NAMES.length - 1 && create.error ? <ProblemNotice error={create.error} /> : null}
+                    {index === STEP_NAMES.length - 1 && createError != null ? <ProblemNotice error={createError} /> : null}
                   </div>
                 ),
               }
@@ -298,7 +299,7 @@ export function NewCampaignFlow({
         label="New campaign steps"
         nextLabel="Next"
         finishLabel="Create campaign"
-        finishing={create.isPending}
+        finishing={creating}
         finishingLabel="Creating…"
         advanceDisabled={step === STEP_NAMES.length - 1 && !canWrite}
         extraActions={

@@ -3,7 +3,9 @@
 import { type ReactNode } from "react";
 import { BadgeCheck, ShieldAlert } from "lucide-react";
 
-import { FIELD_INLINE, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
+import { ActionButton } from "@/components/arc/feedback";
+import { RadioGroup } from "@/components/arc/radio-group";
+import { FIELD_INLINE, ProblemNotice } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
 import { CONSENT_SOURCES, type ConsentSource, type ConsentStatus } from "@/lib/api/messagingConsent";
 
@@ -65,29 +67,23 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
           {valid.error("phone")}
         </Field>
 
-        {/* The answer first: it is what decides which sources may carry it. */}
-        <fieldset>
-          <legend className="text-sm font-medium text-ink">What did they say?</legend>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Choice
-              name="answer"
-              checked={form.answer === "yes"}
-              onChange={() => form.chooseAnswer("yes")}
-              label="They agreed to be messaged"
-            />
-            <Choice
-              name="answer"
-              checked={form.answer === "no"}
-              onChange={() => form.chooseAnswer("no")}
-              label="They do not want messages"
-            />
-          </div>
-          <p className="mt-2 text-xs text-ink-muted">
-            {form.answer === "yes"
-              ? STATUS_COPY.granted.hint
-              : "A refusal is never held up: it needs no evidence and can be recorded by anyone here."}
-          </p>
-        </fieldset>
+        {/* The answer first: it is what decides which sources may carry it. Native radios,
+            so the focused answer is always visible (this record is the client's evidence
+            that a real person agreed). */}
+        <RadioGroup
+          name="answer"
+          label="What did they say?"
+          value={form.answer}
+          onChange={(next) => form.chooseAnswer(next === "yes" ? "yes" : "no")}
+          options={[
+            { value: "yes", label: "They agreed to be messaged", hint: STATUS_COPY.granted.hint },
+            {
+              value: "no",
+              label: "They do not want messages",
+              hint: "A refusal is never held up: it needs no evidence and can be recorded by anyone here.",
+            },
+          ]}
+        />
 
         {form.answer === "no" && (
           <Field label="Which kind of no?" htmlFor="consent-status">
@@ -167,21 +163,17 @@ export function RecordConsent({ form }: { form: ConsentForm }) {
         ))}
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
+          {/* `blocked` holds the button: it is a rule about WHAT may be recorded, not an
+              answer this form can point at. The length rule is answered at the field. */}
+          <ActionButton
             type="submit"
-            /* `blocked` stays: it is a rule about WHAT may be recorded, not about
-               an answer this form can point at. The length rule is answered at the
-               field now. */
-            disabled={record.isPending || form.blocked !== null}
-            className={PRIMARY_BUTTON}
+            status={form.recordFeedback.status}
+            disabled={form.blocked !== null}
+            successLabel="Recorded"
           >
-            <BadgeCheck className="h-4 w-4" />
-            {record.isPending
-              ? "Recording…"
-              : form.answer === "yes"
-                ? "Record their opt-in"
-                : "Record their refusal"}
-          </button>
+            <BadgeCheck aria-hidden className="h-4 w-4" />
+            {form.answer === "yes" ? "Record their opt-in" : "Record their refusal"}
+          </ActionButton>
           {/* The refusal, given before the click rather than as a 422 after it. */}
           {form.blocked && (
             <span className="flex items-start gap-1.5 text-xs text-warn">
@@ -229,42 +221,4 @@ function Field({
     </div>
   );
 }
-
-function Choice({
-  name,
-  checked,
-  onChange,
-  label,
-}: {
-  name: string;
-  checked: boolean;
-  onChange: () => void;
-  label: string;
-}) {
-  /*
-   * WCAG 2.4.7 Focus Visible (AA), failure technique F78 — the same fix, and the same
-   * reasoning, as `components/llmModelPicker.tsx`'s model rows, which is where it is
-   * written out in full. The input below is `sr-only`, so the browser's own ring is gone
-   * and the label styled only `checked` and `hover`: a keyboard user could not see which
-   * of "Agreed" / "Refused" they were on.
-   *
-   * This one is 🔒 compliance-visible. The record this radio produces is the client's
-   * evidence under TCCCPR that a person agreed to be messaged — the screen says so — so a
-   * keyboard user unable to see which answer is focused is a keyboard user who can record
-   * the wrong one about a real person.
-   */
-  const FOCUS_RING =
-    "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app";
-  return (
-    <label
-      className={
-        checked
-          ? `inline-flex cursor-pointer items-center rounded-md border touch:min-h-11 border-brand-strong bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white ${FOCUS_RING}`
-          : `inline-flex cursor-pointer items-center rounded-md touch:min-h-11 border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5 ${FOCUS_RING}`
-      }
-    >
-      <input type="radio" name={name} checked={checked} onChange={onChange} className="sr-only" />
-      {label}
-    </label>
-  );
-}
+

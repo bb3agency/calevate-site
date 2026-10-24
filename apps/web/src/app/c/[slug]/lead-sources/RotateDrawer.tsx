@@ -2,7 +2,8 @@
 
 import { useId, useState } from "react";
 
-import { Drawer, DrawerSubmit } from "@/components/console/drawer";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { Drawer } from "@/components/console/drawer";
 import { FieldMessage, useFormValidation } from "@/components/formValidation";
 import { PasswordInput } from "@/components/passwordInput";
 import { FIELD_LABEL, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
@@ -25,10 +26,13 @@ export function RotateDrawer({
   source,
   onClose,
   rotate,
+  rotateStatus,
 }: {
   source: LeadSource | null;
   onClose: () => void;
   rotate: ReturnType<typeof useRotateLeadSourceSecret>;
+  /** The rotation's state from the screen's `useActionFeedback`. */
+  rotateStatus: FeedbackStatus;
 }) {
   const formId = useId();
   const [grace, setGrace] = useState("60");
@@ -64,9 +68,9 @@ export function RotateDrawer({
             <button type="button" onClick={close} className={SECONDARY_BUTTON}>
               Cancel
             </button>
-            <DrawerSubmit disabled={rotate.isPending} className={PRIMARY_BUTTON}>
-              {rotate.isPending ? "Issuing…" : "Issue new secret"}
-            </DrawerSubmit>
+            <ActionButton type="submit" form={formId} status={rotateStatus} successLabel="Issued">
+              Issue new secret
+            </ActionButton>
           </>
         )
       }

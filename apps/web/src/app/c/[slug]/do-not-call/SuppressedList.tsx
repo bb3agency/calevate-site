@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Lock, RotateCcw, Trash2 } from "lucide-react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptySketch } from "@/components/console/emptySketch";
@@ -59,6 +60,13 @@ export function SuppressedList({
 }) {
   const entries = useDncList(session);
   const remove = useRemoveDncEntry(session);
+  // A refusal is said inside the dialog (or above the list once it is closed); the toast
+  // confirms the removal after the dialog has gone, since the row simply disappears.
+  const removeFeedback = useActionFeedback(remove, {
+    errorDisplay: "inline",
+    successToast: "Number taken off the list",
+    successDescription: "Your agents can ring it again.",
+  });
 
   /**
    * The entry a client has asked to un-suppress, held until they confirm it. 🔒
@@ -139,7 +147,7 @@ export function SuppressedList({
         <RowAction
           entry={entry}
           canSuppress={canSuppress}
-          removing={remove.isPending && remove.variables === entry.id}
+          removing={removeFeedback.status === "pending" && remove.variables === entry.id}
           onRemove={() => setUnsuppressing(entry)}
           onRestore={() => setRestoring(entry)}
         />
@@ -209,7 +217,7 @@ export function SuppressedList({
           confirmLabel="Un-suppress this number"
           pendingLabel="Removing…"
           cancelLabel="Keep it suppressed"
-          pending={remove.isPending}
+          status={removeFeedback.status}
           error={remove.error}
           onCancel={() => {
             remove.reset();

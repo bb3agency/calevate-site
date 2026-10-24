@@ -18,6 +18,7 @@ import {
   listPage,
   newCampaignPage,
   pageFixture,
+  pickDate,
   progressFixture,
   resultsFixture,
 } from "./campaignFixtures";
@@ -135,11 +136,7 @@ function consentRadios(container: HTMLElement): HTMLInputElement[] {
   return Array.from(container.querySelectorAll<HTMLInputElement>('input[name="new-consent-source"]'));
 }
 
-function consentDateInput(container: HTMLElement): HTMLInputElement {
-  const input = container.querySelector<HTMLInputElement>('input[type="date"]');
-  expect(input, "the create form has no consent date field").not.toBeNull();
-  return input!;
-}
+const CONSENT_DATE = "When did they agree?";
 
 function pasteContacts(text: string): void {
   fireEvent.click(screen.getByRole("button", { name: "Paste" }));
@@ -160,7 +157,7 @@ async function fillNew(container: HTMLElement, name = "Diwali reminder"): Promis
   await screen.findByRole("heading", { name: "Who should we call?" });
   pasteContacts("9876543210,Priya");
   fireEvent.click(consentRadios(container)[0]);
-  fireEvent.change(consentDateInput(container), { target: { value: "2026-08-01" } });
+  await pickDate(CONSENT_DATE, "2026-08-01");
   next();
   await screen.findByRole("heading", { name: "When should we call?" });
   next();
@@ -178,7 +175,7 @@ describe("the create page's consent declaration", () => {
     await screen.findByRole("heading", { name: "Who should we call?" });
     expect(consentRadios(container)).toHaveLength(5);
     expect(consentRadios(container).some((r) => r.checked)).toBe(false);
-    expect(consentDateInput(container).value).toBe("");
+    expect(screen.getByRole("button", { name: CONSENT_DATE }).textContent).toContain("Choose a date");
 
     pasteContacts("9876543210");
     next();
@@ -464,7 +461,7 @@ describe("creating a campaign", () => {
     fireEvent.click(await screen.findByRole("radio", { name: /At a set time/ }));
     next();
     expect((await screen.findByRole("alert")).textContent).toContain("Choose the date and time");
-    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2030-01-15" } });
+    await pickDate("Start date", "2030-01-15");
     next();
     fireEvent.click(await screen.findByRole("button", { name: "Create campaign" }));
     const armed = await vi.waitFor(() => {
@@ -484,8 +481,9 @@ describe("one campaign's page", () => {
     expect((await screen.findByRole("link", { name: "Edit" })).getAttribute("href")).toBe(
       `/c/acme/campaigns/${CAMPAIGN_ID}/edit`,
     );
-    fireEvent.click(screen.getByRole("button", { name: "More actions for Diwali offer" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete…" }));
+    // The group draws a phone menu and a desktop one; CSS shows one, jsdom has both.
+    fireEvent.click(screen.getAllByRole("button", { name: "More actions for Diwali offer" })[1]);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete draft…" }));
     expect(screen.getByText("Delete this draft?")).toBeTruthy();
     expect(rendered.calls.some((c) => c.method === "DELETE")).toBe(false);
   });

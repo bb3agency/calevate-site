@@ -4,7 +4,8 @@ import Link from "next/link";
 import { PhoneForwarded } from "lucide-react";
 
 import { TEXT_ACTION } from "@/components/console/section";
-import { NoticeBox, PRIMARY_BUTTON, ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { NoticeBox, ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import type { useCallBack, useCallbackEligibility, useWriteAccess } from "@/lib/api/hooks";
 
 /**
@@ -23,12 +24,17 @@ import type { useCallBack, useCallbackEligibility, useWriteAccess } from "@/lib/
 export function FollowUpAction({
   eligibility,
   callback,
+  status,
+  onCallBack,
   write,
   leadHref,
   leadLabel,
 }: {
   eligibility: ReturnType<typeof useCallbackEligibility>;
   callback: ReturnType<typeof useCallBack>;
+  /** The press's state, from the screen's `useActionFeedback`. */
+  status: FeedbackStatus;
+  onCallBack: () => void;
   write: ReturnType<typeof useWriteAccess>;
   leadHref: string | null;
   leadLabel: string;
@@ -95,16 +101,17 @@ export function FollowUpAction({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-        <button
-          type="button"
-          className={PRIMARY_BUTTON}
-          disabled={!write.allowed || callback.isPending}
+        <ActionButton
+          status={status}
+          pendingLabel="Calling…"
+          successLabel="Calling"
+          disabled={!write.allowed}
           title={write.allowed ? undefined : (write.reason ?? undefined)}
-          onClick={() => callback.mutate()}
+          onClick={onCallBack}
         >
           <PhoneForwarded aria-hidden className="h-4 w-4" />
-          {callback.isPending ? "Calling…" : "Have the agent call back now"}
-        </button>
+          Have the agent call back now
+        </ActionButton>
         {lead}
       </div>
       {write.allowed ? (

@@ -2,14 +2,11 @@
 
 import { CheckCircle2 } from "lucide-react";
 
+import type { ActionFeedback } from "@/components/arc/feedback";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { Section } from "@/components/console/section";
 import { PRIMARY_BUTTON, ProblemNotice, Skeleton } from "@/components/ui";
-import {
-  type useCampaignProgress,
-  type useLaunchCampaign,
-  type useLaunchCheck,
-} from "@/lib/api/campaigns";
+import { type useCampaignProgress, type useLaunchCheck } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
@@ -43,7 +40,7 @@ export function LaunchGate({
   status: string | null;
   check: ReturnType<typeof useLaunchCheck>;
   progress: ReturnType<typeof useCampaignProgress>;
-  launch: ReturnType<typeof useLaunchCampaign>;
+  launch: ActionFeedback<void>;
   canWrite: boolean;
   /** The refusal sentence itself, or `null` while `/v1/me` has not answered. */
   writeReason: string | null;
@@ -104,8 +101,8 @@ export function LaunchGate({
             numberE164={progress.data?.number_e164}
             canWrite={canWrite}
             writeReason={refusal}
-            pending={launch.isPending}
-            onLaunch={() => launch.mutate()}
+            status={launch.status}
+            onLaunch={() => launch.run()}
           />
           {!canWrite && writeReason && <p className="text-meta text-ink-muted">{writeReason}</p>}
         </div>

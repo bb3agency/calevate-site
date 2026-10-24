@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import { Section } from "@/components/console/section";
 import { StepFlow } from "@/components/console/stepFlow";
@@ -51,6 +52,9 @@ export function ExistingNumberGuide({
   onDone?: () => void;
 }) {
   const add = useAddLine(session);
+  // The refusal is drawn under the review step and success moves the guide on to the codes,
+  // so nothing is toasted.
+  const addFeedback = useActionFeedback(add, { errorDisplay: "inline" });
   const [number, setNumber] = useState("");
   const [kind, setKind] = useState<LineKind>("mobile");
   const [carrier, setCarrier] = useState<Carrier>("airtel");
@@ -94,7 +98,7 @@ export function ExistingNumberGuide({
       onCancel={onSkip}
       cancelLabel="Skip for now"
       submitLabel="Save and show my codes"
-      pending={add.isPending}
+      pending={addFeedback.status === "pending"}
       error={add.error ? <ProblemNotice error={add.error} /> : null}
       onSubmit={() => {
         if (!mode || !attest) return;
