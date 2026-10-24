@@ -1,4 +1,4 @@
-"""The agent readiness score (D-870): the formula, and the reads behind the gauge.
+"""The agent readiness score (D-870, weights D-873): the formula, and the reads behind the gauge.
 
 The formula is pure (`readiness.score`), so its arithmetic is pinned without a database;
 the DB half proves `gather` reads the right rows and that one account never reads
@@ -31,8 +31,6 @@ FULL = readiness.ReadinessInputs(
     has_test_run=True,
     knowledge_items=8,
     open_gaps=0,
-    ai_notice_on=True,
-    recording_notice_on=True,
     opening_chars=60,
     opening_room=100,
     published=True,
@@ -62,7 +60,6 @@ def test_each_component_follows_its_rule() -> None:
             tests_counted=10,
             knowledge_items=3,
             open_gaps=2,
-            recording_notice_on=False,
             opening_chars=OPENING_LINE_MAX_CHARS + 1,
             draft_waiting=True,
             missed_7d=3,
@@ -70,11 +67,10 @@ def test_each_component_follows_its_rule() -> None:
         now=NOW,
     )
     assert _points(out) == {
-        "tests": 21,  # 30 * 7 / 10
-        "knowledge": 11,  # 5 for 1-4 items + (10 - 2*2)
-        "notices": 10,  # AI notice on, recording notice off
+        "tests": 25,  # 35 * 7 / 10 = 24.5, half up
+        "knowledge": 14,  # (5 for 1-4 items + (10 - 2*2)) * 25 / 20 = 13.75
         "opening": 5,  # set, but too long to be spoken
-        "live": 5,  # live, with a draft waiting
+        "live": 8,  # live, with a draft waiting
         "missed": 4,  # 10 - 2*3
     }
     assert out.score == 56
@@ -82,11 +78,11 @@ def test_each_component_follows_its_rule() -> None:
 
 def test_half_points_round_up_and_components_never_go_negative() -> None:
     out = readiness.score(
-        replace(FULL, tests_passed=1, tests_counted=4, open_gaps=9, missed_7d=40), now=NOW
+        replace(FULL, tests_passed=1, tests_counted=2, open_gaps=9, missed_7d=40), now=NOW
     )
     points = _points(out)
-    assert points["tests"] == 8  # 7.5 rounds half up
-    assert points["knowledge"] == 10  # 10 for stock + max(0, 10 - 18)
+    assert points["tests"] == 18  # 17.5 rounds half up
+    assert points["knowledge"] == 13  # (10 for stock + max(0, 10 - 18)) * 25 / 20 = 12.5
     assert points["missed"] == 0
 
 
@@ -104,8 +100,6 @@ def test_fixes_come_biggest_first_with_ties_in_component_order() -> None:
         has_test_run=False,
         knowledge_items=0,
         open_gaps=0,
-        ai_notice_on=False,
-        recording_notice_on=False,
         opening_chars=0,
         opening_room=None,
         published=False,
@@ -115,13 +109,12 @@ def test_fixes_come_biggest_first_with_ties_in_component_order() -> None:
         missed_7d=0,
     )
     out = readiness.score(empty, now=NOW)
-    assert out.score == 20  # knowledge gaps 10 + missed 10
+    assert out.score == 23  # knowledge: no gaps, 10 * 25 / 20 = 12.5 → 13; missed 10
     assert [(f.component, f.points) for f in out.fixes] == [
-        ("tests", 30),
-        ("notices", 15),
+        ("tests", 35),
         ("opening", 15),
-        ("knowledge", 10),
-        ("live", 10),
+        ("live", 15),
+        ("knowledge", 12),
     ]
     assert out.fixes[0].href == f"/agents/{AGENT}?section=training"
     assert out.fixes[3].href == "/knowledge"
@@ -137,13 +130,6 @@ async def test_the_reads_score_the_stored_agent_and_stay_inside_the_account() ->
     async with tenant_session(tenant_a) as session:
         agent_id = uuid.UUID(
             str((await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar())
-        )
-        await session.execute(
-            text(
-                "UPDATE agents SET ai_disclosure_enabled = true, recording_notice_enabled = true "
-                "WHERE id = :id"
-            ),
-            {"id": agent_id},
         )
         await session.execute(
             text(
@@ -163,8 +149,8 @@ async def test_the_reads_score_the_stored_agent_and_stay_inside_the_account() ->
     assert one.status_code == 200, one.text
     body = one.json()
     points = {c["key"]: c["points"] for c in body["components"]}
-    assert points["notices"] == 15
-    assert points["knowledge"] == 15  # one fact (5) + no open gaps (10)
+    assert set(points) == set(readiness.MAX_POINTS)
+    assert points["knowledge"] == 19  # (one fact (5) + no open gaps (10)) * 25 / 20 = 18.75
     assert points["tests"] == 0
     assert body["score"] == sum(points.values())
     assert account.status_code == 200

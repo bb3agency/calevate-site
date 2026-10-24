@@ -913,9 +913,13 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     );
 
     // VERBATIM: asserted against a sentence this test invents, so it can only pass if the
-    // screen renders what the server sent rather than wording of its own.
-    const promise = await screen.findByText(RULE);
-    expect(container.textContent).toContain(RULE);
+    // screen renders what the server sent rather than wording of its own. The guarantee (the
+    // first sentence) is on screen; the rest is in "More about these notices" (D-873).
+    const promise = await screen.findByText("The agent never claims to be human.");
+    const rest = screen.getByText("Ask it and it says so.");
+    expect(rest.closest("details")?.open).toBe(false);
+    expect(promise.closest("details")).toBeNull();
+    expect(container.textContent).toContain("Ask it and it says so.");
     const switches = noticeSwitches();
     expect(switches).toHaveLength(2);
     // Above, not below: two switches read "off" before the guarantee is read is exactly how
@@ -1053,6 +1057,24 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     // tick passed while two PATCHes were on their way. Let them leave first.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(calls.some((call) => call.path.endsWith("/disclosure"))).toBe(false);
+  });
+});
+
+describe("the readiness card on Overview (D-873)", () => {
+  it("comes first, with the score's breakdown and the notice details folded", async () => {
+    await renderClientPage(page, routes());
+
+    const readiness = await screen.findByRole("heading", { name: "How ready it is" });
+    const notices = await screen.findByRole("heading", {
+      name: "What it says at the start of every call",
+    });
+    const checklist = await screen.findByText(/Before its first call|Still to set up|Ready for calls/);
+    for (const later of [notices, checklist]) {
+      expect(readiness.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    await screen.findByText("Write the opening line callers hear first.");
+    expect(screen.getByText("How the score is made").closest("details")?.open).toBe(false);
+    expect(screen.getByText("More about these notices").closest("details")?.open).toBe(false);
   });
 });
 
@@ -1626,8 +1648,12 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     await screen.findByText("Reception");
     const toggle = screen.getByRole("switch", { name: "Taking calls" }) as HTMLInputElement;
     await waitFor(() => expect(toggle.checked).toBe(true));
-    expect(screen.getAllByText(/On for test calls from our shared trial number/).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: "Make a test call" })[0].getAttribute("href")).toBe("/c/acme");
+    // Said once, in the header line; the checklist and the row under the header do not
+    // repeat it (D-873).
+    expect(screen.getAllByText(/test calls from our shared trial number/)).toHaveLength(1);
+    const links = screen.getAllByRole("link", { name: "Make a test call" });
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute("href")).toBe("/c/acme");
   });
 
   it("leaves the switch alone for an answer-only agent on an account that has paid", async () => {
