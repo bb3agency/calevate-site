@@ -14730,8 +14730,17 @@ export interface components {
          *     against what we metered. `variance_inr` is metered minus theirs.
          */
         CallVarianceOut: {
+            /** Agent Name */
+            agent_name?: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
             /** Call Id */
             call_id: string;
+            /** Duration S */
+            duration_s?: number | null;
             /** Metered Inr */
             metered_inr: string;
             /** Variance Inr */

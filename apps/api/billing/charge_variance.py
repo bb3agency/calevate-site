@@ -15,6 +15,7 @@ an unpriced minute row is left out: there is nothing metered to compare.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Final
 from uuid import UUID
@@ -35,7 +36,11 @@ _PER_CALL_SQL = (
     "SELECT c.id, c.engine_charged_inr, sum(u.qty * u.unit_cost_paid), "
     "bool_or(u.unit_cost_paid IS NULL), "
     "COALESCE((SELECT a.value FROM platform_cost_attestations a WHERE a.subject = :subject "
-    "AND a.effective_from <= min(u.occurred_at) ORDER BY a.effective_from DESC LIMIT 1), 0) "
+    "AND a.effective_from <= min(u.occurred_at) ORDER BY a.effective_from DESC LIMIT 1), 0), "
+    # What a person recognises a call by: when, which agent, how long. Grouped by the key,
+    # so the call's own columns are single-valued.
+    "COALESCE(c.started_at, c.created_at), c.duration_s, "
+    "(SELECT ag.name FROM agents ag WHERE ag.id = c.agent_id) "
     "FROM calls c JOIN usage_events u ON u.call_id = c.id AND u.tenant_id = c.tenant_id "
     f"AND {minute_cost_rows('u.')} "
     "WHERE c.tenant_id = :tid AND c.engine_charged_inr IS NOT NULL "
@@ -46,6 +51,9 @@ _PER_CALL_SQL = (
 @dataclass(frozen=True, slots=True)
 class CallVariance:
     call_id: UUID
+    at: datetime
+    duration_s: int | None
+    agent_name: str | None
     #: The charge with the wallet fee, what the call cost us at the platform's own figure.
     vendor_inr: Decimal
     metered_inr: Decimal
@@ -83,7 +91,7 @@ async def month_charge_variance(
         )
     ).all()
     calls: list[CallVariance] = []
-    for call_id, charged, metered, unpriced, fee in rows:
+    for call_id, charged, metered, unpriced, fee, at, duration_s, agent_name in rows:
         if unpriced or metered is None:
             continue
         vendor = (Decimal(str(charged)) * (Decimal(1) + Decimal(str(fee)))).quantize(
@@ -92,6 +100,9 @@ async def month_charge_variance(
         calls.append(
             CallVariance(
                 call_id=UUID(str(call_id)),
+                at=at,
+                duration_s=duration_s,
+                agent_name=agent_name,
                 vendor_inr=vendor,
                 metered_inr=Decimal(str(metered)).quantize(MONEY_Q, rounding=ROUNDING),
             )

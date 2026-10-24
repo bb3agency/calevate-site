@@ -353,6 +353,11 @@ class CallVarianceOut(Strict):
     against what we metered. `variance_inr` is metered minus theirs."""
 
     call_id: str
+    #: When the call started (placed, for one that never connected), its length and its agent:
+    #: what an operator recognises it by.
+    at: datetime
+    duration_s: int | None = None
+    agent_name: str | None = None
     vendor_inr: str
     metered_inr: str
     variance_inr: str
@@ -379,6 +384,9 @@ class ChargeVarianceOut(Strict):
             largest=[
                 CallVarianceOut(
                     call_id=str(call.call_id),
+                    at=call.at,
+                    duration_s=call.duration_s,
+                    agent_name=call.agent_name,
                     vendor_inr=str(to_paise(call.vendor_inr)),
                     metered_inr=str(to_paise(call.metered_inr)),
                     variance_inr=str(to_paise(call.variance_inr)),

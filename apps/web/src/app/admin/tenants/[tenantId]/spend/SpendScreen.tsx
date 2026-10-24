@@ -9,9 +9,13 @@ import {
   Skeleton,
   formatCount,
   formatCountOf,
+  formatDuration,
   formatINR,
+  formatIST,
 } from "@/components/ui";
+import { viewAsHref } from "@/lib/api/session";
 import { InfoTip } from "@/components/console/infoTip";
+import { TEXT_ACTION_SM } from "@/components/console/section";
 import { Metric } from "@/components/console/metric";
 import { PageHeader } from "@/components/console/pageHeader";
 import { currentISTMonth } from "@/lib/api/invoice";
@@ -175,7 +179,7 @@ export function SpendScreen({ tenantId }: { tenantId: string }) {
       {!data ? (
         spend.error ? null : <Skeleton rows={8} label="Loading this client's spend" />
       ) : (
-        <SpendBoard data={data} tenantId={tenantId} />
+        <SpendBoard data={data} tenantId={tenantId} slug={tenant?.slug} />
       )}
 
       {tenant && (
@@ -185,7 +189,7 @@ export function SpendScreen({ tenantId }: { tenantId: string }) {
   );
 }
 
-function SpendBoard({ data, tenantId }: { data: TenantSpend; tenantId: string }) {
+function SpendBoard({ data, tenantId, slug }: { data: TenantSpend; tenantId: string; slug?: string }) {
   const basis = lookup(CHARGE_BASIS_COPY, data.charge_basis) ?? {
     label: "How each call is charged",
     hint: "",
@@ -274,7 +278,7 @@ function SpendBoard({ data, tenantId }: { data: TenantSpend; tenantId: string })
         </div>
       )}
 
-      {data.charge_variance && <ChargeVariance variance={data.charge_variance} />}
+      {data.charge_variance && <ChargeVariance variance={data.charge_variance} slug={slug} />}
 
       {data.unattributed && (
         <div className="border-l-2 border-line py-1 pl-3 text-meta text-ink-muted">
@@ -351,7 +355,13 @@ function SpendBoard({ data, tenantId }: { data: TenantSpend; tenantId: string })
  * calls: its charge with the wallet top-up fee beside our metered minute. A variance means an
  * attested rate no longer matches the invoice; it is shown here and never written back.
  */
-function ChargeVariance({ variance }: { variance: NonNullable<TenantSpend["charge_variance"]> }) {
+function ChargeVariance({
+  variance,
+  slug,
+}: {
+  variance: NonNullable<TenantSpend["charge_variance"]>;
+  slug?: string;
+}) {
   return (
     <section className="border-y border-line py-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -366,8 +376,25 @@ function ChargeVariance({ variance }: { variance: NonNullable<TenantSpend["charg
       {variance.largest.length > 0 && (
         <ul className="mt-2 divide-y divide-line text-meta">
           {variance.largest.map((call) => (
-            <li key={call.call_id} className="flex flex-wrap justify-between gap-2 py-1.5">
-              <span className="font-mono text-ink-muted">{call.call_id}</span>
+            <li key={call.call_id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2">
+              {/* A call by when, which agent and how long, opened in the client's view; the
+                  id alone named nothing a person could recognise. */}
+              {(() => {
+                const label = [
+                  formatIST(call.at),
+                  call.agent_name,
+                  call.duration_s ? formatDuration(call.duration_s) : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ");
+                return slug ? (
+                  <a href={viewAsHref(slug, `/calls/${call.call_id}`)} className={`${TEXT_ACTION_SM} -ml-2`}>
+                    {label}
+                  </a>
+                ) : (
+                  <span className="text-ink">{label}</span>
+                );
+              })()}
               <span className="tabular-nums text-ink">
                 {formatINR(call.vendor_inr)} charged · {formatINR(call.metered_inr)} metered ·{" "}
                 <span className="font-medium">{formatINR(call.variance_inr)}</span>

@@ -8967,9 +8967,36 @@
         "additionalProperties": false,
         "description": "One settled call: the voice platform's figure (its charge with the wallet top-up fee)\nagainst what we metered. `variance_inr` is metered minus theirs.",
         "properties": {
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
           "call_id": {
             "title": "Call Id",
             "type": "string"
+          },
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration S"
           },
           "metered_inr": {
             "title": "Metered Inr",
@@ -8986,6 +9013,7 @@
         },
         "required": [
           "call_id",
+          "at",
           "vendor_inr",
           "metered_inr",
           "variance_inr"
