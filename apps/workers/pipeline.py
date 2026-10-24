@@ -1627,11 +1627,13 @@ async def _extract_stage(
     transcript_text: str,
     opt_out_signal: OptOutSignal | None,
     business_outcomes: list[BusinessOutcome],
+    reasoning_off: bool = False,
 ) -> ExtractionOutput | None:
     """STEP 3 and 3b: read the call against the agent's schema, mark its key moments and
     store both. Shared by the post-call pipeline and the failed-extraction re-read
     (`workers/extraction_reread`, D-841), so a re-read is the same reading, metered the
-    same way, and never a second copy of it."""
+    same way, and never a second copy of it. `reasoning_off` is the re-read of a truncated
+    reading: Sarvam is asked with reasoning off from the first request."""
     schema_version = spec.version
     # `snapshot.transcript`, NOT `transcript_text`: the two agreed until
     # `extractor_transcript` started dropping wordless turns, and this one has to keep agreeing with
@@ -1667,6 +1669,8 @@ async def _extract_stage(
             # Through the module, so a test that substitutes `extraction.get_extractor`
             # substitutes the pass that is metered too.
             extractor = extraction_module.get_extractor()
+            if reasoning_off and isinstance(extractor, SarvamExtractor):
+                extractor = extractor.without_reasoning()
             # Key moments ride in the SAME request (founder, 11 Oct 2026): no second model
             # call, only the extra output tokens, metered below with the rest.
             brief = await load_moments_brief(tenant_id, agent_id)
@@ -2087,6 +2091,9 @@ async def _meter_extraction(
                 "prompt_tokens": str(usage.prompt_tokens),
                 "output_tokens": str(usage.output_tokens),
                 "moments_returned": str(moments_returned),
+                # Which ask's answer was used: `off` after a truncation retry, whose tokens
+                # are summed into the counts above with the truncated ask's.
+                "reasoning_effort": str(extractor.last_reasoning_effort),
             },
         )
 
