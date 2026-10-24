@@ -77,7 +77,7 @@ export function AnnouncementBar({
           {detail ? <span className="hidden sm:inline"> {detail}</span> : null}
         </p>
         {action ? (
-          <Link href={action.href} className={clsx(TEXT_ACTION, "shrink-0")}>
+          <Link href={action.href} className={clsx(TEXT_ACTION, "max-w-[45%] shrink-0")}>
             {action.label}
           </Link>
         ) : null}

@@ -71,8 +71,11 @@ export function LineChart({
   const plotH = height - MARGIN.top - MARGIN.bottom;
   const x = (i: number) => MARGIN.left + (labels.length <= 1 ? plotW / 2 : (i / (labels.length - 1)) * plotW);
   const y = (v: number) => MARGIN.top + (1 - v / top) * plotH;
-  // Label every k-th x so labels never collide (about 56px each), always keeping the last.
-  const every = Math.max(1, Math.ceil((labels.length * 56) / plotW));
+  // Label every k-th x so labels never collide: a slot sized to the longest label (11px text
+  // runs about 6.5px a character) plus a gap. The last is always kept, so a regular label
+  // too close to it gives way.
+  const slot = Math.max(56, Math.max(0, ...labels.map((label) => label.length)) * 6.5 + 20);
+  const every = Math.max(1, Math.ceil((labels.length * slot) / plotW));
 
   const text = (s: LineSeries, i: number) => {
     const v = s.values[i];
@@ -111,7 +114,7 @@ export function LineChart({
             </g>
           ))}
           {labels.map((label, i) =>
-            i % every === 0 || i === labels.length - 1 ? (
+            (i % every === 0 && labels.length - 1 - i >= every) || i === labels.length - 1 ? (
               <text
                 key={`${label}-${i}`}
                 x={x(i)}
