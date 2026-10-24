@@ -49,12 +49,11 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 
 #: sha256 of `compose_engine_prompt` for the two configs below. A change here is a change to
 #: every other engine's prompt, so it is re-pinned only by a decision that changes the
-#: platform layers on purpose (last: D-877, which names "fixed" and "confirmed" among the done
-#: claims, says one goodbye "and nothing more" and asks each truthful answer "when asked";
-#: both digests moved).
+#: platform layers on purpose (last: D-883, which trims the platform text and reads back an
+#: ambiguous amount as the one meant; both digests moved).
 PINNED = (
-    "c9d834dbc6c7d9f0a95d9591b9dfa8a76bc6f8cc674ce5dfd9c100e8494232d9",
-    "2e8f9e50701dcee83cf1088b46c83342d6615379caf1c9b76faad9ab3f1d666a",
+    "3e919e6cb6be89588b28d57e59c73fe4e9af7100b730288fd29e6e37ce0f1406",
+    "757d332081b3a59cd7065f1316b64b5f786889a2b210a6ba3575fcd88ea5ea84",
 )
 
 

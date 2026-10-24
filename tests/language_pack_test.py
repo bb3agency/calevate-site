@@ -181,5 +181,12 @@ def test_every_agent_is_told_to_follow_the_caller() -> None:
     assert (
         "Your main language is Telugu; you also speak Hindi and English (India)." in languages_layer
     )
-    assert "Reply in the language the caller speaks and switch when they do." in languages_layer
     assert "offer" not in languages_layer
+    # Without a pack, following the caller is HOW TO SPEAK's bullet (D-883); with one, HOW TO
+    # SPEAK drops it and the LANGUAGES section says it.
+    how_to_speak = dict(engine_prompt_layers(_agent("te-IN", ("hi-IN", "en-IN"))))["how_to_speak"]
+    assert "Match the caller's language" in how_to_speak
+    packed = dict(
+        engine_prompt_layers(_agent("te-IN", ("hi-IN", "en-IN")), pack=PackChoice("en", "list"))
+    )
+    assert "Reply in the language the caller speaks and switch when they do." in packed["languages"]

@@ -88,6 +88,12 @@ def test_the_style_layer_states_the_directives_the_guide_specifies() -> None:
     assert "a few digits at a time" in block
     assert "a mobile has ten" in block
     assert "read back" in block
+    # D-883: "One two crores, sir" was echoed word for word on the call of 24 Oct 2026 and
+    # saved as 120 rather than 200; an amount that could be a range or a decimal is read
+    # back as the one meant, inside the read-back bullet.
+    read_back = next(line for line in block.splitlines() if line.startswith("- read back"))
+    assert "could be a range or a decimal" in read_back
+    assert '"one to two crores?"' in read_back
     # The language's own register moved to the SPOKEN REGISTER section (D-714), which names
     # each language the agent speaks; this block says to mirror the caller's register.
     assert "caller's language and register" in block

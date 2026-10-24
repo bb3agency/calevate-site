@@ -216,7 +216,7 @@ def test_the_double_goodbye_is_noted() -> None:
 def test_the_prompt_carries_the_fabrication_rules() -> None:
     cfg, _ = _cfg()
     prompt = compose_engine_prompt(cfg)
-    assert 'Never say "as I said" about anything' in prompt
+    assert 'Never say "as I said" about what you did not say' in prompt
     assert "Never guess or add to a fact: a price, an offer, stock" in prompt
     assert "Read back what you heard" in prompt and "Read back what you note" not in prompt
     assert "then one goodbye" in prompt

@@ -114,7 +114,8 @@ def test_an_agent_with_extras_is_told_which_languages_it_may_answer_in() -> None
     assert TRUTHFUL_ANSWER_MARKER in prompt
     assert "in any language" in prompt
     assert "Every rule here applies in every language." in prompt
-    assert "Reply in the language the caller speaks and switch when they do." in prompt
+    # Following the caller is HOW TO SPEAK's register bullet, said once (D-883).
+    assert "Match the caller's language" in prompt
     # The spoken-output rules are unchanged.
     assert "No markdown" in prompt
 
