@@ -13,6 +13,7 @@ adapter cannot pass unchanged, the contract is wrong or the adapter is leaking.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -181,7 +182,17 @@ def _thinnest_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
             for field in ("to", "purpose"):
                 assert body.get(field), f"`{field}` is required"
             assert len(body["purpose"]) <= 300
-            assert "retry" not in body and "callingHours" not in body
+            assert "retry" not in body
+            hours = body.get("callingHours")
+            if hours is not None:
+                # Place Call: `start` and `end` as HH:MM, start earlier than end (else 400
+                # validation_failed); docs.thinnest.ai/api-reference/calls/place-call, read
+                # 24 Oct 2026. Our dials refuse rather than queue outside them (D-872).
+                assert set(hours) <= {"start", "end", "days", "timezone"}
+                assert re.fullmatch(r"\d{2}:\d{2}", hours["start"])
+                assert re.fullmatch(r"\d{2}:\d{2}", hours["end"])
+                assert hours["start"] < hours["end"]
+                assert body.get("ifOutsideHours") == "refuse"
             key = request.headers.get("Idempotency-Key")
             if key and key in idempotent:
                 return httpx.Response(202, json={"id": idempotent[key], "status": "ringing"})
