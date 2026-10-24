@@ -303,11 +303,13 @@ Client realm (`/c/<slug>/…`)
   The notice text and its version come from the SERVER on every response and the version
   shown is the version sent back, so a stale build is refused rather than recorded; the
   grant is withheld while `delivery_available` is false, and the withdrawal never is) ·
-  **`/integrations`** (endpoints + delivery log) · **`/verification`** (the client's own
-  view of `GET /v1/compliance/kyc` — the page a self-serve owner opens because their
-  outbound stopped. It leads with "inbound is unaffected", says plainly that the client
-  cannot self-verify, and carries no upload control, because the record stores a
-  registry identifier and a filing reference and never a document) ·
+  **`/integrations`** (endpoints + delivery log) · **`/verify-business`** (D-692, one screen
+  since D-875: `GET /v1/compliance/kyc`, the outbound pledge and the DLT registration — the
+  page a self-serve owner opens because their outbound stopped. It leads with "inbound is
+  unaffected" and the one next step, then the four steps with their forms (details,
+  certificate, owner ID or DigiLocker, pledge), the DLT registration where one is on file,
+  and what we hold in disclosures; the client cannot self-verify. `/verification` is a
+  server redirect here that keeps the query) ·
   `/calls`, `/campaigns`, `/knowledge`,
   **`/usage`** (usage panel + the §2b client cap editor) ·
   **`/ai-assist`** ("AI help" — what the console's dashboard AI has used this month

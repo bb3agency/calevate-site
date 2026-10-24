@@ -304,7 +304,7 @@ export function BuyNumber() {
   const [city, setCity] = useState("");
   const [direction, setDirection] = useState<CallDirection>("inbound");
 
-  const verifyHref = href(`/c/${session.orgSlug}/verification`);
+  const verifyHref = href(`/c/${session.orgSlug}/verify-business`);
   const creditsHref = href(`/c/${session.orgSlug}/billing?tab=credits`);
 
   /* ONE KEY PER ATTEMPT, held across that attempt's retries, and fresh when the request

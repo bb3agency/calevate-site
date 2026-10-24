@@ -4,28 +4,37 @@ import type { UseQueryResult } from "@tanstack/react-query";
 
 import type { PeRegistration } from "@/lib/api/dltRegistration";
 import type { KycRecord } from "@/lib/api/kyc";
+import type { OutboundPledge } from "@/lib/api/verifyBusiness";
 import { formatISTStamp } from "@/components/ui";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
 /**
- * The verification screen, declared to the assistant (`lib/copilot/registry.ts`).
+ * Verify your business, declared to the assistant (`lib/copilot/registry.ts`).
  *
- * Read-only: both verdicts are recorded by Calevate, which is the point of them.
- * `signatory_name` and `document_ref` are NOT declared: the first names a person and the
- * second identifies their document. The STATUS is what a reader asks about, and it
- * identifies nobody.
+ * No fields: the forms here are the owner's own acts (uploads, the pledge), and the
+ * verdicts are recorded by Calevate, which is the point of them. `signatory_name`,
+ * `document_ref`, `gstin` and the masked owner ID are NOT declared: the first names a
+ * person and the others identify a document. The STATUS is what a reader asks about, and
+ * it identifies nobody.
  */
-export function useVerificationCopilot(
+export function useVerifyBusinessCopilot(
   kyc: UseQueryResult<KycRecord>,
+  pledge: UseQueryResult<OutboundPledge>,
   dlt: UseQueryResult<PeRegistration>,
+  outgoingOpen: boolean | null,
 ) {
   useCopilotSurface({
-    route: "/c/{slug}/verification",
-    title: "Verification",
+    route: "/c/{slug}/verify-business",
+    title: "Verify your business",
     realm: "client",
     fields: [],
     facts: [
+      {
+        key: "outgoing_open",
+        label: "Are outgoing calls open for this account?",
+        value: outgoingOpen === null ? "not known — a record did not load" : outgoingOpen ? "yes" : "no",
+      },
       {
         key: "kyc_state",
         label: "Has the business-verification record loaded?",
@@ -40,7 +49,18 @@ export function useVerificationCopilot(
             },
             { key: "kyc_status", label: "Verification status", value: kyc.data.status ?? "nothing submitted" },
             { key: "kyc_entity_type", label: "Kind of business recorded", value: kyc.data.entity_type ?? "none recorded" },
+            { key: "kyc_path", label: "How the owner is being verified", value: kyc.data.kyc_path ?? "not chosen" },
             { key: "kyc_document_kind", label: "Kind of document on file", value: kyc.data.document_kind ?? "none" },
+            {
+              key: "kyc_business_certificate",
+              label: "Is a business certificate uploaded?",
+              value: kyc.data.documents.some((document) => document.slot === "business") ? "yes" : "no",
+            },
+            {
+              key: "kyc_digilocker_outstanding",
+              label: "Have we asked for a DigiLocker check that is not done yet?",
+              value: kyc.data.digilocker_outstanding ? "yes" : "no",
+            },
             { key: "kyc_submitted_at", label: "Submitted (IST)", value: formatISTStamp(kyc.data.submitted_at, "never") },
             { key: "kyc_verified_at", label: "Verified (IST)", value: formatISTStamp(kyc.data.verified_at, "not verified") },
             {
@@ -53,6 +73,21 @@ export function useVerificationCopilot(
               label: "May this account be given a phone number yet?",
               value: kyc.data.number_purchase_available ? "yes" : "no",
             },
+          ]
+        : []),
+      {
+        key: "pledge_state",
+        label: "Has the no-cold-calls pledge loaded?",
+        value: pledge.data ? "yes" : pledge.error ? "no — it failed to load" : "still loading",
+      },
+      ...(pledge.data
+        ? [
+            {
+              key: "pledge_current",
+              label: "Is the current no-cold-calls pledge accepted?",
+              value: pledge.data.is_current ? "yes" : pledge.data.accepted_version === null ? "no, never accepted" : "no, an older version was",
+            },
+            { key: "pledge_accepted_at", label: "Pledge accepted (IST)", value: formatISTStamp(pledge.data.accepted_at, "never") },
           ]
         : []),
       {

@@ -1,35 +1,30 @@
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import VerificationPage from "@/app/c/[slug]/verification/page";
-import {
-  PE_REGISTRATION_PATH,
-  type PeRegistration,
-} from "@/lib/api/dltRegistration";
+import VerifyBusinessPage from "@/app/c/[slug]/verify-business/page";
+import { PE_REGISTRATION_PATH, type PeRegistration } from "@/lib/api/dltRegistration";
 import { KYC_PATH, type KycRecord } from "@/lib/api/kyc";
+import { OWN_NUMBERS_PATHS } from "@/lib/api/ownNumbers";
+import { PLEDGE_PATH, type OutboundPledge } from "@/lib/api/verifyBusiness";
 
+import { OWNER_ME } from "./fixtures/sharedReads";
 import { problem, renderClientPage } from "./harness";
 
 /**
- * The verification screen as a GATE: what it may say when it does not know, and what it
- * may offer when the answer is no.
+ * Verify your business as the GATE it explains (D-875 folded the read-only Verification
+ * screen into it): what it may say when it does not know, what it says about inbound, and
+ * the record it shows.
  *
- * `verificationVerdict.test.tsx` owns the verdict itself — which sentence goes with
- * which record. This file owns the two failures around it, both of which are invisible
- * to a type checker and expensive in opposite directions:
+ * `verificationVerdict.test.tsx` owns which sentence goes with which record. This file owns
+ * the failures around it:
  *
- * 1. **A request that did not land must produce a refusal, not a state.** Every branch of
- *    this screen is reassuring to somebody: "you are verified" tells a blocked client to
- *    stop chasing us, and "send us your registration number" tells a cleared client to
- *    chase us for nothing. Neither may be printed on the strength of a request that
- *    failed, and the screen must not go BLANK either — an empty page on the screen a
- *    client opened because their calls stopped says "nothing is wrong here".
- * 2. **No control may exist that the client's own realm would be refused.** There is no
- *    client-realm write in `kyc.ts` at all: identity is the provider's to verify (Telecom
- *    Act 2023 s.3(7)), and the API stores a public registry REFERENCE, never a document —
- *    a CHECK constraint even refuses a bare twelve-digit `document_ref` so an Aadhaar
- *    cannot be typed into a business field. A file input or a "mark verified" button here
- *    would be a 403 with a DPDP incident attached.
+ * 1. **A request that did not land produces a refusal, not a state.** "You are verified"
+ *    tells a blocked client to stop chasing us, and "not verified" sends a cleared one
+ *    hunting for a certificate; neither may be printed on a failed read, and the page must
+ *    not go blank either.
+ * 2. **No control sets a status, and none sells a number.** The client supplies details,
+ *    documents and the pledge; our review or a DigiLocker result decides (Telecom Act 2023
+ *    s.3(7)), and the number is ours to provide.
  */
 
 function record(over: Partial<KycRecord> = {}): KycRecord {
@@ -78,14 +73,16 @@ const NOTHING_ON_FILE: KycRecord = record({
   submitted_at: null,
 });
 
-/**
- * The DLT half of the screen, answering 200 with an ACTIVE registration.
- *
- * Present in every route table below because the screen now makes two independent reads
- * and the harness throws on an unrouted one. Active on purpose: these cases are about the
- * KYC half, and a blocked DLT registration would add a second verdict box to every
- * assertion about what the screen says.
- */
+const PLEDGE_ACCEPTED: OutboundPledge = {
+  version: 1,
+  pledge_text: "We do not cold-call.",
+  text_sha256: "0".repeat(64),
+  is_current: true,
+  accepted_version: 1,
+  accepted_at: "2026-02-01T06:00:00Z",
+};
+
+/** Active on purpose: these cases are about the KYC half. */
 const PE_ACTIVE: PeRegistration = {
   recorded: true,
   status: "active",
@@ -99,208 +96,159 @@ const PE_ACTIVE: PeRegistration = {
   calevate_tm_active: true,
 };
 
-// The page header, which is on screen whatever the records say. Anchored to the header
-// sentence: the number card says "Indian telecom rules require …" too.
-const SCREEN = /To verify it, or to accept the no-cold-calls pledge/;
+function render(kyc: unknown) {
+  return renderClientPage(<VerifyBusinessPage />, {
+    "/v1/me": OWNER_ME,
+    [KYC_PATH]: kyc,
+    [PLEDGE_PATH]: PLEDGE_ACCEPTED,
+    [PE_REGISTRATION_PATH]: PE_ACTIVE,
+    [OWN_NUMBERS_PATHS.status]: { available: false },
+  });
+}
 
-describe("the verification gate under failure", () => {
+const VERIFIED = record({ status: "verified", is_verified: true, verified_at: "2026-03-01T06:00:00Z" });
+
+describe("Verify your business under a failed read", () => {
   it("refuses to answer at all when the record could not be read", async () => {
-    // THE assertion this file exists for. Both verdicts are absent, because we do not
-    // have one — and "not verified" is as wrong here as "verified": it sends a client
-    // hunting for a registration certificate to answer a question we never asked.
-    const { container } = await renderClientPage(<VerificationPage />, {
-      [KYC_PATH]: problem(503, {
-        title: "Service unavailable",
-        detail: "We could not read your verification.",
-      }),
-      [PE_REGISTRATION_PATH]: PE_ACTIVE,
-    });
+    const { container } = await render(
+      problem(503, { title: "Service unavailable", detail: "We could not read your verification." }),
+    );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(container.textContent).not.toContain("Your business is verified.");
-    expect(container.textContent).not.toContain(
-      "Your business is not verified yet.",
-    );
-    expect(container.textContent).not.toContain(
-      "We have not verified your business yet.",
-    );
-    expect(screen.queryByText("What we need")).toBeNull();
-    expect(
-      screen.queryByText("What this affects while it is outstanding"),
-    ).toBeNull();
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("Your business is verified.");
+    expect(text).not.toContain("Your business is not verified yet.");
+    expect(text).not.toContain("We have not verified your business yet.");
+    expect(text).not.toContain("Outgoing calls are open");
+    expect(text).not.toContain("Outgoing calls are paused");
+    expect(screen.queryByText("Steps to open outgoing calls")).toBeNull();
     expect(screen.queryByText("What we hold about your business")).toBeNull();
   });
 
   it("leaves a way forward rather than a dead end", async () => {
-    // A blank page is the failure mode that reads as "nothing is wrong here", and a
-    // refusal with no retry is the one that reads as "and there is nothing you can do".
-    // The screen has to pass `onRetry` for the button to exist at all — dropping it is a
-    // one-character edit that leaves a blocked client reloading the browser.
-    const { container } = await renderClientPage(<VerificationPage />, {
-      [KYC_PATH]: problem(503, {
-        title: "Service unavailable",
-        retryable: true,
-      }),
-      [PE_REGISTRATION_PATH]: PE_ACTIVE,
-    });
+    const { container } = await render(problem(503, { title: "Service unavailable", retryable: true }));
 
     const alert = await screen.findByRole("alert");
     expect((container.textContent ?? "").trim().length).toBeGreaterThan(0);
-    expect(
-      within(alert).getByRole("button", { name: /try again/i }),
-    ).toBeTruthy();
+    expect(within(alert).getByRole("button", { name: /try again/i })).toBeTruthy();
   });
 
-  it("offers nothing to press — no upload, no self-verification, no number to buy", async () => {
-    // The three controls this screen must never grow, asserted as one: every one of them
-    // is a refusal the client would reach by clicking. The third can never exist at all —
-    // Calevate does not supply numbers (Model B), and `number_purchase_available` is the
-    // server's own selector saying so for every account in every deployment.
-    const { container } = await renderClientPage(<VerificationPage />, {
-      [KYC_PATH]: record(),
+  it("never says outgoing calls are open when the pledge did not load", async () => {
+    // A verified business with an unknown pledge: the summary has no answer, so it gives none.
+    const { container } = await renderClientPage(<VerifyBusinessPage />, {
+      "/v1/me": OWNER_ME,
+      [KYC_PATH]: VERIFIED,
+      [PLEDGE_PATH]: problem(503, { title: "Service unavailable", detail: "The pledge is unavailable." }),
       [PE_REGISTRATION_PATH]: PE_ACTIVE,
+      [OWN_NUMBERS_PATHS.status]: { available: false },
     });
+    expect(await screen.findByText("The pledge is unavailable.")).toBeTruthy();
+    expect(container.textContent).not.toContain("Outgoing calls are open");
+  });
+});
 
-    await screen.findByText(SCREEN);
+describe("what the page offers", () => {
+  it("has nothing to fill in once the business is verified and the pledge accepted", async () => {
+    const { container } = await render(VERIFIED);
+
+    expect(await screen.findByText("Outgoing calls are open")).toBeTruthy();
     expect(container.querySelector('input[type="file"]')).toBeNull();
     expect(container.querySelectorAll("form")).toHaveLength(0);
-    // Not "no button called Verify" — NO button at all. A page whose every write lives in
-    // the admin realm has nothing to press, and naming the buttons individually is how
-    // the fourth one gets added without anyone noticing.
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
-    expect(container.textContent).toContain(
-      "Only a masked owner ID.",
-    );
+    expect(screen.queryByRole("button", { name: /verif/i })).toBeNull();
   });
 
-  it("does not print a record it does not hold", async () => {
-    // "What we hold about your business" is an answer to a DPDP question, so an invented
-    // row is a false statement about our own processing. Fields we hold nothing in are
-    // dropped rather than dashed, and the status label prints what is filed.
-    const { container } = await renderClientPage(<VerificationPage />, {
-      [KYC_PATH]: NOTHING_ON_FILE,
-      [PE_REGISTRATION_PATH]: PE_ACTIVE,
-    });
-
-    await screen.findByText(SCREEN);
-    const card = screen
-      .getByText("What we hold about your business")
-      .closest("section");
-    expect(card?.textContent).not.toContain("Signed for the business by");
-    expect(card?.textContent).not.toContain("Our file reference");
-    // No dashed rows either: an em dash beside a label we DID print reads as a value we
-    // are withholding, on the one card whose subject is what we hold.
-    const values = [...(card?.querySelectorAll("dd") ?? [])].map(
-      (dd) => dd.textContent,
-    );
-    expect(values).not.toContain("—");
-    expect(container.textContent).toContain("Not on file");
-  });
-
-  it("tells a verified client where their number comes from, and never offers to get one", async () => {
+  it("tells a client where their number comes from, and never offers to sell one", async () => {
     // The number is ours to provide (founder, 2 Oct 2026), and no provider is named to a
-    // client (founder, 6 Oct 2026: white label). The card must say so and name the client's part (verification, accurate details), still
-    // offer no control on this page, and never send the client to open an operator
-    // account or hand us credentials — the model this card used to describe.
-    const { container } = await renderClientPage(<VerificationPage />, {
-      [KYC_PATH]: record({
-        status: "verified",
-        is_verified: true,
-        verified_at: "2026-03-01T06:00:00Z",
-      }),
-      [PE_REGISTRATION_PATH]: PE_ACTIVE,
-    });
+    // client (white label, 6 Oct 2026). No price and no timeline is promised here.
+    const { container } = await render(VERIFIED);
 
-    await screen.findByText(SCREEN);
+    await screen.findByText("Outgoing calls are open");
     const text = container.textContent ?? "";
     expect(text).toContain("Calevate provides your calling number.");
     expect(text).toContain("our own telephony account");
     for (const provider of ["Plivo", "Exotel", "Thinnest"]) {
       expect(text).not.toContain(provider);
     }
-    // The superseded model: the client as subscriber of record on their own account.
     expect(text).not.toContain("subscriber of record");
-    expect(text).not.toContain("Calevate does not sell, rent or supply");
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
     expect(text).not.toContain("Buy a number");
-    // No price and no timeline is promised on this page.
     expect(text).not.toContain("₹");
     expect(text).not.toContain("we will arrange");
-    expect(text).not.toContain("We buy and register numbers");
+  });
+
+  it("does not print a record it does not hold", async () => {
+    // "What we hold about your business" answers a DPDP question, so an invented row is a
+    // false statement about our own processing: empty fields are dropped, never dashed.
+    const { container } = await render(NOTHING_ON_FILE);
+
+    await screen.findByText("Outgoing calls are paused");
+    const held = container.querySelector('[data-section="on-file"]');
+    expect(held?.textContent).not.toContain("Signed for the business by");
+    expect(held?.textContent).not.toContain("Our file reference");
+    const values = [...(held?.querySelectorAll("dd") ?? [])].map((dd) => dd.textContent);
+    expect(values).not.toContain("—");
+    expect(held?.textContent).toContain("Not on file");
+  });
+
+  it("says the record shown is the whole record", async () => {
+    const { container } = await render(VERIFIED);
+    await screen.findByText("What we hold about your business");
+    expect(container.textContent).toContain(
+      "That is the whole record. There is nothing else stored about your identity.",
+    );
   });
 });
 
 /**
- * The refusals this screen states as facts about the product, pinned as words.
- *
- * Each one is load-bearing outside this file. "Only a masked owner ID" and "never take a
- * full Aadhaar number" are the storage promises D-692 makes and the schema CHECKs; "do not
- * accept a copy of an Aadhaar card" is D-696's manual path, which takes a PAN card only. "Verification is ours to do" is why
- * `readiness.ROW_COPY` tells a client to SEND us something rather than to type it here
- * (`tests/readiness_copy_actionability_test.py`). And "calls coming IN are unaffected" is
- * the one piece of good news on a page somebody opened because their calls stopped —
- * losing it turns an outbound block into a client believing their receptionist is down.
+ * The refusals this page states as facts about the product, pinned as words. "Only a masked
+ * owner ID" and "never take a full Aadhaar number" are the storage promises D-692 makes and
+ * the schema CHECKs; "do not accept a copy of an Aadhaar card" is D-696's manual path; "calls
+ * coming in are unaffected" is the one piece of good news on a page somebody opened because
+ * their calls stopped.
  */
-describe("verification — the refusals stated on the screen", () => {
+describe("the refusals stated on the page", () => {
   async function unverified() {
-    const rendered = await renderClientPage(<VerificationPage />, {
-      [KYC_PATH]: NOTHING_ON_FILE,
-      [PE_REGISTRATION_PATH]: PE_ACTIVE,
-    });
-    await screen.findByText(SCREEN);
+    const rendered = await render(NOTHING_ON_FILE);
+    await screen.findByText("Outgoing calls are paused");
     return rendered;
   }
 
-  it("tells a blocked client their inbound line is still answering", async () => {
+  it("says inbound is unaffected before anything else", async () => {
     const { container } = await unverified();
-    expect(container.textContent).toContain(
-      "Calls coming IN are unaffected — your agent keeps answering the phone.",
-    );
-    expect(container.textContent).toContain(
-      "Incoming calls: unaffected, on every plan.",
-    );
+    const text = container.textContent ?? "";
+    const inbound = text.indexOf("Calls coming in are unaffected. Your agent keeps answering the phone.");
+    expect(inbound).toBeGreaterThan(-1);
+    expect(inbound).toBeLessThan(text.indexOf("Steps to open outgoing calls"));
+    expect(text).toContain("Incoming calls: unaffected, on every plan.");
   });
 
   it("refuses identity documents in words, not only in the schema", async () => {
     const { container } = await unverified();
-    expect(container.textContent).toContain(
-      "Only a masked owner ID.",
-    );
-    expect(container.textContent).toContain(
-      "We do not accept a copy of an Aadhaar card, and we never take a full Aadhaar number.",
-    );
-    expect(container.textContent).toContain(
-      "The document itself is never sent to us or stored.",
-    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("Only a masked owner ID.");
+    expect(text).toContain("We do not accept a copy of an Aadhaar card, and we never take a full Aadhaar number.");
+    expect(text).toContain("The document itself is never sent to us or stored.");
+    expect(text).toContain("Verification is ours to do, not yours to declare.");
   });
 
-  it("says verification is ours to do, which is why the copy sends them to us", async () => {
-    const { container } = await unverified();
-    expect(container.textContent).toContain(
-      "Verification is ours to do, not yours to declare.",
-    );
-    expect(container.textContent).toContain(
-      "Everything is done on the Verify your business page.",
-    );
-  });
-
-  it("puts the action above the explanation while it is outstanding", async () => {
-    // UX-DOCTRINE §1/§5: this screen's job is "what do I do now", so the thing the client
-    // CAN do outranks the list of what they cannot. Position, not merely presence.
+  it("puts the steps above the explanation", async () => {
+    // The page's job is "what do I do now", so the thing the client CAN do outranks the
+    // list of what they cannot. Position, not merely presence.
     const { container } = await unverified();
     const text = container.textContent ?? "";
-    const action = text.indexOf("What we need");
-    const consequences = text.indexOf(
-      "What this affects while it is outstanding",
-    );
-    expect(action).toBeGreaterThan(-1);
-    expect(consequences).toBeGreaterThan(-1);
-    expect(action).toBeLessThan(consequences);
+    const steps = text.indexOf("Steps to open outgoing calls");
+    const consequences = text.indexOf("What this affects while it is outstanding");
+    expect(steps).toBeGreaterThan(-1);
+    expect(consequences).toBeGreaterThan(steps);
+  });
+
+  it("names the one next thing and jumps to it", async () => {
+    await unverified();
+    expect(screen.getByText("Next: add your business details.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Go to step 1" }).getAttribute("href")).toBe("#step-details");
+    expect(document.getElementById("step-details")).not.toBeNull();
   });
 
   it("says we provide the number, and what the client's part is", async () => {
-    // The client's whole part under the founder's decision: pass verification and keep
-    // the details accurate. Nothing tells them to open an account or send credentials.
     const { container } = await unverified();
     const text = container.textContent ?? "";
     expect(text).toContain("Calevate provides your calling number.");
@@ -308,21 +256,5 @@ describe("verification — the refusals stated on the screen", () => {
     expect(text).toContain("Then keep your caller details accurate.");
     expect(text).toContain("Your verification is still outstanding.");
     expect(text).not.toContain("API credentials");
-    expect(text).not.toContain("you can withdraw them at any time");
-  });
-
-  it("says the record shown is the whole record", async () => {
-    const { container } = await renderClientPage(<VerificationPage />, {
-      [KYC_PATH]: record({
-        is_verified: true,
-        status: "verified",
-        verified_at: "2026-02-02T06:00:00Z",
-      }),
-      [PE_REGISTRATION_PATH]: PE_ACTIVE,
-    });
-    await screen.findByText("What we hold about your business");
-    expect(container.textContent).toContain(
-      "That is the whole record — there is nothing else stored about your identity.",
-    );
   });
 });

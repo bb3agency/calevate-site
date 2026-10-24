@@ -166,8 +166,8 @@ ROW_COPY: dict[str, _Copy] = {
         title="Business verification not cleared",
         actor="calevate",
         next_step=(
-            "The Verification screen says which state it is in and whether we owe you a "
-            "review or you owe us a correction."
+            "The Verify your business page says which state it is in and whether we owe "
+            "you a review or you owe us a correction."
         ),
     ),
     "tm_registration_missing": _Copy(
@@ -184,14 +184,14 @@ ROW_COPY: dict[str, _Copy] = {
         next_step=(
             "Register your business as a Principal Entity on an access provider's DLT "
             "platform, then send us the registration id and we will record it. The "
-            "Verification screen shows it once it is on file."
+            "Verify your business page shows it once it is on file."
         ),
     ),
     "pe_registration_not_active": _Copy(
         title="Your DLT registration is not active",
         actor="client",
         next_step=(
-            "The Verification screen shows what the registrar says. A suspended or "
+            "The Verify your business page shows what the registrar says. A suspended or "
             "rejected registration is settled with the registrar, not with us."
         ),
     ),

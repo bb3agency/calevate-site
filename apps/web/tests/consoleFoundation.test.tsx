@@ -91,7 +91,7 @@ describe("Checklist", () => {
       label: "Verify your business",
       state: "blocked" as const,
       disabledReason: "Opens once the agreements are accepted.",
-      link: { href: "/c/acme/verification", label: "Verify" },
+      link: { href: "/c/acme/verify-business", label: "Verify" },
     },
   ];
 

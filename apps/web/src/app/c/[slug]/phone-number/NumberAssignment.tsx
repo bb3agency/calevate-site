@@ -156,7 +156,7 @@ export function NumberAssignment({
               held, and verification is what releases it. */}
           {notActivated(assign.error) && (
             <Link
-              href={href(`/c/${session.orgSlug}/verification`)}
+              href={href(`/c/${session.orgSlug}/verify-business`)}
               className={SECONDARY_BUTTON_SM}
             >
               Verify your business

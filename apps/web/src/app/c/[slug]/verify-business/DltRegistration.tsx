@@ -1,63 +1,57 @@
 "use client";
 
-import type { ChecklistItem } from "@/components/console/checklist";
+import { StatusPill } from "@/components/console/statusPill";
 import { MonoValue, formatIST } from "@/components/ui";
 import { peStatusCopy, tmLinkCopy, type PeRegistration } from "@/lib/api/dltRegistration";
 import { Term } from "@/lib/glossary";
 
 /**
- * The DLT half: whether the registrar has this business as a Principal Entity, and
- * whether that entity authorises Calevate to dial for it.
+ * The DLT registration on Verify your business: whether the registrar has this business as
+ * a Principal Entity, and whether that entity authorises Calevate to dial for it.
  *
- * This is the fact behind `pe_registration_missing` / `pe_registration_not_active` /
- * `tm_link_not_active` — three of the launch gate's refusals — and it had no screen. A
- * client whose campaign button was disabled could read the blocker and could not read the
- * registration it was about.
+ * Shown only for a registration somebody filed. Since D-692 no gate asks for one, so an
+ * empty record would read as a missing step on a page whose steps are what opens calling.
  *
- * §52: these pieces take a registration that ARRIVED. The page renders a failed read as
- * a refusal and never as "nothing filed yet": `recorded: false` and "we could not ask"
- * are opposite facts, and the first sends a client to their account manager over a
- * registration that may be perfectly active.
+ * §52: this takes a registration that ARRIVED. The page renders a failed read as a refusal
+ * and never as "nothing filed yet": `recorded: false` and "we could not ask" are opposite
+ * facts, and the first sends a client to their account manager over a registration that may
+ * be perfectly active.
  *
- * Read-only with no control anywhere, and that is not an omission — see the module
- * docstring on `lib/api/dltRegistration.ts`. The write is operator-only because a client
- * who could set these two statuses would be clearing their own compliance gate. So there
- * is nothing here for `useWriteAccess` to gate, and no `RestrictionNote`: `org:read` is
- * held by every client role and survives a D-22 read-only session.
+ * Read-only with no control anywhere (see `lib/api/dltRegistration.ts`): the write is
+ * operator-only because a client who could set these two statuses would be clearing their
+ * own compliance gate. `org:read` is held by every client role, so nothing here is gated.
  */
 export function DltDetails({ registration }: { registration: PeRegistration }) {
+  // `is_active` is the server's predicate, never re-derived from the two statuses.
+  const verdict = registration.is_active
+    ? "Your business is registered on DLT."
+    : "Your DLT registration is not active yet.";
   return (
-    <section aria-labelledby="dlt-heading" className="space-y-2">
-      <h2 id="dlt-heading" className="text-heading text-ink">
-        Campaign registration (<Term id="dlt" />)
-      </h2>
+    <section aria-labelledby="dlt-heading" className="space-y-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h2 id="dlt-heading" className="text-heading text-ink">
+          Campaign registration (<Term id="dlt" />)
+        </h2>
+        <StatusPill tone="neutral">Not needed to make calls</StatusPill>
+      </div>
+      <div className="text-sm">
+        <p className="font-semibold text-ink">{verdict}</p>
+        <p className="text-ink-muted">
+          {registration.is_active
+            ? "Kept on record. Outgoing calls do not depend on it."
+            : "Not needed for outgoing calls, which depend on your verified business and the no-cold-calls pledge. Kept here for the record."}
+        </p>
+      </div>
       <DltStatuses registration={registration} />
-      {registration.recorded && <DltOnFile registration={registration} />}
+      <DltOnFile registration={registration} />
       {/* `term="registrar"` attaches the glossary's explanation to a word already in the
           sentence, without adding copy. */}
       <p className="text-xs text-ink-faint">
         We record this against the <Term id="dlt" term="registrar" /> on your behalf and
-        cannot change what it says — there is no control here that sets your own status,
-        for the same reason there is none above.
+        cannot change what it says. There is no control here that sets your own status.
       </p>
     </section>
   );
-}
-
-/** The DLT verdict as one checklist row. `is_active` is the server's predicate, never re-derived. */
-export function dltItem(registration: PeRegistration): ChecklistItem {
-  return {
-    id: "dlt",
-    label: registration.is_active
-      ? "Your business is registered on DLT."
-      : registration.recorded
-        ? "Your DLT registration is not active yet."
-        : "We have not filed a DLT registration for your business.",
-    state: registration.is_active ? "done" : registration.recorded ? "waiting" : "todo",
-    detail: registration.is_active
-      ? "Kept on record. Outgoing calls do not depend on it."
-      : "Not needed for outgoing calls, which depend on your verified business and the no-cold-calls pledge. Kept here for the record.",
-  };
 }
 
 function DltStatuses({ registration }: { registration: PeRegistration }) {
@@ -158,7 +152,7 @@ function DltOnFile({ registration }: { registration: PeRegistration }) {
   if (present.length === 0) return null;
 
   return (
-    <dl className="mt-4 divide-y divide-line">
+    <dl className="divide-y divide-line">
       {present.map((row) => (
         <div
           key={row.label}

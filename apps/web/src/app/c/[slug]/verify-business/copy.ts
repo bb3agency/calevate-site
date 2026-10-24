@@ -1,5 +1,5 @@
 /**
- * The words and the class names both halves of the Verification screen share.
+ * The words and the class names the Verify your business modules share.
  *
  * React-free on purpose (UX-DOCTRINE §6): every function here is a pure mapping from a
  * wire record to a sentence, so it is the half a test can drive without a render — and
@@ -26,7 +26,7 @@ export type VerdictCopy = Pick<KycStatusCopy, "label" | "headline" | "next" | "t
 export const NOT_RECORDED: VerdictCopy = {
   label: "Not on file",
   headline: "We have not verified your business yet.",
-  next: "Send us your business registration details and we will verify the account.",
+  next: "Start with your business details below.",
   tone: "neutral",
 };
 

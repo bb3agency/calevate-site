@@ -184,7 +184,7 @@ CAPABILITY_ROOTS: tuple[Path, ...] = (
     REPO_ROOT / "infra",
 )
 # The console carries the same claims in JSDoc above the screens that render the refusal
-# (`/c/[slug]/verification` explains why there is no purchase form). Scanned as raw text
+# (`/c/[slug]/verify-business` explains why there is no purchase form). Scanned as raw text
 # rather than through a JS comment parser: `True`/`False` are Python spellings, TypeScript
 # writes `true`/`false`, and no `.ts` file binds these names — so a hit in this tree is
 # necessarily prose ABOUT the Python constant and never TypeScript source.
