@@ -44,7 +44,7 @@ export function LeadsPhoneList({ kit }: { kit: LeadRowKit }) {
             <SwipeActions label={target.name} primary={primary} secondary={secondary}>
               <Link
                 href={hrefFor(lead)}
-                className="block min-w-0 px-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand"
+                className="block min-w-0 px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand"
               >
                 <span className="flex min-w-0 items-start justify-between gap-3">
                   <span className="min-w-0 flex-1">
@@ -64,7 +64,7 @@ export function LeadsPhoneList({ kit }: { kit: LeadRowKit }) {
                 </span>
               </Link>
               {answer ? (
-                <div className="px-3 pb-3">
+                <div className="px-4 pb-3">
                   <CallControl result={answer} pending={false} onCall={() => followUp.startCall(target)} />
                 </div>
               ) : null}

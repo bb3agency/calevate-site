@@ -7197,6 +7197,18 @@
             "title": "Captured Preview",
             "type": "array"
           },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
           "credits_used_inr": {
             "anyOf": [
               {
@@ -8749,6 +8761,18 @@
             },
             "title": "Captured Preview",
             "type": "array"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
           },
           "credits_used_inr": {
             "anyOf": [

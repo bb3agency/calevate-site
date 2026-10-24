@@ -269,7 +269,7 @@ async def list_calls(
                 "c.to_e164, c.started_at, c.duration_s, c.outcome_tag, c.sentiment, "
                 "c.summary, c.lead_id, c.summary_state, c.headline, c.trial_call, "
                 f"{_CALLBACK_COLUMNS}, {_LEAD_NAME_COLUMN}, {credits_column}, "
-                "c.business_outcome, c.business_outcome_label, c.follow_up_state "
+                "c.business_outcome, c.business_outcome_label, c.follow_up_state, c.created_at "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} {where} "
                 "ORDER BY c.started_at DESC NULLS LAST, c.id DESC LIMIT :limit OFFSET :offset"
             ),
@@ -309,6 +309,7 @@ async def list_calls(
             business_outcome=r[23],
             business_outcome_label=r[24],
             follow_up_state=r[25],
+            created_at=r[26],
         )
         for r in rows
     ]

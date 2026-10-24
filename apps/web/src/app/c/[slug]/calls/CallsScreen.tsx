@@ -347,7 +347,7 @@ export function CallsScreen({ slug }: { slug: string }) {
 
       {calls.error && <ProblemNotice error={calls.error} onRetry={() => void calls.refetch()} />}
 
-      <div className="border-y border-line">
+      <div className="border-y border-line max-sm:-mx-4">
         {calls.isLoading ? (
           <div className="p-4">
             <Skeleton rows={6} />

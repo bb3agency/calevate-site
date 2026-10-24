@@ -103,6 +103,8 @@ class CallSummaryOut(Strict):
     # when the engine gave us no number for the leg, never as a redaction.
     caller_e164: str | None = None
     started_at: datetime | None = None
+    #: When the call was placed or arrived; `started_at` stays null for one that never connected.
+    created_at: datetime | None = None
     duration_s: int | None = None
     #: DERIVED from facts after the call (`crm/outcomes.derive_outcome`); NULL until the
     #: pipeline has run or when nothing could be told. Never "resolved" any more.

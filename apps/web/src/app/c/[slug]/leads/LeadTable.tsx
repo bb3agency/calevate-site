@@ -85,7 +85,7 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
   return (
     // On the white ground between two hairlines, as the call log is (REDESIGN-2): a table
     // is a list, and a card around it is chrome a reader has to look past.
-    <div className="border-y border-line">
+    <div className="border-y border-line max-sm:-mx-4">
       {items.length && phone ? (
         <LeadsPhoneList kit={kit} />
       ) : items.length ? (

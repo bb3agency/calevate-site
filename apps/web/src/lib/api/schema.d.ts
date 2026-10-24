@@ -14139,6 +14139,8 @@ export interface components {
             captured: components["schemas"]["CapturedFieldOut"][];
             /** Captured Preview */
             captured_preview?: components["schemas"]["CapturedChipOut"][];
+            /** Created At */
+            created_at?: string | null;
             /** Credits Used Inr */
             credits_used_inr?: string | null;
             /**
@@ -14669,6 +14671,8 @@ export interface components {
             caller_e164?: string | null;
             /** Captured Preview */
             captured_preview?: components["schemas"]["CapturedChipOut"][];
+            /** Created At */
+            created_at?: string | null;
             /** Credits Used Inr */
             credits_used_inr?: string | null;
             /**

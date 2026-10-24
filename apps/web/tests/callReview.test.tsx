@@ -367,7 +367,7 @@ describe("the business's own outcome (D-836)", () => {
     expect(
       callResultWords({ status: "completed", outcome_tag: null, summary_state: "ready", business_outcome_label: "Wants to buy" }),
     ).toBe("Wants to buy");
-    expect(callResultWords({ status: "completed", outcome_tag: null, summary_state: "ready" })).toBe("No outcome");
+    expect(callResultWords({ status: "completed", outcome_tag: null, summary_state: "ready" })).toBe("Answered");
   });
 
   it("heads the verdict with the fact and names the business outcome under it", async () => {

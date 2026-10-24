@@ -139,7 +139,8 @@ export function callResultWords(
   if (call.status === "in_progress") return "On the line";
   const outcome = outcomeWords(call);
   if (outcome) return outcome;
-  if (call.status === "completed") return call.summary_state === "pending" ? "Being read" : "No outcome";
+  // A completed call with no outcome was still a conversation: "No outcome" read as a fault.
+  if (call.status === "completed") return call.summary_state === "pending" ? "Being read" : "Answered";
   return known ?? call.status;
 }
 

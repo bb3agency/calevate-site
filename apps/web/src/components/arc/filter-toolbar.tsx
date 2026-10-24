@@ -94,7 +94,11 @@ export function FilterToolbar({
             {filters}
           </div>
         ) : null}
-        {tools ? <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">{tools}</div> : null}
+        {/* On a phone the tools flow on after "Filters" instead of wrapping as a block to a
+            right-aligned row of their own. */}
+        {tools ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2 max-sm:contents sm:ml-auto">{tools}</div>
+        ) : null}
       </div>
 
       {summary ? (
