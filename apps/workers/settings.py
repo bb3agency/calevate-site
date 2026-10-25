@@ -245,6 +245,7 @@ from apps.workers.onboarding_completion import (
 )
 from apps.workers.onboarding_completion import complete_finished_onboardings
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
+from apps.workers.outbox_consumer import consume_outbox_once
 from apps.workers.own_model_key import (
     push_own_model_key,
     push_own_model_key_to_workspace,
@@ -312,8 +313,12 @@ log = get_logger(__name__)
 # there is no configuration under which the two lists disagree about which jobs exist.
 # `functools.wraps` inside it preserves `__qualname__`, which is the name arq registers
 # and the name every producer enqueues by — a mismatch here would DLQ every job.
+#
+# `consume_outbox_once` sits inside it and is a no-op for a job the outbox did not
+# publish; for one it did, a re-publish of a message whose run already succeeded is
+# skipped.
 FUNCTIONS: list[Any] = [
-    traced_job(fn)
+    traced_job(consume_outbox_once(fn))
     for fn in (
         ingest_engine_event,
         # A caller's opt-out heard by the voice platform's own agent (D-691), enqueued by
@@ -563,8 +568,11 @@ FUNCTIONS: list[Any] = [
 #: * The outbox jobs that carry a lead's details, a caller's numbers or a contact address
 #:   keep `OUTBOX_RESULT_WINDOW_S`. Their only duplicate is that same dying tick: the row's
 #:   claim lapses after `OUTBOX_CLAIM_LEASE` and the next tick re-enqueues it under the same
-#:   job id, which the result key must still be there to refuse. So the window outlives the
-#:   lease and a tick, and nothing else, instead of the worker-wide hour.
+#:   job id, which the result key refuses while it lasts. So the window outlives the lease
+#:   and a tick, and nothing else, instead of the worker-wide hour. It is the cheap first
+#:   refusal, not the guarantee: a re-publish that outlasts it (the database down for
+#:   longer) is skipped by `outbox_consumer.consume_outbox_once`, which reads the message's
+#:   durable `consumed_at`.
 #: * `run_post_call_pipeline` keeps nothing, for the dedupe rather than the args. Its id is
 #:   the call, so a kept result swallowed every later run of that call for an hour: the
 #:   `call.analysed` delivery that carried the transcript and the poller's re-drive were both

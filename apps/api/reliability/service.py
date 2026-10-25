@@ -670,6 +670,58 @@ async def mark_outbox_published(session: AsyncSession, *, message_id: UUID, job_
     )
 
 
+# --- Outbox consumption ---------------------------------------------------------------
+#
+# `dispatch_outbox` enqueues, THEN marks the row published in a database transaction. If
+# that transaction does not commit (the database went away, the dispatcher was killed),
+# the row's lease lapses and a later tick enqueues the same job again under the same
+# `job_id_for(job, message.id)`. arq refuses that id only while the first run is queued,
+# running, or inside its `keep_result` window — minutes for the jobs that carry personal
+# data, zero for auth email — so an outage that outlasts the window ran the side effect
+# twice. The consumer-side guard below is durable: the run records `consumed_at` on the
+# message once it succeeds, and a later run of the same message checks it before doing
+# anything (microservices.io "Idempotent Consumer": record the ids of messages already
+# processed; https://microservices.io/patterns/communication-style/idempotent-consumer.html).
+
+
+def outbox_message_id(job: str, job_id: str | None) -> UUID | None:
+    """The outbox message a job run was published for, read back from the id
+    `dispatch_outbox` gives it, or None for a job enqueued any other way."""
+    prefix = f"{job}:"
+    if not job_id or not job_id.startswith(prefix):
+        return None
+    try:
+        return UUID(job_id[len(prefix) :])
+    except ValueError:
+        return None
+
+
+async def outbox_message_consumed(session: AsyncSession, *, message_id: UUID, job: str) -> bool:
+    """Whether a run of this message has already succeeded. False for an id that is not an
+    outbox message (a job keyed by a call id has the same shape)."""
+    consumed = (
+        await session.execute(
+            text(
+                "SELECT consumed_at IS NOT NULL FROM outbox_messages WHERE id = :id AND job = :job"
+            ),
+            {"id": message_id, "job": job},
+        )
+    ).scalar_one_or_none()
+    return bool(consumed)
+
+
+async def mark_outbox_consumed(session: AsyncSession, *, message_id: UUID, job: str) -> None:
+    """Record that a run of this message succeeded. First writer wins; the status column is
+    the dispatcher's and is not touched."""
+    await session.execute(
+        text(
+            "UPDATE outbox_messages SET consumed_at = now() "
+            "WHERE id = :id AND job = :job AND consumed_at IS NULL"
+        ),
+        {"id": message_id, "job": job},
+    )
+
+
 # How long a message waits before its next attempt, per attempt already spent. The shape
 # is the same real backoff `pipeline.RETRY_BACKOFF_S` and `outbound_webhooks.
 # RETRY_BACKOFF_S` use, and the numbers are sized against THIS loop's tick rather than
@@ -1274,8 +1326,11 @@ __all__ = [
     "mark_inbox_enqueued",
     "mark_inbox_failed",
     "mark_inbox_processed",
+    "mark_outbox_consumed",
     "mark_outbox_failed",
     "mark_outbox_published",
+    "outbox_message_consumed",
+    "outbox_message_id",
     "read_dead_letter_queue",
     "record_outbox_metrics",
     "replay_dead_letters",

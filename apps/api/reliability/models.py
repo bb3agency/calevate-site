@@ -90,6 +90,10 @@ class OutboxMessage(PKMixin, Base):
     locked_until: Mapped[datetime | None]
     job_id: Mapped[str | None] = mapped_column(Text)
     published_at: Mapped[datetime | None]
+    # When a worker run of this message SUCCEEDED, written by the consumer rather than the
+    # dispatcher, so a re-publish after a lost `published` mark is skipped instead of run
+    # twice (`reliability.service.mark_outbox_consumed`, migration c8a4e2f7b913).
+    consumed_at: Mapped[datetime | None]
     last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
