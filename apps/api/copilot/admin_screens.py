@@ -65,6 +65,13 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "org:read",
     ),
     AdminScreen(
+        "/admin/announcements",
+        "Announcements",
+        None,
+        "The message strip shown at the top of client consoles.",
+        "admin:tenants",
+    ),
+    AdminScreen(
         "/admin/assistant",
         ASSISTANT_NAME,
         None,
