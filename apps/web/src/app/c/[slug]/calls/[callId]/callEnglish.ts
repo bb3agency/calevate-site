@@ -36,8 +36,7 @@ export type CallView = "original" | "english";
  * Where the page opens: the words as they were spoken, in the call's own language, with
  * English one press away (founder, 25 Oct 2026, D-887). Opening on English put the caller's
  * Telugu into English on a reviewer's first read, so a translation stood in for what was
- * said. The summary follows the same switch, so it opens in the call's language too, and
- * says so where only an English one exists. Nothing is stored: a reader's choice holds for
+ * said. The summary stays in English (CallVerdict). Nothing is stored: a reader's choice holds for
  * the visit, and the next call opens as spoken again.
  */
 export function initialView(): CallView {

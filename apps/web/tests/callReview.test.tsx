@@ -134,7 +134,7 @@ describe("the verdict", () => {
     expect(screen.queryByRole("button", { name: /call back now/i })).toBeNull();
   });
 
-  it("shows the summary in the language the page's one switch chooses, tagged with it", async () => {
+  it("shows the summary in English while the conversation opens as spoken", async () => {
     await renderClientPage(
       page,
       routes(
@@ -146,9 +146,9 @@ describe("the verdict", () => {
         }),
       ),
     );
-    // English is ready, and the page still opens as the call was spoken (D-887): summary
-    // and lines alike, with English one press away.
-    expect((await screen.findByText("కాలర్ పచ్చి మిర్చి అడిగారు.")).getAttribute("lang")).toBe("te-IN");
+    // The lines open as spoken (D-887); the summary is English whichever way they are read.
+    expect((await screen.findByText(/green chilli is in stock/)).getAttribute("lang")).toBe("en");
+    expect(screen.queryByText("కాలర్ పచ్చి మిర్చి అడిగారు.")).toBeNull();
     expect(screen.getByText("చిల్లీ ఉందా?").getAttribute("lang")).toBe("te");
     expect(screen.queryByRole("button", { name: /Read it in/ })).toBeNull();
     fireEvent.click(screen.getByRole("radio", { name: "English" }));

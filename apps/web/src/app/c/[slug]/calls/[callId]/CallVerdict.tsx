@@ -7,9 +7,7 @@ import {
   businessOutcomeAside,
   callOutcome,
   callbackLine,
-  isEnglishCall,
   langAttr,
-  languageName,
   needsAttention,
   outcomeReason,
   outcomeWords,
@@ -17,21 +15,19 @@ import {
 
 import { OutcomeDot, isLive } from "../callColumns";
 
-import type { CallView } from "./callEnglish";
-
 /**
  * THE VERDICT — the screen's primary surface (UX-DOCTRINE §1): how the call ended and
  * why, what was said in a few sentences, what happens next, and the one action.
  *
  * Everything an owner opens a call to learn sits here, above the recording and the
  * transcript, so a phone shows the answer and the action without a scroll. The summary is
- * shown in the language the page's one switch chooses (the Conversation's); the outcome is
+ * in English whichever language the Conversation is read in; the outcome is
  * the founder's vocabulary with a one-line reason (decision 6). The warning tone is used
  * only when the call needs a person. The call log's kind-of-ending dot sits beside
  * whichever line here says the same words as the call's row, so a colour seen in the list
  * is found again on the call.
  */
-export function CallVerdict({ detail, action, view }: { detail: CallDetail; action: ReactNode; view: CallView }) {
+export function CallVerdict({ detail, action }: { detail: CallDetail; action: ReactNode }) {
   const label = outcomeWords(detail);
   const aside = businessOutcomeAside(detail);
   const warn = needsAttention(detail);
@@ -65,7 +61,7 @@ export function CallVerdict({ detail, action, view }: { detail: CallDetail; acti
       <div className="sm:order-last">{action}</div>
 
       <div className="empty:hidden">
-        <Summary detail={detail} view={view} />
+        <Summary detail={detail} />
       </div>
 
       <div className="empty:hidden">
@@ -76,11 +72,13 @@ export function CallVerdict({ detail, action, view }: { detail: CallDetail; acti
 }
 
 /**
- * The summary, in the language the page's switch chose. Four states
+ * The summary, in English: the owner reads the call's gist in English while the
+ * Conversation opens as spoken (founder, 25 Oct 2026). The call-language summary stands in
+ * only when no English one exists, rather than a blank. Four states
  * the server tells apart (`summary_state`), each said in words — "still writing" is never
  * shown as "there is none", and "there is none" never as a blank.
  */
-function Summary({ detail, view }: { detail: CallDetail; view: CallView }) {
+function Summary({ detail }: { detail: CallDetail }) {
   if (isLive(detail)) {
     return <p className="text-body text-ink-muted">The summary is written when the call ends.</p>;
   }
@@ -109,24 +107,14 @@ function Summary({ detail, view }: { detail: CallDetail; view: CallView }) {
     return <p className="text-body text-ink-muted">Nothing was said on this call, so there is no summary.</p>;
   }
 
-  const showLocal = Boolean(detail.summary_local) && (view === "original" || !detail.summary);
-  // Asked for the call's language and there is no summary in it: the English one, said as
-  // such, rather than nothing.
-  const onlyEnglish = view === "original" && !showLocal && !isEnglishCall(detail.language);
+  const showLocal = !detail.summary;
   return (
-    <div className="max-w-prose space-y-1.5">
-      <p
-        lang={showLocal ? langAttr(detail.summary_language) : "en"}
-        className="text-transcript text-ink [text-wrap:pretty]"
-      >
-        {showLocal ? detail.summary_local : detail.summary}
-      </p>
-      {onlyEnglish && (
-        <p className="text-meta text-ink-faint">
-          The summary is in English; it has not been written in {languageName(detail.language) ?? "the call's language"} yet.
-        </p>
-      )}
-    </div>
+    <p
+      lang={showLocal ? langAttr(detail.summary_language) : "en"}
+      className="max-w-prose text-transcript text-ink [text-wrap:pretty]"
+    >
+      {showLocal ? detail.summary_local : detail.summary}
+    </p>
   );
 }
 

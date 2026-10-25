@@ -114,8 +114,8 @@ export function CallDetailScreen({
   const retryEnglish = useRetryEnglish(session, callId);
   // Its failure is drawn in the transcript card, beside the control that asked.
   useActionFeedback(retryEnglish, { errorDisplay: "inline" });
-  // ONE language for the page: the conversation and the summary both follow it. It opens as
-  // spoken and is then left to the reader: English arriving later does not switch it.
+  // The Conversation's language. It opens as spoken and is then left to the reader: English
+  // arriving later does not switch it. The summary is English either way (CallVerdict).
   const [view, setView] = useState<CallView>(initialView);
 
   const rawAccess = useRawTranscriptAccess(session);
@@ -341,7 +341,6 @@ export function CallDetailScreen({
 
       <CallVerdict
         detail={detail}
-        view={view}
         action={
           <FollowUpAction
             eligibility={eligibility}
