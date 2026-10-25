@@ -114,6 +114,73 @@ async def test_a_failure_forgets_the_claim_so_a_retry_runs() -> None:
     ] == "booked"
 
 
+async def test_when_the_first_run_fails_only_one_waiting_repeat_runs() -> None:
+    """The failed first run releases its claim; the repeats waiting on it must contend for
+    the claim again, not each run on seeing the key gone (two bookings)."""
+    release = asyncio.Event()
+    ran: list[str] = []
+
+    async def failing() -> dict[str, Any]:
+        await release.wait()
+        raise RuntimeError("primary model failed")
+
+    async def booking() -> dict[str, Any]:
+        ran.append("booked")
+        await asyncio.sleep(0.05)
+        return {"status": "booked", "say": "ok"}
+
+    call = _ref()
+    first = asyncio.create_task(once_per_call(call_ref=call, action="b", args={}, run=failing))
+    await asyncio.sleep(0.05)
+    repeats = [
+        asyncio.create_task(once_per_call(call_ref=call, action="b", args={}, run=booking))
+        for _ in range(3)
+    ]
+    await asyncio.sleep(0.1)
+    release.set()
+    with pytest.raises(RuntimeError):
+        await first
+    answers = [await r for r in repeats]
+    assert ran == ["booked"]
+    assert all(a == {"status": "booked", "say": "ok"} for a in answers)
+
+
+async def test_a_read_error_while_waiting_does_not_run_the_action_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(in_call_once, "WAIT_S", 0.3)
+    release = asyncio.Event()
+    ran: list[int] = []
+
+    async def slow() -> dict[str, Any]:
+        ran.append(1)
+        await release.wait()
+        return {"status": "booked", "say": "ok"}
+
+    call = _ref()
+    first = asyncio.create_task(once_per_call(call_ref=call, action="b", args={}, run=slow))
+    await asyncio.sleep(0.05)
+    real = in_call_once.get_redis()
+
+    class _FlakyGet:
+        def __getattr__(self, name: str) -> Any:
+            return getattr(real, name)
+
+        async def get(self, key: str) -> Any:
+            raise ConnectionError("blip")
+
+    monkeypatch.setattr(in_call_once, "get_redis", lambda: _FlakyGet())
+    try:
+        second = await asyncio.wait_for(
+            once_per_call(call_ref=call, action="b", args={}, run=slow), timeout=2
+        )
+    finally:
+        assert ran == [1], "the repeat ran the action a second time"
+    assert second == {"status": "in_hand", "say": IN_HAND_SAY}
+    release.set()
+    await first
+
+
 async def test_without_redis_the_action_still_runs(monkeypatch: pytest.MonkeyPatch) -> None:
     def broken() -> Any:
         raise ConnectionError("redis down")

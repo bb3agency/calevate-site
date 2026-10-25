@@ -87,6 +87,13 @@ async def once_per_call(
         return await run()
     if not claimed:
         return await _answer_of_first(key, action, run)
+    return await _run_claimed(key, action, run)
+
+
+async def _run_claimed(
+    key: str, action: str, run: Callable[[], Awaitable[dict[str, Any]]]
+) -> dict[str, Any]:
+    """Run as the holder of the claim, then keep or release the answer."""
     try:
         answer = await run()
     except BaseException:
@@ -96,7 +103,7 @@ async def once_per_call(
         await _forget(key)
     else:
         try:
-            await redis.set(key, json.dumps(answer), ex=TTL_S)
+            await get_redis().set(key, json.dumps(answer), ex=TTL_S)
         except Exception as exc:
             log.warning(
                 "in_call_once_unsaved", extra={"action": action, "error": type(exc).__name__}
@@ -110,15 +117,22 @@ async def _answer_of_first(
     loop = asyncio.get_running_loop()
     deadline = loop.time() + WAIT_S
     while True:
+        reclaimed = False
         try:
             held = await get_redis().get(key)
+            # The first run did nothing (its answer was not kept) or Redis lost the key.
+            # CLAIM it again rather than run outright: several repeats can be waiting, and
+            # each running on seeing the key gone is the double booking this module exists
+            # to prevent. Only the one that wins the claim runs.
+            if held is None:
+                reclaimed = bool(await get_redis().set(key, _PENDING, nx=True, ex=TTL_S))
         except Exception:
-            held = None
-        if held is None:
-            # The first run did nothing (its answer was not kept) or Redis lost the key:
-            # nothing was done, so this one runs.
-            return await run()
-        if held != _PENDING:
+            # A read error mid-wait is not "absent": the first run claimed the key and may
+            # still be acting, so keep waiting and answer "in hand" at the deadline.
+            held = _PENDING
+        if reclaimed:
+            return await _run_claimed(key, action, run)
+        if held is not None and held != _PENDING:
             try:
                 answer = json.loads(held)
             except ValueError:
