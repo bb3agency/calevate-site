@@ -31,14 +31,17 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
+import pytest
 from apps.api.billing.plans import ist_billing_month, ist_month_end
 from apps.api.billing.service import usage_summary
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
+from apps.workers.pipeline import _meter
 from sqlalchemy import text
-from tests.spend_caps_test import _bill, _spend_state, _tenant
+from tests.spend_caps_test import _bill, _call_row, _snapshot, _spend_state, _tenant
 
 #: Far apart on purpose: a wrong plan is then an order of magnitude and not a paisa.
 _CLOSED_MONTH_RATE = Decimal("2.0000")
@@ -145,3 +148,49 @@ async def test_an_open_months_call_is_still_priced_at_now() -> None:
     assert billed == Decimal("10.00") * _CLOSED_MONTH_RATE, (
         "a plan dated to start later this month must not price a call made today"
     )
+
+
+async def test_an_undated_call_is_counted_in_the_month_its_usage_rows_are_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A call with no `ended_at` is dated by the meter's clock. Read twice, the clock can
+    cross IST midnight on the 1st between the usage rows and the counter, and the call's
+    minutes then land in no month: the counter rolls to the new month and finds no row
+    of this call in it. One reading for the whole meter."""
+    from apps.workers import pipeline
+
+    now = datetime.now(UTC)
+    before_roll = _this_months_first_instant(now) - timedelta(minutes=1)
+    after_roll = now
+    reads: list[datetime] = []
+
+    class _Clock(datetime):
+        @classmethod
+        def now(cls, tz: Any = None) -> datetime:  # type: ignore[override]
+            reads.append(before_roll if not reads else after_roll)
+            return reads[-1]
+
+    tenant_id, agent_id, _ref = await _tenant(f"undt{uuid.uuid4().hex[:6]}")
+    call_id = await _call_row(tenant_id, agent_id)
+    snapshot = _snapshot(seconds=120, spend="1.0000", ended=now).model_copy(
+        update={"ended_at": None}
+    )
+    monkeypatch.setattr(pipeline, "datetime", _Clock)
+    await _meter(tenant_id, call_id, snapshot)
+    monkeypatch.undo()
+
+    async with tenant_session(tenant_id) as session:
+        stamped = (
+            (
+                await session.execute(
+                    text("SELECT DISTINCT occurred_at FROM usage_events WHERE call_id = :c"),
+                    {"c": call_id},
+                )
+            )
+            .scalars()
+            .all()
+        )
+    month, minutes, _spend, _capped, _billed = await _spend_state(tenant_id)
+    assert len(stamped) == 1
+    assert month == ist_billing_month(stamped[0]), "the counter's month is the rows' month"
+    assert minutes > 0

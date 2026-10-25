@@ -4025,6 +4025,11 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         minutes = duration_s / Decimal(60)
         # WHAT THE CLIENT IS BILLED FOR, which is not the measured minute above: whole
         # 30-second steps, rounded up (D-681). `minutes` stays the cost rows' quantity.
+        #
+        # The call's instant, read ONCE: the rows' `occurred_at`, the IST month the counters
+        # and rates resolve at and the trial question all use it. With no `ended_at`, a
+        # second clock read could fall past IST midnight on the 1st and count the call into
+        # a month its own usage rows are not in.
         occurred_at = snapshot.ended_at or datetime.now(UTC)
         client_seconds = client_billed_seconds(duration_s, at=occurred_at)
         client_minutes = client_billed_minutes(duration_s, at=occurred_at)
@@ -4057,7 +4062,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 voice=voice,
                 characters=spoken_chars,
                 engine_tts_inr=cost.tts_inr,
-                at=snapshot.ended_at or datetime.now(UTC),
+                at=occurred_at,
             )
         )
         if cost.llm_inr is not None:
@@ -4108,7 +4113,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         if voice == PLAN_BILLED_VOICE_TIER:
             await bump_cartesia_volume(
                 session,
-                month=ist_billing_month(snapshot.ended_at or datetime.now(UTC)),
+                month=ist_billing_month(occurred_at),
                 characters=spoken_kchars * CHARS_PER_KCHAR,
                 call_minutes=minutes,
             )
@@ -4129,7 +4134,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         if turns > 0 or snapshot.tts_characters is not None:
             await bump_speaking_rate(
                 session,
-                month=ist_billing_month(snapshot.ended_at or datetime.now(UTC)),
+                month=ist_billing_month(occurred_at),
                 agent_chars=spoken_chars,
                 call_seconds=duration_s,
             )
@@ -4143,7 +4148,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # the counter write, because the RATES below are a fact about this month and not
         # about today (see the next paragraph). One spelling, `billing.plans
         # .ist_billing_month`, on the instant the ledger rows are stamped with.
-        month = ist_billing_month(snapshot.ended_at or datetime.now(UTC))
+        month = ist_billing_month(occurred_at)
         # THE INSTANT THIS MONTH'S TERMS ARE RESOLVED AT, read ONCE and handed to both of
         # them. The plan row below and the self-serve list rate are two terms of the same
         # month, and taking two readings of the clock is how a call that settles across the
@@ -4248,9 +4253,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # they will notice and be right about. `usage_events` above is untouched — every
         # minute and its real `unit_cost_paid` is still metered, which is the only reason
         # anyone can say what a trial cost us. What does not happen is the wallet debit.
-        on_us = await trial_covers(
-            session, tenant_id=tenant_id, at=snapshot.ended_at or datetime.now(UTC)
-        )
+        on_us = await trial_covers(session, tenant_id=tenant_id, at=occurred_at)
         # AN INBOUND CALL ON AN EMPTY WALLET IS BILLED INTO OVERDRAFT (D-840, founder 20 Oct
         # 2026, replacing the 8 Sep rule that charged it nothing). The call was answered, so
         # its minutes are owed like an outbound call's last minutes; `charge_for_call`
