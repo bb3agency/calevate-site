@@ -88,4 +88,19 @@ describe("live notes about the account and campaigns", () => {
   it("refetch the agreements screen when the pledge moves", () => {
     expect(familiesFor(["campaigns"])).toContain("legal-readiness");
   });
+
+  // `credit_lots`, `spend_state`, `payment_disputes` and `monthly_fee_*` announce `wallet`:
+  // the no_credits, spend_cap, payment_dispute and platform-fee blockers.
+  it("refetch the outbound blockers when the wallet moves", () => {
+    const families = familiesFor(["wallet"]);
+    expect(families).toContain("legal-readiness");
+    expect(families).toContain("campaign-check");
+    expect(families).toContain("admin/campaign-check");
+  });
+
+  it("refetch the launch check when the campaign's agent moves", () => {
+    const families = familiesFor(["agents"]);
+    expect(families).toContain("campaign-check");
+    expect(families).toContain("admin/campaign-check");
+  });
 });

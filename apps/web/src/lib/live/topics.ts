@@ -139,6 +139,11 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "spend",
     "platform-fee",
     "trial",
+    // An empty wallet, the spend cap, a dispute hold and an unpaid platform fee each stop
+    // outgoing calls, and these two list what does.
+    "legal-readiness",
+    "campaign-check",
+    "admin/campaign-check",
     "admin/credits",
     "admin/invoice",
     "admin/margin",
@@ -181,6 +186,10 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "lead-fields",
     "actions",
     "caller-notice",
+    // A campaign's launch check refuses an agent that may not place calls or has no
+    // disclosure line, so it moves when the agent does.
+    "campaign-check",
+    "admin/campaign-check",
     "admin/agents",
     "admin/prompt",
     "admin/lead-fields",
