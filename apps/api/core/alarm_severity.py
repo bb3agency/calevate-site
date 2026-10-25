@@ -716,6 +716,12 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "payment_notice_no_billing_email": "attention",
     "rate_card_notice_fanout_budget_reached": "attention",
     "rate_card_notice_no_billing_email": "attention",
+    # D-890: a grant or a conversion that could not be told to everyone it should reach.
+    "comp_notice_no_billing_email": "attention",
+    "comp_notice_no_superadmin_email": "attention",
+    # D-889: lead-detail suggestions and the rebuild of what an agent asks.
+    "lead_suggestions_unavailable": "attention",
+    "collect_rebuild_not_delivered": "attention",
     "wallet_alert_no_billing_email": "attention",
     # D-707 monthly platform fee. Money not raised or not placed; each re-runs next hour or
     # is reconciled by hand. A paid fee we cannot match is real money, so it pages.

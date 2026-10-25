@@ -53,7 +53,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Final, Literal
 from uuid import UUID
 
@@ -198,8 +198,10 @@ def fit_speed(speed: Decimal | None, *, studio: bool) -> Decimal | None:
     if speed is None:
         return None
     low, high, step = speed_range(studio=studio)
-    snapped = (min(max(speed, low), high) / step).quantize(Decimal(1)) * step
-    return snapped.quantize(_HUNDREDTH)
+    snapped = (min(max(speed, low), high) / step).quantize(
+        Decimal(1), rounding=ROUND_HALF_UP
+    ) * step
+    return snapped.quantize(_HUNDREDTH, rounding=ROUND_HALF_UP)
 
 
 def refuse_invalid_tuning(

@@ -85,7 +85,7 @@ export default function LifecyclePage({
     <div className="max-w-3xl space-y-10">
       <PageHeader
         title="Account state"
-        description="Suspending stops outbound at the next dial. Inbound is never affected."
+        description="Suspending stops outbound at the next dial. Inbound answering is never affected."
       />
 
       {tenant.status === "churned" ? (
