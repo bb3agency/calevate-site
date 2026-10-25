@@ -10,9 +10,9 @@ WHY THE ENGINE IS ASKED WHILE A CALL RUNS. ThinnestAI reports nothing between th
 the end (`call.completed` is its first event, `engine/dial_lines.ENGINE_LINE_HORIZON`), so
 our row says `queued` until the call is over and cannot tell ringing from talking. While the
 row is live and young enough to still be a call, the one read asks the engine for its own
-status (`get_execution`, our normalised `ExecutionSnapshot`) and answers with that. Once the
-row is terminal the engine is not asked again, and a row past the live horizon is reported
-as stored rather than polled at the vendor forever.
+status (`crm/live_calls.engine_live_status`, which the call log shares) and answers with
+that. Once the row is terminal the engine is not asked again, and a row past the live
+horizon is reported as stored rather than polled at the vendor forever.
 
 A failed engine read is not an error for the screen: the row's own status still answers,
 and the failure is logged by id for an operator.
@@ -29,21 +29,14 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.service import UNCONFIRMED_ENGINE_CALL_PREFIX
 from apps.api.compliance.trial_access import ist_day_start
 from apps.api.core.errors import ProblemError
-from apps.api.core.logging import get_logger
+from apps.api.crm.live_calls import engine_live_status
 from apps.api.crm.outcomes import normalise as normalise_outcome
 from apps.api.crm.schemas import CallOutcome
-from apps.api.engine import get_engine
-from apps.api.engine.dial_lines import LIVE_LINE_HORIZON
-
-log = get_logger(__name__)
 
 #: How many of today's test calls the card lists.
 RECENT_TEST_CALLS: Final = 3
-
-_LIVE: Final[frozenset[str]] = frozenset({"queued", "ringing", "in_progress"})
 
 
 class TestCallOut(BaseModel):
@@ -125,27 +118,17 @@ async def read_test_call(session: AsyncSession, *, tenant_id: UUID, call_id: UUI
     if row is None:
         raise ProblemError.not_found("Test call")
     out = _out(row)
-    handle = row[10]
-    young = datetime.now(UTC) - out.placed_at < LIVE_LINE_HORIZON
-    if (
-        out.status not in _LIVE
-        or not young
-        or not isinstance(handle, str)
-        or handle.startswith(UNCONFIRMED_ENGINE_CALL_PREFIX)
-    ):
-        return out
-    try:
-        snapshot = await get_engine().get_execution(handle)
-    except Exception as exc:  # the row still answers; see the module docstring
-        code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
-        log.warning("test_call_live_status_unread", extra={"call_id": str(call_id), "code": code})
+    engine = await engine_live_status(
+        call_id=call_id, handle=row[10], status=out.status, placed_at=out.placed_at
+    )
+    if engine is None:
         return out
     return out.model_copy(
         update={
-            "status": snapshot.status,
+            "status": engine.status,
             "status_source": "engine",
-            "started_at": snapshot.started_at or out.started_at,
-            "duration_s": snapshot.duration_s if snapshot.terminal else out.duration_s,
+            "started_at": engine.started_at or out.started_at,
+            "duration_s": engine.duration_s if engine.terminal else out.duration_s,
         }
     )
 

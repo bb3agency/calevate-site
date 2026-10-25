@@ -60,6 +60,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "call",
     "calls",
     "calls-log",
+    // Where the log's live calls stand (D-886); it polls on its own while one runs.
+    "calls-live",
     "callback-check",
     "performance",
     // Charts over calls and leads (D-869).

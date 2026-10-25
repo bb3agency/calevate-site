@@ -41,6 +41,7 @@ from apps.api.crm import lead_search, saved_views, service, translation
 from apps.api.crm.attention import attention_queue
 from apps.api.crm.captured import captured_fields
 from apps.api.crm.lead_dial import place_lead_call
+from apps.api.crm.live_calls import MAX_LIVE_IDS, CallLiveOut, read_live_calls
 from apps.api.crm.performance import performance
 from apps.api.crm.recording_download import DOWNLOAD_LINK_TTL_S, recording_download_for
 from apps.api.crm.schemas import (
@@ -192,6 +193,23 @@ async def _require_export_code(
     if principal.impersonating:
         return
     await code.require(confirm, client_confirmation(request, verb))
+
+
+@router.get(
+    "/calls/live",
+    # Declared before `/calls/{call_id}`, which would otherwise take "live" as an id.
+    response_model=list[CallLiveOut],
+    openapi_extra=permission_meta("calls:read"),
+    summary="Where the calls the log shows as live stand now (D-886)",
+)
+async def get_live_calls(
+    session: Session,
+    ids: Annotated[list[UUID], Query(min_length=1, max_length=MAX_LIVE_IDS)],
+    _: Principal = Depends(requires("calls:read")),
+) -> list[CallLiveOut]:
+    """The log asks this every few seconds while it shows a live row: an outbound row says
+    `queued` all call, so ringing and connected come from the engine, one read per call."""
+    return await read_live_calls(session, ids)
 
 
 @router.get(

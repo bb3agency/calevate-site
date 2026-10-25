@@ -5865,6 +5865,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calls/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where the calls the log shows as live stand now (D-886)
+         * @description The log asks this every few seconds while it shows a live row: an outbound row says
+         *     `queued` all call, so ringing and connected come from the engine, one read per call.
+         */
+        get: operations["get_live_calls_v1_calls_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calls/{call_id}": {
         parameters: {
             query?: never;
@@ -14295,6 +14316,8 @@ export interface components {
             lead_id?: string | null;
             /** Lead Name */
             lead_name?: string | null;
+            /** Live State */
+            live_state?: ("live" | "unreported") | null;
             /** Moments */
             moments: components["schemas"]["CallMomentOut"][];
             /** Next Step */
@@ -14465,6 +14488,32 @@ export interface components {
             source: "organization" | "platform";
             /** Trial Default */
             trial_default: number;
+        };
+        /**
+         * CallLiveOut
+         * @description Where one call the log shows as live stands now.
+         */
+        CallLiveOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Live State */
+            live_state?: ("live" | "unreported") | null;
+            /** Started At */
+            started_at?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "ringing" | "in_progress" | "completed" | "failed" | "no_answer" | "busy" | "voicemail";
+            /**
+             * Status Source
+             * @default call
+             * @enum {string}
+             */
+            status_source: "call" | "engine";
         };
         /**
          * CallMomentOut
@@ -14801,6 +14850,8 @@ export interface components {
             lead_id?: string | null;
             /** Lead Name */
             lead_name?: string | null;
+            /** Live State */
+            live_state?: ("live" | "unreported") | null;
             /** Outcome Tag */
             outcome_tag?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
             /** Sentiment */
@@ -41641,6 +41692,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_live_calls_v1_calls_live_get: {
+        parameters: {
+            query: {
+                ids: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallLiveOut"][];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

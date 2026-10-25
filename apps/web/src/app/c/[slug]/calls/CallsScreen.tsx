@@ -20,9 +20,10 @@
  * a phone, where the log is a list rather than a table, and the row's ⋯ menu elsewhere.
  */
 
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { DateRangePicker, type DateRange } from "@/components/arc/calendar";
 import { ChipGroup } from "@/components/arc/chip-group";
@@ -41,6 +42,7 @@ import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import type { CallSummary } from "@/lib/api/client";
 import { useCallsLog, useExportCalls, useWriteAccess, type CallsLogFilters } from "@/lib/api/hooks";
+import { useLiveCalls, type CallLive } from "@/lib/api/liveCalls";
 import { useClientRealm } from "@/lib/api/session";
 import {
   DIRECTIONS,
@@ -57,8 +59,9 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 
-import { callColumns } from "./callColumns";
+import { callColumns, liveOf } from "./callColumns";
 import { CallsPhoneList } from "./CallsPhoneList";
+import { endedReads, liveIds, withLive } from "./liveRows";
 
 /** Below `sm` the log is a swipeable list, not a table (different markup, so a query). */
 const PHONE = "(max-width: 639px)";
@@ -153,9 +156,28 @@ export function CallsScreen({ slug }: { slug: string }) {
   // Flattened across the loaded pages, deduped by id: a call landing mid-read shifts
   // rows across an offset boundary, and a duplicate React key would crash the log.
   const seen = new Set<string>();
-  const rows = (calls.data?.pages ?? [])
+  const loaded = (calls.data?.pages ?? [])
     .flatMap((page) => page)
     .filter((call) => (seen.has(call.id) ? false : (seen.add(call.id), true)));
+
+  /* LIVE ROWS (D-886). The rows the server calls live are asked about every few seconds;
+     a call the read says has ended is kept as ended, no longer asked about, and the log is
+     re-read once so the row turns into the finished call in place. */
+  const [ended, setEnded] = useState<Readonly<Record<string, CallLive>>>({});
+  const live = useLiveCalls(
+    session,
+    liveIds(loaded).filter((id) => !Object.hasOwn(ended, id)),
+  );
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const fresh = endedReads(live.data).filter((read) => !Object.hasOwn(ended, read.id));
+    if (!fresh.length) return;
+    setEnded((before) => ({ ...before, ...Object.fromEntries(fresh.map((read) => [read.id, read])) }));
+    void queryClient.invalidateQueries({ queryKey: ["calls-log", session.orgSlug] });
+  }, [live.data, ended, queryClient, session.orgSlug]);
+  // A failed live read leaves each live row on its own status; the sentence under the count
+  // says why "Dialling…" may not move.
+  const rows = withLive(loaded, [...(live.isSuccess ? live.data : []), ...Object.values(ended)]);
   /** Every row under the agent filter is that agent's, so the name comes with them. */
   const agentName = agentId ? (rows.find((call) => call.agent_id === agentId)?.agent_name ?? undefined) : undefined;
 
@@ -343,6 +365,11 @@ export function CallsScreen({ slug }: { slug: string }) {
             {phone && rows.length > 0 ? ". Swipe a call for quick actions." : ""}
           </p>
         ) : null}
+        {live.isError ? (
+          <p role="status" className="text-meta text-ink-muted">
+            We could not check how your live calls are going just now. Their rows update when the calls end.
+          </p>
+        ) : null}
       </div>
 
       {calls.error && <ProblemNotice error={calls.error} onRetry={() => void calls.refetch()} />}
@@ -371,6 +398,9 @@ export function CallsScreen({ slug }: { slug: string }) {
             rows={rows}
             columns={columns}
             getRowId={(call) => call.id}
+            // `isolate` keeps the live sheen (`LiveSheen`, `z-below`) above the row's own
+            // background and below its content.
+            rowClassName={(call) => (liveOf(call)?.state === "live" ? "isolate bg-brand-soft/40 dark:bg-brand-strong/10" : "")}
             label="Calls, newest first"
             partialNote={
               calls.hasNextPage
@@ -384,7 +414,7 @@ export function CallsScreen({ slug }: { slug: string }) {
           <EmptyState
             illustration={<EmptySketch kind="calls" />}
             message="No calls yet."
-            hint="A call shows here a couple of minutes after the caller hangs up."
+            hint="A call you place shows here as soon as it is dialled. A call that comes in shows when it ends."
             action={
               <Link href={href(`/c/${slug}/agents`)} className={SECONDARY_BUTTON_SM}>
                 Make a test call
