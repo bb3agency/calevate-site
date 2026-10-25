@@ -216,6 +216,25 @@ async def test_closing_twice_returns_the_first_closure_and_does_not_restart_the_
 
 
 @pytest.mark.asyncio
+async def test_a_legacy_churned_account_is_refused_rather_than_told_it_was_closed() -> None:
+    """`churned` with no `closed_at` (the pre-D-546 status switch wrote these) is outside
+    `CLOSEABLE_FROM`, so the CAS matches nothing. The close must refuse — not answer 200,
+    mail the client "your account is closed" and audit a closure that never happened."""
+    token, tenant_id = await _admin(), await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET status = 'churned' WHERE id = :t"), {"t": tenant_id}
+        )
+
+    response = await _close(token, tenant_id, confirm=close_account_confirmation(tenant_id))
+
+    assert response.status_code == 409, response.text
+    assert _code(response) == "tenant_not_closeable"
+    assert await _outbox_jobs(tenant_id) == []
+    assert "tenant.closed" not in await _audit_actions(tenant_id)
+
+
+@pytest.mark.asyncio
 async def test_the_close_needs_the_header_and_the_header_is_bound_to_this_client() -> None:
     """A confirm dialog in the browser is not a guard; it is absent from curl.
 

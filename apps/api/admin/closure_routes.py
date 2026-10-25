@@ -283,7 +283,10 @@ async def close(
         # been closed" and grow the audit chain a row per press — the same rule
         # `LifecycleOut.changed` states next door, and the same reason the restore below
         # reads its own `before`.
-        before = await closure.read_closure(scoped, tenant_id=tenant_id)
+        # Locked, so `before` is still true at write time: unlocked, two concurrent closes
+        # both read "open", the loser's CAS re-reads the winner's closure, and both send
+        # the notice and write `tenant.closed`.
+        before = await closure.read_closure(scoped, tenant_id=tenant_id, for_update=True)
         forfeited = await _forfeitable(scoped, tenant_id)
         record = await closure.close_account(
             scoped,

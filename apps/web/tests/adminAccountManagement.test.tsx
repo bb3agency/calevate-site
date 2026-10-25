@@ -260,6 +260,18 @@ describe("closing a client account", () => {
     ).toBeUndefined();
   });
 
+  it("offers no close form for a legacy churned account the server refuses to close", async () => {
+    const { container } = await renderClosure({
+      [CLOSURE_PATH]: { ...OPEN, status: "churned" },
+    });
+
+    await screen.findByText(/ended before closures carried an erasure date/);
+    expect(
+      screen.queryByRole("button", { name: /Close this account/ }),
+    ).toBeNull();
+    expect(container.textContent).not.toContain("Reopen the account");
+  });
+
   it("offers no undo once the erasure has run", async () => {
     const { container } = await renderClosure({
       [CLOSURE_PATH]: {

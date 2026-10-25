@@ -192,6 +192,16 @@ export function ClosureScreen({ tenantId }: { tenantId: string }) {
           <ClosedPanel record={record} />
           <ErasurePanel tenantId={tenantId} tenantName={name} access={erase} />
         </>
+      ) : record.status === "churned" ? (
+        /* Ended by the pre-D-546 status switch: churned with no closure date. The server
+           refuses a close here (`tenant_not_closeable`), so the form is not offered. */
+        <>
+          <p className="text-body text-ink-muted">
+            This account was ended before closures carried an erasure date. It is already
+            stopped and nobody can sign in to it.
+          </p>
+          <ErasurePanel tenantId={tenantId} tenantName={name} access={erase} />
+        </>
       ) : (
         <CloseForm
           tenantId={tenantId}

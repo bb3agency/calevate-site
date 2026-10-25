@@ -245,6 +245,10 @@ _SELECT = (
     "SELECT status, closed_at, erase_after, closure_reason, closed_by, deleted_at "
     "FROM organizations WHERE id = :tid"
 )
+_SELECT_FOR_UPDATE = (
+    "SELECT status, closed_at, erase_after, closure_reason, closed_by, deleted_at "
+    "FROM organizations WHERE id = :tid FOR UPDATE"
+)
 
 
 def _record(tenant_id: UUID, row: Any) -> ClosureRecord:
@@ -262,7 +266,9 @@ def _record(tenant_id: UUID, row: Any) -> ClosureRecord:
     )
 
 
-async def read_closure(session: AsyncSession, *, tenant_id: UUID) -> ClosureRecord:
+async def read_closure(
+    session: AsyncSession, *, tenant_id: UUID, for_update: bool = False
+) -> ClosureRecord:
     """This account's closure state. 404 when there is no visible row.
 
     NOT routed through `admin.service.tenant_exists`, which treats a soft-deleted tenant
@@ -274,7 +280,8 @@ async def read_closure(session: AsyncSession, *, tenant_id: UUID) -> ClosureReco
     RLS scopes the read (hard rule 1): `organizations`' policy matches on `id`, so a
     neighbour's id is invisible rather than merely filtered.
     """
-    row = (await session.execute(text(_SELECT), {"tid": tenant_id})).first()
+    statement = _SELECT_FOR_UPDATE if for_update else _SELECT
+    row = (await session.execute(text(statement), {"tid": tenant_id})).first()
     if row is None:
         raise ProblemError.not_found("Client")
     return _record(tenant_id, row)
@@ -362,10 +369,23 @@ async def close_account(
         )
     ).first()
     if row is None:
-        # The CAS lost. Another transaction moved this row between our read and our
-        # write; re-reading is the honest answer rather than raising, because whatever it
-        # now says is the truth and the caller's intent may already be satisfied.
-        return await read_closure(session, tenant_id=tenant_id)
+        # Either another transaction closed it first (the caller's intent is satisfied, so
+        # the re-read is the answer) or the status is outside `CLOSEABLE_FROM` — a legacy
+        # `churned` row with no `closed_at`, written by the status switch before D-546.
+        # The second must raise: returning a not-closed record would let the route send
+        # a "your account is closed" notice and audit a closure that never happened.
+        after = await read_closure(session, tenant_id=tenant_id)
+        if not after.is_closed:
+            raise ProblemError.conflict(
+                "tenant_not_closeable",
+                f"This client's status is '{after.status}', which cannot be closed.",
+                remediation=(
+                    "An account ended before closures carried an erasure date is already "
+                    "stopped and nobody can sign in to it. Erase its data from the erasure "
+                    "section of this page if that is what is wanted."
+                ),
+            )
+        return after
 
     # Ids and the operator's own words never leave in a log line — the reason is in
     # `audit_log`, which is access-controlled, and hard rule 6 keeps free text an operator
