@@ -235,6 +235,12 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
         "one fact or rule sorted out of the owner's OWN words in the teach box "
         "(`kb_teachings.items`), never a caller's; tenant-scoped by RLS"
     ),
+    "PromptLayerOut.text": (
+        "one section of the instructions an agent's next publish would send (D-882): "
+        "platform rules plus the business's own script and facts, composed with caller "
+        "memory left empty (`agents/prompt_anatomy`), never transcript text; admin realm "
+        "only, each read audited"
+    ),
     "RuleOut.text": (
         "a rule the owner taught for one agent's script (`agent_rule_proposals`), the "
         "business's own instruction, never transcript text"
