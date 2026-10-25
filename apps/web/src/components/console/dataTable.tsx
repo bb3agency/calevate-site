@@ -66,9 +66,22 @@ const HIDE: Record<NonNullable<DataColumn<unknown>["hideBelow"]>, string> = {
 
 /** Opaque, so rows scrolled under a pinned column do not show through it. */
 const PIN: Record<NonNullable<DataColumn<unknown>["pin"]>, string> = {
-  "left-0": "sticky left-0 z-raised bg-surface",
-  "left-12": "sticky left-12 z-raised bg-surface",
+  "left-0": "sticky left-0 z-raised bg-surface max-sm:static",
+  "left-12": "sticky left-12 z-raised bg-surface max-sm:static",
 };
+
+/*
+ * ON A PHONE EACH ROW IS A CARD, in CSS alone: the header row hides, a row is a block, its
+ * first cell is the row's title and every other cell carries its column's name beside its
+ * value (`data-label`). A table swiped sideways at 375px hid every column but the first;
+ * the same DOM keeps one reading order for a screen reader and one set of nodes for tests.
+ * A column hidden below a width stays hidden: the card never brings it back.
+ */
+const CARD_TABLE = "max-sm:block";
+const CARD_ROW = "max-sm:block max-sm:px-3 max-sm:py-3";
+const CARD_TITLE = "max-sm:block max-sm:p-0 max-sm:pb-1 max-sm:text-left max-sm:font-medium";
+const CARD_FIELD =
+  "max-sm:flex max-sm:items-baseline max-sm:justify-between max-sm:gap-4 max-sm:p-0 max-sm:py-0.5 max-sm:text-right max-sm:before:shrink-0 max-sm:before:text-left max-sm:before:text-[12px] max-sm:before:text-ink-faint max-sm:before:content-[attr(data-label)]";
 
 const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
 
@@ -343,9 +356,9 @@ export function DataTable<T>({
           row's stretched link) must take this scroller as their containing block, or they
           escape its clipping and widen the page. */}
       <ScrollRegion label={label} className="scroll-shadow-x relative">
-        <table className="w-full border-collapse text-left text-sm">
+        <table className={`w-full border-collapse text-left text-sm ${CARD_TABLE}`}>
           <caption className="sr-only">{label}</caption>
-          <thead>
+          <thead className="max-sm:hidden">
             <tr className="border-b border-line">
               {selection ? (
                 <th scope="col" className="w-10 px-3 py-2">
@@ -396,13 +409,13 @@ export function DataTable<T>({
               })}
             </tr>
           </thead>
-          <tbody className="divide-y divide-line">
+          <tbody className={`divide-y divide-line ${CARD_TABLE}`}>
             {/* `initial={false}`: the rows present when the table first renders do not
                 enter. Arrivals enter by class (`live-enter`, CSS, off the main thread);
                 Motion is here only for the exit, which CSS cannot do. */}
             {ordered.length === 0 && empty ? (
               <tr>
-                <td colSpan={span} className="px-3 py-6">
+                <td colSpan={span} className="px-3 py-6 max-sm:block">
                   {empty}
                 </td>
               </tr>
@@ -416,12 +429,12 @@ export function DataTable<T>({
                   key={id}
                   variants={ROW_EXIT}
                   exit="leave"
-                  className={`relative transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.025] ${
+                  className={`relative transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.025] ${CARD_ROW} ${
                     arriving ? "live-arrive" : ""
                   } ${selection?.selected.has(id) ? "bg-brand-soft/60" : ""} ${rowClassName?.(row) ?? ""}`}
                 >
                   {selection ? (
-                    <td className="relative z-raised w-10 px-3 py-3 align-middle">
+                    <td className="relative z-raised w-10 px-3 py-3 align-middle max-sm:float-right max-sm:w-auto max-sm:p-0">
                       <span className="inline-flex touch:min-h-11 items-center">
                         <input
                           type="checkbox"
@@ -433,11 +446,12 @@ export function DataTable<T>({
                       </span>
                     </td>
                   ) : null}
-                  {columns.map((column) => (
+                  {columns.map((column, index) => (
                     <td
                       key={column.id}
+                      data-label={column.header}
                       className={`px-3 py-3 align-middle ${column.align === "right" ? "text-right" : ""} ${
-                        column.hideBelow ? HIDE[column.hideBelow] : ""
+                        column.hideBelow ? HIDE[column.hideBelow] : index === 0 ? CARD_TITLE : CARD_FIELD
                       } ${column.pin ? PIN[column.pin] : ""} ${column.className ?? ""}`}
                     >
                       {column.flash ? (

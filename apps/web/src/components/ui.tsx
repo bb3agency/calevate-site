@@ -359,8 +359,10 @@ export function Disclosure({
           >
             {title}
           </Heading>
+          {/* On a phone a closed panel is its title alone: the subtitle wrapped to three
+              lines there and turned a stack of collapsed panels back into a wall of text. */}
           {subtitle && (
-            <span className="block text-xs text-ink-muted">{subtitle}</span>
+            <span className="block text-xs text-ink-muted max-sm:hidden max-sm:group-open:block">{subtitle}</span>
           )}
         </span>
         {/* The affordance, in words as well as a chevron: an icon alone is what GOV.UK's

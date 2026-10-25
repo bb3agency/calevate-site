@@ -19,6 +19,10 @@ import { InfoTip } from "./infoTip";
  *   The screen's one primary action never lives here (doctrine §4).
  * - `headingLevel` is 2 for a block on a page and 3 inside a settings section, whose
  *   label `SettingsLayout` already prints as the `h2`.
+ *
+ * ON A PHONE the description moves behind the ⓘ too: one line at desktop width is three
+ * or four at 375px, and a screen of sections became a wall of grey text before its first
+ * control. The words are one tap away and the controls come first.
  */
 export function Section({
   title,
@@ -48,12 +52,21 @@ export function Section({
           <Heading className="text-heading text-ink">
             {title}
           </Heading>
-          {info ? <InfoTip label={typeof title === "string" ? title : "this section"}>{info}</InfoTip> : null}
+          {info ? (
+            <InfoTip label={typeof title === "string" ? title : "this section"}>
+              {description ? <p className="sm:hidden">{description}</p> : null}
+              {info}
+            </InfoTip>
+          ) : description ? (
+            <InfoTip label={typeof title === "string" ? title : "this section"} className="sm:hidden">
+              {description}
+            </InfoTip>
+          ) : null}
         </div>
         {action ? <div className="flex shrink-0 items-center gap-3">{action}</div> : null}
       </div>
       {description ? (
-        <p className="mt-1 max-w-prose text-body text-ink-muted [text-wrap:pretty]">{description}</p>
+        <p className="mt-1 hidden max-w-prose text-body text-ink-muted [text-wrap:pretty] sm:block">{description}</p>
       ) : null}
       {children !== undefined ? <div className="mt-4">{children}</div> : null}
     </section>
