@@ -13,8 +13,39 @@ import { NOTICE_DOT } from "@/components/console/statusPill";
 import type { CallSummary } from "@/lib/api/client";
 import { type OutcomeKind, callOutcome, callRowLine, callTitle, callbackOverdue } from "@/lib/callReview";
 
+import { type LiveView, type LogCall, LiveLength, LiveMark, LiveSheen, liveLine, liveWords } from "./liveRows";
+
 export function isLive(call: Pick<CallSummary, "status">): boolean {
   return call.status === LIVE_STATUS;
+}
+
+/** The live reading the call log laid over this row (`liveRows.withLive`); none elsewhere. */
+export function liveOf(call: CallSummary): LiveView | null {
+  return isLogCall(call) ? (call.live ?? null) : null;
+}
+
+/** Whether the row opens the call's own page; false while that page has nothing to show. */
+function opensOf(call: CallSummary): boolean {
+  return isLogCall(call) ? (call.opens ?? true) : true;
+}
+
+function isLogCall(call: CallSummary): call is LogCall {
+  return "live" in call || "opens" in call;
+}
+
+/** When the call happened: when it connected, else when it was placed or arrived. */
+export function callAt(call: Pick<CallSummary, "started_at" | "created_at">): string | null {
+  return call.started_at ?? call.created_at ?? null;
+}
+
+/** A live row's outcome: what is happening on the line, in words; a dot once it is over. */
+function LiveResult({ live }: { live: LiveView }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-meta text-ink-muted">
+      {live.state === "unreported" ? <OutcomeDot kind="neutral" /> : null}
+      <span className="whitespace-nowrap">{liveWords(live)}</span>
+    </span>
+  );
 }
 
 /**
@@ -212,9 +243,13 @@ export function callColumns({
     header: "Caller",
     className: "max-w-0 w-full",
     cell: (call) => {
-      const line = callRowLine(call);
+      const live = liveOf(call);
+      const running = live?.state === "live";
+      const line = live ? { text: liveLine(live), pending: live.state === "unreported" } : callRowLine(call);
       const named = Boolean(call.lead_name?.trim());
-      const rowLink = (
+      const rowLink = !opensOf(call) ? (
+        <span className="truncate font-medium text-ink">{callTitle(call)}</span>
+      ) : (
         <Link
           href={callHref(call.id)}
           className="truncate rounded-sm font-medium text-ink after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
@@ -224,9 +259,10 @@ export function callColumns({
       );
       return (
         <div className="min-w-0">
+          {running && <LiveSheen />}
           <div className="flex min-w-0 items-center gap-2">
-            {isLive(call) && <LiveDot />}
-            {compact ? (
+            {(live ? running : isLive(call)) && <LiveDot />}
+            {compact || !opensOf(call) ? (
               rowLink
             ) : (
               <HoverCard trigger={rowLink} label={`Preview of the call with ${callTitle(call)}`}>
@@ -234,10 +270,11 @@ export function callColumns({
               </HoverCard>
             )}
             {named && call.caller_e164 && (
-              <span className="hidden whitespace-nowrap text-meta tabular-nums text-ink-faint sm:inline">
+              <span className={`hidden whitespace-nowrap text-meta tabular-nums sm:inline ${running ? "text-ink-muted" : "text-ink-faint"}`}>
                 {formatPhone(call.caller_e164)}
               </span>
             )}
+            {running && <LiveMark />}
             {call.test_call && <TestCallTag />}
           </div>
           <p
@@ -247,19 +284,27 @@ export function callColumns({
             {line.text}
           </p>
           {compact && <CapturedLine call={call} />}
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-meta text-ink-faint md:hidden">
-            <CallResult call={call} />
-            <NeedsYouMark call={call} />
-            {call.follow_up_state ? (
+          <p className={`mt-0.5 flex flex-wrap items-center gap-x-1.5 text-meta md:hidden ${running ? "text-ink-muted" : "text-ink-faint"}`}>
+            {live ? (
+              <LiveResult live={live} />
+            ) : (
               <>
-                <span aria-hidden>·</span>
-                <FollowUpMark state={call.follow_up_state} />
+                <CallResult call={call} />
+                <NeedsYouMark call={call} />
+                {call.follow_up_state ? (
+                  <>
+                    <span aria-hidden>·</span>
+                    <FollowUpMark state={call.follow_up_state} />
+                  </>
+                ) : null}
               </>
-            ) : null}
+            )}
             <span aria-hidden>·</span>
-            <span className="tabular-nums">{formatDuration(call.duration_s)}</span>
+            <span className="tabular-nums">
+              {live?.state === "live" ? <LiveLength startedAt={live.startedAt} /> : formatDuration(call.duration_s)}
+            </span>
             <span aria-hidden>·</span>
-            <span className="tabular-nums">{formatIST(call.started_at)}</span>
+            <span className="tabular-nums">{formatIST(callAt(call))}</span>
           </p>
         </div>
       );
@@ -269,16 +314,29 @@ export function callColumns({
     id: "status",
     header: "Outcome",
     hideBelow: "md",
-    flash: (call) =>
-      `${call.status}|${call.outcome_tag ?? ""}|${call.business_outcome_label ?? ""}|${call.business_outcome_lead_status ?? ""}|${call.callback?.status ?? ""}|${call.follow_up_state ?? ""}`,
-    sort: compact ? undefined : { value: (call) => callOutcome(call).words },
-    cell: (call) => (
-      <span className="flex flex-col items-start gap-0.5">
-        <CallResult call={call} />
-        <NeedsYouMark call={call} />
-        <FollowUpMark state={call.follow_up_state} />
-      </span>
-    ),
+    flash: (call) => {
+      const live = liveOf(call);
+      return `${live ? `${live.state}:${live.status}` : call.status}|${call.outcome_tag ?? ""}|${call.business_outcome_label ?? ""}|${call.business_outcome_lead_status ?? ""}|${call.callback?.status ?? ""}|${call.follow_up_state ?? ""}`;
+    },
+    sort: compact
+      ? undefined
+      : {
+          value: (call) => {
+            const live = liveOf(call);
+            return live ? liveWords(live) : callOutcome(call).words;
+          },
+        },
+    cell: (call) => {
+      const live = liveOf(call);
+      if (live) return <LiveResult live={live} />;
+      return (
+        <span className="flex flex-col items-start gap-0.5">
+          <CallResult call={call} />
+          <NeedsYouMark call={call} />
+          <FollowUpMark state={call.follow_up_state} />
+        </span>
+      );
+    },
   };
   const duration: DataColumn<CallSummary> = {
     id: "duration",
@@ -287,21 +345,27 @@ export function callColumns({
     hideBelow: "md",
     flash: (call) => (call.duration_s === null ? null : String(call.duration_s)),
     sort: compact ? undefined : { value: (call) => call.duration_s, kind: "number", first: "desc" },
-    cell: (call) => (
-      <span className="whitespace-nowrap text-meta tabular-nums text-ink-muted">
-        {formatDuration(call.duration_s)}
-      </span>
-    ),
+    cell: (call) => {
+      const live = liveOf(call);
+      return (
+        <span className="whitespace-nowrap text-meta tabular-nums text-ink-muted">
+          {live?.state === "live" ? <LiveLength startedAt={live.startedAt} /> : formatDuration(call.duration_s)}
+        </span>
+      );
+    },
   };
   const started: DataColumn<CallSummary> = {
     id: "started",
     header: "When",
     align: "right",
     hideBelow: "md",
-    sort: compact ? undefined : { value: (call) => call.started_at, kind: "time", first: "desc" },
+    sort: compact ? undefined : { value: (call) => callAt(call), kind: "time", first: "desc" },
     cell: (call) => (
-      <span className="whitespace-nowrap text-meta tabular-nums text-ink-faint">
-        {formatIST(call.started_at)}
+      // Muted, not faint, under the live sheen: faint ink drops below 4.5:1 as the band passes.
+      <span
+        className={`whitespace-nowrap text-meta tabular-nums ${liveOf(call)?.state === "live" ? "text-ink-muted" : "text-ink-faint"}`}
+      >
+        {formatIST(callAt(call))}
       </span>
     ),
   };
@@ -331,7 +395,8 @@ export function callColumns({
           header: "More actions",
           renderHeader: () => null,
           className: "relative z-raised w-10 text-right",
-          cell: (call) => menu(call),
+          // Nothing to follow up while the call is still on the line.
+          cell: (call) => (liveOf(call)?.state === "live" ? null : menu(call)),
         },
       ]
     : [];

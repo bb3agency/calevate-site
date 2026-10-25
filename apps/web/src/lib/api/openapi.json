@@ -7609,6 +7609,21 @@
             ],
             "title": "Lead Name"
           },
+          "live_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "live",
+                  "unreported"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live State"
+          },
           "moments": {
             "items": {
               "$ref": "#/components/schemas/CallMomentOut"
@@ -8207,6 +8222,73 @@
           "trial_default"
         ],
         "title": "CallLinesOut",
+        "type": "object"
+      },
+      "CallLiveOut": {
+        "additionalProperties": false,
+        "description": "Where one call the log shows as live stands now.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "live_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "live",
+                  "unreported"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live State"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "ringing",
+              "in_progress",
+              "completed",
+              "failed",
+              "no_answer",
+              "busy",
+              "voicemail"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "status_source": {
+            "default": "call",
+            "enum": [
+              "call",
+              "engine"
+            ],
+            "title": "Status Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "CallLiveOut",
         "type": "object"
       },
       "CallMomentOut": {
@@ -9133,6 +9215,21 @@
               }
             ],
             "title": "Lead Name"
+          },
+          "live_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "live",
+                  "unreported"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live State"
           },
           "outcome_tag": {
             "anyOf": [
@@ -67738,6 +67835,56 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read_raw"
+      }
+    },
+    "/v1/calls/live": {
+      "get": {
+        "description": "The log asks this every few seconds while it shows a live row: an outbound row says\n`queued` all call, so ringing and connected come from the engine, one read per call.",
+        "operationId": "get_live_calls_v1_calls_live_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ids",
+            "required": true,
+            "schema": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 20,
+              "minItems": 1,
+              "title": "Ids",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CallLiveOut"
+                  },
+                  "title": "Response Get Live Calls V1 Calls Live Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Where the calls the log shows as live stand now (D-886)",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "calls:read"
       }
     },
     "/v1/calls/{call_id}": {

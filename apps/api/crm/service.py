@@ -39,6 +39,7 @@ from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.attention import block_remedy
 from apps.api.crm.captured import captured_fields
+from apps.api.crm.live_calls import live_state_sql
 from apps.api.crm.outcomes import normalise as normalise_outcome
 from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
@@ -210,13 +211,20 @@ class CallFilters:
     agent_id: UUID | None = None
     outcome: OutcomeTag | None = None
     direction: CallDirection | None = None
-    #: Half-open `[since, until)` on `started_at`; aware instants.
+    #: Half-open `[since, until)` on when the call happened (`_CALL_AT`); aware instants.
     since: datetime | None = None
     until: datetime | None = None
     #: The calls one campaign placed (`calls.campaign_id`), for its results' call links.
     campaign_id: UUID | None = None
     #: False leaves out free-trial test calls (`calls.trial_call`).
     test_calls: bool = True
+
+
+#: When a call happened, for filtering and ordering the log: when it connected, else when it
+#: was placed or arrived. On `started_at` alone a call still ringing, and one nobody
+#: answered, fell outside every date range and sorted below the whole history.
+_CALL_AT: Final = "COALESCE(c.started_at, c.created_at)"
+_LIVE_STATE: Final = f"({live_state_sql('c')})"
 
 
 def _call_where(filters: CallFilters) -> tuple[str, dict[str, Any]]:
@@ -235,10 +243,10 @@ def _call_where(filters: CallFilters) -> tuple[str, dict[str, Any]]:
         clauses.append("c.direction = :direction")
         params["direction"] = filters.direction
     if filters.since:
-        clauses.append("c.started_at >= :since")
+        clauses.append(f"{_CALL_AT} >= :since")
         params["since"] = filters.since
     if filters.until:
-        clauses.append("c.started_at < :until")
+        clauses.append(f"{_CALL_AT} < :until")
         params["until"] = filters.until
     if filters.campaign_id:
         clauses.append("c.campaign_id = :campaign_id")
@@ -271,9 +279,11 @@ async def list_calls(
                 "c.summary, c.lead_id, c.summary_state, c.headline, c.trial_call, "
                 f"{_CALLBACK_COLUMNS}, {_LEAD_NAME_COLUMN}, {credits_column}, "
                 "c.business_outcome, c.business_outcome_label, c.follow_up_state, c.created_at, "
-                "a.business_outcomes "
+                f"a.business_outcomes, {_LIVE_STATE} AS live_state "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} {where} "
-                "ORDER BY c.started_at DESC NULLS LAST, c.id DESC LIMIT :limit OFFSET :offset"
+                # Calls still running head the log (D-886), then newest first.
+                f"ORDER BY ({_LIVE_STATE} = 'live') IS TRUE DESC, {_CALL_AT} DESC, c.id DESC "
+                "LIMIT :limit OFFSET :offset"
             ),
             params,
         )
@@ -313,6 +323,7 @@ async def list_calls(
             business_outcome_lead_status=outcome_lead_move(r[27], r[23]),
             follow_up_state=r[25],
             created_at=r[26],
+            live_state=r[28],
         )
         for r in rows
     ]

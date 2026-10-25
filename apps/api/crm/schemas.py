@@ -106,6 +106,10 @@ class CallSummaryOut(Strict):
     started_at: datetime | None = None
     #: When the call was placed or arrived; `started_at` stays null for one that never connected.
     created_at: datetime | None = None
+    #: `live` while the call is running (the log lists these first and follows them through
+    #: `GET /v1/calls/live`), `unreported` for a row past the longest a call can run whose end
+    #: was never heard, null once it has ended (`crm/live_calls.live_state`, D-886).
+    live_state: Literal["live", "unreported"] | None = None
     duration_s: int | None = None
     #: DERIVED from facts after the call (`crm/outcomes.derive_outcome`); NULL until the
     #: pipeline has run or when nothing could be told. Never "resolved" any more.

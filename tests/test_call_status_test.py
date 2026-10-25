@@ -17,6 +17,7 @@ from apps.api.compliance import service as compliance_service
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
+from apps.api.crm import live_calls
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.main import app
@@ -210,7 +211,7 @@ async def test_todays_test_calls_are_listed_newest_first_and_nothing_else() -> N
 async def test_another_accounts_test_call_and_an_ordinary_call_are_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(test_call_reads, "get_engine", lambda: _Engine())
+    monkeypatch.setattr(live_calls, "get_engine", lambda: _Engine())
     tenant_id, agent_id = await _trial_tenant()
     other_tenant, other_agent = await _trial_tenant()
     theirs = await _call(other_tenant, other_agent, status="completed")
@@ -225,7 +226,7 @@ async def test_another_accounts_test_call_and_an_ordinary_call_are_not_found(
 async def test_a_live_row_reads_the_engines_status(monkeypatch: pytest.MonkeyPatch) -> None:
     started = datetime.now(UTC) - timedelta(seconds=20)
     engine = _Engine(_snapshot("in_progress", started_at=started))
-    monkeypatch.setattr(test_call_reads, "get_engine", lambda: engine)
+    monkeypatch.setattr(live_calls, "get_engine", lambda: engine)
     tenant_id, agent_id = await _trial_tenant()
     handle = f"out_live_{uuid.uuid4().hex}"
     call_id = await _call(tenant_id, agent_id, status="queued", handle=handle)
@@ -240,7 +241,7 @@ async def test_an_ended_call_the_row_has_not_heard_of_yet_takes_the_engines_leng
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     engine = _Engine(_snapshot("busy", terminal=True, duration_s=0))
-    monkeypatch.setattr(test_call_reads, "get_engine", lambda: engine)
+    monkeypatch.setattr(live_calls, "get_engine", lambda: engine)
     tenant_id, agent_id = await _trial_tenant()
     call_id = await _call(tenant_id, agent_id, status="queued")
     async with tenant_session(tenant_id) as session:
@@ -261,7 +262,7 @@ async def test_the_engine_is_asked_only_about_a_young_confirmed_live_call(
     monkeypatch: pytest.MonkeyPatch, status: str, handle: str | None, age: timedelta
 ) -> None:
     engine = _Engine(_snapshot("ringing"))
-    monkeypatch.setattr(test_call_reads, "get_engine", lambda: engine)
+    monkeypatch.setattr(live_calls, "get_engine", lambda: engine)
     tenant_id, agent_id = await _trial_tenant()
     unique = f"{handle}{uuid.uuid4().hex}" if handle else None
     call_id = await _call(
@@ -277,7 +278,7 @@ async def test_an_engine_that_cannot_answer_leaves_the_rows_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     engine = _Engine(fail=True)
-    monkeypatch.setattr(test_call_reads, "get_engine", lambda: engine)
+    monkeypatch.setattr(live_calls, "get_engine", lambda: engine)
     tenant_id, agent_id = await _trial_tenant()
     call_id = await _call(tenant_id, agent_id, status="queued")
     headers = await _owner(tenant_id)
