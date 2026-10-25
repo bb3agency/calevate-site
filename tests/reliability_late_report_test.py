@@ -51,6 +51,7 @@ from apps.api.reliability.service import (
     claim_inbox_event,
     complete_idempotency,
     fail_idempotency,
+    mark_idempotency_in_doubt,
     mark_inbox_failed,
     mark_inbox_processed,
 )
@@ -308,3 +309,26 @@ async def test_the_idempotency_ttl_is_measured_by_one_clock() -> None:
         "`created_at` were stamped by different clocks, so how long an Idempotency-Key "
         "survives depends on how busy the transaction that minted it was"
     )
+
+
+@pytest.mark.asyncio
+async def test_a_claim_taken_over_before_its_side_effect_may_not_start_it() -> None:
+    """`mark_idempotency_in_doubt` is the last check before a phone rings: a holder whose
+    lease lapsed and whose key another request now holds must not dial, and a key whose
+    side effect may have happened is never handed to a new request, lease or not."""
+    key = f"key-{uuid.uuid4().hex}"
+    first = await _claim(key)
+    await _age_claim("idempotency_records", first.record_id)
+    second = await _claim(key)
+
+    with pytest.raises(ProblemError) as caught:
+        async with untenanted_session() as session:
+            await mark_idempotency_in_doubt(session, claim=first)
+    assert caught.value.code == "idempotent_request_in_flight"
+
+    async with untenanted_session() as session:
+        await mark_idempotency_in_doubt(session, claim=second)
+    await _age_claim("idempotency_records", second.record_id)
+    with pytest.raises(ProblemError) as retried:
+        await _claim(key)
+    assert retried.value.code == "idempotent_request_in_doubt"
