@@ -570,6 +570,9 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # Retranslating spends the owner's AI allowance; the state read is under RLS.
     ("POST", "/v1/calls/{call_id}/translation", {}, {}),
     ("GET", "/v1/calls/{call_id}/transcript/raw", {}, {}),
+    # D-885: a test call's live status reads the engine for that call; a neighbour's id
+    # must be a 404 before the engine is asked anything.
+    ("GET", "/v1/trial/calls/{call_id}", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}", {}, {}),
     (
         "POST",
