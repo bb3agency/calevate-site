@@ -27,6 +27,12 @@ const RULE_SCREENS: Record<string, RuleScreen> = {
   spend_cap: { href: (id) => `/admin/tenants/${id}/spend`, cta: "Open the cap" },
   no_credits: { href: (id) => `/admin/tenants/${id}/credits`, cta: "Open credits" },
   account_closed: { href: (id) => `/admin/tenants/${id}/closure`, cta: "Open closure" },
+  account_suspended: { href: (id) => `/admin/tenants/${id}/lifecycle`, cta: "Open account state" },
+  // The fee is recorded or waived by `PlatformFeePanel`, on the Commercials page.
+  platform_fee_overdue: {
+    href: (id) => `/admin/tenants/${id}/commercials`,
+    cta: "Open the platform fee",
+  },
   // D-692's outbound conditions beside KYC: DigiLocker when an admin required it, and the
   // pledge, both shown on the KYC page. The DLT entity chain is no longer a rule.
   kyc_digilocker_required: { href: (id) => `/admin/tenants/${id}/kyc`, cta: "Open verification" },

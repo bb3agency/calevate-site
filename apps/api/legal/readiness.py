@@ -43,6 +43,12 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.dispute_hold import DISPUTE_HOLD_REASON, dispute_hold_active
+from apps.api.billing.platform_fee import (
+    PLATFORM_FEE_PAUSE_REASON,
+    PLATFORM_FEE_RULE,
+    platform_fee_paused,
+)
 from apps.api.compliance.preference_scrub import campaigns_awaiting_scrub
 from apps.api.compliance.service import (
     NO_CREDITS_REASON,
@@ -211,6 +217,16 @@ ROW_COPY: dict[str, _Copy] = {
             "to roll over."
         ),
     ),
+    "payment_dispute": _Copy(
+        title="A payment is disputed",
+        actor="calevate",
+        next_step="Nothing for you to do: we will email you once the dispute is resolved.",
+    ),
+    "platform_fee_overdue": _Copy(
+        title="This month's platform fee is unpaid",
+        actor="client",
+        next_step="Pay the fee on the Billing page and outgoing calls resume at once.",
+    ),
     "no_credits": _Copy(
         title="No calling credit left",
         actor="client",
@@ -313,6 +329,11 @@ async def readiness_rows(
 
     if await spend_capped(session, tenant_id=tenant_id):
         rows.append(_row("spend_cap", SPEND_CAP_REASON))
+    # The dial gate's two outbound-only pauses, in its order (`account_dial_blockers`).
+    if await dispute_hold_active(session, tenant_id=tenant_id):
+        rows.append(_row("payment_dispute", DISPUTE_HOLD_REASON))
+    if await platform_fee_paused(session, tenant_id=tenant_id):
+        rows.append(_row(PLATFORM_FEE_RULE, PLATFORM_FEE_PAUSE_REASON))
     if await credits_exhausted(session, tenant_id=tenant_id):
         rows.append(_row("no_credits", NO_CREDITS_REASON))
 

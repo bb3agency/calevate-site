@@ -198,6 +198,27 @@ async def test_readiness_is_the_same_verdict_the_client_sees() -> None:
     assert all(row["reason"] and row["next_step"] for row in body["rows"])
 
 
+async def test_readiness_names_an_open_payment_dispute_the_dial_gate_refuses_on() -> None:
+    """`account_dial_blockers` pauses outbound on an open dispute; a readiness screen that
+    skips it says "may operate" beside a gate that refuses every dial."""
+    tenant_id = await _tenant("Disputed Dental", slug=f"disp-{uuid.uuid4().hex[:8]}")
+    _, headers = await _operator()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO payment_disputes (id, tenant_id, dispute_id, payment_id, amount_inr, "
+                "status, hold_inr, action_required, last_event) VALUES (:id, :t, :d, 'pay_x', "
+                "100, 'open', 100, false, 'payment.dispute.created')"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "d": f"disp_{uuid.uuid4().hex[:12]}"},
+        )
+
+    body = await _get(f"/v1/admin/tenants/{tenant_id}/readiness", headers=headers)
+
+    assert "payment_dispute" in [row["rule"] for row in body["rows"]]
+    assert body["may_operate"] is False
+
+
 async def test_readiness_refuses_an_account_that_is_not_there() -> None:
     _, headers = await _operator()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
