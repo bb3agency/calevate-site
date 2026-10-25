@@ -228,6 +228,8 @@ class TenantSummary(BaseModel):
     calls_7d: int
     leads: int
     last_call_at: datetime | None
+    #: When the account was created — the column the directory's default sort orders by.
+    created_at: datetime | None = None
     capped: bool
     # Which BILLING MOTION this client is on (D-521). `prepaid` — the default — pays
     # from a credit balance and stops dialling outbound when it is empty; `managed` is

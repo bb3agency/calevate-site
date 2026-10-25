@@ -127,6 +127,38 @@ describe("the client directory scales", () => {
     expect(calls.some((call) => call.path.includes("offset=25"))).toBe(true);
   });
 
+  it("says when each account was added, which is what newest-first orders by", async () => {
+    const { container } = renderAdminPage(<AdminClientsPage />, {
+      [ADMIN_ME_PATH]: ME,
+      "/v1/admin/onboarding/unfinished": NO_UNFINISHED,
+      // 20:00 UTC on 2 Nov is already 3 Nov in India.
+      [DIRECTORY]: page([tenant({ created_at: "2026-11-02T20:00:00Z" })]),
+    });
+
+    await screen.findByText(/Sri Traders/);
+    expect(container.textContent).toContain("added 3 Nov 2026");
+  });
+
+  it("steps back to the last page when the set shrank under the one on screen", async () => {
+    let shrunk = false;
+    const { container } = renderAdminPage(<AdminClientsPage />, {
+      [ADMIN_ME_PATH]: ME,
+      "/v1/admin/onboarding/unfinished": NO_UNFINISHED,
+      [DIRECTORY]: () =>
+        shrunk ? page([tenant({ name: "Last Standing" })], 1) : page([tenant()], 30),
+      [`${DIRECTORY}?offset=25&limit=25`]: () => {
+        shrunk = true;
+        return page([], 1, 25);
+      },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Next/ }));
+
+    await screen.findByText(/Last Standing/);
+    expect(container.textContent).not.toContain("No clients yet");
+    expect(container.textContent).not.toContain("Showing 26");
+  });
+
   it("sends the search to the server and goes back to the first page", async () => {
     const { calls } = renderAdminPage(<AdminClientsPage />, {
       [ADMIN_ME_PATH]: ME,

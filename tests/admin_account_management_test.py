@@ -121,6 +121,20 @@ async def test_search_matches_name_and_slug_and_treats_wildcards_as_text() -> No
     assert wild["total"] == 0, "a literal percent sign matched something"
 
 
+async def test_each_row_carries_the_creation_instant_the_default_sort_orders_by() -> None:
+    """Newest first sorts by `created_at`; a row without it reads as unsorted."""
+    marker = uuid.uuid4().hex[:10]
+    older = await _tenant(f"Older {marker}", slug=f"older-{marker}")
+    newer = await _tenant(f"Newer {marker}", slug=f"newer-{marker}")
+    _, headers = await _operator()
+
+    rows = (await _get(f"/v1/admin/tenants?q={marker}", headers=headers))["rows"]
+
+    assert [row["id"] for row in rows] == [str(newer), str(older)]
+    assert all(row["created_at"] for row in rows)
+    assert rows[0]["created_at"] >= rows[1]["created_at"]
+
+
 async def test_the_total_counts_the_filtered_set_and_the_page_is_a_window_onto_it() -> None:
     """The three properties of a paged list, in one test because they are one behaviour.
 

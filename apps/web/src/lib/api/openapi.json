@@ -44747,6 +44747,18 @@
             "title": "Capped",
             "type": "boolean"
           },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
           "credit_inr": {
             "anyOf": [
               {

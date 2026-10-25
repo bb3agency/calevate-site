@@ -28779,6 +28779,8 @@ export interface components {
             calls_7d: number;
             /** Capped */
             capped: boolean;
+            /** Created At */
+            created_at?: string | null;
             /** Credit Inr */
             credit_inr?: string | null;
             /** Holds */

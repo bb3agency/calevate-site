@@ -2,7 +2,7 @@
 
 import { EmptySketch } from "@/components/console/emptySketch";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 
 import { useAdminAccess, type AdminAccess } from "@/app/admin/access";
@@ -24,7 +24,9 @@ import {
   Skeleton,
   formatCount,
   formatIST,
+  istDateStamp,
 } from "@/components/ui";
+import { formatDateShort } from "@/components/arc/ist-dates";
 import {
   DIRECTORY_PAGE_SIZE,
   useTenants,
@@ -178,6 +180,18 @@ export default function AdminClientsPage() {
   // the previous answer, and calling it "narrowed" would swap the empty state under the
   // reader's cursor a beat before the rows arrive.
   const narrowed = Boolean(term || status || planTier);
+  /**
+   * A page past the end. The one-minute poll re-reads the page this screen is on, so a
+   * colleague closing accounts can shrink the set under an operator on page two: the
+   * answer is then no rows over a total that still has some, which rendered "No clients
+   * yet" above "Showing 26–25 of 25". Step back to the last page that exists.
+   */
+  const pastTheEnd = Boolean(page && page.rows.length === 0 && page.total > 0 && page.offset > 0);
+  useEffect(() => {
+    if (pastTheEnd && page) {
+      setOffset(Math.floor((page.total - 1) / DIRECTORY_PAGE_SIZE) * DIRECTORY_PAGE_SIZE);
+    }
+  }, [pastTheEnd, page]);
 
   /**
    * Every change to what is being ASKED sends the reader back to the first page.
@@ -356,7 +370,7 @@ export default function AdminClientsPage() {
       {tenants.error && <ProblemNotice error={tenants.error} onRetry={() => void tenants.refetch()} />}
 
       <div>
-        {tenants.isLoading ? (
+        {tenants.isLoading || pastTheEnd ? (
           <Skeleton rows={5} />
         ) : tenants.error || !rows ? (
           /* Deliberately NOT the empty state: "there are no clients" is a claim about the
@@ -418,7 +432,7 @@ export default function AdminClientsPage() {
 
       {/* Says WHICH rows are on screen: "26-50 of 312" is what an operator reads back on a
           support call, and it cannot be off by one the way a derived page index can. */}
-      {page && page.total > page.rows.length && (
+      {page && page.rows.length > 0 && page.total > page.rows.length && (
         <div className="flex flex-wrap items-center justify-between gap-3 text-meta text-ink-muted">
           <span aria-live="polite">
             Showing {formatCount(page.offset + 1)}–{formatCount(page.offset + page.rows.length)} of{" "}
@@ -450,6 +464,14 @@ export default function AdminClientsPage() {
   );
 }
 
+/** The IST calendar day an account was created, "3 Nov 2026"; null when unknown. */
+function addedOn(createdAt: string | null | undefined): string | null {
+  if (!createdAt) return null;
+  const at = new Date(createdAt);
+  if (Number.isNaN(at.getTime())) return null;
+  return formatDateShort(istDateStamp(at));
+}
+
 /** Client · plan · status and flags · credit left · last call · menu. */
 const ROW_GRID =
   "grid-cols-[minmax(0,1.3fr)_6.5rem_minmax(0,1.2fr)_minmax(0,1.1fr)_7.5rem_2.75rem]";
@@ -475,6 +497,9 @@ function ClientRow({ tenant }: { tenant: TenantSummary }) {
         <div className="truncate text-meta text-ink-muted">
           /c/{tenant.slug}
           {tenant.vertical_template ? ` · ${tenant.vertical_template.replace(/_/g, " ")}` : ""}
+          {/* What the default and "oldest" sorts order by. Without it a newest-first list
+              reads as unsorted against the columns on the row. */}
+          {addedOn(tenant.created_at) ? ` · added ${addedOn(tenant.created_at)}` : ""}
         </div>
       </div>
       <div className="col-start-6 row-start-1">

@@ -1071,7 +1071,7 @@ async def tenant_overview(
                 # `plan_tier` is selected for the hold pre-filter below. It is already on
                 # the row this statement reads, so it costs nothing, and reading it here
                 # is what lets the loop decide without a round trip.
-                "SELECT id, name, slug, status, vertical_template, plan_tier "
+                "SELECT id, name, slug, status, vertical_template, plan_tier, created_at "
                 f"FROM organizations {_DIRECTORY_WHERE} "
                 f"ORDER BY {order_by}, id DESC{window}"
             ),
@@ -1158,6 +1158,9 @@ async def tenant_overview(
                 # `managed` is a deliberate exception: an operator has to be able to SEE
                 # which clients are invoiced before deciding anything about one.
                 "plan_tier": org[5],
+                # What the default sort ("recent") orders by. Without it on the row, a
+                # newest-first list reads as unsorted against the columns it does show.
+                "created_at": org[6],
                 "live_agents": int(counts[0] or 0) if counts else 0,
                 "calls_7d": int(counts[1] or 0) if counts else 0,
                 "leads": int(counts[2] or 0) if counts else 0,
