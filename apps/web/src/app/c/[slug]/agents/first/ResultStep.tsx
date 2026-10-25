@@ -47,13 +47,11 @@ const NOT_CONNECTED: Record<string, string> = {
 export function ResultStep({
   agent,
   call,
-  placedAt,
   onCallAgain,
   onNext,
 }: {
   agent: Agent;
   call: CallSummary;
-  placedAt: number;
   onCallAgain: () => void;
   onNext: () => void;
 }) {
@@ -80,7 +78,7 @@ export function ResultStep({
     );
   }
 
-  const transcript = <TestCallTranscript agentId={agent.id} placedAt={placedAt} />;
+  const transcript = <TestCallTranscript callId={call.id} />;
 
   return (
     <StepScreen

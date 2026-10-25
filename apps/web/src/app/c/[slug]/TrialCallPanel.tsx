@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { CheckCircle2, PhoneOutgoing } from "lucide-react";
+import { PhoneOutgoing } from "lucide-react";
 
 import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { UsageMeter } from "@/components/arc/usage-meter";
@@ -21,9 +21,9 @@ import { TEXT_ACTION } from "@/components/console/section";
 import { canTestCall, isDeleted } from "@/lib/agentState";
 import { useAgentLifecycle, useAgents } from "@/lib/api/agents";
 import { useClientRealm } from "@/lib/api/session";
-import { usePlaceTrialCall, type TrialPanel } from "@/lib/api/trialCalls";
+import { usePlaceTrialCall, useRecentTestCalls, type TrialPanel } from "@/lib/api/trialCalls";
 
-import { TestCallTranscript } from "./TestCallTranscript";
+import { EarlierTestCalls, TestCallFollow } from "./TestCallStatus";
 
 /**
  * THE FREE TRIAL, on the dashboard (D-697): what is left of it, a test call, and the one
@@ -144,6 +144,14 @@ export function TrialCallCard({
     placeFeedback.run({ agentId: chosen, number: number.trim(), numberIsMine });
   };
 
+  // The call just placed is followed by its id; with none placed in this visit, the day's
+  // newest test call is, so a reload or a trip to another page loses nothing (D-885).
+  const recent = useRecentTestCalls(session);
+  const placedId = place.data?.status === "queued" ? (place.data.call_id ?? null) : null;
+  const newest = recent.data !== undefined && recent.data.length > 0 ? recent.data[0] : null;
+  const followedId = placedId ?? newest?.id ?? null;
+  const earlier = recent.data?.filter((row) => row.id !== followedId).slice(0, 2);
+
   return (
     <Card title={paid ? "Test calls" : "Your free trial"}>
       <div className="space-y-4">
@@ -259,15 +267,6 @@ export function TrialCallCard({
           </div>
         </form>
 
-        {place.data?.status === "queued" && (
-          <p role="status" className="flex items-center gap-2 text-sm font-semibold text-brand-strong">
-            <CheckCircle2 aria-hidden className="h-4 w-4" />
-            Calling now. The call appears under Calls once it ends.
-          </p>
-        )}
-        {place.data?.status === "queued" && place.variables ? (
-          <TestCallTranscript agentId={place.variables.agentId} placedAt={place.submittedAt} />
-        ) : null}
         {place.data?.status === "blocked" && (
           <p role="status" className="text-sm text-warn">
             {place.data.blocked_reason ?? "This test call was not allowed."}
@@ -275,6 +274,21 @@ export function TrialCallCard({
         )}
         {prepare.error && <ProblemNotice error={prepare.error} />}
         {place.error && <ProblemNotice error={place.error} />}
+
+        {followedId !== null ? (
+          <TestCallFollow
+            key={followedId}
+            callId={followedId}
+            callerNumber={followedId === placedId ? place.data?.caller_number : null}
+            paid={paid}
+            heading={followedId === placedId ? "This test call" : "Your last test call"}
+          />
+        ) : null}
+        {recent.isError ? (
+          <ProblemNotice error={recent.error} onRetry={() => void recent.refetch()} />
+        ) : earlier !== undefined ? (
+          <EarlierTestCalls calls={earlier} />
+        ) : null}
         {dialers !== undefined && dialers.length > 0 ? (
           <p className="text-xs text-ink-muted">
             Want to change what it says first?{" "}

@@ -28,7 +28,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 from dataclasses import dataclass
-from typing import Final, Literal
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,6 +81,24 @@ class TrialCallResult:
     call_handle: str | None = None
     blocked_reason: str | None = None
     blocked_rule: str | None = None
+    #: Our `calls.id` for a placed call, so the screen follows that one call by id.
+    call_id: UUID | None = None
+    #: The number the call rings from when it is the shared trial number, E.164. None on a
+    #: paid account's call from its own line, whose number the engine picks.
+    caller_number: str | None = None
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> TrialCallResult:
+        """A stored idempotent answer; one stored before `call_id` existed lacks both keys."""
+        call_id = payload.get("call_id")
+        return cls(
+            status="queued" if payload.get("status") == "queued" else "blocked",
+            call_handle=payload.get("call_handle"),
+            blocked_reason=payload.get("blocked_reason"),
+            blocked_rule=payload.get("blocked_rule"),
+            call_id=UUID(call_id) if call_id else None,
+            caller_number=payload.get("caller_number"),
+        )
 
 
 def trial_calling_ready() -> bool:
@@ -192,7 +210,7 @@ async def place_trial_call(
             request_hash=body_hash({"agent_id": str(agent_id), "number": phone}),
         )
     if claim.state == "replay" and claim.response_payload:
-        return TrialCallResult(**claim.response_payload)
+        return TrialCallResult.from_payload(claim.response_payload)
 
     async def release() -> None:
         async with tenant_session(tenant_id) as fail_session:
@@ -276,6 +294,11 @@ async def place_trial_call(
         assert caller_number is not None  # `trial_calling_ready` above
         call_seconds = access.call_seconds
         trial = TrialDial(from_e164=caller_number, max_call_seconds=call_seconds)
+    reserved: list[UUID] = []
+
+    async def note_call_id(_intent: AsyncSession, call_id: UUID) -> None:
+        reserved.append(call_id)
+
     try:
         handle = await dispatch_call(
             session,
@@ -283,6 +306,7 @@ async def place_trial_call(
             agent_id=agent_id,
             lead_id=None,
             phone_e164=phone,
+            on_reserved=note_call_id,
             trial=trial,
             owner_test=owner_test,
             # The gate let this one ring outside the window, so the engine must too (D-866).
@@ -307,7 +331,12 @@ async def place_trial_call(
             raise _not_placed_on_our_side() from refused
         raise
 
-    result = TrialCallResult(status="queued", call_handle=handle)
+    result = TrialCallResult(
+        status="queued",
+        call_handle=handle,
+        call_id=reserved[0],
+        caller_number=trial.from_e164 if trial is not None else None,
+    )
     async with tenant_session(tenant_id) as record_session:
         await write_audit(
             record_session,
@@ -356,6 +385,8 @@ def _payload(result: TrialCallResult) -> dict[str, str | None]:
         "call_handle": result.call_handle,
         "blocked_reason": result.blocked_reason,
         "blocked_rule": result.blocked_rule,
+        "call_id": str(result.call_id) if result.call_id else None,
+        "caller_number": result.caller_number,
     }
 
 

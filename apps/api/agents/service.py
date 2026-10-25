@@ -3962,15 +3962,19 @@ async def dispatch_call(
             await _hold_engine_line(intent)
         await intent.execute(
             text(
-                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
-                "trial_call, paid_test_call, status, created_at, updated_at) VALUES (:id, :tid, "
-                ":aid, :ecid, 'outbound', :to_e, :trial, :owner_test, 'queued', now(), now())"
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, from_e164, "
+                "to_e164, trial_call, paid_test_call, status, created_at, updated_at) VALUES (:id, "
+                ":tid, :aid, :ecid, 'outbound', :from_e, :to_e, :trial, :owner_test, 'queued', "
+                "now(), now())"
             ),
             {
                 "id": call_id,
                 "tid": tenant_id,
                 "aid": agent_id,
                 "ecid": intent_engine_call_id,
+                # Our number when we chose it, so a call still ringing can say where it rings
+                # from (D-885); null leaves it to the engine's report at the end.
+                "from_e": from_e164,
                 "to_e": phone_e164,
                 "trial": trial is not None,
                 "owner_test": owner_test is not None,
