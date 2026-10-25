@@ -51,6 +51,7 @@ from apps.api.agents.field_suggestions import (
     Suggestion,
     applicable,
     current_fields,
+    enqueue_pass,
     normalise,
     suggestion_fingerprint,
 )
@@ -68,7 +69,6 @@ from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
 from apps.api.crm.columns import FIXED_KEYS
 from apps.api.db.session import tenant_session
-from apps.api.reliability.service import enqueue_outbox
 from apps.api.teach.pinned import list_pinned
 from apps.workers.lead_fields_draft import _key_for, business_context
 from apps.workers.redaction import redact
@@ -498,9 +498,7 @@ async def _requeue_if_asked(session: Any, tenant_id: UUID, agent_id: UUID) -> No
         )
     ).scalar()
     if again == "queued":
-        await enqueue_outbox(
-            session, job=JOB, payload={"tenant_id": str(tenant_id), "agent_id": str(agent_id)}
-        )
+        await enqueue_pass(session, tenant_id=tenant_id, agent_id=agent_id)
 
 
 async def _blocked(tenant_id: UUID, *, absorbed: bool) -> bool:

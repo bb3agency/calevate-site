@@ -213,10 +213,16 @@ async def queue_pass(
         return False
     if prev[0] == "running" and not prev[1]:
         return False
+    await enqueue_pass(session, tenant_id=tenant_id, agent_id=agent_id)
+    return True
+
+
+async def enqueue_pass(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> None:
+    """Promise the pass job, with no state change. `queue_pass` decides whether one is due;
+    the worker calls this to re-run a pass asked for while it was running."""
     await enqueue_outbox(
         session, job=JOB, payload={"tenant_id": str(tenant_id), "agent_id": str(agent_id)}
     )
-    return True
 
 
 async def queue_first_pass(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> bool:
@@ -395,6 +401,7 @@ __all__ = [
     "applicable",
     "apply",
     "current_fields",
+    "enqueue_pass",
     "dismiss",
     "normalise",
     "queue_account",

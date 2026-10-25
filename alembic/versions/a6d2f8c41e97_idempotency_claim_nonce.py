@@ -1,7 +1,7 @@
 """an idempotency claim carries the nonce of the holding that took it
 
 Revision ID: a6d2f8c41e97
-Revises: e3b9d5f1a827
+Revises: c7e4a9d2f513
 Create Date: 2026-10-26 10:00:00.000000
 
 `claim_idempotency` hands a `processing` record whose lease has lapsed to a second holder
@@ -24,7 +24,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "a6d2f8c41e97"
-down_revision: str | None = "e3b9d5f1a827"
+down_revision: str | None = "c7e4a9d2f513"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
