@@ -2608,6 +2608,34 @@ async def month_increment(
     )
 
 
+async def _month_call_count(
+    session: AsyncSession, *, tenant_id: UUID, month: str, since: datetime | None = None
+) -> int:
+    """Distinct calls with usage in `month`, floored at `since` (`_month_bounds`).
+
+    `tenant_id` is named in the predicate, not left to RLS alone, so the answer depends on
+    the argument rather than on which session it was handed. Not filtered to call rows: a
+    dashboard-assist row carries no `call_id` and `COUNT(DISTINCT)` ignores NULLs.
+
+    `unit_type <> 'other'` IS needed: the carrier's CDR lands as an `other` row
+    (`apps/workers/carrier_events`) for a busy or unanswered dial the carrier charged us
+    for, which the client was never metered for. A correction row (`billing/cost_unit.py`)
+    is also `other` and always sits beside a metered row of its own call, so excluding the
+    type drops nothing else.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT COUNT(DISTINCT call_id) "
+                f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW} "
+                "AND unit_type <> 'other'"
+            ),
+            {"tid": tenant_id, **_month_bounds(month, since=since)},
+        )
+    ).first()
+    return int(row[0] or 0) if row else 0
+
+
 async def usage_summary(
     session: AsyncSession, *, tenant_id: UUID, month: str | None = None
 ) -> dict[str, Any]:
@@ -2678,33 +2706,7 @@ async def usage_summary(
     totals = await _tier_totals(session, tenant_id=tenant_id, month=period, since=epoch)
     tier_minutes = totals.by_rung
     minutes = sum(tier_minutes.values(), _ZERO_PAISE)
-    row = (
-        await session.execute(
-            # `tenant_id` is named in the predicate, not left to RLS alone: the plan,
-            # the org and the spend state below are all read BY tenant_id, so a session
-            # scoped to someone else would otherwise pair this tenant's plan with that
-            # tenant's minutes. RLS still fails the query closed; this makes the answer
-            # depend on the argument rather than on which session it was handed.
-            #
-            # Deliberately NOT filtered to call rows: a dashboard-assist row carries no
-            # `call_id` and `COUNT(DISTINCT)` ignores NULLs, so the AI ledger cannot
-            # inflate a client's call count and does not need a predicate to say so.
-            #
-            # `unit_type <> 'other'` IS needed: the carrier's CDR lands as an `other` row
-            # (`apps/workers/carrier_events`) and is written for a busy or unanswered dial
-            # the carrier charged us for, which the client was never metered for. Counting
-            # it would show the client a call that has no minutes. A correction row
-            # (`billing/cost_unit.py`) is also `other` and always sits beside a metered row
-            # of its own call, so excluding the type drops nothing else.
-            text(
-                "SELECT COUNT(DISTINCT call_id) "
-                f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW} "
-                "AND unit_type <> 'other'"
-            ),
-            {"tid": tenant_id, **_month_bounds(period, since=epoch)},
-        )
-    ).first()
-    calls = int(row[0] or 0) if row else 0
+    calls = await _month_call_count(session, tenant_id=tenant_id, month=period, since=epoch)
 
     # WHICH PLAN PRICES THIS MONTH. Not the newest row — the row whose valid-time
     # window contains `priced_at` (`billing/plans.py`). For a closed month that instant
@@ -3707,8 +3709,11 @@ async def margin_for_tenant(
     unpriced = await unpriced_usage_rows(session, tenant_id=tenant_id, month=str(usage["month"]))
     return {
         "month": usage["month"],
-        "minutes_used": usage["minutes_used"],
-        "calls": usage["calls"],
+        # The whole IST month, like the cost beside them: `usage_summary`'s figures start at
+        # the client's trial boundary (`counter_epoch`), so they would leave a converted
+        # client's trial calls out of a card whose cost includes them.
+        "minutes_used": sum(totals.by_rung.values(), _ZERO_PAISE),
+        "calls": await _month_call_count(session, tenant_id=tenant_id, month=str(usage["month"])),
         "revenue_inr": to_paise(revenue),
         "rental_revenue_inr": to_paise(rental),
         "cost_inr": cost_inr,

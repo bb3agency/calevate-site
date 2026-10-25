@@ -281,3 +281,35 @@ async def test_the_overview_margin_card_sets_trial_cost_beside_the_margin() -> N
     assert body["paid_cost_inr"] == "0.00"
     assert body["paid_margin_inr"] == "0.00"
     assert body["paid_margin_pct"] is None
+
+
+async def test_the_margin_counts_a_converted_trials_calls_like_its_cost() -> None:
+    """The margin card and the fleet row print "N minutes across M calls" beside a cost that
+    includes the trial's calls, so the counts are the whole month too — not the client's
+    usage panel, which restarts at the trial's end."""
+    from apps.api.billing.service import margin_for_tenant
+    from apps.api.billing.trials import TRIAL_CONVERTED, end_trial
+
+    tenant_id, agent_id = await _spend_tenant(monthly_fee=None)
+    now = datetime.now(UTC)
+    await _open_trial(tenant_id, started=now - timedelta(minutes=10))
+    await _metered_call(
+        tenant_id, agent_id, seconds=120, unit_cost="0.1000", at=now - timedelta(minutes=8)
+    )
+    async with tenant_session(tenant_id) as session:
+        await end_trial(
+            session,
+            tenant_id=tenant_id,
+            outcome=TRIAL_CONVERTED,
+            reason="paid",
+            at=now - timedelta(minutes=5),
+        )
+    await _metered_call(tenant_id, agent_id, seconds=60, unit_cost="0.1000")
+
+    async with tenant_session(tenant_id) as session:
+        margin = await margin_for_tenant(session, tenant_id=tenant_id)
+        period = await period_attribution(session, tenant_id=tenant_id)
+
+    assert period.calls == 2 and period.minutes == Decimal("3.00")
+    assert margin["calls"] == period.calls
+    assert margin["minutes_used"] == period.minutes
