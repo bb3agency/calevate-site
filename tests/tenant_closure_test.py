@@ -1196,3 +1196,35 @@ async def test_the_repair_script_re_queues_an_erasure_that_never_completed(
 
     await execute_tenant_erasure({}, queued[0])
     assert await redrive_tenant_erasures.open_erasures(only_tenant=tenant_id) == []
+
+
+async def test_a_retried_closure_notice_sends_the_whatsapp_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The email is retried until it lands; the WhatsApp beside it must not go out on
+    every one of those attempts. It rides with the run that ends the job."""
+    from apps.api.core.queue import WORKER_MAX_TRIES
+    from apps.workers import account_closure
+    from arq import Retry
+
+    class _Refusing:
+        def send(self, **_: Any) -> bool:
+            return False
+
+    whatsapps: list[int] = []
+
+    async def _leg(*_: Any, **__: Any) -> str:
+        whatsapps.append(1)
+        return "sent"
+
+    monkeypatch.setattr(account_closure, "get_transport", lambda: _Refusing())
+    monkeypatch.setattr(account_closure, "_whatsapp_leg", _leg)
+    tenant_id = await _tenant()
+    payload = {"tenant_id": str(tenant_id), "event": account_closure.NOTICE_CLOSED}
+
+    for attempt in range(1, WORKER_MAX_TRIES):
+        with pytest.raises(Retry):
+            await account_closure.notify_account_closed({"job_try": attempt}, payload)
+    assert whatsapps == [], "a retried run sent the WhatsApp again"
+    await account_closure.notify_account_closed({"job_try": WORKER_MAX_TRIES}, payload)
+    assert whatsapps == [1]

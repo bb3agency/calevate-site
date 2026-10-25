@@ -361,8 +361,14 @@ async def notify_account_closed(ctx: dict[str, Any], payload: dict[str, Any]) ->
         # THE SECOND CHANNEL, AND NEVER THE ONLY ONE. Inside the same session block so it
         # reads the opt-in the email leg's transaction saw, and AFTER the email so a
         # WhatsApp failure can never be what stops the channel of record going out.
-        whatsapp = await _whatsapp_leg(
-            session, tenant_id=tenant_id, event=event, business=str(business)
+        #
+        # Only on the run that ENDS the job: email delivered, or the last attempt. A run
+        # whose email failed is retried, and a WhatsApp sent on every retry reached the
+        # client once per attempt.
+        whatsapp = (
+            await _whatsapp_leg(session, tenant_id=tenant_id, event=event, business=str(business))
+            if delivered or attempt >= WORKER_MAX_TRIES
+            else None
         )
 
     if whatsapp:
