@@ -223,6 +223,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "wallet",
     "admin/trial",
     "admin/credits",
+    // `first_paid_*` lives on `organizations` (D-890).
+    "admin/paid",
     "admin/tenant",
     "admin/tenants",
     "admin/tenant-profile",
