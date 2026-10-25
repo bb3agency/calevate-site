@@ -5,8 +5,8 @@ import { useState } from "react";
 import { StatusPill } from "@/components/admin/kit";
 import { useActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
-import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
+  Fact,
   NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
@@ -64,7 +64,7 @@ export function CommercialsScreen({ tenantId }: { tenantId: string }) {
     <div className="max-w-4xl space-y-10">
       <PageHeader
         title="Commercials"
-        description="Every client buys prepaid credits at the list price. Here: the monthly platform fee for this client, and the ceilings and model surcharge it is held to. Every change is a new dated agreement."
+        description="This client's platform fee, ceilings and model surcharge. Credits are prepaid at list price; every change is a new dated agreement."
         actions={
           terms.data ? (
             <button type="button" className={PRIMARY_BUTTON} onClick={() => setOpen(true)}>
@@ -187,15 +187,13 @@ function InEffect({ row }: { row: PlanRow | null }) {
       title="In effect now"
       info="Unset fields are absent rather than zero: a rate of ₹0 is free minutes, an unset rate is a plan that quotes none."
     >
-      <SettingRows className="border-y border-line">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-line py-4 sm:grid-cols-3">
         {rows.map((entry) => (
-          <SettingRow
-            key={entry.label}
-            label={entry.label}
-            value={<span className="tabular-nums">{entry.value}</span>}
-          />
+          <Fact key={entry.label} label={entry.label}>
+            <span className="tabular-nums">{entry.value}</span>
+          </Fact>
         ))}
-      </SettingRows>
+      </dl>
     </Section>
   );
 }

@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
-import { NoticeBox, PRIMARY_BUTTON, ProblemNotice, Skeleton } from "@/components/ui";
+import { Disclosure, NoticeBox, PRIMARY_BUTTON, ProblemNotice, Skeleton } from "@/components/ui";
 import { useMaintenanceBoard, type MaintenanceBoard } from "@/lib/api/maintenance";
 
 import { CurrentWindow } from "./CurrentWindow";
@@ -53,17 +53,17 @@ export default function MaintenancePage() {
 
       {read !== undefined && <WindowHistory history={read.history} />}
 
-      <NoticeBox
-        tone="neutral"
-        title="What a window does not do"
+      <Disclosure
+        variant="inline"
+        title="A window never hangs up a call or deletes anything"
+        subtitle="Nor does it cancel a queued job or lock operators out."
       >
-        <p className="mt-1">
-          It never hangs up a live call and never cancels a queued job. The deadline bounds
-          how long the PLATFORM waits, not how long other people&apos;s work takes. It deletes
-          nothing. And it never locks operators out: this console, the health checks and the
-          engine&apos;s webhooks are exempt from shedding in every mode.
+        <p className="pb-3 text-body text-ink-muted">
+          The deadline bounds how long the PLATFORM waits, not how long other people&apos;s
+          work takes. This console, the health checks and the engine&apos;s webhooks are exempt
+          from shedding in every mode.
         </p>
-      </NoticeBox>
+      </Disclosure>
     </div>
   );
 }

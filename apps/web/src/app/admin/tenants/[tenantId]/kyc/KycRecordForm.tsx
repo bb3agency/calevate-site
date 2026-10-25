@@ -223,7 +223,7 @@ export function KycRecordForm({
         hint={
           draft.document_kind
             ? DOCUMENT_KINDS[draft.document_kind].hint
-            : "Which register the business was verified against. Entity registries only — there is no member here that identifies a person."
+            : "The register the business was checked against. Entity registers only, never a personal ID."
         }
       >
         <select
@@ -245,7 +245,7 @@ export function KycRecordForm({
       <Field
         label="Registry number"
         htmlFor="kyc-doc-ref"
-        hint="The public identifier from that register. Never an Aadhaar or an individual's PAN — the database refuses one, and it must not reach us in the first place."
+        hint="The register's public number. Never an Aadhaar or a person's PAN: the database refuses one."
       >
         <input
           id="kyc-doc-ref"
@@ -265,7 +265,7 @@ export function KycRecordForm({
       <Field
         label="Signatory"
         htmlFor="kyc-signatory"
-        hint="Who signed for the entity. A name only — their identity document stays with the licensee's CAF and is never recorded here."
+        hint="A name only. Their ID stays with the licensee's CAF, never here."
       >
         <input
           id="kyc-signatory"
@@ -281,7 +281,7 @@ export function KycRecordForm({
       <Field
         label="Evidence reference"
         htmlFor="kyc-evidence"
-        hint="Where the verification pack is filed — a ticket id or an object key. A reference, never the document."
+        hint="A ticket id or object key for the verification pack, never the document."
       >
         <input
           id="kyc-evidence"
@@ -300,7 +300,7 @@ export function KycRecordForm({
         <Field
           label="Why it was rejected"
           htmlFor="kyc-rejection"
-          hint="Required. Goes to the client verbatim on their own screen, so write it to them: what was missing or wrong, and what to send instead."
+          hint="Required. The client sees it word for word: say what was wrong and what to send instead."
         >
           <textarea
             id="kyc-rejection"
@@ -367,8 +367,8 @@ function WillRecord({ draft, tenantName }: { draft: KycRecordIn; tenantName: str
             : "nothing named yet; blank leaves whatever is already filed."}
         </li>
         <li>
-          <span className="text-ink-muted">Verified by</span> — the admin account sending this
-          request. Taken from your session, not from this form.
+          <span className="text-ink-muted">Verified by</span> — your admin account, from your
+          session rather than this form.
           {verified && " The time is stamped by the database."}
         </li>
         <li>

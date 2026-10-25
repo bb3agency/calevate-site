@@ -150,7 +150,7 @@ export function CurrentWindow({ window: current }: { window: MaintenanceWindow }
         />
       )}
 
-      <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         <WhenFact label="Opens" value={formatIST(current.starts_at)} />
         <WhenFact label="Ends" value={formatIST(current.ends_at)} />
         <WhenFact

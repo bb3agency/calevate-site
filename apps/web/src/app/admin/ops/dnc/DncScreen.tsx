@@ -162,9 +162,8 @@ export function DncScreen() {
       <PageHeader
         description={
           <>
-            These are the numbers Calevate will not dial for anyone. A number here overrides
-            every client&apos;s own do-not-call list, is checked before every single call, and
-            no client can add or remove it.
+            Numbers Calevate never dials for any client. Checked before every call, above each
+            client&apos;s own list; no client can add or remove one.
           </>
         }
         actions={

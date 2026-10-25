@@ -74,6 +74,7 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
 
       <Section
         title="Our identity check"
+        description="Verified opens numbers on every tier and outbound on self-serve and trial. Inbound is never gated."
         info={
           <p>
             Saving records or updates the check — re-recording is what happens on every
@@ -82,12 +83,7 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
           </p>
         }
       >
-        <p className="-mt-1 text-body text-ink-muted">
-          A verified record opens number provisioning on every tier and outbound dialling on
-          self-serve and trial accounts; inbound answering is never gated by it.
-        </p>
-
-        <div className="mt-4 space-y-5">
+        <div className="space-y-5">
           {record.error && <ProblemNotice error={record.error} onRetry={() => record.refetch()} />}
 
           {record.isLoading ? (
@@ -178,9 +174,8 @@ function OnFile({ record }: { record: KycRecord }) {
       <div>
         <SubHeading>Nothing on file</SubHeading>
         <p className="text-body text-ink-muted">
-          The normal state of a new account. This client&apos;s dial gate reads it as a
-          missing verification. Their own operator will ask for the same documents before it
-          issues them a connection.
+          Normal for a new account; the dial gate reads it as unverified. Their telecom
+          operator asks for the same documents before giving them a connection.
         </p>
       </div>
     );

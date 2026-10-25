@@ -194,7 +194,8 @@ export function AlertsScreen() {
             onValueChange={(value) => setDays(Number(value))}
             options={WINDOW_CHOICES.map((choice) => ({
               value: String(choice),
-              label: `Last ${windowLabel(choice)}`,
+              // The control is labelled "Window"; without "Last" all four fit across a phone.
+              label: windowLabel(choice),
             }))}
           />
 

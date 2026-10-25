@@ -587,7 +587,7 @@ export function SpokenStyleScreen() {
 
   return (
     <div className="max-w-4xl space-y-8 pb-12">
-      <PageHeader description="How agents speak each language: the everyday words, tags, numbers and example calls the instructions and the script writer use. Review them, then publish." />
+      <PageHeader description="The words, numbers and example calls agents and the script writer use, per language. Review, then publish." />
       {access.refused ? (
         <RestrictionNote reason={access.reason} />
       ) : (

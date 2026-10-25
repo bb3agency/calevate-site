@@ -444,7 +444,7 @@ function Playbooks({ data }: { data: HealerOverview }) {
                 {!p.automatic ? "Tells you only" : p.paused ? "Switched off" : p.pausable ? "On" : "Always on"}
               </StatusPill>
             </div>
-            <dl className="grid grid-cols-1 gap-x-3 gap-y-0.5 text-meta text-ink-muted sm:grid-cols-[8rem_1fr]">
+            <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-meta text-ink-muted sm:grid-cols-[8rem_minmax(0,1fr)]">
               <dt className="font-medium text-ink">Does</dt>
               <dd>{p.action}</dd>
               <dt className="font-medium text-ink">How it checks</dt>

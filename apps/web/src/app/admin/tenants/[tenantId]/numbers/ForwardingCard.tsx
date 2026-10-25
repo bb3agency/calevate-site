@@ -1,7 +1,6 @@
 "use client";
 
 import { Section } from "@/components/console/section";
-import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { StatusPill } from "@/components/console/statusPill";
 import {
   CALLER_ID_COPY,
@@ -12,7 +11,7 @@ import {
   STATUS_COPY,
   modeSummary,
 } from "@/components/forwarding/copy";
-import { ProblemNotice, Skeleton, formatIST, formatPhone } from "@/components/ui";
+import { Fact, ProblemNotice, Skeleton, formatIST, formatPhone } from "@/components/ui";
 import { useAdminForwarding } from "@/lib/api/forwarding";
 
 /**
@@ -20,6 +19,9 @@ import { useAdminForwarding } from "@/lib/api/forwarding";
  * forwards, whether the last test found it working, and the two findings a test records.
  * Read-only; the client runs the test from their own account.
  */
+/** Two facts a row on a phone, three on a wider screen: label over a short value. */
+const FACT_GRID = "grid grid-cols-2 gap-x-4 gap-y-3 border-y border-line py-4 sm:grid-cols-3";
+
 export function ForwardingCard({ tenantId }: { tenantId: string }) {
   const forwarding = useAdminForwarding(tenantId);
   const data = forwarding.data;
@@ -41,58 +43,47 @@ export function ForwardingCard({ tenantId }: { tenantId: string }) {
             data.lines.map((line) => {
               const status = STATUS_COPY[line.status];
               return (
-                <SettingRows key={line.id} className="border-y border-line">
-                  <SettingRow
-                    label="Published number"
-                    value={<span className="font-mono tabular-nums">{formatPhone(line.e164)}</span>}
-                  />
-                  <SettingRow
-                    label="Line"
-                    value={
-                      line.line_kind === "mobile"
-                        ? `${LINE_KIND_LABEL.mobile} · ${CARRIER_LABEL[line.carrier]}`
-                        : LINE_KIND_LABEL[line.line_kind]
-                    }
-                  />
-                  <SettingRow label="Mode" value={modeSummary(line.mode, line.ring_seconds)} />
-                  <SettingRow
-                    label="Forwards to"
-                    value={
-                      line.calevate_number_e164 ? (
-                        <span className="font-mono tabular-nums">{formatPhone(line.calevate_number_e164)}</span>
-                      ) : (
-                        "None"
-                      )
-                    }
-                  />
-                  <SettingRow label="Forwarding" value={<StatusPill tone={status.tone}>{status.text}</StatusPill>} />
-                  <SettingRow
-                    label="Last test"
-                    value={
-                      line.last_tested_at
-                        ? `${formatIST(line.last_tested_at)}${line.last_test_outcome ? ` · ${OUTCOME_COPY[line.last_test_outcome].text}` : ""}`
-                        : "Never tested"
-                    }
-                  />
-                  <SettingRow
-                    label="Caller ID"
-                    value={line.caller_id_finding ? CALLER_ID_COPY[line.caller_id_finding] : "Not known yet"}
-                  />
-                  <SettingRow
-                    label="Two calls at once"
-                    value={line.concurrency_finding ? CONCURRENCY_COPY[line.concurrency_finding] : "Not known yet"}
-                  />
-                  {line.quiet_since && <SettingRow label="Quiet since" value={formatIST(line.quiet_since)} />}
-                </SettingRows>
+                <dl key={line.id} className={FACT_GRID}>
+                  <Fact label="Published number">
+                    <span className="font-mono tabular-nums">{formatPhone(line.e164)}</span>
+                  </Fact>
+                  <Fact label="Line">
+                    {line.line_kind === "mobile"
+                      ? `${LINE_KIND_LABEL.mobile} · ${CARRIER_LABEL[line.carrier]}`
+                      : LINE_KIND_LABEL[line.line_kind]}
+                  </Fact>
+                  <Fact label="Forwards to">
+                    {line.calevate_number_e164 ? (
+                      <span className="font-mono tabular-nums">{formatPhone(line.calevate_number_e164)}</span>
+                    ) : (
+                      "None"
+                    )}
+                  </Fact>
+                  <Fact label="Forwarding">
+                    <StatusPill tone={status.tone}>{status.text}</StatusPill>
+                  </Fact>
+                  <Fact label="Mode">{modeSummary(line.mode, line.ring_seconds)}</Fact>
+                  <Fact label="Last test">
+                    {line.last_tested_at
+                      ? `${formatIST(line.last_tested_at)}${line.last_test_outcome ? ` · ${OUTCOME_COPY[line.last_test_outcome].text}` : ""}`
+                      : "Never tested"}
+                  </Fact>
+                  <Fact label="Caller ID">
+                    {line.caller_id_finding ? CALLER_ID_COPY[line.caller_id_finding] : "Not known yet"}
+                  </Fact>
+                  <Fact label="Two calls at once">
+                    {line.concurrency_finding ? CONCURRENCY_COPY[line.concurrency_finding] : "Not known yet"}
+                  </Fact>
+                  {line.quiet_since && <Fact label="Quiet since">{formatIST(line.quiet_since)}</Fact>}
+                </dl>
               );
             })
           )}
-          <SettingRows className="border-y border-line">
-            <SettingRow
-              label="Save-our-number message"
-              value={data.save_number_enabled ? `On · ${data.save_number_sent} sent` : "Off"}
-            />
-          </SettingRows>
+          <dl className={FACT_GRID}>
+            <Fact label="Save-our-number message">
+              {data.save_number_enabled ? `On · ${data.save_number_sent} sent` : "Off"}
+            </Fact>
+          </dl>
         </div>
       )}
     </Section>

@@ -258,7 +258,7 @@ function EditForm({
               they ring somebody about. A database trigger enforces it regardless. */}
           <SettingRow
             label="Web address"
-            hint="Fixed: it is in every link the client has bookmarked, and the database refuses to change it. A different one needs a new account."
+            hint="Fixed: it is in every link the client has bookmarked, and the database refuses a change. A new one needs a new account."
             value={
               <span className="inline-flex items-center gap-2">
                 <Lock className="h-3.5 w-3.5 text-ink-muted" aria-hidden />

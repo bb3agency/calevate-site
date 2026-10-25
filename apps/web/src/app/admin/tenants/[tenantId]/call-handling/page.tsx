@@ -105,7 +105,7 @@ export default function TenantCallHandlingPage({
     <div className="max-w-2xl space-y-5 pb-12">
       <PageHeader
         title="Call handling"
-        description="How this client's agents wait for callers and end their calls, unless an agent has its own. A change reaches live agents from their next call."
+        description="Defaults for every agent without its own. A change reaches live agents from their next call."
       />
       {state.error != null && (
         <ProblemNotice error={state.error} onRetry={() => void state.refetch()} />

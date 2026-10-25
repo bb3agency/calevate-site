@@ -130,15 +130,17 @@ export function OutboxReplayPanel({
           : null;
 
   return (
-    <Section title="Stuck outbound messages">
-      <div className="space-y-4">
-        <p className="text-body text-ink-muted">
-          Messages that failed to send after several tries and are now stuck — things like
-          a lead sent to a client&apos;s own system, or a hot-lead alert. Resending puts
-          them back in line to be tried again, for every client at once, oldest first, up
-          to 100 at a time.
+    <Section
+      title="Stuck outbound messages"
+      description="Resending retries them for every client at once, oldest first, up to 100 at a time."
+      info={
+        <p>
+          Messages that failed after several tries and are now stuck, such as a lead sent to a
+          client&apos;s own system or a hot-lead alert.
         </p>
-
+      }
+    >
+      <div className="space-y-4">
         {queue.status === "loading" && <Skeleton rows={2} />}
 
         {/* The refusal. NOT "0 parked" and NOT a hidden panel: an operator who cannot see

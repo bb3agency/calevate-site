@@ -140,7 +140,7 @@ export function TmRegistrationPanel({
           </p>
         </NoticeBox>
 
-        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Fact label="Status" value={tmStatusCopy(registration.status).label} />
           <Fact label="TM ID" value={registration.tm_id ?? "—"} mono />
           <Fact label="Registered" value={formatIST(registration.registered_at)} />
@@ -316,9 +316,9 @@ export function TmRegistrationPanel({
 
 function Fact({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="text-meta font-medium text-ink-muted">{label}</dt>
-      <dd className={mono ? "mt-0.5 font-mono text-sm text-ink" : "mt-0.5 text-sm text-ink"}>
+      <dd className={`mt-0.5 text-sm text-ink [overflow-wrap:anywhere] ${mono ? "font-mono" : ""}`}>
         {value}
       </dd>
     </div>

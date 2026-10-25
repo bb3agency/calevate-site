@@ -74,7 +74,7 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
     <div className="max-w-3xl space-y-10">
       <PageHeader
         title="Campaign setup"
-        description="The client's DLT records, kept for those who registered. None of them is needed to call out: a campaign launches once the client's identity is verified and the no-cold-calls pledge is accepted."
+        description="DLT records, for clients who registered. None is needed to call out: a campaign launches once identity is verified and the no-cold-calls pledge accepted."
       />
 
       {/* THE FOURTH PREREQUISITE, NOT RECORDED HERE: a promotional campaign is also held by
@@ -82,13 +82,12 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
           field on this page — and three green prerequisites here would otherwise read as
           an open launch gate. */}
       <p className="max-w-prose text-body text-ink-muted">
-        A <span className="font-medium text-ink">promotional</span> campaign needs one thing
-        more, and it is recorded per campaign rather than per client: a national DND scrub,
-        on{" "}
+        A <span className="font-medium text-ink">promotional</span> campaign also needs a
+        current national DND scrub, recorded per campaign on{" "}
         <Link href={`/admin/tenants/${tenantId}/dnd-scrub`} className={LINK}>
           DND scrub
         </Link>
-        . Without a current one it stays held.
+        ; without one it stays held.
       </p>
 
       <RestrictionNote reason={write.reason} />

@@ -147,8 +147,8 @@ export function OutboundHaltPanel({ state, access }: { state: PlatformState; acc
             />
             {valid.error("reason")}
             <span className={FIELD_HINT}>
-              Whoever finds outbound calling stopped at 3am reads this to decide whether the
-              reason still holds. It stays on record here, not only in the activity log.
+              Shown here and kept in the activity log, so whoever finds calling stopped can
+              tell whether the reason still holds.
             </span>
           </label>
 

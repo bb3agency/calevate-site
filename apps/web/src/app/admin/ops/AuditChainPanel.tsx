@@ -77,16 +77,18 @@ export function AuditChainPanel({ access }: { access: OpsAccess }) {
   const asOf = verify.data ? formatIST(new Date(verify.submittedAt).toISOString()) : null;
 
   return (
-    <Section title="Activity-log tamper check">
-      <div className="space-y-4">
-        <p className="text-body text-ink-muted">
-          Every entry in the activity log is sealed against the one before it, so any entry
-          that was edited, deleted or reordered shows up as a broken seal. This re-checks
-          the whole log and reports every break, not just the first — it&apos;s the check
-          behind the quarterly compliance review, and the one to run when a client disputes
-          a record.
+    <Section
+      title="Activity-log tamper check"
+      description="Re-checks every seal in the activity log and reports every break."
+      info={
+        <p>
+          Each entry is sealed against the one before it, so an edited, deleted or reordered
+          entry shows as a broken seal. It is the check behind the quarterly compliance
+          review, and the one to run when a client disputes a record.
         </p>
-
+      }
+    >
+      <div className="space-y-4">
         {verify.error && <ProblemNotice error={verify.error} />}
 
         {/* `ok === false` is not a failed REQUEST — the request succeeded and the answer

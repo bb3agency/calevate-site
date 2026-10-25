@@ -17,6 +17,7 @@ import { CopyButton } from "@/components/interior/copy-button";
 import {
   FIELD,
   FIELD_LABEL,
+  Fact,
   MonoValue,
   NoticeBox,
   ProblemNotice,
@@ -73,7 +74,7 @@ export function PaymentsScreen() {
 
   return (
     <div className={ADMIN_PAGE}>
-      <PageHeader description="Is Razorpay taking payments, and what needs an answer from us. Refunds are on each client's Credits page." />
+      <PageHeader description="Is Razorpay taking payments, and what needs an answer. Refunds are on each client's Credits page." />
 
       <Section
       title={
@@ -100,17 +101,17 @@ export function PaymentsScreen() {
                 <p>The key id belongs to {status.data.key_id_mode} mode, not {status.data.mode}.</p>
               )}
             </NoticeBox>
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+              <Fact label="Key id">
+                {status.data.key_id_set ? `Set (${status.data.key_id_mode ?? "unknown mode"})` : "Not set"}
+              </Fact>
+              <Fact label="Key secret">{status.data.key_secret_set ? "Set" : "Not set"}</Fact>
+              <Fact label="Webhook secret">{status.data.webhook_secret_set ? "Set" : "Not set"}</Fact>
+              <Fact label="Orders">
+                {status.data.provider_orders_available ? "Can be created" : "Cannot be created"}
+              </Fact>
+            </dl>
             <SettingRows className="border-y border-line">
-              <SettingRow
-                label="Key id"
-                value={status.data.key_id_set ? `Set (${status.data.key_id_mode ?? "unknown mode"})` : "Not set"}
-              />
-              <SettingRow label="Key secret" value={status.data.key_secret_set ? "Set" : "Not set"} />
-              <SettingRow label="Webhook secret" value={status.data.webhook_secret_set ? "Set" : "Not set"} />
-              <SettingRow
-                label="Orders"
-                value={status.data.provider_orders_available ? "Can be created" : "Cannot be created"}
-              />
               <SettingRow
                 label="Webhook URL"
                 info="Register this address in the Razorpay dashboard, with the events below ticked."

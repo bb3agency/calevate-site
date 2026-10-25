@@ -213,8 +213,8 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
 
   return (
     <Section title="Where this client stands">
-      <dl className="grid grid-cols-1 gap-3 text-meta sm:grid-cols-3">
-        <div>
+      <dl className="grid grid-cols-2 gap-3 text-meta [overflow-wrap:anywhere] sm:grid-cols-3">
+        <div className="min-w-0">
           <dt className="text-ink-muted">Platform default</dt>
           <dd className="mt-0.5 font-medium text-ink">
             {platform === undefined ? (
@@ -227,7 +227,7 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
             )}
           </dd>
         </div>
-        <div>
+        <div className="min-w-0">
           <dt className="text-ink-muted">This client&apos;s own default</dt>
           <dd className="mt-0.5 font-medium text-ink">
             {chosen === null ? (
@@ -240,7 +240,7 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
             )}
           </dd>
         </div>
-        <div>
+        <div className="col-span-2 min-w-0 sm:col-span-1">
           <dt className="text-ink-muted">In effect</dt>
           <dd className="mt-0.5 font-medium text-ink">
             {defaults.effective_default}

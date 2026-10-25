@@ -63,7 +63,7 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
 
   return (
     <Section title="Verification review">
-      <dl className="grid grid-cols-1 gap-2 text-body sm:grid-cols-2">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-body">
         <Fact label="Status" value={record.status ?? "nothing on file"} />
         <Fact label="Path" value={record.kyc_path === "digilocker" ? "DigiLocker" : record.kyc_path === "manual" ? "Document review" : "—"} />
         <Fact label="Legal name" value={record.legal_business_name ?? "—"} />
@@ -264,9 +264,9 @@ function DigiLockerCard({ tenantId, record, access }: { tenantId: string; record
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="text-meta font-medium text-ink-muted">{label}</dt>
-      <dd className="text-ink">{value}</dd>
+      <dd className="text-ink [overflow-wrap:anywhere]">{value}</dd>
     </div>
   );
 }

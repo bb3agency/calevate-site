@@ -1,8 +1,8 @@
 "use client";
 
-import { Section } from "@/components/console/section";
-import { ProblemNotice, Skeleton } from "@/components/ui";
-import { SettingRow, SettingRows } from "@/components/console/settingRow";
+import { InfoTip } from "@/components/console/infoTip";
+import { Section, TEXT_ACTION } from "@/components/console/section";
+import { Fact, ProblemNotice, Skeleton } from "@/components/ui";
 import { useAdminBusinessProfile } from "@/lib/api/businessProfile";
 import { viewAsHref } from "@/lib/api/session";
 
@@ -34,31 +34,34 @@ export function BusinessProfileSummary({ tenantId, slug }: { tenantId: string; s
       title="Business profile"
       action={
         slug ? (
-          <a href={viewAsHref(slug, "/settings/business")}>
+          <a href={viewAsHref(slug, "/settings/business")} className={TEXT_ACTION}>
             Edit as client
           </a>
         ) : undefined
       }
     >
-      <SettingRows>
-        <SettingRow label="Setup" value={`${done} of ${data.setup.steps.length} steps answered or skipped`} />
-        <SettingRow
-          label="Ready for calls"
-          value={data.blockers.length === 0 ? "Yes" : data.blockers.map((b) => b.message).join(" ")}
-        />
-        <SettingRow label="Opening hours" value={`${data.hours.length} of 7 days answered`} />
-        <SettingRow label="Addresses" value={String(data.branches.length)} />
-        <SettingRow label="Services" value={String(data.services.length)} />
-        <SettingRow label="People who take calls" value={String(data.contacts.length)} />
-        <SettingRow label="Legal name (verification)" value={data.legal_name ?? "Not verified"} />
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-line py-4 sm:grid-cols-3">
+        <Fact label="Setup">{`${done} of ${data.setup.steps.length} steps answered or skipped`}</Fact>
+        <Fact label="Ready for calls">
+          {data.blockers.length === 0 ? "Yes" : data.blockers.map((b) => b.message).join(" ")}
+        </Fact>
+        <Fact label="Opening hours">{`${data.hours.length} of 7 days answered`}</Fact>
+        <Fact label="Addresses">{String(data.branches.length)}</Fact>
+        <Fact label="Services">{String(data.services.length)}</Fact>
+        <Fact label="People who take calls">{String(data.contacts.length)}</Fact>
+        <Fact label="Legal name (verification)">{data.legal_name ?? "Not verified"}</Fact>
         {data.merge_notes.length > 0 && (
-          <SettingRow
-            label="Merged from several agents"
-            hint="When the per-agent answers moved into this profile, agents disagreed. The oldest agent's answer was kept; the others are recorded."
-            value={`${data.merge_notes.length} difference${data.merge_notes.length === 1 ? "" : "s"}`}
-          />
+          <Fact label="Merged from several agents">
+            {`${data.merge_notes.length} difference${data.merge_notes.length === 1 ? "" : "s"}`}
+            <InfoTip label="merged answers">
+              <p>
+                When the per-agent answers moved into this profile, agents disagreed. The oldest
+                agent&apos;s answer was kept; the others are recorded.
+              </p>
+            </InfoTip>
+          </Fact>
         )}
-      </SettingRows>
+      </dl>
     </Section>
   );
 }

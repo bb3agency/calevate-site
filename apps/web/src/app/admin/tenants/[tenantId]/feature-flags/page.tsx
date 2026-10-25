@@ -167,8 +167,7 @@ export default function FeatureFlagsPage({
             <Term id="dnc" audience="operator" />, calling hours, the
             disclosure line, the campaign review or{" "}
             <Term id="kyc" audience="operator" />{" "}
-            for a client. If someone asks for that, the answer is no and the reason is that
-            those checks are the law, not a preference.
+            for a client. Those checks are the law, so the answer to such a request is no.
           </p>
           <InfoTip label="What these flags are not">
             <p>
@@ -289,7 +288,7 @@ function FlagRow({
         </div>
       </div>
 
-      <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-meta sm:grid-cols-3">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-meta sm:grid-cols-3">
         <div>
           <dt className="text-ink-muted">Platform default</dt>
           <dd className="mt-0.5 font-medium text-ink">
@@ -316,7 +315,7 @@ function FlagRow({
           </dd>
         </div>
         {flag.override !== null && (
-          <div className="sm:col-span-3">
+          <div className="col-span-2 sm:col-span-3">
             <dt className="text-ink-muted">Why</dt>
             <dd className="mt-0.5 whitespace-pre-wrap text-ink">
               {flag.reason ?? "—"}

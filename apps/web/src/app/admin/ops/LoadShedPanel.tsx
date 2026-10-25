@@ -2,7 +2,7 @@
 
 import { Section } from "@/components/console/section";
 import { useState } from "react";
-import { Gauge, Lock, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Gauge, Lock, TriangleAlert } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
@@ -124,7 +124,16 @@ export function LoadShedPanel({ state, access }: { state: PlatformState; access:
   const ready = !unchanged && confirm === confirmWord;
 
   return (
-    <Section title="Protective slowdown">
+    <Section
+      title="Protective slowdown"
+      info={
+        <p>
+          Never shed, in any mode: health checks, engine webhooks (a dropped callback is a
+          call whose lead never appears), and this operations console, so an operator cannot
+          lock themselves out.
+        </p>
+      }
+    >
       <div className="space-y-4">
         <NoticeBox
           tone={current === "normal" ? "ok" : "warn"}
@@ -257,15 +266,6 @@ export function LoadShedPanel({ state, access }: { state: PlatformState; access:
             </p>
           )}
         </form>
-
-        <p className="flex items-start gap-2 text-meta text-ink-muted">
-          <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-muted" />
-          <span>
-            Never shed, in any mode: health checks, engine webhooks (a dropped callback is a
-            call whose lead never appears), and this operations console, so an operator
-            cannot lock themselves out.
-          </span>
-        </p>
       </div>
     </Section>
   );
