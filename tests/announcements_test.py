@@ -175,6 +175,27 @@ async def test_audiences_dismissal_and_the_composer_lifecycle() -> None:
         ).scalar() == 1
 
 
+async def test_a_patch_cannot_blank_the_start() -> None:
+    """`starts_at` is not one of the fields a PATCH may clear: a null is refused as a
+    validation problem, never written into the NOT NULL column."""
+    ops = await _operator()
+    async with _client() as http:
+        made = await http.post(
+            BASE,
+            headers=ops,
+            json={
+                "message": "Scheduled",
+                "starts_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+            },
+        )
+        assert made.status_code == 201, made.text
+        refused = await http.patch(
+            f"{BASE}/{made.json()['id']}", headers=ops, json={"starts_at": None}
+        )
+        assert refused.status_code == 422, refused.text
+        assert _code(refused) == "announcement_invalid"
+
+
 async def test_the_bell_merges_sources_and_its_read_mark_only_moves_forward() -> None:
     ops = await _operator()
     tenant_id, slug, token = await _make_tenant()

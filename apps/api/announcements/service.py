@@ -192,6 +192,16 @@ async def update(
     }
     if merged["audience"] != "tenant" and "target_tenant_id" not in sent:
         merged["target_tenant_id"] = None
+    # On create a missing start means "now"; on a PATCH a null start would reach the NOT
+    # NULL column, so it is refused with the other invalid shapes.
+    if merged["starts_at"] is None:
+        raise ProblemError(
+            kind="validation",
+            code="announcement_invalid",
+            title="That change does not make a valid announcement",
+            detail="The start time cannot be cleared.",
+            remediation="Send a start time, or leave the start out to keep it.",
+        )
     try:
         checked = AnnouncementIn.model_validate(merged)
     except ValidationError as exc:
