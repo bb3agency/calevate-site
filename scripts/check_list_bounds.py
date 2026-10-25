@@ -83,20 +83,29 @@ _LEAD_SUGGESTIONS = BoundedByConstruction(
     by=(
         "the open suggestions on ONE agent, at most `agents/models.MAX_FIELD_SUGGESTIONS` "
         "(six), enforced by `workers/field_suggestions` when it writes them; a suggestion's "
-        "`values` are choices of one field, at most `agents/field_suggestions.MAX_CHOICES` (the model's `max_length`)."
+        "`values` are choices of one field, at most "
+        "`agents/field_suggestions.MAX_CHOICES` (the model's `max_length`)."
     )
 )
 
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    "GET /v1/calls/live": BoundedByConstruction(
+        by=(
+            "the calls among the ids asked for, read with `ids[:crm/live_calls.MAX_LIVE_IDS]` "
+            "(twenty), one row per id (D-886)."
+        )
+    ),
+    "GET /v1/trial/calls": BoundedByConstruction(
+        by=("today's test calls read with `LIMIT` `agents/test_call_reads.RECENT_TEST_CALLS`.")
+    ),
     "GET /v1/agents/{agent_id}/lead-suggestions": _LEAD_SUGGESTIONS,
     "POST /v1/agents/{agent_id}/lead-suggestions/check": _LEAD_SUGGESTIONS,
     "POST /v1/agents/{agent_id}/lead-suggestions/{suggestion_id}/accept": _LEAD_SUGGESTIONS,
     "POST /v1/agents/{agent_id}/lead-suggestions/{suggestion_id}/dismiss": _LEAD_SUGGESTIONS,
     "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions": _LEAD_SUGGESTIONS,
     (
-        "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}"
-        "/lead-suggestions/check"
+        "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions/check"
     ): _LEAD_SUGGESTIONS,
     (
         "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}"
