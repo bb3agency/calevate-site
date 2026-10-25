@@ -1910,7 +1910,7 @@ export interface paths {
         };
         /**
          * How a Studio voice sounds on one client agent
-         * @description How a Studio voice sounds on this agent. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion`, or null to let the words decide; `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a voice cloned from a long recording keeps its own pace (refused at publish or preview). They apply only while the agent's voice is a Studio one.
+         * @description How the agent's voice sounds. `speed` is 0.6-1.5 in hundredths on a Studio voice and 0.7-1.3 in steps of 0.05 on any other (`options` gives the range in force), 1 being the voice's own pace. `volume` (0.5-2.0, hundredths); `emotion`, or null to let the words decide; `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a Studio voice cloned from a long recording keeps its own pace (refused at publish or preview). Speed applies on any voice; the rest only while the agent's voice is a Studio one.
          */
         get: operations["admin_get_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_get"];
         put?: never;
@@ -1920,7 +1920,7 @@ export interface paths {
         head?: never;
         /**
          * Set how a Studio voice sounds on one client agent (audited)
-         * @description How a Studio voice sounds on this agent. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion`, or null to let the words decide; `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a voice cloned from a long recording keeps its own pace (refused at publish or preview). They apply only while the agent's voice is a Studio one.
+         * @description How the agent's voice sounds. `speed` is 0.6-1.5 in hundredths on a Studio voice and 0.7-1.3 in steps of 0.05 on any other (`options` gives the range in force), 1 being the voice's own pace. `volume` (0.5-2.0, hundredths); `emotion`, or null to let the words decide; `model`, the voice model for this agent alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. Null leaves the voice's default. The older voice model takes no speed, volume or emotion, and a Studio voice cloned from a long recording keeps its own pace (refused at publish or preview). Speed applies on any voice; the rest only while the agent's voice is a Studio one.
          */
         patch: operations["admin_set_voice_tuning_v1_admin_tenants__tenant_id__agents__agent_id__voice_tuning_patch"];
         trace?: never;
@@ -4271,7 +4271,7 @@ export interface paths {
         };
         /**
          * How this agent's Studio voice sounds
-         * @description How this agent's Studio voice sounds. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion`, one of `options.emotions`, or null to let the words decide. Null leaves the voice's default; a field left out of a PATCH is kept. Refused while the agent's voice is not a Studio one. A change reaches a live agent from its next call.
+         * @description How this agent's voice sounds. `speed` is 0.6-1.5 in hundredths on a Studio voice and 0.7-1.3 in steps of 0.05 on any other (`options` gives the range in force), 1 being the voice's own pace. `volume` (0.5-2.0, hundredths) and `emotion` (one of `options.emotions`, or null to let the words decide) apply to a Studio voice only. Null leaves the voice's default; a field left out of a PATCH is kept. A change reaches a live agent from its next call.
          */
         get: operations["get_agent_voice_tuning_v1_agents__agent_id__voice_tuning_get"];
         put?: never;
@@ -4281,7 +4281,7 @@ export interface paths {
         head?: never;
         /**
          * Set how this agent's Studio voice sounds
-         * @description How this agent's Studio voice sounds. `speed` (0.6-1.5) and `volume` (0.5-2.0), 1 being the voice's own, in hundredths; `emotion`, one of `options.emotions`, or null to let the words decide. Null leaves the voice's default; a field left out of a PATCH is kept. Refused while the agent's voice is not a Studio one. A change reaches a live agent from its next call.
+         * @description How this agent's voice sounds. `speed` is 0.6-1.5 in hundredths on a Studio voice and 0.7-1.3 in steps of 0.05 on any other (`options` gives the range in force), 1 being the voice's own pace. `volume` (0.5-2.0, hundredths) and `emotion` (one of `options.emotions`, or null to let the words decide) apply to a Studio voice only. Null leaves the voice's default; a field left out of a PATCH is kept. A change reaches a live agent from its next call.
          */
         patch: operations["set_agent_voice_tuning_v1_agents__agent_id__voice_tuning_patch"];
         trace?: never;
@@ -15742,6 +15742,8 @@ export interface components {
             speed_max: string;
             /** Speed Min */
             speed_min: string;
+            /** Speed Step */
+            speed_step: string;
             /** Volume Max */
             volume_max: string;
             /** Volume Min */
@@ -30431,6 +30433,8 @@ export interface components {
             speed_max: string;
             /** Speed Min */
             speed_min: string;
+            /** Speed Step */
+            speed_step: string;
             /** Volume Max */
             volume_max: string;
             /** Volume Min */

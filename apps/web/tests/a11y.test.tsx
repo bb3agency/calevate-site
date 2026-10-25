@@ -5176,6 +5176,7 @@ const ADMIN_SCREENS: Screen[] = [
         options: {
           speed_min: "0.6",
           speed_max: "1.5",
+          speed_step: "0.01",
           volume_min: "0.5",
           volume_max: "2.0",
           emotions: ["neutral", "calm"],

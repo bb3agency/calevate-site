@@ -90,7 +90,7 @@ export function CallHandlingSection({ agent }: { agent: Agent }) {
       },
       {
         key: "waits_for_hello",
-        label: "Waits for the person who picks up to say hello before speaking",
+        label: "Waits for the first words of the person who picks up before speaking",
         value: handling.data ? (handling.data.opening_waits_for_caller ? "yes" : "no") : unread,
       },
     ],

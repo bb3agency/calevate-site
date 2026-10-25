@@ -64,6 +64,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -86,7 +87,12 @@ from apps.api.agents.service import (
 )
 from apps.api.agents.starters import JobChoice, apply_starter, direction_for, starter_jobs
 from apps.api.agents.voice_pick import voice_gender
-from apps.api.agents.voice_tuning import DEFAULT_STUDIO_EMOTION, OLD_VOICE_MODEL, is_studio_voice
+from apps.api.agents.voice_tuning import (
+    DEFAULT_STUDIO_EMOTION,
+    OLD_VOICE_MODEL,
+    fit_speed,
+    is_studio_voice,
+)
 from apps.api.agents.write_guard import archived_refusal
 from apps.api.compliance.disclosure import (
     ai_disclosure_for,
@@ -559,7 +565,7 @@ async def update_agent(
         await session.execute(
             text(
                 "SELECT status, engine_agent_ref, engine_voice_id, engine_model_id, "
-                "language_primary, name FROM agents "
+                "language_primary, name, studio_voice_speed FROM agents "
                 "WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
             ),
             {"aid": agent_id},
@@ -620,6 +626,10 @@ async def update_agent(
             "AND studio_voice_emotion IS NULL "
             "AND studio_voice_model IS DISTINCT FROM CAST(:old_voice_model AS text) "
             "THEN CAST(:studio_default_emotion AS text) ELSE studio_voice_emotion END, "
+            # D-884: the agent's speed follows it to the new voice, fitted to that rung's
+            # range (`voice_tuning.fit_speed`), so the next publish sends a value it takes.
+            "studio_voice_speed = CASE WHEN :set_engine_voice_id "
+            "THEN CAST(:fitted_speed AS numeric) ELSE studio_voice_speed END, "
             "updated_at = now() WHERE id = :aid AND deleted_at IS NULL"
         ),
         {
@@ -646,6 +656,10 @@ async def update_agent(
                 else None
             ),
             "old_voice_model": OLD_VOICE_MODEL,
+            "fitted_speed": fit_speed(
+                Decimal(str(row[6])) if row[6] is not None else None,
+                studio=is_studio_voice(engine_voice_id),
+            ),
             "aid": agent_id,
         },
     )

@@ -1303,6 +1303,7 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "machine_detection": ("voice.detectMachines",),
     "end_call_on_finish": ("voice.endCallOnFinish",),
     "opening_waits_for_caller": ("voice.openingWaitsForCaller",),
+    "speaking_speed": ("voice.speakingSpeed",),
     "turn_silence": ("voice.turnSilenceSeconds", "voice.turnDetection", "voice.acknowledgements"),
     "early_answers": ("voice.earlyAnswers",),
     "do_not_call_tool": ("voice.recordDoNotCall",),
@@ -1459,6 +1460,8 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
                 same = present and (have or None) == want
             elif key == "voice.ambienceVolume":
                 same = _same_hundredths(want, have)
+            elif key == "voice.speakingSpeed":
+                same = _same_speed(want, have)
             else:
                 same = present and have == want and type(have) is type(want)
             if not same:
@@ -1499,6 +1502,37 @@ def _refuse_unsaved_reply_length(wanted: dict[str, Any], saved: dict[str, Any]) 
             "engine_reply_length_not_saved",
             title="The voice platform did not save this agent's reply length",
             detail="The longest reply read back from the voice platform differs from the one sent.",
+            remediation="Publish again. If it keeps happening, contact us.",
+        )
+
+
+def _speaking_speed_wire(cfg: AgentConfig) -> float | None:
+    """`voice.speakingSpeed` for `cfg`: its speed on an engine voice, null on an own-key one."""
+    if cfg.engine_byok_voice_id or cfg.engine_speaking_speed is None:
+        return None
+    return float(cfg.engine_speaking_speed)
+
+
+def _same_speed(wanted: float | None, held: Any) -> bool:
+    """A speed read back as the one sent, in hundredths. The answer gives 1 while unset
+    (update-agent response `speakingSpeed`, "1 unless set", read 25 Oct 2026), so a null we
+    sent may come back as 1 or null."""
+    if wanted is None:
+        return held is None or (not isinstance(held, bool) and held == 1)
+    return _same_hundredths(wanted, held)
+
+
+def _refuse_unsaved_speaking_speed(wanted: dict[str, Any], saved: dict[str, Any]) -> None:
+    """The publish read-back of the speed (D-884): an agent left talking at a pace nobody
+    chose is refused rather than left live. An answer that omits the field is not judged,
+    as for the call rules."""
+    present, have = _field(saved, "voice.speakingSpeed")
+    if present and not _same_speed(wanted["voice"]["speakingSpeed"], have):
+        log.warning("thinnest_speaking_speed_not_saved")
+        raise _business_refusal(
+            "engine_speaking_speed_not_saved",
+            title="The voice platform did not save this agent's speed",
+            detail="The speed read back from the voice platform differs from the one sent.",
             remediation="Publish again. If it keeps happening, contact us.",
         )
 
@@ -2001,6 +2035,12 @@ class ThinnestEngine:
             # agents/update-agent, read 24 Oct 2026). Always stated, so a console change
             # reads as drift.
             "openingWaitsForCaller": cfg.opening_waits_for_caller,
+            # How fast the agent talks, 0.7-1.3 times the voice's pace, null its own (D-884;
+            # docs.thinnest.ai/api-reference/agents/update-agent, read 25 Oct 2026: every
+            # hosted voice follows it, clones included). Null on a Studio voice: a speed in
+            # its byok-voice settings is used instead (same page), and that is where ours
+            # goes. Always stated, so a console change reads as drift.
+            "speakingSpeed": _speaking_speed_wire(cfg),
             # Seconds of quiet that end the caller's turn, a number 0.2 to 3 that reads back
             # null until set, "0.25 s on most lines" (same pages, read 11 Oct 2026). Always
             # stated, so a console reset to null reads as drift. Whole milliseconds on our
@@ -2658,6 +2698,7 @@ class ThinnestEngine:
         _refuse_unsaved_steps(body, data)
         _refuse_unsaved_reply_length(body, data)
         _refuse_unsaved_call_instructions(body, data)
+        _refuse_unsaved_speaking_speed(body, data)
         await self._settle_own_rules(raw, workspace, body, data)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_own_model(raw, workspace, cfg)
@@ -2672,6 +2713,7 @@ class ThinnestEngine:
         _refuse_unsaved_steps(body, saved)
         _refuse_unsaved_reply_length(body, saved)
         _refuse_unsaved_call_instructions(body, saved)
+        _refuse_unsaved_speaking_speed(body, saved)
         await self._settle_own_rules(raw, workspace, body, saved)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_own_model(raw, workspace, cfg)

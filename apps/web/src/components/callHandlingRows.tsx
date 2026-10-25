@@ -375,14 +375,16 @@ export function HangUpRow({
 
 /** The row's one plain line (D-871). */
 export const OPENING_WAITS_LINE =
-  "Your agent speaks right after the person who picks up says hello, or after four seconds " +
-  "if they stay silent.";
+  "Your agent speaks right after the first words of the person who picks up, or after four " +
+  "seconds if they stay silent.";
 const OPENING_SPEAKS_LINE = "Your agent speaks as soon as the call connects.";
 
 const OPENING_WAITS_INFO =
-  "On, the agent lets the person who picks up speak first, so it does not talk over their " +
-  "hello or greet them twice. This suits an agent that calls people. Off, the agent speaks " +
-  "the moment the call connects, which suits people calling your business.";
+  "On, the agent lets the person who picks up speak first and opens right after their first " +
+  "words, so it does not talk over their hello. A plain hello is not answered a second time. " +
+  "If they say nothing, it opens after four seconds. This suits an agent that calls people. " +
+  "Off, the agent speaks the moment the call connects, which suits people calling your " +
+  "business.";
 
 /**
  * Whether the agent's first words wait for the person's hello (D-871). The agent's own

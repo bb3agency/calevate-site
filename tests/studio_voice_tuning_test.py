@@ -306,18 +306,22 @@ async def test_an_operator_sets_and_clears_settings_audited_and_applied_live() -
     assert len(actions) == 2
 
 
-async def test_an_agent_on_a_platform_voice_takes_no_settings() -> None:
+async def test_an_agent_on_a_platform_voice_takes_its_speed_only() -> None:
     tenant_id, agent_id, _headers = await _tenant()
     operator = await _operator()
     async with _client() as client:
         refused = await client.patch(
-            _path(tenant_id, agent_id), headers=operator, json={"speed": 1.1}
+            _path(tenant_id, agent_id), headers=operator, json={"volume": 1.1}
         )
         assert refused.status_code == 422, refused.text
         assert refused.json()["type"].endswith("/voice_tuning_needs_studio_voice")
-        assert (await client.get(_path(tenant_id, agent_id), headers=operator)).json()[
-            "studio"
-        ] is False
+        saved = await client.patch(
+            _path(tenant_id, agent_id), headers=operator, json={"speed": 1.1}
+        )
+        assert saved.status_code == 200, saved.text
+        body = saved.json()
+        assert body["studio"] is False and Decimal(body["speed"]) == Decimal("1.10")
+        assert (body["options"]["speed_min"], body["options"]["speed_max"]) == ("0.7", "1.3")
 
 
 async def test_a_client_cannot_reach_the_operator_routes() -> None:

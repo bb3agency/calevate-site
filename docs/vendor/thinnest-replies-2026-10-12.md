@@ -1869,7 +1869,7 @@ unanswered, so D-868 keeps waiting.
    under the opening line. VERIFIED-VENDOR-DOCS: docs.thinnest.ai/api-reference/agents/
    update-agent, read 24 Oct 2026. Built as D-871.
 
-## 33. Questions for the next email (from the Sri Estates call of 24 Oct 2026, D-877)
+## 33. Questions for the next email (from the Sri Estates call of 24 Oct 2026, D-877; answered 25 Oct 2026, §35 item 4)
 
 1. **Where did the second goodbye come from?** The agent's last turn on the call, as the
    transcript holds it, is one agent entry: "సరే అండి, ధన్యవాదాలు. ఉంటాను మరి, నమస్కారం. సరే
@@ -1888,7 +1888,7 @@ unanswered, so D-868 keeps waiting.
    Until answered: our rule now reads "then one goodbye and nothing more", and the practice
    checks flag a second goodbye in one reply (`agents/turn_checks._repeated_sentence`).
 
-## 34. Questions for the next email (Anjali's call of 24 Oct 2026, 16:31 IST)
+## 34. Questions for the next email (Anjali's call of 24 Oct 2026, 16:31 IST; answered 25 Oct 2026, §35 items 1-3)
 
 Call `out_fa60146c-c81b-4381-ac5a-f72b08fbb292`, placed 24 Oct 2026 16:31:21 IST, 23 s,
 outbound, Telugu, `voice.openingWaitsForCaller: true` (D-871), agent read back in step
@@ -1914,3 +1914,56 @@ outbound, Telugu, `voice.openingWaitsForCaller: true` (D-871), agent read back i
    list lags rather than omits; the open question is how long it is cached.
 
 Until answered: the founder switches "Wait for the caller to say hello" off for Anjali.
+
+## 35. Ashutosh's answer to §33 and §34, received 25 Oct 2026
+
+Founder-relayed email (VENDOR-STATED, 25 Oct 2026), item by item. Where the live docs say
+the same, they were read the same day (VERIFIED-VENDOR-DOCS, docs.thinnest.ai, 25 Oct 2026).
+Built as D-884.
+
+1. **The opening that was never spoken (§34 item 1).** Their bug: the caller's "Hello"
+   cancelled the opening before it was spoken (our calls at 16:31, 16:56 and 23:43 IST,
+   24 Oct). Fixed: with `voice.openingWaitsForCaller` on, the opening is now the agent's
+   reply to the caller's first words; silent, it plays after four seconds. VENDOR-STATED
+   only: first words longer than a greeting ("I'm busy, who is this?") are answered with the
+   introduction in the same reply, and a repeated "Hello" during the opening is answered
+   after it ends. The docs (`api-reference/agents/update-agent`) still say only that the
+   opening plays right after the person's first words, a bare "Hello" that started it is
+   not answered a second time, it plays after four seconds of silence, and the default is
+   false (VERIFIED-VENDOR-DOCS). Office ambience starting about 2 s in: noted, unchanged.
+   **What we do:** the help text on the switch says what the docs say (right after the
+   first words, or after four seconds; a plain hello is not answered twice) and nothing
+   more. `_start_of_call_section` (D-864) is unchanged: it tells the model the opening was
+   already its first turn, which stays true. **The founder may switch the setting back on
+   for Anjali** and should listen to one call before relying on it.
+2. **Clone pace (§34 item 2).** Superseded by the docs: `voice.speakingSpeed` is a number
+   0.7 to 1.3, "How fast the agent talks, as a multiple of the voice's own pace"; "Every
+   voice follows it, cloned voices included, and so does a voice from your own voice
+   account wherever that provider has a speed setting (a speed set in a Cartesia voice's own
+   settings is used instead)"; `null` (or 1) is the voice's own pace; the answer reads "1
+   unless set"; the console slider moves in steps of 0.05 (VERIFIED-VENDOR-DOCS,
+   update-agent, read 25 Oct 2026). The 24 Oct reading ("Studio voices, cloned voices and
+   voices from your own voice account keep their own pace") no longer stands. A Cartesia
+   Professional Voice Clone keeps its recording's pace (VENDOR-STATED). **What we do:**
+   every agent write states `voice.speakingSpeed`, the agent's speed on a Clear voice and
+   null on a Studio one (whose speed stays in `byok-voice`); read back at publish and
+   repaired by the settings sweep (D-884).
+3. **A Cartesia clone missing from `GET /byok/voices` (§34 item 3).** VENDOR-STATED: the list
+   is cached 10 minutes per key, and the response says clients may reuse it for 5 minutes;
+   our own voices come first; the 16:43 refresh had 1,050 voices and Cartesia did not return
+   "Anusha" then. No forced refresh exists (they noted the request). The docs give no cache
+   duration; they say a voice id missing from the list is still accepted for a per-call
+   `overrides.voice`: "if it is not on the list we ask the provider about that one voice
+   directly" (VERIFIED-VENDOR-DOCS, `api-reference/bring-your-own-keys/list-byok-voices`,
+   read 25 Oct 2026). **What we do:** the Voices page says a voice cloned in Cartesia can
+   take about 10 minutes to be listed, and to refresh again after that. Adding a voice by id
+   is not built.
+4. **The doubled goodbye (§33).** VENDOR-STATED: their fixed line is only for an agent that
+   ends a call without saying anything (outbound Telugu "ధన్యవాదాలు. శుభ దినం."), never
+   after a goodbye. The doubled "సరే అండి, ఉంటాను మరి." was the model writing after ending
+   the call; fixed on their side, so once the agent says goodbye nothing more is spoken.
+   **What we do:** nothing; D-877's one-goodbye rule and the practice checks stay as they
+   are.
+
+Still open after §35: a forced refresh of `GET /byok/voices` (requested); the longer-first-
+words and repeated-hello behaviour, which only a call can show.

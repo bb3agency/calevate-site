@@ -1,4 +1,6 @@
-"""How a Studio voice sounds on one agent (`agents/voice_tuning`), for clients and operators.
+"""How an agent's voice sounds (`agents/voice_tuning`), for clients and operators: the speed
+on any voice (D-884), the rest on a Studio voice. A sample is spoken only for a Studio voice;
+a Clear voice's speed is saved and heard on the next call.
 
     GET   /v1/agents/{aid}/voice-tuning                                speed, loudness, emotion
     PATCH /v1/agents/{aid}/voice-tuning                                set or clear (audited)
@@ -65,32 +67,40 @@ _PREVIEW_TEXT_MAX_CHARS = voice_tuning.PREVIEW_TEXT_MAX_CHARS
 
 _PATH = "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice-tuning"
 _CLIENT_PATH = "/v1/agents/{agent_id}/voice-tuning"
+_SPEED_RANGES = (
+    f"`speed` is {voice_tuning.SPEED_MIN}-{voice_tuning.SPEED_MAX} in hundredths on a Studio "
+    f"voice and {voice_tuning.CLEAR_SPEED_MIN}-{voice_tuning.CLEAR_SPEED_MAX} in steps of "
+    f"{voice_tuning.CLEAR_SPEED_STEP} on any other (`options` gives the range in force), 1 "
+    "being the voice's own pace. "
+)
 _DESCRIPTION = (
-    "How a Studio voice sounds on this agent. `speed` "
-    f"({voice_tuning.SPEED_MIN}-{voice_tuning.SPEED_MAX}) and `volume` "
-    f"({voice_tuning.VOLUME_MIN}-{voice_tuning.VOLUME_MAX}), 1 being the voice's own, in "
-    "hundredths; `emotion`, or null to let the words decide; `model`, the voice model for this "
-    "agent alone "
-    "(null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice account. "
-    "Null leaves the voice's default. The older voice model takes no speed, volume or "
-    "emotion, and a voice cloned from a long recording keeps its own pace (refused at publish "
-    "or preview). They apply only while the agent's voice is a Studio one."
+    "How the agent's voice sounds. "
+    + _SPEED_RANGES
+    + f"`volume` ({voice_tuning.VOLUME_MIN}-{voice_tuning.VOLUME_MAX}, hundredths); "
+    "`emotion`, or null to let the words decide; `model`, the voice model for this agent "
+    "alone (null: the key's own); `dictionary_id`, a pronunciation dictionary of our voice "
+    "account. Null leaves the voice's default. The older voice model takes no speed, volume "
+    "or emotion, and a Studio voice cloned from a long recording keeps its own pace (refused "
+    "at publish or preview). Speed applies on any voice; the rest only while the agent's "
+    "voice is a Studio one."
 )
 _CLIENT_DESCRIPTION = (
-    "How this agent's Studio voice sounds. `speed` "
-    f"({voice_tuning.SPEED_MIN}-{voice_tuning.SPEED_MAX}) and `volume` "
-    f"({voice_tuning.VOLUME_MIN}-{voice_tuning.VOLUME_MAX}), 1 being the voice's own, in "
-    "hundredths; `emotion`, one of `options.emotions`, or null to let the words decide. Null "
-    "leaves the voice's default; a field left out of a PATCH is kept. Refused while the "
-    "agent's voice is not a Studio one. A change reaches a live agent from its next call."
+    "How this agent's voice sounds. "
+    + _SPEED_RANGES
+    + f"`volume` ({voice_tuning.VOLUME_MIN}-{voice_tuning.VOLUME_MAX}, hundredths) and "
+    "`emotion` (one of `options.emotions`, or null to let the words decide) apply to a Studio "
+    "voice only. Null leaves the voice's default; a field left out of a PATCH is kept. A "
+    "change reaches a live agent from its next call."
 )
 
 
 class VoiceTuningOptionsOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    #: The speed range and step of the agent's voice now: Studio's, or a Clear voice's.
     speed_min: Decimal
     speed_max: Decimal
+    speed_step: Decimal
     volume_min: Decimal
     volume_max: Decimal
     emotions: list[str]
@@ -137,8 +147,10 @@ class VoiceTuningPreviewIn(VoiceTuningIn):
 class ClientVoiceTuningOptionsOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    #: The speed range and step of the agent's voice now: Studio's, or a Clear voice's.
     speed_min: Decimal
     speed_max: Decimal
+    speed_step: Decimal
     volume_min: Decimal
     volume_max: Decimal
     emotions: list[str]
@@ -171,10 +183,12 @@ class ClientVoiceTuningIn(BaseModel):
     emotion: str | None = Field(default=None, max_length=40)
 
 
-def _options() -> VoiceTuningOptionsOut:
+def _options(studio: bool) -> VoiceTuningOptionsOut:
+    speed_min, speed_max, speed_step = voice_tuning.speed_range(studio=studio)
     return VoiceTuningOptionsOut(
-        speed_min=voice_tuning.SPEED_MIN,
-        speed_max=voice_tuning.SPEED_MAX,
+        speed_min=speed_min,
+        speed_max=speed_max,
+        speed_step=speed_step,
         volume_min=voice_tuning.VOLUME_MIN,
         volume_max=voice_tuning.VOLUME_MAX,
         emotions=list(voice_tuning.EMOTIONS),
@@ -195,12 +209,13 @@ def _out(state: VoiceTuningState) -> VoiceTuningOut:
         emotion=tuning.emotion,
         model=tuning.model,
         dictionary_id=tuning.dictionary_id,
-        options=_options(),
+        options=_options(state.studio),
     )
 
 
 async def _client_out(state: VoiceTuningState, tenant_id: UUID) -> ClientVoiceTuningOut:
     tuning = state.tuning
+    speed_min, speed_max, speed_step = voice_tuning.speed_range(studio=state.studio)
     return ClientVoiceTuningOut(
         agent_id=state.agent_id,
         studio=state.studio,
@@ -208,8 +223,9 @@ async def _client_out(state: VoiceTuningState, tenant_id: UUID) -> ClientVoiceTu
         volume=tuning.volume,
         emotion=tuning.emotion,
         options=ClientVoiceTuningOptionsOut(
-            speed_min=voice_tuning.SPEED_MIN,
-            speed_max=voice_tuning.SPEED_MAX,
+            speed_min=speed_min,
+            speed_max=speed_max,
+            speed_step=speed_step,
             volume_min=voice_tuning.VOLUME_MIN,
             volume_max=voice_tuning.VOLUME_MAX,
             emotions=list(voice_tuning.EMOTIONS),

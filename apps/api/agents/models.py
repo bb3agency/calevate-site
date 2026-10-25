@@ -224,6 +224,14 @@ STUDIO_VOICE_MODELS: tuple[str, ...] = (
 #: The one model that takes no speed, volume or emotion.
 STUDIO_VOICE_OLD_MODEL = "sonic-2"
 STUDIO_VOICE_DICTIONARY_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{2,79}$"
+# Speed on a Clear voice (one ThinnestAI hosts, clones included): `voice.speakingSpeed`,
+# 0.7 to 1.3, "as a multiple of the voice's own pace", null or 1 the voice's own; the console
+# slider moves in steps of 0.05 (docs.thinnest.ai/api-reference/agents/update-agent, read
+# 25 Oct 2026). The same `studio_voice_speed` column holds it (D-884), so the column CHECK
+# stays the Studio range, which contains this one; the step is ours, the console's.
+CLEAR_VOICE_SPEED_MIN = Decimal("0.7")
+CLEAR_VOICE_SPEED_MAX = Decimal("1.3")
+CLEAR_VOICE_SPEED_STEP = Decimal("0.05")
 
 
 def studio_voice_checks() -> tuple[CheckConstraint, ...]:
@@ -543,7 +551,9 @@ class Agent(PKMixin, TimestampMixin, Base):
     ambience: Mapped[str | None] = mapped_column(Text)
     ambience_volume_pct: Mapped[int | None] = mapped_column(Integer)
     # How a Studio voice sounds on this agent (`agents/voice_tuning`); NULL is the voice
-    # provider's own default. Sent only while the agent's voice is a Studio one.
+    # provider's own default. Sent only while the agent's voice is a Studio one, except the
+    # speed: it is the agent's speed on either rung (D-884), sent as the byok-voice speed on
+    # a Studio voice and as `voice.speakingSpeed` on a Clear one.
     studio_voice_speed: Mapped[Decimal | None] = mapped_column(Numeric(3, 2))
     studio_voice_volume: Mapped[Decimal | None] = mapped_column(Numeric(3, 2))
     studio_voice_emotion: Mapped[str | None] = mapped_column(Text)

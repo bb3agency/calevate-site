@@ -622,7 +622,9 @@ describe("adding voices", () => {
     expect(within(within(drawer).getByRole("list", { name: "Found voice" })).getByRole("checkbox", { name: /Tara/ })).toBeTruthy();
 
     fireEvent.change(field, { target: { value: "a0e99841-not-listed" } });
-    expect(within(drawer).getByText(/isn.t in the list the voice platform returned for our key/)).toBeTruthy();
+    const missing = within(drawer).getByText(/isn.t in the last list the voice platform returned/);
+    // The list lags a fresh clone by about 10 minutes (thinnest-replies §35).
+    expect(missing.textContent).toMatch(/about 10 minutes/);
   });
 });
 

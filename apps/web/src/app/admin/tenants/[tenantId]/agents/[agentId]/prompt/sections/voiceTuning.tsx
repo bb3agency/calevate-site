@@ -77,9 +77,9 @@ function bodyOf(draft: Draft): VoiceTuningIn {
 }
 
 /**
- * How it sounds: speed, volume, emotion, the voice model and a pronunciation dictionary for
- * this agent's Studio voice. The client sets speed, loudness and emotion on its own screen
- * too (D-843); the voice model and dictionary are set only here.
+ * How it sounds: the agent's speed on any voice (D-884), and volume, emotion, the voice model
+ * and a pronunciation dictionary for a Studio voice. The client sets speed, loudness and
+ * emotion on its own screen too (D-843); the voice model and dictionary are set only here.
  *
  * "Hear it" speaks a short line with the settings as they are in the form, unsaved, on our
  * voice key (charged per character, so only on a press). "Save settings" stores them and the
@@ -134,20 +134,10 @@ export function VoiceTuningPanel({
   }
   const data = held.data;
   const options = data.options;
-  if (!data.studio) {
-    return (
-      <section aria-labelledby="voice-tuning-heading" className="mt-8 space-y-2">
-        <h3 id="voice-tuning-heading" className="text-heading text-ink">
-          How it sounds
-        </h3>
-        <p className="max-w-prose text-body text-ink-muted">
-          Speed, volume, emotion and pronunciation can be set for a Studio voice. This agent
-          does not speak one.
-        </p>
-      </section>
-    );
-  }
+  const studio = data.studio;
   const form = draft ?? draftOf(data);
+  // A Clear voice takes the speed alone (D-884); Studio settings it still holds stay unsent.
+  const body = (): VoiceTuningIn => (studio ? bodyOf(form) : { speed: form.speed });
   const oldModel = form.model === options.old_model;
   const set = (patch: Partial<Draft>) => {
     setSaved(false);
@@ -161,20 +151,25 @@ export function VoiceTuningPanel({
         How it sounds
       </h3>
       <p className="max-w-prose text-body text-ink-muted">
-        For this agent alone. Empty leaves the voice as it is. The voice treats these as
-        guidance, so listen before relying on a value.
+        {studio
+          ? "For this agent alone. Empty leaves the voice as it is. The voice treats these as guidance, so listen before relying on a value."
+          : "For this agent alone. On a ThinnestAI voice only the speed applies, sent as the agent's speaking speed; volume, emotion, voice model and pronunciation are for a Studio voice. There is no sample at a chosen speed: the next call uses it."}
       </p>
       <form
         className="grid grid-cols-1 max-w-xl gap-3 sm:grid-cols-2"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          save.mutate(bodyOf(form), { onSuccess: () => setSaved(true) });
+          save.mutate(body(), { onSuccess: () => setSaved(true) });
         }}
       >
         <NumberField
           label="Speed"
-          hint={`${range(options.speed_min, options.speed_max)}; 1 is the voice's own pace. A voice cloned from a long recording keeps its own.`}
+          hint={
+            studio
+              ? `${range(options.speed_min, options.speed_max)}; 1 is the voice's own pace. A Cartesia voice cloned from a long recording (a Professional Voice Clone) keeps its own.`
+              : `${range(options.speed_min, options.speed_max)} in steps of ${String(tuningNumber(options.speed_step))}; 1 is the voice's own pace. Every ThinnestAI voice follows it, clones included.`
+          }
           value={form.speed}
           onChange={(speed) => set({ speed })}
           optional
@@ -184,93 +179,99 @@ export function VoiceTuningPanel({
           max={tuningNumber(options.speed_max) ?? undefined}
           disabled={disabled}
         />
-        <NumberField
-          label="Volume"
-          hint={`${range(options.volume_min, options.volume_max)}; raise it if calls sound quiet.`}
-          value={form.volume}
-          onChange={(volume) => set({ volume })}
-          optional
-          step={0.05}
-          largeStep={0.25}
-          min={tuningNumber(options.volume_min) ?? undefined}
-          max={tuningNumber(options.volume_max) ?? undefined}
-          disabled={disabled}
-        />
-        <Field id={`${id}-emotion`} label="Emotion" hint="Empty lets the words decide.">
-          {(props) => (
-            <select
-              {...props}
-              className={FIELD}
-              value={form.emotion}
+        {studio && (
+          <>
+            <NumberField
+              label="Volume"
+              hint={`${range(options.volume_min, options.volume_max)}; raise it if calls sound quiet.`}
+              value={form.volume}
+              onChange={(volume) => set({ volume })}
+              optional
+              step={0.05}
+              largeStep={0.25}
+              min={tuningNumber(options.volume_min) ?? undefined}
+              max={tuningNumber(options.volume_max) ?? undefined}
               disabled={disabled}
-              onChange={(event) => set({ emotion: event.target.value })}
-            >
-              <option value="">Let the words decide</option>
-              {options.emotions.map((emotion) => (
-                <option key={emotion} value={emotion}>
-                  {emotion}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
-        <Field
-          id={`${id}-model`}
-          label="Voice model"
-          hint={
-            oldModel
-              ? `${options.old_model} takes no speed, volume or emotion: clear them to save.`
-              : "For this agent alone."
-          }
-        >
-          {(props) => (
-            <select
-              {...props}
-              className={FIELD}
-              value={form.model}
-              disabled={disabled}
-              onChange={(event) => set({ model: event.target.value })}
-            >
-              <option value="">The voice key&apos;s own model</option>
-              {options.models.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
-        <Field
-          id={`${id}-dictionary`}
-          label="Pronunciation dictionary id"
-          hint="As our voice account shows it; empty for none."
-          wide
-        >
-          {(props) => (
-            <input
-              {...props}
-              className={FIELD}
-              type="text"
-              spellCheck={false}
-              autoComplete="off"
-              maxLength={80}
-              value={form.dictionaryId}
-              disabled={disabled}
-              onChange={(event) => set({ dictionaryId: event.target.value })}
             />
-          )}
-        </Field>
+            <Field id={`${id}-emotion`} label="Emotion" hint="Empty lets the words decide.">
+              {(props) => (
+                <select
+                  {...props}
+                  className={FIELD}
+                  value={form.emotion}
+                  disabled={disabled}
+                  onChange={(event) => set({ emotion: event.target.value })}
+                >
+                  <option value="">Let the words decide</option>
+                  {options.emotions.map((emotion) => (
+                    <option key={emotion} value={emotion}>
+                      {emotion}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field
+              id={`${id}-model`}
+              label="Voice model"
+              hint={
+                oldModel
+                  ? `${options.old_model} takes no speed, volume or emotion: clear them to save.`
+                  : "For this agent alone."
+              }
+            >
+              {(props) => (
+                <select
+                  {...props}
+                  className={FIELD}
+                  value={form.model}
+                  disabled={disabled}
+                  onChange={(event) => set({ model: event.target.value })}
+                >
+                  <option value="">The voice key&apos;s own model</option>
+                  {options.models.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field
+              id={`${id}-dictionary`}
+              label="Pronunciation dictionary id"
+              hint="As our voice account shows it; empty for none."
+              wide
+            >
+              {(props) => (
+                <input
+                  {...props}
+                  className={FIELD}
+                  type="text"
+                  spellCheck={false}
+                  autoComplete="off"
+                  maxLength={80}
+                  value={form.dictionaryId}
+                  disabled={disabled}
+                  onChange={(event) => set({ dictionaryId: event.target.value })}
+                />
+              )}
+            </Field>
+          </>
+        )}
         <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
-          <ActionButton
-            variant="secondary-sm"
-            status={previewFeedback.status}
-            pendingLabel="Speaking…"
-            successLabel="Playing"
-            disabled={disabled}
-            onClick={() => previewFeedback.run(bodyOf(form))}
-          >
-            Hear it
-          </ActionButton>
+          {studio && (
+            <ActionButton
+              variant="secondary-sm"
+              status={previewFeedback.status}
+              pendingLabel="Speaking…"
+              successLabel="Playing"
+              disabled={disabled}
+              onClick={() => previewFeedback.run(bodyOf(form))}
+            >
+              Hear it
+            </ActionButton>
+          )}
           <ActionButton
             type="submit"
             variant="primary-sm"

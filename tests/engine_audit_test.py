@@ -1578,6 +1578,8 @@ _VENDOR_ONLY_KEYS = frozenset(
         "callTier",
         # ThinnestAI's reply ceiling on an agent (D-769); ours is `max_reply_tokens`.
         "maxReplyTokens",
+        # ThinnestAI's speed on a hosted voice (D-884); ours is `engine_speaking_speed`.
+        "speakingSpeed",
         # ThinnestAI's own-key model of a workspace's key, read on `GET /agents/{id}/
         # byok-model` (D-834); ours is `engine_own_model`.
         "workspaceModel",

@@ -201,12 +201,14 @@ export function AddVoicesDrawer({ onClose }: { onClose: () => void }) {
                   <FoundVoice voice={found} checked={selected.has(found.voice_id)} onToggle={() => toggle(found.voice_id)} />
                 ) : (
                   <p className="text-body text-ink-muted" role="status">
-                    This voice isn&rsquo;t in the list the voice platform returned for our key. If it is a
-                    voice in our own Cartesia account, the platform may only be returning part of the
-                    list; we&rsquo;ve asked them.
+                    {/* 10 minutes per key: VENDOR-STATED, ThinnestAI's email of 25 Oct 2026
+                        (docs/vendor/thinnest-replies-2026-10-12.md §35); the docs give no figure. */}
+                    This voice isn&rsquo;t in the last list the voice platform returned. ThinnestAI keeps
+                    the list of our Cartesia voices for about 10 minutes, so a voice cloned just now can
+                    be missing from it: refresh the voices again after that.
                   </p>
                 ))}
-              <p className={FIELD_HINT}>Searched in the platform&rsquo;s last list. A voice it did not list cannot be added.</p>
+              <p className={FIELD_HINT}>Searched in the platform&rsquo;s last list. A voice must be on it to be added here.</p>
             </div>
           </Disclosure>
 

@@ -1,17 +1,20 @@
 "use client";
 
 /**
- * HOW IT SOUNDS — speed, loudness and emotion for an agent's Studio voice (D-843).
+ * HOW IT SOUNDS — the agent's speed on any voice (D-884), and loudness and emotion on a
+ * Studio voice (D-843).
  *
- * The two sliders put Normal (1.0, the voice's own) in the MIDDLE although neither range is
- * centred on it (speed 0.6-1.5, loudness 0.5-2.0): each half of the track is scaled to its
- * own side, so "slower" and "faster" get the same travel. Normal is sent as null, which is
- * the voice's own setting rather than a value on top of it.
+ * The sliders put Normal (1.0, the voice's own) in the MIDDLE although no range is centred
+ * on it (speed 0.6-1.5 on Studio and 0.7-1.3 on Clear, loudness 0.5-2.0): each half of the
+ * track is scaled to its own side, so "slower" and "faster" get the same travel. The range
+ * and step are the server's for the voice in use (`options`). Normal is sent as null, which
+ * is the voice's own setting rather than a value on top of it.
  *
- * "Hear it" speaks a fixed sample line with the settings as they are on screen, unsaved; each
- * press uses one of the account's samples for the day, so it plays only on a press. A voice
- * that keeps the pace it was recorded at refuses speed; that refusal is said as a sentence
- * and the other settings stay usable. Nothing here names the voice provider (D-679).
+ * "Hear it" (Studio only: there is no sample of a Clear voice at a chosen speed) speaks a
+ * fixed sample line with the settings as they are on screen, unsaved; each press uses one of
+ * the account's samples for the day, so it plays only on a press. A Studio voice that keeps
+ * the pace it was recorded at refuses speed; that refusal is said as a sentence and the
+ * other settings stay usable. Nothing here names the voice provider (D-679).
  */
 
 import { useEffect, useId, useRef, useState } from "react";
@@ -46,13 +49,14 @@ export function positionOf(value: number, min: number, max: number): number {
   return Math.round(position);
 }
 
-/** A slider position as a value in hundredths, the precision the server keeps. */
-export function valueOf(position: number, min: number, max: number): number {
+/** A slider position as a value on the voice's step (hundredths unless the server says). */
+export function valueOf(position: number, min: number, max: number, step = 0.01): number {
   const raw =
     position <= HALF
       ? min + ((NORMAL - min) * position) / HALF
       : NORMAL + ((max - NORMAL) * (position - HALF)) / HALF;
-  return Math.round(raw * 100) / 100;
+  // Rounded to the step, then to hundredths, so 0.05 steps never come back as 1.1500000002.
+  return Math.round(Math.round(raw / step) * step * 100) / 100;
 }
 
 export function multiplierLabel(value: number): string {
@@ -114,6 +118,7 @@ function Slider({
   value,
   min,
   max,
+  step,
   onChange,
 }: {
   id: string;
@@ -123,6 +128,7 @@ function Slider({
   value: number;
   min: number;
   max: number;
+  step?: number;
   onChange: (value: number) => void;
 }) {
   // The track runs over positions, not values (each half is scaled to its own side), so the
@@ -135,7 +141,7 @@ function Slider({
       max={2 * HALF}
       step={1}
       value={positionOf(value, min, max)}
-      onChange={(position) => onChange(valueOf(position, min, max))}
+      onChange={(position) => onChange(valueOf(position, min, max, step))}
       valueText={() => multiplierLabel(value)}
       spokenText={() => (value === NORMAL ? "Normal" : `${value.toFixed(2)} times normal`)}
       scale={[slower, "Normal", faster]}
@@ -215,18 +221,7 @@ export function ClientVoiceTuning({
   }
   const data = held.data;
   const options = data.options;
-  if (!data.studio) {
-    return (
-      <section aria-labelledby={`${id}-heading`} className="space-y-2">
-        <h3 id={`${id}-heading`} className="text-heading text-ink">
-          How it sounds
-        </h3>
-        <p className="max-w-prose text-body text-ink-muted">
-          Speed, loudness and emotion can be set when the agent speaks a Studio voice.
-        </p>
-      </section>
-    );
-  }
+  const studio = data.studio;
   const form = draft ?? draftOf(data);
   const dirty = !sameDraft(form, draftOf(data));
   const set = (patch: Partial<Draft>) => {
@@ -235,6 +230,12 @@ export function ClientVoiceTuning({
   };
   const speedMin = tuningNumber(options.speed_min) ?? 0.6;
   const speedMax = tuningNumber(options.speed_max) ?? 1.5;
+  const speedStep = tuningNumber(options.speed_step) ?? 0.01;
+  // A Clear voice takes the speed alone, so a save leaves any Studio setting held unsent.
+  const body = (): ClientVoiceTuningIn => {
+    const full = bodyOf(form);
+    return studio ? full : { speed: full.speed };
+  };
   const volumeMin = tuningNumber(options.volume_min) ?? 0.5;
   const volumeMax = tuningNumber(options.volume_max) ?? 2;
   const left = data.previews_left_today;
@@ -246,8 +247,9 @@ export function ClientVoiceTuning({
         How it sounds
       </h3>
       <p className="max-w-prose text-body text-ink-muted">
-        For this agent alone. Normal is the voice as it was made. Listen before relying on a
-        setting: the voice treats these as guidance.
+        {studio
+          ? "For this agent alone. Normal is the voice as it was made. Listen before relying on a setting: the voice treats these as guidance."
+          : "For this agent alone. Normal is the voice's own pace. You hear a new speed on the agent's next call. Loudness and emotion can be set when the agent speaks a Studio voice."}
       </p>
       <form
         className="grid max-w-xl gap-5"
@@ -255,7 +257,7 @@ export function ClientVoiceTuning({
         onSubmit={(event) => {
           event.preventDefault();
           if (!dirty || save.isPending) return;
-          save.mutate(bodyOf(form), {
+          save.mutate(body(), {
             onSuccess: () => {
               setDraft(null);
               setSaved(true);
@@ -271,47 +273,54 @@ export function ClientVoiceTuning({
           value={form.speed}
           min={speedMin}
           max={speedMax}
+          step={speedStep}
           onChange={(speed) => set({ speed })}
         />
-        <Slider
-          id={`${id}-volume`}
-          label="Loudness"
-          slower="Quieter"
-          faster="Louder"
-          value={form.volume}
-          min={volumeMin}
-          max={volumeMax}
-          onChange={(volume) => set({ volume })}
-        />
-        <div>
-          <label htmlFor={`${id}-emotion`} className={FIELD_LABEL}>
-            Emotion
-          </label>
-          <select
-            id={`${id}-emotion`}
-            className={FIELD}
-            value={form.emotion}
-            onChange={(event) => set({ emotion: event.target.value })}
-          >
-            <option value="">None (the words decide)</option>
-            {options.emotions.map((emotion) => (
-              <option key={emotion} value={emotion}>
-                {emotionLabel(emotion)}
-              </option>
-            ))}
-          </select>
-        </div>
+        {studio && (
+          <>
+            <Slider
+              id={`${id}-volume`}
+              label="Loudness"
+              slower="Quieter"
+              faster="Louder"
+              value={form.volume}
+              min={volumeMin}
+              max={volumeMax}
+              onChange={(volume) => set({ volume })}
+            />
+            <div>
+              <label htmlFor={`${id}-emotion`} className={FIELD_LABEL}>
+                Emotion
+              </label>
+              <select
+                id={`${id}-emotion`}
+                className={FIELD}
+                value={form.emotion}
+                onChange={(event) => set({ emotion: event.target.value })}
+              >
+                <option value="">None (the words decide)</option>
+                {options.emotions.map((emotion) => (
+                  <option key={emotion} value={emotion}>
+                    {emotionLabel(emotion)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
         <div className="flex flex-wrap items-center gap-2">
-          <ActionButton
-            variant="secondary-sm"
-            status={previewFeedback.status}
-            pendingLabel="Getting it…"
-            successLabel="Playing"
-            disabled={usedUp}
-            onClick={() => previewFeedback.run(bodyOf(form))}
-          >
-            Hear it
-          </ActionButton>
+          {studio && (
+            <ActionButton
+              variant="secondary-sm"
+              status={previewFeedback.status}
+              pendingLabel="Getting it…"
+              successLabel="Playing"
+              disabled={usedUp}
+              onClick={() => previewFeedback.run(bodyOf(form))}
+            >
+              Hear it
+            </ActionButton>
+          )}
           <ActionButton
             type="submit"
             variant="primary-sm"
@@ -321,7 +330,7 @@ export function ClientVoiceTuning({
           >
             Save
           </ActionButton>
-          {left !== null && (
+          {studio && left !== null && (
             <span className="text-meta text-ink-muted">
               {left} of {options.previews_per_day} samples left today
             </span>
@@ -339,7 +348,7 @@ export function ClientVoiceTuning({
           <track kind="captions" />
         </audio>
       )}
-      {usedUp || codeOf(preview.error) === "voice_preview_daily_cap" ? (
+      {!studio ? null : usedUp || codeOf(preview.error) === "voice_preview_daily_cap" ? (
         <NoticeBox tone="neutral" role="status">
           You have heard all {options.previews_per_day} samples for today. You can hear more
           tomorrow, and your saved settings still apply to calls.

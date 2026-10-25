@@ -3654,6 +3654,11 @@ class AgentConfig(BaseModel):
     #: How that voice sounds on this agent (`ByokVoiceTuning`); None with no own-key voice.
     #: Excluded from every dump for `detect_machines`' reason.
     engine_byok_voice_tuning: ByokVoiceTuning | None = Field(default=None, exclude=True)
+    #: How fast the agent talks on one of the ENGINE'S OWN voices, as a multiple of the
+    #: voice's pace (D-884); None is the voice's own pace, and always None with an own-key
+    #: voice, whose speed is `engine_byok_voice_tuning.speed`. Excluded from every dump for
+    #: `detect_machines`' reason.
+    engine_speaking_speed: Decimal | None = Field(default=None, exclude=True)
     #: Does the agent speak on the engine account's OWN voice key (bring-your-own-key, voice
     #: only)? True for a voice of that key, False for the engine's own voices; None on an
     #: engine with no per-agent switch, which sends nothing (D-688).

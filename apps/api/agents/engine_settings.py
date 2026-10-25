@@ -51,6 +51,8 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         "end_call_on_finish",
         # The opening waits for the person who picked up to speak (D-871).
         "opening_waits_for_caller",
+        # How fast the agent talks on a Clear voice (D-884).
+        "speaking_speed",
         # The silence that ends the caller's turn (D-751), and the turn mode that makes it so.
         "turn_silence",
         # Whether a reply may start before the caller has finished (D-852).

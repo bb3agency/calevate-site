@@ -102,8 +102,9 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
               </ActionButton>
               <InfoTip label="Refresh">
                 Re-reads every voice ThinnestAI lists and, once a client workspace runs Studio, the
-                Cartesia voices of our key. A newly seen voice arrives not added; nothing here changes
-                an agent or a call.
+                Cartesia voices of our key. ThinnestAI keeps that Cartesia list for about 10 minutes,
+                so a voice cloned in Cartesia can take that long to appear. A newly seen voice arrives
+                not added; nothing here changes an agent or a call.
               </InfoTip>
             </div>
             <button type="button" className={SECONDARY_BUTTON} onClick={() => setCloning(true)}>

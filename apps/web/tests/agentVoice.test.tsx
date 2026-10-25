@@ -58,6 +58,7 @@ const TUNING_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/voice-tuning`;
 const TUNING_OPTIONS: VoiceTuning["options"] = {
   speed_min: "0.6",
   speed_max: "1.5",
+  speed_step: "0.01",
   volume_min: "0.5",
   volume_max: "2.0",
   emotions: ["neutral", "calm", "happy"],
@@ -426,10 +427,12 @@ describe("how a Studio voice sounds (operators only)", () => {
     nav.params = new URLSearchParams("section=voice");
   });
 
-  it("says the settings are for Studio voices on an agent that speaks none", async () => {
+  it("offers the speed alone on an agent that speaks no Studio voice (D-884)", async () => {
     const { calls } = await render();
-    await screen.findByText(/can be set for a Studio voice/);
-    expect(screen.queryByRole("button", { name: "Save settings" })).toBeNull();
+    await screen.findByText(/only the speed applies/);
+    expect(screen.getByRole("button", { name: "Save settings" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Hear it" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Voice model" })).toBeNull();
     // Read through the operator's own session, never the tenant's view-as one.
     const read = calls.find((call) => call.path === TUNING_PATH)!;
     expect(read.headers["X-Impersonate-Org"]).toBeUndefined();

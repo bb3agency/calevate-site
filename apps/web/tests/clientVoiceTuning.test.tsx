@@ -31,6 +31,7 @@ function tuning(over: Partial<Tuning> = {}): Tuning {
     options: {
       speed_min: "0.6",
       speed_max: "1.5",
+      speed_step: "0.01",
       volume_min: "0.5",
       volume_max: "2.0",
       emotions: ["neutral", "calm", "content", "sad", "angry", "scared", "happy", "excited"],
@@ -62,6 +63,10 @@ describe("the slider scale", () => {
     expect(valueOf(75, 0.5, 2)).toBe(1.5);
     expect(multiplierLabel(1)).toBe("Normal");
     expect(multiplierLabel(1.25)).toBe("1.25×");
+    // A Clear voice's 0.05 step, never a float tail.
+    expect(valueOf(100, 0.7, 1.3, 0.05)).toBe(1.3);
+    expect(valueOf(58, 0.7, 1.3, 0.05)).toBe(1.05);
+    expect(valueOf(10, 0.7, 1.3, 0.05)).toBe(0.75);
   });
 });
 
@@ -159,10 +164,36 @@ describe("How it sounds", () => {
     expect(loudness.getAttribute("aria-valuetext")).toBe("2.00 times normal");
   });
 
-  it("explains itself on an agent whose voice is not a Studio one", async () => {
-    const { container } = await mount({ [`GET ${PATH}`]: tuning({ studio: false }) });
+  it("sets only the speed on a Clear voice, in its own range and step (D-884)", async () => {
+    let sent: unknown = null;
+    const clear = tuning({
+      studio: false,
+      volume: "1.40",
+      options: { ...tuning().options, speed_min: "0.7", speed_max: "1.3", speed_step: "0.05" },
+    });
+    const { calls, container } = await mount({
+      [`GET ${PATH}`]: clear,
+      [`PATCH ${PATH}`]: () => {
+        sent = JSON.parse(calls[calls.length - 1].body ?? "{}");
+        return { ...clear, speed: "1.15" };
+      },
+    });
     expect(screen.getByText(/when the agent speaks a Studio voice/)).toBeTruthy();
-    expect(screen.queryByRole("slider")).toBeNull();
+    expect(screen.queryByRole("slider", { name: "Loudness" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Emotion" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Hear it" })).toBeNull();
+    expect(screen.queryByText(/samples left today/)).toBeNull();
+    const speed = screen.getByRole("slider", { name: "Speed" });
+    // Three quarters of the way: halfway from Normal to 1.3, on the 0.05 step.
+    fireEvent.change(speed, { target: { value: "75" } });
+    expect(speed.getAttribute("aria-valuetext")).toBe("1.15 times normal");
+    fireEvent.change(speed, { target: { value: "62" } });
+    expect(speed.getAttribute("aria-valuetext")).toBe("1.05 times normal");
+    fireEvent.change(speed, { target: { value: "75" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText(/the next call uses these/);
+    // The speed alone: a loudness held from a Studio voice is left as it is.
+    expect(sent).toEqual({ speed: 1.15 });
     expect(container.textContent ?? "").not.toMatch(VENDOR_WORDS);
   });
 });

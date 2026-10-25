@@ -1,5 +1,14 @@
-"""How a Studio voice sounds on one agent: speed, volume, emotion, the voice model and a
-pronunciation dictionary.
+"""How an agent's voice sounds: its speed on any voice, and for a Studio voice also volume,
+emotion, the voice model and a pronunciation dictionary.
+
+Speed is the agent's own on both rungs (D-884), held in the one `studio_voice_speed` column:
+on a Studio voice it is the byok-voice speed below (0.6-1.5, hundredths); on a Clear voice,
+one ThinnestAI hosts, clones included, it is the agent's `voice.speakingSpeed` (0.7-1.3 in
+steps of 0.05; docs.thinnest.ai/api-reference/agents/update-agent, read 25 Oct 2026). One
+column rather than one per rung because it means the same on both ("a multiple of the
+voice's own pace", 1 being that pace), so a person who made the agent a little faster keeps
+it a little faster on a new voice; a voice change fits the value to the new rung's range
+(`fit_speed`). Volume, emotion, model and dictionary stay Studio-only.
 
 Who sets what (D-843, founder 21 Oct 2026, superseding the 13 Oct operators-only decision):
 a client sets speed, loudness (volume) and emotion on its own Studio agents and hears them
@@ -20,8 +29,9 @@ What the platform refuses, refused first here with our own codes:
 * a value outside its range (speed 0.6-1.5, volume 0.5-2.0), an emotion or model it does not
   list, a dictionary id of the wrong shape;
 * speed, volume or emotion with the agent's own model `sonic-2` (they need Sonic 3);
-* any setting on an agent whose voice is not a Studio one (the settings belong to a voice of
-  our own key, and the platform refuses them before one is chosen).
+* any setting but speed on an agent whose voice is not a Studio one (the settings belong to
+  a voice of our own key, and the platform refuses them before one is chosen);
+* on a Clear voice, a speed outside 0.7-1.3 or off the 0.05 step.
 
 Speed on a Professional Voice Clone is refused by the platform alone, at publish or preview:
 `GET /byok/voices` does not say which voices are such clones (list-byok-voices.md), so we
@@ -55,6 +65,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.hosted_voices import parse_hosted_voice_id
 from apps.api.agents.live_apply import queue_live_apply
 from apps.api.agents.models import (
+    CLEAR_VOICE_SPEED_MAX,
+    CLEAR_VOICE_SPEED_MIN,
+    CLEAR_VOICE_SPEED_STEP,
     STUDIO_VOICE_DICTIONARY_ID_PATTERN,
     STUDIO_VOICE_EMOTIONS,
     STUDIO_VOICE_MODELS,
@@ -78,6 +91,9 @@ Audience = Literal["operator", "client"]
 
 SPEED_MIN: Final = STUDIO_VOICE_SPEED_MIN
 SPEED_MAX: Final = STUDIO_VOICE_SPEED_MAX
+CLEAR_SPEED_MIN: Final = CLEAR_VOICE_SPEED_MIN
+CLEAR_SPEED_MAX: Final = CLEAR_VOICE_SPEED_MAX
+CLEAR_SPEED_STEP: Final = CLEAR_VOICE_SPEED_STEP
 VOLUME_MIN: Final = STUDIO_VOICE_VOLUME_MIN
 VOLUME_MAX: Final = STUDIO_VOICE_VOLUME_MAX
 EMOTIONS: Final = STUDIO_VOICE_EMOTIONS
@@ -92,6 +108,8 @@ _HUNDREDTH: Final = Decimal("0.01")
 FIELDS: Final[tuple[str, ...]] = ("speed", "volume", "emotion", "model", "dictionary_id")
 #: The fields a client sets (D-843); the model and dictionary stay with operators.
 CLIENT_FIELDS: Final[tuple[str, ...]] = ("speed", "volume", "emotion")
+#: The one field that applies on a Clear voice too (D-884).
+ANY_VOICE_FIELDS: Final[tuple[str, ...]] = ("speed",)
 #: The emotion an agent starts on when its voice becomes a Studio one with none set
 #: (founder decision 21 Oct 2026, D-843). Never written over an emotion a person set.
 DEFAULT_STUDIO_EMOTION: Final = "calm"
@@ -162,17 +180,40 @@ def _refuse(code: str, title: str, detail: str, remediation: str) -> ProblemErro
     )
 
 
-def _within(value: Decimal | None, low: Decimal, high: Decimal) -> bool:
-    return value is None or (low <= value <= high and value % _HUNDREDTH == 0)
+def _within(value: Decimal | None, low: Decimal, high: Decimal, step: Decimal = _HUNDREDTH) -> bool:
+    return value is None or (low <= value <= high and value % step == 0)
 
 
-def refuse_invalid_tuning(tuning: ByokVoiceTuning, *, audience: Audience = "operator") -> None:
-    """Refuse what the platform would refuse, in words the reader can act on."""
-    if not _within(tuning.speed, SPEED_MIN, SPEED_MAX):
+def speed_range(*, studio: bool) -> tuple[Decimal, Decimal, Decimal]:
+    """`(min, max, step)` of the speed on a Studio or a Clear voice."""
+    if studio:
+        return SPEED_MIN, SPEED_MAX, _HUNDREDTH
+    return CLEAR_SPEED_MIN, CLEAR_SPEED_MAX, CLEAR_SPEED_STEP
+
+
+def fit_speed(speed: Decimal | None, *, studio: bool) -> Decimal | None:
+    """`speed` moved to the nearest value the rung takes: clamped to its range and rounded
+    to its step. A voice change uses it, so a Studio agent at 1.45 becomes a Clear one at
+    1.3 rather than a publish the platform refuses."""
+    if speed is None:
+        return None
+    low, high, step = speed_range(studio=studio)
+    snapped = (min(max(speed, low), high) / step).quantize(Decimal(1)) * step
+    return snapped.quantize(_HUNDREDTH)
+
+
+def refuse_invalid_tuning(
+    tuning: ByokVoiceTuning, *, audience: Audience = "operator", studio: bool = True
+) -> None:
+    """Refuse what the platform would refuse, in words the reader can act on. `studio` is
+    the rung of the agent's voice, which decides the speed's range."""
+    low, high, step = speed_range(studio=studio)
+    if not _within(tuning.speed, low, high, step):
+        unit = "in hundredths" if studio else f"in steps of {step}"
         raise _refuse(
             "voice_speed_out_of_range",
             "This speed is out of range",
-            f"The voice's speed must be between {SPEED_MIN} and {SPEED_MAX}, in hundredths; "
+            f"The voice's speed must be between {low} and {high}, {unit}; "
             "1 is the voice's own pace.",
             "Choose a speed in that range, or clear it.",
         )
@@ -256,6 +297,16 @@ def config_tuning(row: Sequence[object], *, byok_voice_id: str | None) -> ByokVo
     return None if tuning.is_empty else tuning
 
 
+def config_speaking_speed(row: Sequence[object], *, byok_voice_id: str | None) -> Decimal | None:
+    """The speed a publish sends as the agent's own (`voice.speakingSpeed`): the agent's
+    speed on a Clear voice, None on a Studio one, whose speed travels with the byok-voice
+    settings and is used instead (update-agent, read 25 Oct 2026). Fitted to the Clear range
+    for a row a voice change before D-884 left on a Studio value."""
+    if byok_voice_id:
+        return None
+    return fit_speed(tuning_from_row(row).speed, studio=False)
+
+
 async def read_voice_tuning(session: AsyncSession, agent_id: UUID) -> VoiceTuningState:
     row = (await session.execute(text(_READ_SQL), {"aid": agent_id})).first()
     if row is None:
@@ -270,24 +321,26 @@ async def read_voice_tuning(session: AsyncSession, agent_id: UUID) -> VoiceTunin
 
 
 def refuse_on_a_voice_not_studio(
-    state: VoiceTuningState, wanted: ByokVoiceTuning, *, audience: Audience = "operator"
+    state: VoiceTuningState, setting: Sequence[str], *, audience: Audience = "operator"
 ) -> None:
-    if state.studio or wanted.is_empty:
+    """Refuse `setting`, the Studio-only fields a write gives a value, on a Clear voice.
+    Clearing one is allowed: it leaves nothing the voice could not take."""
+    if state.studio or not setting:
         return
     if audience == "client":
         raise _refuse(
             "voice_tuning_needs_studio_voice",
-            "These settings are for Studio voices",
-            "Speed, loudness and emotion apply to a Studio voice only, and this agent's voice "
-            "is not one.",
-            "Choose a Studio voice for the agent first.",
+            "Loudness and emotion are for Studio voices",
+            "Loudness and emotion apply to a Studio voice only, and this agent's voice is not "
+            "one. Speed can be set on any voice.",
+            "Change only the speed, or choose a Studio voice for the agent first.",
         )
     raise _refuse(
         "voice_tuning_needs_studio_voice",
         "These settings are for Studio voices",
-        "Speed, volume, emotion, voice model and pronunciation dictionary apply to a "
-        "Studio voice only, and this agent's voice is not one.",
-        "Choose a Studio voice for the agent first, or clear the settings.",
+        "Volume, emotion, voice model and pronunciation dictionary apply to a Studio voice "
+        "only, and this agent's voice is not one. Speed applies to any voice.",
+        "Choose a Studio voice for the agent first, or set only the speed.",
     )
 
 
@@ -313,21 +366,32 @@ async def set_voice_tuning(
     current = tuning_from_row(tuple(row))
     named = tuning_of(changes)
     wanted = replace_fields(current, {f: getattr(named, f) for f in FIELDS if f in changes})
-    refuse_invalid_tuning(wanted, audience=audience)
     state = VoiceTuningState(
         agent_id=agent_id,
         tuning=current,
         studio=is_studio_voice(row[5]),
         voice_id=str(row[5]) if row[5] else None,
     )
-    refuse_on_a_voice_not_studio(state, wanted, audience=audience)
     moved = tuple(f for f in FIELDS if getattr(wanted, f) != getattr(current, f))
+    # A Clear agent may still hold Studio settings from an earlier voice: they are kept and
+    # never sent, so only the speed is judged there, beside a held older voice model, whose
+    # column CHECK refuses any speed (an operator clears that model first).
+    refuse_invalid_tuning(
+        wanted if state.studio else ByokVoiceTuning(speed=wanted.speed, model=wanted.model),
+        audience=audience,
+        studio=state.studio,
+    )
+    refuse_on_a_voice_not_studio(
+        state,
+        [f for f in moved if f not in ANY_VOICE_FIELDS and getattr(wanted, f) is not None],
+        audience=audience,
+    )
     if moved:
         await session.execute(
             text(_UPDATE_SQL), {**{f: getattr(wanted, f) for f in FIELDS}, "aid": agent_id}
         )
         status, ref = row[6], row[7]
-        if is_published(status, ref) and state.studio:
+        if is_published(status, ref) and (state.studio or "speed" in moved):
             await queue_live_apply(
                 session,
                 scope="agent",
@@ -417,6 +481,10 @@ async def refund_client_preview(tenant_id: UUID, *, now: datetime | None = None)
 
 
 __all__ = [
+    "ANY_VOICE_FIELDS",
+    "CLEAR_SPEED_MAX",
+    "CLEAR_SPEED_MIN",
+    "CLEAR_SPEED_STEP",
     "CLIENT_FIELDS",
     "CLIENT_PREVIEWS_PER_DAY",
     "DEFAULT_STUDIO_EMOTION",
@@ -434,7 +502,9 @@ __all__ = [
     "Audience",
     "VoiceTuningState",
     "client_previews_left",
+    "config_speaking_speed",
     "config_tuning",
+    "fit_speed",
     "is_studio_voice",
     "read_voice_tuning",
     "refund_client_preview",
@@ -442,6 +512,7 @@ __all__ = [
     "refuse_on_a_voice_not_studio",
     "sample_line",
     "set_voice_tuning",
+    "speed_range",
     "take_client_preview",
     "tuning_from_row",
     "tuning_of",

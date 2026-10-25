@@ -334,7 +334,7 @@ describe("one agent's call handling", () => {
     await screen.findByText("Wait for them to say hello");
     // Off, the row's line says what off does, never what on would.
     expect(screen.getByText("Your agent speaks as soon as the call connects.")).toBeTruthy();
-    expect(screen.queryByText(/Your agent speaks right after the person who picks up/)).toBeNull();
+    expect(screen.queryByText(/Your agent speaks right after the first words of the person who picks up/)).toBeNull();
     const changes = screen.getAllByRole("button", { name: "Change" });
     await act(async () => {
       fireEvent.click(changes[2]);
@@ -361,7 +361,7 @@ describe("one agent's call handling", () => {
       [AGENT_PATH]: agent({ opening_waits_for_caller: true }),
     });
     await screen.findByText("Wait for them to say hello");
-    expect(screen.getByText(/Your agent speaks right after the person who picks up/)).toBeTruthy();
+    expect(screen.getByText(/Your agent speaks right after the first words of the person who picks up/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
   });
 });

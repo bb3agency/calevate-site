@@ -1,8 +1,10 @@
 "use client";
 
 /**
- * How a Studio voice sounds on one agent. Operators set every field; a client sets speed,
- * loudness and emotion on its own agents and hears a capped sample (D-843, 21 Oct 2026).
+ * How an agent's voice sounds. Operators set every field; a client sets speed, loudness and
+ * emotion on its own agents and hears a capped sample (D-843, 21 Oct 2026). Speed applies on
+ * any voice, in the range and step `options` gives for the voice in use (D-884); the rest,
+ * and the sample, only on a Studio voice.
  *
  *   GET   /v1/admin/tenants/{tid}/agents/{aid}/voice-tuning           `admin:tenants`
  *   PATCH /v1/admin/tenants/{tid}/agents/{aid}/voice-tuning           `agents:write`, audited

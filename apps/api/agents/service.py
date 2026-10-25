@@ -166,7 +166,7 @@ from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
 from apps.api.agents.reply_length import resolve_max_reply_tokens
 from apps.api.agents.t0_block import block_of, with_knowledge_of, without_block
 from apps.api.agents.verification import verify_publish
-from apps.api.agents.voice_tuning import TUNING_COLUMNS, config_tuning
+from apps.api.agents.voice_tuning import TUNING_COLUMNS, config_speaking_speed, config_tuning
 from apps.api.agents.voices import get_voice, speech_for_voice_id, voice_id_of
 from apps.api.agents.write_guard import archived_refusal, assert_agent_writable
 from apps.api.billing.engine_minutes import (
@@ -931,6 +931,9 @@ def _to_config(
         engine_voice_id=hosted.voice_id,
         engine_byok_voice_id=hosted.byok_voice_id,
         engine_byok_voice_tuning=config_tuning(
+            agent.get("voice_tuning") or (None,) * 5, byok_voice_id=hosted.byok_voice_id
+        ),
+        engine_speaking_speed=config_speaking_speed(
             agent.get("voice_tuning") or (None,) * 5, byok_voice_id=hosted.byok_voice_id
         ),
         engine_own_voice_key=hosted.own_voice_key,
