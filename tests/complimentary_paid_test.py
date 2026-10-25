@@ -296,6 +296,36 @@ async def test_the_notices_reach_the_super_admins_first_then_the_client_once(
     assert posted == 1, "the dashboard notice goes up once, however often the job runs"
 
 
+async def test_a_refused_send_is_retried_rather_than_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """arq re-runs a job only for `Retry` (and `RetryJob`/`CancelledError`); any other
+    exception is terminal on the first try. The outbox has already marked the promise
+    published, so a refused send that did not raise `Retry` lost the client's email."""
+    from arq import Retry
+
+    class _Refusing:
+        def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
+            return False
+
+    monkeypatch.setattr(comp_notices, "get_transport", lambda: _Refusing())
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET billing_email = 'owner@example.com' WHERE id = :t"),
+            {"t": tenant_id},
+        )
+    payload = {
+        "tenant_id": str(tenant_id),
+        "kind": "grant",
+        "amount_inr": "100.00",
+        "actor_id": None,
+        "reason": "retry check",
+    }
+    with pytest.raises(Retry):
+        await comp_notices.notify_comp({"job_try": 1}, payload)
+
+
 def test_the_notice_job_is_registered() -> None:
     names = {getattr(f, "name", getattr(f, "__name__", "")) for f in WorkerSettings.functions}
     assert COMP_NOTICE_JOB in names and comp_notices.JOB_NAME == COMP_NOTICE_JOB

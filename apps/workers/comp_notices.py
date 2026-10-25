@@ -12,8 +12,8 @@ or made the account paid. One run, three parts, each safe to repeat:
 3. **Every live super admin's email**: the act, the amount, who did it and why. With one
    super admin this is the trail that stands in for a second approver.
 
-The super admins are emailed before the client. A failed send raises, so ARQ retries the
-run; the notice is not written twice, and the client's email, being last, is not sent
+The super admins are emailed before the client. A failed send raises `arq.Retry`, so ARQ
+retries the run; the notice is not written twice, and the client's email, being last, is not sent
 twice. Nothing is logged but ids, the kind and counts (hard rule 6).
 """
 
@@ -22,9 +22,10 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Final
+from typing import Any, Final, NoReturn
 from uuid import UUID
 
+from arq import Retry
 from sqlalchemy import text
 
 from apps.api.announcements import service as announcements
@@ -151,8 +152,24 @@ async def _post_notice(tenant_id: UUID, message: str) -> bool:
     return True
 
 
+#: Seconds before each retry, indexed by the attempt that just failed (`wallet_alerts`).
+RETRY_BACKOFF_S: Final[tuple[float, ...]] = (60.0, 300.0)
+
+
+def _retry(attempt: int, *, tenant_id: UUID, leg: str) -> NoReturn:
+    """A send that was not accepted. `arq.Retry`, not a plain raise: arq 0.28 re-runs a job
+    only for `Retry`, `RetryJob` or `CancelledError` (`arq/worker.py` `run_job`), so any
+    other exception is terminal on the first attempt. Past `max_tries` arq gives up and
+    `install_arq_terminal_alerter` raises the alarm."""
+    log.warning(
+        "comp_notice_send_failed",
+        extra={"tenant_id": str(tenant_id), "leg": leg, "attempt": attempt},
+    )
+    raise Retry(defer=RETRY_BACKOFF_S[max(min(attempt, len(RETRY_BACKOFF_S)) - 1, 0)])
+
+
 async def notify_comp(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    del ctx
+    attempt = int(ctx.get("job_try", 1) or 1)
     tenant_id = UUID(str(payload["tenant_id"]))
     kind = str(payload["kind"])
     amount = Decimal(str(payload["amount_inr"])) if payload.get("amount_inr") else None
@@ -203,14 +220,14 @@ async def notify_comp(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     )
     for address in supers:
         if not await _send(address, subject, body, cta=None):
-            raise RuntimeError("comp notice email to a super admin was not accepted")
+            _retry(attempt, tenant_id=tenant_id, leg="superadmin")
     if not supers:
         alert("WORKER_DELIVERY", "comp_notice_no_superadmin_email", tenant_id=str(tenant_id))
 
     if billing_email:
         subject, body = client_email(kind=kind, amount=amount, balance=balance, business=business)
         if not await _send(str(billing_email), subject, body, cta="Open your dashboard"):
-            raise RuntimeError("comp notice email to the client was not accepted")
+            _retry(attempt, tenant_id=tenant_id, leg="client")
     else:
         alert("WORKER_DELIVERY", "comp_notice_no_billing_email", tenant_id=str(tenant_id))
 
