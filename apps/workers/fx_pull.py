@@ -212,6 +212,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
@@ -370,10 +371,6 @@ _RETRY_AFTER_S = (30, 60)
 #: deploy does not page anybody, short enough that the feed is fixed long before the rate
 #: itself ages out.
 MAX_PULL_SILENCE = timedelta(minutes=30)
-
-
-def _retry_after(attempt: int) -> int:
-    return _RETRY_AFTER_S[min(attempt, len(_RETRY_AFTER_S)) - 1]
 
 
 class FxPullError(RuntimeError):
@@ -989,7 +986,7 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
         # recorded in `refusals` and handled below — so this is infrastructure.
         log.warning("fx_pull_failed", extra={"source": SOURCE, "error": type(exc).__name__})
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=_retry_after(attempt)) from exc
+            raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt)) from exc
         await _warn_if_silent()
         alert(
             "WORKER_TERMINAL",
@@ -1012,7 +1009,7 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
             extra={"source": SOURCE, "error": type(failure).__name__, "refusal_code": failure.code},
         )
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=_retry_after(attempt)) from failure
+            raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt)) from failure
         await _warn_if_silent()
         # Alert THEN raise: returning would file the tick as a success. `alert()`
         # de-duplicates per fingerprint with an hourly bucket (BACKEND-PATTERNS §8), so a

@@ -51,6 +51,7 @@ from typing import Any
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
@@ -70,11 +71,6 @@ RETRY_BACKOFF_S: tuple[float, ...] = (30.0, 120.0)
 
 # 4xx that ARE worth another go: the request is fine, the receiver is not ready for it.
 TRANSIENT_CLIENT_STATUS = frozenset({408, 425, 429})
-
-
-def _retry_after(attempt: int) -> float:
-    index = min(attempt, len(RETRY_BACKOFF_S)) - 1
-    return RETRY_BACKOFF_S[max(index, 0)]
 
 
 def _is_transient(result: service.DeliveryResult) -> bool:
@@ -396,7 +392,7 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
         # The one exception type arq treats as "not finished". The delivery row is
         # already committed — the session closed above — so the retry starts from a
         # recorded attempt, not from nothing.
-        raise Retry(defer=_retry_after(attempt))
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
 
     # Give up loudly, whether the budget ran out or the endpoint rejected the request
     # outright. The client's integration is broken and someone has to know; a silent

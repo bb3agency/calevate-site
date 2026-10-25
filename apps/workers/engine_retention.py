@@ -26,6 +26,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from scripts.seed import DEFAULT_RETENTION_POLICIES
 
 from apps.api.core.alerting import alert
@@ -157,7 +158,7 @@ async def sync_engine_retention(ctx: dict[str, Any], payload: dict[str, Any]) ->
         return await _client_leg(tenant_id, state.workspace_id, repair=False)
     except Exception as exc:
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=_RETRY_AFTER_S[min(attempt, len(_RETRY_AFTER_S)) - 1]) from exc
+            raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt)) from exc
         _alarm(0, 1)
         raise
 

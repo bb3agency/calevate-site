@@ -36,6 +36,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s, ladder_delay_s
 from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 
@@ -108,7 +109,7 @@ _LIVE_CALL_RETRY_S: Final = 300.0
 def _retry_or_give_up(exc: Exception, attempt: int) -> None:
     permanent = isinstance(exc, ProblemError) and exc.kind in ("validation", "business_rule")
     if not permanent and attempt < WORKER_MAX_TRIES:
-        raise Retry(defer=_RETRY_AFTER_S[min(attempt, len(_RETRY_AFTER_S)) - 1]) from exc
+        raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt)) from exc
 
 
 def _is_plan_refusal(exc: EngineRejectedError) -> bool:
@@ -666,7 +667,7 @@ async def retire_moved_engine_agent(ctx: dict[str, Any], payload: dict[str, Any]
     try:
         if await thinnest_actions().has_live_call(old_ref):
             if attempt < WORKER_MAX_TRIES:
-                raise Retry(defer=_LIVE_CALL_RETRY_S)
+                raise Retry(defer=jittered_delay_s(_LIVE_CALL_RETRY_S, floor_s=_LIVE_CALL_RETRY_S))
             alert(
                 "WORKER_TERMINAL",
                 "engine_agent_retire_failed",
@@ -694,7 +695,9 @@ async def retire_moved_engine_agent(ctx: dict[str, Any], payload: dict[str, Any]
             and exc.vendor_code == "agent_on_live_call"
             and attempt < WORKER_MAX_TRIES
         ):
-            raise Retry(defer=_LIVE_CALL_RETRY_S) from exc
+            raise Retry(
+                defer=jittered_delay_s(_LIVE_CALL_RETRY_S, floor_s=_LIVE_CALL_RETRY_S)
+            ) from exc
         _retry_or_give_up(exc, attempt)
         alert(
             "WORKER_TERMINAL",

@@ -46,6 +46,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -116,11 +117,6 @@ SWEEP_BUDGET: Final = 200
 #: poller every multiple of ten, and this sweep opens one `tenant_session` per due closure
 #: (up to `SWEEP_BUDGET`), so it is worth keeping off both.
 SWEEP_MINUTE: Final = 27
-
-
-def _retry_after(attempt: int) -> float:
-    index = min(attempt, len(RETRY_BACKOFF_S)) - 1
-    return RETRY_BACKOFF_S[max(index, 0)]
 
 
 def _compose(*, event: str, business: str, erase_on: str | None, reason: str | None) -> str:
@@ -391,7 +387,7 @@ async def notify_account_closed(ctx: dict[str, Any], payload: dict[str, Any]) ->
         return "sent"
 
     if attempt < WORKER_MAX_TRIES:
-        raise Retry(defer=_retry_after(attempt))
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
 
     alert(
         "WORKER_DELIVERY",

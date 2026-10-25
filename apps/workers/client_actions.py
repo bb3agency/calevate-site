@@ -23,6 +23,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
 
 from apps.api.actions.execution import CallFacts, caller_of_call, execute_action
@@ -78,7 +79,7 @@ async def run_client_action(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         return result.status
     if _transient(result.status, result.payload):
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=RETRY_BACKOFF_S[min(attempt, len(RETRY_BACKOFF_S)) - 1])
+            raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
         alert(
             "WORKER_TERMINAL",
             "client_action_not_completed",

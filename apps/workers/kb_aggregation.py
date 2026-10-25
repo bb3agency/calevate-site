@@ -73,6 +73,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 from sqlalchemy import text
 
 from apps.api.core.alerting import alert
@@ -214,7 +215,7 @@ async def send_agent_knowledge_digests(ctx: dict[str, Any], *_: object) -> str:
         raise
     except Exception as exc:
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=30.0 * attempt) from exc
+            raise Retry(defer=jittered_delay_s(30.0 * attempt)) from exc
         alert(
             "WORKER_TERMINAL",
             "kb_digest_sweep_abandoned",

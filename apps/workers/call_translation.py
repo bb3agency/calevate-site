@@ -31,6 +31,7 @@ from typing import Any, Final, Literal
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -320,7 +321,7 @@ async def translate_call_job(ctx: dict[str, Any], payload: dict[str, Any]) -> st
             extra={"call_id": str(call_id), "reason": type(exc).__name__, "attempt": attempt},
         )
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=30 * attempt) from exc
+            raise Retry(defer=jittered_delay_s(30 * attempt)) from exc
         await _give_up(tenant_id, call_id)
         return "failed"
     return state

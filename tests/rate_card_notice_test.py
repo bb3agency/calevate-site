@@ -35,7 +35,6 @@ from apps.workers import rate_card_notice
 from apps.workers.rate_card_notice import (
     NOTICE_JOB,
     _aware,
-    _retry_after,
     _starts_on,
     compose,
     fan_out_rate_card_notice,
@@ -180,12 +179,6 @@ def test_a_notice_payload_without_an_offset_is_refused() -> None:
     with pytest.raises(ValueError, match="aware instant"):
         _aware("2026-12-01T00:00:00")
     assert _aware(CARD_AT.isoformat()) == CARD_AT
-
-
-def test_the_retry_ladder_never_indexes_past_its_own_end() -> None:
-    assert _retry_after(1) == rate_card_notice.RETRY_BACKOFF_S[0]
-    assert _retry_after(0) == rate_card_notice.RETRY_BACKOFF_S[0]
-    assert _retry_after(99) == rate_card_notice.RETRY_BACKOFF_S[-1]
 
 
 # ── the fan-out ──────────────────────────────────────────────────────────────────────

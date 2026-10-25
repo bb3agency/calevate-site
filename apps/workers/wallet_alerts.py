@@ -55,6 +55,7 @@ from typing import Any
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
 
 from apps.api.billing.rates import PREPAID_TIERS
@@ -97,11 +98,6 @@ PREHEADER = {
     "calls again.",
     WALLET_LEVEL_LOW: "Add credit before your calls stop.",
 }
-
-
-def _retry_after(attempt: int) -> float:
-    index = min(attempt, len(RETRY_BACKOFF_S)) - 1
-    return RETRY_BACKOFF_S[max(index, 0)]
 
 
 def _runway_sentence(minutes_left: Sequence[TierMinutes]) -> str:
@@ -286,7 +282,7 @@ async def notify_low_balance(ctx: dict[str, Any], payload: dict[str, Any]) -> st
             "wallet_alert_send_failed",
             extra={"tenant_id": str(tenant_id), "level": level, "attempt": attempt},
         )
-        raise Retry(defer=_retry_after(attempt))
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
 
     log.info("wallet_alert_sent", extra={"tenant_id": str(tenant_id), "level": level})
     return "sent"

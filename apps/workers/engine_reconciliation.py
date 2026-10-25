@@ -81,6 +81,7 @@ import time
 from typing import Any, cast
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 
 from apps.api.agents.engine_settings import check_agent_settings
 from apps.api.agents.hosted_voices import agent_voice_withdrawn
@@ -621,7 +622,7 @@ async def sweep_engine_drift(ctx: dict[str, Any]) -> str:
             # `defer` climbs with the attempt so a database that is restarting is not
             # hammered by three sweeps in ninety seconds — the ladder BACKEND-PATTERNS §4
             # asks for.
-            raise Retry(defer=30 * attempt) from exc
+            raise Retry(defer=jittered_delay_s(30 * attempt)) from exc
         # THE LAST ATTEMPT IS THE ONE THAT HAS TO SHOUT (P6.5). This used to raise `Retry`
         # unconditionally, and on the final try arq does not honour it: the job finishes
         # with `JobExecutionFailed` and a `logger.warning`, which nothing reads. The

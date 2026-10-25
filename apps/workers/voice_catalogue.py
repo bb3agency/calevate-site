@@ -41,6 +41,7 @@ from __future__ import annotations
 from typing import Any, Final
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 
 from apps.api.agents.voice_sync import load_voice_catalogue, sync_voice_catalogue
 from apps.api.core.alerting import alert
@@ -61,10 +62,10 @@ REFRESH_MINUTE: Final = 17
 SYNC_FAILED_CODE: Final = "voice_catalogue_sync_failed"
 
 
-def _retry_after(attempt: int) -> int:
-    """Exponential backoff in seconds: 30, 60, 120. The same shape as every other
+def _retry_after(attempt: int) -> float:
+    """Exponential backoff in seconds, jittered: 30, 60, 120 base. The same shape as every other
     vendor-facing job's ladder, so an operator reading two of them reads one pattern."""
-    return int(30 * 2 ** (attempt - 1))
+    return jittered_delay_s(30 * 2 ** (attempt - 1))
 
 
 async def refresh_voice_catalogue(ctx: dict[str, Any]) -> str:

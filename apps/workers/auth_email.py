@@ -59,6 +59,7 @@ import asyncio
 from typing import Any
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 
 from apps.api.core.alerting import alert
 from apps.api.core.console_links import CONSOLE_BASE
@@ -88,11 +89,6 @@ _SUBJECTS = _SUBJECTS
 #: same shape as `notifications.RETRY_BACKOFF_S`, tighter for the reason in the module
 #: docstring.
 RETRY_BACKOFF_S: tuple[float, ...] = (10.0, 30.0)
-
-
-def _retry_after(attempt: int) -> float:
-    index = min(attempt, len(RETRY_BACKOFF_S)) - 1
-    return RETRY_BACKOFF_S[max(index, 0)]
 
 
 def _body(kind: str, realm: str, secret: str) -> str:
@@ -141,7 +137,7 @@ async def deliver_auth_email(ctx: dict[str, Any], payload: dict[str, Any]) -> st
         if attempt < WORKER_MAX_TRIES:
             # The one exception type arq treats as "not finished". Nothing here is
             # committed, so the retry starts from exactly where this attempt did.
-            raise Retry(defer=_retry_after(attempt))
+            raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
         # Out of attempts, and there is no queue-level dead letter to fall into — the
         # alert IS the dead letter (`WorkerSettings`' docstring argues why the repo has no
         # second durable store for this). A person is waiting on this message and only an

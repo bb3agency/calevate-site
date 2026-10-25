@@ -38,6 +38,7 @@ from typing import Any, Final, NoReturn, Protocol, runtime_checkable
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s, ladder_delay_s
 from calevate_shared.engine_scope import scope_of
 from calevate_shared.events import EngineByokChanged, EngineContactErased
 from sqlalchemy import text
@@ -196,7 +197,7 @@ async def _byok_changed(
     token = secrets.token_hex(16)
     if not await redis.set(lease, token, nx=True, ex=BYOK_LEASE_S):
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=_LEASE_RETRY_S)
+            raise Retry(defer=jittered_delay_s(_LEASE_RETRY_S, floor_s=_LEASE_RETRY_S))
         # The check holding the lease reads the state after this change too, and the hourly
         # sweep reads it again: nothing is lost by not running a second one now.
         return "coalesced"
@@ -252,7 +253,7 @@ async def _abandon(payload: dict[str, Any], exc: Exception, attempt: int) -> NoR
     await _settle_inbox(payload.get("inbox_row_id"), error=type(exc).__name__)
     permanent = isinstance(exc, ProblemError) and exc.kind == "validation"
     if not permanent and attempt < WORKER_MAX_TRIES:
-        raise Retry(defer=_RETRY_AFTER_S[min(attempt, len(_RETRY_AFTER_S)) - 1]) from exc
+        raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt)) from exc
     log.warning(
         "engine_workspace_event_abandoned",
         extra={"reason": type(exc).__name__, "attempt": attempt},

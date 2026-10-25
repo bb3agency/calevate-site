@@ -12,6 +12,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -291,7 +292,7 @@ async def send_save_number_message(ctx: dict[str, Any], payload: dict[str, Any])
                 await session.execute(
                     text("DELETE FROM save_number_messages WHERE id = :id"), {"id": message_id}
                 )
-                raise Retry(defer=_SEND_RETRY_AFTER_S[min(attempt, len(_SEND_RETRY_AFTER_S)) - 1])
+                raise Retry(defer=ladder_delay_s(_SEND_RETRY_AFTER_S, attempt))
             await _finish(
                 session,
                 message_id,

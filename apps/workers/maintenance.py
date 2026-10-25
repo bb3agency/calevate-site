@@ -61,6 +61,7 @@ from typing import Any
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 from calevate_shared.calling_window import IST
 from calevate_shared.engine import (
     DisclosurePosture,
@@ -915,7 +916,7 @@ async def notify_maintenance(ctx: dict[str, Any], payload: dict[str, Any]) -> st
         )
         return "sent"
     if attempt < WORKER_MAX_TRIES:
-        raise Retry(defer=30.0 * attempt)
+        raise Retry(defer=jittered_delay_s(30.0 * attempt))
     alert(
         "WORKER_DELIVERY",
         "maintenance_notice_exhausted",

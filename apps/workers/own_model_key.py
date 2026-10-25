@@ -29,6 +29,7 @@ from typing import Any, Final, cast
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 
 from apps.api.agents.own_model import (
     OWN_MODEL_PROVIDER,
@@ -166,7 +167,7 @@ async def push_own_model_key_to_workspace(ctx: dict[str, Any], payload: dict[str
     except ProblemError as exc:
         permanent = exc.kind in ("validation", "business_rule")
         if not permanent and attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=_RETRY_AFTER_S[min(attempt, len(_RETRY_AFTER_S)) - 1]) from exc
+            raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt)) from exc
         _push_failed(exc.code, where="a client's voice workspace", tenant_id=str(tenant_id))
         return "failed"
     log.info("own_model_key_pushed", extra={"tenant_id": str(tenant_id)})

@@ -22,6 +22,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
 
 from apps.api.billing.auto_recharge import (
@@ -200,7 +201,7 @@ async def send_payment_notice(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     )
     if not delivered:
         attempt = int(ctx.get("job_try", 1))
-        raise Retry(defer=_RETRY_S[min(attempt, len(_RETRY_S)) - 1])
+        raise Retry(defer=ladder_delay_s(_RETRY_S, attempt))
     log.info("payment_notice_sent", extra={"tenant_id": str(tenant_id), "kind": kind})
     return "sent"
 

@@ -83,6 +83,7 @@ from typing import Any
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 from sqlalchemy import text
 
 from apps.api.core.alerting import alert
@@ -303,7 +304,7 @@ async def sweep_topup_settlement(ctx: dict[str, Any]) -> str:
     # reads (`apps/workers/settings.py`).
     if scan.tenants_probed and scan.tenants_failed == scan.tenants_probed:
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=300)
+            raise Retry(defer=jittered_delay_s(300))
         alert(
             "WORKER_TERMINAL",
             "topup_settlement_sweep_abandoned",

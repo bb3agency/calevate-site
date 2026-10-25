@@ -43,6 +43,7 @@ from typing import Any
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 from calevate_shared.engine import RecallOutcome, VoiceEngine
 from sqlalchemy import text
 
@@ -440,7 +441,7 @@ async def recall_dials_for_dnc(ctx: dict[str, Any], payload: dict[str, Any]) -> 
         )
         attempt = int(ctx.get("job_try", 1) or 1)
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=15 * attempt) from exc
+            raise Retry(defer=jittered_delay_s(15 * attempt)) from exc
         alert(
             "WORKER_TERMINAL",
             "dnc_recall_abandoned",

@@ -38,6 +38,7 @@ from typing import Any, Final, Literal, NoReturn
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from calevate_shared.business_outcomes import BusinessOutcome, LeadMove
 from calevate_shared.cut_off import UNHEARD_LABEL, likely_cut_off
 from calevate_shared.engine import (
@@ -400,11 +401,6 @@ RETRY_BACKOFF_S: tuple[float, ...] = (30.0, 120.0)
 TRANSIENT_ENGINE_CODES = frozenset({"engine_unreachable", "engine_rate_limited"})
 
 
-def _retry_after(attempt: int) -> float:
-    index = min(attempt, len(RETRY_BACKOFF_S)) - 1
-    return RETRY_BACKOFF_S[max(index, 0)]
-
-
 def _is_transient(exc: BaseException) -> bool:
     """Is another attempt capable of a different outcome?
 
@@ -440,7 +436,7 @@ async def _abandon_ingest(
                 session, row_id=UUID(str(inbox_row_id)), error=type(exc).__name__
             )
     if _is_transient(exc) and attempt < WORKER_MAX_TRIES:
-        raise Retry(defer=_retry_after(attempt)) from exc
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt)) from exc
     # Give up loudly, whether the budget ran out or the engine rejected the read
     # outright. A silent stop is indistinguishable from "no events happened", and this
     # one costs a call: the poller only re-drives executions the engine will still list.
@@ -873,7 +869,7 @@ async def _abandon_post_call(
     the 2-minute SLO means nobody is coming to look unless something says so.
     """
     if _is_transient(exc) and attempt < WORKER_MAX_TRIES:
-        raise Retry(defer=_retry_after(attempt)) from exc
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt)) from exc
     alert(
         "WORKER_TERMINAL",
         "post_call_abandoned",
@@ -1254,7 +1250,7 @@ async def _post_call_stages(
                 "post_call_awaiting_transcript",
                 extra={"call_id": str(call_id), "execution_id": execution_id, "attempt": attempt},
             )
-            raise Retry(defer=_retry_after(attempt))
+            raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
         alert(
             "WORKER_DELIVERY",
             "engine_call_answered_without_transcript",

@@ -44,6 +44,7 @@ from typing import Any, NamedTuple
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 from calevate_shared.engine import RecallOutcome
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -328,7 +329,7 @@ async def recall_queued_dials(ctx: dict[str, Any]) -> str:
             # Climbing `defer`, BACKEND-PATTERNS §4's ladder — but a SHORT one, unlike the
             # violations sweep's 30s: every second of it is a dial the vendor may start
             # ringing, and `end_call` stops working the moment it does.
-            raise Retry(defer=5 * attempt) from exc
+            raise Retry(defer=jittered_delay_s(5 * attempt)) from exc
         alert(
             "WORKER_TERMINAL",
             "dial_recall_abandoned",

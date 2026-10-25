@@ -17,6 +17,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 
@@ -65,7 +66,7 @@ async def move_agents_to_workspace(ctx: dict[str, Any], payload: dict[str, Any])
         extra={"tenant_id": str(tenant_id), "agents": len(owed), "attempt": attempt, **tally},
     )
     if tally.get("retry") and not final:
-        raise Retry(defer=_RETRY_AFTER_S[min(attempt, len(_RETRY_AFTER_S)) - 1])
+        raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt))
     return summary or "nothing_to_move"
 
 

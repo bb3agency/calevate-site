@@ -29,6 +29,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s, ladder_delay_s
 from sqlalchemy import text
 
 from apps.api.agents.live_apply import (
@@ -296,11 +297,13 @@ async def apply_live_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             # A window is not a failure of this agent and may outlast the ladder: wait it
             # out, and once the ladder is spent start a fresh one rather than give up.
             if attempt < WORKER_MAX_TRIES:
-                raise Retry(defer=MAINTENANCE_DEFER_S) from exc
+                raise Retry(
+                    defer=jittered_delay_s(MAINTENANCE_DEFER_S, floor_s=MAINTENANCE_DEFER_S)
+                ) from exc
             await _queue_retry(run_id, tenant_id=tenant_id, agent_id=agent_id)
             return "maintenance"
         if not is_permanent(exc) and attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=RETRY_AFTER_S[min(attempt, len(RETRY_AFTER_S)) - 1]) from exc
+            raise Retry(defer=ladder_delay_s(RETRY_AFTER_S, attempt)) from exc
         await _record_failure(
             run_id,
             tenant_id=tenant_id,

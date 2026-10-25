@@ -55,6 +55,7 @@ from typing import Any
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 from sqlalchemy import text
 
 from apps.api.core.alerting import alert
@@ -191,7 +192,7 @@ async def draw_qa_samples(ctx: dict[str, Any]) -> str:
         # "some tenants failed" and "the whole weekly draw was abandoned" are different
         # incidents and only the first of them was ever reported.
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=300)
+            raise Retry(defer=jittered_delay_s(300))
         alert(
             "WORKER_TERMINAL",
             "qa_sample_draw_abandoned",

@@ -24,6 +24,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 from sqlalchemy import text
 
 from apps.api.compliance.kyc_documents import OWNER_ID_MAX_HOLD, mark_purged
@@ -90,7 +91,7 @@ async def sweep_abandoned_owner_ids(ctx: dict[str, Any]) -> str:
             extra={"reason": exc.__class__.__name__, "attempt": attempt},
         )
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=60 * attempt) from exc
+            raise Retry(defer=jittered_delay_s(60 * attempt)) from exc
         alert(
             "WORKER_TERMINAL",
             "kyc_owner_id_purge_abandoned",

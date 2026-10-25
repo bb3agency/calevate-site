@@ -38,6 +38,7 @@ from typing import Any, Final, Literal
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -173,11 +174,6 @@ _COPY: Final[dict[Notice, tuple[str, str, str]]] = {
 }
 
 
-def _retry_after(attempt: int) -> float:
-    index = min(attempt, len(RETRY_BACKOFF_S)) - 1
-    return RETRY_BACKOFF_S[max(index, 0)]
-
-
 async def _recipient(session: AsyncSession, tenant_id: UUID) -> Recipient | None:
     row = (
         await session.execute(
@@ -271,7 +267,7 @@ async def notify_trial_started(ctx: dict[str, Any], payload: dict[str, Any]) -> 
             "trial_notice_send_failed",
             extra={"tenant_id": str(tenant_id), "notice": "start", "attempt": attempt},
         )
-        raise Retry(defer=_retry_after(attempt))
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
     log.info("trial_notice_sent", extra={"tenant_id": str(tenant_id), "notice": "start"})
     return "sent"
 

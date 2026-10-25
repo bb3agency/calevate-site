@@ -50,6 +50,7 @@ from typing import Any
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 
 from apps.api.agents.service import reconcile_inbound_answering
 from apps.api.campaigns.controls import resume_campaigns_after_credit
@@ -68,11 +69,6 @@ log = get_logger(__name__)
 #: wait five minutes and a phone line that is answering calls its owner cannot pay for, or
 #: refusing calls its owner HAS paid for, cannot.
 RETRY_BACKOFF_S: tuple[float, ...] = (15.0, 60.0)
-
-
-def _retry_after(attempt: int) -> float:
-    index = min(attempt, len(RETRY_BACKOFF_S)) - 1
-    return RETRY_BACKOFF_S[max(index, 0)]
 
 
 async def apply_inbound_credit_state(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -124,7 +120,7 @@ async def apply_inbound_credit_state(ctx: dict[str, Any], payload: dict[str, Any
     if outcome.failed:
         attempt = int(ctx.get("job_try", 1))
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=_retry_after(attempt))
+            raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
         log.error(
             "inbound_cutover_abandoned",
             extra={"tenant_id": str(tenant_id), "failed": outcome.failed},

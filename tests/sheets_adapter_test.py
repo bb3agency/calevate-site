@@ -611,7 +611,9 @@ async def test_google_being_busy_climbs_the_same_ladder_as_a_webhook(
                 {"job_try": 1}, _payload(tenant_id, endpoint_id, delivery_id)
             )
     # The SHARED ladder, not a second backoff loop inside the adapter.
-    assert raised.value.defer_score == int(outbound_webhooks.RETRY_BACKOFF_S[0] * 1000)
+    step_ms = outbound_webhooks.RETRY_BACKOFF_S[0] * 1000
+    assert raised.value.defer_score is not None
+    assert step_ms / 2 <= raised.value.defer_score <= step_ms, "equal jitter: within the first step"
     status, attempts, _source, reason = await _delivery_row(tenant_id, delivery_id) or ()
     assert (status, attempts, reason) == ("failed", 1, RATE_LIMITED_REASON)
 

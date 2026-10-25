@@ -163,7 +163,9 @@ async def test_a_transient_failure_asks_for_the_retry_ladder(
     with pytest.raises(Retry) as raised:
         await auth_email.deliver_auth_email({"job_try": 1}, PAYLOAD)
     # arq reads the deferral off the exception, in milliseconds.
-    assert raised.value.defer_score == int(auth_email.RETRY_BACKOFF_S[0] * 1000)
+    step_ms = auth_email.RETRY_BACKOFF_S[0] * 1000
+    assert raised.value.defer_score is not None
+    assert step_ms / 2 <= raised.value.defer_score <= step_ms, "equal jitter: within the first step"
     assert alerts == [], "the ladder has not run out yet; alerting now would cry wolf"
 
 

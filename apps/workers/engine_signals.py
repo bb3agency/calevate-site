@@ -28,6 +28,7 @@ from typing import Any, Final, NoReturn, Protocol, runtime_checkable
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from calevate_shared.engine_scope import scope_of
 from calevate_shared.events import EngineNotice, EngineOptOut, EngineProblem
 from sqlalchemy import text
@@ -201,7 +202,7 @@ async def _abandon(payload: dict[str, Any], exc: Exception, attempt: int) -> NoR
     await _settle_inbox(payload.get("inbox_row_id"), error=type(exc).__name__)
     permanent = isinstance(exc, ProblemError) and exc.kind == "validation"
     if not permanent and attempt < WORKER_MAX_TRIES:
-        raise Retry(defer=_RETRY_AFTER_S[min(attempt, len(_RETRY_AFTER_S)) - 1]) from exc
+        raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt)) from exc
     alert(
         "WORKER_TERMINAL",
         "engine_optout_abandoned",
@@ -306,7 +307,7 @@ async def _abandon_notice(payload: dict[str, Any], exc: Exception, attempt: int)
     await _settle_inbox(payload.get("inbox_row_id"), error=type(exc).__name__)
     permanent = isinstance(exc, ProblemError) and exc.kind == "validation"
     if not permanent and attempt < WORKER_MAX_TRIES:
-        raise Retry(defer=_RETRY_AFTER_S[min(attempt, len(_RETRY_AFTER_S)) - 1]) from exc
+        raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt)) from exc
     log.warning(
         "engine_notice_abandoned",
         extra={"reason": type(exc).__name__, "attempt": attempt},

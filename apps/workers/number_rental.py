@@ -70,6 +70,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER
 from sqlalchemy import text
 
@@ -228,7 +229,7 @@ async def meter_number_rentals(ctx: dict[str, Any]) -> str:
         # This cron runs once a month, so a transient failure is retried here or lost for
         # the month; the record is idempotent on (number, month), so a retry costs nothing.
         log.warning("number_rentals_metering_retry", extra={"month": month, "failed": failed})
-        raise Retry(defer=_RENEWAL_RETRY_AFTER_S[min(attempt, len(_RENEWAL_RETRY_AFTER_S)) - 1])
+        raise Retry(defer=ladder_delay_s(_RENEWAL_RETRY_AFTER_S, attempt))
     if failed or unpriced:
         alert(
             "WORKER_TERMINAL",
@@ -403,7 +404,7 @@ async def renew_number_rentals(ctx: dict[str, Any]) -> str:
     log.info("number_rentals_renewed", extra=summary)
     if failed:
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=_RENEWAL_RETRY_AFTER_S[min(attempt, len(_RENEWAL_RETRY_AFTER_S)) - 1])
+            raise Retry(defer=ladder_delay_s(_RENEWAL_RETRY_AFTER_S, attempt))
         alert(
             "WORKER_TERMINAL",
             "number_rental_renewals_unrecorded",

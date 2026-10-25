@@ -168,6 +168,7 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -551,11 +552,6 @@ async def resolve_destination(session: AsyncSession, tenant_id: UUID) -> Destina
 # --- the job -------------------------------------------------------------------
 
 
-def _retry_after(attempt: int) -> float:
-    index = min(attempt, len(RETRY_BACKOFF_S)) - 1
-    return RETRY_BACKOFF_S[max(index, 0)]
-
-
 def _compose_variables(triggers: list[str]) -> tuple[str, ...]:
     """The single approved template variable: WHY this lead is hot.
 
@@ -652,7 +648,7 @@ async def notify_hot_lead_whatsapp(ctx: dict[str, Any], payload: dict[str, Any])
         # RetryJob / CancelledError and nothing else). The attempt row is already
         # committed — the session closed above — so the retry resumes from a recorded
         # attempt rather than from nothing.
-        raise Retry(defer=_retry_after(attempt))
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
 
     alert(
         "WORKER_DELIVERY",
@@ -971,7 +967,7 @@ async def escalate_campaign_contact(ctx: dict[str, Any], payload: dict[str, Any]
         return f"rejected {result.reason}"
 
     if attempt < WORKER_MAX_TRIES:
-        raise Retry(defer=_retry_after(attempt))
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
 
     alert(
         "WORKER_DELIVERY",

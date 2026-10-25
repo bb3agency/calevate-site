@@ -23,6 +23,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 from sqlalchemy import text
 
 from apps.api.copilot import routines
@@ -59,7 +60,7 @@ async def fire_due_routines(ctx: dict[str, Any]) -> str:
     except Exception as failure:
         attempt = int(ctx.get("job_try", 1))
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=attempt * 5) from failure
+            raise Retry(defer=jittered_delay_s(attempt * 5)) from failure
         alert(
             "WORKER_TERMINAL",
             "copilot_routines_tick_failed",

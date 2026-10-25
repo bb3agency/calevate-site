@@ -31,6 +31,7 @@ from typing import Any
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,11 +61,6 @@ INVOCATION_LOG_DAYS = 90
 #: blocked on the row: a longer ladder would only widen the window in which a deploy
 #: takes the attempt with it.
 RETRY_BACKOFF_S: tuple[float, ...] = (5.0, 20.0)
-
-
-def _retry_after(attempt: int) -> float:
-    index = min(attempt, len(RETRY_BACKOFF_S)) - 1
-    return RETRY_BACKOFF_S[max(index, 0)]
 
 
 async def _record_invocation(
@@ -134,7 +130,7 @@ async def record_action_invocation(ctx: dict[str, Any], payload: dict[str, Any])
     except Exception as exc:
         if attempt < WORKER_MAX_TRIES:
             # The one exception arq treats as "not finished" — see the module docstring.
-            raise Retry(defer=_retry_after(attempt)) from exc
+            raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt)) from exc
         # The ladder is spent and the invocation is now permanently unlogged. Ids and an
         # exception TYPE only: a psycopg error string can quote the row that broke it
         # (hard rule 6), and an alert body travels further than a log line.

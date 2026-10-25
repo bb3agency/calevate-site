@@ -81,6 +81,7 @@ from uuid import UUID
 
 import httpx
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -431,7 +432,7 @@ async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
     except Exception as failure:
         attempt = int(ctx.get("job_try", 1))
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=attempt * 30) from failure
+            raise Retry(defer=jittered_delay_s(attempt * 30)) from failure
         alert(
             "WORKER_TERMINAL",
             "kb_embed_worklist_failed",

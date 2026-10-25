@@ -45,6 +45,7 @@ from __future__ import annotations
 from typing import Any
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 from calevate_shared.engine import (
     AccountKBListing,
     AccountKBObject,
@@ -188,7 +189,7 @@ async def sweep_kb_orphans(ctx: dict[str, Any]) -> str:
         )
         attempt = int(ctx.get("job_try", 1) or 1)
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=30 * attempt) from exc
+            raise Retry(defer=jittered_delay_s(30 * attempt)) from exc
         alert(
             "WORKER_TERMINAL",
             "kb_orphan_sweep_abandoned",

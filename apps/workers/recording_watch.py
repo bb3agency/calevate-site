@@ -31,6 +31,7 @@ from typing import Any, Final, Literal
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from calevate_shared.engine import PIPECAT_REF_PREFIX
 from calevate_shared.engine_scope import SCOPE_SEPARATOR, WORKSPACE_PREFIX
 from sqlalchemy import text
@@ -42,7 +43,12 @@ from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.workers.engine_delivery import post_call_truth
-from apps.workers.pipeline import _copy_recordings, _is_transient, _retry_after, callable_tenants
+from apps.workers.pipeline import (
+    RETRY_BACKOFF_S,
+    _copy_recordings,
+    _is_transient,
+    callable_tenants,
+)
 
 log = get_logger(__name__)
 
@@ -271,7 +277,7 @@ async def recopy_call_recording(ctx: dict[str, Any], payload: dict[str, Any]) ->
     except Exception as exc:
         # arq retries only an `arq.Retry`; anything else would end the job on its first try.
         if _is_transient(exc) and attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=_retry_after(attempt)) from exc
+            raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt)) from exc
         log.warning(
             "recording_recopy_unreadable",
             extra={

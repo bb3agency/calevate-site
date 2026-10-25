@@ -27,6 +27,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s, ladder_delay_s
 from calevate_shared.engine import tenant_of_pipecat_ref
 from calevate_shared.engine_scope import raw_of, scope_of
 from sqlalchemy import text
@@ -92,7 +93,7 @@ def _retry_if_worth_it(exc: Exception, attempt: int) -> None:
     the caller alarms and re-raises when this returns."""
     permanent = isinstance(exc, ProblemError) and exc.kind == "validation"
     if not permanent and attempt < WORKER_MAX_TRIES:
-        raise Retry(defer=_RETRY_AFTER_S[min(attempt, len(_RETRY_AFTER_S)) - 1]) from exc
+        raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt)) from exc
 
 
 # --- do-not-call --------------------------------------------------------------------------
@@ -423,7 +424,7 @@ async def delete_engine_call_content(ctx: dict[str, Any], payload: dict[str, Any
         )
         raise failure
     if tally["busy"] and attempt < WORKER_MAX_TRIES:
-        raise Retry(defer=_BUSY_RETRY_S)
+        raise Retry(defer=jittered_delay_s(_BUSY_RETRY_S, floor_s=_BUSY_RETRY_S))
     summary = " ".join(f"{key}={value}" for key, value in tally.items())
     log.info(
         "engine_call_content_deleted",

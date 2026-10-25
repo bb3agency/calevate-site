@@ -44,6 +44,7 @@ from typing import Any
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import jittered_delay_s
 from sqlalchemy import text
 
 from apps.api.copilot import attachments, session_run, transcript
@@ -112,7 +113,7 @@ async def sweep_ended_conversations(ctx: dict[str, Any]) -> str:
     except Exception as failure:
         attempt = int(ctx.get("job_try", 1))
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=attempt * 30) from failure
+            raise Retry(defer=jittered_delay_s(attempt * 30)) from failure
         alert(
             "WORKER_TERMINAL",
             "copilot_transcript_sweep_failed",

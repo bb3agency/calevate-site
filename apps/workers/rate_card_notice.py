@@ -58,6 +58,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
 
 from apps.api.billing.credit_packs import PACK_CATALOGUE
@@ -177,11 +178,6 @@ def compose(*, starts_on: str, rungs: Sequence[PackRates], slug: str) -> str:
         f"{CONSOLE_BASE}/c/{slug}/credits",
     ]
     return "\n".join(lines)
-
-
-def _retry_after(attempt: int) -> float:
-    index = min(attempt, len(RETRY_BACKOFF_S)) - 1
-    return RETRY_BACKOFF_S[max(index, 0)]
 
 
 def _starts_on(effective_from: datetime) -> str:
@@ -317,7 +313,7 @@ async def notify_rate_card_change(ctx: dict[str, Any], payload: dict[str, Any]) 
                 "attempt": attempt,
             },
         )
-        raise Retry(defer=_retry_after(attempt))
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
     log.info("rate_card_notice_sent", extra={"tenant_id": str(tenant_id)})
     return "sent"
 

@@ -48,6 +48,7 @@ from typing import Any
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -86,11 +87,6 @@ CHANNEL = "email"
 # the 2-minute hot-lead SLO, so the ladder has to finish inside a useful window rather
 # than pace itself for a receiver that may be down for a while.
 RETRY_BACKOFF_S: tuple[float, ...] = (15.0, 45.0)
-
-
-def _retry_after(attempt: int) -> float:
-    index = min(attempt, len(RETRY_BACKOFF_S)) - 1
-    return RETRY_BACKOFF_S[max(index, 0)]
 
 
 async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -209,7 +205,7 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         # The one exception type arq treats as "not finished". The attempt row is
         # already committed — the session closed above — so the retry starts from a
         # recorded attempt rather than from nothing.
-        raise Retry(defer=_retry_after(attempt))
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
 
     alert(
         "WORKER_DELIVERY",

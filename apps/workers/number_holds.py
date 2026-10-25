@@ -41,6 +41,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
 
 from apps.api.billing.plans import IST
@@ -93,10 +94,6 @@ _DIRECTORY: Final = "SELECT id FROM organizations ORDER BY id"
 
 #: What `sync_number_attachment` answers when the platform now holds what our record says.
 _SETTLED: Final = frozenset({"unchanged", "applied", "other_workspace"})
-
-
-def _retry_after(delays: tuple[float, ...], attempt: int) -> float:
-    return delays[max(min(attempt, len(delays)) - 1, 0)]
 
 
 async def _apply(tenant_id: UUID, hold: OpenHold, tally: Counter[str]) -> datetime:
@@ -234,7 +231,7 @@ async def settle_number_holds(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     tally, failed = await settle_tenant(tenant_id)
     if failed:
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=_retry_after(_RETRY_AFTER_S, attempt))
+            raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt))
         _alarm_unsettled(failed, attempt, tenant_id=tenant_id)
     return " ".join(f"{key}={value}" for key, value in sorted(tally.items())) or "nothing"
 
@@ -263,7 +260,7 @@ async def sweep_number_holds(ctx: dict[str, Any]) -> str:
     log.info("number_holds_swept", extra=summary)
     if failed:
         if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=_retry_after(_RETRY_AFTER_S, attempt))
+            raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt))
         _alarm_unsettled(failed, attempt)
     return str(summary)
 
@@ -425,7 +422,7 @@ async def notify_number_hold(ctx: dict[str, Any], payload: dict[str, Any]) -> st
         )
         return "sent"
     if attempt < WORKER_MAX_TRIES:
-        raise Retry(defer=_retry_after(_NOTICE_RETRY_AFTER_S, attempt))
+        raise Retry(defer=ladder_delay_s(_NOTICE_RETRY_AFTER_S, attempt))
     alert(
         "WORKER_DELIVERY",
         "number_hold_notice_undelivered",
