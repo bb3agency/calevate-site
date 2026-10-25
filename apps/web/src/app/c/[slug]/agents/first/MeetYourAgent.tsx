@@ -171,7 +171,6 @@ export function MeetYourAgent({ slug }: { slug: string }) {
             <ResultStep
               agent={agent}
               call={call}
-              placedAt={Date.parse(call.started_at ?? "") || Date.now()}
               onCallAgain={() => setStage("hear")}
               onNext={() => setStage("team")}
             />

@@ -3,8 +3,12 @@
 `GET /v1/trial` is what the dashboard's Trial panel reads: days and minutes left, today's
 test calls against the cap, and whether a test call can be placed now and, if not, why.
 `POST /v1/trial/calls` places one test call (`agents/trial_calls.place_trial_call`).
+`GET /v1/trial/calls` lists today's test calls and `GET /v1/trial/calls/{call_id}` follows
+one while it runs (`agents/test_call_reads`, D-885).
 
-Dates, counts and sentences only; no cost, no number of ours, no vendor name.
+No cost and no vendor name. The one number of ours is the shared trial number a placed
+call rings from (D-885: the owner asked where the call came from); the person rung is
+never echoed back.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.test_call_reads import TestCallOut, read_test_call, recent_test_calls
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.trial_panel import TrialPanelOut
 from apps.api.agents.trial_panel import read_trial_panel as build_trial_panel
@@ -30,6 +35,7 @@ router = APIRouter(prefix="/v1/trial", tags=["billing"])
 Session = Annotated[AsyncSession, Depends(db)]
 TrialReader = Annotated[Principal, Depends(requires("org:read"))]
 TrialCaller = Annotated[Principal, Depends(requires("leads:dispatch"))]
+CallReader = Annotated[Principal, Depends(requires("calls:read"))]
 
 
 class Strict(BaseModel):
@@ -50,6 +56,11 @@ class TrialCallOut(Strict):
     call_handle: str | None = None
     blocked_reason: str | None = None
     blocked_rule: str | None = None
+    #: Our id for the placed call (`GET /v1/trial/calls/{call_id}`); null when blocked.
+    call_id: UUID | None = None
+    #: The shared trial number the call rings from, E.164; null when the account's own line
+    #: places it, whose number the engine picks.
+    caller_number: str | None = None
 
 
 @router.get(
@@ -106,7 +117,31 @@ async def create_trial_call(
         call_handle=result.call_handle,
         blocked_reason=result.blocked_reason,
         blocked_rule=result.blocked_rule,
+        call_id=result.call_id,
+        caller_number=result.caller_number,
     )
+
+
+@router.get(
+    "/calls",
+    response_model=list[TestCallOut],
+    openapi_extra=permission_meta("calls:read"),
+    summary="Today's test calls, newest first, at most three",
+)
+async def list_test_calls(session: Session, principal: CallReader) -> list[TestCallOut]:
+    assert principal.tenant_id is not None
+    return await recent_test_calls(session, tenant_id=principal.tenant_id)
+
+
+@router.get(
+    "/calls/{call_id}",
+    response_model=TestCallOut,
+    openapi_extra=permission_meta("calls:read"),
+    summary="One test call's status, asked of the voice platform while it runs",
+)
+async def get_test_call(call_id: UUID, session: Session, principal: CallReader) -> TestCallOut:
+    assert principal.tenant_id is not None
+    return await read_test_call(session, tenant_id=principal.tenant_id, call_id=call_id)
 
 
 __all__ = ["router"]

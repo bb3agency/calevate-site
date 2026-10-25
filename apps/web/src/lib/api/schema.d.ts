@@ -11629,10 +11629,28 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Today's test calls, newest first, at most three */
+        get: operations["list_test_calls_v1_trial_calls_get"];
         put?: never;
         /** Place one free-trial test call to an Indian number — gated, idempotent */
         post: operations["create_trial_call_v1_trial_calls_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/trial/calls/{call_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One test call's status, asked of the voice platform while it runs */
+        get: operations["get_test_call_v1_trial_calls__call_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -28530,6 +28548,54 @@ export interface components {
             /** Status */
             status: string;
         };
+        /**
+         * TestCallOut
+         * @description One test call as the dashboard card shows it. No number of the person rung: the card
+         *     names the agent, the time and the number of ours it rang from, and the call's own page
+         *     has the rest.
+         */
+        TestCallOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name?: string | null;
+            /** Business Outcome Label */
+            business_outcome_label?: string | null;
+            /** Caller Number */
+            caller_number?: string | null;
+            /** Duration S */
+            duration_s?: number | null;
+            /** Headline */
+            headline?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Outcome Tag */
+            outcome_tag?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
+            /**
+             * Placed At
+             * Format: date-time
+             */
+            placed_at: string;
+            /** Started At */
+            started_at?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "ringing" | "in_progress" | "completed" | "failed" | "no_answer" | "busy" | "voicemail";
+            /**
+             * Status Source
+             * @default call
+             * @enum {string}
+             */
+            status_source: "call" | "engine";
+        };
         /** TestCaseIn */
         TestCaseIn: {
             /** Caller Lines */
@@ -29343,6 +29409,10 @@ export interface components {
             blocked_rule?: string | null;
             /** Call Handle */
             call_handle?: string | null;
+            /** Call Id */
+            call_id?: string | null;
+            /** Caller Number */
+            caller_number?: string | null;
             /**
              * Status
              * @enum {string}
@@ -51837,6 +51907,35 @@ export interface operations {
             };
         };
     };
+    list_test_calls_v1_trial_calls_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestCallOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     create_trial_call_v1_trial_calls_post: {
         parameters: {
             query?: never;
@@ -51857,6 +51956,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrialCallOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_test_call_v1_trial_calls__call_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestCallOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

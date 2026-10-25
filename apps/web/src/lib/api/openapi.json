@@ -44653,6 +44653,144 @@
         "title": "TestActionOut",
         "type": "object"
       },
+      "TestCallOut": {
+        "additionalProperties": false,
+        "description": "One test call as the dashboard card shows it. No number of the person rung: the card\nnames the agent, the time and the number of ours it rang from, and the call's own page\nhas the rest.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "business_outcome_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Outcome Label"
+          },
+          "caller_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Number"
+          },
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration S"
+          },
+          "headline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headline"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "outcome_tag": {
+            "anyOf": [
+              {
+                "enum": [
+                  "call_back_booked",
+                  "needs_you",
+                  "answered",
+                  "transferred",
+                  "hung_up_early",
+                  "missed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Tag"
+          },
+          "placed_at": {
+            "format": "date-time",
+            "title": "Placed At",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "ringing",
+              "in_progress",
+              "completed",
+              "failed",
+              "no_answer",
+              "busy",
+              "voicemail"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "status_source": {
+            "default": "call",
+            "enum": [
+              "call",
+              "engine"
+            ],
+            "title": "Status Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "status",
+          "placed_at"
+        ],
+        "title": "TestCallOut",
+        "type": "object"
+      },
       "TestCaseIn": {
         "additionalProperties": false,
         "properties": {
@@ -46738,6 +46876,29 @@
               }
             ],
             "title": "Call Handle"
+          },
+          "call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          },
+          "caller_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Number"
           },
           "status": {
             "enum": [
@@ -81957,6 +82118,36 @@
       }
     },
     "/v1/trial/calls": {
+      "get": {
+        "operationId": "list_test_calls_v1_trial_calls_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TestCallOut"
+                  },
+                  "title": "Response List Test Calls V1 Trial Calls Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Today's test calls, newest first, at most three",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "calls:read"
+      },
       "post": {
         "operationId": "create_trial_call_v1_trial_calls_post",
         "requestBody": {
@@ -81992,6 +82183,46 @@
           "billing"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/trial/calls/{call_id}": {
+      "get": {
+        "operationId": "get_test_call_v1_trial_calls__call_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestCallOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One test call's status, asked of the voice platform while it runs",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "calls:read"
       }
     },
     "/v1/usage": {

@@ -32,6 +32,7 @@ import type { Agent } from "@/lib/api/agents";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { usePlaceTrialCall, useTrialPanel } from "@/lib/api/trialCalls";
 
+import { TestCallFollow } from "../../../TestCallStatus";
 import { TestCallTranscript } from "../../../TestCallTranscript";
 
 export function TryIt({
@@ -185,13 +186,17 @@ function TrialTestCall({
             {trial.blocked_reason}
           </p>
         ) : null}
-        {place.data?.status === "queued" && (
-          <p role="status" className="text-body font-medium text-brand-strong">
-            Calling now. The call appears under Calls once it ends.
-          </p>
-        )}
-        {place.data?.status === "queued" ? (
-          <TestCallTranscript agentId={agent.id} placedAt={place.submittedAt} />
+        {place.data?.status === "queued" && place.data.call_id ? (
+          <>
+            <TestCallFollow
+              callId={place.data.call_id}
+              callerNumber={place.data.caller_number}
+              paid={false}
+              heading="This test call"
+              link={false}
+            />
+            <TestCallTranscript callId={place.data.call_id} />
+          </>
         ) : null}
         {place.data?.status === "blocked" && (
           <p role="status" className="text-meta text-warn">

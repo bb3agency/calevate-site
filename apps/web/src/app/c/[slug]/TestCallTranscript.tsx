@@ -6,8 +6,9 @@ import { useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { ProblemNotice, Skeleton } from "@/components/ui";
-import { useCall, useCalls, useWriteAccess } from "@/lib/api/hooks";
+import { useCall, useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { testCallIsLive } from "@/lib/api/trialCalls";
 
 import { initialView, useRetryEnglish, type CallView } from "./calls/[callId]/callEnglish";
 import { TranscriptCard } from "./calls/[callId]/TranscriptCard";
@@ -17,24 +18,12 @@ import { useRawTranscriptAccess } from "./calls/[callId]/transcriptAccess";
  * THE TEST CALL, READ BACK WHERE IT WAS PLACED (founder, REDESIGN-2): after "Ring my phone",
  * the owner sees what was said without going to look for it.
  *
- * The trial endpoint answers with the engine's handle, not our call id, so the call is found
- * as this agent's newest call that started after the button was pressed (a minute's grace
- * for clock skew). Until it lands this renders nothing and the "Calling now" line above
- * speaks. The transcript is the call page's own `TranscriptCard`: redacted by default with
- * its notice above, and "Show full transcript" opens the call's page, where reading it raw
- * is audited.
+ * The call is our id from the test-call endpoint (D-885), not a guess at "this agent's newest
+ * call", which a second call or a slow clock could get wrong. The transcript is the call
+ * page's own `TranscriptCard`: redacted by default with its notice above, and "Show full
+ * transcript" opens the call's page, where reading it raw is audited.
  */
-export function TestCallTranscript({ agentId, placedAt }: { agentId: string; placedAt: number }) {
-  const session = useClientSession();
-  const latest = useCalls(session, { agent_id: agentId, limit: 1 });
-  const call = latest.data?.find(
-    (c) => c.started_at !== null && c.started_at !== undefined && Date.parse(c.started_at) >= placedAt - 60_000,
-  );
-  if (!call) return null;
-  return <TestCall callId={call.id} />;
-}
-
-function TestCall({ callId }: { callId: string }) {
+export function TestCallTranscript({ callId }: { callId: string }) {
   const session = useClientSession();
   const { href } = useClientRealm();
   const router = useRouter();
@@ -50,6 +39,8 @@ function TestCall({ callId }: { callId: string }) {
 
   if (detail.isPending) return <Skeleton rows={3} label="Getting your test call" />;
   if (detail.isError) return <ProblemNotice error={detail.error} onRetry={() => void detail.refetch()} />;
+  // While it runs there is nothing to read yet, and the call's status line says so.
+  if (testCallIsLive(detail.data)) return null;
   const turns = detail.data.transcript ?? [];
   if (turns.length === 0) {
     return (
