@@ -126,8 +126,9 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     },
     "GET /v1/admin/whatsapp": BoundedByConstruction(
         by=(
-            "clients are read with `LIMIT` `whatsapp/admin_routes.MAX_CLIENTS` and each "
-            "client's accounts with `whatsapp/accounts.list_accounts`' `LIMIT`."
+            "the clients listed are cut to `whatsapp/admin_routes.MAX_CLIENTS` (the most "
+            "recently heard from) and each client's accounts are read with "
+            "`whatsapp/accounts.list_accounts`' `LIMIT`."
         )
     ),
     # --- call handling (D-751, F3, F9): filler lines and the sound choices -----------------

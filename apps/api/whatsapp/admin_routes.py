@@ -4,12 +4,12 @@ and webhook health.
 
 The directory is an `admin_session()`; each client is then read under its OWN tenant session
 (`admin/onboarding.py`'s pattern), so no cross-tenant view of a tenant table is opened. The
-candidate list is every live client, bounded; one with no account is left out.
+candidate list is every live client; one with no account is left out.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Final
 from uuid import UUID
 
@@ -27,7 +27,10 @@ from apps.api.whatsapp import accounts, signup
 router = APIRouter(prefix="/v1/admin/whatsapp", tags=["whatsapp"])
 Operator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
 
-#: Clients shown. Far above Meta's 200-a-week ceiling for any span an operator reads here.
+#: Clients shown, most recently heard from first when more have WhatsApp. Far above Meta's
+#: 200-a-week ceiling for any span an operator reads here. It bounds the answer, never the
+#: walk: capping the directory instead hid every WhatsApp client whose name sorted after the
+#: first 200 accounts, with or without WhatsApp.
 MAX_CLIENTS: Final = 200
 
 
@@ -88,9 +91,8 @@ async def whatsapp_admin(_: Operator) -> AdminWhatsAppOut:
             await directory.execute(
                 text(
                     "SELECT id, name, slug FROM organizations WHERE deleted_at IS NULL "
-                    "ORDER BY name LIMIT :n"
-                ),
-                {"n": MAX_CLIENTS},
+                    "ORDER BY name"
+                )
             )
         ).all()
     clients: list[AdminWhatsAppClientOut] = []
@@ -144,6 +146,15 @@ async def whatsapp_admin(_: Operator) -> AdminWhatsAppOut:
                 tenant_id=tenant_id, name=str(org[1]), slug=str(org[2]), accounts=out
             )
         )
+    if len(clients) > MAX_CLIENTS:
+        never = datetime.min.replace(tzinfo=UTC)
+
+        def heard(client: AdminWhatsAppClientOut) -> datetime:
+            return max((a.last_event_at or never for a in client.accounts), default=never)
+
+        kept = {c.tenant_id for c in sorted(clients, key=heard, reverse=True)[:MAX_CLIENTS]}
+        # Still in name order, as the screen lists them.
+        clients = [c for c in clients if c.tenant_id in kept]
     return AdminWhatsAppOut(
         configured=setup.reason != "not_configured",
         app_secret_set=bool(s.meta_app_secret),
