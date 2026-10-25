@@ -28,6 +28,7 @@ from calevate_shared.engine import (
     AgentConfig,
     compose_engine_prompt,
     truthful_answer_directive,
+    without_this_call,
 )
 
 
@@ -110,7 +111,7 @@ def test_an_agent_with_extras_is_told_which_languages_it_may_answer_in() -> None
     assert prompt.index(VOICE_STYLE_GUIDANCE) < prompt.index("--- LANGUAGES ---")
     assert prompt.index("--- LANGUAGES ---") < prompt.index(CLIENT_SCRIPT_OPEN)
     # Hard rule 5: the floor is still the last word, in every language.
-    assert prompt.endswith(truthful_answer_directive(call_is_recorded=True))
+    assert without_this_call(prompt).endswith(truthful_answer_directive(call_is_recorded=True))
     assert TRUTHFUL_ANSWER_MARKER in prompt
     assert "in any language" in prompt
     assert "Every rule here applies in every language." in prompt

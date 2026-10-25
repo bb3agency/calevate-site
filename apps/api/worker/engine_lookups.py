@@ -19,8 +19,11 @@ documents and `calevate_shared.webhook_signature` already implements. The body's
 must be the agent the url names. Every failure is one 401.
 
 THE ANSWER is built from our CRM for the route's tenant only (`crm/caller_lookup.py`) under
-`ANSWER_BUDGET_S`; any miss, error or overrun is `{"variables": {}}` with 200 so the call
-goes ahead at once. HARD RULE 6: logs carry ids and an outcome word, never the number.
+`ANSWER_BUDGET_S`; any miss, error or overrun answers no caller values with 200 so the call
+goes ahead at once. Every answer, those included, carries today's IST date
+(`calevate_shared.engine.TODAY_VARIABLE`, D-888): the lookup is the one way an inbound
+call's instructions get a value from us. HARD RULE 6: logs carry ids and an outcome word,
+never the number.
 """
 
 from __future__ import annotations
@@ -33,7 +36,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Final
 
-from calevate_shared.engine import CALLER_HIDDEN_VARIABLE
+from calevate_shared.engine import CALLER_HIDDEN_VARIABLE, TODAY_VARIABLE, today_value
 from calevate_shared.engine_scope import raw_of
 from calevate_shared.webhook_signature import (
     signed_time_is_fresh,
@@ -73,8 +76,15 @@ _DECOY: Final = secrets.token_urlsafe(32)
 _UNAUTHORISED: Final = {"error": "unauthorised"}
 
 
+def _answer_with(variables: dict[str, str]) -> JSONResponse:
+    """The lookup's answer: `variables` plus today's date, which no caller record decides."""
+    return JSONResponse(
+        {"variables": {**variables, TODAY_VARIABLE: today_value(datetime.now(UTC))}}
+    )
+
+
 def _empty() -> JSONResponse:
-    return JSONResponse({"variables": {}})
+    return _answer_with({})
 
 
 def verify_lookup_signature(
@@ -156,7 +166,7 @@ async def caller_lookup(
             "engine_lookup_answered",
             extra={**ids, "outcome": "repeat", "count": len(repeated or {})},
         )
-        return JSONResponse({"variables": repeated or {}})
+        return _answer_with(repeated or {})
     try:
         variables = await asyncio.wait_for(_answer(), timeout=ANSWER_BUDGET_S)
     except TimeoutError:
@@ -175,7 +185,7 @@ async def caller_lookup(
         "engine_lookup_answered",
         extra={**ids, "outcome": "known" if variables else "unknown", "count": len(variables)},
     )
-    return JSONResponse({"variables": variables})
+    return _answer_with(variables)
 
 
 # --- one answer per call ---------------------------------------------------------------

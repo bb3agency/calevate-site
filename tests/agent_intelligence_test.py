@@ -271,7 +271,9 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # "confirmed" among the claims, says "one goodbye and nothing more" and asks each truthful
     # answer "when asked" (7,032 before); the per-call sums stayed within `PER_CALL_MAX`.
     # D-883 trimmed the platform layers and added the ambiguous-amount read-back (7,042 before).
-    assert len(prompt) <= 6_894
+    # D-888 added today's date and the name as per-call values, the name and days rules, and
+    # named places, projects and how the caller found the business among facts (6,894 before).
+    assert len(prompt) <= 7_276
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

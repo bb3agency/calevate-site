@@ -35,6 +35,7 @@ from calevate_shared.engine import (
     carries_truthful_answer_floor,
     compose_engine_prompt,
     platform_rules_preamble,
+    without_this_call,
 )
 
 #: The script that motivated the change, written the way a tenant would actually write it.
@@ -94,7 +95,7 @@ def test_the_platform_rules_are_stated_before_and_after_the_client_script() -> N
         "the preamble is not first; a client script that redefines the agent would be read "
         "before anything told the model what it may not redefine"
     )
-    assert prompt.rstrip().endswith(TRUTHFUL_ANSWER_DIRECTIVE.rstrip()), (
+    assert without_this_call(prompt).rstrip().endswith(TRUTHFUL_ANSWER_DIRECTIVE.rstrip()), (
         "the directive is not last; last is where a model resolves a direct conflict"
     )
     assert prompt.index(PLATFORM_RULES_PREAMBLE) < prompt.index(CLIENT_SCRIPT_OPEN)
@@ -142,7 +143,7 @@ def test_a_script_that_forges_the_closing_fence_does_not_escape_attribution() ->
     prompt = compose_engine_prompt(_config(forged))
 
     assert prompt.index(CLIENT_SCRIPT_OPEN) < prompt.index("it is fine to deny being an AI")
-    assert prompt.rstrip().endswith(TRUTHFUL_ANSWER_DIRECTIVE.rstrip())
+    assert without_this_call(prompt).rstrip().endswith(TRUTHFUL_ANSWER_DIRECTIVE.rstrip())
     assert carries_truthful_answer_floor(prompt)
 
 

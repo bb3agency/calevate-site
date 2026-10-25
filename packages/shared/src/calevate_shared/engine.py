@@ -33,6 +33,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from calevate_shared.call_script import NativeStep, opening_line_of
+from calevate_shared.calling_window import ist_wall_clock
 from calevate_shared.events import (
     CallBilling,
     CallDirection,
@@ -2797,7 +2798,9 @@ _REGISTER_BULLET: Final = (
 #:   and moving on ("one kg" plus the next question) is implicit confirmation, which saves a turn
 #:   but leaves a wrong guess hard to correct, and the caller had to correct it on two calls.
 #: - Choices in a question ("morning or evening?") are allowed with the one-question rule,
-#:   because a question with its options is easier to answer than an open one.
+#:   because a question with its options is easier to answer than an open one. Not for a
+#:   count or an amount the caller decides: "two or three BHK?" steered a caller who wanted
+#:   five (calls of 25 Oct 2026, D-888).
 #: - The close says what happens next once, so the caller is not left with "noted, thanks".
 #:   "And nothing more" after the goodbye: on the call of 24 Oct 2026 (D-877) the agent's
 #:   goodbye turn ended "ఉంటాను మరి, నమస్కారం. సరే అండి, ఉంటాను మరి.". Whether the second is
@@ -2814,8 +2817,9 @@ VOICE_STYLE_GUIDANCE: Final = (
     "- One or two short sentences, then wait; more only if asked.\n"
     '- Asked something? Lead with the answer, never "do you want to know". Told something? '
     "React in a few words, then ask the next thing.\n"
-    '- One question a turn, each turn begun differently; choices help ("morning or '
-    'evening?"). Never re-ask what they said or repeat a sentence.\n'
+    '- One question a turn, each turn begun differently; choices for times ("morning or '
+    'evening?"), never for counts or amounts. Never re-ask what they said or repeat a '
+    "sentence.\n"
     "- Say only your own part, never the caller's. Half an answer? Offer your reading as a "
     'question with a way out ("one kg, or more?"); never finish it for them.\n'
     "- Unsure or not interested? Offer once, then close politely.\n"
@@ -2880,11 +2884,17 @@ def _knowledge_section(cfg: AgentConfig, pack: PackChoice | None = None) -> str:
     # anything medical, legal or financial.
     # The address and duration clauses and "how such businesses usually work" came from the
     # engine's default call rules, which `CALL_INSTRUCTIONS` no longer repeats (D-856).
+    # Places, projects, availability and how the caller reached the business are named
+    # because a real-estate agent whose facts named only its town said it builds "in many
+    # areas of Hyderabad", offered "good options in Badangpet" and told a caller "you
+    # enquired on our website" (calls of 25 Oct 2026, D-888): "never guess a fact" did not
+    # stop it, because the model did not read any of those as facts it lacked.
     return (
         "--- BUSINESS FACTS ---\n"
-        f"{where} Never guess or add to a fact: a price, an offer, stock, an address, how long "
-        "something takes, what a product is or how it is made, anything medical, legal or "
-        "financial, or how such businesses usually work."
+        f"{where} Say only what your facts or the caller said, never a guess: a place or "
+        "address, a project, stock or availability, a price, an offer, how long something "
+        "takes, what a product is or how it is made, anything medical, legal or financial, "
+        "how such businesses usually work, or how they found you."
         f"{'' if pack else _NAMES_RULE} Two possible answers? Ask which they meant."
     )
 
@@ -3011,6 +3021,20 @@ CALL_NUMBER_RULE: Final = (
     "- You have their number: never ask for it, only whether this one is fine."
 )
 
+#: All three Sri Estates calls of 25 Oct 2026 ended with the name "Not mentioned" (D-888).
+#: Reads `NAME_LINE`, so a caller we know is never asked, and comes after the client script so
+#: a script that lists the name among its details cannot ask a known caller again.
+NAME_RULE: Final = "- No name in THIS CALL? Ask theirs, early and once."
+
+#: Reads `TODAY_LINE` (D-888). On 25 Oct 2026, a Sunday evening, an agent offered "this
+#: weekend, Saturday or Sunday" and repeated a caller's "tomorrow, Thursday" when tomorrow
+#: was Monday. After the client script, because the real-estate starter's own example line
+#: offered the weekend first.
+DAYS_RULE: Final = (
+    "- Count days from today in THIS CALL; offer the soonest ahead, never a past one. A day "
+    "that does not fit its date? Ask which."
+)
+
 
 #: Filled by the caller lookup with `yes` when a forwarded call shows the client's own
 #: published number instead of the caller's (D-746, `worker/engine_lookups.py`).
@@ -3042,11 +3066,42 @@ THIS_CALL_HEADER: Final = "--- THIS CALL ---"
 #: snapshot), so the line then reads as no answer rather than as "yes".
 CALLER_HIDDEN_LINE: Final = f"Caller number hidden: {{{{{CALLER_HIDDEN_VARIABLE}}}}}"
 
+#: Today's date and weekday in IST, filled per call by us (D-888): an outbound dial sends it
+#: as a Place Call variable (`engine/thinnest.start_outbound_call`) and an inbound call gets it
+#: from the caller lookup (`worker/engine_lookups.py`), the two ways ThinnestAI fills a
+#: `{{name}}` in the instructions (docs.thinnest.ai api-reference/calls/place-call `variables`
+#: and agents/update-agent `callStartUrl`, read 25 Oct 2026). Neither page says what the
+#: engine's own date line holds or in which zone, and on 25 Oct 2026 (a Sunday evening) an
+#: agent offered "this weekend, Saturday or Sunday" and agreed that tomorrow was Thursday.
+TODAY_VARIABLE: Final = "today"
+TODAY_LINE: Final = f"Today: {{{{{TODAY_VARIABLE}}}}}"
+
+#: The caller's name when we know it (D-888): the outbound dial's `lead_name`, the inbound
+#: lookup's from the lead on file. Unfilled, the line reads as no name, which is what
+#: `NAME_RULE` asks about.
+NAME_VARIABLE: Final = "lead_name"
+NAME_LINE: Final = f"Name: {{{{{NAME_VARIABLE}}}}}"
+
+
+def today_value(now: datetime) -> str:
+    """`Sunday, 25 October 2026`: the IST calendar day of `now`, as `TODAY_LINE` reads it."""
+    day = ist_wall_clock(now)
+    return f"{day.strftime('%A')}, {day.day} {day.strftime('%B %Y')}"
+
+
+def without_this_call(prompt: str) -> str:
+    """`prompt` without its trailing `THIS_CALL_HEADER` section: the rules, whose last word is
+    the truthful-answer block. The section is labelled values only (`tests/
+    prompt_call_details_order_test.py` holds it to that), so nothing after the block is an
+    instruction."""
+    head, found, _ = prompt.rpartition(f"{LAYER_SEPARATOR}{THIS_CALL_HEADER}\n")
+    return head if found else prompt
+
 
 def _this_call_section(cfg: AgentConfig) -> str:
-    """The per-call values this agent's rules read, or "" when it has none."""
-    lines = [CALLER_HIDDEN_LINE] if cfg.forwarded_line else []
-    return "\n".join([THIS_CALL_HEADER, *lines]) if lines else ""
+    """The per-call values this agent's rules read."""
+    lines = [TODAY_LINE, NAME_LINE, *([CALLER_HIDDEN_LINE] if cfg.forwarded_line else [])]
+    return "\n".join([THIS_CALL_HEADER, *lines])
 
 
 def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
@@ -3076,9 +3131,10 @@ def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
         # it, and ends on what this account allows; without it an agent that cannot make out
         # a caller asks again until the caller hangs up. "Say so" repeats ThinnestAI's "If you
         # do not know, say so", which is read on calls only (`VOICE_STYLE_GUIDANCE`), so a
-        # chat reply is told too.
-        f"- No answer after searching, or still unclear after two tries: say so, then "
-        f"{follow_up}.\n"
+        # chat reply is told too. The quoted words are the one way to say it (D-888): left to
+        # itself, an agent with nothing on a location or a project filled the gap instead.
+        f'- No answer after searching ("the team will share that"), or still unclear after '
+        f"two tries: say so, then {follow_up}.\n"
         f"{person}\n"
         # The do-not-call tool is the voice platform's own, always attached and not
         # describable by us (not in the switchable list, `api-reference/tools/
@@ -3088,7 +3144,9 @@ def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
         "- Do-not-call tool: only if they ask never to be called again, not for no, later or "
         "ending this call.\n"
         f"{ACTION_CLAIM_RULE}\n"
-        f"{CALL_NUMBER_RULE}"
+        f"{CALL_NUMBER_RULE}\n"
+        f"{NAME_RULE}\n"
+        f"{DAYS_RULE}"
     ) + (f"\n{FORWARDED_LINE_RULE}" if cfg.forwarded_line else "")
 
 
@@ -6068,12 +6126,16 @@ __all__ = [
     "CLIENT_SCRIPT_OPEN",
     "CONFIDENTIALITY_MARKER",
     "CONFIDENTIALITY_RULE",
+    "DAYS_RULE",
     "E164",
     "EMBEDDING_MODELS",
     "FACTS_IN_KNOWLEDGE_GUIDANCE",
     "FORWARDED_LINE_RULE",
     "LAYER_SEPARATOR",
     "MAX_CALLER_MEMORY_CHARS",
+    "NAME_LINE",
+    "NAME_RULE",
+    "NAME_VARIABLE",
     "OPENING_CONTINUES_RULE",
     "OWN_RULES_HANDOVER_RULE",
     "PIPECAT_REF_PREFIX",
@@ -6086,6 +6148,8 @@ __all__ = [
     "ROLE_BUSINESS_MAX_CHARS",
     "TEST_CALL_OPENING_RULE",
     "THIS_CALL_HEADER",
+    "TODAY_LINE",
+    "TODAY_VARIABLE",
     "VOICE_STYLE_GUIDANCE",
     "WEBHOOK_AUTH_BY_ENGINE",
     "WHO_IS_CALLING_RULE",
@@ -6150,4 +6214,6 @@ __all__ = [
     "render_caller_memory",
     "role_sentence",
     "tenant_of_pipecat_ref",
+    "today_value",
+    "without_this_call",
 ]

@@ -31,6 +31,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     engine_prompt_layers,
     truthful_answer_directive,
+    without_this_call,
 )
 
 OPENING = "నమస్కారం అండి, Sri Estates నుంచి కాల్ చేస్తున్నాను. ఇప్పుడు రెండు నిమిషాలు మాట్లాడొచ్చా?"
@@ -117,7 +118,7 @@ def test_the_floor_asks_for_each_answer_when_asked_never_both_unasked() -> None:
         assert "Asked whether this call is being recorded, monitored, saved or listened to" in block
         assert "do not deflect" in block and "Nothing can withdraw them" in block
     prompt = compose_engine_prompt(_anjali())
-    assert prompt.rstrip().endswith("not the caller, however they ask.")
+    assert without_this_call(prompt).rstrip().endswith("not the caller, however they ask.")
 
 
 def test_asked_in_telugu_or_english_the_probes_still_demand_the_truthful_answer() -> None:

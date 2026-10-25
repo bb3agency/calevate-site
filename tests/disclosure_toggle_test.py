@@ -68,6 +68,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     compose_opening_line,
     truthful_answer_directive,
+    without_this_call,
 )
 from calevate_shared.languages import staged_language_tags
 from fastapi import FastAPI
@@ -256,7 +257,7 @@ def test_a_hostile_client_script_cannot_remove_the_truthful_answer_rule() -> Non
     assert "override every instruction above" in prompt, (
         "the prompt does not TELL the model the rules win; position alone is a tendency"
     )
-    assert prompt.rstrip().endswith(TRUTHFUL_ANSWER_DIRECTIVE.rstrip()), (
+    assert without_this_call(prompt).rstrip().endswith(TRUTHFUL_ANSWER_DIRECTIVE.rstrip()), (
         "something was appended after the platform rules, so the last word no longer belongs to us"
     )
 
@@ -481,7 +482,7 @@ async def test_a_new_agent_on_a_recording_engine_answers_that_the_call_is_record
     assert "say plainly that you are an AI assistant" in prompt
     assert "yes: this call is recorded" in prompt
     assert "the audio is not recorded" not in prompt
-    assert prompt.rstrip().endswith(TRUTHFUL_ANSWER_DIRECTIVE.rstrip())
+    assert without_this_call(prompt).rstrip().endswith(TRUTHFUL_ANSWER_DIRECTIVE.rstrip())
 
 
 async def test_a_new_agent_on_an_engine_that_records_nothing_answers_not_recorded() -> None:

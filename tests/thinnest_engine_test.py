@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -23,7 +24,7 @@ from apps.api.engine.thinnest import (
 )
 from apps.api.engine.vendor_http import EngineRejectedError
 from calevate_shared.calling_window import DEFAULT_WINDOW
-from calevate_shared.engine import AgentConfig, CallContext, RecallOutcome
+from calevate_shared.engine import AgentConfig, CallContext, RecallOutcome, today_value
 from calevate_shared.webhook_signature import (
     sha256_signature,
     sha256_signature_matches,
@@ -340,7 +341,8 @@ async def test_a_dial_speaks_the_held_greeting_and_sends_our_calling_hours() -> 
     }
     assert body["callingHours"] == {"start": "09:00", "end": "21:00"}
     assert body["reference"] == ctx.call_id
-    assert body["variables"] == {"lead_name": "Asha"}
+    # D-888: today's IST date rides with every dial, for the instructions' THIS CALL line.
+    assert body["variables"] == {"lead_name": "Asha", "today": today_value(datetime.now(UTC))}
     assert "retry" not in body and "extract" not in body
     assert dial.headers["Idempotency-Key"] == f"calevate-call-{ctx.call_id}"
 

@@ -55,6 +55,8 @@ from calevate_shared.calling_window import CALLING_HOURS_RULE, DEFAULT_WINDOW
 from calevate_shared.engine import (
     CALL_INSTRUCTIONS,
     E164,
+    NAME_VARIABLE,
+    TODAY_VARIABLE,
     AccountKBListing,
     AccountKBObject,
     AgentConfig,
@@ -80,6 +82,7 @@ from calevate_shared.engine import (
     WebhookVerdict,
     compose_engine_prompt,
     compose_first_utterance,
+    today_value,
 )
 from calevate_shared.engine_scope import raw_of, scoped_handle
 from calevate_shared.events import (
@@ -3053,7 +3056,10 @@ class ThinnestEngine:
         require_call_compliance_floor(engine=self, prompt_on_the_wire=None)
         variables: dict[str, str] = dict(ctx.fields)
         if ctx.lead_name:
-            variables["lead_name"] = ctx.lead_name
+            variables[NAME_VARIABLE] = ctx.lead_name
+        # The instructions' `TODAY_LINE` (D-888). Taken at the dial: `ifOutsideHours: refuse`
+        # means the call rings now or never, so the day cannot move under it.
+        variables[TODAY_VARIABLE] = today_value(datetime.now(UTC))
         if len(variables) > CALL_VARIABLES_MAX:
             raise _dial_precondition_failed(missing=f"room for {len(variables)} call variables")
         raw_agent, workspace = self._at(ref)

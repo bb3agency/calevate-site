@@ -593,7 +593,8 @@ async def test_the_endpoint_answers_signed_lookups_and_refuses_the_rest(vendor: 
     assert (await post(_signed(other, "cs_1"), other)).status_code == 401
     web = json.dumps({**json.loads(body), "surface": "web"}).encode()
     answered = await post(_signed(web, "cs_1"), web)
-    assert answered.status_code == 200 and answered.json() == {"variables": {}}
+    # No caller values for a web call; today's date still (D-888).
+    assert answered.status_code == 200 and list(answered.json()["variables"]) == ["today"]
 
 
 async def test_a_repeat_for_the_same_call_gets_the_same_answer_without_a_second_lookup(

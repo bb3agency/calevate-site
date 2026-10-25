@@ -29,6 +29,7 @@ from calevate_shared.engine import (
     KBSourceRef,
     compose_engine_prompt,
     truthful_answer_directive,
+    without_this_call,
 )
 from calevate_shared.spoken_style import style_for
 from scripts import register_chat_eval as chat_eval
@@ -80,7 +81,8 @@ def test_every_variant_keeps_the_truthful_answers_and_confidentiality(
         assert CONFIDENTIALITY_RULE in text
         assert CONFIDENTIALITY_MARKER in text
         assert TRUTHFUL_ANSWER_MARKER in text
-        assert text.endswith(truthful_answer_directive(call_is_recorded=cfg.call_is_recorded))
+        truthful = truthful_answer_directive(call_is_recorded=cfg.call_is_recorded)
+        assert without_this_call(text).endswith(truthful)
 
 
 def test_the_ban_bullet_the_variants_edit_is_the_shipped_one() -> None:

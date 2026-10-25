@@ -21,6 +21,7 @@ from calevate_shared.engine import (
     TRUTHFUL_ANSWER_MARKER,
     compose_engine_prompt,
     truthful_answer_directive,
+    without_this_call,
 )
 from calevate_shared.spoken_style import candidate_prompt_examples, style_for
 from scripts import register_eval as harness
@@ -58,7 +59,7 @@ def test_a_register_candidate_changes_only_the_register_layer(variant: str) -> N
     for cfg in _configs():
         prompt = harness.compose_variant(cfg, chosen, FIXTURE)
         truthful = truthful_answer_directive(call_is_recorded=True)
-        assert prompt.endswith(truthful)
+        assert without_this_call(prompt).endswith(truthful)
         assert prompt.index(CONFIDENTIALITY_RULE) < prompt.index(TRUTHFUL_ANSWER_MARKER)
         assert prompt.startswith(engine.platform_rules_preamble(cfg))
         shipped = compose_engine_prompt(cfg).replace(engine._register_section(cfg), "")
@@ -75,7 +76,8 @@ def test_a_pack_leaves_the_two_blocks_byte_identical_and_last(variant: harness.V
     truthful = truthful_answer_directive(call_is_recorded=True)
     for cfg in _configs():
         prompt = harness.compose_variant(cfg, variant, FIXTURE)
-        assert prompt.endswith(f"{CONFIDENTIALITY_RULE}{engine.LAYER_SEPARATOR}{truthful}")
+        rules = without_this_call(prompt)
+        assert rules.endswith(f"{CONFIDENTIALITY_RULE}{engine.LAYER_SEPARATOR}{truthful}")
         assert variant.pack is not None
         shipped = dict(engine.engine_prompt_layers(cfg))
         packed = dict(engine.engine_prompt_layers(cfg, pack=variant.pack))
