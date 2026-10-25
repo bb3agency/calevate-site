@@ -513,6 +513,37 @@ async def test_a_call_with_no_ended_at_still_ages_out(s3: FakeS3) -> None:
     assert counts["recordings"] == 1 and counts["summaries"] == 1 and counts["transcripts"] == 1
 
 
+async def test_the_probe_sees_every_column_its_statements_clear(s3: FakeS3) -> None:
+    """The probe gates the arms: a row only the STATEMENT would match, and the probe does
+    not, is never swept. A call holding only its transfer leg's recording and only a
+    headline (no main recording, no summary, no turns) must still age out."""
+    tenant_id, agent_id = await _org()
+    call_id = await _call(tenant_id, agent_id, days_ago=400)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET recording_url = NULL, transfer_recording_url = "
+                "'recordings/t.wav', summary = NULL, headline = 'Wants Tuesday' WHERE id = :c"
+            ),
+            {"c": call_id},
+        )
+        await session.execute(
+            text("DELETE FROM transcript_turns WHERE call_id = :c"), {"c": call_id}
+        )
+
+    counts = await sweep_tenant(tenant_id)
+
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text("SELECT transfer_recording_url, headline FROM calls WHERE id = :c"),
+                {"c": call_id},
+            )
+        ).one()
+    assert tuple(row) == (None, None)
+    assert counts["recordings"] == 1 and counts["summaries"] == 1
+
+
 async def test_the_fallback_clock_cannot_expire_a_recording_before_the_trai_floor(
     s3: FakeS3,
 ) -> None:

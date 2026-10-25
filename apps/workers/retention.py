@@ -695,7 +695,7 @@ SELECT r.data_category, r.ttl_days, r.action,
   CASE r.data_category
     WHEN 'recording' THEN EXISTS (
       SELECT 1 FROM calls c
-      WHERE c.recording_url IS NOT NULL
+      WHERE (c.recording_url IS NOT NULL OR c.transfer_recording_url IS NOT NULL)
         AND {_CLOCK} < now() - make_interval(days => GREATEST(r.ttl_days, :floor)))
     WHEN 'transcript' THEN EXISTS (
       SELECT 1 FROM transcript_turns t JOIN calls c ON c.id = t.call_id
@@ -703,7 +703,8 @@ SELECT r.data_category, r.ttl_days, r.action,
         AND (r.action = 'delete' OR t.text <> :mark))
       OR EXISTS (
       SELECT 1 FROM calls c
-      WHERE c.summary IS NOT NULL
+      WHERE (c.summary IS NOT NULL OR c.summary_local IS NOT NULL
+        OR c.headline IS NOT NULL OR c.next_step IS NOT NULL)
         AND {_CLOCK} < now() - make_interval(days => r.ttl_days))
       -- The vector projection of the TRANSCRIPT scopes, on this same clock (D-503). Asked
       -- in the PROBE and not only in the arm, because a category the probe reports as
@@ -758,7 +759,7 @@ SELECT r.data_category, r.ttl_days, r.action,
       OR EXISTS (
       SELECT 1 FROM call_extractions e
       WHERE e.updated_at < now() - make_interval(days => r.ttl_days)
-        AND e.data <> '{{}}'::jsonb)
+        AND (e.data <> '{{}}'::jsonb OR e.unlisted IS NOT NULL))
       OR EXISTS (
       -- Scoped THROUGH `outbound_webhooks`, never by RLS: `webhook_deliveries` has no
       -- policy of its own (engine webhooks arrive before a tenant is resolved), so this
