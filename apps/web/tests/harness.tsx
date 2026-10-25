@@ -305,6 +305,15 @@ export function stubApi(routes: Routes): ApiCall[] {
         // TODAY'S TEST CALLS (D-885), answered "none today" by default: every trial card
         // reads them. A test about the card's calls names the route itself.
         if (scoped === "GET /v1/trial/calls") return jsonResponse([]);
+        // AN AGENT'S SUGGESTED LEAD-DETAIL CHANGES (D-889), answered "checked, none" by
+        // default in both realms: every Lead details editor reads them. A test about the
+        // suggestions names the route itself.
+        if (
+          /^GET \/v1\/agents\/[^/]+\/lead-suggestions$/.test(scoped) ||
+          /^GET \/v1\/admin\/tenants\/[^/]+\/agents\/[^/]+\/lead-suggestions$/.test(scoped)
+        ) {
+          return jsonResponse(NO_LEAD_SUGGESTIONS);
+        }
         if (/^GET \/v1\/admin\/tenants\/[^/]+\/business-copy$/.test(scoped)) {
           return jsonResponse(NO_ADMIN_BUSINESS_COPY);
         }
@@ -380,6 +389,9 @@ const DEFAULT_SESSIONS: Record<string, unknown> = {
   // D-703: which sign-in doors are open. Signup open, Google off, unless a test says so.
   "GET /v1/auth/client/sign-in-options": { google: false, self_serve_signup: true },
 };
+
+/** An agent's suggestions once a pass found nothing to change. See `stubApi`. */
+export const NO_LEAD_SUGGESTIONS = { state: "done", suggestions: [], checked_at: null };
 
 /** `GET /v1/business-copy` before the first copy lands. See the fallback in `stubApi`. */
 export const NO_BUSINESS_COPY = {

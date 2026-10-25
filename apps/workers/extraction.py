@@ -122,6 +122,7 @@ from calevate_shared.extraction import (
     MomentsBrief,
     build_extraction_prompt,
     clean_moment_candidates,
+    clean_unlisted,
     clip_headline,
     validate_extraction,
 )
@@ -622,6 +623,16 @@ def build_response_schema(
         fixed["business_outcome"] = {
             "type": ["string", "null"],
             "enum": [*(o.key for o in outcomes), None],
+        }
+    choice_keys = [f.key for f in spec.fields if f.type == "enum" and f.key not in fixed]
+    if choice_keys:
+        # One nullable string per choice field: the caller's words when no choice fits
+        # (D-889). Strict mode needs every key present, so "nothing unlisted" is all nulls.
+        fixed["unlisted"] = {
+            "type": "object",
+            "properties": {key: {"type": ["string", "null"]} for key in choice_keys},
+            "required": choice_keys,
+            "additionalProperties": False,
         }
     properties: dict[str, Any] = {
         field.key: _schema_property(field) for field in spec.fields if field.key not in fixed
@@ -2481,6 +2492,7 @@ async def extract_call(
         errors=outcome.errors,
         needs_review=outcome.needs_review,
         moments=(clean_moment_candidates(raw.get("moments"), spec) if moments is not None else []),
+        unlisted=clean_unlisted(spec, raw.get("unlisted"), outcome.data),
     )
 
 

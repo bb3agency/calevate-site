@@ -54,6 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import prompt_size
 from apps.api.agents.engine_limits import PromptTooLongError, refuse_opening_over_limit
+from apps.api.agents.field_suggestions import queue_pass
 from apps.api.agents.models import is_published
 from apps.api.agents.prompts import insert_prompt_version, write_prompt_version
 from apps.api.agents.t0_block import block_of, splice_t0_block
@@ -144,8 +145,9 @@ def _posture(row: Any) -> DisclosurePosture:
 async def collect_fields(session: AsyncSession, agent_id: UUID) -> list[CollectField]:
     """The details this agent asks for, from its current extraction schema (PROMPT-GUIDE §4).
 
-    Compiled into a v2 script at save, so a schema edit reaches the prompt at the next script
-    save; the builder shows them read-only beside the script.
+    Compiled into a v2 script at save; a schema edit is compiled in by `recompile_collect`,
+    queued by `extraction_routes.write_schema` (D-889). The builder shows them read-only
+    beside the script.
     """
     row = (
         await session.execute(
@@ -339,6 +341,8 @@ async def save_agent_script(
     )
     row = await _agent_or_404(session, agent_id)
     staged = row.status == "live" and row.system_prompt_id != row.live_prompt_id
+    # What the script says the business sells may no longer match the lead details (D-889).
+    await queue_pass(session, tenant_id=tenant_id, agent_id=agent_id)
     return SavedScript(version=version, staged=staged)
 
 

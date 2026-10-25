@@ -301,3 +301,121 @@ describe("write them for me (D-841)", () => {
     expect(screen.queryByRole("button", { name: "Write them for me" })).toBeNull();
   });
 });
+
+describe("suggested changes to an agent's lead details (D-889)", () => {
+  const BHK = {
+    key: "bhk_size",
+    label: "BHK",
+    type: "enum" as const,
+    reason: "",
+    required: false,
+    enum_values: ["1BHK", "2BHK", "3BHK", "4BHK", "5BHK+"],
+  };
+  const withBhk = () =>
+    leadFields({
+      can_draft: false,
+      agents: [
+        { id: "a1", name: "Flats desk", direction: "inbound", status: "live", version: 3, business_fields: [BHK] },
+      ],
+    });
+  const ADD = {
+    id: "0123456789abcdef",
+    kind: "add_choices" as const,
+    field_key: "bhk_size",
+    field_label: "BHK",
+    values: ["6BHK"],
+    field_type: null,
+    reason: "Three callers asked for a six bedroom flat.",
+    source: "calls" as const,
+    callers: 3,
+  };
+  const NEW = {
+    id: "fedcba9876543210",
+    kind: "new_field" as const,
+    field_key: "facing",
+    field_label: "Facing",
+    values: ["East", "West"],
+    field_type: "enum" as const,
+    reason: "Your script asks which way the flat faces.",
+    source: "script" as const,
+    callers: 0,
+  };
+  const suggestions = (over: Record<string, unknown> = {}) => ({
+    state: "done",
+    suggestions: [ADD, NEW],
+    checked_at: "2026-10-25T12:00:00Z",
+    ...over,
+  });
+
+  it("shows each change with why, and accepting one asks the server and re-reads the details", async () => {
+    const { calls } = await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/call-outcomes": callOutcomes(),
+      "/v1/lead-fields": withBhk(),
+      "/v1/agents/a1/lead-suggestions": suggestions(),
+      "POST /v1/agents/a1/lead-suggestions/0123456789abcdef/accept": {
+        answered: ADD,
+        remaining: suggestions({ suggestions: [NEW] }),
+      },
+    });
+    await screen.findByRole("heading", { name: "Suggested changes (2)" });
+    expect(screen.getByText("Add to BHK")).toBeTruthy();
+    expect(screen.getByText("6BHK")).toBeTruthy();
+    expect(screen.getByText(/3 callers asked/)).toBeTruthy();
+    expect(screen.getByText("New detail: Facing")).toBeTruthy();
+    expect(screen.getByText("East")).toBeTruthy();
+    expect(screen.getByText(/^Script/)).toBeTruthy();
+    // The reason waits behind "Why?" so the list stays short on a phone.
+    expect(screen.queryByText("Three callers asked for a six bedroom flat.")).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Why?" })[0]);
+    expect(screen.getByText("Three callers asked for a six bedroom flat.")).toBeTruthy();
+
+    const before = calls.filter((c) => c.path === "/v1/lead-fields").length;
+    fireEvent.click(screen.getAllByRole("button", { name: "Accept" })[0]);
+    await waitFor(() => expect(screen.queryByText("Add to BHK")).toBeNull());
+    expect(
+      calls.some((c) => c.method === "POST" && c.path === "/v1/agents/a1/lead-suggestions/0123456789abcdef/accept"),
+    ).toBe(true);
+    await waitFor(() => {
+      expect(calls.filter((c) => c.path === "/v1/lead-fields").length).toBeGreaterThan(before);
+    });
+  });
+
+  it("turns one down, and holds Accept while the owner has unsaved edits", async () => {
+    const { calls } = await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/call-outcomes": callOutcomes(),
+      "/v1/lead-fields": withBhk(),
+      "/v1/agents/a1/lead-suggestions": suggestions(),
+      "POST /v1/agents/a1/lead-suggestions/fedcba9876543210/dismiss": {
+        answered: NEW,
+        remaining: suggestions({ suggestions: [ADD] }),
+      },
+    });
+    await screen.findByRole("heading", { name: "Suggested changes (2)" });
+    fireEvent.click(screen.getByRole("button", { name: "Not now: New detail: Facing" }));
+    await waitFor(() => expect(screen.queryByText("New detail: Facing")).toBeNull());
+    expect(
+      calls.some((c) => c.method === "POST" && c.path === "/v1/agents/a1/lead-suggestions/fedcba9876543210/dismiss"),
+    ).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /Add a detail/ }));
+    expect(screen.getByText("Save or undo the changes below to accept one.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Accept" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("says when it is checking, when the allowance stopped it, and checks again on request", async () => {
+    const { calls } = await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/call-outcomes": callOutcomes(),
+      "/v1/lead-fields": withBhk(),
+      "/v1/agents/a1/lead-suggestions": suggestions({ state: "skipped", suggestions: [] }),
+      "POST /v1/agents/a1/lead-suggestions/check": suggestions({ state: "queued", suggestions: [] }),
+    });
+    await screen.findByText(/this month's AI allowance is used up/);
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await screen.findByText("Checking the script and recent calls…");
+    expect(calls.some((c) => c.method === "POST" && c.path === "/v1/agents/a1/lead-suggestions/check")).toBe(true);
+    expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
+  });
+});

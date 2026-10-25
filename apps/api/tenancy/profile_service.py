@@ -301,6 +301,11 @@ async def save_profile(
     # prompt version and re-publishes nothing.
     changed = {step for step in after if after[step] != before[step]}
     updated = await apply_to_agents(session, tenant_id=tenant_id, changed=changed)
+    if changed:
+        # What the business sells may no longer match its agents' lead details (D-889).
+        from apps.api.agents.field_suggestions import queue_account
+
+        await queue_account(session, tenant_id=tenant_id)
     # The save that completes the profile is what finishes an onboarding whose owner has
     # already joined (D-695).
     await complete_onboarding_if_finished(session, tenant_id=tenant_id)

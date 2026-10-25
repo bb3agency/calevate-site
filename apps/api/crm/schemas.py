@@ -208,6 +208,8 @@ class CapturedFieldOut(Strict):
 
     `core` marks the details every business captures (`calevate_shared.lead_fields`);
     `current` is False for a detail the agent no longer captures, whose value is still shown.
+    `unlisted` is what the caller said for a choice detail none of whose choices fitted
+    (D-889); `value` is then null, because the nearest choice would have been wrong.
     """
 
     key: str
@@ -216,6 +218,7 @@ class CapturedFieldOut(Strict):
     core: bool
     current: bool
     value: Any = None
+    unlisted: str | None = None
 
 
 class CapturedFieldsOut(Strict):

@@ -2,7 +2,7 @@
 
 import { Section } from "@/components/console/section";
 import type { CallDetail } from "@/lib/api/client";
-import { capturedValue } from "@/lib/leadLabels";
+import { UNLISTED_NOTE, capturedValue, unlistedWords } from "@/lib/leadLabels";
 
 /**
  * WHAT THE CALLER GAVE, as label–value rows under the labels the business uses.
@@ -15,7 +15,9 @@ import { capturedValue } from "@/lib/leadLabels";
  */
 export function CapturedDetails({ detail }: { detail: CallDetail }) {
   const fields = detail.captured;
-  const given = fields.filter((field) => capturedValue(field) !== null);
+  // A choice the caller answered outside the list is something they said (D-889).
+  const said = (field: (typeof fields)[number]) => capturedValue(field) ?? unlistedWords(field);
+  const given = fields.filter((field) => said(field) !== null);
   // A call with no conversation has nothing to capture, and an empty list there would
   // read as things the caller refused to say.
   if (!fields.length || (detail.status !== "completed" && !given.length)) return null;
@@ -27,7 +29,7 @@ export function CapturedDetails({ detail }: { detail: CallDetail }) {
     );
   }
   // Fields the agent no longer asks for appear only when this call carried a value for them.
-  const unmentioned = fields.filter((field) => field.current && capturedValue(field) === null);
+  const unmentioned = fields.filter((field) => field.current && said(field) === null);
   return (
     <Section title="Captured details">
       {given.length === 0 ? (
@@ -44,7 +46,12 @@ export function CapturedDetails({ detail }: { detail: CallDetail }) {
                   {field.label}
                   {!field.current && <span className="block text-meta text-ink-faint">No longer asked</span>}
                 </dt>
-                <dd className="min-w-0 break-words text-body font-medium text-ink">{capturedValue(field)}</dd>
+                <dd className="min-w-0 break-words text-body font-medium text-ink">
+                  {said(field)}
+                  {unlistedWords(field) && (
+                    <span className="block text-meta font-normal text-ink-faint">{UNLISTED_NOTE}</span>
+                  )}
+                </dd>
                 {review && <dd className="text-meta text-warn sm:col-start-2">{review}</dd>}
               </div>
             );

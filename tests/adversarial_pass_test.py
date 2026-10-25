@@ -29,6 +29,7 @@ run-unique tenant, and nothing asserts a global count.
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta, timezone
@@ -113,6 +114,33 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             )
         ).scalar_one()
         ids["agent_id"] = str(agent_id)
+        # A lead-detail suggestion waiting on A's agent (D-889), so accept/dismiss are driven
+        # with an id that exists.
+        suggestion_id = "0123456789abcdef"
+        await s.execute(
+            text(
+                "UPDATE agents SET field_suggestions = CAST(:s AS jsonb), "
+                "field_suggestions_state = 'done' WHERE id = :a"
+            ),
+            {
+                "a": agent_id,
+                "s": json.dumps(
+                    [
+                        {
+                            "id": suggestion_id,
+                            "kind": "new_field",
+                            "field_key": "facing",
+                            "field_label": "Facing",
+                            "values": [],
+                            "field": {"key": "facing", "label": "Facing", "type": "text"},
+                            "reason": "The script asks which way the flat faces.",
+                            "source": "script",
+                        }
+                    ]
+                ),
+            },
+        )
+        ids["suggestion_id"] = suggestion_id
 
         rows: tuple[tuple[str, str, str, dict[str, object]], ...] = (
             (
@@ -524,6 +552,10 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/agents/{agent_id}/experiment", {}, {}),
     ("GET", "/v1/agents/{agent_id}/extraction-schema", {}, {}),
     ("PUT", "/v1/agents/{agent_id}/extraction-schema", {"fields": []}, {}),
+    ("GET", "/v1/agents/{agent_id}/lead-suggestions", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/lead-suggestions/check", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/lead-suggestions/{suggestion_id}/accept", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/lead-suggestions/{suggestion_id}/dismiss", {}, {}),
     ("GET", "/v1/agents/{agent_id}/pending", {}, {}),
     # D-533. The handover list — WHO a caller is put through to. Read is `agents:read` and
     # the write is `org:manage`, so both are reachable with an ordinary client credential,

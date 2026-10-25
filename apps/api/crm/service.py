@@ -527,7 +527,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
     extraction = (
         await session.execute(
             text(
-                "SELECT data, valid, moments, needs_review, schema_version, model "
+                "SELECT data, valid, moments, needs_review, schema_version, model, unlisted "
                 "FROM call_extractions "
                 "WHERE call_id = :cid ORDER BY created_at DESC LIMIT 1"
             ),
@@ -554,6 +554,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         agent_id=row[1],
         schema_version=extraction[4] if extraction else None,
         data=extraction_data,
+        unlisted=extraction[6] if extraction else None,
     )
     return CallDetailOut(
         id=row[0],

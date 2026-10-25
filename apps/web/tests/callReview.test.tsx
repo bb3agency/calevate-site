@@ -352,6 +352,32 @@ describe("the rest of the screen", () => {
     expect(screen.getByText("Not mentioned: Preferred time")).toBeTruthy();
   });
 
+  it("gives the caller's own words for a choice none of the choices fitted (D-889)", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          captured: [
+            { key: "need", label: "What they want", type: "text", core: true, current: true, value: "A flat" },
+            {
+              key: "bhk_size",
+              label: "BHK",
+              type: "enum",
+              core: false,
+              current: true,
+              value: null,
+              unlisted: "6 BHK",
+            },
+          ],
+        }),
+      ),
+    );
+    const row = (await screen.findByText("BHK")).closest("div");
+    expect(row?.textContent).toContain("“6 BHK”");
+    expect(row?.textContent).toContain("Not one of the choices");
+    expect(screen.queryByText(/Not mentioned: .*BHK/)).toBeNull();
+  });
+
   it("says so in one sentence when the caller gave no details", async () => {
     await renderClientPage(
       page,

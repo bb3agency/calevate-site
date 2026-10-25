@@ -68,3 +68,15 @@ export function capturedValue(field: { value?: unknown }): string | null {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
+
+/**
+ * What the caller asked for in a choice detail when none of its choices fitted (D-889), in
+ * quotes because they are the caller's words, not a choice; `null` when there is none.
+ */
+export function unlistedWords(field: { value?: unknown; unlisted?: string | null }): string | null {
+  if (capturedValue(field) !== null || !field.unlisted) return null;
+  return `“${field.unlisted}”`;
+}
+
+/** The note beside an unlisted answer. */
+export const UNLISTED_NOTE = "Not one of the choices";

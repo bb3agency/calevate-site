@@ -201,6 +201,11 @@ ASSIST_FEATURE_BUSINESS_COPY_ABSORBED = "business_copy_absorbed"
 ASSIST_FEATURE_BUSINESS_OUTCOMES = "business_outcomes_draft"
 #: ...and ours on a trial account.
 ASSIST_FEATURE_BUSINESS_OUTCOMES_ABSORBED = "business_outcomes_draft_absorbed"
+#: A pass suggesting changes to an agent's lead details (D-889), billed as the outcomes draft
+#: is: against the monthly allowance at the tokens it used...
+ASSIST_FEATURE_FIELD_SUGGESTIONS = "lead_detail_suggestions"
+#: ...and ours on a trial account.
+ASSIST_FEATURE_FIELD_SUGGESTIONS_ABSORBED = "lead_detail_suggestions_absorbed"
 #: "Meet your agent" (D-855): choosing the follow-up questions and writing the first agent's
 #: script from the owner's brief. Part of setting the account up, bounded per account
 #: (`first_run/models.MAX_QUESTION_RUNS`, `MAX_BUILD_RUNS`), so absorbed like the lead fields.
@@ -216,6 +221,7 @@ ABSORBED_ASSIST_FEATURES = (
     ASSIST_FEATURE_BUSINESS_TYPE,
     ASSIST_FEATURE_BUSINESS_COPY_ABSORBED,
     ASSIST_FEATURE_BUSINESS_OUTCOMES_ABSORBED,
+    ASSIST_FEATURE_FIELD_SUGGESTIONS_ABSORBED,
     ASSIST_FEATURE_FIRST_RUN,
 )
 

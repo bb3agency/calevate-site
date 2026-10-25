@@ -33,14 +33,27 @@ def _humanised(key: str) -> str:
     return key.replace("_", " ").strip().capitalize() or key
 
 
+def _said(
+    field: ExtractionField, data: dict[str, Any], unlisted: dict[str, Any] | None
+) -> str | None:
+    if field.type != "enum" or data.get(field.key) is not None or not unlisted:
+        return None
+    said = unlisted.get(field.key)
+    return said if isinstance(said, str) and said else None
+
+
 async def captured_fields(
     session: AsyncSession,
     *,
     agent_id: UUID | None,
     schema_version: int | None,
     data: dict[str, Any],
+    unlisted: dict[str, Any] | None = None,
 ) -> list[CapturedFieldOut]:
     """Every field of the capturing version (value or not), then any other captured value.
+
+    `unlisted` is `call_extractions.unlisted`: a choice field with no value carries the
+    caller's own words for what they asked (D-889).
 
     RLS scopes the schema reads to the caller's tenant; an agent id from elsewhere reads as
     an agent with no schemas, and the values are still listed under their keys.
@@ -67,6 +80,7 @@ async def captured_fields(
                 core=field.key in CORE_KEYS,
                 current=field.key in CORE_KEYS or field.key in newest_keys,
                 value=data.get(field.key),
+                unlisted=_said(field, data, unlisted),
             )
         )
     known: dict[str, ExtractionField] = {}
@@ -90,4 +104,26 @@ async def captured_fields(
     return out
 
 
-__all__ = ["captured_fields"]
+async def lead_unlisted(session: AsyncSession, lead_id: UUID) -> dict[str, str]:
+    """The caller's own words for each choice field, newest call first, across the lead's
+    calls: what `leads.data` cannot hold because no choice fitted (D-889)."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT ce.unlisted FROM call_extractions ce "
+                "JOIN calls c ON c.id = ce.call_id AND c.tenant_id = ce.tenant_id "
+                "WHERE c.lead_id = :lid AND ce.unlisted IS NOT NULL "
+                "ORDER BY c.created_at DESC LIMIT 20"
+            ),
+            {"lid": lead_id},
+        )
+    ).scalars()
+    out: dict[str, str] = {}
+    for said in rows:
+        for key, words in (said or {}).items():
+            if isinstance(words, str) and words:
+                out.setdefault(key, words)
+    return out
+
+
+__all__ = ["captured_fields", "lead_unlisted"]

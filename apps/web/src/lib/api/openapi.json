@@ -10231,7 +10231,7 @@
       },
       "CapturedFieldOut": {
         "additionalProperties": false,
-        "description": "One captured detail under the name it was captured with (`crm/captured.py`).\n\n`core` marks the details every business captures (`calevate_shared.lead_fields`);\n`current` is False for a detail the agent no longer captures, whose value is still shown.",
+        "description": "One captured detail under the name it was captured with (`crm/captured.py`).\n\n`core` marks the details every business captures (`calevate_shared.lead_fields`);\n`current` is False for a detail the agent no longer captures, whose value is still shown.\n`unlisted` is what the caller said for a choice detail none of whose choices fitted\n(D-889); `value` is then null, because the nearest choice would have been wrong.",
         "properties": {
           "core": {
             "title": "Core",
@@ -10259,6 +10259,17 @@
             ],
             "title": "Type",
             "type": "string"
+          },
+          "unlisted": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unlisted"
           },
           "value": {
             "title": "Value"
@@ -27509,6 +27520,144 @@
           "updated_at"
         ],
         "title": "LeadSourceOut",
+        "type": "object"
+      },
+      "LeadSuggestionAnsweredOut": {
+        "additionalProperties": false,
+        "properties": {
+          "answered": {
+            "$ref": "#/components/schemas/LeadSuggestionOut"
+          },
+          "remaining": {
+            "$ref": "#/components/schemas/LeadSuggestionsOut"
+          }
+        },
+        "required": [
+          "answered",
+          "remaining"
+        ],
+        "title": "LeadSuggestionAnsweredOut",
+        "type": "object"
+      },
+      "LeadSuggestionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "callers": {
+            "title": "Callers",
+            "type": "integer"
+          },
+          "field_key": {
+            "title": "Field Key",
+            "type": "string"
+          },
+          "field_label": {
+            "title": "Field Label",
+            "type": "string"
+          },
+          "field_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "text",
+                  "enum"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field Type"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "add_choices",
+              "remove_choices",
+              "new_field"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "script",
+              "business",
+              "facts",
+              "calls"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "field_key",
+          "field_label",
+          "values",
+          "reason",
+          "source",
+          "callers"
+        ],
+        "title": "LeadSuggestionOut",
+        "type": "object"
+      },
+      "LeadSuggestionsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "state": {
+            "enum": [
+              "none",
+              "queued",
+              "running",
+              "done",
+              "failed",
+              "skipped"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/LeadSuggestionOut"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "state",
+          "suggestions",
+          "checked_at"
+        ],
+        "title": "LeadSuggestionsOut",
         "type": "object"
       },
       "LeadTimelineEventOut": {
@@ -56910,6 +57059,227 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions": {
+      "get": {
+        "description": "Suggestions come from the business's details, the agent's script, its quick facts and what recent callers asked for that no choice fitted. Nothing changes until one is accepted; a dismissed one is not offered again.",
+        "operationId": "admin_get_lead_suggestions_v1_admin_tenants__tenant_id__agents__agent_id__lead_suggestions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSuggestionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Suggested changes to one client agent's lead details",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions/check": {
+      "post": {
+        "operationId": "admin_check_lead_suggestions_v1_admin_tenants__tenant_id__agents__agent_id__lead_suggestions_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSuggestionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Look again for changes to one client agent's lead details",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions/{suggestion_id}/accept": {
+      "post": {
+        "operationId": "admin_accept_lead_suggestion_v1_admin_tenants__tenant_id__agents__agent_id__lead_suggestions__suggestion_id__accept_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "suggestion_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{16}$",
+              "title": "Suggestion Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSuggestionAnsweredOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Make one suggested change to a client agent's lead details",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions/{suggestion_id}/dismiss": {
+      "post": {
+        "operationId": "admin_dismiss_lead_suggestion_v1_admin_tenants__tenant_id__agents__agent_id__lead_suggestions__suggestion_id__dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "suggestion_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{16}$",
+              "title": "Suggestion Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSuggestionAnsweredOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Turn down one suggested change to a client agent's lead details",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": {
       "get": {
         "operationId": "prompt_history_v1_admin_tenants__tenant_id__agents__agent_id__prompt_get",
@@ -62758,6 +63128,189 @@
           }
         },
         "summary": "Replace this agent's handover list, its switch and its trigger",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/lead-suggestions": {
+      "get": {
+        "description": "Suggestions come from the business's details, the agent's script, its quick facts and what recent callers asked for that no choice fitted. Nothing changes until one is accepted; a dismissed one is not offered again.",
+        "operationId": "get_lead_suggestions_v1_agents__agent_id__lead_suggestions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSuggestionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Suggested changes to this agent's lead details",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/agents/{agent_id}/lead-suggestions/check": {
+      "post": {
+        "description": "Queues a fresh look. On a paying account it uses the monthly AI allowance; on a trial it is free.",
+        "operationId": "check_lead_suggestions_v1_agents__agent_id__lead_suggestions_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSuggestionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Look again for changes to this agent's lead details",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/lead-suggestions/{suggestion_id}/accept": {
+      "post": {
+        "description": "Saved as a new version of the agent's lead details, exactly as the editor saves; leads captured earlier keep their details. 409 when the details changed since the suggestion was made.",
+        "operationId": "accept_lead_suggestion_v1_agents__agent_id__lead_suggestions__suggestion_id__accept_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "suggestion_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{16}$",
+              "title": "Suggestion Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSuggestionAnsweredOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Make one suggested change to this agent's lead details",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/lead-suggestions/{suggestion_id}/dismiss": {
+      "post": {
+        "operationId": "dismiss_lead_suggestion_v1_agents__agent_id__lead_suggestions__suggestion_id__dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "suggestion_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{16}$",
+              "title": "Suggestion Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSuggestionAnsweredOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Turn down one suggested change; it is not offered again",
         "tags": [
           "agents"
         ],

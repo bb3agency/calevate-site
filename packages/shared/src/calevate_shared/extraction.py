@@ -330,6 +330,38 @@ class ExtractionOutput(BaseModel):
     #: The key moments the model suggested, when the request asked for them
     #: (`build_extraction_prompt(..., moments=brief)`). Empty otherwise.
     moments: list[MomentCandidate] = Field(default_factory=list)
+    #: A choice field the caller answered with something none of its choices fits, keyed by
+    #: field key, valued with the caller's words for it (D-889): "6 BHK" for a list that stops
+    #: at 5BHK+. The field itself stays null, because the nearest choice would be a wrong
+    #: value; these words are what the lead shows instead and what suggests a new choice.
+    unlisted: dict[str, str] = Field(default_factory=dict)
+
+
+#: How long an unlisted answer may be, in characters. It names one thing a caller asked for;
+#: anything longer is a sentence the model copied, not a choice.
+UNLISTED_MAX: Final = 60
+
+
+def clean_unlisted(spec: ExtractionSchemaSpec, raw: Any, data: dict[str, Any]) -> dict[str, str]:
+    """The model's `unlisted` answers that can stand: only for a choice field of this
+    schema, only where no choice was captured, one short phrase, not a placeholder or a
+    speaker label, and never phone-shaped (hard rule 6 keeps numbers to the fields that ask
+    for them). Anything else is dropped rather than failing the extraction."""
+    if not isinstance(raw, dict):
+        return {}
+    choice_keys = {f.key for f in spec.fields if f.type == "enum"}
+    out: dict[str, str] = {}
+    for key, value in raw.items():
+        if key not in choice_keys or data.get(key) is not None or not isinstance(value, str):
+            continue
+        words = " ".join(_SPEAKER_PREFIX_RE.sub("", value).split())
+        bare = words.lower().strip(" .-?")
+        if not bare or bare in _NULL_PLACEHOLDERS or bare in SPEAKER_LABELS:
+            continue
+        if len(words) > UNLISTED_MAX or _PHONE_SHAPED_RE.search(words):
+            continue
+        out[key] = words
+    return out
 
 
 class ValidationOutcome(BaseModel):
@@ -665,7 +697,7 @@ Also include:
 {_business_outcome_section(outcomes)}{_OUT_OF_SCOPE_LINE}
 - "callback_requested": true if the caller asked to be called back, in any language or
   script ("call back", "కాల్ బ్యాక్", "malli call cheyyandi", "वापस कॉल", "baad mein call").
-
+{_unlisted_section(spec)}
 WHO SPOKE DECIDES WHAT IS A FACT.
 The transcript is one turn per line, and every line is labelled with the speaker:
   "agent:"  — our AI receptionist, OUR side of the call.
@@ -715,7 +747,8 @@ VALUES, EXACTLY.
 - Put a phone number only in a field that asks for a phone number.
 - An enum field takes EXACTLY one of its listed values, copied verbatim, and only when
   the caller meant that value — not because the word appears inside another word ("other"
-  inside "brother"). If none of them fits, use null.
+  inside "brother"). If none of them fits, use null: never the nearest choice, and never
+  round a count to a neighbouring one.
 - Numbers are bare numbers, true/false fields are true or false, dates are YYYY-MM-DD.
 - Do not include any key that is not listed above, and return only the JSON object.
 
@@ -737,6 +770,25 @@ Return only the JSON object, by the rules above. Use null for anything the calle
 _OUT_OF_SCOPE_LINE: Final = (
     '- "out_of_scope": true if the caller asked about something the agent could not handle.'
 )
+
+
+def _unlisted_section(spec: ExtractionSchemaSpec) -> str:
+    """The `unlisted` key, for a schema with choice fields; empty without any (D-889).
+
+    A closed list makes a model pick the nearest wrong answer when nothing fits, which is how
+    "five bedrooms" became 3BHK. The enum rule now says null; this keeps what the caller
+    actually asked for, so the lead still says it and the owner can add the choice.
+    """
+    keys = [f.key for f in spec.fields if f.type == "enum"]
+    if not keys:
+        return ""
+    return (
+        '- "unlisted": an object. For a choice field above (' + ", ".join(keys) + ") the caller\n"
+        "  answered with something NONE of its choices fits, put that field's key with the\n"
+        f'  caller\'s own words for it, at most {UNLISTED_MAX} characters ("6 BHK", "bridal\n'
+        '  package"). Only what the caller asked for themselves; never a value one of the\n'
+        "  choices fits, and never one only the agent said. {} when there is none.\n"
+    )
 
 
 def _business_outcome_section(outcomes: Sequence[BusinessOutcome]) -> str:
@@ -841,6 +893,7 @@ __all__ = [
     "MOMENT_KINDS",
     "MOMENT_LABEL_MAX",
     "OUTCOME_HINTS",
+    "UNLISTED_MAX",
     "ExtractionField",
     "ExtractionOutput",
     "ExtractionSchemaSpec",
@@ -856,6 +909,7 @@ __all__ = [
     "ValidationOutcome",
     "build_extraction_prompt",
     "clean_moment_candidates",
+    "clean_unlisted",
     "clip_headline",
     "coerce_value",
     "is_phone_field",

@@ -499,6 +499,9 @@ class CallExtraction(PKMixin, TimestampMixin, Base):
             name="outcome_hint_enum",
         ),
         CheckConstraint("reread_attempts >= 0", name="reread_attempts_nonnegative"),
+        CheckConstraint(
+            "unlisted IS NULL OR jsonb_typeof(unlisted) = 'object'", name="unlisted_shape"
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -535,6 +538,10 @@ class CallExtraction(PKMixin, TimestampMixin, Base):
     #: for `moments`, and it is erased with `data` by all three sweeps in
     #: `workers/retention.py` for the same reason a marker must not outlive its extraction.
     needs_review: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: `{field_key: the caller's words}` for a choice field none of whose choices fitted
+    #: (D-889, `ExtractionOutput.unlisted`). Caller words, so erased with `data` by the same
+    #: three sweeps. NULL when there were none.
+    unlisted: Mapped[dict[str, str] | None] = mapped_column(JSONB)
     #: WHEN WE DESTROYED THIS ROW'S CONTENTS — never when the agent captured nothing
     #: (migration f2a6d81b39c4). `data = '{}'` is written both by an extraction that found
     #: nothing and by all three sweeps in `workers/retention.py` that empty one, and the

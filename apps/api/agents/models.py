@@ -315,6 +315,15 @@ def call_setting_checks(prefix: str = "") -> tuple[CheckConstraint, ...]:
 #: account's AI allowance or the platform AI brake did not allow; the starting set stays.
 BUSINESS_OUTCOMES_DRAFT_STATES = ("queued", "running", "done", "failed", "skipped")
 
+#: Where the suggestion pass over an agent's lead details is (D-889), the same ladder as the
+#: outcomes draft; unlike it, a `done` pass is queued again whenever its inputs change.
+FIELD_SUGGESTION_STATES = ("queued", "running", "done", "failed", "skipped")
+#: Suggestions an owner is shown at once. More is a review nobody finishes.
+MAX_FIELD_SUGGESTIONS = 6
+#: Suggestions an owner said no to, remembered so the same one is not offered again. The
+#: oldest drop off past this, so a business that changed a lot can hear an old idea again.
+MAX_DISMISSED_SUGGESTIONS = 200
+
 
 class Agent(PKMixin, TimestampMixin, Base):
     __tablename__ = "agents"
@@ -446,6 +455,22 @@ class Agent(PKMixin, TimestampMixin, Base):
             f"{BUSINESS_OUTCOMES_DRAFT_STATES!r}",
             name="business_outcomes_draft_enum",
         ),
+        # D-889 (migration d1a7c3e9f246): lead-detail suggestions, two bounded arrays.
+        CheckConstraint(
+            "field_suggestions IS NULL OR (jsonb_typeof(field_suggestions) = 'array' "
+            f"AND jsonb_array_length(field_suggestions) <= {MAX_FIELD_SUGGESTIONS})",
+            name="field_suggestions_shape",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(field_suggestions_dismissed) = 'array' "
+            f"AND jsonb_array_length(field_suggestions_dismissed) <= {MAX_DISMISSED_SUGGESTIONS}",
+            name="field_suggestions_dismissed_shape",
+        ),
+        CheckConstraint(
+            f"field_suggestions_state IS NULL OR field_suggestions_state IN "
+            f"{FIELD_SUGGESTION_STATES!r}",
+            name="field_suggestions_state_enum",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -571,6 +596,21 @@ class Agent(PKMixin, TimestampMixin, Base):
     #: Where the one AI draft of them is (`BUSINESS_OUTCOMES_DRAFT_STATES`); NULL = never
     #: queued. Nothing re-queues a draft once this is set.
     business_outcomes_draft: Mapped[str | None] = mapped_column(Text)
+    #: Changes to this agent's lead details the AI suggests from the business's own script,
+    #: facts and calls (D-889), `agents/field_suggestions.Suggestion` dicts, each waiting for
+    #: the owner. NULL until a pass has run.
+    field_suggestions: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB)
+    #: Where the pass is (`FIELD_SUGGESTION_STATES`); NULL = never queued.
+    field_suggestions_state: Mapped[str | None] = mapped_column(Text)
+    #: The hash of what the last finished pass read. A pass whose inputs hash the same spends
+    #: nothing: saving the script twice does not buy a second reading.
+    field_suggestions_inputs: Mapped[str | None] = mapped_column(Text)
+    #: Fingerprints of suggestions the owner said no to (`MAX_DISMISSED_SUGGESTIONS`).
+    field_suggestions_dismissed: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    #: When the last pass finished or stopped.
+    field_suggestions_at: Mapped[datetime | None]
     # THE PER-AGENT MASTER SWITCH for in-call Actions/tools (migration
     # e1f7a3c920b4). Default FALSE: an agent nobody configured actions for makes no
     # mid-call external calls. Read by `actions/service.actions_enabled` and written

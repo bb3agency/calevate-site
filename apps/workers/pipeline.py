@@ -61,6 +61,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
 from apps.api.agents import call_outcomes as agent_outcomes
+from apps.api.agents.field_suggestions import queue_on_repeat
 from apps.api.agents.lead_fields import business_type_label
 from apps.api.agents.llm_models import resolve_llm_model
 from apps.api.agents.turn_checks import claims_done
@@ -1745,6 +1746,13 @@ async def _extract_stage(
                 moments=moments,
                 model=extraction_model,
             )
+        if extraction.unlisted and not reused:
+            # The second caller asking for something no choice fits brings it to the owner
+            # as a suggestion (D-889). After the persist, so this call is counted.
+            async with tenant_session(tenant_id) as session:
+                await queue_on_repeat(
+                    session, tenant_id=tenant_id, agent_id=agent_id, unlisted=extraction.unlisted
+                )
 
     return extraction
 
@@ -2292,7 +2300,8 @@ async def _settled_extraction(
                 text(
                     "SELECT ce.data, ce.valid, ce.errors, ce.needs_review, "
                     "       c.summary, c.sentiment, ce.outcome_hint, ce.out_of_scope, "
-                    "       c.callback_requested, c.headline, c.next_step, ce.business_outcome "
+                    "       c.callback_requested, c.headline, c.next_step, ce.business_outcome, "
+                    "       ce.unlisted "
                     "FROM call_extractions ce "
                     "JOIN calls c ON c.id = ce.call_id AND c.tenant_id = ce.tenant_id "
                     "WHERE ce.call_id = :cid AND ce.tenant_id = :tid "
@@ -2323,6 +2332,7 @@ async def _settled_extraction(
         headline,
         next_step,
         business_outcome,
+        unlisted,
     ) = row
     errors = errors if isinstance(errors, dict) else {}
     if MODEL_FAILURE in errors:
@@ -2342,6 +2352,7 @@ async def _settled_extraction(
         valid=bool(valid),
         errors=errors,
         needs_review=needs_review if isinstance(needs_review, dict) else {},
+        unlisted=unlisted if isinstance(unlisted, dict) else {},
     )
 
 
@@ -2380,10 +2391,11 @@ async def _persist_extraction(
             text(
                 "INSERT INTO call_extractions (id, tenant_id, call_id, schema_version, data, "
                 "model, valid, errors, needs_review, moments, outcome_hint, out_of_scope, "
-                "business_outcome, created_at, updated_at) VALUES "
+                "business_outcome, unlisted, created_at, updated_at) VALUES "
                 "(:id, :tid, :cid, :ver, CAST(:data AS jsonb), :model, :valid, "
                 "CAST(:errors AS jsonb), CAST(:needs_review AS jsonb), "
-                "CAST(:moments AS jsonb), :hint, :out_of_scope, :business, now(), now()) "
+                "CAST(:moments AS jsonb), :hint, :out_of_scope, :business, "
+                "CAST(:unlisted AS jsonb), now(), now()) "
                 "ON CONFLICT (tenant_id, call_id) DO UPDATE SET "
                 "  schema_version = EXCLUDED.schema_version, "
                 "  model = COALESCE(EXCLUDED.model, call_extractions.model), "
@@ -2395,6 +2407,7 @@ async def _persist_extraction(
                 "  errors = EXCLUDED.errors, "
                 "  needs_review = EXCLUDED.needs_review, "
                 "  moments = EXCLUDED.moments, "
+                "  unlisted = EXCLUDED.unlisted, "
                 "  updated_at = now()"
             ),
             {
@@ -2416,6 +2429,7 @@ async def _persist_extraction(
                     _json(extraction.needs_review) if extraction.needs_review else None
                 ),
                 "moments": _json(moments) if moments is not None else None,
+                "unlisted": _json(extraction.unlisted) if extraction.unlisted else None,
             },
         )
         # The summary and the outcome are NOT written here: the summary has a second

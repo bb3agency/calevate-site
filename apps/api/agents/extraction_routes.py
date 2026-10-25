@@ -30,10 +30,11 @@ extracted, and `leads.data` is keyed by `field.key`. So a save INSERTs a new ver
 repoints the agent at it; old versions stay for old leads. It is NOT append-only (edits are
 allowed), but the versioning contract is what keeps a rename from rewriting history.
 
-NO ENGINE REPUBLISH. Extraction is POST-CALL only (`apps/workers/extraction.py`), so the
-schema never rides the voice-engine agent config. A save takes effect on the NEXT call's
-extraction pass with nothing to push — which is why "live on save" (D-460) needs no
-draft/publish gate the way a prompt change does.
+LIVE ON SAVE, IN TWO HALVES. Extraction is post-call (`apps/workers/extraction.py`), so the
+next call's reading uses the new list with nothing to push. What the agent ASKS callers for
+is compiled into its script ("what to collect"), so a changed list also queues
+`rebuild_collect` (D-889), which recompiles the script and republishes a live agent in a
+worker, where a voice-platform refusal cannot fail the save.
 """
 
 from __future__ import annotations
@@ -49,6 +50,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.field_suggestions import queue_collect_rebuild
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -311,6 +313,9 @@ async def _write_schema(
         text("UPDATE agents SET extraction_schema_id = :sid, updated_at = now() WHERE id = :aid"),
         {"sid": schema_id, "aid": str(agent_id)},
     )
+    # Every writer of an agent's fields comes through here (the client and admin saves, Pip,
+    # an accepted suggestion), so this is the one place the live agent learns of the change.
+    await queue_collect_rebuild(session, tenant_id=tenant_id, agent_id=agent_id)
     return ExtractionSchemaOut(
         fields=fields, core_fields=list(CORE_LEAD_FIELDS), version=next_version, changed=True
     )

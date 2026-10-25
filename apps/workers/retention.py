@@ -1352,9 +1352,10 @@ WHERE id IN (
 _EXTRACTION_SQL = """
 UPDATE call_extractions
    SET data = '{}'::jsonb, moments = NULL, errors = NULL, needs_review = NULL,
-       scrubbed_at = now(), updated_at = now()
+       unlisted = NULL, scrubbed_at = now(), updated_at = now()
 WHERE id IN (
-  SELECT id FROM call_extractions WHERE updated_at < :cutoff AND data <> '{}'::jsonb
+  SELECT id FROM call_extractions WHERE updated_at < :cutoff
+    AND (data <> '{}'::jsonb OR unlisted IS NOT NULL)
   ORDER BY updated_at LIMIT :batch)
 """
 
@@ -2768,9 +2769,9 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                     # of one per sweep, which is how the marker stays true when the next
                     # reader asks a question the erasure predicate does not answer.
                     "UPDATE call_extractions SET data = '{}'::jsonb, moments = NULL, "
-                    "errors = NULL, needs_review = NULL, scrubbed_at = now(), "
+                    "errors = NULL, needs_review = NULL, unlisted = NULL, scrubbed_at = now(), "
                     "updated_at = now() "
-                    "WHERE call_id = ANY(:ids) AND data <> '{}'::jsonb"
+                    "WHERE call_id = ANY(:ids) AND (data <> '{}'::jsonb OR unlisted IS NOT NULL)"
                 ),
                 {"ids": list(calls)},
             )
@@ -3426,9 +3427,9 @@ async def _erase_tenant_calls(
                 # `scrubbed_at`, as in both sweeps above — one definition of "we
                 # destroyed this extraction", recorded by every path that does it.
                 "UPDATE call_extractions SET data = '{}'::jsonb, moments = NULL, "
-                "errors = NULL, needs_review = NULL, scrubbed_at = now(), "
+                "errors = NULL, needs_review = NULL, unlisted = NULL, scrubbed_at = now(), "
                 "updated_at = now() "
-                "WHERE call_id = ANY(:ids) AND data <> '{}'::jsonb"
+                "WHERE call_id = ANY(:ids) AND (data <> '{}'::jsonb OR unlisted IS NOT NULL)"
             ),
             {"ids": call_ids},
         )

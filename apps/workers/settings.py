@@ -177,6 +177,7 @@ from apps.workers.extraction_reread import (
     sweep_failed_extractions,
 )
 from apps.workers.field_reason_refresh import refresh_field_reason
+from apps.workers.field_suggestions import rebuild_collect, suggest_lead_details
 from apps.workers.first_run import (
     build_first_agent,
     hear_first_run_recording,
@@ -378,6 +379,11 @@ FUNCTIONS: list[Any] = [
         # One agent's AI draft of its call outcomes (D-836), from the outbox
         # (`agents/call_outcomes.queue_draft`).
         draft_business_outcomes,
+        # Lead-detail suggestions from the business's script, facts and callers' unlisted
+        # answers, and one agent's collect list rebuilt after its details changed (D-889),
+        # both from the outbox (`agents/field_suggestions`).
+        suggest_lead_details,
+        rebuild_collect,
         # Pinned facts re-spliced into every agent (founder decision 9).
         recompile_pinned_facts,
         # D-720. A saved setting brought onto every live agent it changes: the walk in

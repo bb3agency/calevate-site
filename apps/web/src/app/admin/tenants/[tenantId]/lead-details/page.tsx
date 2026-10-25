@@ -19,6 +19,7 @@ import {
 } from "@/lib/api/leadFields";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { useAdminLeadSuggestions } from "@/lib/api/leadSuggestions";
 import { examplesFor } from "@/lib/verticalExamples";
 
 /**
@@ -43,7 +44,12 @@ export default function TenantLeadDetailsPage({
   useActionFeedback(save, { errorDisplay: "inline" });
   useActionFeedback(draft, { errorDisplay: "inline" });
   const replaceFeedback = useActionFeedback(replace, { errorDisplay: "inline" });
-  const writes = { save, draft, replace };
+  const writes = {
+    save,
+    draft,
+    replace,
+    useSuggestions: (agentId: string) => useAdminLeadSuggestions(tenantId, agentId),
+  };
 
   useCopilotSurface({
     route: "/admin/tenants/{id}/lead-details",

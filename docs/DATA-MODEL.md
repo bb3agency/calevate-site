@@ -231,6 +231,16 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
     -- `calevate_shared.business_outcomes.STARTING_OUTCOMES`. `[]` = the owner wants none.
   business_outcomes_draft TEXT,   -- the ONE AI draft: queued|running|done|failed|skipped,
     -- NULL = never queued (`agents/call_outcomes.queue_draft`, CAS from NULL; never re-queued).
+  field_suggestions JSONB,   -- d1a7c3e9f246, D-889. Suggested changes to the agent's lead
+    -- details waiting for the owner (`agents/field_suggestions.Suggestion`: add_choices |
+    -- remove_choices | new_field, with reason and source). CHECK: array, length <= 6.
+  field_suggestions_state TEXT,   -- queued|running|done|failed|skipped; NULL = never queued.
+    -- Re-queued on a script, business-details or quick-facts save, the first publish, the
+    -- second caller asking for the same unlisted thing, and "Check again".
+  field_suggestions_inputs TEXT,  -- sha256 of what the last pass read; same hash = no spend
+  field_suggestions_dismissed JSONB NOT NULL DEFAULT '[]',  -- fingerprints the owner turned
+    -- down, never offered again (CHECK: array, length <= 200)
+  field_suggestions_at TIMESTAMPTZ,   -- when the state last moved
   -- THE OPENING NOTICES (D-163, migration f4a1d0b6e29c). SEC-COMP §2 states two
   -- invariants under two regimes — AI identification (TRAI/UCC) and a recording notice
   -- (DPDP §5/§6) — and they shared ONE column, so a client could have both or neither.
@@ -526,6 +536,10 @@ call_extractions(id, tenant_id, call_id, schema_version INT, data JSONB,
   model TEXT, prompt_version INT, valid BOOL, errors JSONB,
   business_outcome TEXT,            -- D-836: the model's choice of the agent's outcomes, kept
                                     -- so a re-drive writes the same calls.business_outcome
+  unlisted JSONB,                   -- D-889: {field_key: the caller's words} for a choice
+                                    -- field none of whose choices fitted (the field stays
+                                    -- null). Caller words: erased with `data` by all three
+                                    -- retention/erasure sweeps. CHECK: object or NULL.
   UNIQUE(tenant_id, call_id))       -- ONE extraction per call (migration d3b71c9a5e08)
   -- Both readers already assumed it: the CRM detail takes `ORDER BY created_at DESC
   -- LIMIT 1` and the retention eraser rewrites "the" extraction for a call. The pipeline

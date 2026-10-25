@@ -133,6 +133,8 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.experiment_routes import router as experiment_router
     from apps.api.agents.extraction_routes import admin_router as extraction_admin_router
     from apps.api.agents.extraction_routes import router as extraction_router
+    from apps.api.agents.field_suggestion_routes import admin_router as lead_suggestions_admin
+    from apps.api.agents.field_suggestion_routes import router as lead_suggestions_router
     from apps.api.agents.handoff_routes import router as handoff_router
     from apps.api.agents.lead_fields_routes import admin_router as lead_fields_admin_router
     from apps.api.agents.lead_fields_routes import router as lead_fields_router
@@ -376,6 +378,9 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/admin/tenants/{tenant_id}`.
     application.include_router(extraction_router)
     application.include_router(extraction_admin_router)
+    # D-889: suggested changes to an agent's lead details, beside the details themselves.
+    application.include_router(lead_suggestions_router)
+    application.include_router(lead_suggestions_admin)
     application.include_router(lead_fields_router)
     application.include_router(lead_fields_admin_router)
     application.include_router(call_outcomes_router)

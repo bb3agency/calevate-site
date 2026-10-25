@@ -107,6 +107,7 @@ OUTPUT_KEYS: Final[frozenset[str]] = frozenset(
         "business_outcome",
         "out_of_scope",
         "callback_requested",
+        "unlisted",
     }
 )
 

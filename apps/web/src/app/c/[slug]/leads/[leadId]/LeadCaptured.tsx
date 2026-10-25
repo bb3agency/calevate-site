@@ -3,7 +3,7 @@
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { useLeadCaptured } from "@/lib/api/leadFields";
-import { capturedValue } from "@/lib/leadLabels";
+import { UNLISTED_NOTE, capturedValue, unlistedWords } from "@/lib/leadLabels";
 
 /**
  * What the agents captured about this person, under the labels the business uses — the
@@ -23,7 +23,8 @@ export function LeadCaptured({ session, leadId }: { session: Session; leadId: st
   return (
     <dl className="grid grid-cols-1 gap-x-8 border-t border-line pt-1 sm:grid-cols-2">
       {fields.map((field) => {
-        const shown = capturedValue(field);
+        const unlisted = unlistedWords(field);
+        const shown = capturedValue(field) ?? unlisted;
         return (
           <div key={field.key} className="flex min-w-0 items-baseline justify-between gap-4 border-b border-line py-2.5">
             <dt className="text-body text-ink-muted">
@@ -32,6 +33,7 @@ export function LeadCaptured({ session, leadId }: { session: Session; leadId: st
             </dt>
             <dd className={`min-w-0 break-words text-right text-body ${shown === null ? "text-ink-faint" : "font-medium text-ink"}`}>
               {shown ?? "Not said"}
+              {unlisted && <span className="block text-meta font-normal text-ink-faint">{UNLISTED_NOTE}</span>}
             </dd>
           </div>
         );

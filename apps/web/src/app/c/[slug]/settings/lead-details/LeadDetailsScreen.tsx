@@ -12,6 +12,7 @@ import {
   useReplaceLeadFields,
   useSaveAgentLeadFields,
 } from "@/lib/api/leadFields";
+import { useLeadSuggestions } from "@/lib/api/leadSuggestions";
 import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -40,7 +41,12 @@ export function LeadDetailsScreen() {
   useActionFeedback(saveFields, { errorDisplay: "inline" });
   useActionFeedback(reviewDraft, { errorDisplay: "inline" });
   useActionFeedback(replaceFields, { errorDisplay: "inline" });
-  const writes = { save: saveFields, review: reviewDraft, replace: replaceFields };
+  const writes = {
+    save: saveFields,
+    review: reviewDraft,
+    replace: replaceFields,
+    useSuggestions: (agentId: string) => useLeadSuggestions(session, agentId),
+  };
 
   useCopilotSurface({
     route: "/c/{slug}/settings/lead-details",

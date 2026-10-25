@@ -191,8 +191,12 @@ async def _next_position(session: AsyncSession) -> int:
 
 
 async def request_recompile(session: AsyncSession, *, tenant_id: UUID) -> None:
-    """Queue the re-splice of every agent, in the caller's transaction."""
+    """Queue the re-splice of every agent, in the caller's transaction, and a lead-detail
+    suggestion pass for each, since the facts say what the business sells (D-889)."""
+    from apps.api.agents.field_suggestions import queue_account
+
     await enqueue_outbox(session, job=RECOMPILE_JOB, payload={"tenant_id": str(tenant_id)})
+    await queue_account(session, tenant_id=tenant_id)
 
 
 async def add_pinned(

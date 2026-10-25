@@ -39,7 +39,7 @@ from apps.api.core.stepup import ActionCode, ClientActionCode, client_confirmati
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm import lead_search, saved_views, service, translation
 from apps.api.crm.attention import attention_queue
-from apps.api.crm.captured import captured_fields
+from apps.api.crm.captured import captured_fields, lead_unlisted
 from apps.api.crm.lead_dial import place_lead_call
 from apps.api.crm.live_calls import MAX_LIVE_IDS, CallLiveOut, read_live_calls
 from apps.api.crm.performance import performance
@@ -1293,7 +1293,11 @@ async def get_lead_captured(
     agent_id = await service.lead_agent_id(session, lead_id)
     return CapturedFieldsOut(
         fields=await captured_fields(
-            session, agent_id=agent_id, schema_version=lead.schema_version, data=lead.data
+            session,
+            agent_id=agent_id,
+            schema_version=lead.schema_version,
+            data=lead.data,
+            unlisted=await lead_unlisted(session, lead_id),
         )
     )
 

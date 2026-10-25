@@ -51,10 +51,13 @@ import type {
   LeadFieldsDraft,
   ReplaceOut,
 } from "@/lib/api/leadFields";
+import type { LeadSuggestionsApi } from "@/lib/api/leadSuggestions";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { lookup } from "@/lib/lookup";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import type { VerticalExamples } from "@/lib/verticalExamples";
+
+import { LeadSuggestions } from "./LeadSuggestions";
 
 /** The core, in the owner's words. The server's labels head each row; these explain them. */
 const CORE_MEANING: Readonly<Record<string, string>> = {
@@ -73,6 +76,8 @@ export interface LeadDetailsWrites {
   /** The owner's review of a finished draft: keep these keys. Client only. */
   review?: UseMutationResult<DraftReviewOut, Error, string[]>;
   replace: UseMutationResult<ReplaceOut, Error, { agent_ids?: string[] | null }>;
+  /** One agent's suggested changes (D-889), read and answered in this realm. A hook. */
+  useSuggestions: (agentId: string) => LeadSuggestionsApi;
 }
 
 export function LeadDetailsView({
@@ -192,7 +197,7 @@ function BusinessFields({
           set here are given to each agent as it is created.
         </p>
       ) : (
-        <AgentFields data={data} canWrite={canWrite} writes={writes} eg={eg} />
+        <AgentFields data={data} canWrite={canWrite} writes={writes} eg={eg} audience={audience} />
       )}
     </div>
   );
@@ -362,11 +367,13 @@ function AgentFields({
   canWrite,
   writes,
   eg,
+  audience,
 }: {
   data: LeadFields;
   canWrite: boolean;
   writes: LeadDetailsWrites;
   eg: VerticalExamples;
+  audience: "client" | "operator";
 }) {
   const [selected, setSelected] = useState<string>(data.agents[0]?.id ?? "");
   const agent = data.agents.find((each) => each.id === selected) ?? data.agents[0];
@@ -395,6 +402,7 @@ function AgentFields({
         writes={writes}
         eg={eg}
         many={data.agents.length > 1}
+        audience={audience}
       />
     </div>
   );
@@ -407,6 +415,7 @@ function AgentEditor({
   writes,
   eg,
   many,
+  audience,
 }: {
   agent: LeadFieldsAgent;
   data: LeadFields;
@@ -414,6 +423,7 @@ function AgentEditor({
   writes: LeadDetailsWrites;
   eg: VerticalExamples;
   many: boolean;
+  audience: "client" | "operator";
 }) {
   const [rows, setRows] = useState<DraftRow[]>(() => agent.business_fields.map(toDraft));
   const [confirming, setConfirming] = useState(false);
@@ -422,7 +432,8 @@ function AgentEditor({
   const dirty = canonical(toWireFields(rows)) !== saved;
   useUnsavedGuard(dirty);
   const clientError = clientValidationError(rows);
-  const { save, replace } = writes;
+  const { save, replace, useSuggestions } = writes;
+  const suggestions = useSuggestions(agent.id);
   const busy = save.isPending || replace.isPending;
   const disabled = !canWrite || busy;
 
@@ -458,6 +469,7 @@ function AgentEditor({
           Each agent keeps its own list. These are the details {agent.name} writes down.
         </p>
       )}
+      <LeadSuggestions api={suggestions} canWrite={canWrite} dirty={dirty} audience={audience} />
       {rows.length === 0 ? (
         <p className="text-sm text-ink-muted">
           No business details yet. Calls still become leads with everything under Always
