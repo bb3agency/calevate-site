@@ -48,6 +48,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from apps.api.admin.service import organization_on_record
 from apps.api.compliance import tenant_erasure
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
@@ -283,6 +284,10 @@ async def list_tenant_erasures(
     session is opened on.
     """
     async with tenant_session(tenant_id) as scoped:
+        # Before the read, because the audit row below carries a foreign key to the
+        # organization: an id that names nothing is a 404, not an FK violation as a 500.
+        if not await organization_on_record(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         records = await tenant_erasure.list_tenant_erasures(scoped, limit=limit)
         # D-482 L-1: direct-admin reads of a client's erasure record join the trail.
         await record_admin_tenant_read(

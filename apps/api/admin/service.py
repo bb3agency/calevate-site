@@ -74,6 +74,21 @@ async def tenant_exists(session: AsyncSession, tenant_id: UUID) -> bool:
     return found is not None
 
 
+async def organization_on_record(session: AsyncSession, tenant_id: UUID) -> bool:
+    """Does an organizations row exist at all, erased (soft-deleted) or not?
+
+    For the one surface whose subject IS the deletion — the erasure record and its
+    certificate — where `tenant_exists` would hide the certificate the moment the erasure
+    succeeded. Everything else asks `tenant_exists`.
+    """
+    found = (
+        await session.execute(
+            text("SELECT 1 FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+        )
+    ).first()
+    return found is not None
+
+
 def slugify(name: str) -> str:
     """The ASCII slug a business name yields, or `""` when it yields none.
 

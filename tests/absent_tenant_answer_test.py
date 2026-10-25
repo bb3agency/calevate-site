@@ -288,6 +288,7 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": None,
     "GET /v1/admin/tenants/{tenant_id}/commercial-terms": None,
     "GET /v1/admin/tenants/{tenant_id}/credits": None,
+    "GET /v1/admin/tenants/{tenant_id}/erasure": None,
     "GET /v1/admin/tenants/{tenant_id}/erasure/{request_id}": None,
     "GET /v1/admin/tenants/{tenant_id}/feature-flags": None,
     "GET /v1/admin/tenants/{tenant_id}/invitations": None,
@@ -380,18 +381,6 @@ NOT_A_404: dict[str, str] = {
         "mistyped id is still caught the moment the screen loads. CLOSED BY: nothing; "
         "moving the lookup in front of the gate would trade an operator-scoped answer for "
         "an account-scoped one and make the probe work."
-    ),
-    "GET /v1/admin/tenants/{tenant_id}/erasure": (
-        "the ONE surface whose subject is the deletion. `tenant_erasure_routes` argues it "
-        "at module level: `tenant_exists` treats a soft-deleted tenant as absent, so "
-        "using it here would make the certificate unreachable at the instant the erasure "
-        "that produced it succeeded. It answers `[]` for an id that names nothing, which "
-        "is weaker than the reads above it but is not a claim about a client's state — "
-        "the tenant DETAIL screen this list hangs off already 404s (`get_tenant`), so the "
-        "list is not reachable with a mistyped id from the console. CLOSED BY: a "
-        "predicate for 'an organizations row exists, deleted or not', which is a second "
-        "existence definition and is not worth minting for one list route. The per-record "
-        "read beside it (`GET …/erasure/{request_id}`) is already a 404."
     ),
 }
 
