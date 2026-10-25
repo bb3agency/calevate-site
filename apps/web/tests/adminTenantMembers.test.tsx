@@ -202,6 +202,34 @@ describe("who holds a client account", () => {
     await screen.findByText(/9 leads are still assigned to them/);
   });
 
+  it("keeps the removal's answer on screen when the refreshed roster no longer has them", async () => {
+    let removed = false;
+    await renderMembers({
+      [MEMBERS_PATH]: () => (removed ? [OWNER] : [OWNER, STAFF]),
+      [`DELETE ${MEMBERS_PATH}/${STAFF.user_id}`]: () => {
+        removed = true;
+        return { user_id: STAFF.user_id, previous_role: "staff", leads_still_assigned: 9 };
+      },
+    });
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /Remove access/ }))[1]!);
+    fireEvent.change(screen.getByLabelText(/Type REMOVE to confirm/), {
+      target: { value: "REMOVE" },
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByRole("button", { name: /Remove their access/ }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Remove their access/ }));
+
+    await screen.findByText(/9 leads are still assigned to them/);
+    // The roster has not been re-read underneath the answer, so it is still readable.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByText(/9 leads are still assigned to them/)).toBeTruthy();
+  });
+
   it("offers no removal control at all for the only owner, and says why", async () => {
     const { calls } = await renderMembers();
 

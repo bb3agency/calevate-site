@@ -106,17 +106,27 @@ export function useSetTenantMemberRole(tenantId: string) {
   });
 }
 
-/** Take somebody's access away. Confirmed, and with no undo on our side. */
+/**
+ * Take somebody's access away. Confirmed, and with no undo on our side.
+ *
+ * Does NOT re-read the roster on success: the removed person's row (and the drawer holding
+ * this answer, with the leads they still carry) would unmount the moment the refetch
+ * dropped them. The caller re-reads with `useRefreshTenantMembers` once the answer has
+ * been read, when the drawer closes.
+ */
 export function useRemoveTenantMember(tenantId: string) {
-  const client = useQueryClient();
   return useMutation({
     mutationFn: (userId: string) =>
       apiRequest<TenantMemberRemoved>(adminSession(), memberPath(tenantId, userId), {
         method: "DELETE",
         confirmAction: removeMemberConfirmation(tenantId, userId),
       }),
-    onSuccess: () => invalidate(client, tenantId),
   });
+}
+
+export function useRefreshTenantMembers(tenantId: string): () => void {
+  const client = useQueryClient();
+  return () => invalidate(client, tenantId);
 }
 
 function invalidate(client: ReturnType<typeof useQueryClient>, tenantId: string): void {

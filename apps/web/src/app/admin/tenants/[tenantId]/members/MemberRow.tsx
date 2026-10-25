@@ -17,6 +17,7 @@ import { WriteFailure } from "@/app/admin/writeFailure";
 import type { useAdminAccess } from "@/app/admin/access";
 import { ROLE_COPY } from "@/lib/api/members";
 import {
+  useRefreshTenantMembers,
   useRemoveTenantMember,
   useSetTenantMemberRole,
   type TenantMember,
@@ -66,6 +67,7 @@ export function MemberRow({
       `${who} is now ${lookup(ROLE_COPY, vars.role)?.label.toLowerCase() ?? vars.role}`,
   });
   const remove = useRemoveTenantMember(tenantId);
+  const refreshMembers = useRefreshTenantMembers(tenantId);
   const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline" });
   const [removing, setRemoving] = useState(false);
   const [typed, setTyped] = useState("");
@@ -151,7 +153,11 @@ export function MemberRow({
 
       <Drawer
         open={removing}
-        onClose={() => setRemoving(false)}
+        onClose={() => {
+          setRemoving(false);
+          // Only now: re-reading earlier drops this row, and this drawer with it.
+          if (remove.data != null) refreshMembers();
+        }}
         title={`Remove ${who}'s access`}
         description="Takes effect on their very next request."
       >
