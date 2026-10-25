@@ -18,6 +18,8 @@ as something it is not; the rows expire with the 24-hour TTL sweep.
 from collections.abc import Sequence
 
 from alembic import op
+
+from apps.api.db.migration_offline import probe_skipped_offline
 from sqlalchemy import text
 
 revision: str = "b3e7c9a15d24"
@@ -45,8 +47,11 @@ def upgrade() -> None:
     _statuses(_AFTER)
 
 
-def downgrade() -> None:
-    op.execute("SET LOCAL lock_timeout = '3s'")
+def _refuse_while_in_doubt() -> None:
+    # Offline there is no table to count; the rendered script is reviewed by a human who
+    # runs it against a database they can check for in_doubt rows first.
+    if probe_skipped_offline("in_doubt idempotency rows are not counted offline; check none exist"):
+        return
     held = op.get_bind().execute(
         text("SELECT count(*) FROM idempotency_records WHERE status = 'in_doubt'")
     ).scalar_one()
@@ -55,4 +60,9 @@ def downgrade() -> None:
             f"{held} idempotency record(s) are in_doubt; downgrading would let their keys "
             "be re-run. Wait for the 24-hour TTL sweep to remove them, then retry."
         )
+
+
+def downgrade() -> None:
+    op.execute("SET LOCAL lock_timeout = '3s'")
+    _refuse_while_in_doubt()
     _statuses(_BEFORE)

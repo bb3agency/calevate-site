@@ -869,8 +869,7 @@ async def test_the_wizard_refuses_a_name_that_is_not_text(raw: str, why: str) ->
 @pytest.mark.parametrize(
     ("raw", "stored"),
     [
-        # A NUL byte reached psycopg and escaped as a 500.
-        ("Ab\x00cd Clinic", "Abcd Clinic"),
+        # A NUL byte is refused at the boundary before any route (`nul_character`).
         # The override was stored verbatim, and a pasted line break must become a space
         # rather than glue the two words together.
         ("  Ravi‮   Dental\r\nClinic\t", "Ravi Dental Clinic"),
@@ -904,13 +903,13 @@ async def test_the_edit_refuses_a_name_that_is_not_text() -> None:
 
 
 async def test_the_edit_stores_the_cleaned_name() -> None:
-    """The edit route wrote the raw value: a NUL byte here was a 500 as well."""
+    """The edit route wrote the raw value: a direction mark and a line break were stored."""
     token = await _make_admin("operator")
     tenant_id = await _tenant()
 
     async with _client() as http:
         response = await http.patch(
-            f"{TENANTS}/{tenant_id}", headers=_auth(token), json={"name": "Nel\x00lore\nDental"}
+            f"{TENANTS}/{tenant_id}", headers=_auth(token), json={"name": "Nel\u202elore\nDental"}
         )
 
     assert response.status_code == 200, response.text

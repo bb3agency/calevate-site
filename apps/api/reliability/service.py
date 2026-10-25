@@ -240,12 +240,12 @@ async def claim_idempotency(
         raise ProblemError(
             kind="conflict",
             code="idempotent_request_in_doubt",
-            title="We cannot tell whether that request took effect",
+            title="We can't tell whether that went through",
             detail=(
-                "An earlier attempt with this key started something it could not confirm, "
-                "so it will not be run again under the same key."
+                "We started this earlier and could not confirm it finished, so we will not "
+                "do it again by ourselves."
             ),
-            remediation="Check whether it happened before sending it again as a new request.",
+            remediation="Check whether it happened (calls show in Call logs) before you try again.",
         )
     if status in ("processing", "failed"):
         # CAS the record back to processing; whoever wins retries.

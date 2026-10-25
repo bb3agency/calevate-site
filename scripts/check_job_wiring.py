@@ -76,6 +76,8 @@ WORKERS_ROOT = REPO_ROOT / "apps" / "workers"
 #: enqueues today, and a one-off script that did would be a wiring question about the
 #: script rather than about the fleet.
 ENQUEUE_SCAN_ROOTS = (REPO_ROOT / "apps", REPO_ROOT / "packages")
+#: Data migrations that queue outbox work for existing accounts (`migration_enqueue_sites`).
+MIGRATIONS_DIR = REPO_ROOT / "alembic" / "versions"
 
 #: The four seams a job name can reach the queue through, and WHERE the name sits in
 #: each. `None` means "keyword only" — `enqueue_outbox(session, *, job=...)` is
@@ -295,7 +297,7 @@ def enqueue_sites(roots: Iterable[Path] | None = None) -> list[EnqueueSite]:
     resolve is a failure until somebody records why.
     """
     scan_roots = ENQUEUE_SCAN_ROOTS if roots is None else tuple(roots)
-    sites: list[EnqueueSite] = []
+    sites: list[EnqueueSite] = [] if roots is not None else migration_enqueue_sites()
     for root in scan_roots:
         if not root.exists():
             continue
@@ -324,6 +326,50 @@ def enqueue_sites(roots: Iterable[Path] | None = None) -> list[EnqueueSite]:
                         job=resolved,
                         key=f"{_relative(path)}::{expression}",
                         location=f"{_relative(path)}:{node.lineno} → {callee}({expression})",
+                    )
+                )
+    return sites
+
+
+def migration_enqueue_sites(versions: Path = MIGRATIONS_DIR) -> list[EnqueueSite]:
+    """Jobs a migration promises by writing `outbox_messages` rows itself.
+
+    A data migration that ships new wording queues the refresh of existing accounts in
+    the same transaction as the change (`INSERT INTO outbox_messages ... .bindparams(
+    job=JOB)`), so the migration IS the producer. Read with the same shallow resolution
+    as `enqueue_sites`: the `job=` keyword of `bindparams` in a file that inserts into
+    the outbox.
+    """
+    sites: list[EnqueueSite] = []
+    for path in sorted(versions.glob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        if "INSERT INTO outbox_messages" not in source:
+            continue
+        tree = ast.parse(source, filename=str(path))
+        constants = _module_string_constants(tree)
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "bindparams"
+            ):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg != "job":
+                    continue
+                value = keyword.value
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    resolved: str | None = value.value
+                elif isinstance(value, ast.Name) and value.id in constants:
+                    resolved = constants[value.id]
+                else:
+                    resolved = None
+                expression = ast.unparse(value)
+                sites.append(
+                    EnqueueSite(
+                        job=resolved,
+                        key=f"{_relative(path)}::{expression}",
+                        location=f"{_relative(path)}:{node.lineno} → bindparams(job={expression})",
                     )
                 )
     return sites

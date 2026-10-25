@@ -383,12 +383,12 @@ async def test_an_aborted_multipart_upload_is_discarded_at_the_store(
 # --- the edge of the route ------------------------------------------------------------------
 
 
-def test_only_the_two_upload_posts_get_a_bigger_body() -> None:
+def test_the_two_copilot_upload_posts_get_their_file_limit() -> None:
+    """Each upload route has its own wall in `ROUTE_BODY_LIMITS`; Pip's two are the file
+    limit, and every other route keeps the global cap."""
     assert MAX_BODY_BYTES == 2 * 1024 * 1024
-    assert ROUTE_BODY_LIMITS == {
-        ("POST", "/v1/copilot/uploads"): attachments.MAX_FILE_BYTES,
-        ("POST", "/v1/admin/copilot/uploads"): attachments.MAX_FILE_BYTES,
-    }
+    assert ROUTE_BODY_LIMITS[("POST", "/v1/copilot/uploads")] == attachments.MAX_FILE_BYTES
+    assert ROUTE_BODY_LIMITS[("POST", "/v1/admin/copilot/uploads")] == attachments.MAX_FILE_BYTES
 
 
 def test_uploads_have_their_own_rate_limit_per_person_and_per_account() -> None:

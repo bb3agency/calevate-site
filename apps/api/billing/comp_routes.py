@@ -222,7 +222,7 @@ async def make_paid(
                 "trial_before": before.trial,
                 "trial_converted": str(trial_converted),
                 "workspace_queued": str(workspace_queued),
-                "grant_inr": str(granted.amount_inr) if granted is not None else "",
+                "grant_inr": str(to_paise(granted.amount_inr)) if granted is not None else "",
                 "reason": payload.reason,
             },
         )

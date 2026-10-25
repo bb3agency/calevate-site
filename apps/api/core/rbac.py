@@ -525,6 +525,10 @@ VIEW_AS_MUTATIONS: Mapping[Permission, str | None] = MappingProxyType(
             "Handing somebody an admin account is not something any client's account "
             "contains. Do it from the operator console."
         ),
+        "billing:comp": (
+            "Giving credit with no payment, or making an account paid, is a super admin's "
+            "act on the operator console (D-890). Do it from the client's Credits page."
+        ),
         "platform:config": (
             "Platform configuration changes what EVERY client's platform does at the same "
             "instant, so it is not a change to the account you are viewing."

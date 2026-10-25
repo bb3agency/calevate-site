@@ -348,6 +348,11 @@ def _module_constant(tree: ast.Module, name: str) -> str | None:
                 value = getattr(node, "value", None)
                 if isinstance(value, ast.Constant) and isinstance(value.value, str):
                     return value.value
+                # A re-export (`CALLING_HOURS_RULE = _CALLING_HOURS_RULE`, the shared
+                # constant since D-872): the gate module already holds the value.
+                bound = getattr(gate_module, name, None)
+                if isinstance(bound, str):
+                    return bound
     return None
 
 

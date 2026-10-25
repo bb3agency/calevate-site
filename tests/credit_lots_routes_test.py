@@ -69,7 +69,7 @@ async def _make_admin() -> str:
         await session.execute(
             text(
                 "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
-                "VALUES (:id, 'Ops', 'operator', now(), now())"
+                "VALUES (:id, 'Ops', 'superadmin', now(), now())"
             ),
             {"id": admin_id},
         )
