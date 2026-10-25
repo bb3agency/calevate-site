@@ -78,6 +78,8 @@ export function adminSession(orgSlug = ""): Session {
 export const CREATE_TENANT_CONFIRMATION = "create_tenant";
 export const RECONCILE_PAYMENTS_CONFIRMATION = "reconcile_payments";
 export const inviteMemberConfirmation = (tenantId: string) => `invite_member:${tenantId}`;
+export const readdressInvitationConfirmation = (tenantId: string, invitationId: string) =>
+  `readdress_invitation:${tenantId}:${invitationId}`;
 export const provisionNumberConfirmation = (tenantId: string) => `provision_number:${tenantId}`;
 export const recordKycConfirmation = (tenantId: string) => `record_kyc:${tenantId}`;
 export const memberRoleConfirmation = (tenantId: string, userId: string) =>
@@ -715,12 +717,22 @@ export function useResendTenantInvitation() {
       email?: string;
       /** How that address was established out of band. Required with `email`. */
       attestation?: string;
-    }) =>
-      apiRequest<ResendInviteOut>(
-        adminSession(),
-        `/v1/admin/tenants/${tenantId}/invitations/${invitationId}/resend`,
-        { method: "POST", body: email ? { email, attestation } : {} },
-      ),
+    }) => {
+      const path = `/v1/admin/tenants/${tenantId}/invitations/${invitationId}/resend`;
+      // A corrected address mails a live owner key to a new mailbox, so it carries the
+      // confirmation issuing an invitation does; a plain resend sends nothing new.
+      return email
+        ? confirmedAdminRequest<ResendInviteOut>(
+            path,
+            {
+              method: "POST",
+              body: { email, attestation },
+              confirmAction: readdressInvitationConfirmation(tenantId, invitationId),
+            },
+            "Sending this invitation to a corrected address.",
+          )
+        : apiRequest<ResendInviteOut>(adminSession(), path, { method: "POST", body: {} });
+    },
     onSuccess: (_data, { tenantId }) =>
       client.invalidateQueries({ queryKey: ["admin", "invitations", tenantId] }),
   });

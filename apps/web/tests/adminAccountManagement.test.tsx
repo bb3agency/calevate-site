@@ -6,7 +6,7 @@ import ClosurePage from "@/app/admin/tenants/[tenantId]/closure/page";
 import TenantProfilePage from "@/app/admin/tenants/[tenantId]/profile/page";
 // Invitations are part of the People page since D-661; `/invitations` only redirects there.
 import TenantMembersPage from "@/app/admin/tenants/[tenantId]/members/page";
-import type { TenantSummary } from "@/lib/api/admin";
+import { readdressInvitationConfirmation, type TenantSummary } from "@/lib/api/admin";
 import type { Closure } from "@/lib/api/closure";
 import type { TenantErasure } from "@/lib/api/erasure";
 import type { TenantProfile } from "@/lib/api/tenantProfile";
@@ -823,6 +823,10 @@ describe("a client's invitations", () => {
       email: "owner@sri.example",
       attestation: "confirmed on a call with the owner",
     });
+    // A corrected address mails a live owner key, so it carries the bound confirmation.
+    expect(
+      calls.find((call) => call.path === resendPath)?.headers["X-Confirm-Action"],
+    ).toBe(readdressInvitationConfirmation(TENANT, invite.id));
   });
 
   it("never puts a token on the screen", async () => {

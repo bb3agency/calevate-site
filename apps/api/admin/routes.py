@@ -1194,7 +1194,9 @@ async def resend_tenant_invitation(
     invitation_id: UUID,
     payload: ResendInviteIn,
     request: Request,
+    step_up: StepUpGate,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+    x_confirm_action: str | None = Header(default=None),
 ) -> ResendInviteOut:
     """The rotation, the mail and the audit row in ONE transaction.
 
@@ -1208,7 +1210,16 @@ async def resend_tenant_invitation(
     The ADDRESS is not in the summary: the audit summary sanitizer redacts addresses, and
     the fact a reviewer needs from this row is that an operator changed the recipient on
     their own word — the address itself is on the invitation and on the screen.
+
+    A corrected address takes the same step-up as issuing an invitation: it mails a live
+    owner key to a mailbox the operator names, which is the act `invite_member` gates. A
+    plain resend to the address already on file does not, because it sends nothing to
+    anybody new.
     """
+    if payload.email is not None:
+        step_up.require(
+            x_confirm_action, readdress_invitation_confirmation(tenant_id, invitation_id)
+        )
     async with tenant_session(tenant_id) as scoped:
         resent = await service.resend_invitation(
             scoped,
@@ -1369,6 +1380,12 @@ CREATE_TENANT_CONFIRMATION: Final = "create_tenant"
 
 def invite_member_confirmation(tenant_id: UUID) -> str:
     return f"invite_member:{tenant_id}"
+
+
+def readdress_invitation_confirmation(tenant_id: UUID, invitation_id: UUID) -> str:
+    """Bound to the invitation as well as the client, so a header captured while
+    correcting one invitation cannot re-point another."""
+    return f"readdress_invitation:{tenant_id}:{invitation_id}"
 
 
 def provision_number_confirmation(tenant_id: UUID) -> str:

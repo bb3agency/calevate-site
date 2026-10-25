@@ -524,7 +524,10 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # ONE MORE makes a client account paid without a payment (D-890,
     # `billing/comp_routes.py::make_paid`, `make_paid_confirmation`, bound to the client and
     # the credit added with it).
-    assert sites == 83, f"found {sites} step-up call sites, expected 83; the census went stale"
+    # ONE MORE re-points an unredeemed invitation at a corrected address
+    # (`admin/routes.py::resend_tenant_invitation`, `readdress_invitation_confirmation`,
+    # bound to client and invitation): it mails a live owner key, as issuing one does.
+    assert sites == 84, f"found {sites} step-up call sites, expected 84; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

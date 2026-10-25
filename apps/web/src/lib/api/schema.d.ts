@@ -36084,7 +36084,9 @@ export interface operations {
     resend_tenant_invitation_v1_admin_tenants__tenant_id__invitations__invitation_id__resend_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
                 invitation_id: string;

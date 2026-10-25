@@ -37,7 +37,10 @@ from uuid import UUID
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.admin.closure_routes import close_account_confirmation
-from apps.api.admin.routes import notice_address_confirmation
+from apps.api.admin.routes import (
+    notice_address_confirmation,
+    readdress_invitation_confirmation,
+)
 from apps.api.billing.plans import IST
 from apps.api.compliance import tenant_erasure
 from apps.api.compliance.service import account_stopped_blocker
@@ -670,7 +673,10 @@ async def test_a_corrected_address_is_recorded_as_an_operator_attestation() -> N
         response = await http.post(
             f"{INVITES.format(tenant_id=tenant_id)}/{invitation_id}/resend",
             json={"email": corrected, "attestation": "Confirmed by telephone with the owner"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": readdress_invitation_confirmation(tenant_id, invitation_id),
+            },
         )
 
     assert response.status_code == 200, response.text
@@ -726,9 +732,39 @@ async def test_a_redeemed_invitation_cannot_be_resent_or_re_addressed() -> None:
         response = await http.post(
             f"{INVITES.format(tenant_id=tenant_id)}/{invitation_id}/resend",
             json={"email": "attacker@example.com", "attestation": "they asked me to"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": readdress_invitation_confirmation(tenant_id, invitation_id),
+            },
         )
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_re_pointing_an_invitation_needs_the_confirmation_issuing_one_does() -> None:
+    """A corrected address mails a live owner key to a mailbox the operator names — the act
+    `invite_member` gates — so it is refused without its own bound confirmation, and the
+    header for one invitation does not open another."""
+    token, tenant_id = await _admin(), await _tenant()
+    invitation_id = await _invite(token, tenant_id, "typo@clinc.example")
+    await _age_last_send(invitation_id, tenant_id)
+    body = {"email": "right@clinic.example", "attestation": "Confirmed by telephone"}
+    path = f"{INVITES.format(tenant_id=tenant_id)}/{invitation_id}/resend"
+
+    async with _client() as http:
+        bare = await http.post(path, json=body, headers={"Authorization": f"Bearer {token}"})
+        other = await http.post(
+            path,
+            json=body,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": readdress_invitation_confirmation(tenant_id, uuid.uuid4()),
+            },
+        )
+
+    assert bare.status_code == other.status_code == 403, bare.text
+    assert _code(bare) == _code(other) == "step_up_required"
+    assert "admin.invitation_readdressed" not in await _audit_actions(tenant_id)
 
 
 @pytest.mark.asyncio
