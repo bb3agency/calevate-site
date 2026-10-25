@@ -10,6 +10,7 @@ import {
   viewAsSession,
 } from "@/lib/api/admin";
 import { apiRequest } from "@/lib/api/client";
+import { useEditTenant } from "@/lib/api/tenantProfile";
 import { requireStepUp } from "@/lib/authn/stepUpPrompt";
 
 import { problem, renderAdminPage, type ApiCall, type Routes } from "./harness";
@@ -328,6 +329,31 @@ describe("the ask is single-flighted, whoever asks", () => {
     // `false`, never a rejection: a prompt nobody answers must not become an unhandled
     // rejection, and the caller reports the refusal it is already holding.
     expect(await Promise.all([first, second])).toEqual([false, false]);
+  });
+});
+
+describe("the notice address edit", () => {
+  it("asks for a code when the factor is stale instead of ending at a 403", async () => {
+    const editPath = "/v1/admin/tenants/t-1";
+    function SaveAddress() {
+      const edit = useEditTenant("t-1");
+      return (
+        <button type="button" onClick={() => edit.mutate({ billing_email: "new@sri.example" })}>
+          Save address
+        </button>
+      );
+    }
+    renderAdminPage(
+      <>
+        <StepUpPrompt />
+        <SaveAddress />
+      </>,
+      { [`PATCH ${editPath}`]: reauthRequired() },
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Save address" }));
+
+    expect(await screen.findByRole("alertdialog")).toBeTruthy();
   });
 });
 

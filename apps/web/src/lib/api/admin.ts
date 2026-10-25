@@ -843,9 +843,16 @@ export function useRecordKyc(tenantId: string) {
     // `kyc_blocker` itself, so a verification recorded here removes the account from the
     // work list and from the `holds` flag on its directory row. Without this an operator
     // clears a gate and walks back to a queue still offering it.
+    //
+    // The review panel on the same page (`["admin", "tenant-kyc", id]`), the review queue
+    // and the readiness rows (under `["admin", "tenant", id]`) read the same record under
+    // keys `["admin", "kyc"]` does not prefix, so they are named here.
     onSuccess: () =>
       void Promise.all([
         client.invalidateQueries({ queryKey: ["admin", "kyc"] }),
+        client.invalidateQueries({ queryKey: ["admin", "tenant-kyc", tenantId] }),
+        client.invalidateQueries({ queryKey: ["admin", "kyc-reviews"] }),
+        client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] }),
         client.invalidateQueries({ queryKey: HOLDS_QUERY_KEY }),
         client.invalidateQueries({ queryKey: ["admin", "tenants"] }),
       ]),

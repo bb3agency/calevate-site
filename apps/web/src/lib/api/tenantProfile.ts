@@ -28,7 +28,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { apiRequest } from "./client";
 
 import type { components } from "./schema";
@@ -95,16 +95,25 @@ export function useTenantProfile(tenantId: string): UseQueryResult<TenantProfile
 export function useEditTenant(tenantId: string) {
   const client = useQueryClient();
   return useMutation({
+    // ONLY when the address moves. The server demands it for that field alone, and a
+    // header on every save trains an operator to clear a prompt without reading it. That
+    // write goes through `confirmedAdminRequest`, which asks for a code when the second
+    // factor is stale; a bare `apiRequest` left the operator with a 403 and no prompt.
     mutationFn: (changes: EditTenantIn) =>
-      apiRequest<EditTenantOut>(adminSession(), editPath(tenantId), {
-        method: "PATCH",
-        body: changes,
-        // ONLY when the address moves. The server demands it for that field alone, and a
-        // header on every save trains an operator to clear a prompt without reading it.
-        ...(changes.billing_email != null
-          ? { confirmAction: noticeAddressConfirmation(tenantId) }
-          : {}),
-      }),
+      changes.billing_email != null
+        ? confirmedAdminRequest<EditTenantOut>(
+            editPath(tenantId),
+            {
+              method: "PATCH",
+              body: changes,
+              confirmAction: noticeAddressConfirmation(tenantId),
+            },
+            "Changing where this client's notices go.",
+          )
+        : apiRequest<EditTenantOut>(adminSession(), editPath(tenantId), {
+            method: "PATCH",
+            body: changes,
+          }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["admin", "tenant-profile", tenantId] });
       // The name and the vertical are printed under the client's heading on the detail

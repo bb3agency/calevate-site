@@ -72,6 +72,8 @@ export function useSetNumberAgent(tenantId: string) {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["admin", "number-costs"] });
       void client.invalidateQueries({ queryKey: ["admin", "numbers"] });
+      // The voice-platform panel on the same page names each number's answering agent.
+      void client.invalidateQueries({ queryKey: ["admin", "engine-numbers", tenantId] });
     },
   });
 }
