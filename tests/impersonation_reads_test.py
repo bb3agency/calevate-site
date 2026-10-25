@@ -29,6 +29,11 @@ from apps.api.main import app
 # no `X-Impersonate-Org` header. Impersonation never touches them, so gating them on a
 # mutating permission costs nobody a view.
 ADMIN_CONSOLE_GETS: dict[str, str] = {
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/layers": (
+        "the operator's layer-by-layer view of what an agent is told, with the engine's "
+        "limit and drift verdict: an admin console read under the tenant's own session, "
+        "never reached through impersonation"
+    ),
     "/v1/admin/announcements": (
         "the operator's composer list of announcements to clients (D-869); a client reads "
         "its own through GET /v1/announcements, which is org:read"
