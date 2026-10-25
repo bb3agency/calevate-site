@@ -12,7 +12,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
 
@@ -94,10 +94,10 @@ export function useResolveIncident() {
   const invalidate = useInvalidateHealer();
   return useMutation({
     mutationFn: (incidentId: string) =>
-      apiRequest<HealerIncident>(
-        adminSession(),
+      confirmedAdminRequest<HealerIncident>(
         `${OPS_HEALER_PATH}/incidents/${encodeURIComponent(incidentId)}/resolve`,
         { method: "POST", confirmAction: resolveConfirmation(incidentId) },
+        "Marking this problem handled.",
       ),
     onSuccess: invalidate,
   });
@@ -116,19 +116,19 @@ export function usePostStatus() {
       component: StatusComponentKey;
     }) =>
       incidentId === null
-        ? apiRequest<HealerIncident>(adminSession(), `${OPS_HEALER_PATH}/status-posts`, {
-            method: "POST",
-            body: { title, component },
-            confirmAction: statusConfirmation(null),
-          })
-        : apiRequest<HealerIncident>(
-            adminSession(),
+        ? confirmedAdminRequest<HealerIncident>(
+            `${OPS_HEALER_PATH}/status-posts`,
+            { method: "POST", body: { title, component }, confirmAction: statusConfirmation(null) },
+            "Posting a notice on the public status page.",
+          )
+        : confirmedAdminRequest<HealerIncident>(
             `${OPS_HEALER_PATH}/incidents/${encodeURIComponent(incidentId)}/status`,
             {
               method: "PUT",
               body: { title, component },
               confirmAction: statusConfirmation(incidentId),
             },
+            "Changing this problem's notice on the public status page.",
           ),
     onSuccess: invalidate,
   });

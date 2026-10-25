@@ -39,7 +39,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { ApiProblem, apiRequest, type Session } from "./client";
 
 import type { components } from "./schema";
@@ -102,18 +102,22 @@ export function useScheduleMaintenance() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: ScheduleWindowInput) =>
-      apiRequest<MaintenanceWindow>(adminSession(), OPS_MAINTENANCE_PATH, {
-        method: "POST",
-        body: {
-          starts_at: input.startsAt,
-          ends_at: input.endsAt,
-          reason: input.reason,
-          ...(input.maxDrainMinutes === undefined
-            ? {}
-            : { max_drain_minutes: input.maxDrainMinutes }),
+      confirmedAdminRequest<MaintenanceWindow>(
+        OPS_MAINTENANCE_PATH,
+        {
+          method: "POST",
+          body: {
+            starts_at: input.startsAt,
+            ends_at: input.endsAt,
+            reason: input.reason,
+            ...(input.maxDrainMinutes === undefined
+              ? {}
+              : { max_drain_minutes: input.maxDrainMinutes }),
+          },
+          confirmAction: maintenanceConfirmation("schedule_maintenance"),
         },
-        confirmAction: maintenanceConfirmation("schedule_maintenance"),
-      }),
+        "Scheduling a maintenance window.",
+      ),
     onSuccess: () => void client.invalidateQueries({ queryKey: OPS_MAINTENANCE_QUERY_KEY }),
   });
 }
@@ -139,16 +143,20 @@ export function useAmendMaintenance() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ windowId, startsAt, endsAt, reason, maxDrainMinutes }: AmendWindowInput) =>
-      apiRequest<MaintenanceWindow>(adminSession(), `${OPS_MAINTENANCE_PATH}/${windowId}`, {
-        method: "PATCH",
-        body: {
-          ...(startsAt === undefined ? {} : { starts_at: startsAt }),
-          ...(endsAt === undefined ? {} : { ends_at: endsAt }),
-          ...(reason === undefined ? {} : { reason }),
-          ...(maxDrainMinutes === undefined ? {} : { max_drain_minutes: maxDrainMinutes }),
+      confirmedAdminRequest<MaintenanceWindow>(
+        `${OPS_MAINTENANCE_PATH}/${windowId}`,
+        {
+          method: "PATCH",
+          body: {
+            ...(startsAt === undefined ? {} : { starts_at: startsAt }),
+            ...(endsAt === undefined ? {} : { ends_at: endsAt }),
+            ...(reason === undefined ? {} : { reason }),
+            ...(maxDrainMinutes === undefined ? {} : { max_drain_minutes: maxDrainMinutes }),
+          },
+          confirmAction: maintenanceConfirmation("amend_maintenance", windowId),
         },
-        confirmAction: maintenanceConfirmation("amend_maintenance", windowId),
-      }),
+        "Changing this maintenance window.",
+      ),
     onSuccess: () => void client.invalidateQueries({ queryKey: OPS_MAINTENANCE_QUERY_KEY }),
   });
 }
@@ -157,10 +165,10 @@ export function useCancelMaintenance() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (windowId: string) =>
-      apiRequest<MaintenanceWindow>(
-        adminSession(),
+      confirmedAdminRequest<MaintenanceWindow>(
         `${OPS_MAINTENANCE_PATH}/${windowId}/cancel`,
         { method: "POST", confirmAction: maintenanceConfirmation("cancel_maintenance", windowId) },
+        "Cancelling this maintenance window.",
       ),
     onSuccess: () => void client.invalidateQueries({ queryKey: OPS_MAINTENANCE_QUERY_KEY }),
   });
@@ -177,10 +185,11 @@ export function useEndMaintenance() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (windowId: string) =>
-      apiRequest<MaintenanceWindow>(adminSession(), `${OPS_MAINTENANCE_PATH}/${windowId}/end`, {
-        method: "POST",
-        confirmAction: maintenanceConfirmation("end_maintenance", windowId),
-      }),
+      confirmedAdminRequest<MaintenanceWindow>(
+        `${OPS_MAINTENANCE_PATH}/${windowId}/end`,
+        { method: "POST", confirmAction: maintenanceConfirmation("end_maintenance", windowId) },
+        "Ending this maintenance window now.",
+      ),
     onSuccess: () => void client.invalidateQueries({ queryKey: OPS_MAINTENANCE_QUERY_KEY }),
   });
 }
