@@ -76,9 +76,9 @@ async def _claim(
         )
 
 
-async def _release(tenant_id: UUID, record_id: UUID) -> None:
+async def _release(tenant_id: UUID, claim: IdempotencyClaim) -> None:
     async with tenant_session(tenant_id) as fail_session:
-        await fail_idempotency(fail_session, record_id=record_id)
+        await fail_idempotency(fail_session, claim=claim)
 
 
 @router.put(
@@ -166,12 +166,12 @@ async def schedule_callback(
             )
         await complete_idempotency(
             session,
-            record_id=claim.record_id,
+            claim=claim,
             response_status=200,
             response_payload=out.model_dump(mode="json"),
         )
     except Exception:
-        await _release(tenant_id, claim.record_id)
+        await _release(tenant_id, claim)
         raise
     return out
 
@@ -225,7 +225,7 @@ async def send_whatsapp(
             session, tenant_id=tenant_id, lead_id=lead_id, payload=payload
         )
     except Exception:
-        await _release(tenant_id, claim.record_id)
+        await _release(tenant_id, claim)
         raise
     # From here a message may have been delivered: the claim is completed, never released,
     # so a retry of this key is answered rather than sent again.
@@ -244,7 +244,7 @@ async def send_whatsapp(
     )
     await complete_idempotency(
         session,
-        record_id=claim.record_id,
+        claim=claim,
         response_status=200,
         response_payload=out.model_dump(mode="json"),
     )

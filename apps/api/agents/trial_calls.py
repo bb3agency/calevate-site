@@ -214,7 +214,7 @@ async def place_trial_call(
 
     async def release() -> None:
         async with tenant_session(tenant_id) as fail_session:
-            await fail_idempotency(fail_session, record_id=claim.record_id)
+            await fail_idempotency(fail_session, claim=claim)
 
     try:
         decision = await check_dispatch(
@@ -242,7 +242,7 @@ async def place_trial_call(
         async with tenant_session(tenant_id) as done_session:
             await complete_idempotency(
                 done_session,
-                record_id=claim.record_id,
+                claim=claim,
                 response_status=200,
                 response_payload=_payload(result),
             )
@@ -354,7 +354,7 @@ async def place_trial_call(
         )
         await complete_idempotency(
             record_session,
-            record_id=claim.record_id,
+            claim=claim,
             response_status=200,
             response_payload=_payload(result),
         )

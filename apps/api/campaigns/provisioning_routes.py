@@ -400,7 +400,7 @@ async def purchase_number(
             )
     except Exception:
         async with tenant_session(tenant_id) as fail_session:
-            await fail_idempotency(fail_session, record_id=claim.record_id)
+            await fail_idempotency(fail_session, claim=claim)
         raise
 
     out = PurchasedNumberOut(
@@ -432,7 +432,7 @@ async def purchase_number(
         )
         await complete_idempotency(
             record_session,
-            record_id=claim.record_id,
+            claim=claim,
             response_status=201,
             response_payload=out.model_dump(mode="json"),
         )

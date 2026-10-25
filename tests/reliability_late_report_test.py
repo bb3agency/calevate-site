@@ -40,10 +40,12 @@ from datetime import timedelta
 
 import pytest
 import pytest_asyncio
+from apps.api.core.errors import ProblemError
 from apps.api.db.session import untenanted_session
 from apps.api.reliability.service import (
     CLAIM_LEASE,
     IDEMPOTENCY_TTL,
+    IdempotencyClaim,
     body_hash,
     claim_idempotency,
     claim_inbox_event,
@@ -89,7 +91,7 @@ async def _age_claim(table: str, row_id: uuid.UUID) -> None:
 # ══════════════════════════ idempotency ══════════════════════════
 
 
-async def _claim(key: str) -> object:
+async def _claim(key: str) -> IdempotencyClaim:
     async with untenanted_session() as session:
         return await claim_idempotency(
             session,
@@ -101,40 +103,51 @@ async def _claim(key: str) -> object:
         )
 
 
+async def _idempotency_row(record_id: uuid.UUID) -> tuple[str, object]:
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text("SELECT status, response_payload FROM idempotency_records WHERE id = :id"),
+                {"id": record_id},
+            )
+        ).one()
+    return row[0], row[1]
+
+
 @pytest.mark.asyncio
 async def test_a_late_failure_cannot_reopen_a_completed_idempotency_record() -> None:
     key = f"key-{uuid.uuid4().hex}"
 
     first = await _claim(key)
-    assert first.state == "fresh"  # type: ignore[attr-defined]
+    assert first.state == "fresh"
 
     # The first holder goes silent. The lease lapses and the client's retry re-claims —
     # this is `claim_idempotency`'s designed recovery, not a fault.
-    await _age_claim("idempotency_records", first.record_id)  # type: ignore[attr-defined]
+    await _age_claim("idempotency_records", first.record_id)
     second = await _claim(key)
-    assert second.state == "fresh"  # type: ignore[attr-defined]
-    assert second.record_id == first.record_id  # type: ignore[attr-defined]
+    assert second.state == "fresh"
+    assert second.record_id == first.record_id
 
     # The second holder does the work and stores its response.
     async with untenanted_session() as session:
         await complete_idempotency(
             session,
-            record_id=second.record_id,  # type: ignore[attr-defined]
+            claim=second,
             response_status=200,
             response_payload={"call_id": "the-one-call-we-placed"},
         )
 
     # NOW the first holder finally comes back and reports its own defeat.
     async with untenanted_session() as session:
-        await fail_idempotency(session, record_id=first.record_id)  # type: ignore[attr-defined]
+        await fail_idempotency(session, claim=first)
 
     third = await _claim(key)
-    assert third.state == "replay", (  # type: ignore[attr-defined]
+    assert third.state == "replay", (
         "a late failure report from an abandoned attempt reopened a COMPLETED record, so "
         "the next retry of this Idempotency-Key re-executes the mutation — for "
         "POST /v1/leads/{lead_id}/call that is a second real phone call"
     )
-    assert third.response_payload == {"call_id": "the-one-call-we-placed"}  # type: ignore[attr-defined]
+    assert third.response_payload == {"call_id": "the-one-call-we-placed"}
 
 
 @pytest.mark.asyncio
@@ -147,29 +160,72 @@ async def test_a_late_completion_cannot_overwrite_a_released_key() -> None:
     """
     key = f"key-{uuid.uuid4().hex}"
     first = await _claim(key)
-    await _age_claim("idempotency_records", first.record_id)  # type: ignore[attr-defined]
+    await _age_claim("idempotency_records", first.record_id)
     second = await _claim(key)
     async with untenanted_session() as session:
-        await fail_idempotency(session, record_id=second.record_id)  # type: ignore[attr-defined]
+        await fail_idempotency(session, claim=second)
     async with untenanted_session() as session:
         await complete_idempotency(
             session,
-            record_id=first.record_id,  # type: ignore[attr-defined]
+            claim=first,
             response_status=200,
             response_payload={"stale": True},
         )
 
-    async with untenanted_session() as session:
-        status = (
-            await session.execute(
-                text("SELECT status FROM idempotency_records WHERE id = :id"),
-                {"id": first.record_id},  # type: ignore[attr-defined]
-            )
-        ).scalar_one()
+    status, _payload = await _idempotency_row(first.record_id)
     assert status == "failed", (
         "a late completion overwrote a key that had already been released; the client's "
         "retry would replay a response belonging to an attempt it was told had failed"
     )
+
+
+@pytest.mark.asyncio
+async def test_a_late_failure_cannot_release_a_key_its_successor_still_holds() -> None:
+    """The abandoned holder reports while the SECOND holder is still working.
+
+    The record is `processing` again, so a status guard alone lets the late report
+    through: the key is released under a live holder and the next request with the same
+    key is answered `fresh` and runs beside it — two calls placed at once.
+    """
+    key = f"key-{uuid.uuid4().hex}"
+    first = await _claim(key)
+    await _age_claim("idempotency_records", first.record_id)
+    second = await _claim(key)
+    assert second.state == "fresh"
+
+    async with untenanted_session() as session:
+        await fail_idempotency(session, claim=first)
+
+    assert (await _idempotency_row(second.record_id))[0] == "processing", (
+        "the abandoned holder's late failure released a key its successor still holds"
+    )
+    with pytest.raises(ProblemError) as caught:
+        await _claim(key)
+    assert caught.value.code == "idempotent_request_in_flight", (
+        "a third request ran while the second holder of the key was still working"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_late_completion_cannot_answer_for_its_successor() -> None:
+    """The abandoned holder succeeds late while the second holder is still working: its
+    response must not become the stored answer to the second holder's attempt."""
+    key = f"key-{uuid.uuid4().hex}"
+    first = await _claim(key)
+    await _age_claim("idempotency_records", first.record_id)
+    second = await _claim(key)
+
+    async with untenanted_session() as session:
+        await complete_idempotency(
+            session, claim=first, response_status=200, response_payload={"stale": True}
+        )
+    assert (await _idempotency_row(second.record_id))[0] == "processing"
+
+    async with untenanted_session() as session:
+        await complete_idempotency(
+            session, claim=second, response_status=200, response_payload={"current": True}
+        )
+    assert await _idempotency_row(second.record_id) == ("completed", {"current": True})
 
 
 # ══════════════════════════ webhook inbox ══════════════════════════

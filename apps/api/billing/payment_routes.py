@@ -945,7 +945,7 @@ async def _create_order_once(
         # claim would refuse the client's own retry as "already in flight" for ten
         # minutes. Marking it failed lets the very next click retake it by CAS.
         async with tenant_session(tenant_id) as session:
-            await fail_idempotency(session, record_id=claim.record_id)
+            await fail_idempotency(session, claim=claim)
         raise
 
     result: TopUpIntentOut = build(order.order_id)
@@ -962,7 +962,7 @@ async def _create_order_once(
         )
         await complete_idempotency(
             session,
-            record_id=claim.record_id,
+            claim=claim,
             response_status=200,
             response_payload=result.model_dump(mode="json"),
         )

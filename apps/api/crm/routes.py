@@ -79,6 +79,7 @@ from apps.api.crm.schemas import (
 )
 from apps.api.db.session import tenant_session
 from apps.api.reliability.service import (
+    IdempotencyClaim,
     body_hash,
     claim_idempotency,
     complete_idempotency,
@@ -1381,7 +1382,7 @@ async def lead_timeline(
     return await service.lead_timeline(session, lead_id, limit=limit, offset=offset)
 
 
-async def _release_undialled_claim(tenant_id: UUID, record_id: UUID) -> None:
+async def _release_undialled_claim(tenant_id: UUID, claim: IdempotencyClaim) -> None:
     """Release a lead-call claim on a path that dialled nobody.
 
     A refused attempt that kept its claim would answer the client's own retry with the
@@ -1389,7 +1390,7 @@ async def _release_undialled_claim(tenant_id: UUID, record_id: UUID) -> None:
     Its own transaction, because the request's is about to roll back.
     """
     async with tenant_session(tenant_id) as fail_session:
-        await fail_idempotency(fail_session, record_id=record_id)
+        await fail_idempotency(fail_session, claim=claim)
 
 
 @router.post(
@@ -1637,7 +1638,7 @@ async def call_back(
             phone_e164=plan.phone_e164,
         )
     except Exception:
-        await _release_undialled_claim(principal.tenant_id, claim.record_id)
+        await _release_undialled_claim(principal.tenant_id, claim)
         raise
     if not decision.allowed:
         # Counted for `call_lead`'s reason, which this route shares: a client pressing
@@ -1651,7 +1652,7 @@ async def call_back(
         # after a calling-hours window opened or a wallet was topped up, while the
         # eligibility read says the button works. Nothing was dialled, so nothing needs
         # the claim.
-        await _release_undialled_claim(principal.tenant_id, claim.record_id)
+        await _release_undialled_claim(principal.tenant_id, claim)
         return CallbackOut(
             status="blocked", blocked_reason=decision.reason, blocked_rule=decision.rule
         )
@@ -1685,7 +1686,7 @@ async def call_back(
     except Exception as refused:
         # `call_lead`'s rule: only a failure that proves no line was seized frees the key.
         if dial_was_not_placed(refused):
-            await _release_undialled_claim(principal.tenant_id, claim.record_id)
+            await _release_undialled_claim(principal.tenant_id, claim)
         raise
     # The chain link stays on the REQUEST's session: it is a pointer between two of our
     # own rows and its loss costs a follow-up count, not a record of a call.
@@ -1704,7 +1705,7 @@ async def call_back(
         )
         await complete_idempotency(
             record_session,
-            record_id=claim.record_id,
+            claim=claim,
             response_status=200,
             response_payload=result.model_dump(),
         )

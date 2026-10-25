@@ -282,7 +282,7 @@ async def test_the_same_key_twice_does_the_work_once() -> None:
         )
         assert first.state == "fresh"
         await rel.complete_idempotency(
-            session, record_id=first.record_id, response_status=200, response_payload={"n": 1}
+            session, claim=first, response_status=200, response_payload={"n": 1}
         )
 
     async with untenanted_session() as session:
@@ -308,7 +308,7 @@ async def test_a_different_body_under_the_same_key_is_never_a_replay() -> None:
             request_hash=rel.body_hash({"lead_id": "one"}),
         )
         await rel.complete_idempotency(
-            session, record_id=claim.record_id, response_status=200, response_payload={"n": 1}
+            session, claim=claim, response_status=200, response_payload={"n": 1}
         )
 
     with pytest.raises(ProblemError) as caught:
@@ -363,7 +363,7 @@ async def test_a_crash_between_claim_and_completion_does_not_poison_the_key() ->
         )
         assert retry.state == "fresh", "an abandoned claim must be re-claimable, not owned forever"
         await rel.complete_idempotency(
-            session, record_id=retry.record_id, response_status=200, response_payload={"n": 2}
+            session, claim=retry, response_status=200, response_payload={"n": 2}
         )
 
     assert await _idempotency_row(k) == ("completed", 200, {"n": 2})

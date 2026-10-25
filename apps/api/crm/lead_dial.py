@@ -27,6 +27,7 @@ from apps.api.crm import service
 from apps.api.crm.schemas import CallLeadOut
 from apps.api.db.session import tenant_session
 from apps.api.reliability.service import (
+    IdempotencyClaim,
     body_hash,
     claim_idempotency,
     complete_idempotency,
@@ -39,11 +40,11 @@ from apps.api.reliability.service import (
 CALL_ROUTE = "/v1/leads/{lead_id}/call"
 
 
-async def _release_undialled_claim(tenant_id: UUID, record_id: UUID) -> None:
+async def _release_undialled_claim(tenant_id: UUID, claim: IdempotencyClaim) -> None:
     """Release a claim on a path that dialled nobody, in its own transaction (the
     request's is about to roll back), so the person's own retry is not refused."""
     async with tenant_session(tenant_id) as fail_session:
-        await fail_idempotency(fail_session, record_id=record_id)
+        await fail_idempotency(fail_session, claim=claim)
 
 
 async def place_lead_call(
@@ -86,7 +87,7 @@ async def place_lead_call(
             session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
         )
     except Exception:
-        await _release_undialled_claim(tenant_id, claim.record_id)
+        await _release_undialled_claim(tenant_id, claim)
         raise
     if not decision.allowed:
         # Counted here and not inside `check_dispatch`: the eligibility read calls the same
@@ -98,7 +99,7 @@ async def place_lead_call(
         async with tenant_session(tenant_id) as done_session:
             await complete_idempotency(
                 done_session,
-                record_id=claim.record_id,
+                claim=claim,
                 response_status=200,
                 response_payload=result.model_dump(),
             )
@@ -138,7 +139,7 @@ async def place_lead_call(
     except Exception as refused:
         # Only a failure that PROVES no line was seized releases the key.
         if dial_was_not_placed(refused):
-            await _release_undialled_claim(tenant_id, claim.record_id)
+            await _release_undialled_claim(tenant_id, claim)
         raise
 
     result = CallLeadOut(status="queued", call_handle=handle)
@@ -159,7 +160,7 @@ async def place_lead_call(
         )
         await complete_idempotency(
             record_session,
-            record_id=claim.record_id,
+            claim=claim,
             response_status=200,
             response_payload=result.model_dump(),
         )

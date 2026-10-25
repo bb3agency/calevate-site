@@ -283,7 +283,7 @@ async def open_fee_order(charge_id: UUID, principal: FeePay) -> FeeOrderOut:
         )
     except Exception:
         async with tenant_session(tenant_id) as session:
-            await fail_idempotency(session, record_id=claim.record_id)
+            await fail_idempotency(session, claim=claim)
         raise
     result = _out(order.order_id)
     async with tenant_session(tenant_id) as session:
@@ -302,7 +302,7 @@ async def open_fee_order(charge_id: UUID, principal: FeePay) -> FeeOrderOut:
         )
         await complete_idempotency(
             session,
-            record_id=claim.record_id,
+            claim=claim,
             response_status=200,
             response_payload=result.model_dump(mode="json"),
         )

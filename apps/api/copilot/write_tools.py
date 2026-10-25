@@ -1403,7 +1403,7 @@ async def run_immediate(
             # the same arguments retried after a transient read failure must still be
             # allowed through. Releasing here costs one CAS and removes a class of
             # "nothing happened and it will not let me try again".
-            await fail_idempotency(session, record_id=claim.record_id)
+            await fail_idempotency(session, claim=claim)
             raise
 
         try:
@@ -1418,7 +1418,7 @@ async def run_immediate(
             # RELEASE THE KEY so the person's own retry is not refused by a claim that
             # holds nothing. `fail_idempotency` is a CAS on `processing` and never raises;
             # the original exception carries on to `service.py` untouched.
-            await fail_idempotency(session, record_id=claim.record_id)
+            await fail_idempotency(session, claim=claim)
             raise
         object_id = executed.object_id or plan.object_id
         # THE COMPARE VALUE FOR THE INVERSE: the same capture, after the write. A create's
@@ -1472,7 +1472,7 @@ async def run_immediate(
         )
         await complete_idempotency(
             session,
-            record_id=claim.record_id,
+            claim=claim,
             response_status=200,
             response_payload={
                 "detail": executed.detail,

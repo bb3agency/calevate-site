@@ -93,7 +93,7 @@ async def test_two_tenants_sharing_one_idempotency_key_never_share_a_response() 
         assert first.state == "fresh"
         await rel.complete_idempotency(
             session,
-            record_id=first.record_id,
+            claim=first,
             response_status=201,
             response_payload={"lead_id": "tenant-a-secret"},
         )
@@ -126,7 +126,7 @@ async def test_the_same_tenant_still_replays() -> None:
             session, scope=scope_a, route=ROUTE, method="POST", key=same_key, request_hash=body
         )
         await rel.complete_idempotency(
-            session, record_id=first.record_id, response_status=201, response_payload={"n": 1}
+            session, claim=first, response_status=201, response_payload={"n": 1}
         )
 
     async with untenanted_session() as session:

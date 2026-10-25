@@ -23,7 +23,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
@@ -139,6 +139,11 @@ class IdempotencyClaim:
     record_id: UUID
     response_status: int | None = None
     response_payload: dict[str, Any] | None = None
+    # Which holding of `record_id` this is. A lapsed claim is handed to a second holder
+    # under the same `record_id`, so the id alone cannot tell the two apart; the nonce is
+    # re-minted on every take and `complete_idempotency`/`fail_idempotency` match on it.
+    # None on a replay, which has nothing to report.
+    nonce: UUID | None = None
 
 
 async def claim_idempotency(
@@ -162,10 +167,11 @@ async def claim_idempotency(
     TTL sweep.
     """
     record_id = uuid7()
+    nonce = uuid4()
     inserted = await session.execute(
         text(
             "INSERT INTO idempotency_records (id, scope_key, route, method, idempotency_key, "
-            "request_hash, status, expires_at, created_at, updated_at) "
+            "request_hash, status, claim_nonce, expires_at, created_at, updated_at) "
             # ONE CLOCK PER DEADLINE (D-322). `expires_at` used to be
             # `datetime.now(UTC) + IDEMPOTENCY_TTL` — the API process's clock — while
             # `created_at`, every `updated_at`, the lease comparison in the CAS below and
@@ -177,7 +183,7 @@ async def claim_idempotency(
             # taken on a host 40s ahead of the database bought 40 seconds. Measured on
             # this tree: with a 500ms statement ahead of the claim, `expires_at -
             # created_at` came back 500ms over `IDEMPOTENCY_TTL`.
-            "VALUES (:id, :scope, :route, :method, :key, :hash, 'processing', "
+            "VALUES (:id, :scope, :route, :method, :key, :hash, 'processing', :nonce, "
             "now() + make_interval(secs => :ttl_s), "
             "now(), now()) "
             "ON CONFLICT (scope_key, route, method, idempotency_key) DO NOTHING "
@@ -190,11 +196,12 @@ async def claim_idempotency(
             "method": method,
             "key": key,
             "hash": request_hash,
+            "nonce": nonce,
             "ttl_s": IDEMPOTENCY_TTL.total_seconds(),
         },
     )
     if inserted.first() is not None:
-        return IdempotencyClaim(state="fresh", record_id=record_id)
+        return IdempotencyClaim(state="fresh", record_id=record_id, nonce=nonce)
 
     existing = (
         await session.execute(
@@ -207,7 +214,7 @@ async def claim_idempotency(
         )
     ).first()
     if existing is None:  # pragma: no cover — TTL sweep raced the conflict
-        return IdempotencyClaim(state="fresh", record_id=record_id)
+        return IdempotencyClaim(state="fresh", record_id=record_id, nonce=nonce)
 
     found_id, found_hash, status, response_status, response_payload = existing
     if found_hash != request_hash:
@@ -227,11 +234,12 @@ async def claim_idempotency(
         # A recent PROCESSING record really is in flight and still gets its 409.
         retried = await session.execute(
             text(
-                "UPDATE idempotency_records SET status = 'processing', updated_at = now() "
+                "UPDATE idempotency_records SET status = 'processing', "
+                "claim_nonce = :nonce, updated_at = now() "
                 "WHERE id = :id AND (status = 'failed' OR "
                 "(status = 'processing' AND updated_at < now() - :lease))"
             ),
-            {"id": found_id, "lease": CLAIM_LEASE},
+            {"id": found_id, "lease": CLAIM_LEASE, "nonce": nonce},
         )
         if rowcount_of(retried) == 0:
             raise ProblemError(
@@ -242,7 +250,7 @@ async def claim_idempotency(
                 remediation="Retry in a few seconds.",
                 headers={"Retry-After": "3"},
             )
-        return IdempotencyClaim(state="fresh", record_id=found_id)
+        return IdempotencyClaim(state="fresh", record_id=found_id, nonce=nonce)
 
     return IdempotencyClaim(
         state="replay",
@@ -252,54 +260,60 @@ async def claim_idempotency(
     )
 
 
-# The states a claim's outcome may be reported FROM. Both terminal writers below carry it
-# as a CAS guard, and it is load-bearing rather than decorative — the same sentence
-# `mark_outbox_failed` makes about its own `AND status = 'pending'`, applied to the two
-# writers that were missing it (D-321).
+# The guard both terminal writers below carry: the record is still open AND still held by
+# the claim reporting on it.
 #
-# THE RACE IT CLOSES IS ONE THIS MODULE DELIBERATELY CREATES. `claim_idempotency` hands a
-# lapsed `processing` record to a SECOND holder by design — "a crashed attempt must not own
-# the key until the TTL sweep" — so from that moment two callers legitimately hold the same
-# `record_id`, and the first one is by definition the one whose report arrives late. With no
-# guard, `fail_idempotency` from the abandoned attempt overwrites the `completed` the second
-# one wrote: the stored response is lost and the NEXT retry of the same `Idempotency-Key` is
-# answered `fresh`, so the mutation runs a second time. On `POST /v1/leads/{id}/call` that is
-# a second real phone call to a member of the public; on `POST /v1/calls/{id}/assist` it is a
-# second paid model run. Reproduced in `tests/reliability_late_report_test.py`.
-_IDEMPOTENCY_OPEN = "'processing'"
+# `claim_idempotency` hands a lapsed `processing` record to a SECOND holder by design — "a
+# crashed attempt must not own the key until the TTL sweep" — under the same `record_id`.
+# A status guard alone (D-321) stops a late report from overwriting a record that was
+# already resolved, but not one that is open AGAIN under its new holder: the abandoned
+# attempt's late `fail_idempotency` would release the key while the second holder is still
+# working, so a third request with the same key is answered `fresh` and runs concurrently
+# (on `POST /v1/leads/{id}/call`, a second real phone call), and its late
+# `complete_idempotency` would store its own response over the second holder's claim. The
+# nonce is minted on every take, so a report from any earlier holding matches nothing —
+# the fencing token of a lease. `updated_at` is not one: `now()` is transaction-start
+# time, so two takes are not guaranteed distinct values. Reproduced in
+# `tests/reliability_late_report_test.py`.
+_IDEMPOTENCY_HELD_BY_CLAIM = "id = :id AND status = 'processing' AND claim_nonce = :nonce"
 
 
 async def complete_idempotency(
     session: AsyncSession,
     *,
-    record_id: UUID,
+    claim: IdempotencyClaim,
     response_status: int,
     response_payload: dict[str, Any],
 ) -> None:
-    """Record the stored response. CAS on `processing` — see `_IDEMPOTENCY_OPEN`."""
+    """Record the stored response, if `claim` still holds the record."""
     result = await session.execute(
         text(
             "UPDATE idempotency_records SET status = 'completed', response_status = :status, "
             "response_payload = CAST(:payload AS jsonb), updated_at = now() "
-            f"WHERE id = :id AND status = {_IDEMPOTENCY_OPEN}"
+            f"WHERE {_IDEMPOTENCY_HELD_BY_CLAIM}"
         ),
-        {"id": record_id, "status": response_status, "payload": json.dumps(response_payload)},
+        {
+            "id": claim.record_id,
+            "nonce": claim.nonce,
+            "status": response_status,
+            "payload": json.dumps(response_payload),
+        },
     )
     if rowcount_of(result) == 0:
-        _late_report("idempotency_late_completion", record_id)
+        _late_report("idempotency_late_completion", claim.record_id)
 
 
-async def fail_idempotency(session: AsyncSession, *, record_id: UUID) -> None:
-    """Release the key so the caller's own retry is not refused. CAS on `processing`."""
+async def fail_idempotency(session: AsyncSession, *, claim: IdempotencyClaim) -> None:
+    """Release the key so the caller's own retry is not refused, if `claim` still holds it."""
     result = await session.execute(
         text(
             "UPDATE idempotency_records SET status = 'failed', updated_at = now() "
-            f"WHERE id = :id AND status = {_IDEMPOTENCY_OPEN}"
+            f"WHERE {_IDEMPOTENCY_HELD_BY_CLAIM}"
         ),
-        {"id": record_id},
+        {"id": claim.record_id, "nonce": claim.nonce},
     )
     if rowcount_of(result) == 0:
-        _late_report("idempotency_late_failure", record_id)
+        _late_report("idempotency_late_failure", claim.record_id)
 
 
 def _late_report(event: str, row_id: UUID) -> None:

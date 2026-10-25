@@ -318,6 +318,11 @@ class IdempotencyRecord(PKMixin, Base):
     idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
     request_hash: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="processing")
+    # Minted on every take of the record; the terminal writers match on it so a holder
+    # whose lease lapsed cannot report into its successor's claim
+    # (`reliability.service._IDEMPOTENCY_HELD_BY_CLAIM`). NULL only on rows written
+    # before migration a6d2f8c41e97.
+    claim_nonce: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     response_status: Mapped[int | None] = mapped_column(Integer)
     response_payload: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     expires_at: Mapped[datetime] = mapped_column(nullable=False)
