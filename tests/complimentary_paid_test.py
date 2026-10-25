@@ -275,7 +275,8 @@ async def test_the_notices_reach_the_super_admins_first_then_the_client_once(
         "reason": "outage goodwill",
     }
     assert await comp_notices.notify_comp({}, payload) == "sent"
-    assert await comp_notices.notify_comp({}, payload) == "sent"
+    # ARQ re-running the same job counts its tries.
+    assert await comp_notices.notify_comp({"job_try": 2}, payload) == "sent"
 
     recipients = [m["to"] for m in mailbox.sent]
     assert boss in recipients, "every live super admin is emailed"
@@ -294,6 +295,17 @@ async def test_the_notices_reach_the_super_admins_first_then_the_client_once(
             )
         ).scalar()
     assert posted == 1, "the dashboard notice goes up once, however often the job runs"
+
+    # A second grant of the same amount the same day is a new job, and its own notice.
+    assert await comp_notices.notify_comp({}, payload) == "sent"
+    async with untenanted_session() as session:
+        posted = (
+            await session.execute(
+                text("SELECT count(*) FROM platform_announcements WHERE target_tenant_id = :t"),
+                {"t": tenant_id},
+            )
+        ).scalar()
+    assert posted == 2
 
 
 async def test_a_refused_send_is_retried_rather_than_dropped(

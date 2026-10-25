@@ -122,18 +122,26 @@ async def _send(address: str, subject: str, body: str, *, cta: str | None) -> bo
     )
 
 
-async def _post_notice(tenant_id: UUID, message: str) -> bool:
-    """Put the dashboard notice up once. True when this run posted it."""
+async def _post_notice(tenant_id: UUID, message: str, *, retry: bool) -> bool:
+    """Put the dashboard notice up once. True when this run posted it.
+
+    The notice is posted before any email, so a first attempt always posts; only a retry
+    looks for one it may already have posted. Checking on the first attempt too would hide
+    a second, identical grant made the same day."""
     async with admin_session() as session:
         already = (
-            await session.execute(
-                text(
-                    "SELECT 1 FROM platform_announcements WHERE target_tenant_id = :tid "
-                    "AND message = :m AND created_at > now() - interval '1 day'"
-                ),
-                {"tid": tenant_id, "m": message},
-            )
-        ).first()
+            None
+            if not retry
+            else (
+                await session.execute(
+                    text(
+                        "SELECT 1 FROM platform_announcements WHERE target_tenant_id = :tid "
+                        "AND message = :m AND created_at > now() - interval '1 day'"
+                    ),
+                    {"tid": tenant_id, "m": message},
+                )
+            ).first()
+        )
         if already is not None:
             return False
         await announcements.create(
@@ -210,7 +218,7 @@ async def notify_comp(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         ]
     actor = str(actor_row[0]) if actor_row and actor_row[0] else "a super admin"
 
-    posted = await _post_notice(tenant_id, notice_text(kind=kind, amount=amount))
+    posted = await _post_notice(tenant_id, notice_text(kind=kind, amount=amount), retry=attempt > 1)
 
     # Ours first, the client's last: a failure raises and ARQ re-runs the whole job, so
     # whatever went before a failure is sent again. A repeated internal email is noise; a
