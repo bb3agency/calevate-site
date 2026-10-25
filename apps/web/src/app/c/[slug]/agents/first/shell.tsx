@@ -34,6 +34,7 @@ export function StepScreen({
   onBack,
   aside,
   eyebrow,
+  barAtEnd = false,
 }: {
   title: string;
   hint?: ReactNode;
@@ -51,6 +52,10 @@ export function StepScreen({
   aside?: ReactNode;
   /** Where the step is within itself, above the question ("Question 2 of 3"). */
   eyebrow?: ReactNode;
+  /** From `lg`, the bar closes the step where its content ends instead of sticking to the
+   *  window: for a step that is read top to bottom, where a stuck bar sits over the lines
+   *  the owner is reading. The phone keeps its pinned bar. */
+  barAtEnd?: boolean;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -82,7 +87,7 @@ export function StepScreen({
       {hint ? <div className="mt-1 max-w-prose text-body text-ink-muted">{hint}</div> : null}
       <div className="mt-5 space-y-5">{children}</div>
       {primary || aside ? (
-        <div className="fixed inset-x-0 bottom-0 z-sticky border-t border-line bg-surface/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-surface/85 lg:sticky lg:mt-4 lg:bg-app lg:px-0 lg:pt-3 lg:pb-4 lg:backdrop-blur-none supports-[backdrop-filter]:lg:bg-app">
+        <div className={`fixed inset-x-0 bottom-0 z-sticky border-t border-line bg-surface/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-surface/85 ${barAtEnd ? "lg:static lg:mt-6 lg:bg-transparent lg:pt-5 supports-[backdrop-filter]:lg:bg-transparent" : "lg:sticky lg:mt-4 lg:bg-app lg:pt-3 supports-[backdrop-filter]:lg:bg-app"} lg:px-0 lg:pb-4 lg:backdrop-blur-none`}>
           <div className="mx-auto flex max-w-xl flex-col gap-1.5 lg:mx-0 lg:flex-row lg:items-center lg:gap-4">
             {primary ? (
               <ActionButton
@@ -107,9 +112,14 @@ export function StepScreen({
 }
 
 /**
- * The four steps of a guided flow ("Meet your agent", D-855; the go-live guide, D-859). A row
- * of four on a phone (the current one named under it), a column with every name from `lg`. A
- * finished step can be gone back to.
+ * The four steps of a guided flow ("Meet your agent", D-855; the go-live guide, D-859).
+ *
+ * Narrow, it is four short bars and one line naming where the owner is ("Step 3 of 4 · Hear
+ * it"). Wide, every step is named: a column beside the content from `lg`, or one row above
+ * it joined by lines. The row switches on the width IT is given (a container query), not on
+ * the window's: it shares its line with the screen's title and the way out, so at a laptop
+ * width the window is wide while the rail is not, and four names forced into too little room
+ * ran the joining lines through the labels. A finished step can be gone back to.
  */
 export function StepRail({
   steps,
@@ -117,20 +127,20 @@ export function StepRail({
   onGo,
   layout = "column",
 }: {
-  /** Four steps: the phone row is four columns. */
+  /** Four steps: the narrow shape is four columns. */
   steps: readonly { id: string; label: string }[];
   current: number;
   onGo: (step: number) => void;
-  /** From `lg`: a column beside the content, or one row above it joined by lines, which
+  /** Wide: a column beside the content, or one row above it joined by lines, which
    *  leaves the content the width a step's cards need. */
   layout?: "column" | "row";
 }) {
   const row = layout === "row";
+  const look = row ? ROW : COLUMN;
+  const at = Math.min(current, steps.length - 1);
   return (
-    <nav aria-label="Steps">
-      <ol
-        className={`grid grid-cols-4 gap-1.5 ${row ? "lg:flex lg:items-center lg:gap-0" : "lg:grid-cols-1 lg:gap-1"}`}
-      >
+    <nav aria-label="Steps" className={look.nav}>
+      <ol className={look.list}>
         {steps.map((entry, index) => {
           const done = index < current;
           const here = index === current;
@@ -149,55 +159,76 @@ export function StepRail({
                 {done ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : index + 1}
               </span>
               <span
-                className={`hidden whitespace-nowrap text-body lg:inline ${here ? "font-medium text-ink" : done ? "text-ink-muted" : "text-ink-faint"}`}
+                className={`${look.label} whitespace-nowrap text-body ${here ? "font-medium text-ink" : done ? "text-ink-muted" : "text-ink-faint"}`}
               >
                 {entry.label}
               </span>
-              <span className="sr-only lg:hidden">{entry.label}</span>
+              <span className={look.srLabel}>{entry.label}</span>
             </>
-          );
-          const bar = (
-            <span
-              aria-hidden
-              className={`h-1 rounded-full lg:hidden ${done || here ? "bg-brand-strong" : "bg-line"}`}
-            />
           );
           return (
             <li
               key={entry.id}
               aria-current={here ? "step" : undefined}
-              className={`flex min-w-0 flex-col gap-1.5 ${row ? `lg:flex-row lg:items-center lg:gap-0 ${index > 0 ? "lg:flex-1" : ""}` : "lg:block"}`}
+              className={`${look.item} ${row && index > 0 ? ROW.joined : ""}`}
             >
               {row && index > 0 ? (
-                <span
-                  aria-hidden
-                  className={`mx-3 hidden h-px min-w-6 flex-1 lg:block ${done || here ? "bg-brand-strong" : "bg-line"}`}
-                />
+                <span aria-hidden className={`${ROW.line} ${done || here ? "bg-brand-strong" : "bg-line"}`} />
               ) : null}
-              {bar}
+              <span aria-hidden className={`${look.bar} h-1 rounded-full ${done || here ? "bg-brand-strong" : "bg-line"}`} />
               {done ? (
                 <button
                   type="button"
                   onClick={() => onGo(index)}
-                  className={`press hidden items-center gap-2.5 rounded-md px-1 py-1 text-left hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand lg:flex ${row ? "shrink-0" : "w-full"}`}
+                  className={`press ${look.step} gap-2.5 rounded-md px-1 py-1 text-left hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand`}
                 >
                   {tile}
                   <span className="sr-only">, done. Go back to it</span>
                 </button>
               ) : (
-                <span className={`hidden items-center gap-2.5 px-1 py-1 lg:flex ${row ? "shrink-0" : ""}`}>{tile}</span>
+                <span className={`${look.step} gap-2.5 px-1 py-1`}>{tile}</span>
               )}
             </li>
           );
         })}
       </ol>
-      <p className="mt-2 text-meta text-ink-muted lg:hidden">
-        Step {Math.min(current, steps.length - 1) + 1} of {steps.length}:{" "}
-        <span className="font-medium text-ink">{steps[Math.min(current, steps.length - 1)]?.label}</span>
+      <p className={`mt-2 text-meta text-ink-muted ${look.where}`}>
+        Step {at + 1} of {steps.length} · <span className="font-medium text-ink">{steps[at]?.label}</span>
       </p>
     </nav>
   );
 }
+
+/**
+ * Each shape's classes, written out whole so Tailwind finds them. The row's switch is
+ * `@min-[44rem]`: four names, their tiles and three joining lines at their 1.5rem floor need
+ * about 42rem, and the spare keeps a label from meeting its line.
+ */
+const ROW = {
+  nav: "@container",
+  list: "grid grid-cols-4 gap-1.5 @min-[44rem]:flex @min-[44rem]:items-center @min-[44rem]:gap-0",
+  item: "flex min-w-0 flex-col gap-1.5 @min-[44rem]:flex-row @min-[44rem]:items-center @min-[44rem]:gap-0",
+  joined: "@min-[44rem]:flex-1",
+  line: "mx-3 hidden h-px min-w-6 flex-1 @min-[44rem]:block",
+  bar: "@min-[44rem]:hidden",
+  step: "hidden shrink-0 items-center @min-[44rem]:flex",
+  label: "hidden @min-[44rem]:inline",
+  srLabel: "sr-only @min-[44rem]:hidden",
+  where: "@min-[44rem]:hidden",
+} as const;
+
+const COLUMN = {
+  nav: "",
+  list: "grid grid-cols-4 gap-1.5 lg:grid-cols-1 lg:gap-1",
+  item: "flex min-w-0 flex-col gap-1.5 lg:block",
+  joined: "",
+  line: "",
+  bar: "lg:hidden",
+  step: "hidden w-full items-center lg:flex",
+  label: "hidden lg:inline",
+  srLabel: "sr-only lg:hidden",
+  where: "lg:hidden",
+} as const;
 
 /** The first run's cards are the console's one choice card. */
 export { ChoiceCard } from "@/components/console/choiceCards";

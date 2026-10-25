@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { ArrowRight, Check, Link2, PencilLine, PhoneCall } from "lucide-react";
+import { ArrowRight, Check, FileText, Link2, PencilLine, PhoneCall } from "lucide-react";
 
 import type { CallAudioPlayerHandle } from "@/components/callAudioPlayer";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
-import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton, formatDuration } from "@/components/ui";
+import { Disclosure, PRIMARY_BUTTON, ProblemNotice, Skeleton, formatDuration } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import type { CallSummary } from "@/lib/api/client";
 import type { FirstRun } from "@/lib/api/firstRun";
@@ -37,9 +37,12 @@ const NOT_CONNECTED: Record<string, string> = {
 /**
  * AFTER THE CALL (D-855): the reward, then the next step.
  *
- * "That was {name}'s first call", version one, with what it caught (the business's own
- * labels, values as the call page words them), the summary, the recording and the transcript
- * in place. Then Call again, Change its script, or move on to make it yours.
+ * One column read top to bottom (founder, 25 Oct 2026: the two-column version was "so messy"
+ * for a new owner): how long it lasted, the summary, what it caught (the business's own
+ * labels, values as the call page words them), the recording, the conversation behind a
+ * disclosure, then a quiet way to change it. The step's one action is "Make it yours", with
+ * "Call me again" beside it; the bar closes the column on a wide screen rather than sticking
+ * over the details being read.
  */
 export function ResultStep({
   agent,
@@ -77,17 +80,12 @@ export function ResultStep({
     );
   }
 
+  const transcript = <TestCallTranscript agentId={agent.id} placedAt={placedAt} />;
+
   return (
     <StepScreen
       title={`That was ${agent.name}'s first call`}
-      hint={
-        <span className="inline-flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-meta font-medium text-brand-strong">
-            Version one
-          </span>
-          <span>It lasted {formatDuration(call.duration_s)}. Here is what it caught.</span>
-        </span>
-      }
+      hint={`It lasted ${formatDuration(call.duration_s)}. Here is what it heard.`}
       primary={
         <>
           Make it yours
@@ -96,17 +94,12 @@ export function ResultStep({
       }
       onSubmit={onNext}
       aside={
-        <span className="flex flex-wrap items-center justify-center gap-x-5">
-          <button type="button" className={TEXT_ACTION} onClick={onCallAgain}>
-            <PhoneCall aria-hidden className="h-4 w-4" />
-            Call me again
-          </button>
-          <Link href={scriptHref} className={TEXT_ACTION}>
-            <PencilLine aria-hidden className="h-4 w-4" />
-            Change its script
-          </Link>
-        </span>
+        <button type="button" className={TEXT_ACTION} onClick={onCallAgain}>
+          <PhoneCall aria-hidden className="h-4 w-4" />
+          Call me again
+        </button>
       }
+      barAtEnd
     >
       {detail.isPending ? (
         <Skeleton rows={4} label="Reading your call" />
@@ -119,7 +112,7 @@ export function ResultStep({
               <h3 id="first-call-summary" className="text-heading text-ink">
                 In short
               </h3>
-              <p className="mt-1 text-body text-ink">{detail.data.summary}</p>
+              <p className="mt-1 max-w-prose text-body text-ink">{detail.data.summary}</p>
             </section>
           ) : detail.data.summary_state === "pending" ? (
             <p role="status" className="text-meta text-ink-muted">
@@ -131,10 +124,24 @@ export function ResultStep({
           {detail.data.has_recording ? (
             <Recording callId={call.id} durationS={detail.data.duration_s ?? null} moments={detail.data.moments} />
           ) : null}
-          <ImproveIt callHref={href(`/c/${session.orgSlug}/calls/${call.id}`)} />
+          {(detail.data.transcript ?? []).length > 0 ? (
+            // The summary and the details above are what an owner needs now; the word-for-word
+            // read is there for whoever wants it.
+            <Disclosure
+              variant="inline"
+              headingLevel={3}
+              title="Read the whole conversation"
+              subtitle="Word for word, with personal details hidden."
+              className="border-t"
+            >
+              {transcript}
+            </Disclosure>
+          ) : (
+            transcript
+          )}
+          <ChangeIt scriptHref={scriptHref} callHref={href(`/c/${session.orgSlug}/calls/${call.id}`)} />
         </>
       )}
-      <TestCallTranscript agentId={agent.id} placedAt={placedAt} />
     </StepScreen>
   );
 }
@@ -165,22 +172,31 @@ function Recording({
 }
 
 /**
- * The one improvement this screen offers. A suggested fix needs the call read against the
- * script as a practice test (D-844), which is a run of its own, so it is offered as the next
- * step on the call's page rather than invented here.
+ * The quiet way to change it, after the reward and before the next step: the script, or this
+ * call kept as a practice test. A suggested fix needs the call read against the script as a
+ * practice test (D-844), which is a run of its own, so it is offered on the call's page
+ * rather than invented here. Plain links, not buttons: "Make it yours" is the one action.
  */
-function ImproveIt({ callHref }: { callHref: string }) {
+function ChangeIt({ scriptHref, callHref }: { scriptHref: string; callHref: string }) {
   return (
-    <section aria-labelledby="first-call-improve" className="rounded-card border border-line p-4">
-      <h3 id="first-call-improve" className="text-heading text-ink">
-        Make version two better
+    <section aria-labelledby="first-call-change" className="pt-2">
+      <h3 id="first-call-change" className="text-heading text-ink">
+        Want it to say something different?
       </h3>
-      <p className="mt-1 text-meta text-ink-muted">
-        Save this call as a practice test on its page, so each new version of the script is tried against it.
+      <p className="mt-1 max-w-prose text-meta text-ink-muted">
+        Change its script any time. Open this call to save it as a practice test, and each new version is
+        tried against it.
       </p>
-      <Link href={callHref} className={`${SECONDARY_BUTTON} mt-3`}>
-        Open the call
-      </Link>
+      <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1">
+        <Link href={scriptHref} className={TEXT_ACTION}>
+          <PencilLine aria-hidden className="h-4 w-4" />
+          Change its script
+        </Link>
+        <Link href={callHref} className={TEXT_ACTION}>
+          <FileText aria-hidden className="h-4 w-4" />
+          Open this call
+        </Link>
+      </div>
     </section>
   );
 }
@@ -223,7 +239,7 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
   return (
     <StepScreen
       title={`${agent.name} is on your team`}
-      hint="Version one is done. Here is what is next."
+      hint="Here is what is next."
       onBack={onBack}
     >
       <ul className="space-y-2">

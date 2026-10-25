@@ -66,8 +66,8 @@ export function AgentTakingShape({
     <div className="flex min-w-0 items-center gap-3">
       <Monogram name={title} />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-heading text-ink">{title ?? <span className="text-ink-faint">Your agent</span>}</p>
-        <p className="truncate text-meta text-ink-muted">
+        <p className="break-words text-heading text-ink">{title ?? <span className="text-ink-faint">Your agent</span>}</p>
+        <p className="text-pretty break-words text-meta text-ink-muted">
           {subtitle ?? "Its job appears here first"}
           {language ? ` · ${languageLabel(language)}` : ""}
         </p>
@@ -219,7 +219,7 @@ function VoiceLine({ agent, note }: { agent: Agent | null; note: string | null }
   return (
     <div className="space-y-1">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <p className="min-w-0 truncate text-body text-ink">
+        <p className="min-w-0 break-words text-body text-ink">
           {label}
           {voice ? <span className="text-ink-muted"> · {voice.rung === "studio" ? "Studio" : "Clear"}</span> : null}
         </p>
@@ -273,7 +273,7 @@ function NotesLine({ agent }: { agent: Agent | null }) {
         {agent.extraction_fields.map((field) => (
           <li
             key={field.key}
-            className="max-w-full truncate rounded-full border border-line px-2.5 py-0.5 text-meta text-ink-muted"
+            className="max-w-full break-words rounded-full border border-line px-2.5 py-0.5 text-meta text-ink-muted"
           >
             {field.label}
           </li>

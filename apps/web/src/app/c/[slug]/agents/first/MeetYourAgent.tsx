@@ -229,20 +229,28 @@ export function MeetYourAgent({ slug }: { slug: string }) {
         </ActionButton>
       </div>
 
-      {/* Two columns from `lg`: the step, as wide as its cards need, and the agent taking
-          shape beside it. The rail sits above both, so the step is not squeezed by it. */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,20rem)] lg:gap-8 xl:gap-12">
-        <div className="min-w-0 lg:hidden">{card(true)}</div>
+      {/* Two columns from `lg` while the agent is being made: the step, as wide as its cards
+          need, and the agent taking shape beside it. Once it is made (its first call and
+          after) the card only restates steps 1 and 2 and competes with the call being read,
+          so the step stands alone. The rail sits above both, so the step is not squeezed. */}
+      {stage === "result" || stage === "team" ? (
         <section className="min-w-0 max-w-2xl" aria-label="This step">
           {body}
         </section>
-        <aside className="hidden min-w-0 lg:block" aria-label="Your agent as it takes shape">
-          <div className="space-y-3 lg:sticky lg:top-4">
-            <Meter pieces={pieces} loaded={loaded} />
-            {card(false)}
-          </div>
-        </aside>
-      </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,20rem)] lg:gap-8 xl:gap-12">
+          <div className="min-w-0 lg:hidden">{card(true)}</div>
+          <section className="min-w-0 max-w-2xl" aria-label="This step">
+            {body}
+          </section>
+          <aside className="hidden min-w-0 lg:block" aria-label="Your agent as it takes shape">
+            <div className="space-y-3 lg:sticky lg:top-4">
+              <Meter pieces={pieces} loaded={loaded} />
+              {card(false)}
+            </div>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

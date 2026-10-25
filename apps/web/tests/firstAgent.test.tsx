@@ -535,6 +535,77 @@ describe("meet your agent", () => {
     });
   });
 
+  it("reads the first call back in one column, with one next step", async () => {
+    const CALL_ID = "0192f3a4-0000-7000-8000-00000000c001";
+    const startedAt = new Date(Date.now() - 60_000).toISOString();
+    const summary = {
+      id: CALL_ID,
+      agent_id: AGENT_ID,
+      agent_name: "Anjali",
+      direction: "outbound",
+      status: "completed",
+      caller_e164: null,
+      started_at: startedAt,
+      duration_s: 72,
+      outcome_tag: null,
+      summary_state: "ready",
+      test_call: true,
+      sentiment: null,
+      summary: "Suresh wants a 3 BHK in Kondapur.",
+      lead_id: null,
+    };
+    const detail = {
+      ...summary,
+      caller_id_hidden: false,
+      forwarding_test: false,
+      forwarded_to_phone: false,
+      not_placed_reason: null,
+      translation_state: "not_needed",
+      language: "te-IN",
+      extraction: {},
+      captured: [
+        { key: "bhk", label: "BHK", type: "text", core: false, current: true, value: "3" },
+        { key: "budget", label: "Budget (lakhs)", type: "number", core: false, current: true, value: 120 },
+      ],
+      extraction_valid: true,
+      extraction_needs_review: {},
+      has_recording: false,
+      disclosure_played: true,
+      moments: [],
+      quality: null,
+      signals: [],
+      transcript: [
+        { idx: 0, speaker: "agent", start_approximate: false, likely_cut_off: false, text: "Namaskaram.", redacted: true },
+      ],
+    };
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built(),
+        "/v1/agents": [agent({ published: true })],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [summary],
+        [`/v1/calls/${CALL_ID}`]: detail,
+      }),
+    );
+    expect(await screen.findByRole("heading", { name: "That was Anjali's first call" })).toBeTruthy();
+    expect(screen.getByText("It lasted 1:12. Here is what it heard.")).toBeTruthy();
+    expect(await screen.findByText("Suresh wants a 3 BHK in Kondapur.")).toBeTruthy();
+    expect(screen.getByText("120")).toBeTruthy();
+    // The card beside the steps and its counter restate steps 1 and 2; they are gone here.
+    expect(screen.queryByRole("complementary", { name: "Your agent as it takes shape" })).toBeNull();
+    expect(screen.queryByText(/of 9 ready/)).toBeNull();
+    expect(screen.queryByText("Version one")).toBeNull();
+    // One primary action; the rest are quiet links.
+    expect(screen.getByRole("button", { name: /Make it yours/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Call me again/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Change its script/ }).getAttribute("href")).toContain(
+      `/agents/${AGENT_ID}?section=script`,
+    );
+    // The conversation is there, folded.
+    expect(screen.getByRole("heading", { name: "Read the whole conversation" })).toBeTruthy();
+    expect(screen.getByText("Step 3 of 4 ·", { exact: false })).toBeTruthy();
+  });
+
   it("refuses a member who may not build agents, in the console's own words", async () => {
     await renderClientPage(page, routes({ "/v1/me": { ...OWNER_ME, role: "staff", permissions: ["agents:read"] } }));
     expect(await screen.findByText(/build an agent/)).toBeTruthy();
