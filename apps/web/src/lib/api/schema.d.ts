@@ -17287,6 +17287,8 @@ export interface components {
          *     screens publish. `total_inr` is computed once here so no screen adds strings together.
          */
         CostBreakdownOut: {
+            /** Absorbed Other Inr */
+            absorbed_other_inr: string;
             /** Assistant Inr */
             assistant_inr: string;
             /** Assistant Requests */

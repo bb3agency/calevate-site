@@ -29,6 +29,11 @@ export function CostBreakdownList({ breakdown }: { breakdown: CostBreakdown }) {
       detail: formatCountOf(breakdown.calls, "call"),
     },
     { label: "Phone number rental", value: breakdown.other_inr, detail: null },
+    {
+      label: "Forwarding checks, WhatsApp and voice notes",
+      value: breakdown.absorbed_other_inr,
+      detail: null,
+    },
   ];
   return (
     <dl className="divide-y divide-line">
@@ -75,5 +80,10 @@ export function costBreakdownFacts(
       value: `${breakdown.calls_inr} across ${formatCountOf(breakdown.calls, "call")}`,
     },
     { key: `${prefix}_rental`, label: `Phone number rental, ${scope} (₹)`, value: breakdown.other_inr },
+    {
+      key: `${prefix}_absorbed_other`,
+      label: `Forwarding checks, WhatsApp messages and voice notes we absorb, ${scope} (₹)`,
+      value: breakdown.absorbed_other_inr,
+    },
   ];
 }

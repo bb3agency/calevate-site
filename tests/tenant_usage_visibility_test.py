@@ -187,5 +187,50 @@ def test_the_breakdown_lines_add_up_to_the_total_printed_under_them() -> None:
     )
 
     assert out.total_inr == "1.09"
-    parts = (out.calls_inr, out.other_inr, out.assistant_inr, out.knowledge_inr)
+    parts = (
+        out.calls_inr,
+        out.other_inr,
+        out.assistant_inr,
+        out.knowledge_inr,
+        out.absorbed_other_inr,
+    )
     assert sum((Decimal(p) for p in parts), Decimal("0")) == Decimal(out.total_inr)
+
+
+async def test_forwarding_checks_whatsapp_and_voice_notes_are_in_the_all_in_cost() -> None:
+    """Absorbed units that are not dashboard AI were excluded from the call cost by
+    `_NOT_AI_UNITS` and from the AI reader by its unit list, so the "all in" figure left
+    them out entirely."""
+    tenant_id, expected = await _trial_client_with_prod_rows()
+    async with tenant_session(tenant_id) as session:
+        for unit, qty, price in (
+            ("whatsapp_msg", Decimal("1"), Decimal("0.8500")),
+            ("ai_stt_min", Decimal("0.5000"), Decimal("0.5000")),
+        ):
+            await session.execute(
+                text(
+                    "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, "
+                    "unit_cost_paid, ref, occurred_at, meta, created_at) VALUES (:id, :tid, "
+                    "NULL, :unit, :qty, :price, :ref, now(), CAST(:meta AS jsonb), now())"
+                ),
+                {
+                    "id": uuid7(),
+                    "tid": tenant_id,
+                    "unit": unit,
+                    "qty": qty,
+                    "price": price,
+                    "ref": f"test:{uuid7()}",
+                    "meta": "{}",
+                },
+            )
+    token = await _admin_token()
+    async with _client() as http:
+        spend = await http.get(
+            f"/v1/admin/tenants/{tenant_id}/spend", headers={"Authorization": f"Bearer {token}"}
+        )
+    assert spend.status_code == 200, spend.text
+    month = spend.json()["cost_all_in"]
+
+    assert month["absorbed_other_inr"] == "1.10"
+    assert Decimal(month["total_inr"]) == (expected + Decimal("1.10")).quantize(Decimal("0.01"))
+    assert month["calls"] == 0 and month["other_inr"] == "0.00"

@@ -13,6 +13,8 @@ The split is a partition of `total_inr`:
 - calls: non-AI rows with a `call_id`, priced by `billing/service._ROW_COST_SQL`, the same
   expression `margin_for_tenant` uses, so `calls_inr + other_inr` is the margin's cost;
 - other: non-AI rows with no call (today only `number_rental`);
+- absorbed other: the absorbed units that are not dashboard AI (forwarding checks, WhatsApp
+  messages, the console's speech-to-text; `ABSORBED_OTHER_UNIT_TYPES`);
 - AI: `billing/ai_quota.read_ai_usage_between` with the free and absorbed features
   included, the same reader the allowance and the fleet board use. Its knowledge part
   (`kb_used_inr`) is a component of `ai.used_inr`, never added to it.
@@ -35,17 +37,34 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import AiUsage, read_ai_usage_between
+from apps.api.billing.models import AI_ASSIST_UNIT_TYPES, PLATFORM_ABSORBED_UNIT_TYPES
 from apps.api.billing.plans import ist_month_window
 from apps.api.billing.service import _NOT_AI_UNITS, _ROW_COST_SQL, allocate_paise, to_paise
 
+#: The absorbed units that are not dashboard AI: the console's speech-to-text, the calls we
+#: place to check a client's forwarding and the WhatsApp messages we send for them (D-746).
+#: Excluded from the call cost by `_NOT_AI_UNITS` and from `read_ai_usage_between` by its
+#: unit list, so without their own bucket they reached no admin money screen at all.
+ABSORBED_OTHER_UNIT_TYPES = tuple(
+    unit for unit in PLATFORM_ABSORBED_UNIT_TYPES if unit not in AI_ASSIST_UNIT_TYPES
+)
+
 _NON_AI_SQL = (
-    f"SELECT COALESCE(SUM({_ROW_COST_SQL}) FILTER (WHERE call_id IS NOT NULL), 0), "
-    "COUNT(DISTINCT call_id), "
-    f"COALESCE(SUM({_ROW_COST_SQL}) FILTER (WHERE call_id IS NULL), 0) "
+    f"SELECT COALESCE(SUM({_ROW_COST_SQL}) FILTER (WHERE call_id IS NOT NULL AND {_NOT_AI_UNITS}), "
+    "0), "
+    f"COUNT(DISTINCT call_id) FILTER (WHERE {_NOT_AI_UNITS}), "
+    f"COALESCE(SUM({_ROW_COST_SQL}) FILTER (WHERE call_id IS NULL AND {_NOT_AI_UNITS}), 0), "
+    # Priced `qty * unit_cost_paid` for the module docstring's reason: these are not call
+    # legs, so a zero `qty` is nothing used rather than a whole leg's cost (D-370). A
+    # forwarding check carries the id of the test call, which is why the call count above
+    # is filtered too.
+    "COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)) "
+    "FILTER (WHERE unit_type = ANY(:absorbed_units)), 0) "
     "FROM usage_events "
     # `tenant_id` in the predicate as well as in RLS, for `usage_summary`'s reason: the
     # answer depends on the argument, and RLS still fails the query closed.
-    f"WHERE tenant_id = :tid AND occurred_at >= :start AND occurred_at < :end AND {_NOT_AI_UNITS}"
+    "WHERE tenant_id = :tid AND occurred_at >= :start AND occurred_at < :end "
+    "AND unit_type <> ALL(:assist_units)"
 )
 
 
@@ -57,6 +76,9 @@ class CostBreakdown:
     calls: int
     other_inr: Decimal
     ai: AiUsage
+    #: `ABSORBED_OTHER_UNIT_TYPES`: forwarding checks, WhatsApp messages and the console's
+    #: speech-to-text.
+    absorbed_other_inr: Decimal = Decimal("0")
 
     @property
     def assistant_inr(self) -> Decimal:
@@ -70,7 +92,7 @@ class CostBreakdown:
 
     @property
     def total_inr(self) -> Decimal:
-        return self.calls_inr + self.other_inr + self.ai.used_inr
+        return self.calls_inr + self.other_inr + self.ai.used_inr + self.absorbed_other_inr
 
 
 async def read_cost_breakdown(
@@ -82,7 +104,16 @@ async def read_cost_breakdown(
     untenanted session reads zero rows.
     """
     row = (
-        await session.execute(text(_NON_AI_SQL), {"tid": tenant_id, "start": start, "end": end})
+        await session.execute(
+            text(_NON_AI_SQL),
+            {
+                "tid": tenant_id,
+                "start": start,
+                "end": end,
+                "absorbed_units": list(ABSORBED_OTHER_UNIT_TYPES),
+                "assist_units": list(AI_ASSIST_UNIT_TYPES),
+            },
+        )
     ).one()
     ai = await read_ai_usage_between(
         session, tenant_id=tenant_id, start=start, end=end, include_free=True
@@ -92,6 +123,7 @@ async def read_cost_breakdown(
         calls=int(row[1] or 0),
         other_inr=Decimal(str(row[2] or 0)),
         ai=ai,
+        absorbed_other_inr=Decimal(str(row[3] or 0)),
     )
 
 
@@ -124,19 +156,23 @@ class CostBreakdownOut(BaseModel):
     #: Preparing what the client added to their knowledge (`KB_INGESTION_FEATURES`).
     knowledge_inr: str
     knowledge_requests: int
+    #: Forwarding checks, WhatsApp messages and the console's speech-to-text: absorbed, and
+    #: not dashboard AI (`ABSORBED_OTHER_UNIT_TYPES`).
+    absorbed_other_inr: str
 
     @classmethod
     def of(cls, breakdown: CostBreakdown) -> CostBreakdownOut:
-        # The four lines are allocated against the rounded total rather than each rounded
-        # on its own: AI rows are priced per thousand tokens and carry sub-paisa digits, so
+        # The lines are allocated against the rounded total rather than each rounded on its
+        # own: AI rows are priced per thousand tokens and carry sub-paisa digits, so
         # independent rounding printed lines that did not add up to the total under them.
         total = to_paise(breakdown.total_inr)
-        calls, other, assistant, knowledge = allocate_paise(
+        calls, other, assistant, knowledge, absorbed = allocate_paise(
             [
                 breakdown.calls_inr,
                 breakdown.other_inr,
                 breakdown.assistant_inr,
                 breakdown.ai.kb_used_inr,
+                breakdown.absorbed_other_inr,
             ],
             total,
         )
@@ -149,6 +185,7 @@ class CostBreakdownOut(BaseModel):
             assistant_requests=breakdown.assistant_requests,
             knowledge_inr=str(knowledge),
             knowledge_requests=breakdown.ai.kb_requests,
+            absorbed_other_inr=str(absorbed),
         )
 
 

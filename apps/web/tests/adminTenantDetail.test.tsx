@@ -436,7 +436,7 @@ describe("the client detail screen", () => {
     // The founder's report (10 Oct 2026): a trial client whose only spend was the
     // assistant read ₹0 on the Overview while the trial panel said ₹1.08.
     const breakdown = {
-      total_inr: "1.08",
+      total_inr: "1.33",
       calls_inr: "0.00",
       calls: 0,
       other_inr: "0.00",
@@ -444,6 +444,7 @@ describe("the client detail screen", () => {
       assistant_requests: 4,
       knowledge_inr: "0.00",
       knowledge_requests: 0,
+      absorbed_other_inr: "0.25",
     };
     const spend: TenantSpend = {
       unpriced_rows: 0,
@@ -515,6 +516,9 @@ describe("the client detail screen", () => {
     expect(text).toContain("1 day left");
     expect(text).not.toContain("(s)");
     expect(text).toContain("₹1.08");
+    // Absorbed costs that are not dashboard AI have their own line, inside the total.
+    expect(text).toContain("Forwarding checks, WhatsApp and voice notes₹0.25");
+    expect(text).toContain("Total cost to us₹1.33");
   });
 
   // The view-as link moved to the tenant layout's header (D-661); its "never

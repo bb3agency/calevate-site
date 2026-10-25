@@ -15015,6 +15015,10 @@
         "additionalProperties": false,
         "description": "`CostBreakdown` on the wire, admin realm only: every figure is `unit_cost_paid`.\n\nRupees are exact strings through `to_paise`, like every other rupee the admin money\nscreens publish. `total_inr` is computed once here so no screen adds strings together.",
         "properties": {
+          "absorbed_other_inr": {
+            "title": "Absorbed Other Inr",
+            "type": "string"
+          },
           "assistant_inr": {
             "title": "Assistant Inr",
             "type": "string"
@@ -15056,7 +15060,8 @@
           "assistant_inr",
           "assistant_requests",
           "knowledge_inr",
-          "knowledge_requests"
+          "knowledge_requests",
+          "absorbed_other_inr"
         ],
         "title": "CostBreakdownOut",
         "type": "object"
