@@ -220,6 +220,32 @@ async def test_the_fan_out_skips_a_managed_client_whose_rates_are_negotiated() -
     assert await _promises(managed) == []
 
 
+async def test_managed_accounts_do_not_use_up_the_fan_out_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The budget bounds the clients TOLD, so it must count only those: filtered after the
+    LIMIT, every managed account ahead of a prepaid one (by id) cost that client a place."""
+    from apps.api.billing.rates import PREPAID_TIERS
+    from apps.api.db.session import admin_session
+
+    await _tenant("managed")
+    prepaid = await _tenant("self_serve")
+    async with admin_session() as directory:
+        ahead = (
+            await directory.execute(
+                text(
+                    "SELECT count(*) FROM organizations WHERE billing_email IS NOT NULL "
+                    "AND billing_email <> '' AND deleted_at IS NULL "
+                    "AND plan_tier = ANY(CAST(:tiers AS text[])) AND id <= :me"
+                ),
+                {"tiers": list(PREPAID_TIERS), "me": prepaid},
+            )
+        ).scalar_one()
+    monkeypatch.setattr(rate_card_notice, "FANOUT_BUDGET", int(ahead))
+    await fan_out_rate_card_notice({}, {"effective_from": CARD_AT.isoformat()})
+    assert await _promises(prepaid) == [f"rate-card-notice:{CARD_AT.isoformat()}:{prepaid}"]
+
+
 async def test_running_the_fan_out_twice_promises_nothing_a_second_time() -> None:
     """At-least-once delivery meets a unique index: a parent retried after enqueuing half
     the book converges on exactly one notice each."""

@@ -102,12 +102,15 @@ PREHEADER: Final = "Credit you have already bought is not affected."
 
 _IST_TZ = ZoneInfo(IST_ZONE)
 
-#: Every tenant that has a wallet, with the address of record. Ordered by id so a budget
-#: that truncates truncates the same way twice and an operator comparing two ticks is
-#: comparing the same list.
+#: Every live tenant that has a wallet, with the address of record. Ordered by id so a
+#: budget that truncates truncates the same way twice and an operator comparing two ticks
+#: is comparing the same list. The wallet filter is in SQL, ahead of the LIMIT: filtered
+#: after it, managed accounts used up the budget and the prepaid clients past it were
+#: never told.
 _WALLET_TENANTS = (
-    "SELECT id, plan_tier FROM organizations "
-    "WHERE billing_email IS NOT NULL AND billing_email <> '' "
+    "SELECT id FROM organizations "
+    "WHERE billing_email IS NOT NULL AND billing_email <> '' AND deleted_at IS NULL "
+    "AND plan_tier = ANY(CAST(:tiers AS text[])) "
     "ORDER BY id LIMIT :limit"
 )
 
@@ -215,9 +218,15 @@ async def fan_out_rate_card_notice(ctx: dict[str, Any], payload: dict[str, Any])
     # PARENT rather than on every one of its children, an hour of retries later.
     _aware(str(payload["effective_from"]))
     async with admin_session() as directory:
-        rows = (await directory.execute(text(_WALLET_TENANTS), {"limit": FANOUT_BUDGET})).all()
-    prepaid = [UUID(str(row[0])) for row in rows if str(row[1]) in PREPAID_TIERS]
-    if len(rows) == FANOUT_BUDGET:
+        rows = (
+            await directory.execute(
+                text(_WALLET_TENANTS),
+                # One past the budget, so exactly `FANOUT_BUDGET` clients is not a truncation.
+                {"limit": FANOUT_BUDGET + 1, "tiers": list(PREPAID_TIERS)},
+            )
+        ).all()
+    prepaid = [UUID(str(row[0])) for row in rows[:FANOUT_BUDGET]]
+    if len(rows) > FANOUT_BUDGET:
         # NOT a silent truncation. The notice is a commitment with a date on it; a client
         # missed from it is the exact failure this module exists to prevent, so the budget
         # being reached is something an operator is told about rather than something they
