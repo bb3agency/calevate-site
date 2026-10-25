@@ -27,7 +27,11 @@ from arq import Retry
 from calevate_shared.backoff import jittered_delay_s
 from sqlalchemy import text
 
-from apps.api.compliance.kyc_documents import OWNER_ID_MAX_HOLD, mark_purged
+from apps.api.compliance.kyc_documents import (
+    OWNER_ID_MAX_HOLD,
+    mark_purged,
+    record_purge_failure,
+)
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
@@ -42,11 +46,21 @@ PURGE_MINUTE: Final = frozenset({17})
 #: following nights rather than holding one tick open.
 BATCH: Final = 500
 
+#: Failed deletes after which a file is named in `kyc_purge_stuck`: more than one night's
+#: whole retry ladder (`WORKER_MAX_TRIES` passes), so a single bad night does not name it.
+STUCK_AFTER_FAILURES: Final = WORKER_MAX_TRIES + 1
+#: How many stuck files the alarm names; the rest are counted.
+STUCK_NAMED: Final = 20
+
+# Files that have never failed come first, then the least recently failed: ordered by the
+# due date alone, BATCH files whose delete fails every night would be the whole batch for
+# ever and nothing behind them would be deleted.
 _DUE_SQL: Final = (
     "SELECT id, tenant_id, object_key FROM kyc_documents "
     "WHERE purged_at IS NULL AND (delete_requested_at IS NOT NULL "
     "  OR (slot = 'owner_id' AND created_at < now() - :hold)) "
-    "ORDER BY COALESCE(delete_requested_at, created_at) LIMIT :batch"
+    "ORDER BY purge_failed_at ASC NULLS FIRST, COALESCE(delete_requested_at, created_at), id "
+    "LIMIT :batch"
 )
 
 
@@ -57,26 +71,52 @@ class KycPurgeIncompleteError(RuntimeError):
 async def purge_due_kyc_documents() -> int:
     """One pass. Returns how many files were deleted.
 
-    One file's failure does not stop the pass; the pass then raises
+    One file's failure does not stop the pass: it is counted on the row, which moves it
+    behind the files that have not failed, and the pass then raises
     `KycPurgeIncompleteError` so the job retries and, on give-up, alarms."""
     async with untenanted_session() as session:
         rows = (
             await session.execute(text(_DUE_SQL), {"hold": OWNER_ID_MAX_HOLD, "batch": BATCH})
         ).all()
     purged = failed = 0
+    stuck: list[str] = []
     for document_id, tenant_id, object_key in rows:
         try:
             await storage.delete_objects([str(object_key)])
-        except storage.StorageUnavailableError:
-            log.warning("kyc_document_purge_item_failed", extra={"document_id": str(document_id)})
+        except Exception as exc:
+            log.warning(
+                "kyc_document_purge_item_failed",
+                extra={"document_id": str(document_id), "reason": exc.__class__.__name__},
+            )
             failed += 1
+            async with tenant_session(UUID(str(tenant_id))) as scoped:
+                failures = await record_purge_failure(scoped, document_id=document_id)
+            if failures >= STUCK_AFTER_FAILURES:
+                stuck.append(str(document_id))
             continue
         async with tenant_session(UUID(str(tenant_id))) as scoped:
             if await mark_purged(scoped, document_id=document_id):
                 purged += 1
+    if stuck:
+        _alarm_stuck(stuck)
     if failed:
         raise KycPurgeIncompleteError(f"{failed} of {len(rows)} due KYC file(s) not deleted")
     return purged
+
+
+def _alarm_stuck(document_ids: list[str]) -> None:
+    named = ", ".join(document_ids[:STUCK_NAMED])
+    more = f" and {len(document_ids) - STUCK_NAMED} more" if len(document_ids) > STUCK_NAMED else ""
+    alert(
+        "WORKER_TERMINAL",
+        "kyc_purge_stuck",
+        detail=(
+            f"{len(document_ids)} KYC file(s) have failed to delete on "
+            f"{STUCK_AFTER_FAILURES} or more attempts: kyc_documents {named}{more}. Files "
+            "behind them are still being deleted; these are held past their stated life "
+            "until whatever refuses their delete is fixed."
+        ),
+    )
 
 
 async def sweep_abandoned_owner_ids(ctx: dict[str, Any]) -> str:
@@ -111,6 +151,7 @@ __all__ = [
     "BATCH",
     "PURGE_HOUR",
     "PURGE_MINUTE",
+    "STUCK_AFTER_FAILURES",
     "KycPurgeIncompleteError",
     "purge_due_kyc_documents",
     "sweep_abandoned_owner_ids",

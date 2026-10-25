@@ -1260,6 +1260,129 @@ async def test_a_replaced_upload_whose_delete_failed_is_retried_by_the_sweep(
     assert len([k for k in s3.objects if f"/{tenant_id}/" in k]) == 1, "the current file stays"
 
 
+async def _failing_and_due_owner_ids(
+    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> tuple[UUID, UUID, UUID]:
+    """Two due owner-ID rows: a replaced one whose delete storage refuses every time, due
+    first, and the current one, due right behind it. The purge sees only these two, one per
+    pass. Returns (tenant, failing document, due document)."""
+    from apps.workers import kyc_owner_id_purge, storage
+
+    org = await _tenant()
+    tenant_id = UUID(str(org["id"]))
+    headers = await _headers(org)
+
+    async def refuse(keys: Any) -> int:
+        raise storage.StorageUnavailableError("down")
+
+    async with _client() as http:
+        for name in ("pan.png", "pan-new.png"):
+            if name == "pan-new.png":
+                monkeypatch.setattr(storage, "delete_objects", refuse)
+            uploaded = await http.post(
+                f"{KYC}/documents",
+                headers=headers,
+                data={"slot": "owner_id", "kind": "pan_card"},
+                files={"file": (name, PNG_BYTES, "image/png")},
+            )
+            assert uploaded.status_code == 201, uploaded.text
+    async with tenant_session(tenant_id) as session:
+        # The replaced file falls due first, so by due date alone it heads the batch.
+        await session.execute(
+            text(
+                "UPDATE kyc_documents SET "
+                "  delete_requested_at = CASE WHEN superseded_at IS NOT NULL "
+                "    THEN now() - interval '3650 days' END, "
+                "  created_at = CASE WHEN superseded_at IS NULL "
+                "    THEN now() - interval '3649 days' ELSE created_at END "
+                "WHERE tenant_id = :t"
+            ),
+            {"t": tenant_id},
+        )
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT id, object_key, superseded_at IS NOT NULL FROM kyc_documents "
+                    "WHERE tenant_id = :t"
+                ),
+                {"t": tenant_id},
+            )
+        ).all()
+    failing = next(row for row in rows if row[2])
+    due = next(row for row in rows if not row[2])
+
+    monkeypatch.undo()
+    monkeypatch.setattr(storage, "_client", lambda: s3)
+    real_delete = storage.delete_objects
+
+    async def refuse_one(keys: Any) -> int:
+        if str(failing[1]) in keys:
+            raise storage.StorageUnavailableError("this object is refused every time")
+        return await real_delete(keys)
+
+    monkeypatch.setattr(storage, "delete_objects", refuse_one)
+    # Only this tenant's rows, so files other tests leave due cannot take the batch; the
+    # ORDER BY under test is untouched.
+    monkeypatch.setattr(
+        kyc_owner_id_purge,
+        "_DUE_SQL",
+        kyc_owner_id_purge._DUE_SQL.replace("WHERE ", f"WHERE tenant_id = '{tenant_id}' AND ", 1),
+    )
+    monkeypatch.setattr(kyc_owner_id_purge, "BATCH", 1)
+    return tenant_id, UUID(str(failing[0])), UUID(str(due[0]))
+
+
+async def _purged(tenant_id: UUID, document_id: UUID) -> bool:
+    async with tenant_session(tenant_id) as session:
+        purged = (
+            await session.execute(
+                text("SELECT purged_at IS NOT NULL FROM kyc_documents WHERE id = :id"),
+                {"id": document_id},
+            )
+        ).scalar_one()
+    return bool(purged)
+
+
+async def test_a_file_whose_delete_keeps_failing_does_not_block_the_file_behind_it(
+    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A batch of one: by due date alone the failing file would be the whole batch every
+    night and the file behind it would never be deleted."""
+    tenant_id, failing, due = await _failing_and_due_owner_ids(s3, monkeypatch)
+
+    with pytest.raises(KycPurgeIncompleteError):
+        await purge_due_kyc_documents()
+    assert await purge_due_kyc_documents() == 1
+
+    assert await _purged(tenant_id, due)
+    assert not await _purged(tenant_id, failing)
+
+
+async def test_a_file_that_failed_more_than_a_nights_ladder_is_named_in_an_alarm(
+    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apps.workers import kyc_owner_id_purge
+
+    tenant_id, failing, _due = await _failing_and_due_owner_ids(s3, monkeypatch)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE kyc_documents SET purge_failures = :n WHERE id = :id"),
+            {"id": failing, "n": kyc_owner_id_purge.STUCK_AFTER_FAILURES - 1},
+        )
+    alarms: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        kyc_owner_id_purge,
+        "alert",
+        lambda _s, code, *, detail, **_kw: alarms.append((code, detail)),
+    )
+
+    with pytest.raises(KycPurgeIncompleteError):
+        await purge_due_kyc_documents()
+
+    assert [code for code, _ in alarms] == ["kyc_purge_stuck"]
+    assert str(failing) in alarms[0][1]
+
+
 async def test_an_upload_whose_row_cannot_be_written_takes_its_object_down(
     s3: FakeS3, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -383,6 +383,22 @@ async def mark_purged(session: AsyncSession, *, document_id: UUID) -> bool:
     return rowcount_of(result) == 1
 
 
+async def record_purge_failure(session: AsyncSession, *, document_id: UUID) -> int:
+    """Count a failed delete of a document's bytes; return its failures so far (0 if the
+    row is gone or already purged)."""
+    row = (
+        await session.execute(
+            text(
+                "UPDATE kyc_documents SET purge_failures = purge_failures + 1, "
+                "  purge_failed_at = now() "
+                "WHERE id = :id AND purged_at IS NULL RETURNING purge_failures"
+            ),
+            {"id": document_id},
+        )
+    ).first()
+    return int(row[0]) if row is not None else 0
+
+
 async def request_owner_id_deletion(
     session: AsyncSession, *, tenant_id: UUID
 ) -> PendingDeletion | None:
@@ -447,6 +463,7 @@ __all__ = [
     "new_document_id",
     "open_document",
     "record_document",
+    "record_purge_failure",
     "request_owner_id_deletion",
     "seal_document",
 ]
