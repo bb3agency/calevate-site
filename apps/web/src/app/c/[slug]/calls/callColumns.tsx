@@ -9,29 +9,83 @@ import { HoverCard } from "@/components/arc/hover-card";
 import { formatDuration, formatINR, formatIST, formatPhone } from "@/components/ui";
 import type { DataColumn } from "@/components/console/dataTable";
 import { LIVE_STATUS, LiveDot } from "@/components/console/liveCalls";
+import { NOTICE_DOT } from "@/components/console/statusPill";
 import type { CallSummary } from "@/lib/api/client";
-import { callResultWords, callRowLine, callTitle, callbackOverdue, needsAttention } from "@/lib/callReview";
+import { type OutcomeKind, callOutcome, callRowLine, callTitle, callbackOverdue } from "@/lib/callReview";
 
 export function isLive(call: Pick<CallSummary, "status">): boolean {
   return call.status === LIVE_STATUS;
 }
 
 /**
- * How a call ended, as words. Plain ink for everything except the two things that ask
- * the owner to act — "Needs you" and a call back that is late — which take the warning
- * tone. No pill: in a list of calls the words are the fact, and a coloured chip on every
- * row would make every row shout.
+ * The mark for each kind of ending, from the kit's status dots so "good" and "stopped" read
+ * the same here as on every other state in the console. Calls add one kind the kit has no
+ * tone for, a follow-up that is arranged, and it takes the charts' blue (`--series-2`)
+ * because brand green already means a likely lead.
+ */
+export const OUTCOME_DOT: Record<OutcomeKind, string> = {
+  lead: NOTICE_DOT.ok,
+  follow_up: "bg-series-2",
+  neutral: NOTICE_DOT.neutral,
+  caution: NOTICE_DOT.warn,
+  failed: NOTICE_DOT.stop,
+};
+
+type OutcomeCall = Pick<
+  CallSummary,
+  "status" | "outcome_tag" | "summary_state" | "business_outcome" | "business_outcome_label" | "business_outcome_lead_status"
+>;
+
+/** The kind-of-ending dot alone, for a line that already says the outcome in words. */
+export function OutcomeDot({ kind }: { kind: OutcomeKind }) {
+  return <span aria-hidden data-kind={kind} className={`size-1.5 shrink-0 rounded-full ${OUTCOME_DOT[kind]}`} />;
+}
+
+/**
+ * How a call ended: a small dot for the kind of ending (`callOutcome`) and the words. The
+ * words are the fact and the dot is a mark beside them, so a scan down the list finds the
+ * likely leads by colour while every row still reads without it.
+ *
+ * A dot rather than a filled pill per row: forty tinted capsules make every row equally
+ * loud and read as buttons (the reason `StatusPill` dropped its capsule, D-771). The words
+ * stay in muted ink; urgency is said once, by `NeedsYouMark`, never by the outcome.
  */
 export function CallResult({
   call,
+  truncate = false,
 }: {
-  call: Pick<CallSummary, "status" | "outcome_tag" | "callback" | "summary_state" | "business_outcome_label">;
+  call: OutcomeCall;
+  /** Cut long words with an ellipsis (the phone list's narrow right column); else never wrap. */
+  truncate?: boolean;
+}) {
+  const { words, kind } = callOutcome(call);
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-meta text-ink-muted ${truncate ? "min-w-0 max-w-full" : ""}`}>
+      <OutcomeDot kind={kind} />
+      <span className={truncate ? "truncate" : "whitespace-nowrap"}>{words}</span>
+    </span>
+  );
+}
+
+/**
+ * The request for a person, said beside the outcome rather than in its place: the server's
+ * "needs you", or a booked call back that is now late. A person's own mark on the call
+ * (`FollowUpMark`) is the later word, so once someone has marked it the server's "needs
+ * you" is not repeated; a late call back is still said, because the mark does not ring
+ * anyone.
+ */
+export function NeedsYouMark({
+  call,
+}: {
+  call: Pick<CallSummary, "outcome_tag" | "callback" | "follow_up_state">;
 }) {
   const overdue = callbackOverdue(call.callback);
-  const warn = needsAttention(call);
+  const asked = call.outcome_tag === "needs_you" && !call.follow_up_state;
+  if (!overdue && !asked) return null;
   return (
-    <span className={`whitespace-nowrap text-meta ${warn ? "font-medium text-warn" : "text-ink-muted"}`}>
-      {overdue ? "Call back overdue" : callResultWords(call)}
+    <span className="inline-flex items-center gap-1 whitespace-nowrap text-meta font-medium text-warn">
+      <CircleAlert aria-hidden className="h-3.5 w-3.5 shrink-0" />
+      {overdue ? "Call back overdue" : "Needs you"}
     </span>
   );
 }
@@ -193,8 +247,9 @@ export function callColumns({
             {line.text}
           </p>
           {compact && <CapturedLine call={call} />}
-          <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-meta text-ink-faint md:hidden">
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-meta text-ink-faint md:hidden">
             <CallResult call={call} />
+            <NeedsYouMark call={call} />
             {call.follow_up_state ? (
               <>
                 <span aria-hidden>·</span>
@@ -215,11 +270,12 @@ export function callColumns({
     header: "Outcome",
     hideBelow: "md",
     flash: (call) =>
-      `${call.status}|${call.outcome_tag ?? ""}|${call.business_outcome_label ?? ""}|${call.callback?.status ?? ""}|${call.follow_up_state ?? ""}`,
-    sort: compact ? undefined : { value: (call) => callResultWords(call) },
+      `${call.status}|${call.outcome_tag ?? ""}|${call.business_outcome_label ?? ""}|${call.business_outcome_lead_status ?? ""}|${call.callback?.status ?? ""}|${call.follow_up_state ?? ""}`,
+    sort: compact ? undefined : { value: (call) => callOutcome(call).words },
     cell: (call) => (
       <span className="flex flex-col items-start gap-0.5">
         <CallResult call={call} />
+        <NeedsYouMark call={call} />
         <FollowUpMark state={call.follow_up_state} />
       </span>
     ),

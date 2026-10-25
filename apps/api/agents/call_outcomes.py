@@ -63,6 +63,23 @@ def outcomes_in_use(raw: object) -> tuple[list[BusinessOutcome], bool]:
     return own, False
 
 
+def outcome_lead_move(raw: object, key: str | None) -> LeadMove | None:
+    """How far the business outcome a call was read as moves a lead; None when it has none.
+
+    Read from the agent's list as it stands, not stored on the call: the call keeps only the
+    key and the label it was given. A key the list no longer has is looked up in
+    `STARTING_OUTCOMES`, because a call read before the agent's draft landed carries one of
+    those keys and the draft replaced the list under it. A key on neither list is None, never
+    a guess.
+    """
+    if not key:
+        return None
+    for outcome in (*outcomes_in_use(raw)[0], *STARTING_OUTCOMES):
+        if outcome.key == key:
+            return outcome.lead_status
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class OutcomeDraft:
     """One outcome as an owner sends it: `key` names one already on the agent, or None."""

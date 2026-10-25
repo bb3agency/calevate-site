@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import type { CallDetail } from "@/lib/api/client";
 import {
   businessOutcomeAside,
+  callOutcome,
   callbackLine,
   isEnglishCall,
   langAttr,
@@ -14,7 +15,7 @@ import {
   outcomeWords,
 } from "@/lib/callReview";
 
-import { isLive } from "../callColumns";
+import { OutcomeDot, isLive } from "../callColumns";
 
 import type { CallView } from "./callEnglish";
 
@@ -26,26 +27,37 @@ import type { CallView } from "./callEnglish";
  * transcript, so a phone shows the answer and the action without a scroll. The summary is
  * shown in the language the page's one switch chooses (the Conversation's); the outcome is
  * the founder's vocabulary with a one-line reason (decision 6). The warning tone is used
- * only when the call needs a person.
+ * only when the call needs a person. The call log's kind-of-ending dot sits beside
+ * whichever line here says the same words as the call's row, so a colour seen in the list
+ * is found again on the call.
  */
 export function CallVerdict({ detail, action, view }: { detail: CallDetail; action: ReactNode; view: CallView }) {
   const label = outcomeWords(detail);
   const aside = businessOutcomeAside(detail);
   const warn = needsAttention(detail);
   const heading = label ?? (isLive(detail) ? "On the line now" : detail.status === "completed" ? "Reading this call" : "No conversation");
+  const ended = callOutcome(detail);
   return (
     // The action follows the reason in the DOM, so on a phone it is above the fold and is
     // the first thing a keyboard reaches; from `sm` it is drawn after the summary and the
     // next steps it acts on, where a wide screen has room for all of them.
     <section aria-labelledby="call-verdict" className="flex flex-col gap-5">
       <div>
-        <h2 id="call-verdict" className={`text-heading ${warn ? "text-warn" : "text-ink"}`}>
+        <h2
+          id="call-verdict"
+          className={`flex items-center gap-2 text-heading ${warn ? "text-warn" : "text-ink"}`}
+        >
+          {heading === ended.words && <OutcomeDot kind={ended.kind} />}
           {heading}
         </h2>
         <p className="mt-1 max-w-prose text-body text-ink-muted [text-wrap:pretty]">{outcomeReason(detail)}</p>
         {aside && (
-          <p className="mt-1 text-meta text-ink-muted">
-            For your business: <span className="font-medium text-ink">{aside}</span>
+          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-meta text-ink-muted">
+            For your business:
+            <span className="inline-flex items-center gap-1.5 font-medium text-ink">
+              {aside === ended.words && heading !== ended.words && <OutcomeDot kind={ended.kind} />}
+              {aside}
+            </span>
           </p>
         )}
       </div>

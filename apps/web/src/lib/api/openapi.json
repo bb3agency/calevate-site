@@ -7391,6 +7391,22 @@
             ],
             "title": "Business Outcome Label"
           },
+          "business_outcome_lead_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "contacted",
+                  "interested",
+                  "hot"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Outcome Lead Status"
+          },
           "callback": {
             "anyOf": [
               {
@@ -8977,6 +8993,22 @@
               }
             ],
             "title": "Business Outcome Label"
+          },
+          "business_outcome_lead_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "contacted",
+                  "interested",
+                  "hot"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Outcome Lead Status"
           },
           "callback": {
             "anyOf": [

@@ -14212,6 +14212,8 @@ export interface components {
             business_outcome?: string | null;
             /** Business Outcome Label */
             business_outcome_label?: string | null;
+            /** Business Outcome Lead Status */
+            business_outcome_lead_status?: ("contacted" | "interested" | "hot") | null;
             callback?: components["schemas"]["CallCallbackOut"] | null;
             /** Callback Requested */
             callback_requested?: boolean | null;
@@ -14750,6 +14752,8 @@ export interface components {
             business_outcome?: string | null;
             /** Business Outcome Label */
             business_outcome_label?: string | null;
+            /** Business Outcome Lead Status */
+            business_outcome_lead_status?: ("contacted" | "interested" | "hot") | null;
             callback?: components["schemas"]["CallCallbackOut"] | null;
             /** Caller E164 */
             caller_e164?: string | null;

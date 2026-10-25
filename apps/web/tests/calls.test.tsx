@@ -296,9 +296,42 @@ describe("a call row", () => {
     const needs = screen.getAllByText("Needs you").find((el) => el.tagName === "SPAN")!;
     expect(needs.className).toContain("text-warn");
     const answered = screen.getAllByText("Answered").find((el) => el.tagName === "SPAN")!;
-    expect(answered.className).not.toContain("text-warn");
+    expect(answered.closest(".text-warn")).toBeNull();
     const late = screen.getAllByText("Call back overdue")[0];
     expect(late.className).toContain("text-warn");
+    // The late call back is said beside its outcome, not instead of it.
+    expect(screen.getAllByText("Call back booked").some((el) => el.tagName === "SPAN")).toBe(true);
+  });
+
+  it("shows the outcome AND Needs you on one row, with the outcome's coloured mark", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes([
+        call({
+          id: "c1",
+          outcome_tag: "needs_you",
+          business_outcome: "site_visit",
+          business_outcome_label: "Site visit agreed",
+          business_outcome_lead_status: "interested",
+        }),
+      ]),
+    );
+    const outcome = (await screen.findAllByText("Site visit agreed"))[0];
+    const row = outcome.closest("tr, li")!;
+    expect(row.textContent).toContain("Needs you");
+    const dot = outcome.parentElement!.querySelector('[data-kind="lead"]')!;
+    expect(dot.getAttribute("aria-hidden")).toBe("true");
+    expect(dot.className).toContain("bg-brand");
+    expect(container.querySelector('[data-kind="neutral"]')).toBeNull();
+  });
+
+  it("does not repeat Needs you once a person has marked the call", async () => {
+    await renderClientPage(
+      page,
+      routes([call({ id: "c1", outcome_tag: "needs_you", follow_up_state: "resolved" })]),
+    );
+    await screen.findAllByText("Marked done");
+    expect(screen.queryAllByText("Needs you").filter((el) => el.tagName === "SPAN")).toHaveLength(0);
   });
 });
 

@@ -24,6 +24,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
+from calevate_shared.business_outcomes import LeadMove
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from apps.api.agents.trial_panel import TrialPanelOut
@@ -114,6 +115,11 @@ class CallSummaryOut(Strict):
     #: was not read. Shown beside `outcome_tag`, which keeps precedence.
     business_outcome: str | None = None
     business_outcome_label: str | None = None
+    #: How far that outcome moves the lead (`BusinessOutcome.lead_status`), from the agent's
+    #: list as it stands now (`agents/call_outcomes.outcome_lead_move`). The call screens
+    #: colour a likely lead by it rather than by the label's words. NULL with no business
+    #: outcome or when the key is on no list.
+    business_outcome_lead_status: LeadMove | None = None
     #: A person's mark from the swipe or the ⋯ menu: `resolved` or `needs_you` (D-869,
     #: `PUT /v1/calls/{id}/follow-up`). NULL when nobody marked it.
     follow_up_state: Literal["resolved", "needs_you"] | None = None
