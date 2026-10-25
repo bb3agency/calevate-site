@@ -297,6 +297,24 @@ async def test_the_record_route_refuses_off_the_engine(monkeypatch: pytest.Monke
     assert _code(refused) == "number_provider_not_on_this_engine"
 
 
+async def test_an_unknown_client_has_no_number_list_rather_than_an_empty_one() -> None:
+    """A mistyped client id is a 404, as on the sibling reads, not an `[]` that reads as
+    "this client has no numbers", and no audited read of a client that does not exist."""
+    _admin_id, headers = await _admin()
+    missing = uuid.uuid4()
+
+    listed = await _get(f"/v1/admin/numbers/tenants/{missing}", headers)
+
+    assert listed.status_code == 404, listed.text
+    async with untenanted_session() as session:
+        trail = (
+            await session.execute(
+                text("SELECT count(*) FROM audit_log WHERE tenant_id = :t"), {"t": missing}
+            )
+        ).scalar_one()
+    assert trail == 0
+
+
 async def test_a_hand_entered_number_is_checked_against_the_platforms_list(
     vendor: FakeVendor,
 ) -> None:

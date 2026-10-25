@@ -478,6 +478,8 @@ async def tenant_numbers(
     Written LATE, in the same transaction, so the row and the read commit together.
     """
     async with tenant_session(tenant_id) as scoped:
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         rows = (await scoped.execute(text(_TENANT_NUMBERS), {"limit": limit})).all()
     await record_admin_tenant_read(
         session, request=request, principal=principal, tenant_id=tenant_id
