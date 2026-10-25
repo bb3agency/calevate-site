@@ -190,6 +190,17 @@ async def _post(path: str, body: dict[str, Any], headers: dict[str, str]) -> htt
         return await client.post(path, json=body, headers=headers)
 
 
+async def _record(
+    tenant_id: uuid.UUID, body: dict[str, Any], headers: dict[str, str]
+) -> httpx.Response:
+    """ "Record this number", confirmed: it collects a month and starts a renewal (D-731)."""
+    return await _post(
+        f"/v1/admin/numbers/tenants/{tenant_id}/engine/record",
+        body,
+        {**headers, "X-Confirm-Action": f"record_engine_number:{tenant_id}"},
+    )
+
+
 async def _get(path: str, headers: dict[str, str]) -> httpx.Response:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as client:
         return await client.get(path, headers=headers)
@@ -226,8 +237,8 @@ async def test_record_this_number_prices_it_attaches_it_and_it_renews(vendor: Fa
     listed = {n["e164"]: n for n in page.json()["numbers"]}
     assert listed[f"+{number}"]["number_id"] is None
 
-    recorded = await _post(
-        f"/v1/admin/numbers/tenants/{tenant_id}/engine/record",
+    recorded = await _record(
+        tenant_id,
         {"e164": f"+{number}", "direction": "both", "agent_id": str(agent_id)},
         headers,
     )
@@ -250,15 +261,38 @@ async def test_record_this_number_prices_it_attaches_it_and_it_renews(vendor: Fa
     assert body["number_id"] in renewing
 
 
+async def test_recording_a_console_number_takes_the_step_up_recording_by_hand_does(
+    vendor: FakeVendor,
+) -> None:
+    admin_id, headers = await _admin()
+    await _attested(admin_id)
+    tenant_id, _agent_id, _ref = await _client_with_agent()
+    number = _number()
+    vendor.hold(number)
+
+    refused = await _post(
+        f"/v1/admin/numbers/tenants/{tenant_id}/engine/record", {"e164": f"+{number}"}, headers
+    )
+
+    assert (refused.status_code, _code(refused)) == (403, "step_up_required")
+    assert vendor.patches == []
+    async with tenant_session(tenant_id) as session:
+        recorded = (
+            await session.execute(
+                text("SELECT count(*) FROM phone_numbers WHERE engine_number_ref = :n"),
+                {"n": number},
+            )
+        ).scalar_one()
+    assert recorded == 0
+
+
 async def test_a_brought_number_is_recorded_unpriced(vendor: FakeVendor) -> None:
     _admin_id, headers = await _admin()
     tenant_id, _agent_id, _ref = await _client_with_agent()
     number = _number()
     vendor.hold(number, rented=False)
 
-    recorded = await _post(
-        f"/v1/admin/numbers/tenants/{tenant_id}/engine/record", {"e164": f"+{number}"}, headers
-    )
+    recorded = await _record(tenant_id, {"e164": f"+{number}"}, headers)
 
     assert recorded.status_code == 201, recorded.text
     assert recorded.json()["client_inr_per_month"] is None
@@ -275,12 +309,8 @@ async def test_a_number_the_platform_does_not_hold_or_another_client_answers_is_
     theirs = _number()
     vendor.hold(theirs, agent=their_ref)
 
-    absent = await _post(
-        f"/v1/admin/numbers/tenants/{tenant_id}/engine/record", {"e164": f"+{_number()}"}, headers
-    )
-    taken = await _post(
-        f"/v1/admin/numbers/tenants/{tenant_id}/engine/record", {"e164": f"+{theirs}"}, headers
-    )
+    absent = await _record(tenant_id, {"e164": f"+{_number()}"}, headers)
+    taken = await _record(tenant_id, {"e164": f"+{theirs}"}, headers)
 
     assert (absent.status_code, _code(absent)) == (422, "engine_number_not_held")
     assert (taken.status_code, _code(taken)) == (409, "engine_number_answered_by_other_client")
@@ -291,9 +321,7 @@ async def test_the_record_route_refuses_off_the_engine(monkeypatch: pytest.Monke
     _admin_id, headers = await _admin()
     tenant_id, _agent_id, _ref = await _client_with_agent()
     monkeypatch.setattr(get_settings(), "engine", "fake")
-    refused = await _post(
-        f"/v1/admin/numbers/tenants/{tenant_id}/engine/record", {"e164": f"+{_number()}"}, headers
-    )
+    refused = await _record(tenant_id, {"e164": f"+{_number()}"}, headers)
     assert _code(refused) == "number_provider_not_on_this_engine"
 
 
@@ -353,11 +381,7 @@ async def test_attaching_points_the_platform_and_a_partial_apply_alarms(
     tenant_id, agent_id, ref = await _client_with_agent()
     number = _number()
     vendor.hold(number, rented=False)
-    number_id = (
-        await _post(
-            f"/v1/admin/numbers/tenants/{tenant_id}/engine/record", {"e164": f"+{number}"}, headers
-        )
-    ).json()["number_id"]
+    number_id = (await _record(tenant_id, {"e164": f"+{number}"}, headers)).json()["number_id"]
     # Somebody lent it to a stranger in the console, and the vendor will now refuse the
     # `callingAgent` half: `agent` is applied first and kept.
     vendor.numbers[number]["callingAgent"] = "ag_stranger"
@@ -397,8 +421,8 @@ async def test_an_outbound_only_agent_is_lent_the_number_and_answers_nothing(
     number = _number()
     vendor.hold(number, rented=False)
 
-    recorded = await _post(
-        f"/v1/admin/numbers/tenants/{tenant_id}/engine/record",
+    recorded = await _record(
+        tenant_id,
         {"e164": f"+{number}", "direction": "outbound", "agent_id": str(agent_id)},
         headers,
     )
@@ -459,11 +483,7 @@ async def test_an_unreachable_platform_counts_as_refused_and_alarms(
     tenant_id, agent_id, _ref = await _client_with_agent()
     number = _number()
     vendor.hold(number, rented=False)
-    number_id = (
-        await _post(
-            f"/v1/admin/numbers/tenants/{tenant_id}/engine/record", {"e164": f"+{number}"}, headers
-        )
-    ).json()["number_id"]
+    number_id = (await _record(tenant_id, {"e164": f"+{number}"}, headers)).json()["number_id"]
     del vendor.numbers[number]  # the GET now answers 404
 
     async with tenant_session(tenant_id) as session:
@@ -488,11 +508,7 @@ async def test_a_changed_attachment_brings_the_clients_live_agents_up_to_date(
     tenant_id, agent_id, _ref = await _client_with_agent()
     number = _number()
     vendor.hold(number, rented=False)
-    number_id = (
-        await _post(
-            f"/v1/admin/numbers/tenants/{tenant_id}/engine/record", {"e164": f"+{number}"}, headers
-        )
-    ).json()["number_id"]
+    number_id = (await _record(tenant_id, {"e164": f"+{number}"}, headers)).json()["number_id"]
 
     async def runs() -> list[str]:
         async with untenanted_session() as session:
@@ -541,8 +557,8 @@ async def test_the_sweep_alarms_both_ways_repairs_drift_and_adopts_nothing(
     drifted, gone, stray = _number(), _number(), _number()
     for number in (drifted, gone):
         vendor.hold(number, rented=False)
-        recorded = await _post(
-            f"/v1/admin/numbers/tenants/{tenant_id}/engine/record",
+        recorded = await _record(
+            tenant_id,
             {"e164": f"+{number}", "agent_id": str(agent_id)},
             headers,
         )

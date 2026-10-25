@@ -54969,6 +54969,22 @@
               "title": "Tenant Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
           }
         ],
         "requestBody": {

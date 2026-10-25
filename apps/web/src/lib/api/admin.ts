@@ -81,6 +81,8 @@ export const inviteMemberConfirmation = (tenantId: string) => `invite_member:${t
 export const readdressInvitationConfirmation = (tenantId: string, invitationId: string) =>
   `readdress_invitation:${tenantId}:${invitationId}`;
 export const provisionNumberConfirmation = (tenantId: string) => `provision_number:${tenantId}`;
+export const recordEngineNumberConfirmation = (tenantId: string) =>
+  `record_engine_number:${tenantId}`;
 export const recordKycConfirmation = (tenantId: string) => `record_kyc:${tenantId}`;
 export const memberRoleConfirmation = (tenantId: string, userId: string) =>
   `change_member_role:${tenantId}:${userId}`;

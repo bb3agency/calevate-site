@@ -72,6 +72,10 @@ AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 NumberOperator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
 
 
+def record_engine_number_confirmation(tenant_id: UUID) -> str:
+    return f"record_engine_number:{tenant_id}"
+
+
 class AvailableNumberOut(BaseModel):
     """One number the voice platform says it could sell us, at the price it said.
 
@@ -721,7 +725,12 @@ async def record_tenant_engine_number(
     payload: RecordEngineNumberIn,
     request: Request,
     principal: NumberOperator,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> RecordedEngineNumberOut:
+    # Step-up as recording a number by hand takes (D-731): a rented number's first month is
+    # collected here and it renews monthly.
+    step_up.require(x_confirm_action, record_engine_number_confirmation(tenant_id))
     async with tenant_session(tenant_id) as scoped:
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")

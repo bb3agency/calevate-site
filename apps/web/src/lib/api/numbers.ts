@@ -8,7 +8,12 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { adminSession, confirmedAdminRequest, releaseNumberConfirmation } from "./admin";
+import {
+  adminSession,
+  confirmedAdminRequest,
+  recordEngineNumberConfirmation,
+  releaseNumberConfirmation,
+} from "./admin";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
 
@@ -126,10 +131,10 @@ export function useRecordEngineNumber(tenantId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: RecordEngineNumber) =>
-      apiRequest<RecordedEngineNumber>(
-        adminSession(),
+      confirmedAdminRequest<RecordedEngineNumber>(
         `/v1/admin/numbers/tenants/${tenantId}/engine/record`,
-        { method: "POST", body },
+        { method: "POST", body, confirmAction: recordEngineNumberConfirmation(tenantId) },
+        "Recording this number.",
       ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["admin", "engine-numbers", tenantId] });

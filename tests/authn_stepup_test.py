@@ -530,7 +530,10 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # ONE MORE forgets our record of a number (`admin/engine_workspace_routes.py::admin_forget`,
     # `forget_number_confirmation`, bound to client and number): it stops the client's monthly
     # charge, as releasing does.
-    assert sites == 85, f"found {sites} step-up call sites, expected 85; the census went stale"
+    # ONE MORE records a number the voice platform holds for a client
+    # (`admin/number_routes.py::record_tenant_engine_number`, `record_engine_number_confirmation`,
+    # bound to the client): it collects a rented number's first month, as recording by hand does.
+    assert sites == 86, f"found {sites} step-up call sites, expected 86; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.
