@@ -366,6 +366,43 @@ async def test_the_status_page_names_the_key_mode_and_only_payment_alarms(
     assert live.unavailable_reason == payments.NO_API_SECRET_REASON
 
 
+async def test_a_storm_of_other_alarms_does_not_hide_a_payment_alarm() -> None:
+    """The page reads at most 500 episodes, open and loud first. The payment filter has to
+    run BEFORE that limit, or 500 open pages elsewhere push a cleared payment alarm off it."""
+    from apps.api.db.session import untenanted_session
+
+    storm = f"storm_{uuid.uuid4().hex[:8]}"
+    ours = f"razorpay_{uuid.uuid4().hex[:8]}"
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO platform_alerts (id, fingerprint, code, stage, severity, service, "
+                "detail, ids, first_seen_at, last_seen_at, occurrences) "
+                "SELECT gen_random_uuid(), :code || ':' || g, :code, 'WORKER_DELIVERY', 'page', "
+                "'workers', NULL, '{}'::jsonb, now(), now(), 1 FROM generate_series(1, 501) g"
+            ),
+            {"code": storm},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO platform_alerts (id, fingerprint, code, stage, severity, service, "
+                "detail, ids, first_seen_at, last_seen_at, occurrences, cleared_at) VALUES "
+                "(gen_random_uuid(), :code, :code, 'WORKER_DELIVERY', 'record', 'api', NULL, "
+                "'{}'::jsonb, now() - interval '2 hours', now() - interval '2 hours', 1, now())"
+            ),
+            {"code": ours},
+        )
+    try:
+        status = await payment_admin_routes.payment_status(_admin())
+        assert ours in [a.code for a in status.alarms]
+    finally:
+        async with untenanted_session() as session:
+            await session.execute(
+                text("DELETE FROM platform_alerts WHERE code IN (:a, :b)"),
+                {"a": storm, "b": ours},
+            )
+
+
 def _provider_payment(
     payment_id: str,
     *,

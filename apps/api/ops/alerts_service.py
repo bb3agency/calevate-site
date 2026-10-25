@@ -105,6 +105,12 @@ SELECT id, code, stage, severity, service, detail, ids,
        first_seen_at, last_seen_at, occurrences, emailed, emailed_at, cleared_at
 FROM platform_alerts
 WHERE last_seen_at >= now() - make_interval(days => :days)
+-- A screen's own family of codes is filtered HERE, before the LIMIT, so a storm of unrelated
+-- alarms cannot push it off the page. `starts_with`, not LIKE: `_` in a prefix is a wildcard
+-- there.
+  AND (CAST(:prefixes AS text[]) IS NULL
+       OR EXISTS (SELECT 1 FROM unnest(CAST(:prefixes AS text[])) AS p(prefix)
+                  WHERE starts_with(code, p.prefix)))
 -- OPEN FIRST, THEN LOUDEST, THEN MOST RECENT. The severity order is written out rather
 -- than alphabetical because 'attention' sorts before 'page' and an ORDER BY that put the
 -- quiet rung on top would be the inbox's own failure reproduced on a screen.
@@ -128,13 +134,24 @@ GROUP BY severity
 
 
 async def alert_report(
-    session: AsyncSession, *, days: int = DEFAULT_WINDOW_DAYS, limit: int = DEFAULT_LIMIT
+    session: AsyncSession,
+    *,
+    days: int = DEFAULT_WINDOW_DAYS,
+    limit: int = DEFAULT_LIMIT,
+    code_prefixes: tuple[str, ...] | None = None,
 ) -> AlertReport:
-    """One window of alert episodes, plus the open counts. Two statements, no walk."""
+    """One window of alert episodes, plus the open counts. Two statements, no walk.
+
+    `code_prefixes` narrows the episodes (not the open counts) to codes that start with one
+    of them, for a screen that shows one family of alarms.
+    """
     capped = min(max(limit, 1), MAX_LIMIT)
-    rows = (
-        (await session.execute(text(_SELECT), {"days": days, "limit": capped + 1})).mappings().all()
-    )
+    params = {
+        "days": days,
+        "limit": capped + 1,
+        "prefixes": list(code_prefixes) if code_prefixes is not None else None,
+    }
+    rows = (await session.execute(text(_SELECT), params)).mappings().all()
     episodes = [AlertEpisode(**{**row, "ids": row["ids"] or {}}) for row in rows[:capped]]
     counts = (await session.execute(text(_OPEN_COUNTS))).all()
     return AlertReport(

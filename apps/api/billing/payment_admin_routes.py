@@ -110,7 +110,9 @@ async def payment_status(_principal: Reader) -> PaymentStatusOut:
         if key_id.startswith(KEY_ID_PREFIX[mode]):
             key_mode = "test" if mode == "test" else "live"
     async with untenanted_session() as session:
-        report = await alert_report(session, days=7, limit=500)
+        report = await alert_report(
+            session, days=7, limit=500, code_prefixes=_PAYMENT_ALARM_PREFIXES
+        )
     alarms = [
         PaymentAlarmOut(
             code=e.code,
