@@ -9,12 +9,12 @@ import { formatDuration, formatIST } from "@/components/ui";
 import type { CallSummary } from "@/lib/api/client";
 import { callRowLine, callTitle } from "@/lib/callReview";
 
-import { CallResult, FollowUpMark, TestCallTag, isLive } from "./callColumns";
+import { CallResult, FollowUpMark, NeedsYouMark, TestCallTag, isLive } from "./callColumns";
 
 /**
  * The call log on a phone, laid out like the leads list (founder, 24 Oct 2026): who and what
  * on the left (the number or name, then what the call was about), how it ended and when on
- * the right, and the follow-up actions a swipe away (right: call back; left: mark, call back
+ * the right (with "Needs you" under the outcome, never instead of it), and the follow-up actions a swipe away (right: call back; left: mark, call back
  * later, WhatsApp). The row fits the screen, so a sideways swipe only ever means the actions;
  * the same actions are in each row's ⋯ menu where there is a mouse. A length or a time the
  * call does not have is left out rather than shown as a dash.
@@ -65,9 +65,10 @@ export function CallsPhoneList({
                     ) : null}
                   </span>
                   <span className="flex max-w-[42%] shrink-0 flex-col items-end gap-0.5 text-right">
-                    <span className="block max-w-full truncate">
-                      <CallResult call={call} />
+                    <span className="flex max-w-full justify-end">
+                      <CallResult call={call} truncate />
                     </span>
+                    <NeedsYouMark call={call} />
                     {when ? <span className="text-meta tabular-nums text-ink-faint">{when}</span> : null}
                     {length ? <span className="text-meta tabular-nums text-ink-faint">{length}</span> : null}
                   </span>

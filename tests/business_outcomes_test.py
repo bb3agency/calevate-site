@@ -26,6 +26,7 @@ from apps.api.billing.models import (
     ASSIST_FEATURE_BUSINESS_OUTCOMES_ABSORBED,
 )
 from apps.api.core.errors import ProblemError
+from apps.api.crm import service as crm_service
 from apps.api.crm.outcomes import hint_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
@@ -176,6 +177,18 @@ async def test_extraction_keeps_only_a_choice_it_offered() -> None:
     ).business_outcome is None
 
 
+def test_a_calls_outcome_reads_its_lead_move_from_the_agents_list() -> None:
+    own = [o.model_dump() for o in SHOP]
+    assert call_outcomes.outcome_lead_move(own, "ready_to_pay") == "hot"
+    assert call_outcomes.outcome_lead_move(own, "asked_price_only") == "contacted"
+    assert call_outcomes.outcome_lead_move(own, "interested") == "interested", (
+        "a call read before the draft keeps a starting key"
+    )
+    assert call_outcomes.outcome_lead_move(None, "not_interested") == "contacted"
+    assert call_outcomes.outcome_lead_move(own, "gone_from_every_list") is None
+    assert call_outcomes.outcome_lead_move(own, None) is None
+
+
 def test_a_business_outcome_moves_the_lead_up_and_never_down() -> None:
     assert (
         after_call_status(
@@ -248,6 +261,11 @@ async def test_a_buying_call_reads_as_the_agents_outcome_and_moves_the_lead(
     assert row[2] == "answered", "the system-fact outcome is kept beside it"
     assert row[3] in ("interested", "hot")
     assert row[4] == "queued"
+    async with tenant_session(tenant_id) as session:
+        listed = {c.id: c for c in await crm_service.list_calls(session)}
+        detail = await crm_service.get_call(session, call_id)
+    assert listed[call_id].business_outcome_lead_status == "interested"
+    assert detail.business_outcome_lead_status == "interested"
     agent_id = await _scalar(tenant_id, "SELECT agent_id FROM calls WHERE id = :c", c=call_id)
     async with untenanted_session() as session:
         queued = (

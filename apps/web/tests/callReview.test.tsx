@@ -2,7 +2,7 @@ import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import CallDetailPage from "@/app/c/[slug]/calls/[callId]/page";
-import { callResultWords, outcomeWords } from "@/lib/callReview";
+import { OUTCOME_KIND_WORDS, type OutcomeKind, callOutcome, outcomeWords } from "@/lib/callReview";
 import type { CallDetail, Me } from "@/lib/api/client";
 
 import { NeverAnswers, renderClientPage } from "./harness";
@@ -365,10 +365,74 @@ describe("the business's own outcome (D-836)", () => {
 
   it("no longer says No outcome for a call the model sorted but could not put a fact on", () => {
     expect(
-      callResultWords({ status: "completed", outcome_tag: null, summary_state: "ready", business_outcome_label: "Wants to buy" }),
+      callOutcome({ status: "completed", outcome_tag: null, summary_state: "ready", business_outcome_label: "Wants to buy" })
+        .words,
     ).toBe("Wants to buy");
-    expect(callResultWords({ status: "completed", outcome_tag: null, summary_state: "ready" })).toBe("Answered");
+    expect(callOutcome({ status: "completed", outcome_tag: null, summary_state: "ready" }).words).toBe("Answered");
   });
+});
+
+/**
+ * THE KIND OF ENDING (founder, 25 Oct 2026): one mapping from structured values to the
+ * coloured mark, used by every call list. A likely lead is the agent's own outcome moving
+ * the lead to interested or hot — never the label's words.
+ */
+describe("the kind of ending a call had", () => {
+  const done = { status: "completed", summary_state: "ready" } as const;
+  const cases: [string, Parameters<typeof callOutcome>[0], string, OutcomeKind][] = [
+    [
+      "an outcome that moves the lead to interested",
+      { ...done, outcome_tag: "answered", business_outcome: "site_visit", business_outcome_label: "Site visit agreed", business_outcome_lead_status: "interested" },
+      "Site visit agreed",
+      "lead",
+    ],
+    [
+      "an outcome that moves the lead to hot",
+      { ...done, outcome_tag: null, business_outcome: "ready", business_outcome_label: "Ready to pay", business_outcome_lead_status: "hot" },
+      "Ready to pay",
+      "lead",
+    ],
+    [
+      "a lead the call needs a person for keeps its outcome",
+      { ...done, outcome_tag: "needs_you", business_outcome: "wants_to_buy", business_outcome_label: "Wants to buy or book", business_outcome_lead_status: "interested" },
+      "Wants to buy or book",
+      "lead",
+    ],
+    ["a booked call back", { ...done, outcome_tag: "call_back_booked", business_outcome_label: "Interested", business_outcome_lead_status: "interested" }, "Call back booked", "follow_up"],
+    ["a hand-over to a person", { ...done, outcome_tag: "transferred" }, "Transferred", "follow_up"],
+    [
+      "an outcome that only marks contact",
+      { ...done, outcome_tag: "answered", business_outcome: "asked_for_information", business_outcome_label: "Asked for information", business_outcome_lead_status: "contacted" },
+      "Asked for information",
+      "neutral",
+    ],
+    ["a plain answered call", { ...done, outcome_tag: "answered" }, "Answered", "neutral"],
+    ["needs you with nothing else known", { ...done, outcome_tag: "needs_you" }, "Answered", "neutral"],
+    ["an outcome on no list", { ...done, outcome_tag: "answered", business_outcome: "gone", business_outcome_label: "Gone", business_outcome_lead_status: null }, "Gone", "neutral"],
+    ["a call still being read", { status: "completed", summary_state: "pending", outcome_tag: null }, "Being read", "neutral"],
+    ["a live call", { status: "in_progress", outcome_tag: null }, "On the line", "neutral"],
+    ["an early hang-up", { ...done, outcome_tag: "hung_up_early", business_outcome_label: "Interested", business_outcome_lead_status: "interested" }, "Hung up early", "caution"],
+    [
+      "the starting set's not interested",
+      { ...done, outcome_tag: "answered", business_outcome: "not_interested", business_outcome_label: "Not interested", business_outcome_lead_status: "contacted" },
+      "Not interested",
+      "caution",
+    ],
+    ["a missed call", { status: "no_answer", outcome_tag: "missed" }, "Missed", "failed"],
+    ["a busy line", { status: "busy", outcome_tag: null }, "Busy", "failed"],
+    ["a call that did not connect", { status: "failed", outcome_tag: null }, "Did not connect", "failed"],
+    ["a status this build has never heard of", { status: "teleported", outcome_tag: null }, "Teleported", "neutral"],
+  ];
+  it.each(cases)("%s", (_name, call, words, kind) => {
+    expect(callOutcome(call)).toEqual({ words, kind });
+  });
+
+  it("names every kind in the legend's words", () => {
+    expect(Object.keys(OUTCOME_KIND_WORDS).sort()).toEqual(["caution", "failed", "follow_up", "lead", "neutral"]);
+  });
+});
+
+describe("the business's own outcome on the verdict (D-836)", () => {
 
   it("heads the verdict with the fact and names the business outcome under it", async () => {
     await renderClientPage(
@@ -387,5 +451,38 @@ describe("the business's own outcome (D-836)", () => {
     );
     await screen.findByRole("heading", { name: "Wants to buy" });
     expect(screen.queryByText(/For your business:/)).toBeNull();
+  });
+
+  it("carries the call log's mark beside the same words, and none beside Needs you", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          outcome_tag: "answered",
+          business_outcome: "wants_to_buy",
+          business_outcome_label: "Wants to buy",
+          business_outcome_lead_status: "interested",
+        }),
+      ),
+    );
+    const heading = await screen.findByRole("heading", { name: "Wants to buy" });
+    expect(heading.querySelector('[data-kind="lead"][aria-hidden]')).not.toBeNull();
+  });
+
+  it("puts the mark on the business outcome when Needs you heads the verdict", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          outcome_tag: "needs_you",
+          business_outcome: "wants_to_buy",
+          business_outcome_label: "Wants to buy",
+          business_outcome_lead_status: "interested",
+        }),
+      ),
+    );
+    const heading = await screen.findByRole("heading", { name: "Needs you" });
+    expect(heading.querySelector("[data-kind]")).toBeNull();
+    expect(screen.getByText("Wants to buy").querySelector('[data-kind="lead"]')).not.toBeNull();
   });
 });

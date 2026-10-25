@@ -120,28 +120,87 @@ export function outcomeReason(
 }
 
 /**
- * The words for how a call ended in a list row: the outcome when there is one, otherwise
- * the status that says why there is none.
+ * What kind of ending a call had, for the coloured mark beside its outcome. One set for
+ * every screen that lists calls, so a colour means the same thing wherever it appears:
+ *
+ * - `lead`      the agent's own outcome moves the lead to interested or hot
+ * - `follow_up` a call back was booked, or the call was handed to a person
+ * - `neutral`   the call was had and nothing about it is good or bad news
+ * - `caution`   it ended before anything was learned, or the caller said no
+ * - `failed`    nobody spoke: missed, busy, voicemail, did not connect
  */
-export function callResultWords(
-  call: Pick<CallSummary, "status" | "outcome_tag"> & {
-    summary_state?: CallSummary["summary_state"];
-    business_outcome_label?: string | null;
-  },
-): string {
+export type OutcomeKind = "lead" | "follow_up" | "neutral" | "caution" | "failed";
+
+/** The legend's words for each kind, in the order an owner reads them. */
+export const OUTCOME_KIND_WORDS: Record<OutcomeKind, string> = {
+  lead: "Likely lead",
+  follow_up: "Call back or handed over",
+  neutral: "Answered",
+  caution: "Ended early or said no",
+  failed: "Did not connect",
+};
+
+/** The facts that head a row, and their kind; null for the two that say nothing of it. */
+const FACT_KIND: Record<CallOutcome, OutcomeKind | null> = {
+  call_back_booked: "follow_up",
+  transferred: "follow_up",
+  hung_up_early: "caution",
+  missed: "failed",
+  answered: null,
+  needs_you: null,
+};
+
+/** Statuses that ended the call before anyone spoke (`STATUS_WORDS` has their words). */
+const NOT_CONNECTED = new Set(["no_answer", "busy", "voicemail", "failed"]);
+
+/**
+ * The starting set's refusal (`calevate_shared.business_outcomes.STARTING_OUTCOMES`). A
+ * business outcome carries how far it moves a lead and nothing about bad news (`lost` is a
+ * person's verdict, never a model's), so this key is the only "said no" the structure names.
+ */
+const SAID_NO_KEY = "not_interested";
+
+type CallOutcomeFields = Pick<CallSummary, "status" | "outcome_tag"> & {
+  summary_state?: CallSummary["summary_state"];
+  business_outcome?: string | null;
+  business_outcome_label?: string | null;
+  business_outcome_lead_status?: CallSummary["business_outcome_lead_status"];
+};
+
+/**
+ * How a call ended, for a list row: the words and the kind of ending. "Needs you" is NOT an
+ * outcome here — it is a request for a person, shown beside the outcome by `needsAttention`,
+ * because filed under it a call that booked a site visit read the same as one where the
+ * caller gave nothing. The facts that change what happens next (a booked call back, a
+ * hand-over, an early hang-up, a missed call) head the row; otherwise the agent's own
+ * outcome for the business; otherwise "Answered".
+ */
+export function callOutcome(call: CallOutcomeFields): { words: string; kind: OutcomeKind } {
+  const known = lookup(STATUS_WORDS, call.status);
   // A status this build has never heard of is the one worth reading: it wins over any
   // outcome rather than being hidden behind one.
-  const known = lookup(STATUS_WORDS, call.status);
   if (call.status !== "completed" && known === undefined) {
     const unknown = call.status.replace(/_/g, " ");
-    return unknown.charAt(0).toUpperCase() + unknown.slice(1);
+    return { words: unknown.charAt(0).toUpperCase() + unknown.slice(1), kind: "neutral" };
   }
-  if (call.status === "in_progress") return "On the line";
-  const outcome = outcomeWords(call);
-  if (outcome) return outcome;
-  // A completed call with no outcome was still a conversation: "No outcome" read as a fault.
-  if (call.status === "completed") return call.summary_state === "pending" ? "Being read" : "Answered";
-  return known ?? call.status;
+  if (call.status === "in_progress") return { words: "On the line", kind: "neutral" };
+  const fact = lookup(FACT_KIND, call.outcome_tag);
+  if (call.outcome_tag && fact) return { words: outcomeLabel(call.outcome_tag) ?? call.outcome_tag, kind: fact };
+  const label = call.business_outcome_label?.trim();
+  if (label) {
+    const move = call.business_outcome_lead_status;
+    const kind: OutcomeKind =
+      move === "interested" || move === "hot" ? "lead" : call.business_outcome === SAID_NO_KEY ? "caution" : "neutral";
+    return { words: label, kind };
+  }
+  if (call.status === "completed") {
+    // `needs_you` reads as the conversation it was; the request is `needsAttention`'s to say.
+    const tag = call.outcome_tag === "needs_you" ? null : call.outcome_tag;
+    if (tag) return { words: outcomeLabel(tag) ?? tag, kind: "neutral" };
+    // A completed call with no outcome was still a conversation: "No outcome" read as a fault.
+    return { words: call.summary_state === "pending" ? "Being read" : "Answered", kind: "neutral" };
+  }
+  return { words: known ?? call.status, kind: NOT_CONNECTED.has(call.status) ? "failed" : "neutral" };
 }
 
 /** A booked call back that is still waiting after the time it was promised for. */

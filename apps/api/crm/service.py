@@ -32,6 +32,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.business_hours import count_after_hours_calls
+from apps.api.agents.call_outcomes import outcome_lead_move
 from apps.api.billing.caps import read_spend_counters
 from apps.api.core.errors import ProblemError
 from apps.api.core.spreadsheet_safety import disarm_for_csv
@@ -269,7 +270,8 @@ async def list_calls(
                 "c.to_e164, c.started_at, c.duration_s, c.outcome_tag, c.sentiment, "
                 "c.summary, c.lead_id, c.summary_state, c.headline, c.trial_call, "
                 f"{_CALLBACK_COLUMNS}, {_LEAD_NAME_COLUMN}, {credits_column}, "
-                "c.business_outcome, c.business_outcome_label, c.follow_up_state, c.created_at "
+                "c.business_outcome, c.business_outcome_label, c.follow_up_state, c.created_at, "
+                "a.business_outcomes "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} {where} "
                 "ORDER BY c.started_at DESC NULLS LAST, c.id DESC LIMIT :limit OFFSET :offset"
             ),
@@ -308,6 +310,7 @@ async def list_calls(
             captured_preview=previews.get(r[0], []),
             business_outcome=r[23],
             business_outcome_label=r[24],
+            business_outcome_lead_status=outcome_lead_move(r[27], r[23]),
             follow_up_state=r[25],
             created_at=r[26],
         )
@@ -487,7 +490,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
                 f"{_LEAD_NAME_COLUMN}, a.language_primary, c.engine_quality, c.engine_call_id, "
                 "c.caller_id_hidden, c.forwarding_test_id IS NOT NULL, c.forwarded_to_phone, "
                 "c.business_outcome, c.business_outcome_label, c.not_placed_reason, "
-                "c.follow_up_state "
+                "c.follow_up_state, a.business_outcomes "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
                 "WHERE c.id = :cid"
             ),
@@ -569,6 +572,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         forwarded_to_phone=bool(row[35]),
         business_outcome=row[36],
         business_outcome_label=row[37],
+        business_outcome_lead_status=outcome_lead_move(row[40], row[36]),
         not_placed_reason=NOT_PLACED_WORDS.get(row[38]),
         follow_up_state=row[39],
         summary_local=row[23] if raw else redacted_summary(row[23]),
