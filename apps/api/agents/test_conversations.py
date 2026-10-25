@@ -537,12 +537,13 @@ class Turn:
 
 
 def speech_problems(
-    turns: list[Turn], *, language: str = "", memory_notice: str = ""
+    turns: list[Turn], *, language: str = "", memory_notice: str = "", known: str = ""
 ) -> list[TurnProblem]:
     """The shape problems in a conversation's replies (`agents/turn_checks`), each kind
     once, in the order they first appear. Each reply is judged against the caller line it
     answered, which decides whether a longer reply was asked for. `memory_notice` is the
-    sentence a closing goodbye must carry (D-865), empty where none is owed."""
+    sentence a closing goodbye must carry (D-865), empty where none is owed. `known` is the
+    agent's script and facts (D-888)."""
     seen: set[str] = set()
     out: list[TurnProblem] = []
     for turn in turns:
@@ -553,7 +554,9 @@ def speech_problems(
     # What only the whole conversation shows: "done" with no action, the call's own number
     # asked for, part of a number taken as all of it, goodbye mid-question (D-749).
     out += [
-        p for p in conversation_problems(turns, memory_notice=memory_notice) if p.kind not in seen
+        p
+        for p in conversation_problems(turns, memory_notice=memory_notice, known=known)
+        if p.kind not in seen
     ]
     return out
 
@@ -578,6 +581,9 @@ class RuleContext:
     #: The memory sentence the agent says with its goodbye, empty when it remembers no one
     #: (D-865).
     memory_notice: str = ""
+    #: What the agent was given to say (its script and pinned facts), so a reply naming where
+    #: the caller found the business is judged against it (D-888).
+    known: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -760,7 +766,7 @@ def hard_check(
         )
     # A caller who asks to stop gets no memory sentence with the goodbye (D-865).
     memory = "" if scenario.probe == "stop_calling" else rules.memory_notice
-    problems = speech_problems(turns, language=language, memory_notice=memory)
+    problems = speech_problems(turns, language=language, memory_notice=memory, known=rules.known)
     if scenario.probe == "person":
         # The test chat's sandbox switches off anything that would ring a person and "says
         # what it would have done instead" (vendor test-chat.md:7, 18 Oct 2026 snapshot), in
@@ -936,6 +942,16 @@ class AgentBrief:
             call_backs=self.call_backs,
             agreements_waiting=agreements_waiting,
             memory_notice=self.memory_notice,
+            known=" ".join(
+                (
+                    self.opening_line,
+                    self.ending,
+                    *(f"{name} {instruction}" for _id, name, instruction in self.steps),
+                    *(f"{objection} {response}" for objection, response in self.objections),
+                    *(f"{question} {answer}" for _id, question, answer in self.pinned_facts),
+                    *self.knowledge_titles,
+                )
+            ),
         )
 
 

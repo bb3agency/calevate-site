@@ -52,8 +52,8 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: platform layers on purpose (last: D-883, which trims the platform text and reads back an
 #: ambiguous amount as the one meant; both digests moved).
 PINNED = (
-    "3e919e6cb6be89588b28d57e59c73fe4e9af7100b730288fd29e6e37ce0f1406",
-    "757d332081b3a59cd7065f1316b64b5f786889a2b210a6ba3575fcd88ea5ea84",
+    "ea7f85e10628a2c75187d68f47b74d7953bf6c194e60365fe54e8a0147b843ea",
+    "3d2b57ba2f53bf4de77eb5306dae77a90e673be1b80c426bb621ee64b08e3fa8",
 )
 
 

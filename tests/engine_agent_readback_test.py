@@ -17,6 +17,7 @@ from calevate_shared.engine import (
     AgentConfig,
     KBSourceRef,
     platform_rules_preamble,
+    without_this_call,
 )
 
 
@@ -79,7 +80,7 @@ async def test_fake_read_back_carries_the_opening_line_the_way_an_engine_holds_i
     assert prompt.startswith(platform_rules_preamble(cfg))
     assert cfg.opening_line in prompt
     assert prompt.index(cfg.opening_line) < prompt.index(CLIENT_SCRIPT_OPEN)
-    assert prompt.rstrip().endswith(TRUTHFUL_ANSWER_DIRECTIVE.rstrip())
+    assert without_this_call(prompt).rstrip().endswith(TRUTHFUL_ANSWER_DIRECTIVE.rstrip())
 
 
 async def test_fake_read_back_tracks_attach_and_detach() -> None:

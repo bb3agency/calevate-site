@@ -70,6 +70,8 @@ Kind = Literal[
     "opened_again",
     # D-865: an agent that remembers callers closed a call without its memory sentence.
     "memory_not_said",
+    # D-888: "you enquired on our website", which neither the caller nor the facts said.
+    "invented_source",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -115,6 +117,7 @@ JOB_KINDS: Final = frozenset(
         "partial_number",
         "goodbye_while_asking",
         "false_recall",
+        "invented_source",
     }
 )
 
@@ -1022,6 +1025,36 @@ def _same_reply(a: str, b: str) -> bool:
     return shared >= 0.9 and abs(len(left) - len(right)) <= max(2, len(left) // 10)
 
 
+#: Where a caller could have found the business, each by the spellings a reply uses. Only
+#: places that are not this call: WhatsApp is left out because an agent may rightly offer it.
+_CHANNELS: Final[tuple[re.Pattern[str], ...]] = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"web\s?site|వెబ్\s*సైట్|వెబ్‌సైట్|वेबसाइट|वेब साइट",
+        r"facebook|ఫేస్\s*బుక్|ఫేస్‌బుక్|फेसबुक|फ़ेसबुक",
+        r"instagram|ఇన్‌స్టా|ఇన్స్టా|इंस्टा",
+        r"google|గూగుల్|गूगल",
+        r"magic\s?bricks|99\s?acres|housing\.com|just\s?dial|మ్యాజిక్\s*బ్రిక్స్|జస్ట్\s*డయల్",
+    )
+)
+#: The caller as the subject: "you", "మీరు", "आपने".
+_YOU: Final = re.compile(r"\byou\b|\byour\b|మీరు|మీ\s|आपने|आप\s", re.IGNORECASE)
+
+
+def _invented_source(reply: str, known: str) -> str | None:
+    """The sentence of `reply` that tells the caller about a website or listing ("you
+    enquired on our website", "see the flats on our website") when nothing in `known` (what
+    the caller said, the agent's facts and script) names it, or None. A question ("did you
+    see us on Google?") asks rather than tells, so it is left alone."""
+    for sentence in sentences(reply):
+        if _is_question(sentence) or not _YOU.search(sentence):
+            continue
+        for channel in _CHANNELS:
+            if channel.search(sentence) and not channel.search(known):
+                return sentence
+    return None
+
+
 def memory_not_said(exchanges: Sequence[Exchange], memory_notice: str) -> str | None:
     """Why a conversation that ended on the agent's goodbye is missing the memory sentence,
     or None (D-865). Only a goodbye after the caller closed counts; the sentence is matched
@@ -1044,13 +1077,18 @@ def memory_not_said(exchanges: Sequence[Exchange], memory_notice: str) -> str | 
 
 
 def conversation_problems(
-    exchanges: Sequence[Exchange], *, number_known: bool = True, memory_notice: str = ""
+    exchanges: Sequence[Exchange],
+    *,
+    number_known: bool = True,
+    memory_notice: str = "",
+    known: str = "",
 ) -> list[TurnProblem]:
     """The problems only a whole conversation shows, each kind once, in order.
 
     `number_known` is False only for a call whose number the network hid (D-746), where
     asking for a number is right. `memory_notice` is the sentence the closing goodbye must
-    carry, empty where none is owed (D-865).
+    carry, empty where none is owed (D-865). `known` is what the agent was given (its
+    script and facts), which may say where its callers come from (D-888).
     """
     found: dict[str, TurnProblem] = {}
     acted = False
@@ -1058,6 +1096,8 @@ def conversation_problems(
     awaiting: int | None = None  # digits given since the agent asked for a number
     previous_reply = ""
     said_before = ""
+    caller_lines = ""
+    searched = False
     for exchange in exchanges:
         said, reply = exchange.said, exchange.reply
         acted = acted or any(not _LOOKUP_TOOL.search(tool) for tool in exchange.tools)
@@ -1084,6 +1124,21 @@ def conversation_problems(
                 ),
             )
         said_before = f"{said_before} {reply}"
+        caller_lines = f"{caller_lines} {said}"
+        # After a knowledge search the reply may be quoting what it found, which `known`
+        # does not hold, so only a reply with nothing looked up is judged.
+        searched = searched or any(_LOOKUP_TOOL.search(tool) for tool in exchange.tools)
+        invented = None if searched else _invented_source(reply, f"{known} {caller_lines}")
+        if invented:
+            found.setdefault(
+                "invented_source",
+                TurnProblem(
+                    "invented_source",
+                    f"It named a website or listing to the caller, {_quoted(invented)}, that "
+                    "neither the caller nor its facts mentioned. It says only what its facts "
+                    "or the caller said.",
+                ),
+            )
         if claims_done(reply) and not acted:
             found.setdefault(
                 "unconfirmed_action",

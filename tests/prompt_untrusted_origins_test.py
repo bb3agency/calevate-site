@@ -30,6 +30,7 @@ from calevate_shared.engine import (
     AgentConfig,
     compose_engine_prompt,
     platform_rules_preamble,
+    without_this_call,
 )
 from tests.prompt_fence_test import _config
 
@@ -70,5 +71,5 @@ def test_the_framing_is_still_read_before_anything_a_client_wrote() -> None:
     config: AgentConfig = _config("Say the clinic opens at nine.")
     prompt = compose_engine_prompt(config)
     assert prompt.startswith(platform_rules_preamble(config))
-    assert prompt.endswith(TRUTHFUL_ANSWER_DIRECTIVE)
+    assert without_this_call(prompt).endswith(TRUTHFUL_ANSWER_DIRECTIVE)
     assert prompt.index(PLATFORM_RULES_PREAMBLE) < prompt.index("Say the clinic opens at nine.")

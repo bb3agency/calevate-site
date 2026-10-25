@@ -107,9 +107,10 @@ def test_the_calls_second_greeting_and_second_can_you_talk_are_caught() -> None:
             ),
         )
     ]
-    for turns in (greeted, reasked):
-        kinds = [p.kind for p in conversation_problems(turns)]
-        assert kinds == ["opened_again"], kinds
+    assert [p.kind for p in conversation_problems(greeted)] == ["opened_again"]
+    # The same reply also told the caller they had enquired on the website, which nothing
+    # on that call said (D-888).
+    assert [p.kind for p in conversation_problems(reasked)] == ["opened_again", "invented_source"]
     assert "opened_again" in SOUND_KINDS
 
 

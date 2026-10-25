@@ -335,15 +335,17 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
             "ठीक है जी, किस एरिया में देख रहे हैं?",
             "Sure, which area are you looking in?",
         ),
+        # Open, because the caller decides the size: "two or three BHK?" steered a caller
+        # who wanted five (D-888). The visit lines offer the next days, not the weekend.
         details_ask=_said(
-            "టూ బీహెచ్కే కావాలా, త్రీ బీహెచ్కే కావాలా అండి?",
-            "टू बीएचके चाहिए या थ्री बीएचके?",
-            "Are you looking at a two or a three BHK?",
+            "ఎన్ని బీహెచ్కే కావాలి అండి?",
+            "कितने बीएचके चाहिए जी?",
+            "How many bedrooms are you looking for?",
         ),
         offer=_said(
-            "ఒకసారి సైట్ విజిట్ కి రండి అండి, ఈ వీకెండ్ కుదురుతుందా?",
-            "एक बार साइट विज़िट कर लीजिए जी, इस वीकेंड ठीक रहेगा?",
-            "Would you like to see the site, maybe this weekend?",
+            "ఒకసారి సైట్ విజిట్ కి రండి అండి, రేపు కుదురుతుందా, ఎల్లుండి కుదురుతుందా?",
+            "एक बार साइट विज़िट कर लीजिए जी, कल ठीक रहेगा या परसों?",
+            "Would you like to see the site, tomorrow or the day after?",
         ),
         reason_line=_said(
             "మీరు ఇంతకు ముందు ప్రాపర్టీ గురించి ఎంక్వైరీ చేశారు కదా, ఇంకా చూస్తున్నారా అండి?",
@@ -356,9 +358,9 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
             "Roughly what budget do you have in mind?",
         ),
         lead_offer=_said(
-            "సైట్ విజిట్ కి సాటర్డే కుదురుతుందా, సండే కుదురుతుందా అండి?",
-            "साइट विज़िट के लिए सैटरडे ठीक रहेगा या संडे?",
-            "For a site visit, would Saturday or Sunday suit you?",
+            "సైట్ విజిట్ కి రేపు కుదురుతుందా, ఎల్లుండి కుదురుతుందా అండి?",
+            "साइट विज़िट के लिए कल ठीक रहेगा या परसों?",
+            "For a site visit, would tomorrow or the day after suit you?",
         ),
         objection=(
             "The prices are too high.",
@@ -639,7 +641,39 @@ ALL_LINES: Final[tuple[Said, ...]] = (
     _NOT_NOW,
     *(said for words in TRADE_WORDS.values() for said in _trade_lines(words)),
 )
-_ALL_LINES: Final = frozenset(line for said in ALL_LINES for line in said.values())
+#: (the line a plan used to teach, the one that replaced it), per language: what the
+#: `refresh_example_lines` job puts on agents still holding the old line word for word
+#: (D-888, migration `c8e4a1f7b2d5`, which freezes its own copy). The old lines still count
+#: as plan lines, so a business's own example line may replace one an agent was made with.
+REPLACED_LINES: Final[tuple[tuple[Said, Said], ...]] = (
+    (
+        _said(
+            "టూ బీహెచ్కే కావాలా, త్రీ బీహెచ్కే కావాలా అండి?",
+            "टू बीएचके चाहिए या थ्री बीएचके?",
+            "Are you looking at a two or a three BHK?",
+        ),
+        TRADE_WORDS["real_estate"].details_ask,
+    ),
+    (
+        _said(
+            "ఒకసారి సైట్ విజిట్ కి రండి అండి, ఈ వీకెండ్ కుదురుతుందా?",
+            "एक बार साइट विज़िट कर लीजिए जी, इस वीकेंड ठीक रहेगा?",
+            "Would you like to see the site, maybe this weekend?",
+        ),
+        TRADE_WORDS["real_estate"].offer,
+    ),
+    (
+        _said(
+            "సైట్ విజిట్ కి సాటర్డే కుదురుతుందా, సండే కుదురుతుందా అండి?",
+            "साइट विज़िट के लिए सैटरडे ठीक रहेगा या संडे?",
+            "For a site visit, would Saturday or Sunday suit you?",
+        ),
+        TRADE_WORDS["real_estate"].lead_offer,
+    ),
+)
+_ALL_LINES: Final = frozenset(
+    line for said in (*ALL_LINES, *(old for old, _ in REPLACED_LINES)) for line in said.values()
+)
 
 #: The direction an agent calls in, as the job whose plan the writer reads. An agent that does
 #: both gets both plans.
@@ -686,6 +720,7 @@ __all__ = [
     "JOB_SHAPES",
     "NEUTRAL_TRADE",
     "PLAYBOOK_LANGUAGES",
+    "REPLACED_LINES",
     "TRADE_WORDS",
     "PlayStep",
     "Playbook",

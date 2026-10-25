@@ -49,7 +49,8 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
     CallRule(
         key="facts",
         judge=(
-            "It never makes up a price, stock, time, offer or any other fact: an answer that "
+            "It never makes up a price, stock, time, offer, place, project or any other fact, "
+            "or how the caller found the business: an answer that "
             "matches a pinned fact is right with no lookup; a fact in neither the pinned facts "
             "nor the knowledge is invented, and saying it does not have it is right."
         ),
@@ -62,7 +63,7 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
             "or says it does not have it and the team will confirm; never expect it to state "
             "it."
         ),
-        prompt_marker="Never guess or add to a fact",
+        prompt_marker="Say only what your facts or the caller said, never a guess",
     ),
     CallRule(
         key="done",

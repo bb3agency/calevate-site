@@ -117,7 +117,10 @@ def test_the_chat_hears_the_honesty_rules_the_call_rules_would_have_given() -> N
     assert "say it is noted and the team will confirm" in ACTION_CLAIM_RULE
     assert "what happens next" not in ACTION_CLAIM_RULE
     prompt = compose_engine_prompt(_cfg())
-    assert "No answer after searching, or still unclear after two tries: say so, then" in prompt
+    assert (
+        'No answer after searching ("the team will share that"), or still unclear after '
+        "two tries: say so, then" in prompt
+    )
 
 
 # --- what counts as a claim -------------------------------------------------------------

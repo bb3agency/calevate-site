@@ -170,6 +170,7 @@ from apps.workers.engine_workspaces import (
     sweep_engine_workspaces,
     sync_engine_call_lines,
 )
+from apps.workers.example_line_refresh import refresh_example_lines
 from apps.workers.extraction_reread import (
     REREAD_SWEEP_MINUTES,
     reread_call_extraction,
@@ -352,6 +353,9 @@ FUNCTIONS: list[Any] = [
         # A standard field's improved wording onto agents still carrying the old one word
         # for word (D-881), from the outbox (migration b3d7e2a9c461).
         refresh_field_reason,
+        # A ready-made script's better example lines onto agents still carrying the old
+        # ones word for word (D-888), from the outbox (migration c8e4a1f7b2d5).
+        refresh_example_lines,
         # Test conversations against the agent and the auto-improve proposal that follows
         # a run with failures (D-724), from the outbox (`agents/test_conversations`).
         improve_agent_test_run,

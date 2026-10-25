@@ -152,8 +152,14 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
 #: 5,160 + 1,112 = 6,272 (one). D-856 cut both by 476 while adding the reaction, half-answer,
 #: offer and who-is-calling rules. D-883 (25 Oct 2026) trimmed restatements and added the
 #: ambiguous-amount read-back: 6,708 to 6,485 (three) and 5,768 to 5,610 (one).
-PER_CALL_MAX = 6_485
-PER_CALL_ONE_LANGUAGE_MAX = 5_610
+#: D-888 (25 Oct 2026) RAISED both by 382, for faults on three production calls that no
+#: existing sentence covered: today's date and the name as per-call values with the header
+#: (about 50), the name rule (about 50) and the days rule (about 110) that read them, places,
+#: projects, availability and how the caller found the business among the facts (about 75),
+#: no choices for counts or amounts (about 35), and the one way to say a fact is missing
+#: (about 30).
+PER_CALL_MAX = 6_867
+PER_CALL_ONE_LANGUAGE_MAX = 5_992
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:
