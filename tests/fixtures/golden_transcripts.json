@@ -144,9 +144,10 @@
         "1BHK",
         "2BHK",
         "3BHK",
-        "4BHK+"
+        "4BHK",
+        "5BHK+"
       ],
-      "reason": "Flat size the caller asked for. Not one the agent offered, and not one they rejected.",
+      "reason": "Number of bedrooms the caller asked for, as they counted it: 'two BHK' or 'డబుల్ బెడ్ రూమ్' is 2BHK, 'four bedroom' is 4BHK, 'five', 'ఐదు బెడ్ రూమ్స్' or more is 5BHK+. Never round to a nearer size. Not one the agent offered, and not one they rejected.",
       "required": false
     },
     {
@@ -1616,7 +1617,7 @@
       "id": "re_villa_four_bhk_plus",
       "vertical": "real_estate",
       "scenario": 1,
-      "title": "A four-bedroom villa — the enum's top bucket, spoken as words",
+      "title": "A four-bedroom villa — a size spoken as words",
       "transcript": [
         "agent: Namaskaram, idi Skyline Ventures AI assistant. Ee call record avutundi.",
         "caller: Naa peru Prasad. Kokapet lo four bedroom villa kavali.",
@@ -1625,7 +1626,7 @@
       ],
       "expect": {
         "name": "Prasad",
-        "bhk_size": "4BHK+",
+        "bhk_size": "4BHK",
         "preferred_location": "Kokapet",
         "budget_lakhs": 200
       },
@@ -1641,7 +1642,72 @@
         "number_belongs_to"
       ],
       "expect_outcome": "answered",
-      "note": "'Four bedroom' has to land in the 4BHK+ bucket without the string 4BHK ever being said, and 'rendu crore' is 200 lakhs."
+      "note": "'Four bedroom' has to land on 4BHK without the string 4BHK ever being said, and 'rendu crore' is 200 lakhs. The id keeps its old name: until D-887 the list's top value was 4BHK+."
+    },
+    {
+      "id": "re_five_bedrooms_said_in_english",
+      "vertical": "real_estate",
+      "scenario": 1,
+      "title": "\"Five\" to a two-or-three question is 5BHK+, never the 3BHK the agent offered",
+      "transcript": [
+        "agent: Namaskaram andi, nenu Sri Estates nunchi AI assistant ni. Ee call record avutundi.",
+        "caller: Haa cheppandi. Badangpet lo house chustunnanu.",
+        "agent: టూ బీహెచ్కే కావాలా, త్రీ బీహెచ్కే కావాలా అండి?",
+        "caller: Five.",
+        "agent: ఐదు బెడ్ రూమ్స్ అండి, సరే. బడ్జెట్ ఎంత వరకు అనుకుంటున్నారు?",
+        "caller: 45 lakhs."
+      ],
+      "expect": {
+        "bhk_size": "5BHK+",
+        "preferred_location": "Badangpet",
+        "budget_lakhs": 45
+      },
+      "expect_absent": [
+        "name",
+        "timeline",
+        "site_visit_interest",
+        "intent",
+        "party_size",
+        "urgency",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
+      ],
+      "expect_outcome": "answered",
+      "note": "A production call of 25 Oct 2026 (Sri Estates, outbound): the caller said \"Five\", the agent read back ఐదు బెడ్ రూమ్స్, and the lead was saved as 3BHK. Only the agent ever says two or three, so 3BHK is an agent-offered value and a capture_wrong, not a miss."
+    },
+    {
+      "id": "re_five_bedrooms_said_in_telugu",
+      "vertical": "real_estate",
+      "scenario": 1,
+      "title": "\"ఐదు బెడ్ రూమ్స్\" in Telugu letters is 5BHK+",
+      "transcript": [
+        "agent: Namaskaram, idi Skyline Ventures AI assistant. Ee call record avutundi.",
+        "caller: Naa peru Raghu. Kompally lo independent house kavali.",
+        "agent: Enni bedrooms kavali andi?",
+        "caller: ఐదు బెడ్ రూమ్స్ కావాలి అండి.",
+        "agent: Sare andi, noted."
+      ],
+      "expect": {
+        "name": "Raghu",
+        "bhk_size": "5BHK+",
+        "preferred_location": "Kompally"
+      },
+      "expect_absent": [
+        "budget_lakhs",
+        "timeline",
+        "site_visit_interest",
+        "intent",
+        "party_size",
+        "urgency",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to"
+      ],
+      "expect_outcome": "answered",
+      "note": "The Telugu form of the 25 Oct 2026 call. 3BHK or 4BHK here is a count rounded to a neighbouring value, which is the defect."
     },
     {
       "id": "re_budget_refused",

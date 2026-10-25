@@ -2474,25 +2474,37 @@ def _settle_summaries(
     model_summary: str,
     stored_local: str,
     language: str,
-) -> tuple[str, str, str | None]:
-    """`(english, local, source)` before any translation.
+) -> tuple[str, str, str | None, str]:
+    """`(english, local, source, romanised)` before any translation.
 
     PRECEDENCE (founder decision 12): the engine's own summary first. Its language cannot be
-    chosen, so its SCRIPT decides which of the two it is: Latin letters make it the English
-    summary, an Indic script the call-language one. The extraction model's English summary
-    fills the English slot when the engine's is not English. A romanised Telugu summary
-    would read as English here; no engine has been seen to write one.
+    chosen, so its SCRIPT decides which of the two it is: an Indic script makes it the
+    call-language one, Latin letters the English one unless it reads as the call's language
+    romanised (`call_language.reads_as_romanised`). That summary is neither: on 25 Oct 2026
+    "Customer Badangpet lo 5-bedroom house kavali ani..." was shown as the English summary.
+    It is returned as `romanised`, the source the language pass writes both from. The
+    extraction model's English summary fills the English slot when the engine's is not
+    English, under the same test.
     """
     english, local, source = "", stored_local, None
-    if engine_summary and not call_language.has_indic_script(engine_summary):
-        english, source = engine_summary, "engine"
-    elif engine_summary:
+    romanised: tuple[str, str] | None = None
+    if engine_summary and call_language.has_indic_script(engine_summary):
         local = engine_summary
+    elif engine_summary and call_language.reads_as_romanised(engine_summary):
+        romanised = (engine_summary, "engine")
+    elif engine_summary:
+        english, source = engine_summary, "engine"
     if not english and model_summary:
-        english, source = model_summary, "extraction"
+        if not call_language.reads_as_romanised(model_summary):
+            english, source = model_summary, "extraction"
+        elif romanised is None:
+            romanised = (model_summary, "extraction")
     if call_language.is_english(language):
-        local = ""
-    return english, local, source
+        # An English call has nothing to translate into; the words are the only summary.
+        if not english and romanised is not None:
+            english, source = romanised
+        return english, "", source, ""
+    return english, local, source, romanised[0] if romanised is not None and not english else ""
 
 
 async def _record_reading(
@@ -2537,7 +2549,7 @@ async def _record_reading(
     language = call_language.call_language([t[1] for t in turns], agent_language=agent_language)
     answered = extraction is not None and model_answered(extraction)
     model_failed = extraction is not None and not answered
-    english, local, source = _settle_summaries(
+    english, local, source, romanised = _settle_summaries(
         engine_summary=(snapshot.engine_summary or "").strip(),
         model_summary=extraction.summary.strip() if extraction is not None and answered else "",
         stored_local=str(row[1] or ""),
@@ -2555,8 +2567,8 @@ async def _record_reading(
             language=language,
         )
     )
-    want_local = bool(english) and not local and not call_language.is_english(language)
-    want_english = not english and bool(local)
+    want_local = bool(english or romanised) and not local and not call_language.is_english(language)
+    want_english = not english and bool(local or romanised)
     if translation_state in ("pending", "unavailable", "failed"):
         translation_state = "not_needed" if not pending_turns else translation_state
     turns_en: dict[int, str] = {}
@@ -2570,6 +2582,7 @@ async def _record_reading(
                 turns=pending_turns,
                 summary_en=redact(english).text if english else "",
                 summary_local=redact(local).text if local else "",
+                summary_romanised=redact(romanised).text if romanised else "",
             )
             usage = done.usage
             turns_en = call_language.english_lines(pending_turns, done)
@@ -2583,6 +2596,10 @@ async def _record_reading(
             # No provider on this deployment (the offline baseline): nothing translated.
             translation_state = "failed"
 
+    if not english and not local and romanised:
+        # The pass could not write either form (no provider, or it failed): the summary in
+        # Latin letters is still the call's summary, and "nothing was said" would be false.
+        english = romanised
     # `ready` when either summary exists: a call summarised only in its own language still
     # has a summary to read behind the toggle.
     if english or local:
@@ -2593,9 +2610,10 @@ async def _record_reading(
         state = "failed"
     else:
         state = "empty"
-    headline_source = (extraction.headline if extraction is not None and answered else "") or (
-        _first_sentence(english) if english else ""
-    )
+    model_headline = extraction.headline if extraction is not None and answered else ""
+    if call_language.reads_as_romanised(model_headline):
+        model_headline = ""
+    headline_source = model_headline or (_first_sentence(english) if english else "")
     headline = clip_headline(redact(headline_source).text) if headline_source else None
     next_step_text = extraction.next_step if extraction is not None and answered else ""
     next_step = redact(next_step_text).text[:300] if next_step_text else None
@@ -2657,7 +2675,8 @@ _OUTCOME_FACTS_SQL = (
     "            AND s.status <> 'cancelled'), "
     "  (SELECT h.outcome FROM handoff_attempts h WHERE h.source_call_id = c.id "
     "     ORDER BY h.started_at DESC LIMIT 1), "
-    "  ce.outcome_hint, ce.out_of_scope, c.callback_requested, c.status "
+    "  ce.outcome_hint, ce.out_of_scope, c.callback_requested, c.status, "
+    "  COALESCE(btrim(c.next_step), '') <> '' "
     "FROM calls c "
     "LEFT JOIN call_extractions ce ON ce.call_id = c.id AND ce.tenant_id = c.tenant_id "
     "WHERE c.id = :cid AND c.tenant_id = :tid"
@@ -2678,7 +2697,15 @@ async def _record_outcome(
         ).first()
         if row is None:
             return None
-        booked, handoff_outcome, hint, out_of_scope, callback_requested, row_status = row
+        (
+            booked,
+            handoff_outcome,
+            hint,
+            out_of_scope,
+            callback_requested,
+            row_status,
+            next_step_due,
+        ) = row
         outcome = derive_outcome(
             CallFacts(
                 # The row's `completed` wins: the upsert writes it only from a reading
@@ -2692,6 +2719,8 @@ async def _record_outcome(
                 hint=hint_of(hint),
                 callback_requested=bool(callback_requested),
                 out_of_scope=bool(out_of_scope),
+                # Written by STEP 3d (`_record_reading`), which runs first on every path.
+                next_step_due=bool(next_step_due),
             )
         )
         await session.execute(

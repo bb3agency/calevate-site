@@ -114,11 +114,9 @@ export function CallDetailScreen({
   const retryEnglish = useRetryEnglish(session, callId);
   // Its failure is drawn in the transcript card, beside the control that asked.
   useActionFeedback(retryEnglish, { errorDisplay: "inline" });
-  // ONE language for the page: the conversation and the summary both follow it. Chosen once,
-  // when the call first loads (set during render, React's pattern for state derived from a
-  // prop), then left to the reader: English arriving later does not switch it under them.
-  const [view, setView] = useState<CallView | null>(null);
-  if (view === null && call.data) setView(initialView(call.data));
+  // ONE language for the page: the conversation and the summary both follow it. It opens as
+  // spoken and is then left to the reader: English arriving later does not switch it.
+  const [view, setView] = useState<CallView>(initialView);
 
   const rawAccess = useRawTranscriptAccess(session);
   const [showRaw, setShowRaw] = useState(false);
@@ -343,7 +341,7 @@ export function CallDetailScreen({
 
       <CallVerdict
         detail={detail}
-        view={view ?? initialView(detail)}
+        view={view}
         action={
           <FollowUpAction
             eligibility={eligibility}
@@ -372,7 +370,7 @@ export function CallDetailScreen({
           className="lg:col-start-1 lg:row-span-2 lg:row-start-1"
           detail={detail}
           turns={turns}
-          view={view ?? initialView(detail)}
+          view={view}
           onViewChange={setView}
           english={{
             access: englishWrite,

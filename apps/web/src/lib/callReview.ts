@@ -105,10 +105,16 @@ const STATUS_WORDS: Record<string, string> = {
 export function outcomeReason(
   call: Pick<CallDetail, "outcome_tag" | "callback_requested" | "callback" | "summary_state" | "status"> & {
     business_outcome_label?: string | null;
+    next_step?: string | null;
   },
 ): string {
   if (call.outcome_tag === "needs_you" && call.callback_requested && !call.callback) {
     return "The caller asked to be called back, and no call back was booked.";
+  }
+  // A next step is the reason the call needs a person whenever there is one (D-887): "could
+  // not finish" was wrong for a call that agreed a site visit someone has to confirm.
+  if (call.outcome_tag === "needs_you" && call.next_step?.trim()) {
+    return "The call left something for your team to do. The next step is below.";
   }
   const words = lookup(OUTCOME_WORDS, call.outcome_tag);
   if (words) return words.reason;

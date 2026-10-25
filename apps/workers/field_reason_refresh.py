@@ -5,16 +5,17 @@ compiled into the agent's script under "what to collect", so an agent made from 
 set keeps the wording it was made with until something rewrites it. Queued through the
 outbox, one message per account, by the migration that ships a new wording (first:
 `b3d7e2a9c461`, the real-estate budget); the payload carries the old and new text as that
-migration froze them.
+migration froze them. A payload may also carry `old_enum_values` and `new_enum_values`
+(D-887, `c8e2f4a6b913`, the BHK sizes): the choices must then match exactly too, and are
+replaced along with the reason.
 
-Per agent, in one transaction: if the field still has the old reason word for word, a new
-schema version with the new reason (`agents/lead_fields.refresh_field_reason`), then the
-script recompiled and a live agent republished through the one publish path
-(`script_builder.recompile_collect`). A reason anybody edited is left alone. One agent the
-voice platform refuses rolls back its own schema write, so it keeps the old wording, the
-run ends `partial`, and re-queueing the same payload picks it up; the others are not held
-back. A redelivery finds
-nothing left to change.
+Per agent, in one transaction: if the field still has the old reason (and choices) word
+for word, a new schema version with the new ones (`agents/lead_fields.
+refresh_field_reason`), then the script recompiled and a live agent republished through the
+one publish path (`script_builder.recompile_collect`). A field anybody edited is left
+alone. One agent the voice platform refuses rolls back its own schema write, so it keeps
+the old wording, the run ends `partial`, and re-queueing the same payload picks it up; the
+others are not held back. A redelivery finds nothing left to change.
 """
 
 from __future__ import annotations
@@ -45,6 +46,12 @@ async def _agent_ids(tenant_id: UUID) -> list[UUID]:
     return [UUID(str(r[0])) for r in rows]
 
 
+def _choices(payload: dict[str, Any], name: str) -> list[str] | None:
+    """A frozen choice list from the payload; None when this refresh leaves choices alone."""
+    raw = payload.get(name)
+    return None if raw is None else [str(v) for v in raw]
+
+
 async def refresh_field_reason(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
@@ -53,6 +60,8 @@ async def refresh_field_reason(ctx: dict[str, Any], payload: dict[str, Any]) -> 
         str(payload["old_reason"]),
         str(payload["new_reason"]),
     )
+    old_choices = _choices(payload, "old_enum_values")
+    new_choices = _choices(payload, "new_enum_values")
     written = refused = 0
     for agent_id in await _agent_ids(tenant_id):
         try:
@@ -63,6 +72,8 @@ async def refresh_field_reason(ctx: dict[str, Any], payload: dict[str, Any]) -> 
                     key=key,
                     old_reason=old_reason,
                     new_reason=new_reason,
+                    old_enum_values=old_choices,
+                    new_enum_values=new_choices,
                 ):
                     await recompile_collect(session, tenant_id=tenant_id, agent_id=agent_id)
                     written += 1

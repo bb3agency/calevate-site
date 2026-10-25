@@ -410,7 +410,7 @@ used.
 [
  {"key":"budget","label":"Budget","type":"number","reason":"Property budget in lakhs","required":true},
  {"key":"preferred_location","label":"Location","type":"text","reason":"Area/locality the caller wants","required":true},
- {"key":"bhk_size","label":"BHK","type":"enum","enum_values":["1BHK","2BHK","3BHK","4BHK+"],"required":false},
+ {"key":"bhk_size","label":"BHK","type":"enum","enum_values":["1BHK","2BHK","3BHK","4BHK","5BHK+"],"required":false},
  {"key":"timeline","label":"Timeline","type":"text","reason":"When they intend to buy","required":false}
 ]
 ```

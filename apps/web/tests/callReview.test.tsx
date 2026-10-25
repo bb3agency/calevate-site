@@ -146,12 +146,33 @@ describe("the verdict", () => {
         }),
       ),
     );
-    // English is ready, so the page opens in English: summary and lines alike.
-    expect((await screen.findByText(/green chilli is in stock/)).getAttribute("lang")).toBe("en");
-    expect(screen.queryByRole("button", { name: /Read it in/ })).toBeNull();
-    fireEvent.click(screen.getByRole("radio", { name: "Telugu" }));
-    expect(screen.getByText("కాలర్ పచ్చి మిర్చి అడిగారు.").getAttribute("lang")).toBe("te-IN");
+    // English is ready, and the page still opens as the call was spoken (D-887): summary
+    // and lines alike, with English one press away.
+    expect((await screen.findByText("కాలర్ పచ్చి మిర్చి అడిగారు.")).getAttribute("lang")).toBe("te-IN");
     expect(screen.getByText("చిల్లీ ఉందా?").getAttribute("lang")).toBe("te");
+    expect(screen.queryByRole("button", { name: /Read it in/ })).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "English" }));
+    expect(screen.getByText(/green chilli is in stock/).getAttribute("lang")).toBe("en");
+  });
+
+  it("gives the next step as the reason a call needs a person, not a task left unfinished", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          outcome_tag: "needs_you",
+          callback_requested: false,
+          callback: null,
+          next_step: "Confirm the site visit for tomorrow morning.",
+          business_outcome: "ready_to_visit",
+          business_outcome_label: "Ready to visit",
+        }),
+      ),
+    );
+    expect(await screen.findByRole("heading", { name: "Needs you" })).toBeTruthy();
+    expect(screen.getByText("The call left something for your team to do. The next step is below.")).toBeTruthy();
+    expect(screen.queryByText(/could not finish/)).toBeNull();
+    expect(screen.getByText("Confirm the site visit for tomorrow morning.")).toBeTruthy();
   });
 
   it("says the summary is being written while it is, and says so differently when it failed", async () => {
@@ -241,17 +262,20 @@ describe("the conversation", () => {
     );
     expect(screen.getAllByText(/the caller spoke over this/i)).toHaveLength(1);
     // Under the agent's line, not inside it.
-    expect(note.closest("li")?.textContent).toContain("How can I help?");
+    expect(note.closest("li")?.textContent).toContain("ఎలా సహాయం చేయగలను?");
     expect(note.closest("button")).toBeNull();
   });
 
   it("switches every line to English with the one switch, and back", async () => {
     await renderClientPage(page, routes(detail({ translation_state: "ready", transcript: TELUGU })));
-    expect((await screen.findByText("Do you have chilli?")).getAttribute("lang")).toBe("en");
+    // Opens as spoken even with English ready (D-887).
+    expect(await screen.findByText("చిల్లీ ఉందా?")).toBeTruthy();
+    expect(screen.queryByText("Do you have chilli?")).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "English" }));
+    expect(screen.getByText("Do you have chilli?").getAttribute("lang")).toBe("en");
     expect(screen.queryByText("చిల్లీ ఉందా?")).toBeNull();
     fireEvent.click(screen.getByRole("radio", { name: "Telugu" }));
     expect(screen.getByText("చిల్లీ ఉందా?")).toBeTruthy();
-    expect(screen.queryByText("Do you have chilli?")).toBeNull();
   });
 
   it("always offers the switch, and says English is being prepared while it is", async () => {

@@ -220,7 +220,7 @@ class _Fabricates:
         "number_belongs_to": "third_party",
         "budget_lakhs": 500,
         "preferred_location": "Banjara Hills",
-        "bhk_size": "4BHK+",
+        "bhk_size": "5BHK+",
         "timeline": "next year",
         "site_visit_interest": True,
         # Added when the date type gained golden coverage (D-480): a fabricated ISO

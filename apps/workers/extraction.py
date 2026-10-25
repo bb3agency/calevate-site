@@ -1019,7 +1019,7 @@ def _word_pattern(phrase: str) -> re.Pattern[str]:
 
     Word boundaries, not substrings: substring matching made the enum value `other`
     match inside "brother" and `caller` match the speaker prefix on every line. `\\b`
-    is avoided because enum values legitimately end in punctuation ("4BHK+"), where it
+    is avoided because enum values legitimately end in punctuation ("5BHK+"), where it
     would flip meaning; the explicit lookarounds do not.
     """
     words = phrase.split()

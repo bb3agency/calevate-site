@@ -216,10 +216,18 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "key": "bhk_size",
             "label": "BHK",
             "type": "enum",
-            "enum_values": ["1BHK", "2BHK", "3BHK", "4BHK+"],
+            # One value per bedroom count up to five. With "4BHK+" as the top value, a
+            # caller who said "Five" (and heard "ఐదు బెడ్ రూమ్స్" read back) was saved as
+            # 3BHK on a production call of 25 Oct 2026: a count the list does not name
+            # was mapped to a neighbouring value instead of to the open bucket. So every
+            # size up to five is its own value and the reason maps the spoken count.
+            # Migration c8e2f4a6b913 moves agents still holding the previous field.
+            "enum_values": ["1BHK", "2BHK", "3BHK", "4BHK", "5BHK+"],
             "reason": (
-                "Flat size the caller asked for. Not one the agent offered, and not "
-                "one they rejected."
+                "Number of bedrooms the caller asked for, as they counted it: 'two "
+                "BHK' or 'డబుల్ బెడ్ రూమ్' is 2BHK, 'four bedroom' is 4BHK, 'five', "
+                "'ఐదు బెడ్ రూమ్స్' or more is 5BHK+. Never round to a nearer size. "
+                "Not one the agent offered, and not one they rejected."
             ),
             "required": False,
         },

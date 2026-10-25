@@ -34,8 +34,7 @@ export function TestCallTranscript({ callId }: { callId: string }) {
   const retryEnglish = useRetryEnglish(session, callId);
   // `TranscriptCard` shows the failure beside its retry control, so it is not toasted.
   const retryFeedback = useActionFeedback(retryEnglish, { errorDisplay: "inline" });
-  const [view, setView] = useState<CallView | null>(null);
-  if (view === null && detail.data) setView(initialView(detail.data));
+  const [view, setView] = useState<CallView>(initialView);
 
   if (detail.isPending) return <Skeleton rows={3} label="Getting your test call" />;
   if (detail.isError) return <ProblemNotice error={detail.error} onRetry={() => void detail.refetch()} />;
@@ -54,7 +53,7 @@ export function TestCallTranscript({ callId }: { callId: string }) {
       <TranscriptCard
         detail={detail.data}
         turns={turns}
-        view={view ?? initialView(detail.data)}
+        view={view}
         onViewChange={setView}
         english={{
           access: englishWrite,

@@ -88,6 +88,46 @@ def is_english(tag: str | None) -> bool:
     return bool(tag) and str(tag).lower().startswith("en")
 
 
+#: English function words: any English sentence of a summary's length carries several.
+_ENGLISH_WORDS: Final = frozenset((
+    "a", "an", "the", "to", "of", "and", "or", "but", "is", "are", "was", "were", "be",
+    "been", "has", "have", "had", "will", "would", "can", "could", "for", "in", "on", "at",
+    "by", "with", "from", "about", "after", "before", "that", "this", "it", "he", "she",
+    "they", "them", "their", "his", "her", "who", "which", "what", "when", "if", "so",
+    "not", "no", "as",
+))  # fmt: skip
+#: Telugu and Hindi grammar words as STT and models romanise them. None is an English word,
+#: and nouns are left out on purpose: a code-mixed Indian summary is mostly English nouns.
+_ROMANISED_WORDS: Final = frozenset((
+    # Telugu
+    "ani", "annaru", "annadu", "andi", "undi", "unnaru", "unnadu", "kavali", "kaavali",
+    "chepparu", "cheppadu", "cheppindi", "cheppaaru", "adigaru", "adigadu", "ledu", "kaadu",
+    "vaddu", "ki", "ku", "lo", "tho", "nunchi", "kosam", "garu", "chesaru", "cheyali",
+    "vachi", "vacharu", "ayindi", "avutundi", "kuda", "inka",
+    # Hindi
+    "hai", "hain", "tha", "thi", "ke", "ka", "ko", "mein", "se", "aur", "bhi", "nahi",
+    "chahiye", "chahte", "bola", "kaha", "raha", "rahe",
+))  # fmt: skip
+
+
+def reads_as_romanised(text: str) -> bool:
+    """Is this Latin-letter text an Indian language rather than English?
+
+    A summary has only two scripts to tell it apart by, and a romanised Telugu one ("Customer
+    Badangpet lo 5-bedroom house kavali ani, budget 45 lakhs undi ani chepparu", production,
+    25 Oct 2026) is all Latin letters. Grammar words decide it: English ones are in every
+    English sentence and absent from romanised Telugu or Hindi, whose own grammar words are
+    absent from English. Two of theirs outnumbering ours is the call; one stray "kavali"
+    quoted inside an English summary is not.
+    """
+    if has_indic_script(text):
+        return False
+    words = [w.strip(".,;:!?'\"()").casefold() for w in text.split()]
+    english = sum(1 for w in words if w in _ENGLISH_WORDS)
+    romanised = sum(1 for w in words if w in _ROMANISED_WORDS)
+    return romanised >= 2 and romanised > english
+
+
 def call_language(texts: Sequence[str], *, agent_language: str) -> str:
     """The call's language as a BCP-47 tag: the script most of the words were written in,
     or the agent's own language when the transcript is all Latin letters (English, or an
@@ -136,13 +176,23 @@ class LanguagePass:
     failed: bool = False
 
 
+def _script_words(language: str, tag: str) -> str:
+    """How the call-language summary must be written: in the language's own script, named
+    by its endonym, because "natural spoken Telugu" alone came back in Latin letters."""
+    found = find_language(tag)
+    endonym = f" ({found.endonym})" if found is not None and found.endonym else ""
+    return f"in the {language} script{endonym}, never in Latin letters"
+
+
 def _prompt(
     *,
     language: str,
+    tag: str,
     turns: Sequence[tuple[int, str]],
     summary_en: str,
     summary_local: str,
     want_summaries: bool,
+    summary_romanised: str = "",
 ) -> str:
     lines = "\n".join(
         json.dumps({"i": idx, "text": text}, ensure_ascii=False) for idx, text in turns
@@ -153,17 +203,23 @@ def _prompt(
         "Keep every bracketed placeholder exactly as written. If a "
         "line is already entirely English, return it unchanged."
     ]
-    if want_summaries and summary_en and not summary_local:
+    # A romanised summary is the source only when neither real one exists, and then both
+    # are written from it.
+    romanised = summary_romanised if not (summary_en or summary_local) else ""
+    if want_summaries and (summary_en or romanised) and not summary_local:
         asks.append(
-            f'"summary_local": the English summary below, written in natural spoken '
-            f"{language} the way a person in India would say it, mixing in English words "
-            "people actually use. Same facts, nothing added."
+            f'"summary_local": the summary below, written in natural spoken {language} the '
+            "way a person in India would say it, mixing in English words people actually "
+            f"use, {_script_words(language, tag)}. Same facts, nothing added."
         )
-    if want_summaries and summary_local and not summary_en:
-        asks.append('"summary_en": the summary below, in plain English. Same facts, nothing added.')
+    if want_summaries and (summary_local or romanised) and not summary_en:
+        asks.append(
+            '"summary_en": the summary below, in plain English: English words and English '
+            "grammar. Same facts, nothing added."
+        )
     summary_block = ""
-    if want_summaries and (summary_en or summary_local):
-        summary_block = f"\nSummary:\n{summary_en or summary_local}\n"
+    if want_summaries and (summary_en or summary_local or romanised):
+        summary_block = f"\nSummary:\n{summary_en or summary_local or romanised}\n"
     return (
         f"You are translating a phone call from {language} into English for a business owner."
         "\nReturn ONLY a JSON object with these keys:\n- "
@@ -185,10 +241,15 @@ async def run_language_pass(
     turns: Sequence[tuple[int, str]],
     summary_en: str,
     summary_local: str,
+    summary_romanised: str = "",
 ) -> LanguagePass:
     """Translate `turns` (idx, REDACTED text) into English and fill whichever summary is
-    missing. A provider failure returns `failed=True` with whatever earlier chunks
-    produced; it never raises, because nothing here may cost the call its pipeline."""
+    missing; with only `summary_romanised` (the call's language in Latin letters, which is
+    neither), both are written from it. A summary that comes back in the wrong form is
+    dropped rather than stored as the other: an English one that `reads_as_romanised`, or a
+    call-language one in Latin letters where the language has its own script. A provider
+    failure returns `failed=True` with whatever earlier chunks produced; it never raises,
+    because nothing here may cost the call its pipeline."""
     result = LanguagePass()
     leg = chat.ChatLeg(
         url=SARVAM_CHAT_URL, api_key=api_key, wire_model=SARVAM_DEFAULT_LLM, dialect="sarvam"
@@ -214,10 +275,12 @@ async def run_language_pass(
                     continue
                 prompt = _prompt(
                     language=name,
+                    tag=language,
                     turns=chunk,
                     summary_en=summary_en,
                     summary_local=summary_local,
                     want_summaries=want_summaries,
+                    summary_romanised=summary_romanised,
                 )
                 try:
                     outcome = await chat.complete(
@@ -262,8 +325,13 @@ async def run_language_pass(
                     if isinstance(idx, int) and idx in wanted and english:
                         result.turns_en[idx] = english
                 if want_summaries:
-                    result.summary_local = _clean(body.get("summary_local"))
-                    result.summary_en = _clean(body.get("summary_en"))
+                    local = _clean(body.get("summary_local"))
+                    english = _clean(body.get("summary_en"))
+                    own_script = _script_tag_of_language(language) is not None
+                    result.summary_local = (
+                        local if not own_script or has_indic_script(local) else ""
+                    )
+                    result.summary_en = "" if reads_as_romanised(english) else english
     except TimeoutError:
         # Over budget: what the answered chunks gave is kept, and the call is left `failed`
         # for `call_translation`'s retry sweep rather than costing the rest of the pipeline.
@@ -312,6 +380,7 @@ __all__ = [
     "has_indic_script",
     "is_english",
     "language_name",
+    "reads_as_romanised",
     "run_language_pass",
     "untranslated_turns",
 ]

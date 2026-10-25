@@ -298,15 +298,25 @@ async def replace_business_fields(
 
 
 async def refresh_field_reason(
-    session: AsyncSession, *, agent_id: UUID, key: str, old_reason: str, new_reason: str
+    session: AsyncSession,
+    *,
+    agent_id: UUID,
+    key: str,
+    old_reason: str,
+    new_reason: str,
+    old_enum_values: list[str] | None = None,
+    new_enum_values: list[str] | None = None,
 ) -> bool:
     """Give one agent a template field's new wording, if it still has the old one verbatim.
 
     For a standard set whose wording we improved after agents were made from it: matching
     the whole old reason, not the key alone, is what leaves a reason the owner rewrote
-    untouched. The fields are read under the agent's row lock, so an edit saved meanwhile
-    is the list this compares against rather than one it overwrites. A new schema version,
-    like every other write. Returns whether one was written.
+    untouched. With `old_enum_values` the field's choices must also be exactly those, in
+    that order, and are replaced by `new_enum_values` (D-887, the BHK sizes): an owner who
+    added or renamed a choice keeps their list. The fields are read under the agent's row
+    lock, so an edit saved meanwhile is the list this compares against rather than one it
+    overwrites. A new schema version, like every other write. Returns whether one was
+    written.
     """
     row = (
         await session.execute(
@@ -319,14 +329,20 @@ async def refresh_field_reason(
         )
     ).first()
     fields = business_only(row[0] or []) if row is not None else []
-    if not any(f.key == key and f.reason == old_reason for f in fields):
+
+    def _matches(field: ExtractionField) -> bool:
+        return (
+            field.key == key
+            and field.reason == old_reason
+            and (old_enum_values is None or field.enum_values == old_enum_values)
+        )
+
+    if not any(_matches(f) for f in fields):
         return False
-    updated = [
-        f.model_copy(update={"reason": new_reason})
-        if f.key == key and f.reason == old_reason
-        else f
-        for f in fields
-    ]
+    change: dict[str, Any] = {"reason": new_reason}
+    if new_enum_values is not None:
+        change["enum_values"] = new_enum_values
+    updated = [f.model_copy(update=change) if _matches(f) else f for f in fields]
     validate_fields(updated)
     return (await write_schema(session, agent_id=agent_id, fields=updated)).changed
 

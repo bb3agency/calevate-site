@@ -16,8 +16,10 @@ derived here, AFTER extraction, from things the platform holds:
    caller asked for a call back nobody booked,
    or asked about something the agent could not
    handle                                       -> `needs_you`
-7. the model read the conversation              -> its own hint
-8. otherwise                                    -> None (unknown)
+7. the model read `answered` but wrote a next
+   step for the business                        -> `needs_you`
+8. the model read the conversation              -> its own hint
+9. otherwise                                    -> None (unknown)
 
 Unknown happens when no model reading was stored: the provider failed (`errors._model`, which
 `workers/extraction_reread` reads again up to three times within a day of the call, D-841)
@@ -82,6 +84,9 @@ class CallFacts:
     hint: OutcomeHint | None
     callback_requested: bool
     out_of_scope: bool
+    #: The reading wrote a next step for the business (`calls.next_step`). The prompt asks
+    #: for "" when nothing is needed, so a step written is something left to do.
+    next_step_due: bool = False
 
 
 def derive_outcome(facts: CallFacts) -> OutcomeTag | None:
@@ -102,6 +107,12 @@ def derive_outcome(facts: CallFacts) -> OutcomeTag | None:
     # `transferred` from the model alone is not a fact we hold: no hand-over row says a
     # person picked up, so the caller is still owed one.
     if facts.hint == "transferred":
+        return "needs_you"
+    # `answered` means nothing is left open, and the same reading naming a next step says
+    # something is. The two cannot both be true, and the costly error is the one that tells
+    # an owner nothing is due: a call that agreed a site visit read "Answered, no follow-up
+    # is due" beside "Next step: confirm the site visit" (25 Oct 2026, D-887).
+    if facts.hint == "answered" and facts.next_step_due:
         return "needs_you"
     return facts.hint
 

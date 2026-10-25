@@ -650,6 +650,9 @@ Also include:
   e.g. "Asked if chilli is in stock; wants a call back today".
 - "next_step": one short English sentence saying what the business should do next, or ""
   when nothing is needed.
+- summary, headline and next_step are English words in English grammar whatever language
+  the call was in. The call's language written in Latin letters is not English: "house
+  kavali ani chepparu" must be "They said they want a house".
 - "sentiment": one of positive, neutral, negative.
 - "outcome_tag": exactly one of:
     needs_you      the caller needs a person from the business: they asked for one, asked
@@ -752,7 +755,9 @@ def _business_outcome_section(outcomes: Sequence[BusinessOutcome]) -> str:
     )
     return (
         '- "business_outcome": the key of the ONE line below that best says what the call came\n'
-        "  to for the business, judged from what the CALLER said; null when none fits:\n"
+        "  to for the business, judged from what the CALLER said; null when none fits. Choose\n"
+        "  it whatever outcome_tag says: a caller who agreed to a visit is still one even when\n"
+        "  the business has to confirm it:\n"
         f"{rows}\n"
     )
 

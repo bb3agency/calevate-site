@@ -161,7 +161,7 @@ async def test_the_headline_is_one_line_of_at_most_ninety_characters() -> None:
 
 
 def test_the_engine_summary_comes_first_and_its_script_says_which_one_it_is() -> None:
-    english, local, source = _settle_summaries(
+    english, local, source, _ = _settle_summaries(
         engine_summary="Caller asked about chilli; call back booked.",
         model_summary="Model words.",
         stored_local="",
@@ -173,7 +173,7 @@ def test_the_engine_summary_comes_first_and_its_script_says_which_one_it_is() ->
         "engine",
     )
 
-    english, local, source = _settle_summaries(
+    english, local, source, _ = _settle_summaries(
         engine_summary=TELUGU_SUMMARY,
         model_summary="Asked about chilli.",
         stored_local="",
@@ -182,7 +182,7 @@ def test_the_engine_summary_comes_first_and_its_script_says_which_one_it_is() ->
     assert (english, local, source) == ("Asked about chilli.", TELUGU_SUMMARY, "extraction")
 
     # An English call has one summary.
-    _, local, _ = _settle_summaries(
+    _, local, _, _ = _settle_summaries(
         engine_summary=TELUGU_SUMMARY, model_summary="", stored_local="", language="en-IN"
     )
     assert local == ""

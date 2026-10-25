@@ -14,7 +14,7 @@ import {
   formatPhone,
   type NoticeTone,
 } from "@/components/ui";
-import { callResultWords, outcomeWords } from "@/lib/callReview";
+import { callOutcome, outcomeWords } from "@/lib/callReview";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { testCallIsLive, useTestCall, type TestCall } from "@/lib/api/trialCalls";
 import { lookup } from "@/lib/lookup";
@@ -217,7 +217,7 @@ export function EarlierTestCalls({ calls }: { calls: TestCall[] }) {
               <span className="block text-meta text-ink-muted">{formatIST(call.placed_at)}</span>
             </div>
             <span className="text-right text-ink">
-              {testCallIsLive(call) ? testCallState(call.status).label : callResultWords(call)}
+              {testCallIsLive(call) ? testCallState(call.status).label : callOutcome(call).words}
             </span>
             <span className="font-mono tabular-nums text-ink-muted">{formatDuration(call.duration_s)}</span>
             <Link

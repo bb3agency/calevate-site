@@ -90,6 +90,12 @@
     "re_callback_time_only_property": [
       "capture_miss"
     ],
+    "re_five_bedrooms_said_in_english": [
+      "capture_miss"
+    ],
+    "re_five_bedrooms_said_in_telugu": [
+      "capture_miss"
+    ],
     "re_hindi_buyer_kukatpally": [
       "capture_miss"
     ],
