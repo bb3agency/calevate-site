@@ -11,6 +11,9 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { needsReauthentication } from "@/lib/authn/problems";
+import { withActionCode } from "@/lib/authn/stepUpPrompt";
+
 import { adminSession, confirmedAdminRequest, RECONCILE_PAYMENTS_CONFIRMATION } from "./admin";
 import { apiRequest, apiUpload } from "./client";
 import type { components } from "./schema";
@@ -79,10 +82,10 @@ export function useAcceptDispute() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (disputeId: string) =>
-      apiRequest<Schemas["DisputeActionOut"]>(
-        adminSession(),
+      confirmedAdminRequest<Schemas["DisputeActionOut"]>(
         `${BASE}/disputes/${encodeURIComponent(disputeId)}/accept`,
         { method: "POST", confirmAction: disputeConfirmation(disputeId, "accept") },
+        "Accepting this dispute and refunding the customer.",
       ),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["admin-payments", "disputes"] }),
   });
@@ -106,11 +109,20 @@ export function useContestDispute() {
       form.append("evidence_kind", draft.evidenceKind);
       if (draft.amountInr.trim()) form.append("amount_inr", draft.amountInr.trim());
       for (const file of draft.files) form.append("files", file);
-      return apiUpload<Schemas["DisputeActionOut"]>(
-        adminSession(),
-        `${BASE}/disputes/${encodeURIComponent(draft.disputeId)}/contest`,
-        form,
-        { confirmAction: disputeConfirmation(draft.disputeId, "contest") },
+      // The upload is retried with the same body after a code: the gate refuses before
+      // it acts on the files, so the first attempt sent nothing to the bank.
+      const confirmAction = disputeConfirmation(draft.disputeId, "contest");
+      return withActionCode(
+        confirmAction,
+        "Sending this dispute's evidence to the bank.",
+        () =>
+          apiUpload<Schemas["DisputeActionOut"]>(
+            adminSession(),
+            `${BASE}/disputes/${encodeURIComponent(draft.disputeId)}/contest`,
+            form,
+            { confirmAction },
+          ),
+        needsReauthentication,
       );
     },
     onSuccess: () => void client.invalidateQueries({ queryKey: ["admin-payments", "disputes"] }),

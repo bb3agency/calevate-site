@@ -1,6 +1,7 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { StepUpPrompt } from "@/components/authn/stepUpPrompt";
 import { PaymentsScreen } from "@/app/admin/payments/PaymentsScreen";
 import { AutoRechargePanel } from "@/app/c/[slug]/billing/AutoRechargePanel";
 import { refundConfirmationHeader } from "@/lib/api/refunds";
@@ -188,6 +189,74 @@ describe("payments page", () => {
     expect(screen.queryByRole("button", { name: "Remove proof-6.pdf" })).toBeNull();
     expect(screen.getByText("5 of 5 files chosen. Remove one to add another.")).toBeTruthy();
     expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
+  it("asks for a code when accepting a dispute needs a fresh second factor, then retries", async () => {
+    const acceptPath = "/v1/admin/payments/disputes/disp_1/accept";
+    let refuse = true;
+    const { calls } = renderAdminPage(
+      <>
+        <StepUpPrompt />
+        <PaymentsScreen />
+      </>,
+      {
+        "/v1/admin/me": {
+          user_id: "admin-1",
+          realm: "admin",
+          role: "superadmin",
+          permissions: ["org:read", "admin:tenants"],
+          impersonating: false,
+        },
+        "/v1/admin/payments/status": STATUS,
+        "/v1/admin/payments/disputes?limit=200&include_closed=false": [
+          {
+            tenant_id: "t1",
+            tenant_name: "Sri Clinic",
+            dispute_id: "disp_1",
+            payment_id: "pay_1",
+            amount_inr: "390.00",
+            hold_inr: "390.00",
+            status: "open",
+            phase: "chargeback",
+            reason_code: "chargeback",
+            respond_by: "2026-10-20T00:00:00Z",
+            action_required: false,
+            created_at: "2026-10-09T00:00:00Z",
+          },
+        ],
+        [`POST ${acceptPath}`]: () =>
+          refuse
+            ? problem(403, {
+                type: "https://calevate.tech/problems/reauthentication_required",
+                title: "Confirm it is still you",
+                detail: "This action needs a second factor proved in the last 30 minutes.",
+                kind: "permission",
+              })
+            : { dispute_id: "disp_1", status: "lost" },
+        "POST /v1/auth/admin/step-up": {},
+        "POST /v1/auth/admin/step-up/verify": {
+          realm: "admin",
+          subject_id: "admin-1",
+          mfa_complete: true,
+          email_verified: true,
+        },
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Accept \(refunds the customer/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Accept and refund" }));
+    expect(await screen.findByText(/Accepting this dispute and refunding the customer/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /email me a code/i }));
+    await waitFor(() => {
+      expect(calls.some((call) => call.path === "/v1/auth/admin/step-up")).toBe(true);
+    });
+    refuse = false;
+    fireEvent.change(screen.getByLabelText(/six-digit code/i), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /^confirm$/i }));
+    await waitFor(() => {
+      expect(calls.filter((call) => call.path === acceptPath)).toHaveLength(2);
+    });
+    const sent = calls.filter((call) => call.path === acceptPath);
+    expect(sent[1]?.headers["X-Confirm-Action"]).toBe("dispute_accept:disp_1");
   });
 
   it("binds each step-up confirmation to its payment or dispute", () => {
