@@ -21843,6 +21843,21 @@
         "additionalProperties": false,
         "description": "Credit the founder is GIVING this client, out of nothing (D-535).\n\nThe founder: *\"the admin should be able to add any no.of credits without any payments\nrecord to any client but it is audited\"*. Neither of the two writes above can do it \u2014\n`/adjustments` must name a wrong entry and is bounded by that entry's magnitude, and\n`POST .../credits` would put a payment reference on the ledger for a bank transfer that\nnever happened.",
         "properties": {
+          "amount_confirmation": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,11}0*$)\\d{0,8}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Confirmation"
+          },
           "amount_inr": {
             "anyOf": [
               {
@@ -29335,6 +29350,66 @@
         "title": "MaintenanceWindowOut",
         "type": "object"
       },
+      "MakePaidIn": {
+        "additionalProperties": false,
+        "properties": {
+          "grant": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GrantIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "MakePaidIn",
+        "type": "object"
+      },
+      "MakePaidOut": {
+        "additionalProperties": false,
+        "properties": {
+          "grant": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GrantOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/PaidStatusOut"
+          },
+          "trial_converted": {
+            "title": "Trial Converted",
+            "type": "boolean"
+          },
+          "workspace_queued": {
+            "title": "Workspace Queued",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "trial_converted",
+          "workspace_queued",
+          "grant"
+        ],
+        "title": "MakePaidOut",
+        "type": "object"
+      },
       "MandateCheckoutOut": {
         "additionalProperties": false,
         "properties": {
@@ -32428,6 +32503,73 @@
           "email_set"
         ],
         "title": "PagingOut",
+        "type": "object"
+      },
+      "PaidStatusOut": {
+        "additionalProperties": false,
+        "properties": {
+          "paid": {
+            "title": "Paid",
+            "type": "boolean"
+          },
+          "paid_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid At"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "trial": {
+            "enum": [
+              "running",
+              "ended",
+              "none"
+            ],
+            "title": "Trial",
+            "type": "string"
+          },
+          "via": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Via"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "paid",
+          "paid_at",
+          "via",
+          "reason",
+          "trial"
+        ],
+        "title": "PaidStatusOut",
         "type": "object"
       },
       "ParamIn": {
@@ -58758,7 +58900,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/credits/grants": {
       "post": {
-        "description": "Puts goodwill credit on a client's wallet with no payment behind it. It is NOT a top-up (no bank moved money) and NOT an adjustment (it corrects no entry), so it lands under its own ledger reason and every statement reports it separately from credit the client bought. Requires the header `X-Confirm-Action: grant_credits:<amount_inr to two decimals>` on every call, and one grant is capped so a mistyped figure is refused rather than posted. Sending the same `grant_ref` again returns the existing entry and moves nothing; the same reference with a different amount is a conflict.",
+        "description": "Puts credit on a client's wallet with no payment behind it. It is NOT a top-up (no bank moved money) and NOT an adjustment (it corrects no entry), so it lands under its own ledger reason and every statement reports it separately from credit the client bought. A super admin only. Requires `X-Confirm-Action: grant_credits:<amount_inr to two decimals>` on every call, and above \u20b950,000 the body's `amount_confirmation` must repeat the amount. The client is told (email and a dashboard notice) and every super admin is emailed. Sending the same `grant_ref` again returns the existing entry and moves nothing; the same reference with a different amount is a conflict.",
         "operationId": "grant_credits_v1_admin_tenants__tenant_id__credits_grants_post",
         "parameters": [
           {
@@ -58816,11 +58958,11 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Grant credit out of nothing \u2014 no payment, audited, shown separately from paid",
+        "summary": "Grant credit out of nothing (super admin) \u2014 no payment, audited, shown separately",
         "tags": [
           "admin"
         ],
-        "x-calevate-permission": "admin:tenants"
+        "x-calevate-permission": "billing:comp"
       }
     },
     "/v1/admin/tenants/{tenant_id}/credits/restatements": {
@@ -60658,6 +60800,111 @@
           "admin"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/paid": {
+      "get": {
+        "operationId": "get_paid_status_v1_admin_tenants__tenant_id__paid_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaidStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether a client's account is paid, since when, and how",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:read"
+      },
+      "post": {
+        "description": "Moves the account from the free trial to a paid account from any state: a running trial is converted, an ended one keeps its data, an account with none simply becomes paid. Unlocks what a first payment unlocks; recorded as complimentary, never as a payment. Optionally adds credit in the same step. Requires `X-Confirm-Action: convert_to_paid:<tenant_id>:<grant amount to two decimals, or 0.00>`. The client is told and every super admin is emailed. 409 when the account is already paid.",
+        "operationId": "make_paid_v1_admin_tenants__tenant_id__paid_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MakePaidIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MakePaidOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Make a client's account paid without a payment (super admin)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:comp"
       }
     },
     "/v1/admin/tenants/{tenant_id}/platform-fee": {

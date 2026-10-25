@@ -15,6 +15,7 @@ import {
   type Payment,
 } from "@/lib/api/credits";
 import { refundsPath, type RefundResult } from "@/lib/api/refunds";
+import { paidPath } from "@/lib/api/paidStatus";
 import { trialPath } from "@/lib/api/trials";
 
 import { expectNoA11yViolations } from "./a11y";
@@ -80,6 +81,12 @@ function tenant(): TenantSummary {
 const ME: AdminMe = {
   realm: "admin",
   user_id: "0192f0aa-5555-7000-8000-0000000000f2",
+  role: "superadmin",
+  permissions: ["org:read", "billing:read", "admin:tenants", "billing:comp"],
+};
+
+const OPERATOR: AdminMe = {
+  ...ME,
   role: "operator",
   permissions: ["org:read", "billing:read", "admin:tenants"],
 };
@@ -159,6 +166,14 @@ function render(routes: Partial<Routes> = {}) {
     [ADMIN_ME_PATH]: ME,
     [CREDITS_READ]: credits(),
     [trialPath(TENANT)]: null,
+    [paidPath(TENANT)]: {
+      tenant_id: TENANT,
+      paid: true,
+      paid_at: "2026-09-12T05:30:00Z",
+      via: "wallet_topup",
+      reason: null,
+      trial: "none",
+    },
     ...routes,
   });
 }
@@ -410,6 +425,8 @@ describe("granting credit out of nothing", () => {
     const post = calls.find((c) => c.method === "POST" && c.path === GRANT_PATH);
     const body = JSON.parse(post?.body ?? "{}");
     expect(body.amount_inr).toBe("5000");
+    // The re-typed figure travels too; above ₹50,000 the server checks it (D-890).
+    expect(body.amount_confirmation).toBe("5000.00");
     expect(body.reason).toBe("apology for the outage on 14 Sep");
     // Minted by the console, one per opened form: a second CLICK converges on it, a
     // second DECISION does not. Two genuine ₹5,000 gifts two months apart are ordinary.
@@ -442,15 +459,14 @@ describe("granting credit out of nothing", () => {
 
     await fillGrant();
     fireEvent.change(screen.getByLabelText("How much to give"), {
-      target: { value: "500000" },
+      target: { value: "20000000" },
     });
 
-    await waitFor(() => {
-      expect(document.body.textContent).toContain("A grant is between ₹1.00 and ₹50000.00");
-    });
-    // The route's own ordering: the ceiling first, so a typo is not sent to fix a header
+    // The route's own ordering: the limit first, so a typo is not sent to fix a header
     // and re-submitted unchanged.
-    expect(document.body.textContent).toContain("grant it in parts");
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("A grant is between ₹1.00 and ₹10000000.00");
+    });
     expect(button(GRANT_SUBMIT).disabled).toBe(true);
     fireEvent.click(button(GRANT_SUBMIT));
     expect(calls.some((c) => c.method === "POST" && c.path === GRANT_PATH)).toBe(false);
@@ -491,6 +507,19 @@ describe("granting credit out of nothing", () => {
     await screen.findByText("Give this client credit");
     expect(document.body.textContent).toContain("no payment behind it");
     expect(document.body.textContent).toContain("reports it separately");
+  });
+
+  it("is a super admin's act: an operator who may record payments may not give credit", async () => {
+    const { calls } = await render({
+      [ADMIN_ME_PATH]: OPERATOR,
+      [`POST ${GRANT_PATH}`]: grantResult(),
+    });
+
+    await openAct("Give this client credit");
+    expect(await screen.findByText(/give a client credit/)).toBeDefined();
+    expect(button(GRANT_SUBMIT).disabled).toBe(true);
+    fireEvent.click(button(GRANT_SUBMIT));
+    expect(calls.some((c) => c.method === "POST" && c.path === GRANT_PATH)).toBe(false);
   });
 
   it("disables both controls, with their reasons, for a session that may not write", async () => {

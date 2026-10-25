@@ -127,8 +127,8 @@ it. Each is a departure from, or a deliberate copy of, the adjustment above.
   machine-readable copy of it. Every numeric ceiling on offer is invented: it would
   refuse the very failure this route exists for (a ₹500-for-₹500,000 decimal slip is the
   commonest under-credit there is) while stopping nobody, since the same operator can
-  already credit any amount at all through `POST .../credits` under a fresh reference,
-  with no step-up. Applying `MIN/MAX_TOPUP_INR` was considered and rejected on the same
+  already credit any amount at all through `POST .../credits` under a fresh reference.
+  Applying `MIN/MAX_TOPUP_INR` was considered and rejected on the same
   ground plus a second: `record_topup` does not apply them either, and two ways of
   bounding one act is the drift this repo treats as a defect. What IS bounded: the route
   can only name a reference ALREADY on this wallet (it cannot invent a payment), it can

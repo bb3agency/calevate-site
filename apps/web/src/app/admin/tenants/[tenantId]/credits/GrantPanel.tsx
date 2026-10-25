@@ -13,9 +13,10 @@ import {
 } from "@/components/ui";
 import { useAdminAccess } from "@/app/admin/access";
 import {
-  MAX_GRANT_INR,
+  LARGE_GRANT_INR,
   MIN_GRANT_INR,
   grantAmountProblem,
+  isLargeGrant,
   grantCeilingProblem,
   mintGrantRef,
   toTwoDecimals,
@@ -37,6 +38,12 @@ import { Field, describedBy } from "./fields";
  * any payments record to any client but it is audited"*) could only be performed by hand
  * against production.
  *
+ * ## A SUPER ADMIN'S ACT, AND EVERY ONE IS TOLD (D-890)
+ *
+ * `billing:comp` is held by super admins alone. Each grant emails every super admin and
+ * tells the client (email and a dashboard notice), so a gift nobody else would see is
+ * seen by the people who would have approved it.
+ *
  * ## IT IS NOT A PAYMENT, AND THE SCREEN NEVER LETS THE TWO BLUR
  *
  * That is the founder's own guardrail and it is why this is its own panel rather than a
@@ -51,17 +58,11 @@ import { Field, describedBy } from "./fields";
  *
  * The route's rule, not this screen's: `grant_credits` requires
  * `X-Confirm-Action: grant_credits:<amount to 2dp>` unconditionally. The direction is one
- * way, nothing bounds it but `MAX_GRANT_INR`, and it moves money towards the party who
- * will never report an error in their favour — so the danger scales with the NUMBER and
- * the confirmation carries it. A header captured while granting ₹5,000 cannot be replayed
- * to grant ₹50,000, and an operator who changes the figure has to key it twice.
- *
- * It is also standing in for a control we do not have. The accounting standard for
- * issuing credit out of nothing is segregation of duties; the founder is the only holder
- * of `admin:tenants` today and waived a second approver, so the gap is real and recorded
- * (`credit_routes.credit_grant_confirmation` carries the sources). What is left is the
- * ceiling, the reason, the re-keying and the audit row — and this panel is where three of
- * those four meet a human.
+ * way, has no business ceiling (D-890), and moves money towards the party who will never
+ * report an error in their favour — so the danger scales with the NUMBER and the
+ * confirmation carries it. A header captured while granting ₹5,000 cannot be replayed to
+ * grant ₹50,000, and the re-typed figure goes in the body too: above ₹50,000 the server
+ * checks it, so a slipped zero is refused there even if this form were bypassed.
  *
  * ## The reference is minted here, once per opened form
  *
@@ -84,7 +85,7 @@ export function GrantPanel({
 }) {
   const grant = useGrantCredits(session, tenantId);
   const grantFeedback = useActionFeedback(grant, { errorDisplay: "inline" });
-  const write = useAdminAccess("admin:tenants", "give a client credit");
+  const write = useAdminAccess("billing:comp", "give a client credit");
   const [amountInr, setAmountInr] = useState("");
   const [reason, setReason] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -95,6 +96,7 @@ export function GrantPanel({
   const ceiling = shape === null && amount !== "" ? grantCeilingProblem(amount) : null;
   const amountProblem = shape ?? ceiling;
   const amountReady = amount !== "" && amountProblem === null;
+  const large = amountReady && isLargeGrant(amount);
   // THE CONFIRMATION IS THE FIGURE AT TWO DECIMALS, which is also what the header
   // carries: `5000` and `5000.00` are the same grant and must confirm the same way, or
   // the ceremony would refuse the calls it exists to permit.
@@ -112,8 +114,12 @@ export function GrantPanel({
         credit {clientName} has bought. It cannot be removed afterwards; a grant made in
         error is taken back with a compensating adjustment.
       </p>
+      <p className="mt-2 text-meta text-ink-muted">
+        {clientName} is emailed and sees a notice on their dashboard; every super admin is
+        emailed.
+      </p>
 
-      <dl className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <dl className="mt-3 grid grid-cols-2 gap-2">
         {/* THE TWO LIFETIME FIGURES, SIDE BY SIDE, at the moment one of them is about to
             move. The founder's guardrail is that paid and given never blur; printing only
             the balance here would be exactly that blur. */}
@@ -138,7 +144,7 @@ export function GrantPanel({
           event.preventDefault();
           if (!ready) return;
           grant.mutate(
-            { amountInr: amount, reason: reason.trim(), grantRef },
+            { amountInr: amount, reason: reason.trim(), grantRef, amountConfirmation: confirm },
             {
               onSuccess: () => {
                 setAmountInr("");
@@ -158,7 +164,7 @@ export function GrantPanel({
         <Field
           label="How much to give"
           id="grant-amount"
-          hint={`Digits only, in rupees — between ${formatRupeeRate(MIN_GRANT_INR)} and ${formatRupeeRate(MAX_GRANT_INR)} per grant. A larger gift is granted in parts, each confirmed separately.`}
+          hint={`Digits only, in rupees, from ${formatRupeeRate(MIN_GRANT_INR)}.`}
           error={amountProblem}
         >
           <input
@@ -211,7 +217,9 @@ export function GrantPanel({
           id="grant-confirm"
           hint={
             amountReady
-              ? `Type ${confirmWord} — the same figure, to two decimal places.`
+              ? large
+                ? `Type ${confirmWord}. Above ${formatRupeeRate(LARGE_GRANT_INR)} the server checks this too.`
+                : `Type ${confirmWord} — the same figure, to two decimal places.`
               : "Enter a valid amount above first; this field confirms that figure."
           }
           error={null}

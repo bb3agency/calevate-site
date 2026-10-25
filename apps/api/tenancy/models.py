@@ -53,8 +53,8 @@ ORG_STATUSES = ("prospect", "onboarding", "active", "suspended", "churned")
 #
 #   * **does this account pay from a wallet?** — `billing/rates.PREPAID_TIERS`, which is
 #     `prepaid`, `self_serve` and `trial`. `managed` is the ONLY invoiced tier and it is
-#     now something an operator sets deliberately for a client genuinely billed on a
-#     retainer (`POST /v1/admin/tenants/{id}/plan-tier`), not what a client gets by
+#     now something set deliberately for a client genuinely billed on a
+#     retainer (a reviewed SQL update; no route sets it), not what a client gets by
 #     default;
 #   * **did a stranger sign this account up unattended?** — `compliance/service
 #     .SELF_SERVE_TIERS`, which is `self_serve` and `trial` and does NOT include

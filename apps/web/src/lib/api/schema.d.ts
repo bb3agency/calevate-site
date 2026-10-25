@@ -2276,8 +2276,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Grant credit out of nothing — no payment, audited, shown separately from paid
-         * @description Puts goodwill credit on a client's wallet with no payment behind it. It is NOT a top-up (no bank moved money) and NOT an adjustment (it corrects no entry), so it lands under its own ledger reason and every statement reports it separately from credit the client bought. Requires the header `X-Confirm-Action: grant_credits:<amount_inr to two decimals>` on every call, and one grant is capped so a mistyped figure is refused rather than posted. Sending the same `grant_ref` again returns the existing entry and moves nothing; the same reference with a different amount is a conflict.
+         * Grant credit out of nothing (super admin) — no payment, audited, shown separately
+         * @description Puts credit on a client's wallet with no payment behind it. It is NOT a top-up (no bank moved money) and NOT an adjustment (it corrects no entry), so it lands under its own ledger reason and every statement reports it separately from credit the client bought. A super admin only. Requires `X-Confirm-Action: grant_credits:<amount_inr to two decimals>` on every call, and above ₹50,000 the body's `amount_confirmation` must repeat the amount. The client is told (email and a dashboard notice) and every super admin is emailed. Sending the same `grant_ref` again returns the existing entry and moves nothing; the same reference with a different amount is a conflict.
          */
         post: operations["grant_credits_v1_admin_tenants__tenant_id__credits_grants_post"];
         delete?: never;
@@ -2925,6 +2925,27 @@ export interface paths {
         get: operations["get_owner_status_v1_admin_tenants__tenant_id__owner_status_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/paid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether a client's account is paid, since when, and how */
+        get: operations["get_paid_status_v1_admin_tenants__tenant_id__paid_get"];
+        put?: never;
+        /**
+         * Make a client's account paid without a payment (super admin)
+         * @description Moves the account from the free trial to a paid account from any state: a running trial is converted, an ended one keeps its data, an account with none simply becomes paid. Unlocks what a first payment unlocks; recorded as complimentary, never as a payment. Optionally adds credit in the same step. Requires `X-Confirm-Action: convert_to_paid:<tenant_id>:<grant amount to two decimals, or 0.00>`. The client is told and every super admin is emailed. 409 when the account is already paid.
+         */
+        post: operations["make_paid_v1_admin_tenants__tenant_id__paid_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -19970,6 +19991,8 @@ export interface components {
          *     never happened.
          */
         GrantIn: {
+            /** Amount Confirmation */
+            amount_confirmation?: number | string | null;
             /** Amount Inr */
             amount_inr: number | string;
             /** Grant Ref */
@@ -22819,6 +22842,21 @@ export interface components {
             state: "scheduled" | "draining" | "active" | "completed" | "cancelled";
             stragglers: components["schemas"]["InFlightOut"] | null;
         };
+        /** MakePaidIn */
+        MakePaidIn: {
+            grant?: components["schemas"]["GrantIn"] | null;
+            /** Reason */
+            reason: string;
+        };
+        /** MakePaidOut */
+        MakePaidOut: {
+            grant: components["schemas"]["GrantOut"] | null;
+            status: components["schemas"]["PaidStatusOut"];
+            /** Trial Converted */
+            trial_converted: boolean;
+            /** Workspace Queued */
+            workspace_queued: boolean;
+        };
         /** MandateCheckoutOut */
         MandateCheckoutOut: {
             /** Amount Paise */
@@ -23995,6 +24033,27 @@ export interface components {
             whatsapp_enabled: boolean;
             /** Whatsapp Reason */
             whatsapp_reason: string | null;
+        };
+        /** PaidStatusOut */
+        PaidStatusOut: {
+            /** Paid */
+            paid: boolean;
+            /** Paid At */
+            paid_at: string | null;
+            /** Reason */
+            reason: string | null;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /**
+             * Trial
+             * @enum {string}
+             */
+            trial: "running" | "ended" | "none";
+            /** Via */
+            via: string | null;
         };
         /** ParamIn */
         ParamIn: {
@@ -36721,6 +36780,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OwnerStatusOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_paid_status_v1_admin_tenants__tenant_id__paid_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaidStatusOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    make_paid_v1_admin_tenants__tenant_id__paid_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MakePaidIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MakePaidOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

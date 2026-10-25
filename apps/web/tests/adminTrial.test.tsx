@@ -5,6 +5,7 @@ import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import TenantCreditsPage from "@/app/admin/tenants/[tenantId]/credits/page";
 import type { TenantSummary } from "@/lib/api/admin";
 import { LEDGER_LIMIT, creditsPath, type Credits } from "@/lib/api/credits";
+import { paidPath } from "@/lib/api/paidStatus";
 import {
   startTrialConfirmation,
   trialPath,
@@ -138,6 +139,14 @@ function render(routes: Partial<Routes> = {}) {
       [ADMIN_ME_PATH]: ME,
       [CREDITS_READ]: credits(),
       [TRIAL_PATH]: null,
+      [paidPath(TENANT)]: {
+        tenant_id: TENANT,
+        paid: false,
+        paid_at: null,
+        via: null,
+        reason: null,
+        trial: "none",
+      },
       ...routes,
     },
   );

@@ -4897,6 +4897,14 @@ const ADMIN_SCREENS: Screen[] = [
       // renders the most markup: the facts panel with the cost-to-us line AND the end
       // form with its select, its reason box and its consequence panel. A `null` read
       // renders one sentence and the start form.
+      "/v1/admin/tenants/t1/paid": {
+        tenant_id: "t1",
+        paid: false,
+        paid_at: null,
+        via: null,
+        reason: null,
+        trial: "running",
+      },
       "/v1/admin/tenants/t1/trial": {
         tenant_id: "t1",
         trial_id: "0192f0aa-5555-7000-8000-0000000000f1",

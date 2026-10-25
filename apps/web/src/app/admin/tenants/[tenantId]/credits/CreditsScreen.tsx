@@ -28,6 +28,7 @@ import { ACT_TITLE, type Act } from "./acts";
 import { CorrectionForm } from "./CorrectionForm";
 import { GrantPanel } from "./GrantPanel";
 import { OverrideForm } from "./OverrideForm";
+import { PaidStatusPanel } from "./PaidStatusPanel";
 import { RecordForm } from "./RecordForm";
 import { RefundPanel } from "./RefundPanel";
 import { RestatementForm } from "./RestatementForm";
@@ -149,6 +150,7 @@ export function CreditsScreen({ tenantId }: { tenantId: string }) {
               </>
             }
           />
+          <PaidStatusPanel tenantId={tenantId} clientName={clientName} />
           <TrialPanel tenantId={tenantId} clientName={clientName} />
           <WalletHistory wallet={state.wallet} onAct={setAct} />
 

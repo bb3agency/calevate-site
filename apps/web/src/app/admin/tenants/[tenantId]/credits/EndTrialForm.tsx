@@ -29,12 +29,10 @@ const NO_END: EndDraft = { outcome: "", reason: "" };
 /**
  * End the open trial.
  *
- * NO typed confirmation and no step-up header, because the route asks for neither: this
- * is the direction that STOPS us spending money, it is what an operator does the minute a
- * client converts, and a second factor in front of the safe act while the expensive one
- * is one call away teaches people to click through ceremony. What the panel DOES insist
- * on is naming which ending it is, because the two decide whether this client's leads,
- * calls and transcripts survive.
+ * A step-up bound to the outcome (D-731), sent by `useEndTrial`. What the panel insists on
+ * is naming which ending it is, because the two decide whether this client's leads, calls
+ * and transcripts survive. "Converted" makes the account paid with no payment recorded,
+ * so it is a super admin's choice (`billing:comp`, D-890); an operator may only stop one.
  */
 export function EndTrialForm({
   clientName,
@@ -48,6 +46,7 @@ export function EndTrialForm({
   status: FeedbackStatus;
   write: ReturnType<typeof useAdminAccess>;
 }) {
+  const comp = useAdminAccess("billing:comp", "mark a trial converted");
   const [draft, setDraft] = useState<EndDraft>(NO_END);
   const set = (key: keyof EndDraft, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }) as EndDraft);
@@ -81,7 +80,9 @@ export function EndTrialForm({
           className={FIELD}
         >
           <option value="">Choose how this trial ended…</option>
-          <option value="converted">They bought — converted</option>
+          <option value="converted" disabled={!comp.allowed}>
+            {comp.allowed ? "They bought — converted" : "Converted — super admins only"}
+          </option>
           <option value="stopped">We ended it — stopped</option>
         </select>
       </Field>

@@ -20,6 +20,7 @@ import {
 } from "@/lib/api/credits";
 
 import type { CreditLot, OverridePack } from "@/lib/api/creditLots";
+import { paidPath } from "@/lib/api/paidStatus";
 import { trialPath } from "@/lib/api/trials";
 
 import { expectNoA11yViolations } from "./a11y";
@@ -198,6 +199,14 @@ function render(routes: Partial<Routes> = {}) {
       // about; answering it here rather than in each test keeps those tests' premise about
       // the WALLET. A test about the trial itself is `adminTrial.test.tsx`.
       [trialPath(TENANT)]: null,
+      [paidPath(TENANT)]: {
+        tenant_id: TENANT,
+        paid: true,
+        paid_at: "2026-09-12T05:30:00Z",
+        via: "wallet_topup",
+        reason: null,
+        trial: "none",
+      },
       ...routes,
     },
   );

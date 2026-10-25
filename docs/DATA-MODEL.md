@@ -39,8 +39,15 @@ organizations(id, name, slug UNIQUE CHECK (slug ~ '^[a-z0-9-]{3,40}$') IMMUTABLE
     --   opened by a stranger -> self_serve, trial           (compliance.SELF_SERVE_TIERS,
     --                                                        the admin hold queue)
     -- `prepaid` (D-521) is what every new account gets and what every existing account
-    -- was migrated to (a8d3f61c04e7); `managed` is invoiced on a retainer and is set
-    -- deliberately by an operator (POST /v1/admin/tenants/{id}/plan-tier).
+    -- was migrated to (a8d3f61c04e7); `managed` is invoiced on a retainer. No route sets
+    -- `plan_tier` today; a change is a reviewed SQL update.
+  first_paid_at NULL, first_paid_via NULL IN (wallet_topup, manual_topup, before_d697,
+    operator_conversion, complimentary), first_paid_reason NULL,
+    -- D-697: the first credit that unlocked paid features; NULL is a trial account.
+    -- `complimentary` (D-890, migration e3b9d5f1a827) is a super admin making the account
+    -- paid with no payment behind it (`POST /v1/admin/tenants/{id}/paid`, `billing:comp`);
+    -- `first_paid_reason` keeps their words, because `audit_log` records who and what only.
+    -- Written once by `billing/first_payment._claim` (`WHERE first_paid_at IS NULL`).
   billing_email, created_by, deleted_at,
   closed_at, erase_after, closure_reason, closed_by FK admin_users ON DELETE SET NULL)
     -- D-538, migration e6c1a49d2f70. THE GRACE WINDOW between "closed" and "erased":

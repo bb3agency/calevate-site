@@ -48,8 +48,8 @@ import { LotReceipt } from "./lots";
  *   normalizing it here would make the console's key differ from the ledger's.
  *
  * The typed confirmation is the reference itself rather than a fixed word: `CREDIT` becomes
- * muscle memory, a reference is different every time. No `X-Confirm-Action` is sent because
- * the route accepts none; admin-realm MFA (D-68) answers WHO, this answers WHICH payment.
+ * muscle memory, a reference is different every time. The step-up (`record_payment:<tenant>`,
+ * D-731) answers WHO is recording; this answers WHICH payment.
  *
  * The form opens EMPTY: a prefilled amount or reference would be a payment nobody read off a
  * statement.

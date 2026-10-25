@@ -245,6 +245,26 @@ their OUTBOUND calling pauses; inbound is untouched; the client's screens say wh
 Read only: the daily reconciliation counts and sums them in its log line and on the admin
 "Run reconciliation" result. Nothing in Calevate acts on a settlement.
 
+### B8. Credit with no payment, and making an account paid (super admins only, D-890)
+
+Both live on Admin → the client → Credits and need a super admin; an operator sees the
+form closed with the reason.
+
+- **Give credit:** Fix or adjust → Give this client credit. Type the amount, the reason,
+  and the amount again. Above ₹50,000 the server checks the second figure too. There is
+  no business ceiling; the technical limit is ₹1,00,00,000 per grant.
+- **Make paid:** the Paid account panel → Make paid. A reason is required; credit is
+  optional and is typed twice. A running trial is converted, nothing is erased, the
+  customer workspace is queued, and the account is recorded as `complimentary`, never as
+  a payment. It cannot be undone from the console.
+- **Ending a trial as converted** makes the account paid as well, so it is a super admin's
+  choice too; an operator may only stop a trial.
+
+Every grant and every conversion emails all super admins and then the client, and posts
+one dashboard notice to the client (job `notify_comp`). If a super admin has no email
+notice for a grant, check the worker log for `notify_comp` and the outbox for
+`comp:grant:<tenant>:<ref>`.
+
 ## What NOT to do
 
 - Do not credit a payment by hand without the payment id as the reference.
