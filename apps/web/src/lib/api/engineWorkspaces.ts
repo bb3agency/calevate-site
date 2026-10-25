@@ -16,6 +16,7 @@ import {
   adminSession,
   buyNumberConfirmation,
   confirmedAdminRequest,
+  forgetNumberConfirmation,
   moveNumberConfirmation,
   releaseNumberConfirmation,
   workspaceOffboardConfirmation,
@@ -221,10 +222,15 @@ export function useWorkspaceForget(tenantId: string) {
   const invalidate = useInvalidateTenant(tenantId);
   return useMutation({
     mutationFn: (numberId: string) =>
-      apiRequest<AdminReleased>(adminSession(), WORKSPACE_PATHS.forget(tenantId, numberId), {
-        method: "POST",
-        body: { confirm: true },
-      }),
+      confirmedAdminRequest<AdminReleased>(
+        WORKSPACE_PATHS.forget(tenantId, numberId),
+        {
+          method: "POST",
+          body: { confirm: true },
+          confirmAction: forgetNumberConfirmation(tenantId, numberId),
+        },
+        "Releasing our record of this number.",
+      ),
     onSuccess: invalidate,
   });
 }

@@ -54021,6 +54021,22 @@
               "title": "Number Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
           }
         ],
         "requestBody": {

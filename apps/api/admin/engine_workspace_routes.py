@@ -93,6 +93,11 @@ def release_number_confirmation(tenant_id: UUID, number_id: UUID) -> str:
     return f"release_number:{tenant_id}:{number_id}"
 
 
+def forget_number_confirmation(tenant_id: UUID, number_id: UUID) -> str:
+    """Forgetting stops the client's monthly charge as releasing does, so it is gated alike."""
+    return f"forget_number:{tenant_id}:{number_id}"
+
+
 def move_number_confirmation(tenant_id: UUID, number_id: UUID) -> str:
     return f"move_number:{tenant_id}:{number_id}"
 
@@ -712,7 +717,10 @@ async def admin_forget(
     payload: AdminReleaseIn,
     request: Request,
     principal: WorkspaceOperator,
+    step_up: StepUpGate,
+    x_confirm_action: ConfirmAction = None,
 ) -> AdminReleasedOut:
+    step_up.require(x_confirm_action, forget_number_confirmation(tenant_id, number_id))
     async with tenant_session(tenant_id) as scoped:
         await _require_tenant(scoped, tenant_id)
         released = await forget_engine_number(scoped, tenant_id=tenant_id, number_id=number_id)

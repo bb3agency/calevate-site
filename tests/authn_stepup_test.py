@@ -527,7 +527,10 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # ONE MORE re-points an unredeemed invitation at a corrected address
     # (`admin/routes.py::resend_tenant_invitation`, `readdress_invitation_confirmation`,
     # bound to client and invitation): it mails a live owner key, as issuing one does.
-    assert sites == 84, f"found {sites} step-up call sites, expected 84; the census went stale"
+    # ONE MORE forgets our record of a number (`admin/engine_workspace_routes.py::admin_forget`,
+    # `forget_number_confirmation`, bound to client and number): it stops the client's monthly
+    # charge, as releasing does.
+    assert sites == 85, f"found {sites} step-up call sites, expected 85; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

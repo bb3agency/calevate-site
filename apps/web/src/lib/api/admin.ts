@@ -99,6 +99,8 @@ export const workspaceOffboardConfirmation = (tenantId: string) =>
 export const buyNumberConfirmation = (tenantId: string) => `buy_number:${tenantId}`;
 export const releaseNumberConfirmation = (tenantId: string, numberId: string) =>
   `release_number:${tenantId}:${numberId}`;
+export const forgetNumberConfirmation = (tenantId: string, numberId: string) =>
+  `forget_number:${tenantId}:${numberId}`;
 export const undoCopilotConfirmation = (actionId: string) => `undo_copilot_action:${actionId}`;
 export const moveNumberConfirmation = (tenantId: string, numberId: string) =>
   `move_number:${tenantId}:${numberId}`;

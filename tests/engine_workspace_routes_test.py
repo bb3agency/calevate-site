@@ -207,8 +207,17 @@ async def test_an_admin_sees_the_workspace_buys_releases_and_forgets(
         assert bought.status_code == 201, bought.text
         number_id = bought.json()["number_id"]
 
-        still = await http.post(
+        # Forgetting stops the client's monthly charge, as releasing does, so it takes the
+        # same step-up: without the echo it is refused before anything is read.
+        unconfirmed = await http.post(
             f"{base}/numbers/{number_id}/forget", json={"confirm": True}, headers=headers
+        )
+        assert unconfirmed.status_code == 403, unconfirmed.text
+        assert unconfirmed.json()["type"].endswith("/step_up_required")
+        still = await http.post(
+            f"{base}/numbers/{number_id}/forget",
+            json={"confirm": True},
+            headers={**headers, "X-Confirm-Action": f"forget_number:{tenant_id}:{number_id}"},
         )
         assert "engine_number_still_held" in still.text
         released = await http.post(
