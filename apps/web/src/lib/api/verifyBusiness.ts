@@ -14,9 +14,11 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
+import { agreementsKey } from "./agreements";
 import { apiRequest, apiUpload, type Session, type UploadProgress } from "./client";
 import { openProtectedFile } from "./protectedFile";
 import { KYC_PATH, type KycRecord } from "./kyc";
+import { ownNumberKeys } from "./ownNumbers";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -82,8 +84,25 @@ export function panProblem(value: string): string | null {
     : "A PAN is five letters, four digits and a letter, like ABCDE1234F.";
 }
 
-function invalidate(client: ReturnType<typeof useQueryClient>, session: Session): void {
+type Client = ReturnType<typeof useQueryClient>;
+
+/**
+ * The reads that ask whether this account may dial. Each is answered from the KYC record
+ * AND the pledge (`legal/readiness.py` and `campaigns/service.launch_blockers` both call
+ * `kyc_blocker` and `outbound_pledge_blocker`), so a write to either leaves them showing
+ * "verify your business" or "accept the pledge" until they are read again — and the
+ * agreements screen holds its answer for a minute.
+ */
+function invalidateOutboundGates(client: Client, session: Session): void {
+  void client.invalidateQueries({ queryKey: agreementsKey(session.orgSlug) });
+  void client.invalidateQueries({ queryKey: ["campaign-check", session.orgSlug] });
+}
+
+function invalidate(client: Client, session: Session): void {
   void client.invalidateQueries({ queryKey: ["kyc", session.orgSlug] });
+  invalidateOutboundGates(client, session);
+  // Buying a number waits on a verified business too (`purchase_readiness`).
+  void client.invalidateQueries({ queryKey: ownNumberKeys.status(session.orgSlug) });
 }
 
 export function useSaveBusinessDetails(session: Session) {
@@ -173,7 +192,10 @@ export function useAcceptPledge(session: Session) {
         method: "POST",
         body: { version: pledge.version, text_sha256: pledge.text_sha256 },
       }),
-    onSuccess: (fresh) => client.setQueryData(["outbound-pledge", session.orgSlug], fresh),
+    onSuccess: (fresh) => {
+      client.setQueryData(["outbound-pledge", session.orgSlug], fresh);
+      invalidateOutboundGates(client, session);
+    },
   });
 }
 

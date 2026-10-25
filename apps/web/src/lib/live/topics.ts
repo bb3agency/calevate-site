@@ -104,6 +104,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "pe-registration",
     "outbound-pledge",
     "outbound-consent-policy",
+    // The agreements screen lists the pledge among what stops outgoing calls.
+    "legal-readiness",
     "admin/campaigns",
     "admin/campaign-check",
   ],
@@ -214,6 +216,11 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "business-copy",
     "admin/business-copy",
     "legal-readiness",
+    // A campaign's launch check and the number-purchase step both wait on verified KYC,
+    // and the purchase step on the trial and first payment, all of which announce `account`.
+    "campaign-check",
+    "admin/campaign-check",
+    "own-numbers",
     "deletion-request",
     "deletion-requests",
     "whatsapp-alerts",
