@@ -1167,6 +1167,98 @@ async def test_a_refusal_other_than_a_restore_counts_as_failed_and_alarms(
     assert alarms == ["closure_sweep_incomplete"]
 
 
+async def _close_past_due(token: str, *, days_ago: int) -> UUID:
+    tenant_id = await _tenant()
+    await _close(token, tenant_id, confirm=close_account_confirmation(tenant_id), grace_days=0)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE organizations SET erase_after = now() - make_interval(days => :d) "
+                "WHERE id = :t"
+            ),
+            {"t": tenant_id, "d": days_ago},
+        )
+    return tenant_id
+
+
+async def _filed(tenant_id: UUID) -> int:
+    async with tenant_session(tenant_id) as session:
+        return int(
+            (
+                await session.execute(
+                    text("SELECT count(*) FROM tenant_erasure_requests WHERE tenant_id = :t"),
+                    {"t": tenant_id},
+                )
+            ).scalar_one()
+        )
+
+
+@pytest.mark.asyncio
+async def test_an_account_the_sweep_keeps_failing_on_does_not_block_the_one_behind_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A batch of one: by deadline alone the failing account, whose date is older, would be
+    the whole batch on every tick and the account behind it never filed."""
+    from apps.workers import account_closure as worker
+
+    token = await _admin()
+    stuck = await _close_past_due(token, days_ago=2)
+    behind = await _close_past_due(token, days_ago=1)
+    real_due, real_request = worker.due_erasures, worker.request_tenant_erasure
+
+    async def _due(session: Any, **_kw: Any) -> list[tuple[uuid.UUID, str]]:
+        # The real query and its order, narrowed to these two so accounts other tests
+        # leave due cannot take the batch.
+        rows = await real_due(session, limit=100_000)
+        return [row for row in rows if row[0] in (stuck, behind)][:1]
+
+    async def _request(session: Any, *, tenant_id: uuid.UUID, reason: str) -> Any:
+        if tenant_id == stuck:
+            raise RuntimeError("this account fails every time")
+        return await real_request(session, tenant_id=tenant_id, reason=reason)
+
+    monkeypatch.setattr(worker, "due_erasures", _due)
+    monkeypatch.setattr(worker, "request_tenant_erasure", _request)
+    monkeypatch.setattr(worker, "alert", lambda *_a, **_kw: None)
+
+    first = json.loads(await sweep_due_erasures({}))
+    second = json.loads(await sweep_due_erasures({}))
+
+    assert first == {"due": 1, "filed": 0, "failed": 1}
+    assert second == {"due": 1, "filed": 1, "failed": 0}
+    assert await _filed(behind) == 1
+    assert await _filed(stuck) == 0
+
+
+@pytest.mark.asyncio
+async def test_an_account_failed_on_three_ticks_running_is_named_in_an_alarm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.workers import account_closure as worker
+
+    stuck = await _close_past_due(await _admin(), days_ago=1)
+    alarms: list[tuple[str, str]] = []
+
+    async def _due(_session: Any, **_kw: Any) -> list[tuple[uuid.UUID, str]]:
+        return [(stuck, "")]
+
+    async def _request(_session: Any, **_kw: Any) -> Any:
+        raise RuntimeError("this account fails every time")
+
+    monkeypatch.setattr(worker, "due_erasures", _due)
+    monkeypatch.setattr(worker, "request_tenant_erasure", _request)
+    monkeypatch.setattr(
+        worker, "alert", lambda _s, code, *, detail, **_kw: alarms.append((code, detail))
+    )
+
+    for _ in range(closure.ERASURE_STUCK_AFTER):
+        await sweep_due_erasures({})
+
+    stuck_alarms = [detail for code, detail in alarms if code == "closure_erasure_stuck"]
+    assert len(stuck_alarms) == 1, "named on the third failed tick, not before"
+    assert str(stuck) in stuck_alarms[0]
+
+
 @pytest.mark.asyncio
 async def test_the_repair_script_re_queues_an_erasure_that_never_completed(
     monkeypatch: pytest.MonkeyPatch,

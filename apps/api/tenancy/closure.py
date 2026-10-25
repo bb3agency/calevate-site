@@ -192,6 +192,10 @@ log = get_logger(__name__)
 #: docstring for both grounds and for why nothing here lets an operator extend it.
 GRACE_DAYS: Final = 30
 
+#: Consecutive sweep ticks an account may fail to be filed on before an alarm names it.
+#: The sweep is hourly, so this is three hours past a date the client was given.
+ERASURE_STUCK_AFTER: Final = 3
+
 #: The states a close may be entered FROM. Identical to `admin/routes.py::
 #: _LIFECYCLE_FROM["churned"]` and imported nowhere from it, because that table is the
 #: *manual* status switch's rulebook and this is the closure's; they agree today and
@@ -350,7 +354,8 @@ async def close_account(
             text(
                 "UPDATE organizations SET status = :closed, closed_at = now(), "
                 "erase_after = now() + make_interval(days => :grace), "
-                "closure_reason = :reason, closed_by = :by, updated_at = now() "
+                "closure_reason = :reason, closed_by = :by, updated_at = now(), "
+                "erasure_sweep_attempted_at = NULL, erasure_sweep_failures = 0 "
                 "WHERE id = :tid AND deleted_at IS NULL AND status = ANY(:from) "
                 "RETURNING status, closed_at, erase_after, closure_reason, closed_by, deleted_at"
             ),
@@ -532,7 +537,13 @@ async def bring_erasure_forward(
 
 
 async def due_erasures(session: AsyncSession, *, limit: int = 200) -> list[tuple[UUID, str]]:
-    """Every account whose erasure deadline has passed, oldest deadline first.
+    """Every account whose erasure deadline has passed: those the sweep has not tried
+    first, then the least recently tried, oldest deadline first within each.
+
+    Ordered by the last attempt rather than by the deadline alone because the batch is
+    bounded: by deadline, `limit` accounts that fail on every tick (or that are filed and
+    still waiting on their erasure) would be the whole batch for ever, and every account
+    behind them would never be tried.
 
     **The sweep's only query, and it MUST run on an `admin_session()`** — the one session
     that may enumerate `organizations` across tenants (migration b57e2f9c4a13). It widens
@@ -558,7 +569,8 @@ async def due_erasures(session: AsyncSession, *, limit: int = 200) -> list[tuple
                 "SELECT id, closure_reason FROM organizations "
                 "WHERE erase_after IS NOT NULL AND erase_after <= now() "
                 "AND deleted_at IS NULL AND status = :closed "
-                "ORDER BY erase_after ASC, id ASC LIMIT :limit"
+                "ORDER BY erasure_sweep_attempted_at ASC NULLS FIRST, erase_after ASC, id ASC "
+                "LIMIT :limit"
             ),
             {"closed": CLOSED_STATUS, "limit": limit},
         )
@@ -566,14 +578,37 @@ async def due_erasures(session: AsyncSession, *, limit: int = 200) -> list[tuple
     return [(row[0], str(row[1] or "")) for row in rows]
 
 
+async def record_erasure_attempt(session: AsyncSession, *, tenant_id: UUID, filed: bool) -> int:
+    """Stamp the sweep's attempt on this account; return its consecutive failed ticks.
+
+    A filed attempt resets the count. Runs on the tenant's own session: `admin_session`
+    widens `USING` on `organizations` but no `WITH CHECK`, so it cannot write this row.
+    Returns 0 for an account that is not there.
+    """
+    row = (
+        await session.execute(
+            text(
+                "UPDATE organizations SET erasure_sweep_attempted_at = now(), "
+                "erasure_sweep_failures = CASE WHEN :filed THEN 0 "
+                "ELSE erasure_sweep_failures + 1 END "
+                "WHERE id = :tid RETURNING erasure_sweep_failures"
+            ),
+            {"tid": tenant_id, "filed": filed},
+        )
+    ).first()
+    return int(row[0]) if row is not None else 0
+
+
 __all__ = [
     "CLOSEABLE_FROM",
     "CLOSED_STATUS",
+    "ERASURE_STUCK_AFTER",
     "GRACE_DAYS",
     "ClosureRecord",
     "bring_erasure_forward",
     "close_account",
     "due_erasures",
     "read_closure",
+    "record_erasure_attempt",
     "restore_account",
 ]

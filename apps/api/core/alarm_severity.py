@@ -547,6 +547,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "account_notice_tenant_missing": "attention",
     "account_notice_unknown_event": "attention",
     "closure_sweep_incomplete": "attention",
+    "closure_erasure_stuck": "attention",
     "hot_lead_whatsapp_exhausted": "attention",
     # The once-per-caller "save our number" WhatsApp (D-746) failed every attempt: one caller,
     # one client, never retried.
@@ -878,6 +879,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # next nightly tick retries, but a person's ID kept past its stated life is a broken
     # promise an operator should see the same day.
     "kyc_owner_id_purge_abandoned": "attention",
+    "kyc_purge_stuck": "attention",
     # The DigiLocker provider refused or did not answer a client's start or return (D-692).
     # The client sees the refusal and can retry or upload documents instead; nothing is
     # lost, so attention rather than a page.

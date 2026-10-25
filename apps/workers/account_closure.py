@@ -60,7 +60,11 @@ from apps.api.core.settings import get_settings
 from apps.api.core.transport import _domain, get_transport
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.reliability.service import enqueue_outbox
-from apps.api.tenancy.closure import due_erasures
+from apps.api.tenancy.closure import (
+    ERASURE_STUCK_AFTER,
+    due_erasures,
+    record_erasure_attempt,
+)
 from apps.workers.email_render import from_text
 from apps.workers.whatsapp import (
     SendStatus,
@@ -104,6 +108,9 @@ RETRY_BACKOFF_S: tuple[float, ...] = (15.0, 45.0)
 #: the deadline matters. A backlog longer than this is discharged by the next tick — the
 #: cron runs hourly, so nothing waits more than an hour past its date.
 SWEEP_BUDGET: Final = 200
+
+#: How many stuck accounts the alarm names; the rest are counted.
+STUCK_NAMED: Final = 20
 
 #: The minute past the hour `sweep_due_erasures` fires on. `settings.py` builds the
 #: registration from this, the convention ten of its neighbours already follow — two
@@ -569,13 +576,17 @@ async def sweep_due_erasures(ctx: dict[str, Any]) -> str:
     AFTER the sweep — the shape `apply_retention` was rewritten into, for the reason it
     was: one bad row must not silently postpone every account behind it, and a deadline
     slipping is something an operator has to be told about rather than something they find
-    in a log stream.
+    in a log stream. Every attempt is stamped on the account and `due_erasures` orders by
+    that stamp, so accounts that keep failing go behind the rest of a bounded batch instead
+    of filling it; one that fails `ERASURE_STUCK_AFTER` ticks running is named in
+    `closure_erasure_stuck`.
     """
     async with admin_session() as directory:
         due = await due_erasures(directory, limit=SWEEP_BUDGET)
 
     filed = 0
     failed = 0
+    stuck: list[UUID] = []
     for tenant_id, reason in due:
         try:
             async with tenant_session(tenant_id) as scoped:
@@ -588,6 +599,7 @@ async def sweep_due_erasures(ctx: dict[str, Any]) -> str:
                     # is what a person reads next year.
                     reason=reason or "Grace period after account closure elapsed.",
                 )
+                await record_erasure_attempt(scoped, tenant_id=tenant_id, filed=True)
         except ProblemError as exc:
             # `assert_erasable` refused. An account restored between the read and the
             # write — `tenant_not_closed` — is the undo working as designed and must not
@@ -596,21 +608,22 @@ async def sweep_due_erasures(ctx: dict[str, Any]) -> str:
             if exc.code == "tenant_not_closed":
                 log.info("closure_sweep_refused", extra={"tenant_id": str(tenant_id)})
                 continue
-            failed += 1
             log.error(
                 "closure_sweep_tenant_refused",
                 extra={"tenant_id": str(tenant_id), "code": exc.code},
             )
-            continue
         except Exception:
-            failed += 1
             log.exception("closure_sweep_tenant_failed", extra={"tenant_id": str(tenant_id)})
+        else:
+            filed += 1
+            log.warning(
+                "closure_sweep_filed",
+                extra={"tenant_id": str(tenant_id), "request_id": str(record.id)},
+            )
             continue
-        filed += 1
-        log.warning(
-            "closure_sweep_filed",
-            extra={"tenant_id": str(tenant_id), "request_id": str(record.id)},
-        )
+        failed += 1
+        if await _record_failure(tenant_id) >= ERASURE_STUCK_AFTER:
+            stuck.append(tenant_id)
 
     totals = {"due": len(due), "filed": filed, "failed": failed}
     log.info("closure_sweep", extra=totals)
@@ -624,7 +637,31 @@ async def sweep_due_erasures(ctx: dict[str, Any]) -> str:
                 "given; the sweep runs again in an hour and will retry them."
             ),
         )
+    if stuck:
+        named = ", ".join(str(tenant_id) for tenant_id in stuck[:STUCK_NAMED])
+        more = f" and {len(stuck) - STUCK_NAMED} more" if len(stuck) > STUCK_NAMED else ""
+        alert(
+            "WORKER_TERMINAL",
+            "closure_erasure_stuck",
+            detail=(
+                f"{len(stuck)} account(s) past their erasure date have failed to be filed "
+                f"on {ERASURE_STUCK_AFTER} or more hourly ticks in a row: {named}{more}. "
+                "Another tick will not clear this; read their closure_sweep_tenant_failed "
+                "and closure_sweep_tenant_refused log lines."
+            ),
+        )
     return json.dumps(totals)
+
+
+async def _record_failure(tenant_id: UUID) -> int:
+    """Count a failed tick against the account. A failure to count is logged rather than
+    raised, so it cannot end the sweep for the accounts behind this one."""
+    try:
+        async with tenant_session(tenant_id) as scoped:
+            return await record_erasure_attempt(scoped, tenant_id=tenant_id, filed=False)
+    except Exception:
+        log.exception("closure_sweep_mark_failed", extra={"tenant_id": str(tenant_id)})
+        return 0
 
 
 __all__ = [

@@ -289,6 +289,11 @@ class Organization(PKMixin, TimestampMixin, Base):
     #: UNDO leaves behind, and it is also how an account closes with its records kept.
     closed_at: Mapped[datetime | None]
     erase_after: Mapped[datetime | None]
+    #: When the hourly erasure sweep last tried to file this account, and how many ticks
+    #: in a row it failed. The sweep orders by the stamp, so an account it keeps failing
+    #: on goes behind the ones it has not tried instead of holding its bounded batch.
+    erasure_sweep_attempted_at: Mapped[datetime | None]
+    erasure_sweep_failures: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     closure_reason: Mapped[str | None] = mapped_column(Text)
     closed_by: Mapped[UUID | None] = mapped_column(
         ForeignKey("admin_users.id", ondelete="SET NULL")

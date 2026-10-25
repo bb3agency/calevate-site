@@ -865,6 +865,10 @@ class KycDocument(PKMixin, TimestampMixin, Base):
     superseded_at: Mapped[datetime | None]
     delete_requested_at: Mapped[datetime | None]
     purged_at: Mapped[datetime | None]
+    #: Failed purge attempts and the last one. The purge tries rows that have not failed
+    #: first, so a file whose delete keeps failing cannot hold its bounded batch.
+    purge_failures: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    purge_failed_at: Mapped[datetime | None]
 
 
 class OutboundPledgeAcceptance(PKMixin, Base):
