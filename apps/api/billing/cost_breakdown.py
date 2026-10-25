@@ -36,7 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import AiUsage, read_ai_usage_between
 from apps.api.billing.plans import ist_month_window
-from apps.api.billing.service import _NOT_AI_UNITS, _ROW_COST_SQL, to_paise
+from apps.api.billing.service import _NOT_AI_UNITS, _ROW_COST_SQL, allocate_paise, to_paise
 
 _NON_AI_SQL = (
     f"SELECT COALESCE(SUM({_ROW_COST_SQL}) FILTER (WHERE call_id IS NOT NULL), 0), "
@@ -127,14 +127,27 @@ class CostBreakdownOut(BaseModel):
 
     @classmethod
     def of(cls, breakdown: CostBreakdown) -> CostBreakdownOut:
+        # The four lines are allocated against the rounded total rather than each rounded
+        # on its own: AI rows are priced per thousand tokens and carry sub-paisa digits, so
+        # independent rounding printed lines that did not add up to the total under them.
+        total = to_paise(breakdown.total_inr)
+        calls, other, assistant, knowledge = allocate_paise(
+            [
+                breakdown.calls_inr,
+                breakdown.other_inr,
+                breakdown.assistant_inr,
+                breakdown.ai.kb_used_inr,
+            ],
+            total,
+        )
         return cls(
-            total_inr=str(to_paise(breakdown.total_inr)),
-            calls_inr=str(to_paise(breakdown.calls_inr)),
+            total_inr=str(total),
+            calls_inr=str(calls),
             calls=breakdown.calls,
-            other_inr=str(to_paise(breakdown.other_inr)),
-            assistant_inr=str(to_paise(breakdown.assistant_inr)),
+            other_inr=str(other),
+            assistant_inr=str(assistant),
             assistant_requests=breakdown.assistant_requests,
-            knowledge_inr=str(to_paise(breakdown.ai.kb_used_inr)),
+            knowledge_inr=str(knowledge),
             knowledge_requests=breakdown.ai.kb_requests,
         )
 

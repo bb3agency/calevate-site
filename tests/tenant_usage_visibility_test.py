@@ -164,3 +164,28 @@ async def test_a_zero_token_ai_leg_costs_nothing_on_the_trial_panel() -> None:
     assert Decimal(body["cost_to_us_inr"]) == total
     assert body["cost_breakdown"]["knowledge_inr"] == "0.02"
     assert body["cost_breakdown"]["knowledge_requests"] == 1
+
+
+def test_the_breakdown_lines_add_up_to_the_total_printed_under_them() -> None:
+    """Per-thousand-token AI prices leave sub-paisa digits on every line; rounding each
+    line on its own printed ₹1.08 + ₹0.00 above a total of ₹1.09."""
+    from apps.api.billing.ai_quota import AiUsage
+    from apps.api.billing.cost_breakdown import CostBreakdown, CostBreakdownOut
+
+    out = CostBreakdownOut.of(
+        CostBreakdown(
+            calls_inr=Decimal("0.0040"),
+            calls=1,
+            other_inr=Decimal("0"),
+            ai=AiUsage(
+                used_inr=Decimal("1.0898"),
+                requests=4,
+                kb_used_inr=Decimal("0.0049"),
+                kb_requests=1,
+            ),
+        )
+    )
+
+    assert out.total_inr == "1.09"
+    parts = (out.calls_inr, out.other_inr, out.assistant_inr, out.knowledge_inr)
+    assert sum((Decimal(p) for p in parts), Decimal("0")) == Decimal(out.total_inr)
