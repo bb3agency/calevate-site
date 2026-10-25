@@ -75,8 +75,13 @@ required outside `local`, since a keyed hash is a pseudonym only while the key i
 secret, and NEVER accepted from the wire — it is derived from the verified principal, so
 a predictable value cannot be submitted); `request_hash` of the body —
 same key + different body = 409; `PROCESSING` in-flight = 409; `COMPLETED` = replay
-stored response with an `Idempotent-Replayed: true` header; `FAILED` retried via
-compare-and-swap. TTL ~24h.
+stored response with an `Idempotent-Replayed: true` header; `FAILED`, or `PROCESSING`
+silent past the 10-minute lease, retried via compare-and-swap. Every take mints a
+`claim_nonce` and completion/failure CAS on it, so a holder whose lease lapsed cannot
+report into its successor's claim. A request about to start a side effect it cannot
+undo (a real phone call) first commits `IN_DOUBT`, which the lease never re-claims:
+its retry is a 409 (`idempotent_request_in_doubt` past the lease), never a second
+execution. TTL ~24h.
 
 **Outbox** (reliable side effects — notifications, outbound webhooks D-23, engine
 calls triggered by domain writes): `outbox_messages(queue, job, payload, status

@@ -56,6 +56,7 @@ from apps.api.reliability.service import (
     claim_idempotency,
     complete_idempotency,
     fail_idempotency,
+    mark_idempotency_in_doubt,
     scope_key,
 )
 
@@ -299,6 +300,10 @@ async def place_trial_call(
     async def note_call_id(_intent: AsyncSession, call_id: UUID) -> None:
         reserved.append(call_id)
 
+    # Committed before the phone can ring: from here the key is never re-run unless a
+    # failure proves no line was seized (`crm/lead_dial.place_lead_call`'s rule).
+    async with tenant_session(tenant_id) as doubt_session:
+        await mark_idempotency_in_doubt(doubt_session, claim=claim)
     try:
         handle = await dispatch_call(
             session,

@@ -26,7 +26,7 @@ from apps.api.db.base import Base, PKMixin
 
 OUTBOX_STATUSES = ("pending", "published", "failed")
 INBOX_STATUSES = ("processing", "enqueued", "processed", "failed")
-IDEMPOTENCY_STATUSES = ("processing", "completed", "failed")
+IDEMPOTENCY_STATUSES = ("processing", "in_doubt", "completed", "failed")
 LOAD_SHED_MODES: tuple[LoadShedMode, ...] = ("normal", "reduced", "emergency", "maintenance")
 # Calevate's own telemarketer registration (SEC-COMP §3). Declared beside the column
 # it constrains so the CHECK and the service that writes it cannot drift apart.

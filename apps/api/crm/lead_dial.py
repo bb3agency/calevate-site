@@ -32,6 +32,7 @@ from apps.api.reliability.service import (
     claim_idempotency,
     complete_idempotency,
     fail_idempotency,
+    mark_idempotency_in_doubt,
     scope_key,
 )
 
@@ -111,6 +112,10 @@ async def place_lead_call(
         dispatch_call,
     )
 
+    # Committed before the phone can ring: from here the key is never re-run, even past the
+    # lease, unless a failure proves no line was seized.
+    async with tenant_session(tenant_id) as doubt_session:
+        await mark_idempotency_in_doubt(doubt_session, claim=claim)
     try:
         handle = await dispatch_call(
             session,
@@ -122,7 +127,7 @@ async def place_lead_call(
             context_note=context_note,
         )
     except DialUnconfirmedError as unconfirmed:
-        # The claim stays `processing`: releasing it would let the next press re-dial
+        # The claim stays `in_doubt`: releasing it would let the next press re-dial
         # somebody whose phone may be ringing now.
         raise ProblemError(
             kind="dependency",

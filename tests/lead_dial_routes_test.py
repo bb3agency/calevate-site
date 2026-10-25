@@ -39,6 +39,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
 from apps.api.engine.fake import FakeEngine
+from apps.api.reliability.service import CLAIM_LEASE
 from sqlalchemy import text
 from tests.conftest import accept_agreements, create_org_with_receptionist, fund_wallet
 
@@ -863,6 +864,63 @@ async def test_a_retry_of_a_dial_the_engine_may_have_started_does_not_ring_again
     assert retry.status_code == 409, retry.text
     assert retry.json()["type"].endswith("/idempotent_request_in_flight")
     assert await _outbound_calls(tenant_id) == [(phone, "queued")], "one ring, not two"
+    await _settle_calls(tenant_id)
+
+
+async def _age_claims_past_the_lease(key: str) -> None:
+    """Make every claim on `key` look silent for longer than `CLAIM_LEASE`, the one input
+    the lease re-claim reads, instead of waiting ten minutes."""
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "UPDATE idempotency_records SET updated_at = now() - :age "
+                "WHERE idempotency_key = :key"
+            ),
+            {"age": CLAIM_LEASE + timedelta(minutes=1), "key": key},
+        )
+
+
+@pytest.mark.parametrize("outcome", ["vendor_answer_lost", "failed_after_vendor_answered"])
+async def test_an_unconfirmed_dial_is_not_redialled_by_its_key_after_the_lease(
+    monkeypatch: pytest.MonkeyPatch, outcome: str
+) -> None:
+    """The browser's retry can arrive after the ten-minute claim lease: a tab left open,
+    a phone that slept. A dial that may have rung must still not be placed again under
+    the same key — the retry is told the outcome is unknown, and nothing rings."""
+    tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    key = str(uuid.uuid4())
+    real_dispatch = agent_service.dispatch_call
+
+    async def lost_response(*args: object, **kwargs: object) -> str:
+        await real_dispatch(*args, **kwargs)  # type: ignore[arg-type]
+        if outcome == "vendor_answer_lost":
+            raise agent_service.DialUnconfirmedError(call_id=uuid7(), code="engine_unreachable")
+        raise RuntimeError("lead stamp failed after the vendor answered")
+
+    monkeypatch.setattr(agent_service, "dispatch_call", lost_response)
+    async with _no_reraise_client() as http:
+        first = await http.post(
+            f"/v1/leads/{lead_id}/call",
+            json={"agent_id": str(agent_id)},
+            headers={**headers, "Idempotency-Key": key},
+        )
+    assert first.status_code >= 500, first.text
+    assert await _outbound_calls(tenant_id) == [(phone, "queued")]
+
+    monkeypatch.setattr(agent_service, "dispatch_call", real_dispatch)
+    await _age_claims_past_the_lease(key)
+    async with _no_reraise_client() as http:
+        retry = await http.post(
+            f"/v1/leads/{lead_id}/call",
+            json={"agent_id": str(agent_id)},
+            headers={**headers, "Idempotency-Key": key},
+        )
+    assert await _outbound_calls(tenant_id) == [(phone, "queued")], (
+        "the same Idempotency-Key, retried after the lease, rang the customer a second time"
+    )
+    assert retry.status_code == 409, retry.text
+    assert retry.json()["type"].endswith("/idempotent_request_in_doubt"), retry.text
     await _settle_calls(tenant_id)
 
 

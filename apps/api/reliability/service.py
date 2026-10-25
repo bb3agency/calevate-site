@@ -160,7 +160,8 @@ async def claim_idempotency(
 
     409s, both deliberate:
     - same key + DIFFERENT body → the client reused a key for a new request;
-    - status PROCESSING and claimed within `CLAIM_LEASE` → genuinely still in flight.
+    - status PROCESSING and claimed within `CLAIM_LEASE` → genuinely still in flight;
+    - status IN_DOUBT → never re-run (`mark_idempotency_in_doubt`).
 
     A FAILED record, or a PROCESSING one whose holder has been silent for longer than
     the lease, is re-claimed by CAS: a crashed attempt must not own the key until the
@@ -223,6 +224,29 @@ async def claim_idempotency(
             "This Idempotency-Key was already used for a different request body.",
             remediation="Use a fresh key for a new request.",
         )
+    if status == "in_doubt":
+        # Never re-claimed, by the lease or anything else: the holder reached a side effect
+        # it cannot take back (`mark_idempotency_in_doubt`), so running the request again
+        # could repeat it. Within the lease it is still in flight; past it, the answer is
+        # that nobody knows whether it took effect.
+        lapsed = (
+            await session.execute(
+                text("SELECT updated_at < now() - :lease FROM idempotency_records WHERE id = :id"),
+                {"id": found_id, "lease": CLAIM_LEASE},
+            )
+        ).scalar_one()
+        if not lapsed:
+            raise _in_flight()
+        raise ProblemError(
+            kind="conflict",
+            code="idempotent_request_in_doubt",
+            title="We cannot tell whether that request took effect",
+            detail=(
+                "An earlier attempt with this key started something it could not confirm, "
+                "so it will not be run again under the same key."
+            ),
+            remediation="Check whether it happened before sending it again as a new request.",
+        )
     if status in ("processing", "failed"):
         # CAS the record back to processing; whoever wins retries.
         #
@@ -242,14 +266,7 @@ async def claim_idempotency(
             {"id": found_id, "lease": CLAIM_LEASE, "nonce": nonce},
         )
         if rowcount_of(retried) == 0:
-            raise ProblemError(
-                kind="conflict",
-                code="idempotent_request_in_flight",
-                title="Request already in progress",
-                detail="An identical request is still being processed.",
-                remediation="Retry in a few seconds.",
-                headers={"Retry-After": "3"},
-            )
+            raise _in_flight()
         return IdempotencyClaim(state="fresh", record_id=found_id, nonce=nonce)
 
     return IdempotencyClaim(
@@ -258,6 +275,46 @@ async def claim_idempotency(
         response_status=response_status,
         response_payload=response_payload,
     )
+
+
+def _in_flight() -> ProblemError:
+    return ProblemError(
+        kind="conflict",
+        code="idempotent_request_in_flight",
+        title="Request already in progress",
+        detail="An identical request is still being processed.",
+        remediation="Retry in a few seconds.",
+        headers={"Retry-After": "3"},
+    )
+
+
+async def mark_idempotency_in_doubt(session: AsyncSession, *, claim: IdempotencyClaim) -> None:
+    """Commit, BEFORE an irreversible side effect starts, that this key must never run again.
+
+    For a request whose side effect the world can see and we cannot undo or dedupe (a real
+    phone call), "the attempt went quiet" does not mean "nothing happened": the vendor may
+    have accepted the dial and lost the answer, or the process may have died mid-request.
+    The lease re-claim treats a silent `processing` record as abandoned and runs it afresh;
+    an `in_doubt` one it never touches, and `claim_idempotency` answers its retries 409
+    instead. The holder still resolves it: `complete_idempotency` on success,
+    `fail_idempotency` only on a failure that PROVES nothing happened.
+
+    Written before the side effect rather than after an ambiguous failure, so a crash in
+    between cannot leave the key reclaimable — the recovery-point discipline of committing
+    local state before any foreign mutation. Raises `idempotent_request_in_flight` when
+    `claim` no longer holds the record (its lease lapsed and another request took it), and
+    the caller must then not start the side effect.
+    """
+    result = await session.execute(
+        text(
+            "UPDATE idempotency_records SET status = 'in_doubt', updated_at = now() "
+            "WHERE id = :id AND status = 'processing' AND claim_nonce = :nonce"
+        ),
+        {"id": claim.record_id, "nonce": claim.nonce},
+    )
+    if rowcount_of(result) == 0:
+        _late_report("idempotency_lost_before_side_effect", claim.record_id)
+        raise _in_flight()
 
 
 # The guard both terminal writers below carry: the record is still open AND still held by
@@ -274,8 +331,11 @@ async def claim_idempotency(
 # nonce is minted on every take, so a report from any earlier holding matches nothing —
 # the fencing token of a lease. `updated_at` is not one: `now()` is transaction-start
 # time, so two takes are not guaranteed distinct values. Reproduced in
-# `tests/reliability_late_report_test.py`.
-_IDEMPOTENCY_HELD_BY_CLAIM = "id = :id AND status = 'processing' AND claim_nonce = :nonce"
+# `tests/reliability_late_report_test.py`. `in_doubt` is a holding too: only its holder may
+# resolve it, and nothing else can take it.
+_IDEMPOTENCY_HELD_BY_CLAIM = (
+    "id = :id AND status IN ('processing', 'in_doubt') AND claim_nonce = :nonce"
+)
 
 
 async def complete_idempotency(
@@ -1210,6 +1270,7 @@ __all__ = [
     # next person deciding whether they may call it.
     "enqueue_outbox_once",
     "fail_idempotency",
+    "mark_idempotency_in_doubt",
     "mark_inbox_enqueued",
     "mark_inbox_failed",
     "mark_inbox_processed",

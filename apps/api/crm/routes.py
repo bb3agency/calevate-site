@@ -84,6 +84,7 @@ from apps.api.reliability.service import (
     claim_idempotency,
     complete_idempotency,
     fail_idempotency,
+    mark_idempotency_in_doubt,
     scope_key,
 )
 
@@ -1659,6 +1660,10 @@ async def call_back(
 
     from apps.api.agents.service import DialUnconfirmedError, dial_was_not_placed, dispatch_call
 
+    # `place_lead_call`'s rule: from here the key is never re-run unless a failure proves
+    # no line was seized.
+    async with tenant_session(principal.tenant_id) as doubt_session:
+        await mark_idempotency_in_doubt(doubt_session, claim=claim)
     try:
         handle = await dispatch_call(
             session,
@@ -1670,7 +1675,7 @@ async def call_back(
             context_note=plan.context_note,
         )
     except DialUnconfirmedError as unconfirmed:
-        # The claim stays `processing` on purpose — `call_lead` carries the argument.
+        # The claim stays `in_doubt` on purpose — `place_lead_call` carries the argument.
         raise ProblemError(
             kind="dependency",
             code="dial_unconfirmed",
