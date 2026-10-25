@@ -58,14 +58,21 @@ def live_state(status: str, created_at: datetime, *, now: datetime) -> LiveState
     return "live" if now - created_at < LIVE_LINE_HORIZON else "unreported"
 
 
-def live_state_sql(alias: str = "c") -> str:
-    """`live_state` as a SQL expression, for ordering the log with live calls first."""
-    statuses = ", ".join(f"'{s}'" for s in sorted(LIVE_STATUSES))
-    return (
-        f"CASE WHEN {alias}.status NOT IN ({statuses}) THEN NULL "
-        f"WHEN {alias}.created_at > now() - make_interval(secs => "
-        f"{int(LIVE_LINE_HORIZON.total_seconds())}) THEN 'live' ELSE 'unreported' END"
-    )
+#: `live_state` as a SQL expression over `calls c`, for ordering the log with live calls
+#: first. The statuses and the horizon are bound (`live_state_params`) rather than spliced,
+#: so the text is a literal `scripts.check_raw_sql` can trace.
+LIVE_STATE_SQL: Final = (
+    "CASE WHEN c.status::text <> ALL(CAST(:live_statuses AS text[])) THEN NULL "
+    "WHEN c.created_at > now() - make_interval(secs => CAST(:live_horizon_s AS double precision)) "
+    "THEN 'live' ELSE 'unreported' END"
+)
+
+
+def live_state_params() -> dict[str, object]:
+    return {
+        "live_statuses": sorted(LIVE_STATUSES),
+        "live_horizon_s": LIVE_LINE_HORIZON.total_seconds(),
+    }
 
 
 class EngineLiveStatus(BaseModel):

@@ -78,7 +78,7 @@ class Suggestion(BaseModel):
     field_key: str
     field_label: str
     #: Choices to add or remove; for a new field, its choices (empty for a text field).
-    values: list[str] = Field(default_factory=list)
+    values: list[str] = Field(default_factory=list, max_length=MAX_CHOICES)
     #: The field to add, for `new_field` only.
     field: ExtractionField | None = None
     #: One sentence for the owner saying why, in English.

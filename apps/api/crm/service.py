@@ -39,7 +39,7 @@ from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.attention import block_remedy
 from apps.api.crm.captured import captured_fields
-from apps.api.crm.live_calls import live_state_sql
+from apps.api.crm.live_calls import LIVE_STATE_SQL, live_state_params
 from apps.api.crm.outcomes import normalise as normalise_outcome
 from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
@@ -224,7 +224,7 @@ class CallFilters:
 #: was placed or arrived. On `started_at` alone a call still ringing, and one nobody
 #: answered, fell outside every date range and sorted below the whole history.
 _CALL_AT: Final = "COALESCE(c.started_at, c.created_at)"
-_LIVE_STATE: Final = f"({live_state_sql('c')})"
+_LIVE_STATE: Final = f"({LIVE_STATE_SQL})"
 
 
 def _call_where(filters: CallFilters) -> tuple[str, dict[str, Any]]:
@@ -268,7 +268,7 @@ async def list_calls(
     with_previews: bool = False,
 ) -> list[CallSummaryOut]:
     where, params = _call_where(filters or CallFilters(status=status, agent_id=agent_id))
-    params |= {"limit": min(limit, MAX_PAGE), "offset": offset}
+    params |= {"limit": min(limit, MAX_PAGE), "offset": offset} | live_state_params()
 
     credits_column = _CREDITS_USED_COLUMN if include_credits else "NULL"
     rows = (

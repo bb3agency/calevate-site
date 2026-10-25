@@ -78,8 +78,34 @@ class BoundedByConstruction:
     by: str
 
 
+#: The lead-detail suggestion routes (D-889) share one bound.
+_LEAD_SUGGESTIONS = BoundedByConstruction(
+    by=(
+        "the open suggestions on ONE agent, at most `agents/models.MAX_FIELD_SUGGESTIONS` "
+        "(six), enforced by `workers/field_suggestions` when it writes them; a suggestion's "
+        "`values` are choices of one field, at most `agents/field_suggestions.MAX_CHOICES` (the model's `max_length`)."
+    )
+)
+
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    "GET /v1/agents/{agent_id}/lead-suggestions": _LEAD_SUGGESTIONS,
+    "POST /v1/agents/{agent_id}/lead-suggestions/check": _LEAD_SUGGESTIONS,
+    "POST /v1/agents/{agent_id}/lead-suggestions/{suggestion_id}/accept": _LEAD_SUGGESTIONS,
+    "POST /v1/agents/{agent_id}/lead-suggestions/{suggestion_id}/dismiss": _LEAD_SUGGESTIONS,
+    "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions": _LEAD_SUGGESTIONS,
+    (
+        "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}"
+        "/lead-suggestions/check"
+    ): _LEAD_SUGGESTIONS,
+    (
+        "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}"
+        "/lead-suggestions/{suggestion_id}/accept"
+    ): _LEAD_SUGGESTIONS,
+    (
+        "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}"
+        "/lead-suggestions/{suggestion_id}/dismiss"
+    ): _LEAD_SUGGESTIONS,
     "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/layers": BoundedByConstruction(
         by=(
             "one entry per `calevate_shared.engine.PromptLayer` (twelve), the layers "
