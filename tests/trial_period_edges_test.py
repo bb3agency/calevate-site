@@ -38,6 +38,7 @@ import pytest
 from apps.api.billing.trial_routes import router as trial_router
 from apps.api.billing.trial_routes import start_trial_confirmation
 from apps.api.billing.trials import (
+    counter_epoch,
     end_trial,
     mark_erasure_filed,
     read_trial,
@@ -551,3 +552,47 @@ async def test_trial_cost_counts_a_zero_quantity_row_as_its_whole_leg() -> None:
         summed = await trial_cost_to_us_inr(session, tenant_id=tenant_id, trial=trial)
 
     assert summed == Decimal("0.7000")
+
+
+async def test_a_trial_closed_after_its_end_date_stops_counting_at_the_end_date() -> None:
+    """A trial an operator closes after its own end date (inside the gap before the daily
+    sweep records it) stopped covering calls at `ends_at`, not at the click. The calls in
+    between were paid: they are not part of what the trial cost us, and the client's fresh
+    counting period starts at `ends_at` so those paid calls are not hidden from them.
+    """
+    tenant_id, agent_id = await _tenant()
+    now = datetime.now(UTC)
+    started = now - timedelta(days=10)
+    async with tenant_session(tenant_id) as session:
+        trial = await start_trial(
+            session, tenant_id=tenant_id, days=7, actor_user_id=None, at=started
+        )
+        for occurred, cost in (
+            (started + timedelta(days=1), "0.0300"),  # inside the trial
+            (trial.ends_at + timedelta(days=1), "0.0500"),  # paid, before the late close
+        ):
+            call_id = uuid7()
+            await session.execute(
+                text(
+                    "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                    "to_e164, status, created_at, updated_at) VALUES (:i, :t, :a, :e, "
+                    "'outbound', '+919876500002', 'completed', now(), now())"
+                ),
+                {"i": call_id, "t": tenant_id, "a": agent_id, "e": f"exec_{uuid.uuid4().hex[:12]}"},
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, "
+                    "unit_cost_paid, occurred_at, created_at) VALUES (:i, :t, :c, "
+                    "'telephony_s', 60, :u, :o, now())"
+                ),
+                {"i": uuid7(), "t": tenant_id, "c": call_id, "u": Decimal(cost), "o": occurred},
+            )
+        ended = await end_trial(
+            session, tenant_id=tenant_id, outcome="stopped", reason="No response.", at=now
+        )
+        summed = await trial_cost_to_us_inr(session, tenant_id=tenant_id, trial=ended)
+        epoch = await counter_epoch(session, tenant_id=tenant_id)
+
+    assert summed == Decimal("1.8000"), "only the call inside the trial is the trial's cost"
+    assert epoch == trial.ends_at, "the paid period starts where the trial stopped covering"

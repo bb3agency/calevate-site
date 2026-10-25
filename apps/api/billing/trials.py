@@ -285,6 +285,18 @@ class TrialState:
         """
         return self.status == TRIAL_ACTIVE and at < self.ends_at
 
+    @property
+    def covered_until(self) -> datetime:
+        """The instant this trial stopped covering calls: `ended_at` when a person ended it
+        early, otherwise `ends_at`.
+
+        `min`, not `ended_at or ends_at`: a trial closed by an operator or a first payment
+        AFTER its own end date — inside the up-to-a-day gap before the sweep records it —
+        carries an `ended_at` later than `ends_at`, and the calls in between were paid.
+        `ON_TRIAL_ROW_SQL` spells the same boundary as `LEAST(...)`.
+        """
+        return min(self.ends_at, self.ended_at) if self.ended_at is not None else self.ends_at
+
     def days_remaining(self, *, at: datetime) -> int | None:
         """Whole days left, or None once the trial is over.
 
@@ -362,8 +374,7 @@ async def trial_covers(session: AsyncSession, *, tenant_id: UUID, at: datetime) 
     trial = await read_trial(session, tenant_id=tenant_id)
     if trial is None:
         return False
-    boundary = min(trial.ends_at, trial.ended_at) if trial.ended_at is not None else trial.ends_at
-    return trial.started_at <= at < boundary
+    return trial.started_at <= at < trial.covered_until
 
 
 #: `trial_covers` as a predicate on a `usage_events` row, for the readers that split a month
@@ -402,8 +413,9 @@ async def counter_epoch(session: AsyncSession, *, tenant_id: UUID) -> datetime |
 
     * A trial that is RUNNING → its `started_at`. Everything the client has used inside the
       period is what the period shows.
-    * A trial that has ENDED → its `ended_at`. A fresh period, exactly as the 1st of a
-      month is a fresh period.
+    * A trial that has ENDED → the instant it stopped covering calls (`covered_until`). A
+      fresh period, exactly as the 1st of a month is a fresh period. Not `ended_at` alone:
+      a trial closed after its end date would hide the paid calls between the two.
     * No trial ever → None, and every client-facing figure is the plain IST billing month
       it has always been. An account that never had a trial must not acquire a second,
       invisible window.
@@ -416,7 +428,7 @@ async def counter_epoch(session: AsyncSession, *, tenant_id: UUID) -> datetime |
     trial = await read_trial(session, tenant_id=tenant_id)
     if trial is None:
         return None
-    return trial.started_at if trial.status == TRIAL_ACTIVE else trial.ended_at
+    return trial.started_at if trial.status == TRIAL_ACTIVE else trial.covered_until
 
 
 async def trial_cost_to_us_inr(
@@ -453,7 +465,7 @@ async def trial_cost_breakdown(
         session,
         tenant_id=tenant_id,
         start=trial.started_at,
-        end=trial.ended_at or trial.ends_at,
+        end=trial.covered_until,
     )
 
 
