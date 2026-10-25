@@ -10,7 +10,8 @@
  * that runs onboarding and support (named, not counted: a count in prose is the defect
  * class D-103/D-105 exist for). What it deliberately does NOT hold is the four that
  * decide what the platform itself does: `platform:secrets`, `platform:config`,
- * `ops:manage` and `admin:operators`. The last of those is this surface, and it is what
+ * `ops:manage` and `admin:operators`; nor `billing:comp`, giving credit or paid status
+ * with no payment behind it (D-890). The last of those is this surface, and it is what
  * makes the split real rather than cosmetic: a normal admin cannot reach the table that
  * decides who is a normal admin, so no request they can send widens their own authority.
  *

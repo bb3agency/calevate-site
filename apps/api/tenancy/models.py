@@ -86,7 +86,14 @@ DEFAULT_PLAN_TIER = "prepaid"
 #: to the wallet, or "it existed before the rule" (the backfill). A goodwill grant is not one.
 #: `operator_conversion` (D-859): an operator converted the trial of an account invoiced
 #: outside the wallet, which is paying as surely as one that topped up.
-FIRST_PAID_VIA = ("wallet_topup", "manual_topup", "before_d697", "operator_conversion")
+#: `complimentary` (D-890): a super admin made the account paid with no payment behind it.
+FIRST_PAID_VIA = (
+    "wallet_topup",
+    "manual_topup",
+    "before_d697",
+    "operator_conversion",
+    "complimentary",
+)
 MEMBER_ROLES = ("owner", "staff")
 #: RE-EXPORTED, NOT RESTATED. `core/rbac.ROLE_PERMISSIONS` is keyed by these two names and
 #: `authn/bootstrap` validates against them; a second literal here is how a role table and
@@ -294,6 +301,10 @@ class Organization(PKMixin, TimestampMixin, Base):
     #: before the rule and keeps what it had.
     first_paid_at: Mapped[datetime | None]
     first_paid_via: Mapped[str | None] = mapped_column(Text)
+    #: Why a super admin made the account paid without a payment, in their words (D-890).
+    #: On the row, because `audit_log` keeps who and what but not the words; set only with
+    #: `first_paid_via = 'complimentary'`.
+    first_paid_reason: Mapped[str | None] = mapped_column(Text)
     #: THE MONTHLY PLATFORM FEE WAIVER (D-707, migration e5a1d706c3f2). An operator may
     #: excuse one client from the platform-wide fee, with a reason; the three columns are
     #: set and cleared together (a CHECK holds it) and every change writes an audit row

@@ -109,6 +109,23 @@ BODIES: dict[str, dict[str, Any] | None] = {
         "expected_role": "owner",
     },
     "GET /v1/admin/tenants/{tenant_id}/members": None,
+    # The twelve named layers of an agent's prompt (D-882).
+    "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/layers": None,
+    # Suggested changes to an agent's lead details (D-889).
+    "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions": None,
+    "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions/check": None,
+    (
+        "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}"
+        "/lead-suggestions/{suggestion_id}/accept"
+    ): None,
+    (
+        "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}"
+        "/lead-suggestions/{suggestion_id}/dismiss"
+    ): None,
+    # Making an account paid without a payment (D-890). A reason is required, so `{}` would
+    # 422 before the tenant is looked at.
+    "GET /v1/admin/tenants/{tenant_id}/paid": None,
+    "POST /v1/admin/tenants/{tenant_id}/paid": {"reason": "census"},
     # A client's lead details (D-715). `{}` replaces every agent's set from its own type.
     "GET /v1/admin/tenants/{tenant_id}/lead-fields": None,
     "POST /v1/admin/tenants/{tenant_id}/lead-fields/draft": None,
@@ -329,6 +346,7 @@ def _confirmation_for(key: str, ids: dict[str, str]) -> str | None:
         # D-731's operator writes, each bound the way its route binds it.
         "POST /v1/admin/tenants/{tenant_id}/credits": f"record_payment:{subject}",
         "POST /v1/admin/tenants/{tenant_id}/trial/end": f"end_trial:{subject}:stopped",
+        "POST /v1/admin/tenants/{tenant_id}/paid": f"convert_to_paid:{subject}:0.00",
         "PATCH /v1/admin/tenants/{tenant_id}/members/{user_id}": (
             f"change_member_role:{subject}:{ids.get('user_id', '')}"
         ),
@@ -477,7 +495,14 @@ async def test_a_tenant_id_that_names_nothing_is_a_404_on_every_route(
             url = path
             ids: dict[str, str] = {}
             for name in params:
-                value = REAL_FLAG if name == "flag" else str(uuid.uuid4())
+                # A suggestion id is a 16-hex fingerprint, not a uuid (D-889).
+                value = (
+                    REAL_FLAG
+                    if name == "flag"
+                    else "0123456789abcdef"
+                    if name == "suggestion_id"
+                    else str(uuid.uuid4())
+                )
                 ids[name] = value
                 url = url.replace("{" + name + "}", value)
             headers = {"Authorization": f"Bearer {token}"}

@@ -19,6 +19,11 @@ An operator converting the trial of an account invoiced outside the wallet
 (`trial_routes.close_trial`) is the same fact by another door: `on_operator_conversion` stamps
 it `operator_conversion` and owes the same guide.
 
+A super admin making an account paid with no payment at all (D-890,
+`credit_routes.convert_to_paid`) is a third door: `on_complimentary_conversion` stamps it
+`complimentary` from any state (running trial, ended trial, none) and unlocks exactly what a
+payment does, through the same `_unlock`.
+
 **A GOODWILL GRANT IS NOT A PAYMENT.** `reason = 'grant'` and `'bonus'` rows never reach
 this hook: a grant is credit we gave, not money the client paid, and counting it would let an
 operator's gesture unlock KYC, numbers and live calling for an account that has paid nothing.
@@ -62,6 +67,10 @@ PaymentVia = Literal["wallet_topup", "manual_topup"]
 PAID_TENANT_SQL: Final = "o.first_paid_at IS NOT NULL"
 
 OPERATOR_CONVERSION: Final = "operator_conversion"
+#: A super admin made the account paid with no payment and no invoice behind it (D-890).
+COMPLIMENTARY: Final = "complimentary"
+#: The reason a trial converted this way carries on its row.
+COMPLIMENTARY_REASON: Final = "Made a paid account by a super admin, without a payment"
 
 
 async def has_paid(session: AsyncSession, *, tenant_id: UUID) -> bool:
@@ -126,13 +135,45 @@ async def on_payment_credited(
     if not await _claim(session, tenant_id=tenant_id, via=via, at=now):
         return False
 
+    converting, workspace_owed = await _unlock(
+        session, tenant_id=tenant_id, now=now, trial_reason=PAID_REASON
+    )
+    await write_audit(
+        session,
+        action="account.first_payment",
+        actor_type="system",
+        tenant_id=tenant_id,
+        object_type="organizations",
+        object_id=str(tenant_id),
+        summary={
+            "via": via,
+            "amount_inr": str(amount_inr),
+            "trial_converted": str(converting),
+            "workspace_queued": str(workspace_owed),
+        },
+    )
+    log.info(
+        "account_first_payment",
+        extra={"tenant_id": str(tenant_id), "via": via, "workspace_queued": workspace_owed},
+    )
+    return True
+
+
+async def _unlock(
+    session: AsyncSession, *, tenant_id: UUID, now: datetime, trial_reason: str
+) -> tuple[bool, bool]:
+    """Everything an account owes the moment it became paid, after `_claim` stamped it:
+    the trial converted or its data kept, the agents refreshed, the workspace queued and the
+    go-live guide owed. One body for every door to "paid" (a payment, a complimentary
+    conversion), so the doors cannot unlock different things. Returns (converted a running
+    trial, workspace queued)."""
     trial = await read_trial(session, tenant_id=tenant_id)
     converting = trial is not None and trial.status == TRIAL_ACTIVE
     if converting:
         # Converting queues the account's workspace and refreshes its agents itself
         # (`end_trial`).
         await end_trial(
-            session, tenant_id=tenant_id, outcome="converted", reason=PAID_REASON, at=now
+            session, tenant_id=tenant_id, outcome="converted", reason=trial_reason, at=now
         )
     elif trial is not None and trial.erase_after is not None and trial.erasure_filed_at is None:
         # A trial that ended without a sale had this client's data scheduled for erasure.
@@ -154,25 +195,32 @@ async def on_payment_credited(
         else await queue_workspace_provisioning(session, tenant_id=tenant_id)
     )
     await _owe_go_live_guide(session, tenant_id=tenant_id, at=now)
-    await write_audit(
-        session,
-        action="account.first_payment",
-        actor_type="system",
-        tenant_id=tenant_id,
-        object_type="organizations",
-        object_id=str(tenant_id),
-        summary={
-            "via": via,
-            "amount_inr": str(amount_inr),
-            "trial_converted": str(converting),
-            "workspace_queued": str(workspace_owed),
-        },
+    return converting, workspace_owed
+
+
+async def on_complimentary_conversion(
+    session: AsyncSession, *, tenant_id: UUID, reason: str, at: datetime | None = None
+) -> tuple[bool, bool] | None:
+    """A super admin made this account paid with no payment behind it (D-890).
+
+    From any state: a running trial is converted, an ended one keeps its data, an account
+    that never had one simply becomes paid. Unlocks exactly what a first payment does
+    (`_unlock`). Call it in the route's transaction; it does not commit and writes no audit
+    row (the route writes the actor's). None when the account was already paid, so the
+    route can say so rather than report a conversion that changed nothing."""
+    now = at or datetime.now(UTC)
+    if not await _claim(session, tenant_id=tenant_id, via=COMPLIMENTARY, at=now):
+        return None
+    # The super admin's words, on the account: `audit_log` keeps who and what, not why.
+    await session.execute(
+        text("UPDATE organizations SET first_paid_reason = :r WHERE id = :tid"),
+        {"r": reason, "tid": tenant_id},
     )
-    log.info(
-        "account_first_payment",
-        extra={"tenant_id": str(tenant_id), "via": via, "workspace_queued": workspace_owed},
+    unlocked = await _unlock(
+        session, tenant_id=tenant_id, now=now, trial_reason=COMPLIMENTARY_REASON
     )
-    return True
+    log.info("account_first_payment", extra={"tenant_id": str(tenant_id), "via": COMPLIMENTARY})
+    return unlocked
 
 
 async def on_operator_conversion(

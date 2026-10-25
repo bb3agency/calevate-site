@@ -73,7 +73,7 @@ from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requ
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.rbac import permission_meta
+from apps.api.core.rbac import permission_meta, role_has
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.reliability.service import enqueue_outbox_once
@@ -364,6 +364,16 @@ async def close_trial(
     step_up: StepUpGate,
     x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> TrialOut:
+    # Converting makes the account paid with no payment behind it, which is a super admin's
+    # act (D-890, `billing:comp`); stopping a trial stays any operator's. Checked before the
+    # step-up: an operator who may not do this should be told so, not asked to confirm it.
+    if payload.outcome == TRIAL_CONVERTED and (
+        principal.role is None or not role_has(principal.role, "billing:comp")
+    ):
+        raise ProblemError.forbidden(
+            "Converting a trial makes the account paid without a payment, which needs a "
+            "super admin. Stopping a trial does not."
+        )
     # Step-up (D-731): `stopped` schedules the client's erasure, and the outcome is in the
     # string so a confirmation for converting cannot be replayed to stop.
     step_up.require(x_confirm_action, end_trial_confirmation(tenant_id, payload.outcome))

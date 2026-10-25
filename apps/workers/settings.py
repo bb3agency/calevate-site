@@ -127,6 +127,7 @@ from apps.workers.caller_memory_distil import (
 )
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.client_actions import run_after_call_actions, run_client_action
+from apps.workers.comp_notices import notify_comp
 from apps.workers.copilot_jobs import run_copilot_job
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
 from apps.workers.copilot_routines import fire_due_routines
@@ -487,6 +488,9 @@ FUNCTIONS: list[Any] = [
         # through the outbox in the trial row's transaction. Unregistered, the outbox marks
         # the row published and arq drops it: `check_job_wiring` shape 3.
         notify_trial_started,
+        # D-890. The client's notice and email and every super admin's alert after a grant
+        # or a complimentary conversion, from the outbox (`billing/comp_notices`).
+        notify_comp,
         # D-547 EDITABLE RATE CARD. Enqueued through the OUTBOX in the same transaction as
         # the `platform_list_rates` card it announces, so an unregistered name here is the
         # `check_job_wiring` shape 3 failure with a PRICE behind it: the outbox marks the

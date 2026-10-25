@@ -521,7 +521,10 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # ONE MORE attests a provider's data-use terms for callers' speech (D-839,
     # `ops/in_call_data_use_routes.py`, `attest_confirmation`, bound to the provider): our own
     # model is switched on on the strength of it.
-    assert sites == 82, f"found {sites} step-up call sites, expected 82; the census went stale"
+    # ONE MORE makes a client account paid without a payment (D-890,
+    # `billing/comp_routes.py::make_paid`, `make_paid_confirmation`, bound to the client and
+    # the credit added with it).
+    assert sites == 83, f"found {sites} step-up call sites, expected 83; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

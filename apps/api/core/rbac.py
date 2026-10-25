@@ -201,6 +201,11 @@ Permission = Literal[
     # and is why this is not merged into `platform:config`, whose blast radius stops at
     # "the platform misbehaves visibly".
     "platform:secrets",
+    # GIVING VALUE WITH NO PAYMENT BEHIND IT (D-890): credit granted out of nothing, and an
+    # account made paid without a payment (complimentary conversion, or converting a
+    # trial). Founder, 26 Oct 2026: only a super admin. Recording a REAL payment, a refund
+    # or a correction stays `admin:tenants`: each of those has money or an entry behind it.
+    "billing:comp",
 ]
 
 #: Every string the `Permission` Literal admits. Read off the type rather than restated,
@@ -223,8 +228,8 @@ SUPERADMIN_PERMISSIONS: frozenset[Permission] = cast("frozenset[Permission]", KN
 #: The founder was asked to draw the line and drew it here: "only super admin has access
 #: to ops config panel ... the other normal admins can do literally everything that a
 #: super admin can except ops config and other things that are vital in that level."
-#: Four permissions, and each is on this list because losing it costs the PLATFORM rather
-#: than one client:
+#: Five permissions. The first four are here because losing one costs the PLATFORM rather
+#: than one client; the fifth because it gives away the platform's money:
 #:
 #:   `platform:secrets` + `platform:config` — the ops config panel, where every vendor
 #:     credential and every platform-wide setting is installed. PLATFORM-CONFIG §10's
@@ -240,6 +245,10 @@ SUPERADMIN_PERMISSIONS: frozenset[Permission] = cast("frozenset[Permission]", KN
 #:     (`compliance/tenant_erasure_routes.py`) and raising or removing a client's spend
 #:     ceiling (`admin/routes.py::record_commercial_terms`) — so those two acts ride this
 #:     entry and are superadmin-only as a consequence of it.
+#:   `billing:comp` — credit with no payment behind it and an account made paid without
+#:     one (D-890, founder 26 Oct 2026). Standard practice for issuing value from nothing
+#:     is that the issuer is a narrow, named role and every act is alerted on; this is
+#:     that role, and every use emails every super admin.
 #:
 #: IT IS NOT ENFORCEMENT AND MUST NEVER BECOME IT. `role_has` is the enforcement and
 #: reads `ROLE_PERMISSIONS`; this constant is the STATEMENT of the boundary that the
@@ -251,6 +260,7 @@ SUPERADMIN_ONLY_PERMISSIONS: frozenset[Permission] = frozenset(
         "ops:manage",
         "platform:config",
         "platform:secrets",
+        "billing:comp",
     }
 )
 
@@ -441,6 +451,7 @@ MUTATING_PERMISSIONS: frozenset[Permission] = frozenset(
         "admin:operators",
         "platform:config",
         "platform:secrets",
+        "billing:comp",
     }
 )
 

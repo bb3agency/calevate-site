@@ -20,6 +20,7 @@ from apps.api.billing.credit_routes import credit_grant_confirmation
 from apps.api.billing.credit_routes import router as credit_router
 from apps.api.billing.models import CREDIT_REASONS, GRANTED_CREDIT_REASONS, PAID_CREDIT_REASONS
 from apps.api.billing.service import (
+    LARGE_GRANT_INR,
     MAX_GRANT_INR,
     MIN_GRANT_INR,
     CreditReason,
@@ -202,12 +203,12 @@ async def test_two_genuinely_distinct_grants_of_the_same_size_both_land() -> Non
     assert totals.granted_inr == Decimal("1000.0000")
 
 
-async def test_the_ceiling_catches_the_founders_own_example() -> None:
-    """*"a fat-finger (₹5,00,000 instead of ₹5,000) is refused rather than posted"*. The
-    ceiling has to sit an order of magnitude above the honest figure and an order of
-    magnitude below the slip, or it refuses real work while stopping nobody."""
-    assert Decimal("500000.00") > MAX_GRANT_INR
-    assert Decimal("5000.00") * 5 < MAX_GRANT_INR
+async def test_the_limits_are_the_ledgers_and_the_confirmation_line() -> None:
+    """D-890: no business cap. `MAX_GRANT_INR` is a tenth of what MONEY (NUMERIC(12,4))
+    holds, so a balance cannot overflow its column; above `LARGE_GRANT_INR` the amount is
+    typed twice."""
+    assert Decimal("100000000") >= MAX_GRANT_INR * 10
+    assert Decimal("50000.00") == LARGE_GRANT_INR
     assert MIN_GRANT_INR > 0
 
 
@@ -249,7 +250,7 @@ def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=_app()), base_url="http://api")
 
 
-async def _make_admin(role: str = "operator") -> str:
+async def _make_admin(role: str = "superadmin") -> str:
     admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
@@ -416,19 +417,21 @@ async def test_one_reference_for_a_different_amount_is_a_conflict_and_moves_noth
     ], "the balance did not move on the refusal"
 
 
-async def test_a_figure_outside_the_ceiling_is_refused_by_name_and_names_the_bounds() -> None:
-    """The founder's fat-finger guardrail: ₹5,00,000 instead of ₹5,000 is refused rather
-    than posted. Checked BEFORE the step-up, so an operator who typed the wrong number is
-    told the number is impossible rather than sent to fix a header and re-submit the typo.
-    """
+async def test_a_figure_outside_what_the_ledger_holds_is_refused_by_name() -> None:
+    """D-890 replaced the ₹50,000 ceiling with "no cap, extra checks": a figure is refused
+    only under a rupee or over what the ledger column can hold, and checked BEFORE the
+    step-up, so a wrong number is reported as one rather than as a header problem."""
     token = await _make_admin()
     tenant_id = await _tenant()
 
     async with _client() as http:
         too_big = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits/grants",
-            headers=_headers(token, credit_grant_confirmation(Decimal("500000.00"))),
-            json=_grant_body("500000.00", "GRANT-FAT-FINGER"),
+            headers=_headers(token, credit_grant_confirmation(Decimal("20000000.00"))),
+            json={
+                **_grant_body("20000000.00", "GRANT-TOO-BIG"),
+                "amount_confirmation": "20000000.00",
+            },
         )
         # No confirmation header at all, and still the AMOUNT is what it is told about.
         too_small = await http.post(
@@ -441,11 +444,59 @@ async def test_a_figure_outside_the_ceiling_is_refused_by_name_and_names_the_bou
         assert response.status_code == 422, response.text
         assert response.json()["type"].endswith("/invalid_grant_amount")
         detail = response.json()["detail"]
-        assert f"{MIN_GRANT_INR:,.0f}" in detail and f"{MAX_GRANT_INR:,.0f}" in detail, (
-            "the refusal names the real bounds, so the operator can pick a figure inside them"
-        )
-    assert "500000.00" in too_big.json()["detail"], "and names what was actually asked for"
+        assert f"{MIN_GRANT_INR:,.0f}" in detail and f"{MAX_GRANT_INR:,.0f}" in detail
     assert await _ledger(tenant_id) == [], "a refused figure writes nothing"
+
+
+async def test_a_large_grant_needs_the_amount_typed_again_and_then_posts() -> None:
+    """Above ₹50,000 the amount is typed a second time, checked by the server (D-890). The
+    founder's fat-finger example, ₹5,00,000 for ₹5,000, is stopped by that second figure
+    rather than by a ceiling, and the same figure confirmed is a real grant."""
+    token = await _make_admin()
+    tenant_id = await _tenant()
+    confirm = credit_grant_confirmation(Decimal("500000.00"))
+
+    async with _client() as http:
+        unconfirmed = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credits/grants",
+            headers=_headers(token, confirm),
+            json=_grant_body("500000.00", "GRANT-BIG-1"),
+        )
+        mismatched = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credits/grants",
+            headers=_headers(token, confirm),
+            json={**_grant_body("500000.00", "GRANT-BIG-2"), "amount_confirmation": "5000.00"},
+        )
+        confirmed = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credits/grants",
+            headers=_headers(token, confirm),
+            json={**_grant_body("500000.00", "GRANT-BIG-3"), "amount_confirmation": "500000"},
+        )
+
+    for response in (unconfirmed, mismatched):
+        assert response.status_code == 422, response.text
+        assert response.json()["type"].endswith("/grant_amount_unconfirmed")
+    assert confirmed.status_code == 201, confirmed.text
+    assert await _ledger(tenant_id) == [
+        ("grant", Decimal("500000.0000"), grant_ref(reference="GRANT-BIG-3"))
+    ]
+
+
+async def test_only_a_super_admin_may_grant() -> None:
+    """D-890: giving credit with no payment behind it is `billing:comp`, a super admin's
+    permission. An operator holding `admin:tenants` is refused before anything is read."""
+    token = await _make_admin(role="operator")
+    tenant_id = await _tenant()
+
+    async with _client() as http:
+        refused = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credits/grants",
+            headers=_headers(token, credit_grant_confirmation(Decimal("100.00"))),
+            json=_grant_body("100.00", "GRANT-OPERATOR"),
+        )
+
+    assert refused.status_code == 403, refused.text
+    assert await _ledger(tenant_id) == []
 
 
 async def test_a_grant_needs_a_confirmation_bound_to_its_own_amount() -> None:

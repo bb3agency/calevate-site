@@ -616,18 +616,17 @@ GRANT_REF_PREFIX: Final = "grant"
 #: writer wrote the row.
 GRANT_META_KIND: Final = "operator_grant"
 
-#: THE CEILING ON ONE GRANT, and it is the founder's own guardrail: *"a ceiling per grant,
-#: so a fat-finger (₹5,00,000 instead of ₹5,000) is refused rather than posted"*.
-#:
-#: ₹50,000 is an order of magnitude above the goodwill grant the founder described and an
-#: order of magnitude below the slip it has to catch, which is the property that makes a
-#: ceiling worth having at all — one set at the top of the plausible range refuses honest
-#: work, and one set above the typo stops nobody. It is deliberately NOT `MAX_TOPUP_INR`
-#: (₹1,00,000): that number bounds what a client may PAY US in one transfer, which is a
-#: fact about a payment rail, and reusing it here would tie the size of a gift to the size
-#: of a card transaction. A genuinely larger gift is two grants under two references, each
-#: separately confirmed and separately audited — which is the trail we want for one anyway.
-MAX_GRANT_INR: Final = Decimal("50000.00")
+#: ABOVE THIS, THE AMOUNT IS TYPED A SECOND TIME (D-890). The founder replaced the D-535
+#: ceiling (₹50,000) with "no cap, extra checks" on 26 Oct 2026, once granting became a
+#: super-admin act: a grant this size carries `GrantIn.amount_confirmation`, which must
+#: equal the amount, on top of the step-up string that already binds it. ₹50,000 stays the
+#: line because it is where the old ceiling put a fat-finger.
+LARGE_GRANT_INR: Final = Decimal("50000.00")
+
+#: The largest single grant, and it is a property of the ledger, not a business limit:
+#: `billing/models.MONEY` is NUMERIC(12,4), so a wallet holds at most about ₹10 crore, and
+#: one grant may take at most a tenth of that so a balance can never overflow its column.
+MAX_GRANT_INR: Final = Decimal("10000000.00")
 
 #: The floor. A grant below one rupee is a typo or a test, and the ledger is not the place
 #: to find out which.
@@ -3746,6 +3745,7 @@ __all__ = [
     "GRANT_META_KIND",
     "GRANT_REF_PREFIX",
     "INBOUND_CUTOVER_JOB",
+    "LARGE_GRANT_INR",
     "LOT_REPRICE_META_KIND",
     "LOT_REPRICE_REF_PREFIX",
     "LOW_BALANCE_INR",

@@ -111,7 +111,7 @@ def test_the_super_admin_holds_everything_literally_everything() -> None:
     assert GRANTED_PERMISSIONS == KNOWN_PERMISSIONS
 
 
-def test_the_normal_admin_tier_holds_none_of_the_four_platform_authorities() -> None:
+def test_the_normal_admin_tier_holds_none_of_the_superadmin_authorities() -> None:
     """The exact list of what a normal admin cannot do, stated once and asserted.
 
     `admin:operators` is the load-bearing one — it is the permission that could grant the
@@ -119,7 +119,14 @@ def test_the_normal_admin_tier_holds_none_of_the_four_platform_authorities() -> 
     draw the boundary. Each is spelled out rather than covered by a prefix scan, because
     a prefix rename would make a scan pass while the grant changed.
     """
-    for permission in ("admin:operators", "platform:secrets", "platform:config", "ops:manage"):
+    # `billing:comp` (D-890): giving credit or paid status with no payment behind it.
+    for permission in (
+        "admin:operators",
+        "platform:secrets",
+        "platform:config",
+        "ops:manage",
+        "billing:comp",
+    ):
         assert not role_has(NORMAL_ADMIN_ROLE, permission), (  # type: ignore[arg-type]
             f"the normal admin tier gained {permission} — that is a decision-log change, "
             "not an edit"

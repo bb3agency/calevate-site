@@ -186,10 +186,11 @@ it.
   the client's own statement (`billing/wallet.WalletSummary.totals`) publish it. That is the
   founder's first guardrail, and it is not only presentation: granted credit that read as
   paid would inflate the revenue side of our own margin figures.
-- **A CEILING PER GRANT** (`service.MAX_GRANT_INR`, ₹50,000), so the founder's own example
-  — ₹5,00,000 typed for ₹5,000 — is refused rather than posted. It is checked BEFORE the
-  step-up, so an operator who typed the wrong number is told the number is wrong instead of
-  being sent to fix a header and re-submit the typo.
+- **A SUPER ADMIN ONLY, NO BUSINESS CAP, THE BIG ONES TYPED TWICE** (D-890, superseding
+  D-535's ₹50,000 ceiling): `billing:comp`; above `service.LARGE_GRANT_INR` the body's
+  `amount_confirmation` must repeat the amount; `MAX_GRANT_INR` is only what the ledger
+  column can hold. Checked BEFORE the step-up, so a wrong number is reported as one. Every
+  grant tells the client and emails every super admin (`billing/comp_notices`).
 - **THE STEP-UP IS UNCONDITIONAL AND CARRIES THE AMOUNT.** `X-Confirm-Action:
   grant_credits:<amount>` on every call, which is the restatement's shape rather than the
   adjustment's, and for the same argument: one direction, moving money towards the party who
@@ -224,6 +225,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
+from apps.api.billing.comp_notices import owe_comp_notices
 from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
 from apps.api.billing.first_payment import on_payment_credited
 from apps.api.billing.lots import split_meta
@@ -231,6 +233,7 @@ from apps.api.billing.rates import PREMIUM_VOICE_TIER, VALUE_VOICE_TIER, voice_t
 from apps.api.billing.service import (
     ADJUSTMENT_META_KIND,
     GRANT_META_KIND,
+    LARGE_GRANT_INR,
     LOW_BALANCE_INR,
     MAX_GRANT_INR,
     MIN_GRANT_INR,
@@ -285,6 +288,8 @@ lots_router = APIRouter(prefix="/v1/admin/tenants/{tenant_id}/credit-lots", tags
 # `routes.py`, so it is not covered by the B008 per-file ignore (same reason
 # `agents/prompt_routes.py` is written this way).
 CreditsWrite = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
+#: Giving credit with no payment behind it: a super admin only (D-890, `rbac.billing:comp`).
+CreditsComp = Annotated[Principal, Depends(requires("billing:comp", realm="admin"))]
 CreditsRead = Annotated[Principal, Depends(requires("billing:read", realm="admin"))]
 
 DEFAULT_LIMIT = 50
@@ -533,6 +538,16 @@ class GrantIn(MoneyIn):
         if len(trimmed) < 3:
             raise ValueError("say why this credit is being granted")
         return trimmed
+
+    #: THE AMOUNT TYPED A SECOND TIME, required above `LARGE_GRANT_INR` (D-890). Checked by
+    #: the server, not only the console: the founder chose "no cap, extra checks", and a
+    #: check only the browser makes is a check any other caller skips.
+    amount_confirmation: Decimal | None = Field(default=None, max_digits=10, decimal_places=2)
+
+    @field_validator("amount_confirmation", mode="before")
+    @classmethod
+    def _confirmation_never_a_float(cls, value: Any) -> Any:
+        return refuse_json_float(value)
 
 
 class GrantOut(Strict):
@@ -935,7 +950,8 @@ def credit_grant_confirmation(amount_inr: Decimal) -> str:
     the same way. The adjustment gates only its dangerous DIRECTION because both of its
     directions are capped by the entry it names; this route has one direction, it moves
     money TOWARDS the party who will not report an error in their favour, and the only thing
-    bounding it is `MAX_GRANT_INR`. The danger therefore scales with the NUMBER, so the
+    bounding it is the amount typed again above `LARGE_GRANT_INR`. The danger therefore
+    scales with the NUMBER, so the
     confirmation carries the number: a header captured while granting ₹5,000 cannot be
     replayed to grant ₹50,000, and an operator who changes the figure has to key it twice.
 
@@ -945,15 +961,12 @@ def credit_grant_confirmation(amount_inr: Decimal) -> str:
     managerial approval which internal audit later verifies (accountingtools.com,
     "Accounts receivable controls", and gaviti.com's AR internal-controls checklist, read as
     web-search summaries 4 Sep 2026; both hosts are egress-blocked from this container, so
-    the summaries are what was read). The founder is the only person who holds admin access
-    today and explicitly waived a second approver, so the gap is REAL and is recorded rather
-    than papered over: what we have instead is a per-grant ceiling, a mandatory reason, an
-    unconditional re-keying of the amount, and an append-only hash-chained `audit_log` row
-    written in the same transaction as the money. **THE MOMENT A SECOND PERSON HOLDS
-    `admin:tenants`, THIS CONTROL RETURNS** — a `superadmin`-only step-up or a two-operator
-    approval on the shape `ops/routes.py` already uses for the unbounded switches. Nothing
-    about that is hard; it is waiting on a second operator existing, which is not an
-    engineering task.
+    the summaries are what was read). Since D-890 (26 Oct 2026) the issuer is a narrow role,
+    `billing:comp`, held by super admins only; the founder chose no second approver while
+    there is one super admin, so what stands in for it is a mandatory reason, this re-keying
+    of the amount, the amount typed again above `LARGE_GRANT_INR`, an append-only
+    hash-chained `audit_log` row in the same transaction as the money, and an email to every
+    super admin on every grant. A two-person approval is the next step once there are two.
 
     Quantized through `to_paise` so the header matches for `5000.0` and `5000.00`, exactly
     as `topup_restatement_confirmation` does and for the same reason: a confirmation that
@@ -2047,15 +2060,16 @@ async def record_restatement(
 @router.post(
     "/grants",
     response_model=GrantOut,
-    openapi_extra=permission_meta("admin:tenants"),
-    summary="Grant credit out of nothing — no payment, audited, shown separately from paid",
+    openapi_extra=permission_meta("billing:comp"),
+    summary="Grant credit out of nothing (super admin) — no payment, audited, shown separately",
     description=(
-        "Puts goodwill credit on a client's wallet with no payment behind it. It is NOT a "
-        "top-up (no bank moved money) and NOT an adjustment (it corrects no entry), so it "
-        "lands under its own ledger reason and every statement reports it separately from "
-        "credit the client bought. Requires the header "
+        "Puts credit on a client's wallet with no payment behind it. It is NOT a top-up (no "
+        "bank moved money) and NOT an adjustment (it corrects no entry), so it lands under "
+        "its own ledger reason and every statement reports it separately from credit the "
+        "client bought. A super admin only. Requires "
         "`X-Confirm-Action: grant_credits:<amount_inr to two decimals>` on every call, and "
-        "one grant is capped so a mistyped figure is refused rather than posted. Sending "
+        "above ₹50,000 the body's `amount_confirmation` must repeat the amount. The client "
+        "is told (email and a dashboard notice) and every super admin is emailed. Sending "
         "the same `grant_ref` again returns the existing entry and moves nothing; the same "
         "reference with a different amount is a conflict."
     ),
@@ -2065,16 +2079,33 @@ async def grant_credits(
     tenant_id: UUID,
     payload: GrantIn,
     request: Request,
-    principal: CreditsWrite,
+    principal: CreditsComp,
     # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
     # open transaction — `core/stepup.py` on `max_overflow=0`.
     step_up: StepUpGate,
     x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> GrantOut:
     amount = payload.amount_inr
-    # THE CEILING FIRST, BEFORE THE STEP-UP IS EVEN CHECKED. An operator who typed
-    # ₹5,00,000 should be told the number is impossible, not told their confirmation header
-    # is wrong — the second reading sends them to fix the header and re-submit the typo.
+    # THE CHECKS ON THE NUMBER FIRST, BEFORE THE STEP-UP: an operator who mistyped should be
+    # told about the figure, not sent to fix a header and re-submit the typo.
+    check_grant_amount(amount, payload.amount_confirmation)
+    step_up.require(x_confirm_action, credit_grant_confirmation(amount))
+    async with tenant_session(tenant_id) as scoped:
+        await _assert_tenant_exists(scoped, tenant_id)
+        return await record_grant(
+            scoped,
+            tenant_id=tenant_id,
+            amount=amount,
+            grant_reference=payload.grant_ref,
+            reason=payload.reason,
+            principal=principal,
+            ip=client_request_ip(request),
+        )
+
+
+def check_grant_amount(amount: Decimal, confirmation: Decimal | None) -> None:
+    """Refuse a grant figure that cannot be posted: under a rupee, over what the ledger can
+    hold (`MAX_GRANT_INR`), or above `LARGE_GRANT_INR` without the amount typed again."""
     if amount < MIN_GRANT_INR or amount > MAX_GRANT_INR:
         raise ProblemError.business_rule(
             "invalid_grant_amount",
@@ -2082,117 +2113,143 @@ async def grant_credits(
                 f"A grant is between ₹{MIN_GRANT_INR:,.0f} and ₹{MAX_GRANT_INR:,.0f}. "
                 f"This asked for ₹{_paise(amount)}."
             ),
-            remediation=(
-                "Check the figure. If a larger gift really is intended, grant it in parts — "
-                "each part is separately confirmed and separately audited, which is the "
-                "trail a credit this size should leave anyway."
+            remediation="Check the figure and send it again.",
+        )
+    if amount > LARGE_GRANT_INR and (
+        confirmation is None or to_paise(confirmation) != to_paise(amount)
+    ):
+        raise ProblemError.business_rule(
+            "grant_amount_unconfirmed",
+            (
+                f"A grant above ₹{LARGE_GRANT_INR:,.0f} needs the amount typed a second time, "
+                f"and it must match ₹{_paise(amount)}."
             ),
+            remediation="Type the same amount into the confirmation field and send it again.",
         )
-    step_up.require(x_confirm_action, credit_grant_confirmation(amount))
 
-    ref = grant_ref(reference=payload.grant_ref)
-    async with tenant_session(tenant_id) as scoped:
-        await _assert_tenant_exists(scoped, tenant_id)
-        # BEFORE the lookup, through the same function every other credit writer uses: two
-        # operators granting under one reference at the same moment would otherwise both
-        # read "not present" and both insert. `ux_credit_ledger_grant_ref` is the backstop
-        # behind it, never the primary guarantee (D-63).
-        await lock_tenant_credits(scoped, tenant_id)
 
-        existing = await _find_entry_by_ref(scoped, tenant_id=tenant_id, reason="grant", ref=ref)
-        if existing is not None:
-            if existing.amount_inr != amount:
-                # The same reference for a DIFFERENT amount is not a replay — it is either a
-                # second gift that needs its own reference or a corrected figure, and the two
-                # have different remedies. Silently crediting the difference (or silently
-                # ignoring it) would make a reference stop meaning one act.
-                raise ProblemError.conflict(
-                    "grant_reference_conflict",
-                    (
-                        f"That grant reference already credits ₹{_paise(existing.amount_inr)} "
-                        f"on this wallet, and this asks for ₹{_paise(amount)}."
-                    ),
-                    remediation=(
-                        "A second, genuine grant needs its own reference. To correct the "
-                        f"amount of the one already there, post to /v1/admin/tenants/"
-                        f"{tenant_id}/credits/adjustments naming that entry — the wrong row "
-                        "stays on the ledger, because it is the evidence, and the new one "
-                        "cancels it."
-                    ),
-                )
-            balance = await get_balance(scoped, tenant_id=tenant_id)
-            totals = await credit_totals(scoped, tenant_id=tenant_id)
-            log.info(
-                "credit_grant_replay",
-                extra={"tenant_id": str(tenant_id), "entry_id": str(existing.entry_id)},
+async def record_grant(
+    scoped: AsyncSession,
+    *,
+    tenant_id: UUID,
+    amount: Decimal,
+    grant_reference: str,
+    reason: str,
+    principal: Principal,
+    ip: str | None,
+    notify: bool = True,
+) -> GrantOut:
+    """Post one grant in the caller's tenant transaction: the ledger row, its lot, the audit
+    row and the notices, or the existing entry when the reference was posted before. The
+    caller has checked the figure and the step-up. Shared by `grant_credits` and the
+    complimentary conversion, so a grant made either way is the same act. `notify=False` is
+    the conversion's, which tells the client once about both."""
+    ref = grant_ref(reference=grant_reference)
+    # BEFORE the lookup, through the same function every other credit writer uses: two
+    # operators granting under one reference at the same moment would otherwise both read
+    # "not present" and both insert. `ux_credit_ledger_grant_ref` is the backstop behind it,
+    # never the primary guarantee (D-63).
+    await lock_tenant_credits(scoped, tenant_id)
+
+    existing = await _find_entry_by_ref(scoped, tenant_id=tenant_id, reason="grant", ref=ref)
+    if existing is not None:
+        if existing.amount_inr != amount:
+            # The same reference for a DIFFERENT amount is not a replay — it is either a
+            # second gift that needs its own reference or a corrected figure, and the two
+            # have different remedies.
+            raise ProblemError.conflict(
+                "grant_reference_conflict",
+                (
+                    f"That grant reference already credits ₹{_paise(existing.amount_inr)} "
+                    f"on this wallet, and this asks for ₹{_paise(amount)}."
+                ),
+                remediation=(
+                    "A second, genuine grant needs its own reference. To correct the "
+                    f"amount of the one already there, post to /v1/admin/tenants/"
+                    f"{tenant_id}/credits/adjustments naming that entry — the wrong row "
+                    "stays on the ledger, because it is the evidence, and the new one "
+                    "cancels it."
+                ),
             )
-            return GrantOut(
-                tenant_id=tenant_id,
-                entry_id=existing.entry_id,
-                grant_ref=payload.grant_ref,
-                ref=ref,
-                amount_inr=_paise(existing.amount_inr),
-                balance_inr=_paise(balance.amount_inr),
-                is_low=balance.is_low,
-                paid_inr=_paise(totals.paid_inr),
-                granted_inr=_paise(totals.granted_inr),
-                recorded=False,
-            )
-
-        meta: dict[str, Any] = {"kind": GRANT_META_KIND, "reason": payload.reason}
-        if principal.user_id:
-            meta["granted_by"] = str(principal.user_id)
-        balance = await record_entry(
-            scoped,
-            tenant_id=tenant_id,
-            delta=amount,
-            reason="grant",
-            ref=ref,
-            meta=meta,
-        )
-        written = await _find_entry_by_ref(scoped, tenant_id=tenant_id, reason="grant", ref=ref)
-        assert written is not None, "the row was inserted in this transaction"
-        # A GIFT IS SPENT AT THE STANDARD PRICE (plan §0 Q4): the list card's rates, never
-        # the deepest pack's. A ₹50,000 grant that bought a cheaper minute than a ₹50,000
-        # purchase would make the card a suggestion.
-        await apply_credit_to_lots(
-            scoped,
-            tenant_id=tenant_id,
-            credits_inr=amount,
-            balance_after=balance.amount_inr,
-            rates=(await rate_card_at(scoped, at=datetime.now(UTC))).list_rates(),
-            source="grant",
-            pack_id=None,
-            ledger_entry_id=written.entry_id,
-        )
+        balance = await get_balance(scoped, tenant_id=tenant_id)
         totals = await credit_totals(scoped, tenant_id=tenant_id)
-
-        # THE AUDIT ROW COMMITS WITH THE MONEY. "Audited" is the founder's own word and the
-        # one control this route has that no ceiling can substitute for: `audit_log` is
-        # append-only and hash-chained, `write_audit` appends in THIS transaction, so a
-        # grant with no audit row is not a reachable state. The operator's own words go in
-        # verbatim — a later review of an unexplained credit is looking for exactly that
-        # field.
-        await write_audit(
-            scoped,
-            action="credit.grant",
-            actor=principal,
+        log.info(
+            "credit_grant_replay",
+            extra={"tenant_id": str(tenant_id), "entry_id": str(existing.entry_id)},
+        )
+        return GrantOut(
             tenant_id=tenant_id,
-            object_type="credit_ledger",
-            object_id=str(written.entry_id),
-            ip=client_request_ip(request),
-            summary={
-                "grant_ref": payload.grant_ref,
-                # Quantized, like the adjustment's and the restatement's: these land in an
-                # incident channel beside the figures the console showed, and `5000.0000`
-                # next to `₹5,000.00` reads as a second, different number.
-                "amount_inr": str(_paise(amount)),
-                "balance_after_inr": str(_paise(balance.amount_inr)),
-                "granted_total_inr": str(_paise(totals.granted_inr)),
-                "reason": payload.reason,
-            },
+            entry_id=existing.entry_id,
+            grant_ref=grant_reference,
+            ref=ref,
+            amount_inr=_paise(existing.amount_inr),
+            balance_inr=_paise(balance.amount_inr),
+            is_low=balance.is_low,
+            paid_inr=_paise(totals.paid_inr),
+            granted_inr=_paise(totals.granted_inr),
+            recorded=False,
         )
 
+    meta: dict[str, Any] = {"kind": GRANT_META_KIND, "reason": reason}
+    if principal.user_id:
+        meta["granted_by"] = str(principal.user_id)
+    balance = await record_entry(
+        scoped,
+        tenant_id=tenant_id,
+        delta=amount,
+        reason="grant",
+        ref=ref,
+        meta=meta,
+    )
+    written = await _find_entry_by_ref(scoped, tenant_id=tenant_id, reason="grant", ref=ref)
+    assert written is not None, "the row was inserted in this transaction"
+    # A GIFT IS SPENT AT THE STANDARD PRICE (plan §0 Q4): the list card's rates, never the
+    # deepest pack's. A grant that bought a cheaper minute than the same purchase would make
+    # the card a suggestion.
+    await apply_credit_to_lots(
+        scoped,
+        tenant_id=tenant_id,
+        credits_inr=amount,
+        balance_after=balance.amount_inr,
+        rates=(await rate_card_at(scoped, at=datetime.now(UTC))).list_rates(),
+        source="grant",
+        pack_id=None,
+        ledger_entry_id=written.entry_id,
+    )
+    totals = await credit_totals(scoped, tenant_id=tenant_id)
+
+    # THE AUDIT ROW COMMITS WITH THE MONEY: `audit_log` is append-only and hash-chained and
+    # `write_audit` appends in THIS transaction, so a grant with no audit row is not a
+    # reachable state. The row keeps who and what; the words are on the ledger row's `meta`.
+    await write_audit(
+        scoped,
+        action="credit.grant",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="credit_ledger",
+        object_id=str(written.entry_id),
+        ip=ip,
+        summary={
+            "grant_ref": grant_reference,
+            # Quantized: these land in an incident channel beside the figures the console
+            # showed, and `5000.0000` next to `₹5,000.00` reads as a second number.
+            "amount_inr": str(_paise(amount)),
+            "balance_after_inr": str(_paise(balance.amount_inr)),
+            "granted_total_inr": str(_paise(totals.granted_inr)),
+            "reason": reason,
+        },
+    )
+    # The client and every super admin are told, promised with the money (D-890).
+    if notify:
+        await owe_comp_notices(
+            scoped,
+            tenant_id=tenant_id,
+            kind="grant",
+            act_ref=ref,
+            actor_id=principal.user_id,
+            reason=reason,
+            amount_inr=_paise(amount),
+        )
     log.info(
         "credit_granted",
         extra={"tenant_id": str(tenant_id), "entry_id": str(written.entry_id)},
@@ -2200,7 +2257,7 @@ async def grant_credits(
     return GrantOut(
         tenant_id=tenant_id,
         entry_id=written.entry_id,
-        grant_ref=payload.grant_ref,
+        grant_ref=grant_reference,
         ref=ref,
         amount_inr=_paise(amount),
         balance_inr=_paise(balance.amount_inr),

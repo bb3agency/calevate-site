@@ -268,8 +268,8 @@ async def test_ending_a_trial_restarts_the_counters_and_records_the_erasure_date
 async def test_an_operator_conversion_stamps_the_account_paid() -> None:
     """An invoiced or managed account an operator converts is paying (D-859): it is stamped
     `operator_conversion`, so the workspace backfill and every paid gate agree with it, and
-    the owner is owed the go-live guide."""
-    token = await _make_admin()
+    the owner is owed the go-live guide. Converting is a super admin's act (D-890)."""
+    token = await _make_admin(role="superadmin")
     tenant_id, _ = await _tenant()
     await _open_through_the_route(token, tenant_id, days=14)
 
