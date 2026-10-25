@@ -291,6 +291,43 @@ async def test_one_enormous_tenant_cannot_starve_the_rest(
     assert remaining is not None and remaining[0] == 0
 
 
+async def test_leads_written_in_the_same_minute_anonymise_without_colliding() -> None:
+    """Lead ids are UUIDv7, whose leading hex is a ~65-second timestamp bucket. Two leads of
+    one agent written in the same minute must anonymise to two different numbers, or
+    `uq_leads_tenant_id_phone_e164_agent_id` refuses the sweep and the tenant's whole
+    retention transaction rolls back every night."""
+    from apps.api.db.base import uuid7
+
+    tenant_id, agent_id = await _org()
+    when = datetime.now(UTC) - timedelta(days=1200)
+    async with tenant_session(tenant_id) as session:
+        for _ in range(2):
+            await session.execute(
+                text(
+                    "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, "
+                    "status, data, created_at, updated_at) VALUES (:i, :t, :a, :p, 'Ravi', "
+                    "'inbound_call', 'new', '{}'::jsonb, :w, :w)"
+                ),
+                {
+                    "i": uuid7(),
+                    "t": tenant_id,
+                    "a": agent_id,
+                    "p": f"+9198{uuid.uuid4().int % 100000000:08d}",
+                    "w": when,
+                },
+            )
+
+    counts = await sweep_tenant(tenant_id)
+
+    assert counts["leads"] == 2
+    remaining = await _row(
+        tenant_id,
+        "SELECT count(*) FROM leads WHERE left(phone_e164, 9) <> :anon",
+        {"anon": retention.ANONYMIZED_PHONE[:9]},
+    )
+    assert remaining is not None and remaining[0] == 0
+
+
 async def test_the_sweep_never_leaves_its_tenant_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

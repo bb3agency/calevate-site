@@ -211,8 +211,8 @@ def test_a_number_that_is_not_canonical_e164_is_refused(value: str) -> None:
 
 
 def test_the_anonymized_placeholder_is_refused() -> None:
-    """`_LEAD_SQL` writes `ANONYMIZED_PHONE[:9] || substr(id::text, 1, 8)` over an erased
-    lead's number. Deriving a ref from one would mint a pseudonym every erased lead in
+    """`_LEAD_SQL` writes `ANONYMIZED_PHONE[:9]` plus the tail of the lead's id over an
+    erased lead's number. Deriving a ref from one would mint a pseudonym every erased lead in
     the tenant collides on — a bucket that reads like a person and is not one.
     """
     with pytest.raises(CallerRefError):

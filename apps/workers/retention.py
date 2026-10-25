@@ -1275,8 +1275,12 @@ WHERE id IN (
 # it on `name IS NOT NULL` skipped every lead whose caller never gave a name — those
 # rows still carry the phone number and the whole extraction payload, and they are
 # exactly the rows the TTL exists for.
+#
+# The suffix is the UUID's random TAIL: its head is a UUIDv7 timestamp bucket shared by
+# every lead written in the same minute, and `uq_leads_tenant_id_phone_e164_agent_id`
+# refuses two of them on one placeholder (see `_erase_campaign_contacts`).
 _LEAD_SQL = """
-UPDATE leads SET phone_e164 = :anon || substr(id::text, 1, 8), name = NULL,
+UPDATE leads SET phone_e164 = :anon || right(replace(id::text, '-', ''), 12), name = NULL,
   data = '{}'::jsonb, deleted_at = COALESCE(deleted_at, now()), updated_at = now()
 WHERE id IN (
   SELECT id FROM leads WHERE updated_at < :cutoff
@@ -2820,8 +2824,8 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         if leads:
             await session.execute(
                 text(
-                    "UPDATE leads SET phone_e164 = :anon || substr(id::text, 1, 8), name = NULL, "
-                    "data = '{}'::jsonb, deleted_at = now(), updated_at = now() "
+                    "UPDATE leads SET phone_e164 = :anon || right(replace(id::text, '-', ''), 12), "
+                    "name = NULL, data = '{}'::jsonb, deleted_at = now(), updated_at = now() "
                     "WHERE id = ANY(:ids)"
                 ),
                 {"ids": list(leads), "anon": ANONYMIZED_PHONE[:9]},
@@ -3487,8 +3491,8 @@ async def _erase_tenant_leads(session: AsyncSession, *, tenant_id: UUID) -> tupl
         )
         await session.execute(
             text(
-                "UPDATE leads SET phone_e164 = :anon || substr(id::text, 1, 8), name = NULL, "
-                "data = '{}'::jsonb, deleted_at = COALESCE(deleted_at, now()), "
+                "UPDATE leads SET phone_e164 = :anon || right(replace(id::text, '-', ''), 12), "
+                "name = NULL, data = '{}'::jsonb, deleted_at = COALESCE(deleted_at, now()), "
                 "updated_at = now() WHERE id = ANY(:ids)"
             ),
             {"ids": lead_ids, "anon": anon},
