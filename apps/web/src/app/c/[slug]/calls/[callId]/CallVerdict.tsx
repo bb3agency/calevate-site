@@ -52,9 +52,9 @@ export function CallVerdict({ detail, action, view }: { detail: CallDetail; acti
         </h2>
         <p className="mt-1 max-w-prose text-body text-ink-muted [text-wrap:pretty]">{outcomeReason(detail)}</p>
         {aside && (
-          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-meta text-ink-muted">
-            For your business:
-            <span className="inline-flex items-center gap-1.5 font-medium text-ink">
+          <p className="mt-1 text-meta text-ink-muted">
+            For your business:{" "}
+            <span className="inline-flex items-center gap-1.5 align-middle font-medium text-ink">
               {aside === ended.words && heading !== ended.words && <OutcomeDot kind={ended.kind} />}
               {aside}
             </span>

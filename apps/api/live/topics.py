@@ -117,6 +117,7 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "payment_disputes": "wallet",
     # agents
     "agents": "agents",
+    "agent_workspace_moves": "agents",
     "agent_config_versions": "agents",
     "agent_config_attestations": "agents",
     "agent_handoff_members": "agents",
@@ -139,6 +140,7 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "live_apply_runs": "agents",
     # numbers
     "phone_numbers": "numbers",
+    "phone_number_holds": "numbers",
     "number_holders": "numbers",
     "engine_number_purchases": "numbers",
     "forwarded_lines": "numbers",
@@ -240,6 +242,16 @@ QUIET_TABLES: Final[dict[str, str]] = {
     "audit_log": "the tamper-evident ledger; read on demand, and every write would echo",
     "first_run_recordings": "a brief clip kept only until it is text; its one screen polls it",
     "first_runs": "one owner's first-run state; the first-run screen polls it while a job runs",
+    "agent_test_copies": (
+        "the developer-workspace copy a paid account's test call rides (D-859), republished "
+        "before each call; no screen reads it"
+    ),
+    "announcement_dismissals": "one person's own dismissals; their screen updates on the write",
+    "notification_reads": "one person's own read marks; their screen updates on the write",
+    "platform_announcements": (
+        "operator-written banners, read on the web's five-minute announcements poll"
+    ),
+    "go_live_guides": "one owner's go-live guide state; its screen refetches on its own writes",
     "auth_credentials": _SECRET,
     "auth_email_tokens": _SECRET,
     "auth_identities": _SECRET,
