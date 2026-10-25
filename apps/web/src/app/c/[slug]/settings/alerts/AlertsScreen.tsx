@@ -161,6 +161,13 @@ export function AlertsScreen() {
         <Skeleton rows={3} label="Checking your alert settings" />
       ) : !current ? null : (
         <>
+          {/* Above the row it explains, so the dead "I agree" below reads as ours to fix. */}
+          {!current.delivery_available && (
+            <NoticeBox tone="warn" title="We cannot send WhatsApp messages yet">
+              <p>This is on our side, not yours. Email alerts are unaffected.</p>
+            </NoticeBox>
+          )}
+
           <section className="border-y border-line">
             <SettingRows>
               <SettingRow
@@ -169,16 +176,15 @@ export function AlertsScreen() {
                 hint={
                   current.messageable ? (
                     <>
-                      We message the mobile number on your profile. We do not need it typed
-                      here and we never show it back to you.
+                      Sent to the mobile number on your profile, which we never show here.
                       {current.captured_at && (
                         <> You agreed on {formatIST(current.captured_at)}.</>
                       )}
                     </>
                   ) : current.status === "withdrawn" ? (
-                    "You turned these off. Hot leads still reach you by email and are on your dashboard."
+                    "You turned these off. Email alerts continue."
                   ) : (
-                    "Nobody has agreed to receive them on this account yet. Hot leads still reach you by email and are on your dashboard."
+                    "Nobody on this account has agreed to them yet."
                   )
                 }
                 value={<AlertStatePill on={current.messageable} />}
@@ -208,7 +214,7 @@ export function AlertsScreen() {
                       write.reason ??
                       (current.delivery_available
                         ? null
-                        : "We cannot send WhatsApp messages yet, so there is nothing to agree to.")
+                        : "Nothing to agree to until we can send them.")
                     }
                     status={recordFeedback.status}
                     onGrant={() =>
@@ -222,15 +228,6 @@ export function AlertsScreen() {
               </div>
             </SettingRows>
           </section>
-
-          {!current.delivery_available && (
-            <NoticeBox
-              tone="warn"
-              title="We cannot send WhatsApp messages yet"
-            >
-              <p>This is on our side, not yours. Email alerts are unaffected.</p>
-            </NoticeBox>
-          )}
 
           <Disclosure
             variant="inline"

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CheckCircle2, Clock, Download, ShieldAlert } from "lucide-react";
 
+import { InfoTip } from "@/components/console/infoTip";
 import {
   MonoValue,
   NoticeBox,
@@ -62,14 +63,18 @@ export function Register({ session }: { session: Session }) {
 
   return (
     <section aria-labelledby="erasure-register-heading" className="space-y-2">
-      <h2 id="erasure-register-heading" className="text-heading text-ink">
-        Erasure requests
-      </h2>
-      <p className="text-meta text-ink-muted">
-        Every erasure this account has been asked for, newest first. Numbers are never
-        listed here — each request is identified by a one-way hash of the number it
-        covers.
-      </p>
+      <div className="flex items-center gap-1.5">
+        <h2 id="erasure-register-heading" className="text-heading text-ink">
+          Erasure requests
+        </h2>
+        <InfoTip label="the erasure register">
+          <p>
+            Numbers are never listed here. Each request is identified by a one-way hash of
+            the number it covers.
+          </p>
+        </InfoTip>
+      </div>
+      <p className="text-meta text-ink-muted">Every request this account has had, newest first.</p>
 
       {requests.isPending && <Skeleton rows={3} />}
 

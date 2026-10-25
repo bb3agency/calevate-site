@@ -37,14 +37,17 @@ export function CapturedDetails({ detail }: { detail: CallDetail }) {
       ) : (
         // dt/dd are direct children of one wrapper div each: a <dl> accepts a div that groups
         // a dt/dd pair and nothing deeper (axe definition-list / dlitem).
-        <dl className="divide-y divide-line border-y border-line">
+        // Two up, small label over value: a phone shows twice as many details per screen.
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-4 border-y border-line py-3">
           {given.map((field) => {
             const review = detail.extraction_needs_review?.[field.key];
             return (
-              <div key={field.key} className="grid grid-cols-1 gap-x-4 gap-y-0.5 py-3 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
-                <dt className="text-body text-ink-muted">
+              <div key={field.key} className="min-w-0 space-y-0.5">
+                <dt className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted [overflow-wrap:anywhere]">
                   {field.label}
-                  {!field.current && <span className="block text-meta text-ink-faint">No longer asked</span>}
+                  {!field.current && (
+                    <span className="block text-meta font-normal normal-case tracking-normal text-ink-faint">No longer asked</span>
+                  )}
                 </dt>
                 <dd className="min-w-0 break-words text-body font-medium text-ink">
                   {said(field)}
@@ -52,7 +55,7 @@ export function CapturedDetails({ detail }: { detail: CallDetail }) {
                     <span className="block text-meta font-normal text-ink-faint">{UNLISTED_NOTE}</span>
                   )}
                 </dd>
-                {review && <dd className="text-meta text-warn sm:col-start-2">{review}</dd>}
+                {review && <dd className="text-meta text-warn">{review}</dd>}
               </div>
             );
           })}

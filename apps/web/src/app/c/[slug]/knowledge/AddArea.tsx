@@ -52,9 +52,6 @@ export function AddArea({
           <h2 id="kb-add-heading" className="text-heading text-ink">
             Add something
           </h2>
-          <p className="mt-1 text-meta text-ink-muted">
-            Every one of your agents shares what you add here.
-          </p>
         </div>
         <SegmentedControl
           label="What are you adding?"

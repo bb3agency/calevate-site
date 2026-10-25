@@ -109,26 +109,25 @@ export function PhoneNumberScreen() {
                   leave it silent for good. */}
               {ours.some((number) => !number.held && !number.answerable && !number.agent_id) && (
                 <p className="text-body text-ink-muted">
-                  A number with no agent on it cannot take calls. Choose the agent that should
-                  answer it on its card below, and wait until it says <em>Ready to answer</em>{" "}
-                  before you set the forwarding up, or callers will reach silence.
+                  A number with no agent on it cannot take calls. Choose its agent on its card
+                  below. Forward only once it says <em>Ready to answer</em>, or callers reach
+                  silence.
                 </p>
               )}
               {ours.some((number) => !number.held && !number.answerable && outboundOnly(number)) && (
                 <p className="text-body text-ink-muted">
                   A number on an agent that only makes calls places calls but does not answer
                   them. To have it answer, choose an agent that answers calls on its card below,
-                  or change that agent&apos;s <em>What it does</em> to <em>Answer calls</em> or{" "}
-                  <em>Both</em>. Wait until it says <em>Ready to answer</em> before you set the
-                  forwarding up, or callers will reach silence.
+                  or set that agent&apos;s <em>What it does</em> to <em>Answer calls</em> or{" "}
+                  <em>Both</em>. Forward only once it says <em>Ready to answer</em>, or callers
+                  reach silence.
                 </p>
               )}
               {ours.some(waiting) && (
                 <p className="text-body text-ink-muted">
-                  A number with an agent on it is not ready to take calls yet; we are still
-                  connecting it. Wait until it says <em>Ready to answer</em> before you
-                  set the forwarding up, or callers will reach silence. There is nothing for
-                  you to do here.
+                  A number with an agent on it is not ready yet: we are still connecting it, and
+                  there is nothing for you to do. Forward only once it says{" "}
+                  <em>Ready to answer</em>, or callers reach silence.
                 </p>
               )}
               {ours.map((number) => (
@@ -152,7 +151,7 @@ export function PhoneNumberScreen() {
                 </InfoTip>
               </h2>
               <p className="text-body text-ink-muted">
-                Do not forward these anywhere. Your agents call out from them.
+                Do not forward these anywhere.
               </p>
               {theirs.map((number) => (
                 <NumberCard key={number.id} number={number} releasable={ownNumbers && number.releasable === true} />

@@ -72,7 +72,7 @@ describe("the cache share on the costliest calls", () => {
         calls: [{ call_id: ON_OUR_MODEL, cached_input_tokens: 6200, input_tokens: 10000, share: "0.6200" }],
       },
     });
-    fireEvent.click(screen.getByRole("radio", { name: /Costliest calls/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Costliest/ }));
     expect(await screen.findByText("62% cached")).toBeTruthy();
     expect(screen.getByTitle("6,200 of 10,000 input tokens cached")).toBeTruthy();
   });

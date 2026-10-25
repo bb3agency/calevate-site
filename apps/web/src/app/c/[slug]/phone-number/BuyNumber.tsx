@@ -102,8 +102,8 @@ function refusal(error: unknown): { code: string; detail: string; remediation: s
  * than as a penalty.
  */
 const OWNER_SENTENCE =
-  "The connection is registered to your business, not to Calevate. That is why the " +
-  "identity check is yours to complete, and it is what makes you the owner of the number.";
+  "The connection is registered to your business, not to Calevate. Your identity check " +
+  "makes you the number's owner.";
 
 function VerifyLink({ href }: { href: string }) {
   return (
@@ -403,8 +403,8 @@ export function BuyNumber() {
                   blockers above come first, each with its one action. */}
               {trial !== null ? (
                 <p className="text-body text-ink-muted">
-                  You&apos;re on a free trial until {trialEndsAt(trial)}, so the first month is
-                  on us. Months that start after the trial ends are charged as usual.
+                  Free trial until {trialEndsAt(trial)}: the first month is on us. Months that
+                  start after the trial are charged as usual.
                 </p>
               ) : (
                 wallet.data?.prepaid === true && (

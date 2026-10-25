@@ -34,7 +34,7 @@ export default function DoNotCallPage() {
 
   return (
     <div className="max-w-4xl space-y-6 pb-12">
-      <PageHeader description="Numbers your agents will never dial. The list is checked live before every single call, so anything added here takes effect straight away — including for a campaign that is already running." />
+      <PageHeader description="Numbers your agents never dial. The list is checked live before every single call, including for a campaign that is already running." />
 
       <RestrictionNote reason={write.reason} />
 

@@ -30,8 +30,8 @@ export function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
     return (
       <p className="mt-4 flex items-start gap-2 text-meta text-ink-muted">
         <CircleCheck className="mt-px h-4 w-4 shrink-0 text-brand-strong" aria-hidden="true" />
-        Every agreement here has been accepted at its current version. We will
-        ask again when one of them changes in a way that needs it.
+        All accepted at their current version. We will ask again if one changes in a way
+        that needs it.
       </p>
     );
   }

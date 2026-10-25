@@ -244,11 +244,22 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
                   {formatPhone(lead.data.phone_e164)}
                   <CopyButton value={lead.data.phone_e164} label="Copy phone number" />
                 </span>
-                <span className="block text-meta text-ink-faint">
-                  {sourceLabel(lead.data.source)} ·{" "}
-                  {calledTimes(lead.data.call_count) ??
-                    `${formatCount(lead.data.call_count)} ${lead.data.call_count === 1 ? "call" : "calls"}`}{" "}
-                  · updated {formatIST(lead.data.updated_at)}
+                {/* Chips, as on the call page: each fact wraps whole. */}
+                <span role="list" aria-label="About this lead" className="mt-1.5 flex flex-wrap gap-1.5">
+                  {[
+                    sourceLabel(lead.data.source),
+                    calledTimes(lead.data.call_count) ??
+                      `${formatCount(lead.data.call_count)} ${lead.data.call_count === 1 ? "call" : "calls"}`,
+                    `Updated ${formatIST(lead.data.updated_at)}`,
+                  ].map((fact) => (
+                    <span
+                      key={fact}
+                      role="listitem"
+                      className="rounded-md bg-surface-muted px-2 py-0.5 text-meta tabular-nums text-ink-muted"
+                    >
+                      {fact}
+                    </span>
+                  ))}
                 </span>
               </>
             }

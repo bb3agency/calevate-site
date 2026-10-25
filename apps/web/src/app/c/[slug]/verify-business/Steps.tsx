@@ -12,6 +12,7 @@ import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
+  Fact,
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
@@ -293,12 +294,11 @@ function SavedDetails({ record }: { record: KycRecord }) {
   ].filter((row) => row.value);
   if (rows.length === 0) return <p className="text-sm text-ink">Checked by our team.</p>;
   return (
-    <dl className="space-y-1 text-sm">
+    <dl className="grid max-w-md grid-cols-2 gap-x-4 gap-y-3">
       {rows.map((row) => (
-        <div key={row.label} className="flex flex-wrap gap-x-2">
-          <dt className="text-ink-muted">{row.label}:</dt>
-          <dd className="min-w-0 font-medium text-ink [overflow-wrap:anywhere]">{row.value}</dd>
-        </div>
+        <Fact key={row.label} label={row.label}>
+          {row.value}
+        </Fact>
       ))}
     </dl>
   );

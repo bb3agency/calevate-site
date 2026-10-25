@@ -78,7 +78,7 @@ export function IntegrationsScreen() {
 
   return (
     <div className="max-w-4xl space-y-10 pb-12">
-      <PageHeader description="Connect the accounts your agents use on calls, and send leads and call results to your own systems." />
+      <PageHeader description="Accounts your agents use, and where your leads are sent." />
       <RestrictionNote reason={write.reason} />
 
       <ConnectedAccounts session={session} canWrite={write.allowed} />
@@ -110,8 +110,7 @@ export function IntegrationsScreen() {
         {deactivate.error && !stopping && <ProblemNotice error={deactivate.error} />}
         <EndpointList endpoints={endpoints} write={write} busy={deactivate.isPending} onStop={setStopping} />
         <p className="mt-3 max-w-prose text-meta text-ink-muted">
-          To reach a CRM we do not connect to directly, create a webhook in Zapier, Make or
-          Pabbly, add its address here, and map the fields there.
+          Another CRM? Add a Zapier, Make or Pabbly webhook here and map the fields there.
         </p>
       </Section>
 

@@ -177,7 +177,7 @@ export function LeadSourcesScreen() {
   return (
     <div className="max-w-4xl space-y-5 pb-12">
       <PageHeader
-        description="How new leads from your forms and ads are called, and every delivery accounted for."
+        description="How leads from your forms and ads get called."
         actions={
           <button
             type="button"

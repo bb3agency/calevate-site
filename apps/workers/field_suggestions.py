@@ -51,8 +51,8 @@ from apps.api.agents.field_suggestions import (
     Suggestion,
     applicable,
     current_fields,
-    fingerprint,
     normalise,
+    suggestion_fingerprint,
 )
 from apps.api.agents.models import MAX_FIELD_SUGGESTIONS
 from apps.api.agents.script_builder import recompile_collect
@@ -272,7 +272,7 @@ def _one(
             return None
         callers = 0
     return Suggestion(
-        id=fingerprint(kind, target.key, values),
+        id=suggestion_fingerprint(kind, target.key, values),
         kind=kind,
         field_key=target.key,
         field_label=target.label,
@@ -314,7 +314,7 @@ def _new_field(
     except ProblemError:
         return None
     return Suggestion(
-        id=fingerprint("new_field", "", choices, label),
+        id=suggestion_fingerprint("new_field", "", choices, label),
         kind="new_field",
         field_key=key,
         field_label=label,

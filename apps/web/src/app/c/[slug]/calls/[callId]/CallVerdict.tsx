@@ -109,12 +109,15 @@ function Summary({ detail }: { detail: CallDetail }) {
 
   const showLocal = !detail.summary;
   return (
-    <p
-      lang={showLocal ? langAttr(detail.summary_language) : "en"}
-      className="max-w-prose text-transcript text-ink [text-wrap:pretty]"
-    >
-      {showLocal ? detail.summary_local : detail.summary}
-    </p>
+    <div className="max-w-prose rounded-md bg-surface-muted px-4 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted">Summary</p>
+      <p
+        lang={showLocal ? langAttr(detail.summary_language) : "en"}
+        className="mt-1 text-transcript text-ink [text-wrap:pretty]"
+      >
+        {showLocal ? detail.summary_local : detail.summary}
+      </p>
+    </div>
   );
 }
 

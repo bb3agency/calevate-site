@@ -30,9 +30,10 @@ export function Breakdown({ data, tenantId }: { data: TenantSpend; tenantId: str
           value={view}
           onValueChange={(value) => setView(value as View)}
           options={[
-            { value: "agents", label: "By agent", count: String(data.by_agent.length) },
-            { value: "calls", label: "Costliest calls", count: String(data.top_calls.length) },
-            { value: "units", label: "Our cost by unit", count: String(data.by_unit.length) },
+            // Short enough that all three fit a phone's width: the third was cut to "Our cos".
+            { value: "agents", label: "Agents", count: String(data.by_agent.length) },
+            { value: "calls", label: "Costliest", count: String(data.top_calls.length) },
+            { value: "units", label: "Units", count: String(data.by_unit.length) },
           ]}
         />
       </div>
@@ -144,19 +145,21 @@ function CallsTable({ rows, tenantId }: { rows: CallSpend[]; tenantId: string })
     { id: "agent", header: "Agent", hideBelow: "md", cell: (call) => <span className="text-ink-muted">{call.agent_name ?? "—"}</span> },
     { id: "direction", header: "Direction", hideBelow: "lg", cell: (call) => <span className="text-ink-muted">{call.direction ?? "—"}</span> },
     { id: "minutes", header: "Minutes", align: "right", hideBelow: "sm", cell: (call) => <span className={`${num} text-ink-muted`}>{call.minutes}</span> },
-    { id: "charged", header: "Charged", align: "right", cell: (call) => <span className={num}>{formatINR(call.charged_inr)}</span> },
+    // OUR COST IS NEVER HIDDEN: it is what this list is ranked by (`_by_cost`). With it
+    // dropped on a phone, a trial's calls all read "Charged ₹0.00" in an order that looked
+    // random.
     {
       id: "cost",
       header: "Our cost",
       align: "right",
-      hideBelow: "sm",
       cell: (call) => (
-        <span className={`${num} text-ink-muted`}>
+        <span className={num}>
           {formatINR(call.cost_inr)}
           <AssumedMark assumed={call.cost_currency_assumed} />
         </span>
       ),
     },
+    { id: "charged", header: "Charged", align: "right", cell: (call) => <span className={`${num} text-ink-muted`}>{formatINR(call.charged_inr)}</span> },
     {
       id: "cache",
       header: "Model input",

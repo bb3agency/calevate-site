@@ -23,6 +23,7 @@ import { ModeChoice } from "@/components/forwarding/ModeChoice";
 import { TestPanel } from "@/components/forwarding/TestPanel";
 import {
   Disclosure,
+  Fact,
   NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
@@ -147,23 +148,25 @@ function LineSettings({
           The forward on your phone may be off. Run the test again.
         </NoticeBox>
       )}
+      {/* The four read-only facts sit two across: as stacked setting rows they filled a
+          phone screen before the one row that can be changed. */}
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4">
+        <Fact label="Your number">
+          <span className="font-mono tabular-nums">{formatPhone(line.e164)}</span>
+        </Fact>
+        <Fact label="Forwards to">
+          {target ? <span className="font-mono tabular-nums">{formatPhone(target)}</span> : "No Calevate number"}
+        </Fact>
+        <Fact label="Line">
+          {line.line_kind === "mobile"
+            ? `${LINE_KIND_LABEL.mobile} · ${CARRIER_LABEL[line.carrier]}`
+            : LINE_KIND_LABEL[line.line_kind]}
+        </Fact>
+        <Fact label="Forwarding">
+          <StatusPill tone={status.tone}>{status.text}</StatusPill>
+        </Fact>
+      </dl>
       <SettingRows>
-        <SettingRow
-          label="Your number"
-          value={<span className="font-mono tabular-nums">{formatPhone(line.e164)}</span>}
-        />
-        <SettingRow
-          label="Line"
-          value={
-            line.line_kind === "mobile"
-              ? `${LINE_KIND_LABEL.mobile} · ${CARRIER_LABEL[line.carrier]}`
-              : LINE_KIND_LABEL[line.line_kind]
-          }
-        />
-        <SettingRow
-          label="Forwards to"
-          value={target ? <span className="font-mono tabular-nums">{formatPhone(target)}</span> : "No Calevate number"}
-        />
         <SettingRow
           label="Calls"
           value={modeSummary(line.mode, line.ring_seconds)}
@@ -175,7 +178,6 @@ function LineSettings({
             )
           }
         />
-        <SettingRow label="Forwarding" value={<StatusPill tone={status.tone}>{status.text}</StatusPill>} />
         {line.caller_id_finding && (
           <SettingRow label="Caller's number" value={CALLER_ID_COPY[line.caller_id_finding]} />
         )}

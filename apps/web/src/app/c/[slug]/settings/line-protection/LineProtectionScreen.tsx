@@ -91,14 +91,13 @@ function BackupPhone({ session, allowed }: { session: Realm["session"]; allowed:
         >
           <p className="text-body text-ink-muted">
             {phone.data?.forwarding_supported
-              ? "If your agent stops taking calls properly, we pass your callers to this phone while we fix it."
-              : "If your agent stops taking calls properly, callers hear a short message asking them to try again later."}{" "}
-            Use a mobile someone in your team will answer.
+              ? "If your agent stops working, we pass callers to this phone while we fix it."
+              : "If your agent stops working, callers hear a short “try again later” message."}
           </p>
           <Field
             id="backup-phone"
             label="Indian mobile number"
-            hint="Starts with +91."
+            hint="Starts with +91. Use a mobile your team answers."
             error={invalid ? "Enter an Indian mobile number, like +91 98765 43210." : null}
           >
             {(control) => (

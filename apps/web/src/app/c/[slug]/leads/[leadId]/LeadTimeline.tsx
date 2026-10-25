@@ -182,7 +182,7 @@ function TimelineRow({
               {" · "}
               <Link
                 href={href(`/c/${slug}/calls/${event.call_id}`)}
-                className="font-medium text-ink-muted hover:underline"
+                className="font-medium text-ink-muted hover:underline touch:inline-flex touch:min-h-11 touch:items-center"
               >
                 Open the call
               </Link>

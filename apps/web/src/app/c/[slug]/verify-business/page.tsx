@@ -78,7 +78,7 @@ export default function VerifyBusinessPage() {
   return (
     <div className="max-w-3xl space-y-8 pb-12">
       <PageHeader
-        description="Outgoing calls open once we verify your business and you accept the no-cold-calls pledge. Calls coming in are never affected."
+        description="Outgoing calls open once we verify your business and you accept the no-cold-calls pledge."
       />
       <div className="space-y-3">
         <DigiLockerReturn session={session} />

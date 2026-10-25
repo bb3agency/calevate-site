@@ -43,9 +43,15 @@ export function CallHeader({ detail, actions }: { detail: CallDetail; actions?: 
           <CopyButton value={detail.caller_e164} label="Copy phone number" />
         </p>
       )}
-      {/* One line of text, so it wraps between words rather than leaving a separator at
-          the start of a line. */}
-      <p className="mt-0.5 text-meta tabular-nums text-ink-muted">{facts.join(" · ")}</p>
+      {/* Chips rather than a dotted sentence: each fact wraps whole, and a phone scans
+          them without parsing separators. */}
+      <ul aria-label="About this call" className="mt-1.5 flex flex-wrap gap-1.5">
+        {facts.map((fact) => (
+          <li key={fact} className="rounded-md bg-surface-muted px-2 py-0.5 text-meta tabular-nums text-ink-muted">
+            {fact}
+          </li>
+        ))}
+      </ul>
       {/* A person's mark (D-869), apart from how the call ended. */}
       {detail.follow_up_state ? (
         <p className="mt-1">
@@ -64,7 +70,7 @@ export function CallHeader({ detail, actions }: { detail: CallDetail; actions?: 
       {/* D-855: a free-trial test call, rung to a number the owner typed. */}
       {detail.test_call && !detail.forwarding_test && (
         <p className="mt-1 text-meta text-ink-muted">
-          This was a test call on your free trial. Its minutes count towards your free trial minutes.
+          A free-trial test call. Its minutes count towards your trial minutes.
         </p>
       )}
       {/* D-835: a whole-line forward put the caller through to a phone. */}

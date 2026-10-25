@@ -2,6 +2,7 @@
 
 import { type ReactNode } from "react";
 
+import { Disclosure } from "@/components/ui";
 import { Term } from "@/lib/glossary";
 import { CONSENT_VALIDITY_DAYS } from "@/lib/api/messagingConsent";
 
@@ -13,36 +14,40 @@ import { CONSENT_VALIDITY_DAYS } from "@/lib/api/messagingConsent";
  * ledger row "never satisfy it, and nothing backfills it". They are different purposes
  * under DPDP §6, they are refused by different gates, and a follow-up message still has to
  * pass `check_dispatch` — the do-not-call read — before this record is even consulted.
+ *
+ * Folded, because it is read once and the lookup above is the job. The two facts a reader
+ * most needs stay visible above it on every screen, a phone included (a closed panel's
+ * subtitle is hidden there), because the DLT one is what a client would answer a regulator
+ * with.
  */
 export function HowItWorks() {
   return (
-    <section aria-labelledby="consent-rules-heading" className="border-t border-line pt-5">
-      <h2 id="consent-rules-heading" className="text-heading text-ink">
-        How this record works
-      </h2>
-      <ul className="mt-3 max-w-3xl space-y-2.5 text-meta leading-relaxed text-ink-muted">
+    <div className="border-t border-line">
+    <p className="pt-3 text-meta text-ink-muted">
+      Opt-ins last {CONSENT_VALIDITY_DAYS} days. Your evidence, not a DLT record.
+    </p>
+    <Disclosure variant="inline" headingLevel={2} title="How this record works">
+      <ul className="max-w-3xl space-y-2.5 text-meta leading-relaxed text-ink-muted">
         <Rule
           title={`An opt-in lasts ${CONSENT_VALIDITY_DAYS} days.`}
         >
-          After that it stops authorising messages and someone has to ask again. A
-          check above will say so rather than quietly failing on the day it lapses.
+          After that, ask again before messaging. A check above says when one has lapsed.
         </Rule>
         <Rule title="Nothing is ever deleted.">
-          Recording a refusal adds a new entry that supersedes the earlier one, so the
-          history of what someone agreed to — and when — stays intact.
+          A refusal is a new entry on top of the old one, so the history of who agreed, and
+          when, stays intact.
         </Rule>
         <Rule
           title="Agreeing to a call is not agreeing to a message."
         >
-          Someone who asked to be called back has not opted in to WhatsApp, and
-          nothing here fills that in for them. It is a separate purpose, and nothing
-          backfills it from your campaign lists or your call records.
+          Asking for a callback is not opting in to WhatsApp. Nothing fills this in from
+          your campaign lists or call records.
         </Rule>
         <Rule
           title="This is in addition to do-not-call."
         >
-          A follow-up still passes the same do-not-call and calling-hours checks a
-          call does; consent never replaces them.
+          A follow-up still passes the do-not-call and calling-hours checks. Consent
+          never replaces them.
         </Rule>
         {/* SEC-COMP §4, TCCCPR 2018 as amended (Second Amendment, 12 Feb 2025): explicit
             consent under Reg. 2(y) is recorded by the Consent Registrar on DLT through
@@ -57,7 +62,8 @@ export function HowItWorks() {
           Indian telecom rules define separately, and it does not stand in for one.
         </Rule>
       </ul>
-    </section>
+    </Disclosure>
+    </div>
   );
 }
 

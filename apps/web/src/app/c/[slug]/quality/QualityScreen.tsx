@@ -132,8 +132,7 @@ export function QualityScreen() {
         status={shown ? <VerdictPill report={shown} /> : undefined}
         description={
           <>
-            A replay of our test scenarios against your agent. Nothing here comes from a real
-            call.{" "}
+            Our test scenarios, replayed on your agent. No real calls.{" "}
             <InfoTip label="this report" className="-my-3">
               <p>
                 Before any change to your agent — a new script, a new model, new facts or

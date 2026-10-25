@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Drawer } from "@/components/console/drawer";
+import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { RestrictionNote, SECONDARY_BUTTON } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -49,7 +50,17 @@ export default function MessagingConsentPage() {
   return (
     <div className="max-w-4xl space-y-6 pb-12">
       <PageHeader
-        description="Who has agreed to receive WhatsApp messages from you. Campaign follow-ups are only sent to people recorded here — and this is a separate permission from calling, which is governed by the do-not-call list."
+        description={
+          <>
+            Who agreed to get your WhatsApp messages. This is a separate permission from calling.{" "}
+            <InfoTip label="messaging consent" className="-my-3">
+              <p>
+                Campaign follow-ups are sent only to people recorded here. Calling is governed
+                by the do-not-call list.
+              </p>
+            </InfoTip>
+          </>
+        }
         actions={
           write.allowed ? (
             <button type="button" onClick={openRecord} className={SECONDARY_BUTTON}>

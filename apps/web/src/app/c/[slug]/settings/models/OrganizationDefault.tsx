@@ -54,8 +54,8 @@ export function OrganizationDefault({
         inForceLabel={defaults.effective_tier_label}
         source={
           defaults.default_llm_tier === null
-            ? "Follows Calevate's default. One agent can be given its own on its Model section."
-            : "Chosen for your account. One agent can be given its own on its Model section."
+            ? "Follows Calevate's default."
+            : "Chosen for your account."
         }
         followLabel={platformDefault?.label ?? defaults.effective_tier_label}
         followSurcharge={
@@ -89,23 +89,19 @@ export function OrganizationDefault({
           subtitle="A tier's figure is added to your plan's per-minute rate, as its own line on your statement."
         >
           <ul className="space-y-2 text-body text-ink-muted">
-            <li>
-              The voice your callers hear is a separate setting, and changing
-              the model does not change it.
-            </li>
+            <li>Changing the model does not change the voice your callers hear.</li>
             <li>
               {/* A SURCHARGE, not a replacement rate: the plan's per-minute rate is unchanged
                 and this is added to it (`plans.llm_model_surcharge`). One span inside the
                 flex <li>, so the link stays inline text rather than its own flex item. */}
               <span>
                 A tier&apos;s figure is ADDED to your plan&apos;s per-minute
-                rate, for the minutes your agents run it. Your plan&apos;s own
-                rate does not change. It appears on your statement as its own
-                line, naming the tier. What you are actually billed for the
-                month is on the{" "}
+                rate for the minutes your agents run it, as its own line naming
+                the tier; your plan&apos;s own rate does not change. What you are
+                actually billed for the month is on the{" "}
                 <Link
                   href={href(`/c/${slug}/billing?tab=usage`)}
-                  className="font-medium underline underline-offset-2 hover:text-ink"
+                  className="font-medium underline underline-offset-2 hover:text-ink touch:py-3.5"
                 >
                   Usage tab of Credits &amp; billing
                 </Link>
@@ -114,17 +110,16 @@ export function OrganizationDefault({
             </li>
             <li>
               <span>
-                One agent can be put on a different tier from the rest. Open it
+                One agent can be put on a different tier from the rest: open it
                 from{" "}
                 <Link
                   href={href(`/c/${slug}/agents`)}
-                  className="font-medium underline underline-offset-2 hover:text-ink"
+                  className="font-medium underline underline-offset-2 hover:text-ink touch:py-3.5"
                 >
                   Agents
                 </Link>{" "}
-                and choose on its Model section. An agent with its own tier
-                ignores this setting until you put it back on the organisation
-                default.
+                and choose on its Model section. It then ignores this setting
+                until you put it back on the organisation default.
               </span>
             </li>
           </ul>

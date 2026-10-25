@@ -101,7 +101,7 @@ def normalise(value: str) -> str:
     return re.sub(r"[\W_]+", "", value.casefold())
 
 
-def fingerprint(kind: str, field_key: str, values: list[str], label: str = "") -> str:
+def suggestion_fingerprint(kind: str, field_key: str, values: list[str], label: str = "") -> str:
     canon = "|".join([kind, field_key, normalise(label), *sorted(normalise(v) for v in values)])
     return hashlib.sha256(canon.encode()).hexdigest()[:16]
 
@@ -396,7 +396,6 @@ __all__ = [
     "apply",
     "current_fields",
     "dismiss",
-    "fingerprint",
     "normalise",
     "queue_account",
     "queue_collect_rebuild",
@@ -404,4 +403,5 @@ __all__ = [
     "queue_pass",
     "read_state",
     "stored",
+    "suggestion_fingerprint",
 ]

@@ -25,7 +25,7 @@ from uuid import UUID
 import pytest
 from apps.api.agents import field_suggestion_routes, field_suggestions
 from apps.api.agents.extraction_routes import write_schema
-from apps.api.agents.field_suggestions import Suggestion, applicable, apply, fingerprint
+from apps.api.agents.field_suggestions import Suggestion, applicable, apply, suggestion_fingerprint
 from apps.api.billing import rates
 from apps.api.billing.models import (
     ABSORBED_ASSIST_FEATURES,
@@ -208,7 +208,7 @@ def test_unusable_items_are_dropped() -> None:
 
 def test_a_dismissed_suggestion_is_not_offered_again_in_any_spelling() -> None:
     (first,) = _clean(_item("add_choices", values=["6 BHK"]))
-    assert first.id == fingerprint("add_choices", "bhk_size", ["6bhk"])
+    assert first.id == suggestion_fingerprint("add_choices", "bhk_size", ["6bhk"])
     turned_down = dataclasses.replace(INPUTS, dismissed=frozenset({first.id}))
     assert _clean(_item("add_choices", values=["6BHK"]), inputs=turned_down) == []
 

@@ -206,8 +206,7 @@ export function CallingPlan({
       >
         {plan.data.trial_notice && (
           <NoticeBox tone="warn" title="Free trial: test calls only">
-            {plan.data.trial_notice} You can set this up now; it starts calling once your
-            account is live.
+            {plan.data.trial_notice} Set it up now; calling starts once your account is live.
           </NoticeBox>
         )}
 
@@ -248,8 +247,7 @@ export function CallingPlan({
               ))}
             </select>
             <span className={FIELD_HINT}>
-              A short wait lets someone finish the form before the phone rings. Waits are
-              checked every 30 seconds.
+              Lets them finish the form first. Checked every 30 seconds.
             </span>
           </label>
 
@@ -411,8 +409,8 @@ export function CallingPlan({
                 ))}
               </select>
               <span className={FIELD_HINT}>
-                A try that lands outside your hours moves to your next opening. Tries stop
-                once they answer or call you back.
+                A try outside your hours moves to the next opening. Tries stop once they
+                answer or call you back.
               </span>
             </label>
           )}
@@ -421,7 +419,7 @@ export function CallingPlan({
         <Group title="Answering machines">
           <ToggleSwitch
             label="Hang up if a machine answers"
-            hint="Applies to every call your agents place. Off means the agent speaks to voicemail too."
+            hint="Applies to every call your agents place. Off: the agent talks to voicemail too."
             checked={Boolean(draft.detect_machines)}
             disabled={!canWrite}
             onChange={(next) => set({ detect_machines: next })}

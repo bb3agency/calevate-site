@@ -100,8 +100,7 @@ export function LeadDetailsView({
   return (
     <div className="max-w-3xl space-y-10">
       <p className="max-w-prose text-body text-ink-muted [text-wrap:pretty]">
-        Every call becomes a lead. These are the details {audience === "client" ? "your agents write" : "this client's agents write"} down
-        from each conversation, and the columns of the Leads table.
+        Every call becomes a lead, with these details as its columns in Leads.
       </p>
       {writeReason && <RestrictionNote reason={writeReason} />}
 
@@ -121,9 +120,9 @@ function CoreFields({ fields }: { fields: LeadField[] }) {
   return (
     <Section
       title="Always captured"
-      description="Every business gets these on every call, along with the caller's phone number. They can't be changed or removed."
+      description="On every call, with the caller's phone number. These can't be changed or removed."
     >
-      <ul className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+      <ul className="grid grid-cols-2 gap-x-4 gap-y-3 sm:gap-x-8">
         {fields.map((field) => (
           <li key={field.key} className="flex min-w-0 items-start gap-2">
             <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-faint" />
@@ -526,8 +525,8 @@ function AgentEditor({
       </div>
 
       <p className="max-w-prose text-xs text-ink-muted [text-wrap:pretty]">
-        Renaming or removing a detail never deletes what was already captured: older leads
-        and calls keep their answers under the old name.
+        Renaming or removing a detail deletes nothing: older leads and calls keep their
+        answers under the old name.
         {fresh.length > 0 && canWrite && (
           <>
             {" "}

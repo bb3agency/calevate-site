@@ -109,16 +109,21 @@ export function ModelsScreen({ slug }: { slug: string }) {
 
   return (
     <div className="max-w-2xl space-y-5 pb-12">
+      {/* The ⓘ sits in the line it explains: as a header action it wrapped to a row of its
+          own on a phone, a lone icon under the sentence. */}
       <PageHeader
-        description="The model all your agents use, unless one has been given its own."
-        actions={
-          <InfoTip label="AI model" align="end">
-            <p>
-              Your plan may add a per-minute charge for choosing one. Each option below says
-              exactly what it adds to your bill, and &ldquo;no extra charge&rdquo; means it adds
-              nothing.
-            </p>
-          </InfoTip>
+        description={
+          <>
+            The model all your agents use, unless one has its own.{" "}
+            {/* Negative margin: the 44px touch target must not stretch the line it sits in. */}
+            <InfoTip label="AI model" align="end" className="touch:-my-2.5">
+              <p>
+                Your plan may add a per-minute charge for choosing one. Each option below says
+                exactly what it adds to your bill, and &ldquo;no extra charge&rdquo; means it adds
+                nothing.
+              </p>
+            </InfoTip>
+          </>
         }
       />
       {state.error != null && (

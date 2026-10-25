@@ -40,7 +40,7 @@ import {
 const NAMED_PER_ROW = 3;
 
 const AGENT_LINK =
-  "rounded-sm font-medium text-brand-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:text-brand-bright";
+  "rounded-sm font-medium text-brand-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:text-brand-bright touch:py-3.5";
 
 export function CallHandlingDefaultsRows({
   data,

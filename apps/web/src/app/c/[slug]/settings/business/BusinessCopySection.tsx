@@ -25,7 +25,7 @@ export function BusinessCopySection({ session, canWrite }: { session: Session; c
       <SettingRows>
         <SettingRow
           label="Last refreshed"
-          hint="The examples in empty fields, suggested steps and example questions are written for your business from its details and calls. Anything you type is never changed."
+          hint="Examples in empty fields, suggested steps and example questions, written from your business details and calls. What you type is never changed."
           value={<span aria-live="polite">{lastRefreshed(copy.data, copy.isPending, copy.isError)}</span>}
           control={
             <AskAssistant

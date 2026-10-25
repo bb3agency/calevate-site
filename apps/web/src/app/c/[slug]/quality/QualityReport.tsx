@@ -74,15 +74,15 @@ export function QualityReport({ report }: { report: QaReport }) {
             </p>
           )}
           <p>
-            For the month ending {monthEndLabel(report.as_of)}. Measured with the {report.model}{" "}
-            language model.
+            For the month ending {monthEndLabel(report.as_of)} · {report.model} model
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-x-10 gap-y-6 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3 sm:gap-x-10">
           <Metric label="Defects" value={String(report.defects)} />
           <Metric label="Everything captured" value={renderMeasurement(report.everything_captured)} />
           <Metric
+            className="col-span-2 sm:col-span-1"
             label="A field came back blank"
             value={renderMeasurement(report.field_left_blank)}
             hint={

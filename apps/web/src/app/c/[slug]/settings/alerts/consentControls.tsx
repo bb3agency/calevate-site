@@ -97,8 +97,7 @@ export function WithdrawControl({
         Stop sending me WhatsApp alerts
       </ActionButton>
       <p className="text-meta text-ink-faint">
-        Hot leads keep reaching you by email and on your dashboard. You can turn WhatsApp
-        back on here whenever you like.
+        Email alerts continue. You can turn WhatsApp back on here any time.
       </p>
       {!allowed && reason && (
         <p className="flex items-start gap-2 text-meta text-ink-muted">

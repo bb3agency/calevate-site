@@ -154,6 +154,8 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
             {SIGN_IN.map((s) => {
               const available = status.data?.[s.kind] === true;
               const mine = creds.data.filter((c) => c.kind === s.kind);
+              // Nothing to press and nothing connected: a status line, not a dead button.
+              const unavailable = !available && mine.length === 0;
               return (
                 <li key={s.kind} className="flex flex-col gap-2 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
                   <div className="flex min-w-0 items-start gap-4">
@@ -161,9 +163,10 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
                     <div className="min-w-0">
                       <p className="text-body font-medium text-ink">{s.label}</p>
                       <p className="text-meta text-ink-muted">{s.what}</p>
+                      {unavailable ? <p className="mt-0.5 text-meta text-ink-faint">Not available yet</p> : null}
                     </div>
                   </div>
-                  <div className="min-w-0 space-y-1.5 sm:text-right">
+                  <div className="min-w-0 space-y-1.5 empty:hidden sm:text-right">
                     {mine.map((c) => (
                       <div key={c.id}>
                         <div className="flex flex-wrap items-center gap-x-4 sm:justify-end">
@@ -173,7 +176,7 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
                         {checkResult(c)}
                       </div>
                     ))}
-                    {mine.length === 0 ? (
+                    {unavailable ? null : mine.length === 0 ? (
                       <ActionButton
                         variant="secondary-sm"
                         status={statusFor(s.kind)}
@@ -182,7 +185,7 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
                         pendingLabel="Opening sign-in…"
                         successLabel="Connected"
                       >
-                        {available ? `Connect ${s.label}` : "Not available yet"}
+                        Connect {s.label}
                       </ActionButton>
                     ) : (
                       <ActionButton

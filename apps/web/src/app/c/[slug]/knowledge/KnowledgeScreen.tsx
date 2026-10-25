@@ -62,7 +62,7 @@ export function KnowledgeScreen() {
 
   return (
     <div className="max-w-4xl space-y-8 pb-12">
-      <PageHeader description="Everything your agents can tell callers about your business. All your agents share it." />
+      <PageHeader description="What your agents tell callers about your business. Every agent shares it." />
 
       <RestrictionNote reason={write.reason} />
       {sources.error && <ProblemNotice error={sources.error} onRetry={() => sources.refetch()} />}

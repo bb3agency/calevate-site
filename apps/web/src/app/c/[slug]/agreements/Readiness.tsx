@@ -113,8 +113,8 @@ export function Readiness({ readiness }: { readiness: LegalReadiness }) {
             {!readiness.may_operate && <p>Calls coming in are unaffected. Your agent keeps answering.</p>}
             {others.length === 0 && (
               <p>
-                Nothing else at the account level is holding up outgoing calls. A campaign can have conditions of
-                its own, named on the campaign.
+                Nothing else at the account level is holding up outgoing calls. A campaign may have its own
+                conditions, shown on the campaign.
               </p>
             )}
           </div>

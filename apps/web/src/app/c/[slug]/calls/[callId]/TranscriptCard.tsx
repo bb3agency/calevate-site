@@ -222,7 +222,7 @@ function LanguageSwitch({
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <SegmentedControl
-        label="Language of the conversation and summary"
+        label="Language of the conversation"
         value={view}
         onValueChange={(next) => onChange(next === "english" ? "english" : "original")}
         options={[
@@ -230,7 +230,6 @@ function LanguageSwitch({
           { value: "english", label: "English" },
         ]}
       />
-      <span className="text-meta text-ink-faint">Also changes the summary.</span>
     </div>
   );
 }

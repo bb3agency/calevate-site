@@ -84,9 +84,8 @@ export function FillPanel({
 
       {notice.collected.length === 0 && (
         <p className="text-meta text-ink-muted">
-          <span className="font-medium text-ink">Nothing itemised yet</span>: once an agent is
-          live and set up to collect details from calls, every detail it captures appears in
-          the notice.
+          <span className="font-medium text-ink">Nothing itemised yet</span>: once a live agent
+          collects details from calls, each one appears in the notice.
         </p>
       )}
 
@@ -117,12 +116,16 @@ function AnnouncementsOff({ notice }: { notice: CallerNotice }) {
       <h2 id="announcements-off" className="text-heading text-ink">
         Announcements your agents do not make
       </h2>
-      <p className="mt-1.5 text-meta leading-relaxed text-ink-muted">
-        Every agent still answers truthfully whenever a caller asks whether they are
-        speaking to an AI or whether the call is recorded — that cannot be switched off.
-        These settings govern only what is said unprompted at the start of a call, so where
-        one is off, your written notice is where the obligation lands.
-      </p>
+      <div className="mt-1.5 space-y-1.5 text-meta leading-relaxed text-ink-muted">
+        <p>
+          Every agent still answers truthfully whenever a caller asks whether they are
+          speaking to an AI or whether the call is recorded. That cannot be switched off.
+        </p>
+        <p>
+          These settings only cover what is said unprompted at the start of a call. Where one
+          is off, your written notice is where the obligation lands.
+        </p>
+      </div>
       <div className="mt-3 space-y-3">
         {groups.map((group) => (
           <div key={group.key}>
