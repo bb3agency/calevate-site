@@ -242,7 +242,7 @@ def test_sarvam_sends_the_brief_inside_the_shared_prompt() -> None:
     source = " ".join(inspect.getsource(SarvamExtractor).split())
     assert (
         "build_extraction_prompt( spec, transcript, moments=moments, languages=languages, "
-        "outcomes=outcomes )" in source
+        "outcomes=outcomes, unlisted=unlisted, )" in source
     )
     assert SarvamExtractor.reads_moments is True
 

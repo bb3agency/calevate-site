@@ -630,6 +630,7 @@ def build_extraction_prompt(
     moments: MomentsBrief | None = None,
     languages: Sequence[str] = (),
     outcomes: Sequence[BusinessOutcome] = (),
+    unlisted: bool = True,
 ) -> str:
     """Generate the extraction instruction. Kept in `shared` so the regression harness
     scores the SAME prompt the pipeline uses (OPERATIONS §3).
@@ -637,6 +638,10 @@ def build_extraction_prompt(
     `outcomes` is the agent's own business outcomes (D-836); with them the answer also
     carries `business_outcome`, one of their keys or null. Without them the prompt is
     unchanged.
+
+    `unlisted=False` leaves out the `unlisted` ask (D-889) for a schema with choice fields,
+    which makes the prompt the one every reading used before it; `extract_call` asks that way
+    when a reading with the ask failed, so the optional ask never costs a call its reading.
 
     With `moments`, the same request also asks for the call's key moments and numbers the
     transcript's lines so each moment can name one. Without it the prompt is unchanged,
@@ -697,7 +702,7 @@ Also include:
 {_business_outcome_section(outcomes)}{_OUT_OF_SCOPE_LINE}
 - "callback_requested": true if the caller asked to be called back, in any language or
   script ("call back", "కాల్ బ్యాక్", "malli call cheyyandi", "वापस कॉल", "baad mein call").
-{_unlisted_section(spec)}
+{_unlisted_section(spec) if unlisted else ""}
 WHO SPOKE DECIDES WHAT IS A FACT.
 The transcript is one turn per line, and every line is labelled with the speaker:
   "agent:"  — our AI receptionist, OUR side of the call.
@@ -778,16 +783,22 @@ def _unlisted_section(spec: ExtractionSchemaSpec) -> str:
     A closed list makes a model pick the nearest wrong answer when nothing fits, which is how
     "five bedrooms" became 3BHK. The enum rule now says null; this keeps what the caller
     actually asked for, so the lead still says it and the owner can add the choice.
+
+    The words must describe the answer the strict schema accepts (`build_response_schema`):
+    an object holding EVERY choice key, null where nothing is unlisted. Asking for `{}` when
+    there is none tells the model to write an answer the schema refuses.
     """
     keys = [f.key for f in spec.fields if f.type == "enum"]
     if not keys:
         return ""
     return (
-        '- "unlisted": an object. For a choice field above (' + ", ".join(keys) + ") the caller\n"
-        "  answered with something NONE of its choices fits, put that field's key with the\n"
-        f'  caller\'s own words for it, at most {UNLISTED_MAX} characters ("6 BHK", "bridal\n'
-        '  package"). Only what the caller asked for themselves; never a value one of the\n'
-        "  choices fits, and never one only the agent said. {} when there is none.\n"
+        '- "unlisted": an object with every choice field above as a key ('
+        + ", ".join(keys)
+        + ").\n  A key holds the caller's own words, at most "
+        f'{UNLISTED_MAX} characters ("6 BHK", "bridal\n'
+        '  package"), only when the caller answered that field with something NONE of its\n'
+        "  choices fits and said it themselves. Otherwise the key is null: when one of the\n"
+        "  choices fits, when only the agent said it, and when nobody said it.\n"
     )
 
 

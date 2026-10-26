@@ -1627,12 +1627,15 @@ async def _extract_stage(
     opt_out_signal: OptOutSignal | None,
     business_outcomes: list[BusinessOutcome],
     reasoning_off: bool = False,
+    reuse: bool = True,
 ) -> ExtractionOutput | None:
     """STEP 3 and 3b: read the call against the agent's schema, mark its key moments and
     store both. Shared by the post-call pipeline and the failed-extraction re-read
     (`workers/extraction_reread`, D-841), so a re-read is the same reading, metered the
     same way, and never a second copy of it. `reasoning_off` is the re-read of a truncated
-    reading: Sarvam is asked with reasoning off from the first request."""
+    reading: Sarvam is asked with reasoning off from the first request. `reuse=False` reads
+    the call even when a stored reading would be reused: the operator's re-read of readings
+    that stored nothing (`scripts/reread_extractions`)."""
     schema_version = spec.version
     # `snapshot.transcript`, NOT `transcript_text`: the two agreed until
     # `extractor_transcript` started dropping wordless turns, and this one has to keep agreeing with
@@ -1656,7 +1659,7 @@ async def _extract_stage(
         # other stage that pays one.
         extraction = (
             await _settled_extraction(tenant_id, call_id, schema_version=schema_version)
-            if needs_extraction
+            if needs_extraction and reuse
             else None
         )
         reused = extraction is not None
@@ -1680,6 +1683,7 @@ async def _extract_stage(
                 moments=brief,
                 languages=await _agent_languages(tenant_id, agent_id),
                 outcomes=business_outcomes,
+                retry_without_unlisted=True,
             )
             extraction_model = extractor.model_name
             await _meter_extraction(

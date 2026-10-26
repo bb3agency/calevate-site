@@ -212,6 +212,16 @@ class ExtractionTruncatedError(ValueError):
     """
 
 
+class ExtractionUnusableError(ValueError):
+    """The model answered, but not with an extraction: no JSON object, or one carrying none
+    of the keys every answer has (`_FIXED_PROPERTIES`).
+
+    A `ValueError` for `ExtractionTruncatedError`'s reason. Without it such an answer was
+    validated as `{}`: a call that booked a site visit was filed as one where the caller
+    gave nothing, with no outcome, and — carrying no `_model` error — was never read again.
+    """
+
+
 #: The per-leg provider budget for the USER-TRIGGERED assist, where somebody is.
 #:
 #: WHY A SECOND NUMBER AT ALL. `run_assist` runs two legs IN SERIES — Azure, then the
@@ -283,33 +293,56 @@ class Extractor(Protocol):
 
 def _first_json_object(text: str) -> dict[str, Any]:
     """Models wrap JSON in prose and fences no matter how firmly you ask. Take the
-    first balanced object rather than failing the whole extraction on a stray ```.
+    answer object rather than failing the whole extraction on a stray ```.
 
     A RECOVERY, and a recovery is strictly weaker than a constraint — which is why both
     model legs carry a constraint TOO (`build_response_schema`) rather than instead.
-    Under Structured Outputs this function has nothing left to do and runs as a no-op; it
-    stays because the strict form is documented by both vendors but not yet observed on
-    our own key or resource, and the degrade to `json_object` that covers that gap
-    (`_ask_strict_then_plain`) lands here. Deleting it because "the schema guarantees JSON
-    now" would remove the only thing holding up the path taken when the schema is
-    refused."""
+    Under Structured Outputs the whole text is the object and the first `json.loads`
+    returns it; the scan below serves the degrade to `json_object`
+    (`_ask_strict_then_plain`).
+
+    The whole text is parsed first because the brace scan cannot see strings: a summary
+    holding a "}" closes its object early and the answer is lost. The scan then skips an
+    empty or unreadable object and tries the next one, so a `{}` in prose before the answer
+    is not taken for it. An inner object is never tried on its own: the scan steps over a
+    whole balanced object, and an unbalanced (truncated) one ends it with `{}`."""
+    try:
+        whole = json.loads(text)
+    except json.JSONDecodeError:
+        whole = None
+    if isinstance(whole, dict):
+        return whole
     fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-    candidate = fenced.group(1) if fenced else None
-    if candidate is None:
-        start = text.find("{")
-        if start == -1:
+    if fenced:
+        found = _object_or_empty(fenced.group(1))
+        if found:
+            return found
+    start = text.find("{")
+    while start != -1:
+        end = _balanced_end(text, start)
+        if end is None:
             return {}
-        depth = 0
-        for i in range(start, len(text)):
-            if text[i] == "{":
-                depth += 1
-            elif text[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    candidate = text[start : i + 1]
-                    break
-    if candidate is None:
-        return {}
+        found = _object_or_empty(text[start : end + 1])
+        if found:
+            return found
+        start = text.find("{", end + 1)
+    return {}
+
+
+def _balanced_end(text: str, start: int) -> int | None:
+    """The index of the brace closing the one at `start`, or None if it never closes."""
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return None
+
+
+def _object_or_empty(candidate: str) -> dict[str, Any]:
     try:
         parsed = json.loads(candidate)
     except json.JSONDecodeError:
@@ -398,6 +431,8 @@ class SarvamExtractor:
     reads_languages: Final = True
     #: This runner can be offered the agent's business outcomes (`extract_call`, D-836).
     reads_outcomes: Final = True
+    #: This runner can be asked without the `unlisted` object (`extract_call`, D-889).
+    reads_unlisted: Final = True
 
     async def run(
         self,
@@ -407,6 +442,7 @@ class SarvamExtractor:
         moments: MomentsBrief | None = None,
         languages: Sequence[str] = (),
         outcomes: Sequence[BusinessOutcome] = (),
+        unlisted: bool = True,
     ) -> dict[str, Any]:
         # ONE chat client for the whole repository (`workers/chat.py`). The empty-`choices`
         # arm that used to live here — the provider declining to answer, which indexed
@@ -416,9 +452,16 @@ class SarvamExtractor:
         self.last_usage = None
         self.last_reasoning_effort = None
         prompt = build_extraction_prompt(
-            spec, transcript, moments=moments, languages=languages, outcomes=outcomes
+            spec,
+            transcript,
+            moments=moments,
+            languages=languages,
+            outcomes=outcomes,
+            unlisted=unlisted,
         )
-        schema = build_response_schema(spec, moments=moments is not None, outcomes=outcomes)
+        schema = build_response_schema(
+            spec, moments=moments is not None, outcomes=outcomes, unlisted=unlisted
+        )
 
         outcome = await self._ask(prompt, schema, self._reasoning_effort)
         # Before the truncation check: a truncated answer was still paid for.
@@ -565,11 +608,13 @@ def build_response_schema(
     *,
     moments: bool = False,
     outcomes: Sequence[BusinessOutcome] = (),
+    unlisted: bool = True,
 ) -> dict[str, Any]:
     """The strict JSON Schema that makes valid, schema-shaped JSON a MODEL-SIDE guarantee.
 
     Both model legs send it: Azure (below) and Sarvam (`SarvamExtractor`). `moments` adds
-    the key-moments list for a request that asks for it.
+    the key-moments list for a request that asks for it; `unlisted=False` leaves out the
+    D-889 `unlisted` object, matching `build_extraction_prompt(unlisted=False)`.
 
     THE GUARANTEE IS BACK, and this function is the whole of it. Azure documents
     Structured Outputs (`response_format: {"type": "json_schema", "strict": true}`) on
@@ -625,7 +670,7 @@ def build_response_schema(
             "enum": [*(o.key for o in outcomes), None],
         }
     choice_keys = [f.key for f in spec.fields if f.type == "enum" and f.key not in fixed]
-    if choice_keys:
+    if choice_keys and unlisted:
         # One nullable string per choice field: the caller's words when no choice fits
         # (D-889). Strict mode needs every key present, so "nothing unlisted" is all nulls.
         fixed["unlisted"] = {
@@ -896,15 +941,22 @@ class AzureOpenAIExtractor:
 
     #: This runner can be told the agent's language(s) (`extract_call`).
     reads_languages: Final = True
+    #: This runner can be asked without the `unlisted` object (`extract_call`, D-889).
+    reads_unlisted: Final = True
 
     async def run(
-        self, spec: ExtractionSchemaSpec, transcript: str, *, languages: Sequence[str] = ()
+        self,
+        spec: ExtractionSchemaSpec,
+        transcript: str,
+        *,
+        languages: Sequence[str] = (),
+        unlisted: bool = True,
     ) -> dict[str, Any]:
-        prompt = build_extraction_prompt(spec, transcript, languages=languages)
+        prompt = build_extraction_prompt(spec, transcript, languages=languages, unlisted=unlisted)
         try:
             outcome, degraded = await _ask_strict_then_plain(
                 lambda response_format: self._ask(prompt, response_format),
-                build_response_schema(spec),
+                build_response_schema(spec, unlisted=unlisted),
             )
         except httpx.HTTPStatusError as refusal:
             self._log_refusal(refusal.response.status_code)
@@ -2372,9 +2424,10 @@ async def _run(
     moments: MomentsBrief | None,
     languages: Sequence[str],
     outcomes: Sequence[BusinessOutcome] = (),
+    unlisted: bool = True,
 ) -> dict[str, Any]:
     """One `run`, with the key-moments brief, the agent's languages and its business
-    outcomes when the runner reads them.
+    outcomes when the runner reads them, and without the `unlisted` ask when told so.
 
     Each is handed only to a runner that declares it (`reads_moments`, `reads_languages`,
     `reads_outcomes`): the offline baseline has no model to ask, and the `Extractor`
@@ -2387,6 +2440,8 @@ async def _run(
         context["languages"] = tuple(languages)
     if outcomes and getattr(runner, "reads_outcomes", False):
         context["outcomes"] = tuple(outcomes)
+    if not unlisted and getattr(runner, "reads_unlisted", False):
+        context["unlisted"] = False
     if context:
         return await cast(_ReadsContext, runner).run(spec, transcript, **context)
     return await runner.run(spec, transcript)
@@ -2401,7 +2456,36 @@ class _ReadsContext(Protocol):
         moments: MomentsBrief | None = None,
         languages: Sequence[str] = (),
         outcomes: Sequence[BusinessOutcome] = (),
+        unlisted: bool = True,
     ) -> dict[str, Any]: ...
+
+
+#: What `extract_call` files as a model failure rather than letting it fail the call.
+_MODEL_ERRORS: Final = (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError)
+
+
+def _is_answer(raw: dict[str, Any]) -> bool:
+    """Does this object answer the extraction? Every answer carries the fixed keys; an object
+    with none of them is a fragment of something else."""
+    return any(key in raw for key in _FIXED_PROPERTIES)
+
+
+def _asks_unlisted(spec: ExtractionSchemaSpec) -> bool:
+    return any(field.type == "enum" for field in spec.fields)
+
+
+class _Metered(Protocol):
+    last_usage: TokenUsage | None
+
+
+def _add_usage(runner: Extractor, earlier: TokenUsage | None) -> None:
+    """Fold an earlier ask's usage into the runner's last one, so the pass is metered whole.
+    A request that failed before answering left no usage and adds nothing."""
+    if earlier is None or not hasattr(runner, "last_usage"):
+        return
+    metered = cast(_Metered, runner)
+    later = metered.last_usage
+    metered.last_usage = earlier if later is None else chat.sum_usage((earlier, later))
 
 
 def _chosen_key(raw: object, outcomes: Sequence[BusinessOutcome]) -> str | None:
@@ -2418,6 +2502,7 @@ async def extract_call(
     moments: MomentsBrief | None = None,
     languages: Sequence[str] = (),
     outcomes: Sequence[BusinessOutcome] = (),
+    retry_without_unlisted: bool = False,
 ) -> ExtractionOutput:
     """Run one extraction pass and validate it against the schema.
 
@@ -2425,6 +2510,10 @@ async def extract_call(
     and `languages_extra` spell them; empty means the prompt's default. `outcomes` is the
     agent's business outcomes (D-836); the answer's `business_outcome` is one of their keys
     or None.
+
+    `retry_without_unlisted` is the post-call pass's: a reading that fails with the D-889
+    `unlisted` ask is asked once more without it. The dashboard assist leaves it off, because
+    its ladder already falls to a standby inside an edge deadline.
 
     A model failure does NOT fail the call: an extraction row still lands with
     `valid=False` and the error, so the call, the lead and the metering all survive an
@@ -2447,16 +2536,46 @@ async def extract_call(
         return _nothing_was_said(spec)
     runner = extractor or get_extractor()
     provider = _provider_of(runner)
-    try:
+
+    async def read(*, unlisted: bool) -> dict[str, Any]:
         if provider is None:
-            raw = await _run(runner, spec, transcript, moments, languages, outcomes)
-        else:
-            # The provider-health hook sits HERE, around the whole `run`, and not around
-            # each HTTP request: Azure's 400 → `json_object` degrade is two requests and
-            # one answer, and only the answer says whether the leg works.
-            async with provider_health.watch("extraction", provider, model=runner.model_name):
-                raw = await _run(runner, spec, transcript, moments, languages, outcomes)
-    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+            return await _run(runner, spec, transcript, moments, languages, outcomes, unlisted)
+        # The provider-health hook sits HERE, around the whole `run`, and not around each
+        # HTTP request: Azure's 400 → `json_object` degrade is two requests and one answer,
+        # and only the answer says whether the leg works.
+        async with provider_health.watch("extraction", provider, model=runner.model_name):
+            raw = await _run(runner, spec, transcript, moments, languages, outcomes, unlisted)
+            if not _is_answer(raw):
+                raise ExtractionUnusableError(runner.model_name)
+            return raw
+
+    try:
+        try:
+            raw = await read(unlisted=True)
+        except _MODEL_ERRORS as exc:
+            if not (
+                retry_without_unlisted
+                and _asks_unlisted(spec)
+                and getattr(runner, "reads_unlisted", False)
+            ):
+                raise
+            # The `unlisted` ask (D-889) is an extra on the reading, so a reading that fails
+            # with it is asked once more without it: the request every call was read with
+            # before it. Both asks are metered as the one pass.
+            log.warning(
+                "extraction_retry_without_unlisted",
+                extra={
+                    "model": runner.model_name,
+                    "provider": provider,
+                    "error": type(exc).__name__,
+                },
+            )
+            first_usage = getattr(runner, "last_usage", None)
+            try:
+                raw = await read(unlisted=False)
+            finally:
+                _add_usage(runner, first_usage)
+    except _MODEL_ERRORS as exc:
         # IndexError/TypeError belong here with the rest: a provider response whose
         # shape we did not expect is a MODEL failure, and this ladder exists so a model
         # failure costs the structured fields and never the call, the lead or the

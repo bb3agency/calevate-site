@@ -279,9 +279,10 @@ async def _give_up(tenant_id: UUID, call_id: UUID) -> None:
         )
 
 
-async def reread_extraction(tenant_id: UUID, call_id: UUID) -> str:
+async def reread_extraction(tenant_id: UUID, call_id: UUID, *, reuse: bool = True) -> str:
     """Read one call again and file what the reading changes. Returns `still_failed`,
-    `still_truncated`, `reread` or `call_not_found`.
+    `still_truncated`, `reread` or `call_not_found`. `reuse=False` asks the model even when
+    the stored reading carries no provider failure (`_extract_stage`).
 
     The attempt has already been claimed; this does the reading. Each stage is the
     pipeline's own and is safe to run again: the extraction is one row per call, the lead
@@ -310,6 +311,7 @@ async def reread_extraction(tenant_id: UUID, call_id: UUID) -> str:
         opt_out_signal=detect_opt_out(snapshot.transcript) if snapshot.transcript else None,
         business_outcomes=business_outcomes,
         reasoning_off=after_truncation,
+        reuse=reuse,
     )
     if extraction is None or not model_answered(extraction):
         if extraction is not None and extraction.errors.get(MODEL_FAILURE) == _TRUNCATED:
