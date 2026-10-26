@@ -43,6 +43,15 @@ x-python-service: &python-service
   # Not on redis: its entrypoint drops from root to the redis user and needs SETUID/SETGID.
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]
+  # Read-only root filesystem (CIS Docker Benchmark 5.12). `/app` is owned by the app user,
+  # so without this, code execution in the app could rewrite the code it runs and keep
+  # that change across a `restart`. Nothing in the image writes outside /tmp: imports,
+  # alembic, arq, the KB PDF render, openpyxl and both servers' startup were run under
+  # `--read-only --tmpfs /tmp` against this image. /tmp stays writable because Starlette
+  # spools a multipart upload over 1MB there (`SpooledTemporaryFile`); 256m holds ten of
+  # the largest body nginx admits (25m) and is RAM only while in use.
+  read_only: true
+  tmpfs: ["/tmp:size=256m,mode=1777"]
   # Bounded logs. The daily disk-hygiene cron DEPLOYMENT §7 asks for does not exist yet,
   # so the json-file driver's unbounded default is a real way to fill the VPS disk and
   # take Postgres down with it. 10x10MB per service is a ceiling, not a policy.
