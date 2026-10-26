@@ -501,6 +501,11 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # compiled block, with no deploy and nothing to unwind. It does not touch the call path
     # under any value.
     "retrieval_provider": AppliesRule(LIVE),
+    # Read on every knowledge publish and T0 compile (`kb.service.
+    # extracted_text_reaches_agents`). Saving it also queues `redeliver_extracted_knowledge`
+    # in the write's transaction (`ops/config_service.save_value`), which re-sends every live
+    # PDF and link to every agent, so nothing waits for the next publish.
+    "kb_send_extracted_files": AppliesRule(LIVE),
     # WHERE A SELF-HOSTED SUPERMEMORY ANSWERS, and which model it embeds with (TRD §6.3). LIVE for
     # `retrieval_provider`'s own reason and with the
     # same consequence: `get_retriever` is called per request, constructs the adapter fresh

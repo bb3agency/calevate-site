@@ -295,19 +295,17 @@ _AGENT_FACTS_SQL: Final = (
     "  AND r.agent_id = a.id AND r.active AND r.drift_state = ANY(:out_of_sync)) AS out_of_sync "
     "FROM agents a WHERE a.id = :aid AND a.deleted_at IS NULL"
 )
-#: Only a source with text to send counts: a PDF or a link is saved but reaches the agents
-#: as empty text until D-868 (it has no `kb_documents` rows), so it does not raise the score.
-_KNOWLEDGE_SQL: Final = (
-    "SELECT (SELECT count(*) FROM kb_sources s WHERE s.is_active "
-    "AND EXISTS (SELECT 1 FROM kb_documents d WHERE d.source_id = s.id)) "
-    "+ (SELECT count(*) FROM kb_facts WHERE removed_at IS NULL)"
-)
+_FACTS_SQL: Final = "SELECT count(*) FROM kb_facts WHERE removed_at IS NULL"
 
 
 async def knowledge_items(session: AsyncSession) -> int:
-    """Live sources and facts on file. Account-wide: knowledge belongs to the client and every
-    agent carries it (D-689)."""
-    return int((await session.execute(text(_KNOWLEDGE_SQL))).scalar_one())
+    """Live sources whose words reach the agents, and facts on file. Account-wide: knowledge
+    belongs to the client and every agent carries it (D-689). A PDF or a link counts only
+    while its read words are sent (`kb.service.delivered_source_count`)."""
+    from apps.api.kb.service import delivered_source_count
+
+    facts = int((await session.execute(text(_FACTS_SQL))).scalar_one())
+    return await delivered_source_count(session) + facts
 
 
 async def gather(

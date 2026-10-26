@@ -21,14 +21,17 @@ from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
+from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
-from apps.api.kb import service, uploads
+from apps.api.kb import service, store, uploads
 from apps.api.kb.curation import (
     goes_live_without_review,
     read_switch,
     requires_kb_curation,
     write_switch,
 )
+from apps.api.kb.models import READ_COPY_KINDS
+from apps.api.kb.reading import queue_read
 
 router = APIRouter(prefix="/v1/kb", tags=["knowledge-base"])
 
@@ -225,6 +228,47 @@ class UploadOut(Strict):
     change_detected_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    #: For a PDF or a link only (D-893 L8): how reading its words into our copy went —
+    #: `reading` · `ready` · `failed` — or None before it starts and for every other kind.
+    read_state: str | None = None
+    #: Why a reading failed or was partial, written for the client.
+    read_detail: str | None = None
+    page_count: int | None = None
+    #: Whether this item's words reach the agents. Always true for a converted kind; for a
+    #: PDF or a link only while the platform sends the words we read
+    #: (`kb_send_extracted_files`) and they were read.
+    reaches_agents: bool = True
+
+
+class TextSectionOut(Strict):
+    #: "Page 7", "Part 2", or "" when the item is one part.
+    label: str
+    content: str
+
+
+class UploadTextOut(Strict):
+    """The words we hold for one file, photo or link, one reading page at a time."""
+
+    upload_id: UUID
+    name: str
+    #: `file` · `photo` · `link`.
+    kind: str
+    #: `in_use` · `not_used_yet` · `being_read` · `getting_ready` · `in_review` ·
+    #: `needs_attention`.
+    state: str
+    reaches_agents: bool
+    #: The file's own name, or the page's address.
+    origin: str
+    version: int | None = None
+    page: int
+    pages: int
+    sections: list[TextSectionOut]
+    #: Page count, or what went wrong reading it.
+    note: str | None = None
+
+
+class RenameIn(Strict):
+    name: str = Field(min_length=2, max_length=120)
 
 
 class LinkIn(Strict):
@@ -476,6 +520,111 @@ async def delete_upload(
         ip=client_request_ip(request),
         summary={"upload_id": str(upload_id)},
     )
+
+
+@router.get(
+    "/uploads/{upload_id}/text",
+    response_model=UploadTextOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="The words we hold for one document, photo or link, a page at a time",
+    description=(
+        "What was read out of the file or page, as stored: one PDF page, or a few "
+        "paragraphs, per reading page. `reaches_agents` says whether the agents use it."
+    ),
+)
+async def read_upload_text(
+    upload_id: UUID,
+    session: Session,
+    page: int = Query(1, ge=1, le=1000),
+    _: Principal = Depends(requires("agents:read")),
+) -> UploadTextOut:
+    found = await store.read_upload_text(session, upload_id, page=page)
+    return UploadTextOut(
+        upload_id=upload_id,
+        name=found.name,
+        kind=found.kind,
+        state=found.state,
+        reaches_agents=found.agents_use,
+        origin=found.origin,
+        version=found.version,
+        page=found.page,
+        pages=found.pages,
+        sections=[TextSectionOut(label=label, content=body) for label, body in found.sections],
+        note=found.note,
+    )
+
+
+@router.patch(
+    "/uploads/{upload_id}",
+    response_model=UploadOut,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Rename a document, photo or link",
+    description="Every version is renamed, so its history stays one item.",
+)
+async def rename_upload(
+    upload_id: UUID,
+    payload: RenameIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires_kb_curation()),
+) -> UploadOut:
+    assert principal.tenant_id is not None
+    source_id = (await uploads.get_upload(session, upload_id))["source_id"]
+    await store.rename_source(
+        session, tenant_id=principal.tenant_id, source_id=source_id, name=payload.name
+    )
+    await write_audit(
+        session,
+        action="kb.renamed",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="kb_source",
+        object_id=str(source_id),
+        ip=client_request_ip(request),
+        # Ids only: the name is the client's business data (hard rule 6).
+        summary={"upload_id": str(upload_id)},
+    )
+    return UploadOut.model_validate(await uploads.get_upload(session, upload_id))
+
+
+@router.post(
+    "/uploads/{upload_id}/read",
+    response_model=UploadOut,
+    status_code=202,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Read a PDF or a web page again",
+    description=(
+        "Reads the file or page into our copy again, for one we could not read or a page "
+        "that changed. Poll the upload for `read_state`."
+    ),
+)
+async def reread_upload(
+    upload_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires_kb_curation()),
+) -> UploadOut:
+    assert principal.tenant_id is not None
+    row = await uploads.get_upload(session, upload_id)
+    if row["source_kind"] not in READ_COPY_KINDS:
+        raise ProblemError.business_rule(
+            "kb_not_a_read_copy",
+            "Only a PDF or a web page is read again here.",
+            remediation="Send the file again to replace it.",
+        )
+    await queue_read(session, tenant_id=principal.tenant_id, source_id=row["source_id"], force=True)
+    row = await uploads.get_upload(session, upload_id)
+    await write_audit(
+        session,
+        action="kb.reread",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="kb_source",
+        object_id=str(row["source_id"]),
+        ip=client_request_ip(request),
+        summary={"upload_id": str(upload_id)},
+    )
+    return UploadOut.model_validate(row)
 
 
 # --- Who in the account may curate: the OWNER's switch ----------------------------

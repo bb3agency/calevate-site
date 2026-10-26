@@ -194,6 +194,13 @@ async def _apply_to_live_agents(
 ) -> uuid.UUID | None:
     """Queue the platform-wide live apply for a key every live agent carries, in the
     write's transaction, so the change and the promise to apply it commit together."""
+    if key == "kb_send_extracted_files":
+        # Not an agent republish: the agents' configs do not change, their knowledge does.
+        # The job re-sends every live PDF and link and recompiles each agent's facts block.
+        from apps.api.kb.reading import queue_redelivery
+
+        await queue_redelivery(session)
+        return None
     if applies_rule(key).applies != LIVE_AGENTS:
         return None
     from apps.api.agents.live_apply import queue_live_apply

@@ -223,6 +223,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "`kb.uploads.MAX_UPLOADS_PAGE` in theirs."
         )
     ),
+    "GET /v1/kb/uploads/{upload_id}/text": BoundedByConstruction(
+        by=(
+            "one reading page: one PDF page or `kb.store.CHUNKS_PER_PART` chunks "
+            "(`kb.store._paged`), each chunk at most `kb.service.MAX_CHUNK_CHARS`."
+        )
+    ),
     "GET /v1/kb/struggles": BoundedByConstruction(
         by="`teach.struggles.MAX_GAPS` open gaps plus `MAX_CALLS` calls, both in the LIMIT."
     ),

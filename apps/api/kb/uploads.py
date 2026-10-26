@@ -70,7 +70,12 @@ from apps.api.integrations.egress_guard import EgressRefusedError, assert_public
 from apps.api.kb.curation import goes_live_without_review
 from apps.api.kb.models import UPLOAD_RECEIVED, text_is_read
 from apps.api.kb.pdf_render import MAX_UPLOAD_BYTES
-from apps.api.kb.service import approve_source, insert_source_version, withdraw_source
+from apps.api.kb.service import (
+    approve_source,
+    insert_source_version,
+    upload_reaches_agents,
+    withdraw_source,
+)
 from apps.api.reliability.service import enqueue_outbox
 
 log = get_logger(__name__)
@@ -456,6 +461,10 @@ async def create_upload(
         "byte_size": len(data),
         "source_url": None,
         "text_provenance": None,
+        "read_state": None,
+        "read_detail": None,
+        "page_count": None,
+        "reaches_agents": upload_reaches_agents(source_kind=kind, read_state=None),
     }
 
 
@@ -546,6 +555,10 @@ async def create_link(
         "byte_size": None,
         "source_url": url[:2048],
         "text_provenance": None,
+        "read_state": None,
+        "read_detail": None,
+        "page_count": None,
+        "reaches_agents": False,
     }
 
 
@@ -567,7 +580,7 @@ _LIST_SQL = """
 SELECT u.id, u.source_id, s.name, u.source_kind, u.ingest_status,
        u.ingest_detail, s.status, s.is_active, s.version, u.original_filename,
        u.original_bytes, u.source_url, u.change_detected_at, u.created_at, u.updated_at,
-       u.text_provenance
+       u.text_provenance, u.read_state, u.read_detail, u.page_count
 FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id
 """
 
@@ -602,6 +615,10 @@ async def get_upload(session: AsyncSession, upload_id: UUID) -> dict[str, Any]:
 
 def _row_out(row: Any) -> dict[str, Any]:
     return {
+        "read_state": row[16],
+        "read_detail": row[17],
+        "page_count": row[18],
+        "reaches_agents": upload_reaches_agents(source_kind=str(row[3]), read_state=row[16]),
         "id": row[0],
         "source_id": row[1],
         "name": row[2],

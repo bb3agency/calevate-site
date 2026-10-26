@@ -497,6 +497,12 @@ class Settings(BaseSettings):
     #: (21 Oct 2026, §23), so OPERATIONS gate T-31 is met and the founder flips it. Saving it
     #: republishes every live agent.
     thinnest_own_rules: bool = False
+    #: The words we read out of a client's PDFs and web pages are sent to the voice platform
+    #: as knowledge text (D-893 L8). Off by default: the founder chose (D-868) to wait for
+    #: ThinnestAI's answer on knowledge files before changing what the agents receive, so
+    #: off sends exactly what was sent before (the PDF's file, nothing for a link). Saving
+    #: it re-sends every live PDF and link (`redeliver_extracted_knowledge`).
+    kb_send_extracted_files: bool = False
     #: Practice tests and the register eval talk to the agent through Test Chat's call mode
     #: (`mode: "call"`, D-847): the agent's call prompt, the model its calls use and, on our
     #: Gemini key, the call's thinking level. `TestChatRequest.mode` is in the live

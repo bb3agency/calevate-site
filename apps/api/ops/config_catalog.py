@@ -125,10 +125,12 @@ SECTIONS: Final[tuple[Section, ...]] = (
     Section(
         "knowledge",
         "Knowledge search",
-        "Which store answers knowledge-base lookups outside a call, and any shadow comparison.",
+        "Which store answers knowledge-base lookups outside a call, any shadow comparison, "
+        "and whether agents use the words we read from PDFs and web pages.",
         (
             Subsection("store", "Store"),
             Subsection("shadow", "Shadow comparison"),
+            Subsection("delivery", "What agents receive"),
         ),
     ),
     Section(
@@ -646,6 +648,13 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "shadow",
         "Accounts in the shadow comparison",
         "Comma-separated account ids whose lookups are compared. Empty means none.",
+    ),
+    "kb_send_extracted_files": _m(
+        "knowledge",
+        "delivery",
+        "Agents use the words we read from PDFs and web pages",
+        "On: the words we read from each client's PDFs and linked pages go to their agents. "
+        "Off: agents get what they did before (the PDF file; nothing for a link).",
     ),
     # ---- billing ---------------------------------------------------------------------
     "self_serve_inr_per_min": _m(
@@ -1319,6 +1328,8 @@ HIGH_RISK: Final[dict[str, str]] = {
     "thinnest_byok_enabled": "Every minute moves to the ₹1 full-BYOK rate on our own speech, "
     "model and voice keys, and every agent's voice and model choice is locked.",
     "thinnest_clear_voice_band": "Changes which ThinnestAI band clients are sold as Clear.",
+    "kb_send_extracted_files": "Every client's live PDFs and web pages are sent to their "
+    "agents again, as the words we read (on) or as before (off), so callers hear the change.",
     "thinnest_own_rules": "Every live agent is republished, and its hand-over, lead and "
     "call-back rules come from our prompt alone (on) or from ThinnestAI as well (off).",
     "thinnest_call_instructions": "Every live agent is republished, and how it speaks on calls "

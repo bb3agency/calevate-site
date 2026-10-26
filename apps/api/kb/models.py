@@ -244,6 +244,18 @@ class KbIndexDocument(PKMixin, TimestampMixin, Base):
 UPLOAD_NATIVE_KINDS: tuple[str, ...] = ("pdf", "url")
 UPLOAD_KINDS: tuple[str, ...] = (*UPLOAD_NATIVE_KINDS, *sorted(CONVERTIBLE_KINDS))
 
+#: The kinds whose words we read into a COPY (D-893 L8). The engine is handed the PDF's file
+#: or nothing for a link, so these words reach the agents only while the console switch
+#: `kb_send_extracted_files` is on (`kb.service.extracted_text_reaches_agents`); the copy is
+#: always ours to open and search. Every other kind's text IS what the agents are sent.
+READ_COPY_KINDS: tuple[str, ...] = UPLOAD_NATIVE_KINDS
+
+#: `kb_uploads.read_state`, for a `READ_COPY_KINDS` row only.
+READ_READING = "reading"
+READ_READY = "ready"
+READ_FAILED = "failed"
+READ_STATES: tuple[str, ...] = (READ_READING, READ_READY, READ_FAILED)
+
 #: How far an upload has got. The last three are the VENDOR's own words for a knowledge
 #: base, spelled the same way on purpose — the value a client reads is the value the engine
 #: reported, not a paraphrase somebody has to keep in step (migration `b3f7c21ea940`).
@@ -274,9 +286,11 @@ UPLOAD_RETRYABLE: tuple[str, ...] = (UPLOAD_RECEIVED, UPLOAD_CONVERTING, UPLOAD_
 def text_is_read(*, kind: str, status: str, provenance: str | None) -> bool:
     """Has this upload's text been extracted, so there is something to review and publish?
 
-    A PDF and a link are never read into text: the artefact is the file or the page itself.
-    Every other kind is read by the ingest job, which returns the row to `received` once the
-    text is stored — so `received` alone means both "not started" and "read, waiting for a
+    A PDF and a link answer True: what was approved is the file or the page itself, so there
+    is nothing to wait for before publishing. Their words are read into a separate copy
+    (`READ_COPY_KINDS`, `apps/workers/kb_read.py`) that does not gate the publish. Every
+    other kind is read by the ingest job, which returns the row to `received` once the text
+    is stored — so `received` alone means both "not started" and "read, waiting for a
     person", and `text_provenance` (written in the same statement) is what separates them.
     The ingest job and the confirm route ask this one question so they cannot disagree.
     """
@@ -307,6 +321,10 @@ class KbUpload(PKMixin, TimestampMixin, Base):
         UniqueConstraint("source_id", name="uq_kb_uploads_source"),
         CheckConstraint(f"source_kind IN {UPLOAD_KINDS!r}", name="ck_kb_uploads_kind"),
         CheckConstraint(f"ingest_status IN {UPLOAD_STATUSES!r}", name="ck_kb_uploads_status"),
+        CheckConstraint(
+            f"read_state IS NULL OR read_state IN {READ_STATES!r}",
+            name="ck_kb_uploads_read_state",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -354,6 +372,13 @@ class KbUpload(PKMixin, TimestampMixin, Base):
     content_digest: Mapped[str | None] = mapped_column(Text)
     last_checked_at: Mapped[datetime | None]
     change_detected_at: Mapped[datetime | None]
+    #: How reading a PDF's or a link's words went (`READ_STATES`), apart from
+    #: `ingest_status`: the PDF is published as its file whether or not its words could be
+    #: read. NULL for the kinds the conversion lane reads, whose `ingest_status` says it.
+    read_state: Mapped[str | None] = mapped_column(Text)
+    #: Why the reading failed or was partial, written for the client.
+    read_detail: Mapped[str | None] = mapped_column(Text)
+    page_count: Mapped[int | None] = mapped_column(Integer)
 
 
 class KbRetrievalLog(PKMixin, Base):

@@ -739,7 +739,12 @@ kb_uploads(id, tenant_id, agent_id, source_id, source_kind ENUM[pdf,url,docx,txt
   content_type, source_url, document_key, document_sha256, text_provenance ENUM[parsed,
   ocr], extractor, ingest_status ENUM[received,converting,conversion_unavailable,
   conversion_failed,processing,processed,error], ingest_detail, content_digest,
-  last_checked_at, change_detected_at, UNIQUE(source_id))
+  last_checked_at, change_detected_at, read_state ENUM[reading,ready,failed] NULL,
+  read_detail, page_count, UNIQUE(source_id))
+  -- read_state/read_detail/page_count (D-893 L8, migration f2b7d4e9a1c6): how reading a
+  -- PDF's or a link's words into kb_documents went, apart from ingest_status, because the
+  -- PDF is published as its file whether or not its words could be read. NULL for every
+  -- kind the conversion lane reads.
   -- THE FILE, PHOTOGRAPH OR LINK BEHIND ONE kb_sources VERSION (D-534, migration
   -- b3f7c21ea940). 1:1 with that version, because an upload IS a knowledge source: it is
   -- approved, versioned, published, superseded and expired by the machinery above. What

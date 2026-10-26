@@ -33,6 +33,7 @@ read aloud, and a chunk cut mid-sentence becomes a sentence the agent says badly
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 from typing import Any, Final
@@ -49,11 +50,12 @@ from apps.api.agents.t0 import KnowledgeFact, recompile_t0
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.transition import transition_status
 from apps.api.engine import get_engine, require_capability
-from apps.api.kb.models import KB_STATUSES
+from apps.api.kb.models import KB_STATUSES, READ_COPY_KINDS
 from apps.api.kb.pdf_render import (
     ApprovedChunk,
     EmptyKnowledgeError,
@@ -552,6 +554,72 @@ async def store_extracted_text(
     return len(chunks)
 
 
+def without_invisible_characters(value: str) -> str:
+    """`value` with every `_FORBIDDEN_CODEPOINTS` character removed.
+
+    For text WE read out of a client's PDF or web page, where `_reject_invisible_characters`
+    would be the wrong answer: zero-width spaces and stray controls are routine in exported
+    PDFs, and refusing the whole document over one would leave the client with no copy at
+    all. Removing them closes the same hole — a tag-block sentence is made only of those
+    characters, so it is removed whole rather than hidden.
+    """
+    return "".join(ch for ch in value if ord(ch) not in _FORBIDDEN_CODEPOINTS)
+
+
+async def store_read_copy(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    source_id: UUID,
+    sections: list[tuple[int | None, str]],
+) -> int:
+    """Store the words read out of a PDF or a web page as this version's chunks (D-893 L8).
+
+    `store_extracted_text`'s twin for `READ_COPY_KINDS`, with the same chunker and the same
+    table, so a reader, Pip and the retrieval projection see a PDF exactly as they see a
+    Word file. Two differences, both because the approved thing here is the FILE or the
+    PAGE rather than these words: an approved (even live) version may be read, and invisible
+    characters are removed rather than refused. Each section is chunked on its own and its
+    chunks carry `meta.page`, so a reader can open page 7 of a price list. Replaces any
+    earlier reading, which is what makes a re-read idempotent; returns the chunks stored.
+    """
+    kind = (
+        await session.execute(
+            text("SELECT source_kind FROM kb_uploads WHERE source_id = :sid"), {"sid": source_id}
+        )
+    ).scalar()
+    if kind not in READ_COPY_KINDS:
+        raise ProblemError.business_rule(
+            "kb_not_a_read_copy",
+            "Only a PDF or a web page keeps a read copy of its words.",
+        )
+    await session.execute(
+        text("DELETE FROM kb_documents WHERE source_id = :sid"), {"sid": source_id}
+    )
+    idx = 0
+    for page, body in sections:
+        for chunk in chunk_text(without_invisible_characters(body)):
+            await session.execute(
+                text(
+                    "INSERT INTO kb_documents (id, tenant_id, source_id, idx, title, content, "
+                    "meta, created_at, updated_at) SELECT :id, :tid, :sid, :idx, s.name, "
+                    ":content, CAST(:meta AS jsonb), now(), now() FROM kb_sources s "
+                    "WHERE s.id = :sid"
+                ),
+                {
+                    "id": uuid7(),
+                    "tid": tenant_id,
+                    "sid": source_id,
+                    "idx": idx,
+                    "content": chunk,
+                    "meta": json.dumps({"page": page} if page is not None else {}),
+                },
+            )
+            idx += 1
+    log.info("kb_read_copy_stored", extra={"source_id": str(source_id), "chunks": idx})
+    return idx
+
+
 async def preview(session: AsyncSession, source_id: UUID) -> list[dict[str, Any]]:
     """The chunks a reviewer reads, or a 404 — never an empty list standing in for one.
 
@@ -651,12 +719,58 @@ async def reject_source(session: AsyncSession, *, source_id: UUID, reason: str) 
     )
 
 
+def extracted_text_reaches_agents() -> bool:
+    """Do the words we read out of a PDF or a web page go to the agents? (D-893 L8)
+
+    The console switch `kb_send_extracted_files`, read per use. Off, a PDF or a link is
+    delivered exactly as before its words were read — the file, or nothing — so the copy
+    serves the client's reader and Pip alone. Every path that hands knowledge to an agent
+    asks this through `_DELIVERED_HEAD`: the engine document (`_chunks_of`), the T0 block
+    (`active_knowledge`) and its glosses (`live_glosses`).
+    """
+    return get_settings().kb_send_extracted_files
+
+
+def upload_reaches_agents(*, source_kind: str, read_state: str | None) -> bool:
+    """Do this upload's words reach the agents? Every converted kind's text is what they
+    are sent; a PDF's or link's words only while the switch is on and they were read."""
+    if source_kind not in READ_COPY_KINDS:
+        return True
+    return extracted_text_reaches_agents() and read_state == "ready"
+
+
+#: The source reaches the agents: it is not a PDF or link, or their words are sent. One
+#: predicate for every delivery read, so the engine document and the T0 block cannot
+#: disagree about what an agent was given; spelled once per alias it is joined on.
+_DELIVERED_HEAD = (
+    "(CAST(:send_extracted AS boolean) OR NOT EXISTS (SELECT 1 FROM kb_uploads ku "
+    "WHERE ku.source_kind = ANY(CAST(:copy_kinds AS text[])) AND ku.source_id = "
+)
+_DELIVERED_BY_DOCUMENT = _DELIVERED_HEAD + "d.source_id))"
+_DELIVERED_BY_SOURCE = _DELIVERED_HEAD + "s.id))"
+
+
+def _delivery_params() -> dict[str, Any]:
+    return {
+        "send_extracted": extracted_text_reaches_agents(),
+        "copy_kinds": list(READ_COPY_KINDS),
+    }
+
+
 async def _chunks_of(session: AsyncSession, source_id: UUID) -> list[str]:
-    """The approved chunks of one source, in reading order — one engine document."""
+    """The approved chunks of one source, in reading order — one engine document.
+
+    Empty for a PDF or a link while their words are not sent (`extracted_text_reaches_
+    agents`): their chunks are our readable copy, and the engine is handed the file or the
+    address as it always was.
+    """
     rows = (
         await session.execute(
-            text("SELECT content FROM kb_documents WHERE source_id = :sid ORDER BY idx"),
-            {"sid": source_id},
+            text(
+                "SELECT d.content FROM kb_documents d WHERE d.source_id = :sid AND "
+                f"{_DELIVERED_BY_DOCUMENT} ORDER BY d.idx"
+            ),
+            {"sid": source_id, **_delivery_params()},
         )
     ).scalars()
     return [str(chunk) for chunk in rows]
@@ -1453,7 +1567,8 @@ async def active_knowledge(session: AsyncSession, *, tenant_id: UUID) -> list[Kn
     reshuffle every fact each time one unrelated source was updated, minting a prompt
     version that changed nothing but line order.
 
-    PER TENANT (D-689): every agent of the client compiles the same knowledge half.
+    PER TENANT (D-689): every agent of the client compiles the same knowledge half. A PDF or
+    a link counts only while their read words are sent (`extracted_text_reaches_agents`).
 
     This is the half of the recompile that belongs to the KB — "what is live" is a
     question about `kb_sources.is_active`, which only `publish_source` ever sets — and
@@ -1466,13 +1581,29 @@ async def active_knowledge(session: AsyncSession, *, tenant_id: UUID) -> list[Kn
             text(
                 "SELECT s.name, string_agg(d.content, ' ' ORDER BY d.idx) "
                 "FROM kb_sources s JOIN kb_documents d ON d.source_id = s.id "
-                "WHERE s.tenant_id = :tid AND s.is_active = true "
+                f"WHERE s.tenant_id = :tid AND s.is_active = true AND {_DELIVERED_BY_SOURCE} "
                 "GROUP BY s.id, s.name ORDER BY s.name"
             ),
-            {"tid": tenant_id},
+            {"tid": tenant_id, **_delivery_params()},
         )
     ).all()
     return [KnowledgeFact(name=str(row[0]), text=str(row[1] or "")) for row in rows]
+
+
+async def delivered_source_count(session: AsyncSession) -> int:
+    """Live sources with words the agents are given (`active_knowledge`'s population)."""
+    return int(
+        (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM kb_sources s WHERE s.is_active "
+                    "AND EXISTS (SELECT 1 FROM kb_documents d WHERE d.source_id = s.id) "
+                    f"AND {_DELIVERED_BY_SOURCE}"
+                ),
+                _delivery_params(),
+            )
+        ).scalar_one()
+    )
 
 
 async def live_glosses(session: AsyncSession, *, tenant_id: UUID) -> list[tuple[str, str]]:
@@ -1501,9 +1632,9 @@ async def live_glosses(session: AsyncSession, *, tenant_id: UUID) -> list[tuple[
                 "SELECT s.name, string_agg(d.gloss, ' ' ORDER BY d.idx) "
                 "FROM kb_sources s JOIN kb_documents d ON d.source_id = s.id "
                 "WHERE s.tenant_id = :tid AND s.is_active = true AND d.gloss IS NOT NULL "
-                "GROUP BY s.id, s.name ORDER BY s.name"
+                f"AND {_DELIVERED_BY_SOURCE} GROUP BY s.id, s.name ORDER BY s.name"
             ),
-            {"tid": tenant_id},
+            {"tid": tenant_id, **_delivery_params()},
         )
     ).all()
     return [(str(r[0]), str(r[1])) for r in rows if r[1]]
@@ -1578,6 +1709,8 @@ async def _publish_payload(
       artefact a human reviewed IS the document, and rendering a second one from it would
       publish something nobody read.
     * **A link** sends no bytes at all; the engine scrapes the page itself.
+    * With `kb_send_extracted_files` on, a PDF and a link also send the words we read out of
+      them, as the document's text (`_chunks_of`, `_with_sent_text`).
 
     THE DIGEST IS RECOMPUTED OVER THE BYTES WE ACTUALLY READ rather than trusted from the
     row. `kb_uploads.document_sha256` is written when the object is stored, and the object
@@ -1599,7 +1732,8 @@ async def _publish_payload(
 
     if upload["source_kind"] == "url":
         url = str(upload["source_url"])
-        return None, url, _link_digest(url=url, content_digest=upload["content_digest"])
+        digest = _link_digest(url=url, content_digest=upload["content_digest"])
+        return None, url, await _with_sent_text(session, source_id, digest)
 
     key = upload["document_key"]
     if not key:
@@ -1632,7 +1766,22 @@ async def _publish_payload(
         # answering from, and they are what we hash. It IS worth an operator's attention,
         # because it means the object changed under a row that recorded it.
         log.warning("kb_upload_digest_moved", extra={"source_id": str(source_id)})
-    return document, None, digest
+    return document, None, await _with_sent_text(session, source_id, digest)
+
+
+async def _with_sent_text(session: AsyncSession, source_id: UUID, digest: str) -> str:
+    """A PDF's or link's publish identity, extended by the words sent with it, if any.
+
+    With `kb_send_extracted_files` off nothing is added, so the identity of every copy the
+    agents already hold is unchanged and no publish re-sends it. On, the text is part of
+    what the agent holds, so flipping the switch (or a re-read that changed the words)
+    moves the digest and the re-upload guard sends the new copy instead of skipping it.
+    """
+    chunks = await _chunks_of(session, source_id)
+    if not chunks:
+        return digest
+    sent = hashlib.sha256("\n\n".join(chunks).encode()).hexdigest()
+    return hashlib.sha256(f"{digest}:text:{sent}".encode()).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -2729,6 +2878,8 @@ __all__ = [
     "catch_up_agent",
     "chunk_text",
     "converge_agent_knowledge",
+    "delivered_source_count",
+    "extracted_text_reaches_agents",
     "knowledge_agents",
     "list_sources",
     "lock_tenant_knowledge",
@@ -2741,10 +2892,13 @@ __all__ = [
     "refresh_projection_keys",
     "reject_source",
     "running_arms",
+    "store_read_copy",
     "submit_source",
     "try_lock_tenant_knowledge",
+    "upload_reaches_agents",
     "vendor_targets",
     "withdraw_agent_knowledge",
     "withdraw_arm_knowledge",
     "withdraw_source",
+    "without_invisible_characters",
 ]

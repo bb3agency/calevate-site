@@ -32,7 +32,12 @@ from __future__ import annotations
 import time
 from uuid import UUID
 
-from calevate_shared.retrieval import RetrievalProvider, RetrievalRequest, RetrievalResult
+from calevate_shared.retrieval import (
+    RetrievalProvider,
+    RetrievalRequest,
+    RetrievalResult,
+    RetrievalTier,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.alerting import record_retrieval_ms
@@ -174,6 +179,7 @@ async def look_up(
     question: str,
     agent_id: UUID | None = None,
     k: int = 3,
+    tier: RetrievalTier | None = None,
 ) -> tuple[RouteDecision, RetrievalResult]:
     """Answer one question about a tenant's own approved knowledge.
 
@@ -194,6 +200,11 @@ async def look_up(
     """
     started = time.perf_counter()
     decision = classify(question)
+    if tier is not None:
+        # The caller asks for a corpus rather than an answer: Pip's search of everything
+        # the client gave us is a t3 search whatever the question looks like, because the
+        # compiled block is only what the agents carry (`kb/store.search_store`).
+        decision = RouteDecision(intent="whole_store", tier=tier, rule=None, words=decision.words)
     request = RetrievalRequest(
         tenant_id=tenant_id,
         agent_id=agent_id,

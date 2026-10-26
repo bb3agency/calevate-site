@@ -12,11 +12,13 @@ cannot hold that open, so the client's screen polls `ingest_status` instead.
 ═══ THE SEQUENCE, AND WHY EACH STEP IS WHERE IT IS ═══
 
     read the row → extract text (unless PDF or link) → chunk it → approve, if an
-    account member submitted it → publish, if it is approved → record what happened
+    account member submitted it → read a PDF's or link's words into our copy → publish,
+    if it is approved → record what happened
 
 * **Extraction is skipped for a PDF and a link.** A PDF's bytes ARE the document the
-  engine is handed and a link is scraped by the engine itself, so there is nothing to read
-  out; what a reviewer approves is the artefact.
+  engine is handed and a link is scraped by the engine itself, so what a reviewer approves
+  is the artefact. Their words are still read, into a copy that never gates the publish
+  (`apps/workers/kb_read.py`, D-893 L8).
 * **Approval comes after extraction, never before.** Nobody can approve text that does not
   exist yet. For an account member's upload the approval is automatic (D-658) — including
   text a model read off a photograph, which used to wait for the owner to confirm it
@@ -73,6 +75,7 @@ from apps.api.integrations.egress_guard import (
 )
 from apps.api.kb import service as kb_service
 from apps.api.kb.models import (
+    READ_COPY_KINDS,
     UPLOAD_CONVERSION_FAILED,
     UPLOAD_CONVERSION_UNAVAILABLE,
     UPLOAD_CONVERTING,
@@ -429,6 +432,19 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             if may_self_approve:
                 await kb_service.approve_source(session, source_id=source_id, approved_by=row[8])
                 review_state = "approved"
+
+        if kind in READ_COPY_KINDS:
+            # A PDF's or a link's words, read into our copy BEFORE the publish so that,
+            # with `kb_send_extracted_files` on, the publish below sends them. A savepoint,
+            # because a failed reading must never cost the client the publish: the file or
+            # the address still goes to the platform as it always did.
+            from apps.workers.kb_read import read_saved_copy
+
+            try:
+                async with session.begin_nested():
+                    await read_saved_copy(session, tenant_id=tenant_id, source_id=source_id)
+            except Exception:
+                log.exception("kb_read_copy_failed", extra={"source_id": str(source_id)})
 
         if review_state not in ("approved", "archived"):
             # Waiting for a human (or rejected). Not an error and not a retry: the row sits
