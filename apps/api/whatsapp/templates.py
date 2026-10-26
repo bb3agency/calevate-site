@@ -51,6 +51,8 @@ MAX_TEMPLATES_PER_ACCOUNT: Final = 100
 
 _NAME_RE: Final = re.compile(r"^[a-z0-9_]{1,512}$")
 _BLANK_RE: Final = re.compile(r"\{\{\s*(\d+)\s*\}\}")
+#: A numbered blank missing a bracket on either side, once the well-formed ones are removed.
+_HALF_BLANK_RE: Final = re.compile(r"\{\s*\d+\s*\}|\{\{\s*\d+|\d+\s*\}\}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +214,15 @@ def check_template(
             "whatsapp_template_length",
             "The message must be between 1 and 1,024 characters.",
             "Shorten the message.",
+        )
+    # `{1}`, `{{1}` or `{1}}` is not a blank and is not counted as one, so it would pass
+    # every check below and come back from review as INVALID_FORMAT ("Malformed braces",
+    # thinnest-findings/mirror/snapshots/2026-10-19/pages/meta/template-review.md:57).
+    if _HALF_BLANK_RE.search(_BLANK_RE.sub("", stripped)):
+        raise template_refusal(
+            "whatsapp_template_blank_shape",
+            "A blank is written with two curly brackets on each side, like {{1}}.",
+            "Fix the blank so it reads {{1}}, {{2}} and so on.",
         )
     numbers = blanks(stripped)
     distinct = sorted(set(numbers))

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import WhatsAppAdminPage from "@/app/admin/ops/whatsapp/page";
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
-import { blankAtEdge, blanksInOrder } from "@/app/c/[slug]/integrations/whatsapp/Templates";
+import { blankAtEdge, blanksInOrder, halfBlank } from "@/app/c/[slug]/integrations/whatsapp/Templates";
 import { fillTemplate, templateNameFrom } from "@/lib/api/whatsapp";
 import { isMetaOrigin, readSessionMessage } from "@/lib/facebookSignup";
 
@@ -92,6 +92,13 @@ describe("template rules the owner can fix before Meta sees them", () => {
     expect(blankAtEdge("Your order is ready, {{1}}. Thank you.")).toBe(false);
     expect(blanksInOrder("Hi {{1}}, it is {{2}}.")).toBe(true);
     expect(blanksInOrder("Hi {{2}}.")).toBe(false);
+  });
+
+  it("refuses a blank missing a bracket, which Meta returns as malformed", () => {
+    for (const body of ["Hi {1}, thanks.", "Hi {{1}, thanks.", "Hi {1}}, thanks."]) {
+      expect(halfBlank(body)).toBe(true);
+    }
+    expect(halfBlank("Hi {{1}}, your {{2}} is ready.")).toBe(false);
   });
 
   it("names the template the way Meta accepts and previews it with the examples", () => {

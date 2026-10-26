@@ -297,6 +297,9 @@ def test_every_standard_template_passes_metas_rules_in_every_language(
         ("{{1}} your order is ready.", "whatsapp_template_blank_at_edge"),
         ("Your order is ready {{1}}.", "whatsapp_template_blank_at_edge"),
         ("Hello {{2}}, thank you.", "whatsapp_template_blanks_order"),
+        ("Hello {1}, your order is ready.", "whatsapp_template_blank_shape"),
+        ("Hello {{1}, your order is ready.", "whatsapp_template_blank_shape"),
+        ("Hello {1}}, your order is ready.", "whatsapp_template_blank_shape"),
     ],
 )
 def test_a_template_meta_would_refuse_is_refused_here_first(body: str, code: str) -> None:

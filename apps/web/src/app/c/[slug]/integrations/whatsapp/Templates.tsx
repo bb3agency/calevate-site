@@ -53,6 +53,13 @@ export function blankAtEdge(body: string): boolean {
   return /^\{\{\s*\d+\s*\}\}/.test(text) || /\{\{\s*\d+\s*\}\}[\s.!?।]*$/.test(text);
 }
 
+/** A numbered blank missing a bracket — `{1}`, `{{1}`, `{1}}` — which is not a blank at all
+ * (`whatsapp/templates._HALF_BLANK_RE`, the server's mirror of this). */
+export function halfBlank(body: string): boolean {
+  const rest = body.replace(/\{\{\s*\d+\s*\}\}/g, "");
+  return /\{\s*\d+\s*\}|\{\{\s*\d+|\d+\s*\}\}/.test(rest);
+}
+
 /** Blanks must run 1, 2, 3… with none skipped. */
 export function blanksInOrder(body: string): boolean {
   return templateBlanks(body).every((n, i) => n === i + 1);
@@ -191,7 +198,9 @@ function TemplateForm({
 
   const problem = !body.trim()
     ? null
-    : !blanksInOrder(body)
+    : halfBlank(body)
+      ? "Write each blank with two curly brackets on each side, like {{1}}."
+      : !blanksInOrder(body)
       ? "Number the blanks in order: {{1}}, then {{2}}, and so on."
       : blankAtEdge(body)
         ? "Put a word before the first blank and after the last one. Meta refuses a message that starts or ends with a blank."
