@@ -28,7 +28,7 @@ describe("apiUpload with a cancelled signal", () => {
     controller.abort(new DOMException("cancelled", "AbortError"));
 
     await expect(
-      apiUpload({ orgSlug: "acme", token: "t" }, "/v1/kb/uploads", new FormData(), {
+      apiUpload({ orgSlug: "acme", token: () => "t" }, "/v1/kb/uploads", new FormData(), {
         signal: controller.signal,
       }),
     ).rejects.toBeDefined();
