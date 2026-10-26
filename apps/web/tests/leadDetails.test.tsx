@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import { LeadDetailsScreen } from "@/app/c/[slug]/settings/lead-details/LeadDetailsScreen";
@@ -215,6 +216,78 @@ describe("the lead details screen", () => {
       // The version the editor loaded: a list changed since (a kept suggestion, Pip) is
       // refused by the server instead of being overwritten by this whole-list save.
       expect(sent.expected_version).toBe(1);
+    });
+  });
+
+  /** A list written elsewhere (a kept suggestion, Pip) while this screen is open. */
+  function shopFields(version: number, fields: ReturnType<typeof field>[]) {
+    return leadFields({
+      business_type: "retail",
+      business_type_label: "Shop, food or produce",
+      has_standard_set: true,
+      can_draft: false,
+      standard_fields: [field("product", "Product", true)],
+      agents: [
+        { id: "a1", name: "Shop counter", direction: "inbound", status: "live", version, business_fields: fields },
+      ],
+    });
+  }
+
+  it("shows a newer list from elsewhere when nothing has been typed", async () => {
+    let current = shopFields(1, [field("product", "Product", true)]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await renderClientPage(
+      <LeadDetailsScreen />,
+      { "/v1/me": OWNER, "/v1/call-outcomes": callOutcomes(), "/v1/lead-fields": () => current },
+      "acme",
+      client,
+    );
+    await screen.findByRole("heading", { name: "Details about your business" });
+    expect(screen.queryByText("Colour")).toBeNull();
+
+    current = shopFields(2, [field("product", "Product", true), field("colour", "Colour")]);
+    await act(async () => {
+      await client.invalidateQueries();
+    });
+
+    await screen.findByText("Colour");
+  });
+
+  it("keeps what the owner typed when a newer list arrives, and saves against the old version", async () => {
+    let current = shopFields(1, [field("product", "Product", true)]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { calls } = await renderClientPage(
+      <LeadDetailsScreen />,
+      {
+        "/v1/me": OWNER,
+        "/v1/call-outcomes": callOutcomes(),
+        "/v1/lead-fields": () => current,
+        "PUT /v1/agents/a1/extraction-schema": {
+          fields: [],
+          core_fields: [],
+          version: 3,
+          changed: true,
+        },
+      },
+      "acme",
+      client,
+    );
+    await screen.findByRole("heading", { name: "Details about your business" });
+    fireEvent.click(screen.getByRole("button", { name: "Add a detail" }));
+    fireEvent.change(screen.getAllByRole("textbox", { name: "Name" }).at(-1) as HTMLElement, {
+      target: { value: "Pack size" },
+    });
+
+    current = shopFields(2, [field("product", "Product", true), field("colour", "Colour")]);
+    await act(async () => {
+      await client.invalidateQueries();
+    });
+
+    expect(screen.getByDisplayValue("Pack size")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save details" }));
+    await waitFor(() => {
+      const put = calls.find((c) => c.method === "PUT");
+      expect(JSON.parse(put?.body ?? "{}").expected_version).toBe(1);
     });
   });
 });

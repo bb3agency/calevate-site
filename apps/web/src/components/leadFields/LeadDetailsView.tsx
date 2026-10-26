@@ -393,10 +393,11 @@ function AgentFields({
           ))}
         </div>
       )}
-      {/* Keyed by agent AND version, so a save or a replace re-seeds the draft from what is
-          now on file rather than keeping a stale list. */}
+      {/* Keyed by agent only. A newer version (a replace, a kept suggestion) is adopted by
+          the editor while its rows are untouched; keying by version too remounted it and
+          threw away whatever the owner was typing. */}
       <AgentEditor
-        key={`${agent.id}:${agent.version}`}
+        key={agent.id}
         agent={agent}
         data={data}
         canWrite={canWrite}
@@ -435,11 +436,18 @@ function AgentEditor({
   // suggestion, Pip, the agent's own screen) is adopted while the rows are untouched; with
   // edits in progress the save is refused instead of dropping the newer fields.
   const [base, setBase] = useState(() => ({ version: agent.version, canonical: saved }));
+  // "Start again from ..." is the owner choosing to discard: the replaced list is adopted
+  // when it arrives, whatever the rows held.
+  const [adoptNext, setAdoptNext] = useState(false);
   const adoptCurrent = () => {
     setBase({ version: agent.version, canonical: saved });
     setRows(agent.business_fields.map(toDraft));
+    setAdoptNext(false);
   };
-  if (agent.version !== base.version && canonical(toWireFields(rows)) === base.canonical) {
+  if (
+    agent.version !== base.version &&
+    (adoptNext || canonical(toWireFields(rows)) === base.canonical)
+  ) {
     adoptCurrent();
   }
   useUnsavedGuard(dirty);
@@ -579,7 +587,12 @@ function AgentEditor({
           onConfirm={() =>
             replace.mutate(
               { agent_ids: [agent.id] },
-              { onSuccess: () => setConfirming(false) },
+              {
+                onSuccess: (out) => {
+                  setConfirming(false);
+                  if (out.agents_changed > 0) setAdoptNext(true);
+                },
+              },
             )
           }
         >
