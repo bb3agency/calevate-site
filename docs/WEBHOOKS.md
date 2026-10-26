@@ -228,7 +228,11 @@ URL, not returning a `3xx` from the old one.
 **To rotate a secret:** create a new endpoint with the same URL, deploy the new secret
 to your receiver (accept both during the cutover), then deactivate the old endpoint.
 There is no in-place rotation, by design — a secret is born with its endpoint and shown
-once.
+once. **While both endpoints are active, every event reaches you twice**, once per
+endpoint, under two different `id`s (an `id` is per delivery, and each endpoint has its
+own). Deduplicating on `id` does not collapse them; the pair shares `event`, `created_at`
+and the object's id (`data.lead_id` or `data.call_id`), so key on those three for the
+length of the cutover, and keep it short.
 
 ### 1.7 Getting the recording and transcript on `call.completed`
 
