@@ -64,7 +64,9 @@ class _Settings:
         self.tls_origin_address = tls_origin_address
 
 
-def _self_signed(tmp_path: Path, *, days_remaining: int) -> tuple[Path, Path]:
+def _self_signed(
+    tmp_path: Path, *, days_remaining: int, hours_remaining: int = 0
+) -> tuple[Path, Path]:
     """A certificate whose `notAfter` is exactly `days_remaining` away. Negative = expired."""
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, HOSTNAME)])
@@ -78,7 +80,7 @@ def _self_signed(tmp_path: Path, *, days_remaining: int) -> tuple[Path, Path]:
         # Backdated so an "expired" certificate is a plausible one rather than a
         # certificate whose validity window is inverted.
         .not_valid_before(now - timedelta(days=90))
-        .not_valid_after(now + timedelta(days=days_remaining))
+        .not_valid_after(now + timedelta(days=days_remaining, hours=hours_remaining))
         .add_extension(x509.SubjectAlternativeName([x509.DNSName(HOSTNAME)]), critical=False)
         .sign(key, hashes.SHA256())
     )
@@ -196,6 +198,20 @@ async def test_an_already_expired_certificate_is_still_readable(
     assert outcome.startswith("expiring days=-")
     assert alerts.codes() == ["tls_certificate_expiring"]
     assert "expired 3 day(s) ago" in alerts.calls[0][2]
+
+
+async def test_a_certificate_that_expired_hours_ago_does_not_page_zero_days(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, alerts: _Alerts
+) -> None:
+    origin = _Origin(*_self_signed(tmp_path, days_remaining=0, hours_remaining=-5))
+    try:
+        _point_at(monkeypatch, origin.address)
+        await tls_expiry.check_tls_expiry({})
+    finally:
+        origin.close()
+    detail = alerts.calls[0][2]
+    assert "expired within the last day" in detail
+    assert "0 day(s)" not in detail
 
 
 async def test_an_unreachable_origin_is_its_own_alarm(

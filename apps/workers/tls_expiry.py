@@ -182,7 +182,13 @@ async def check_tls_expiry(ctx: dict[str, Any]) -> str:
     # `(-remaining).days` and not `abs(days)`: `timedelta.days` floors, so a certificate
     # that died three days and one second ago reports -4, and "expired 4 days ago" is a
     # number an operator will check against the date and distrust the whole alert over.
-    when = f"expired {(-remaining).days} day(s) ago" if days < 0 else f"expires in {days} day(s)"
+    if days >= 0:
+        when = f"expires in {days} day(s)"
+    else:
+        # `timedelta.days` floors, so an expiry five hours ago is `days == -1` but
+        # `(-remaining).days == 0`, which used to page "expired 0 day(s) ago".
+        ago = (-remaining).days
+        when = f"expired {ago} day(s) ago" if ago else "expired within the last day"
     alert(
         "CORE_LOGIC",
         "tls_certificate_expiring",
