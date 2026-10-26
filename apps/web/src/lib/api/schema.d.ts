@@ -3852,20 +3852,8 @@ export interface paths {
         get: operations["get_handoff_v1_agents__agent_id__handoff_get"];
         /**
          * Replace this agent's handover list, its switch and its trigger
-         * @description Replace the whole configuration in one statement, in the order given.
-         *
-         *     **DELETE-THEN-INSERT INSIDE ONE TRANSACTION, and the alternative was worse.** An
-         *     upsert keyed on position would have to reconcile removals anyway, and a diff keyed on
-         *     the member id would let a client renumber two people into the same position halfway
-         *     through. The ids are therefore NOT stable across a write, which is a real consequence
-         *     and a deliberate one: `handoff_attempts.member_id` is `SET NULL` precisely so the
-         *     history of a call somebody took survives the roster being re-ordered, and the number
-         *     that rang is copied onto the attempt row rather than looked up through this table.
-         *
-         *     Two things are refused rather than normalised, because both are a client saying
-         *     something they did not mean: the same contact twice (one person cannot be two rungs of
-         *     a hunt list, and whichever is second is unreachable), and enabling the feature with
-         *     nobody on the list (an agent that promises a caller a person and has none).
+         * @description Replace the whole configuration in the order given (`handoff.replace_handoff`, which
+         *     also serves Pip's `agent_handover_set`).
          */
         put: operations["put_handoff_v1_agents__agent_id__handoff_put"];
         post?: never;

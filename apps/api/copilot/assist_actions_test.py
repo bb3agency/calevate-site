@@ -66,8 +66,8 @@ def test_each_is_on_its_buttons_permission_and_only_the_form_filler_skips_the_cl
         assert (tool.tier, tool.permission) == (tier, permission), name
     assert [t.name for t in assist_actions.ASSIST_ACTIONS] == list(expected)
     count = len(assist_actions.ASSIST_ACTIONS)
-    # D-854's pinned answers and D-893's agent, account, knowledge and training actions were appended
-    # after them.
+    # D-854's pinned answers and D-893's agent, account, knowledge and training actions
+    # were appended after them.
     after = (
         len(FACT_ACTIONS)
         + len(AGENT_SETUP_ACTIONS)

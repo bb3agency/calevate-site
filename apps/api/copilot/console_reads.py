@@ -74,7 +74,6 @@ from apps.api.crm import service as crm_service
 from apps.api.crm.attention import attention_queue, failed_deliveries
 from apps.api.ingest.service import list_lead_sources
 from apps.api.quality.service import list_reports
-from apps.api.teach import facts as fact_store
 from apps.api.teach import questions as teach_questions
 
 #: How many transcript turns `call_detail` hands the model, and how much of each. A call
@@ -1144,6 +1143,7 @@ CONSOLE_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         parameters=_object({}),
         permission="billing:read",
         run=_billing_settings,
+    ),
     ReadTool(
         name="knowledge_questions",
         description=(

@@ -64120,7 +64120,7 @@
         "x-calevate-permission": "agents:read"
       },
       "put": {
-        "description": "Replace the whole configuration in one statement, in the order given.\n\n**DELETE-THEN-INSERT INSIDE ONE TRANSACTION, and the alternative was worse.** An\nupsert keyed on position would have to reconcile removals anyway, and a diff keyed on\nthe member id would let a client renumber two people into the same position halfway\nthrough. The ids are therefore NOT stable across a write, which is a real consequence\nand a deliberate one: `handoff_attempts.member_id` is `SET NULL` precisely so the\nhistory of a call somebody took survives the roster being re-ordered, and the number\nthat rang is copied onto the attempt row rather than looked up through this table.\n\nTwo things are refused rather than normalised, because both are a client saying\nsomething they did not mean: the same contact twice (one person cannot be two rungs of\na hunt list, and whichever is second is unreachable), and enabling the feature with\nnobody on the list (an agent that promises a caller a person and has none).",
+        "description": "Replace the whole configuration in the order given (`handoff.replace_handoff`, which\nalso serves Pip's `agent_handover_set`).",
         "operationId": "put_handoff_v1_agents__agent_id__handoff_put",
         "parameters": [
           {

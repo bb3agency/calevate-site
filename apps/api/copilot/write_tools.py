@@ -888,10 +888,6 @@ PROPOSE_KNOWLEDGE: Final = WriteTool(
         + PROPOSES_ONLY,
         {
             "agent_id": {"type": "string", "description": "From SCREEN STATE."},
-            "name": {
-                "type": "string",
-                "description": f"A short title, at most {kb_proposals.MAX_NAME_CHARS} characters.",
-            },
             "name": {"type": "string", "description": "A short title."},
             "body": {
                 "type": "string",
