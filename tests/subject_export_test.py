@@ -227,6 +227,7 @@ async def test_the_export_carries_the_lead_the_calls_and_the_transcript() -> Non
         "campaign_contacts": 0,
         "remembered_facts": 0,
         "callbacks": 0,
+        "handoffs": 0,
     }
 
 
@@ -285,6 +286,7 @@ async def test_a_number_we_hold_nothing_about_gets_an_empty_but_valid_document()
         "campaign_contacts": 0,
         "remembered_facts": 0,
         "callbacks": 0,
+        "handoffs": 0,
     }
 
 
@@ -374,6 +376,7 @@ async def test_an_undeclared_field_in_the_document_is_refused_not_dropped() -> N
                     "campaign_contacts": 0,
                     "remembered_facts": 0,
                     "callbacks": 0,
+                    "handoffs": 0,
                 },
                 "whatsapp_threads": [{"text": "raw message body"}],
             }
@@ -541,9 +544,8 @@ async def test_what_an_agent_remembers_is_disclosed_and_a_scrubbed_memory_is_not
     boolean. A scrubbed row is excluded: an erased memory is gone, and listing it as an
     empty string would imply we still hold something.
 
-    Nothing writes these today (the producer is unbuilt, `caller_memory_enabled` defaults
-    false), so this drives the store directly. That is the point — the disclosure has to be
-    complete on the day the producer lands, not after somebody notices it is not.
+    Drives the store directly rather than through the distiller, whose model call is not
+    what this test is about.
     """
     tenant_id, agent_id, _, _ = await _tenant()
     caller = f"+91905{uuid.uuid4().int % 10000000:07d}"
@@ -624,4 +626,49 @@ async def test_a_promised_call_back_is_disclosed_with_its_note_masked() -> None:
     assert promise["note"].startswith("Wants a call about the plot")
     assert "9876500123" not in promise["note"], "another person's number left unmasked"
     assert document["counts"]["callbacks"] == 1
+    SubjectExportOut.model_validate(document)
+
+
+async def test_a_hand_off_brief_about_the_call_is_disclosed_without_the_staff_number() -> None:
+    """The model's brief for the person a call was transferred to is prose about the
+    subject's call, and §12 erases it — so §11 reports it. The staff member's number is
+    theirs, not the subject's, and stays out.
+
+    FAILS IF: the export stops reading `handoff_attempts`, or carries the destination.
+    """
+    caller = f"+91903{uuid.uuid4().int % 10000000:07d}"
+    staff = "+919000011111"
+    tenant_id, agent_id, _, _ = await _tenant()
+    call_id = await _seed_call(tenant_id, agent_id, phone=caller)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO handoff_attempts (id, tenant_id, agent_id, source_execution_id, "
+                "source_call_id, destination_e164, started_at, reason, summary, outcome, "
+                "settled_at, created_at, updated_at) VALUES (:i, :t, :a, :ex, :cid, :dest, "
+                "now(), 'wants a price', 'Asked about the 2BHK; brother on 9876500124', "
+                "'connected', now(), now(), now())"
+            ),
+            {
+                "i": uuid.uuid4(),
+                "t": tenant_id,
+                "a": agent_id,
+                "ex": f"exec-{uuid.uuid4().hex[:8]}",
+                "cid": call_id,
+                "dest": staff,
+            },
+        )
+        await session.commit()
+
+    async with tenant_session(tenant_id) as session:
+        document = await build_subject_export(session, tenant_id=tenant_id, phone_e164=caller)
+
+    [handoff] = document["handoffs"]
+    assert handoff["call_id"] == str(call_id)
+    assert handoff["outcome"] == "connected"
+    assert handoff["reason"] == "wants a price"
+    assert handoff["summary"].startswith("Asked about the 2BHK")
+    assert "9876500124" not in handoff["summary"], "another person's number left unmasked"
+    assert staff not in json.dumps(document) and staff[3:] not in json.dumps(document)
+    assert document["counts"]["handoffs"] == 1
     SubjectExportOut.model_validate(document)

@@ -336,6 +336,11 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
         "number survives it by design, which is the allowance the route declares "
         "(tests/subject_export_test.py)"
     ),
+    "SubjectExportHandoffOut.summary": (
+        "the hand-off brief, redacted on its way into `handoff_attempts` and masked by "
+        "`export.mask_foreign_numbers` like `SubjectExportCallOut.summary` "
+        "(tests/subject_export_test.py)"
+    ),
 }
 
 # `dict[str, Any]` response fields: the serializer cannot vouch for their contents, so

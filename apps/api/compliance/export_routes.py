@@ -278,6 +278,20 @@ class SubjectExportCallbackOut(Strict):
     note: str | None
 
 
+class SubjectExportHandoffOut(Strict):
+    """A transfer of one of the subject's calls to a person (`handoff_attempts`).
+
+    `reason` and `summary` are the model's brief for the staff member, masked like the
+    call summary. The staff member's own number is not the subject's data and is left out.
+    """
+
+    call_id: str
+    started_at: str | None
+    outcome: str
+    reason: str | None
+    summary: str | None
+
+
 class SubjectExportCountsOut(Strict):
     """What the document contains, stated in the document.
 
@@ -294,6 +308,7 @@ class SubjectExportCountsOut(Strict):
     campaign_contacts: int
     remembered_facts: int
     callbacks: int
+    handoffs: int
 
 
 class SubjectExportOut(Strict):
@@ -315,6 +330,7 @@ class SubjectExportOut(Strict):
     campaign_contacts: list[SubjectExportCampaignContactOut]
     remembered: list[SubjectExportRememberedOut]
     callbacks: list[SubjectExportCallbackOut]
+    handoffs: list[SubjectExportHandoffOut]
     counts: SubjectExportCountsOut
 
 
@@ -384,6 +400,7 @@ __all__ = [
     "SubjectExportCallbackOut",
     "SubjectExportConsentOut",
     "SubjectExportCountsOut",
+    "SubjectExportHandoffOut",
     "SubjectExportIn",
     "SubjectExportLeadOut",
     "SubjectExportOut",

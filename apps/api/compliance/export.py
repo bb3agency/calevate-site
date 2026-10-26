@@ -464,6 +464,34 @@ async def build_subject_export(
         for row in callback_rows
     ]
 
+    # THE HAND-OFF BRIEFS. When an agent transferred one of these calls to a person, the
+    # model wrote why and a short brief of the conversation for them
+    # (`handoff_attempts.reason`/`summary`, already redacted on the way in); §12 erases
+    # both. Model prose about the subject's call, disclosed and masked like the summary.
+    # The staff member's number is not the subject's data and is not included.
+    handoffs: list[dict[str, Any]] = []
+    if call_ids:
+        handoff_rows = (
+            await session.execute(
+                text(
+                    "SELECT source_call_id, started_at, outcome, reason, summary "
+                    "FROM handoff_attempts WHERE source_call_id = ANY(:ids) "
+                    "ORDER BY started_at ASC, id ASC"
+                ),
+                {"ids": call_ids},
+            )
+        ).all()
+        handoffs = [
+            {
+                "call_id": str(row[0]),
+                "started_at": _iso(row[1]),
+                "outcome": str(row[2]),
+                "reason": mask_foreign_numbers(row[3], subject_phone=phone_e164),
+                "summary": mask_foreign_numbers(row[4], subject_phone=phone_e164),
+            }
+            for row in handoff_rows
+        ]
+
     document: dict[str, Any] = {
         "phone_e164": phone_e164,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -476,6 +504,7 @@ async def build_subject_export(
         "campaign_contacts": campaign_contacts,
         "remembered": remembered,
         "callbacks": callbacks,
+        "handoffs": handoffs,
         "counts": {
             "leads": len(lead_rows),
             "calls": len(calls),
@@ -485,6 +514,7 @@ async def build_subject_export(
             "campaign_contacts": len(campaign_contacts),
             "remembered_facts": len(remembered),
             "callbacks": len(callbacks),
+            "handoffs": len(handoffs),
         },
     }
 

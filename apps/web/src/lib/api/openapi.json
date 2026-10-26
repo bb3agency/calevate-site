@@ -42889,6 +42889,10 @@
             "title": "Consent Records",
             "type": "integer"
           },
+          "handoffs": {
+            "title": "Handoffs",
+            "type": "integer"
+          },
           "leads": {
             "title": "Leads",
             "type": "integer"
@@ -42914,7 +42918,8 @@
           "recordings_available",
           "campaign_contacts",
           "remembered_facts",
-          "callbacks"
+          "callbacks",
+          "handoffs"
         ],
         "title": "SubjectExportCountsOut",
         "type": "object"
@@ -43007,6 +43012,62 @@
           "recordings_destroyed_by"
         ],
         "title": "SubjectExportErasureOut",
+        "type": "object"
+      },
+      "SubjectExportHandoffOut": {
+        "additionalProperties": false,
+        "description": "A transfer of one of the subject's calls to a person (`handoff_attempts`).\n\n`reason` and `summary` are the model's brief for the staff member, masked like the\ncall summary. The staff member's own number is not the subject's data and is left out.",
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "call_id",
+          "started_at",
+          "outcome",
+          "reason",
+          "summary"
+        ],
+        "title": "SubjectExportHandoffOut",
         "type": "object"
       },
       "SubjectExportIn": {
@@ -43193,6 +43254,13 @@
             "title": "Generated At",
             "type": "string"
           },
+          "handoffs": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportHandoffOut"
+            },
+            "title": "Handoffs",
+            "type": "array"
+          },
           "lead": {
             "anyOf": [
               {
@@ -43234,6 +43302,7 @@
           "campaign_contacts",
           "remembered",
           "callbacks",
+          "handoffs",
           "counts"
         ],
         "title": "SubjectExportOut",

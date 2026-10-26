@@ -27988,6 +27988,8 @@ export interface components {
             campaign_contacts: number;
             /** Consent Records */
             consent_records: number;
+            /** Handoffs */
+            handoffs: number;
             /** Leads */
             leads: number;
             /** Recordings Available */
@@ -28039,6 +28041,25 @@ export interface components {
             recordings_destroyed_by: string | null;
             /** Recordings Pending Destruction */
             recordings_pending_destruction: number;
+        };
+        /**
+         * SubjectExportHandoffOut
+         * @description A transfer of one of the subject's calls to a person (`handoff_attempts`).
+         *
+         *     `reason` and `summary` are the model's brief for the staff member, masked like the
+         *     call summary. The staff member's own number is not the subject's data and is left out.
+         */
+        SubjectExportHandoffOut: {
+            /** Call Id */
+            call_id: string;
+            /** Outcome */
+            outcome: string;
+            /** Reason */
+            reason: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Summary */
+            summary: string | null;
         };
         /**
          * SubjectExportIn
@@ -28104,6 +28125,8 @@ export interface components {
             erasure: components["schemas"]["SubjectExportErasureOut"] | null;
             /** Generated At */
             generated_at: string;
+            /** Handoffs */
+            handoffs: components["schemas"]["SubjectExportHandoffOut"][];
             lead: components["schemas"]["SubjectExportLeadOut"] | null;
             /** Phone E164 */
             phone_e164: string;
