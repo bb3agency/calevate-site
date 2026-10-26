@@ -2197,6 +2197,18 @@ describe("Training shows what the agent knows (D-689: the business's knowledge, 
     expect(link.getAttribute("href")).toBe("/c/acme/knowledge");
   });
 
+  it("does not say the agent was never tested when the last run could not be read", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        ...TRAINING_READS,
+        "/v1/agents/agent-1/script/tests": problem(503, { title: "Upstream unavailable" }),
+      }),
+    );
+    await screen.findByText("The last run could not be read.");
+    expect(screen.queryByText(/Not run yet/)).toBeNull();
+  });
+
   it("is where an old Knowledge or Test link lands", async () => {
     openSection("knowledge");
     await renderClientPage(page, routes(TRAINING_READS));

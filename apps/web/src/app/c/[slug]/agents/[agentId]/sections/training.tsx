@@ -270,7 +270,10 @@ function PracticeCallers({ agent, slug }: { agent: Agent; slug: string }) {
 
   let fact =
     "Not run yet. Practice callers ask what real callers asked, and each answer is checked.";
-  if (busy) fact = "Running now.";
+  // "Not run yet" is a claim about the agent, so it waits for the read that can make it.
+  if (!tests.data) {
+    fact = tests.error ? "The last run could not be read." : "Checking the last run…";
+  } else if (busy) fact = "Running now.";
   else if (latest?.status === "failed") fact = "The last test did not finish.";
   else if (latest?.status === "done") {
     const counts = countsOf(latest.results);
