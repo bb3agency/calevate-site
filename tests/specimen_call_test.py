@@ -157,6 +157,8 @@ def test_every_conversation_level_class_of_the_specimen_is_caught() -> None:
         "asked_known_number",
         "partial_number",
         "goodbye_while_asking",
+        # "thanks అండి" opened three of its replies (D-894).
+        "same_opening",
     ]
     assert {"unconfirmed_action", "asked_known_number", "partial_number"} <= JOB_KINDS
 
@@ -184,8 +186,8 @@ def test_the_specimen_fails_the_test_loop_as_a_platform_problem() -> None:
 def test_an_honest_next_step_and_the_same_number_pass() -> None:
     good = [
         Ex("అవును.", "సరే అండి, team confirm చేసి మీకు call చేస్తారు. ఇదే నంబర్ కి details పంపమంటారా?"),
-        Ex("సరే.", "సరే అండి, thanks. ఇంకేమైనా కావాలా?"),
-        Ex("ఏమీ లేదు, thanks.", "సరే అండి, thanks, bye!"),
+        Ex("సరే.", "Thanks అండి. ఇంకేమైనా కావాలా?"),
+        Ex("ఏమీ లేదు, thanks.", "సరే అండి, bye!"),
     ]
     assert _conversation_kinds(good) == []
     for ex in good:

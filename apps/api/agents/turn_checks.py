@@ -72,6 +72,8 @@ Kind = Literal[
     "memory_not_said",
     # D-888: "you enquired on our website", which neither the caller nor the facts said.
     "invented_source",
+    # D-894: the same short reaction ("మంచిది అండి", "సరే అండి") before reply after reply.
+    "same_opening",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -102,6 +104,8 @@ SOUND_KINDS: Final = frozenset(
         "opened_again",
         # The platform's goodbye rule decides it, not the owner's script (D-865).
         "memory_not_said",
+        # HOW TO SPEAK decides how a turn opens, not the owner's script (D-894).
+        "same_opening",
     }
 )
 #: What breaks the caller's task whatever the words: the caller's part said for them, a
@@ -1025,6 +1029,38 @@ def _same_reply(a: str, b: str) -> bool:
     return shared >= 0.9 and abs(len(left) - len(right)) <= max(2, len(left) // 10)
 
 
+#: Where a reply's opening reaction ends: its first comma, full stop or other mark.
+#: The full-width comma and question mark are written as escapes (RUF001).
+_OPENER_END: Final = re.compile("[,.!?;:\\u0964\\uff0c\\uff1f]")
+#: A lead longer than this is the turn's content, never a stock reaction.
+_OPENER_MAX_WORDS: Final = 2
+#: Replies one reaction may open before it reads as stock (D-894): on the founder's calls of
+#: 27 Oct 2026 "మంచిది అండి" or "సరే అండి" came before every next question. Three, not two,
+#: because the same "హా" twice in a call is ordinary speech.
+STOCK_OPENER_REPLIES: Final = 3
+
+
+def opener(reply: str) -> str | None:
+    """The short reaction a reply opens with ("సరే అండి" of "సరే అండి, ఏ ఏరియా?"), lower
+    case, or None when the reply leads with content."""
+    head = _OPENER_END.split(" ".join(reply.split()), maxsplit=1)[0]
+    words = _words(head)
+    if not words or len(words) > _OPENER_MAX_WORDS:
+        return None
+    return " ".join(words)
+
+
+def _stock_opener(replies: Sequence[str]) -> tuple[str, int] | None:
+    """The first reaction that opens `STOCK_OPENER_REPLIES` or more of `replies`, with its
+    count."""
+    counts: dict[str, int] = {}
+    for reply in replies:
+        said = opener(reply)
+        if said is not None:
+            counts[said] = counts.get(said, 0) + 1
+    return next(((said, n) for said, n in counts.items() if n >= STOCK_OPENER_REPLIES), None)
+
+
 #: Where a caller could have found the business, each by the spellings a reply uses. Only
 #: places that are not this call: WhatsApp is left out because an agent may rightly offer it.
 _CHANNELS: Final[tuple[re.Pattern[str], ...]] = tuple(
@@ -1200,6 +1236,17 @@ def conversation_problems(
     unsaid = memory_not_said(exchanges, memory_notice)
     if unsaid:
         found.setdefault("memory_not_said", TurnProblem("memory_not_said", unsaid))
+    stock = _stock_opener([e.reply for e in exchanges if e.reply.strip()])
+    if stock:
+        said, times = stock
+        found.setdefault(
+            "same_opening",
+            TurnProblem(
+                "same_opening",
+                f"It opened {times} replies with {_quoted(said)}. A reaction should fit what "
+                "the caller said, and is often not needed at all.",
+            ),
+        )
     return list(found.values())
 
 
