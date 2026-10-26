@@ -444,6 +444,46 @@ async def test_a_resend_inside_the_cooldown_is_refused_with_retry_after(
 
 
 @pytest.mark.asyncio
+async def test_signing_in_again_inside_the_cooldown_mails_no_second_code(
+    operator: tuple[uuid.UUID, str],
+) -> None:
+    """Every correct password used to mint and mail a code and retire the one the person
+    was typing — a resend with no cooldown for whoever holds the password."""
+    admin_id, email = operator
+    await service.sign_in(realm="admin", email=email, password=PASSWORD, ip=None)
+    second = await service.sign_in(realm="admin", email=email, password=PASSWORD, ip=None)
+
+    async with untenanted_session() as session:
+        mailed = (
+            await session.execute(
+                text("SELECT count(*) FROM outbox_messages WHERE payload->>'to' = :to"),
+                {"to": email},
+            )
+        ).scalar()
+    async with credential_session() as session:
+        challenges = (
+            await session.execute(
+                text("SELECT count(*) FROM auth_otp_challenges WHERE subject_id = :s"),
+                {"s": admin_id},
+            )
+        ).scalar()
+    assert mailed == 1 and challenges == 1
+    assert second.status == "otp_required"
+
+    # Past the cooldown, a sign-in mails a fresh code again.
+    later = datetime.now(UTC) + otp.OTP_RESEND_COOLDOWN + timedelta(seconds=1)
+    await service.sign_in(realm="admin", email=email, password=PASSWORD, ip=None, now=later)
+    async with credential_session() as session:
+        challenges = (
+            await session.execute(
+                text("SELECT count(*) FROM auth_otp_challenges WHERE subject_id = :s"),
+                {"s": admin_id},
+            )
+        ).scalar()
+    assert challenges == 2
+
+
+@pytest.mark.asyncio
 async def test_with_no_code_issued_there_is_no_wait(operator: tuple[uuid.UUID, str]) -> None:
     admin_id, _ = operator
     async with credential_session() as session:

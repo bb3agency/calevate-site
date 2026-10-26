@@ -318,7 +318,21 @@ async def sign_in(
     needs_second_factor = realm in MFA_REQUIRED_REALMS
     async with credential_session() as session:
         issued = await issue_session(session, realm=realm, subject_id=subject.subject_id, now=at)
+        mail_code = needs_second_factor
         if needs_second_factor:
+            # Inside `OTP_RESEND_COOLDOWN` of the last code, the one already mailed stands:
+            # the code belongs to the subject, not the session, so it answers this session
+            # too. Re-issuing here was a resend with no cooldown — repeated sign-ins mailed
+            # a code each and retired the one the person was typing.
+            await lock_subject_credentials(session, realm=realm, subject_id=subject.subject_id)
+            mail_code = not await otp.has_fresh_live_challenge(
+                session,
+                purpose=LOGIN_CHALLENGE,
+                realm=realm,
+                subject_id=subject.subject_id,
+                now=at,
+            )
+        if mail_code:
             # Minted and queued in the SAME transaction as the session, so there is no
             # state in which a half-authenticated session exists with no challenge to
             # answer — and none in which a code was mailed for a session that rolled back.

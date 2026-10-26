@@ -251,6 +251,40 @@ async def check_challenge(
     return "expired" if expired else "wrong"
 
 
+async def has_fresh_live_challenge(
+    session: AsyncSession,
+    *,
+    purpose: str,
+    realm: str,
+    subject_id: UUID,
+    now: datetime | None = None,
+) -> bool:
+    """Is there an unanswered, unexpired code for this purpose issued inside the resend
+    cooldown? Then a new one need not be mailed: the one in the inbox still works."""
+    _refuse_unknown(purpose, realm)
+    at = now or datetime.now(UTC)
+    found = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM auth_otp_challenges "
+                "WHERE realm = :realm AND subject_id = :sub AND purpose = :purpose "
+                "AND consumed_at IS NULL AND expires_at > :at AND attempts < :max "
+                "AND created_at > :since "
+                "LIMIT 1"
+            ),
+            {
+                "realm": realm,
+                "sub": subject_id,
+                "purpose": purpose,
+                "at": at,
+                "since": at - OTP_RESEND_COOLDOWN,
+                "max": OTP_MAX_ATTEMPTS,
+            },
+        )
+    ).first()
+    return found is not None
+
+
 async def resend_wait_s(
     session: AsyncSession,
     *,
