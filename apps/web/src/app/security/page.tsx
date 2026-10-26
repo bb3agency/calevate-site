@@ -283,9 +283,9 @@ export default function SecurityPage() {
       <Chapter tone="raised">
         <Band
           id="testing"
-          eyebrow="Before it takes a real call"
-          title="The awkward calls an agent is run against"
-          lede="The calls an agent is put through — a scripted transcript for each, scored on whether the details reached the leads list correctly."
+          eyebrow="Before a change ships"
+          title="The awkward calls every change is checked against"
+          lede="The calls our test suite puts every change to how a call is read through — a scripted transcript for each, scored on whether the details reached the leads list correctly."
         >
           {/* NO SCORE. Not a percentage, not a rating, not a pass mark, and plain dots
               rather than ticks: nothing in the product publishes a per-scenario result a

@@ -136,12 +136,13 @@ export function Trust() {
             of any kind — see `TESTED_SCENARIOS` for why. */}
         <Reveal as="section" className={`mt-6 sm:mt-8 ${HOME.panel}`}>
           <h3 className={`${HOME.itemTitle} font-semibold text-balance text-ink`}>
-            Your agent is run against awkward calls before it takes a real one
+            How we read a call is checked against awkward calls on every change
           </h3>
           <p className={`mt-3 max-w-3xl text-pretty text-ink-muted ${HOME.bodySm}`}>
             An agent that sounds good on the demo call and loses a detail on the fortieth
-            one is the ordinary failure of this whole category. These are the calls it is
-            put through. We publish no score for them, because a number we cannot show you
+            one is the ordinary failure of this whole category. These are the scripted calls
+            our test suite puts through. We publish no score for them, because a number we
+            cannot show you
             the working for is worth nothing.
           </p>
           <ul className="mt-6 flex flex-wrap gap-2.5">

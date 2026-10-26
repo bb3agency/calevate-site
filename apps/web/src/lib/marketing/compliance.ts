@@ -147,7 +147,8 @@ export const DATA_PROMISES: readonly { term: string; detail: string }[] = [
 ];
 
 /**
- * The scenarios an agent is run against before it goes live — and, deliberately, NOT how it
+ * The scenarios the test suite runs every change to call reading against (golden
+ * transcripts, platform-wide, not per agent) — and, deliberately, NOT how it
  * scored on them.
  *
  * The founder's instruction of 5 Sep 2026: show numeric quality metrics only if they are
