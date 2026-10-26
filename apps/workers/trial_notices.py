@@ -43,6 +43,7 @@ from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.first_payment import has_paid
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import plan_tier_of
 from apps.api.billing.trials import TrialState, read_trial
@@ -84,6 +85,9 @@ class Recipient:
     billing_email: str | None
     slug: str
     prepaid: bool
+    #: Not yet paid, so the trial is the test-calls-only kind (D-697,
+    #: `compliance/trial_access.restricting_trial`): no inbound, no calls to leads.
+    restricted: bool = False
 
 
 def ist_moment(instant: datetime) -> str:
@@ -120,9 +124,52 @@ def _link(*, prepaid: bool, slug: str) -> list[str]:
     return ["", "Your dashboard:", "", f"{CONSOLE_BASE}/c/{slug}"]
 
 
-def compose_started(*, trial: TrialState, prepaid: bool, slug: str) -> str:
-    """The start email, in a business owner's words. No figure, no vendor name."""
+def _go_live(*, prepaid: bool) -> str:
+    """How an account that has not paid yet goes live, as `TRIAL_REFUSALS` words it."""
+    if prepaid:
+        return (
+            "Answering your business's calls and calling your leads open once you add "
+            "credit and verify your business."
+        )
+    return (
+        "Answering your business's calls and calling your leads open once your account is "
+        "set up for billing. Contact us when you are ready."
+    )
+
+
+def _free_minutes(trial: TrialState) -> str | None:
+    if trial.free_minutes is None:
+        return None
+    return f"{trial.free_minutes} free minute" + ("" if trial.free_minutes == 1 else "s")
+
+
+def compose_started(
+    *, trial: TrialState, prepaid: bool, slug: str, restricted: bool = False
+) -> str:
+    """The start email, in a business owner's words. No figure, no vendor name.
+
+    `restricted` is an account that has not paid: its trial is test calls only, so telling
+    it an empty balance "does not stop your agents making or answering calls" promised
+    calls it cannot take.
+    """
     ends = ist_moment(trial.ends_at)
+    if restricted:
+        minutes = _free_minutes(trial)
+        until = (
+            f"{ends}, or until you have used your {minutes} of test calls, whichever comes first"
+            if minutes
+            else ends
+        )
+        lines = [
+            f"Your free trial has started. It runs for {_days(trial.days)}, until {until}.",
+            "",
+            "During the trial you can hear your agents for yourself: place test calls from "
+            "your dashboard, and they are on us.",
+            "",
+            f"{_go_live(prepaid=prepaid)} When the trial ends, test calls stop.",
+            *_link(prepaid=prepaid, slug=slug),
+        ]
+        return "\n".join(lines)
     lines = [
         f"Your free trial has started. It runs for {_days(trial.days)}, until {ends}.",
         "",
@@ -136,9 +183,19 @@ def compose_started(*, trial: TrialState, prepaid: bool, slug: str) -> str:
     return "\n".join(lines)
 
 
-def compose_ending(*, trial: TrialState, prepaid: bool, slug: str) -> str:
+def compose_ending(*, trial: TrialState, prepaid: bool, slug: str, restricted: bool = False) -> str:
     """The ending email, sent about a day before `ends_at`."""
     ends = ist_moment(trial.ends_at)
+    if restricted:
+        minutes = _free_minutes(trial)
+        sooner = f", or sooner if your {minutes} of test calls run out first" if minutes else ""
+        lines = [
+            f"Your free trial ends at {ends}{sooner}.",
+            "",
+            f"After that, test calls stop. {_go_live(prepaid=prepaid)}",
+            *_link(prepaid=prepaid, slug=slug),
+        ]
+        return "\n".join(lines)
     if prepaid:
         after = (
             "After that, calls are paid from your calling credit. If there is no credit "
@@ -188,6 +245,7 @@ async def _recipient(session: AsyncSession, tenant_id: UUID) -> Recipient | None
         billing_email=str(row[0]) if row[0] else None,
         slug=str(row[1]),
         prepaid=tier in PREPAID_TIERS,
+        restricted=not await has_paid(session, tenant_id=tenant_id),
     )
 
 
@@ -260,7 +318,12 @@ async def notify_trial_started(ctx: dict[str, Any], payload: dict[str, Any]) -> 
         if not await _claim(session, trial_id=trial_id, notice="start", at=now):
             return "already_sent"
 
-    body = compose_started(trial=trial, prepaid=recipient.prepaid, slug=recipient.slug)
+    body = compose_started(
+        trial=trial,
+        prepaid=recipient.prepaid,
+        slug=recipient.slug,
+        restricted=recipient.restricted,
+    )
     if not await _send(recipient=recipient, notice="start", body=body):
         await _release(tenant_id, trial_id=trial_id, notice="start")
         log.warning(
@@ -298,7 +361,12 @@ async def notify_ending_if_due(tenant_id: UUID, *, now: datetime) -> EndingOutco
         if not await _claim(session, trial_id=trial.id, notice="ending", at=now):
             return "already_sent"
 
-    body = compose_ending(trial=trial, prepaid=recipient.prepaid, slug=recipient.slug)
+    body = compose_ending(
+        trial=trial,
+        prepaid=recipient.prepaid,
+        slug=recipient.slug,
+        restricted=recipient.restricted,
+    )
     if not await _send(recipient=recipient, notice="ending", body=body):
         # Released, so the next hourly tick inside the window tries again.
         await _release(tenant_id, trial_id=trial.id, notice="ending")

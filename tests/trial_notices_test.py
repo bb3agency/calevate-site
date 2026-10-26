@@ -30,7 +30,7 @@ from apps.workers.trial_notices import (
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import create_org_with_receptionist
+from tests.conftest import create_org_with_receptionist, mark_paid_for_tests
 
 pytestmark = [pytest.mark.rls]
 
@@ -51,7 +51,9 @@ def mailbox(monkeypatch: pytest.MonkeyPatch) -> Recorder:
     return recorder
 
 
-async def _tenant(plan_tier: str = "self_serve", email: str | None = "owner@example.test") -> UUID:
+async def _tenant(
+    plan_tier: str = "self_serve", email: str | None = "owner@example.test", *, paid: bool = True
+) -> UUID:
     created = await create_org_with_receptionist(
         name="Raghava Organics",
         slug=f"trialmail-{uuid.uuid4().hex[:8]}",
@@ -66,6 +68,9 @@ async def _tenant(plan_tier: str = "self_serve", email: str | None = "owner@exam
             text("UPDATE organizations SET plan_tier = :tier WHERE id = :i"),
             {"tier": plan_tier, "i": tenant_id},
         )
+    if paid:
+        # A paid account's trial is the billing gift; an unpaid one's is test calls only.
+        await mark_paid_for_tests(tenant_id)
     return tenant_id
 
 
@@ -265,6 +270,63 @@ async def test_the_invoiced_ending_email_asks_for_nothing(mailbox: Recorder) -> 
     assert "billed on your monthly invoice as usual" in body
     assert "Add credit" not in body
     _assert_no_money(body)
+
+
+async def test_an_account_that_has_not_paid_is_told_its_trial_is_test_calls(
+    mailbox: Recorder,
+) -> None:
+    """An unpaid account's trial answers no calls and calls no leads (D-697). Both emails
+    told it an empty balance did not stop its agents "making or answering calls" and that
+    after the trial they would "stop answering incoming ones", and neither named the free
+    minutes that can end the trial first."""
+    tenant_id = await _tenant(paid=False)
+    trial_id = await _open_through_the_route(tenant_id, days=3)
+    await notify_trial_started({}, {"tenant_id": str(tenant_id), "trial_id": trial_id})
+    started = mailbox.sent[0]["body"]
+    assert "or until you have used your 30 free minutes of test calls" in started
+    assert "place test calls from your dashboard" in started
+    assert "once you add credit and verify your business" in started
+    assert "answering calls" not in started and "stop answering" not in started
+    _assert_no_money(started)
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE tenant_trials SET started_at = now() - interval '52 hours', "
+                "ends_at = now() + interval '20 hours' WHERE id = :t"
+            ),
+            {"t": UUID(trial_id)},
+        )
+    now = datetime.now(UTC)
+    assert await notify_ending_if_due(tenant_id, now=now) == "sent"
+    ending = mailbox.sent[1]["body"]
+    assert "or sooner if your 30 free minutes of test calls run out first" in ending
+    assert "After that, test calls stop." in ending
+    assert "stop answering" not in ending
+    _assert_no_money(ending)
+
+
+def test_an_unpaid_invoiced_account_is_not_told_to_add_credit() -> None:
+    from apps.api.billing.trials import TrialState
+
+    trial = TrialState(
+        id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        status="active",
+        started_at=datetime(2026, 10, 1, tzinfo=UTC),
+        ends_at=datetime(2026, 10, 4, tzinfo=UTC),
+        days=3,
+        ended_at=None,
+        ended_reason=None,
+        erase_after=None,
+        erasure_filed_at=None,
+        started_by=None,
+        free_minutes=None,
+    )
+    body = trial_notices.compose_started(trial=trial, prepaid=False, slug="s", restricted=True)
+    assert "once your account is set up for billing" in body
+    assert "add credit" not in body.lower()
+    assert "whichever comes first" not in body
 
 
 # --- tenancy -----------------------------------------------------------------------
