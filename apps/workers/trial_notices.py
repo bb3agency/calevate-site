@@ -1,5 +1,10 @@
-"""The two emails a client gets about their own trial (D-685): it has started, and it ends
-in about a day.
+"""The emails a client gets about their own trial (D-685): it has started, it ends in about
+a day, and (D-697) its free test minutes are used, which ends it early.
+
+The minutes email is promised through the outbox by `workers/trials._end_if_minutes_used`
+in the transaction that ends the trial, keyed on the trial (`enqueue_outbox_once`), and the
+hourly sweep below asks for that ending first so it lands within the hour. The console's
+trial strip already shows the minutes left and "Your free minutes are used up".
 
 The console already says both on every screen (`app/c/[slug]/TrialBanner.tsx`); these
 reach the owner who is not looking at it. Both read the trial from `billing/trials.
@@ -54,7 +59,7 @@ from apps.api.db.session import admin_session, tenant_session
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
 from apps.workers.fleet_walk import WalkBudget, resumed_walk
-from apps.workers.trials import _DIRECTORY
+from apps.workers.trials import _DIRECTORY, close_if_minutes_used
 
 log = get_logger(__name__)
 
@@ -297,6 +302,85 @@ def _no_address(tenant_id: UUID, notice: Notice) -> None:
     log.warning("trial_notice_no_address", extra={"tenant_id": str(tenant_id), "notice": notice})
 
 
+#: The minutes-used email: subject, heading, preheader.
+MINUTES_USED_COPY: Final = (
+    "Your free test minutes are used",
+    "Your free test minutes are used",
+    "Here is how to keep going.",
+)
+
+
+def compose_minutes_used(*, trial: TrialState, prepaid: bool, slug: str, restricted: bool) -> str:
+    """The email when a trial's free minutes run out before its end date. No figure beyond
+    the minutes the client was given, no vendor name."""
+    minutes = _free_minutes(trial) or "free minutes"
+    lines = [
+        f"You have used the {minutes} of test calls in your free trial, so the trial has ended."
+    ]
+    if restricted:
+        lines += ["", f"To keep going: {_go_live(prepaid=prepaid)}"]
+    elif prepaid:
+        lines += [
+            "",
+            "Your calls carry on, paid from your calling credit. If there is no credit, your "
+            "agents stop making and answering calls, so add credit to keep them going.",
+        ]
+    else:
+        lines += ["", "Your calls carry on and are billed on your monthly invoice as usual."]
+    lines += ["", "If you would like to talk it through first, contact us."]
+    return "\n".join([*lines, *_link(prepaid=prepaid, slug=slug)])
+
+
+async def notify_trial_minutes_used(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """One email when a trial ends because its free minutes are used. Published through the
+    outbox by `workers/trials._end_if_minutes_used` in the transaction that ended the trial,
+    keyed on the trial (`enqueue_outbox_once`), so it is promised once per trial."""
+    tenant_id = UUID(str(payload["tenant_id"]))
+    trial_id = UUID(str(payload["trial_id"]))
+    attempt = int(ctx.get("job_try", 1))
+    async with tenant_session(tenant_id) as session:
+        trial = await read_trial(session, tenant_id=tenant_id)
+        if trial is None or trial.id != trial_id:
+            # Replaced by a newer trial since: this one's ending is no longer the news.
+            return "trial_replaced"
+        recipient = await _recipient(session, tenant_id)
+    if recipient is None:
+        return "tenant_missing"
+    if not recipient.billing_email:
+        alert("WORKER_DELIVERY", "trial_notice_no_billing_email")
+        log.warning(
+            "trial_notice_no_address", extra={"tenant_id": str(tenant_id), "notice": "minutes"}
+        )
+        return "no_billing_email"
+    subject, heading, preheader = MINUTES_USED_COPY
+    body = compose_minutes_used(
+        trial=trial,
+        prepaid=recipient.prepaid,
+        slug=recipient.slug,
+        restricted=recipient.restricted,
+    )
+    message = from_text(
+        subject=subject,
+        preheader=preheader,
+        heading=heading,
+        text=body,
+        cta="Add credit" if recipient.prepaid else "Open your dashboard",
+    )
+    transport = get_transport()
+    address = recipient.billing_email
+    delivered = await asyncio.to_thread(
+        lambda: transport.send(to=address, subject=subject, body=message.text, html=message.html)
+    )
+    if not delivered:
+        log.warning(
+            "trial_notice_send_failed",
+            extra={"tenant_id": str(tenant_id), "notice": "minutes", "attempt": attempt},
+        )
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
+    log.info("trial_notice_sent", extra={"tenant_id": str(tenant_id), "notice": "minutes"})
+    return "sent"
+
+
 async def notify_trial_started(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """One start email for one trial. Published by `trial_routes.open_trial` through the
     outbox, in the transaction that opened the trial."""
@@ -392,6 +476,10 @@ async def send_trial_ending_notices(ctx: dict[str, Any]) -> str:
     async for tenant_id in resumed_walk("trial_notices", tenant_ids, budget):
         probed += 1
         try:
+            # First, so a trial whose free minutes ran out is ended (and its one email
+            # promised) within the hour rather than at the next daily trial sweep.
+            if await close_if_minutes_used(tenant_id, now=now):
+                continue
             outcome = await notify_ending_if_due(tenant_id, now=now)
         except Exception:
             failed += 1
@@ -426,9 +514,11 @@ __all__ = [
     "ENDING_SWEEP_MINUTE",
     "TRIAL_STARTED_NOTICE_JOB",
     "compose_ending",
+    "compose_minutes_used",
     "compose_started",
     "ist_moment",
     "notify_ending_if_due",
+    "notify_trial_minutes_used",
     "notify_trial_started",
     "send_trial_ending_notices",
 ]

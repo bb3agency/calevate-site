@@ -17,7 +17,7 @@ import pytest
 from apps.api.billing import trial_routes
 from apps.api.billing.trial_routes import router as trial_router
 from apps.api.billing.trial_routes import start_trial_confirmation
-from apps.api.billing.trials import end_trial, start_trial
+from apps.api.billing.trials import end_trial, read_trial, start_trial
 from apps.api.core.errors import install_error_handlers
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import trial_notices
@@ -366,3 +366,122 @@ async def test_one_tenant_cannot_see_or_claim_another_tenants_trial(mailbox: Rec
 def test_the_end_time_is_written_in_ist() -> None:
     assert ist_moment(datetime(2026, 10, 10, 17, 28, tzinfo=UTC)) == "10 Oct 2026, 10:58 pm IST"
     assert ist_moment(datetime(2026, 10, 10, 3, 5, tzinfo=UTC)) == "10 Oct 2026, 08:35 am IST"
+
+
+# --- the free minutes running out -----------------------------------------------------
+
+
+def test_the_minutes_used_job_name_is_the_registered_function() -> None:
+    from apps.workers import trials as trials_worker
+
+    assert (
+        trial_notices.notify_trial_minutes_used.__name__
+        == trials_worker.TRIAL_MINUTES_USED_NOTICE_JOB
+    )
+
+
+async def _used_test_call(tenant_id: UUID, *, seconds: int) -> None:
+    async with tenant_session(tenant_id) as session:
+        agent_id = (
+            await session.execute(text("SELECT id FROM agents ORDER BY created_at LIMIT 1"))
+        ).scalar_one()
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
+                "status, trial_call, duration_s, created_at, updated_at) VALUES (:i, :t, :a, :e, "
+                "'outbound', '+919876500002', 'completed', true, :d, now(), now())"
+            ),
+            {
+                "i": uuid.uuid4(),
+                "t": tenant_id,
+                "a": agent_id,
+                "e": f"exec_{uuid.uuid4().hex[:12]}",
+                "d": seconds,
+            },
+        )
+
+
+async def test_free_minutes_used_up_end_the_trial_and_send_one_email(mailbox: Recorder) -> None:
+    """The test-call gate refused once the minutes were used, but nothing told the client:
+    the trial was recorded ended at the next daily sweep and no email ever went out."""
+    from apps.workers import trials as trials_worker
+
+    tenant_id = await _tenant(paid=False)
+    now = datetime.now(UTC)
+    async with tenant_session(tenant_id) as session:
+        trial = await start_trial(
+            session, tenant_id=tenant_id, days=7, actor_user_id=None, at=now, free_minutes=2
+        )
+    await _used_test_call(tenant_id, seconds=130)
+
+    assert await trials_worker.close_if_minutes_used(tenant_id, now=now) is True
+    assert await trials_worker.close_if_minutes_used(tenant_id, now=now) is False
+    async with untenanted_session() as session:
+        payloads = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT payload FROM outbox_messages WHERE job = :j "
+                        "AND payload->>'tenant_id' = :t"
+                    ),
+                    {"j": trials_worker.TRIAL_MINUTES_USED_NOTICE_JOB, "t": str(tenant_id)},
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert [dict(p) for p in payloads] == [
+        {"tenant_id": str(tenant_id), "trial_id": str(trial.id)}
+    ], "promised once, in the transaction that ended the trial"
+    async with tenant_session(tenant_id) as session:
+        ended = await read_trial(session, tenant_id=tenant_id)
+    assert ended is not None and ended.status == "expired"
+
+    assert await trial_notices.notify_trial_minutes_used({}, dict(payloads[0])) == "sent"
+    mail = mailbox.sent[0]
+    assert mail["subject"] == "Your free test minutes are used"
+    assert "You have used the 2 free minutes of test calls" in mail["body"]
+    assert "add credit and verify your business" in mail["body"]
+    assert "contact us" in mail["body"]
+    _assert_no_money(mail["body"])
+
+
+async def test_unused_minutes_end_nothing(mailbox: Recorder) -> None:
+    from apps.workers import trials as trials_worker
+
+    tenant_id = await _tenant(paid=False)
+    now = datetime.now(UTC)
+    async with tenant_session(tenant_id) as session:
+        await start_trial(
+            session, tenant_id=tenant_id, days=7, actor_user_id=None, at=now, free_minutes=5
+        )
+    await _used_test_call(tenant_id, seconds=60)
+    assert await trials_worker.close_if_minutes_used(tenant_id, now=now) is False
+    assert mailbox.sent == []
+
+
+def test_a_paid_account_is_told_its_calls_carry_on() -> None:
+    from apps.api.billing.trials import TrialState
+
+    trial = TrialState(
+        id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        status="expired",
+        started_at=datetime(2026, 10, 1, tzinfo=UTC),
+        ends_at=datetime(2026, 10, 8, tzinfo=UTC),
+        days=7,
+        ended_at=None,
+        ended_reason=None,
+        erase_after=None,
+        erasure_filed_at=None,
+        started_by=None,
+        free_minutes=30,
+    )
+    prepaid = trial_notices.compose_minutes_used(
+        trial=trial, prepaid=True, slug="s", restricted=False
+    )
+    invoiced = trial_notices.compose_minutes_used(
+        trial=trial, prepaid=False, slug="s", restricted=False
+    )
+    assert "paid from your calling credit" in prepaid
+    assert "billed on your monthly invoice as usual" in invoiced

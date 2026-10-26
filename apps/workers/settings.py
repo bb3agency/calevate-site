@@ -294,6 +294,7 @@ from apps.workers.tls_expiry import check_tls_expiry
 from apps.workers.topup_settlement import SETTLEMENT_MINUTES, sweep_topup_settlement
 from apps.workers.trial_notices import (
     ENDING_SWEEP_MINUTE,
+    notify_trial_minutes_used,
     notify_trial_started,
     send_trial_ending_notices,
 )
@@ -495,6 +496,9 @@ FUNCTIONS: list[Any] = [
         # through the outbox in the trial row's transaction. Unregistered, the outbox marks
         # the row published and arq drops it: `check_job_wiring` shape 3.
         notify_trial_started,
+        # The "your free test minutes are used" email, published through the outbox by
+        # `workers/trials._end_if_minutes_used` when the minutes end a trial early.
+        notify_trial_minutes_used,
         # D-890. The client's notice and email and every super admin's alert after a grant
         # or a complimentary conversion, from the outbox (`billing/comp_notices`).
         notify_comp,

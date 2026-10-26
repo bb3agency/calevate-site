@@ -45,16 +45,18 @@ cost is the session, which is the same cost every other fleet walk in this tree 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.trials import (
     EXPIRY_REASON,
     MINUTES_USED_REASON,
     TRIAL_ACTIVE,
     TRIAL_EXPIRED,
+    TrialState,
     end_trial,
     mark_erasure_filed,
     read_trial,
@@ -64,6 +66,7 @@ from apps.api.compliance.tenant_erasure import REQUIRED_STATUS, request_tenant_e
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.db.session import admin_session, tenant_session
+from apps.api.reliability.service import enqueue_outbox_once
 from apps.workers.fleet_walk import WalkBudget, resumed_walk
 
 log = get_logger(__name__)
@@ -82,6 +85,51 @@ ERASURE_REASON = (
 )
 
 
+#: The outbox job that tells a client their free test minutes are used
+#: (`trial_notices.notify_trial_minutes_used`). Spelled here, in the file that enqueues it,
+#: for `check_job_wiring`; `tests/trial_notices_test.py` holds the two equal.
+TRIAL_MINUTES_USED_NOTICE_JOB: Final = "notify_trial_minutes_used"
+
+
+async def _end_if_minutes_used(
+    scoped: AsyncSession, *, tenant_id: UUID, trial: TrialState, now: datetime
+) -> bool:
+    """THE FREE MINUTES CAN RUN OUT FIRST (D-697). The test-call gate already refuses once
+    they are used; this records that the trial ended, from now, and promises the client one
+    email about it in the same transaction, keyed on the trial."""
+    if (
+        trial.free_minutes is None
+        or await trial_seconds_used(scoped, tenant_id=tenant_id, trial=trial)
+        < trial.free_minutes * 60
+    ):
+        return False
+    await end_trial(
+        scoped,
+        tenant_id=tenant_id,
+        outcome=TRIAL_EXPIRED,
+        reason=MINUTES_USED_REASON,
+        at=now,
+    )
+    await enqueue_outbox_once(
+        scoped,
+        job=TRIAL_MINUTES_USED_NOTICE_JOB,
+        payload={"tenant_id": str(tenant_id), "trial_id": str(trial.id)},
+        dedupe_key=f"trial_minutes_used:{trial.id}",
+    )
+    log.info("trial_minutes_used", extra={"tenant_id": str(tenant_id)})
+    return True
+
+
+async def close_if_minutes_used(tenant_id: UUID, *, now: datetime) -> bool:
+    """End a running trial whose free minutes are used. The hourly trial-notice sweep asks
+    this so the client hears within the hour rather than at the next daily tick."""
+    async with tenant_session(tenant_id) as scoped:
+        trial = await read_trial(scoped, tenant_id=tenant_id)
+        if trial is None or not trial.is_active(at=now):
+            return False
+        return await _end_if_minutes_used(scoped, tenant_id=tenant_id, trial=trial, now=now)
+
+
 async def _close_if_expired(tenant_id: UUID, *, now: datetime) -> bool:
     """End an open trial whose date has passed. True if one was ended.
 
@@ -93,23 +141,7 @@ async def _close_if_expired(tenant_id: UUID, *, now: datetime) -> bool:
         if trial is None or trial.status != TRIAL_ACTIVE:
             return False
         if now < trial.ends_at:
-            # THE FREE MINUTES CAN RUN OUT FIRST (D-697). The test-call gate already refuses
-            # once they are used; this records that the trial ended, from now.
-            if (
-                trial.free_minutes is None
-                or await trial_seconds_used(scoped, tenant_id=tenant_id, trial=trial)
-                < trial.free_minutes * 60
-            ):
-                return False
-            await end_trial(
-                scoped,
-                tenant_id=tenant_id,
-                outcome=TRIAL_EXPIRED,
-                reason=MINUTES_USED_REASON,
-                at=now,
-            )
-            log.info("trial_minutes_used", extra={"tenant_id": str(tenant_id)})
-            return True
+            return await _end_if_minutes_used(scoped, tenant_id=tenant_id, trial=trial, now=now)
         await end_trial(
             scoped,
             tenant_id=tenant_id,
@@ -249,4 +281,9 @@ async def sweep_trials(ctx: dict[str, Any]) -> str:
     )
 
 
-__all__ = ["ERASURE_REASON", "sweep_trials"]
+__all__ = [
+    "ERASURE_REASON",
+    "TRIAL_MINUTES_USED_NOTICE_JOB",
+    "close_if_minutes_used",
+    "sweep_trials",
+]
