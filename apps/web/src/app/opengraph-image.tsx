@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { ImageResponse } from "next/og";
 
+import { OG_IMAGE, OG_IMAGE_ALT } from "@/lib/seo/metadata";
 import { SITE_DESCRIPTION } from "@/lib/seo/structuredData";
 
 /**
@@ -46,7 +47,9 @@ import { SITE_DESCRIPTION } from "@/lib/seo/structuredData";
  * case: it is a PNG rendered once on our server, and every consumer gets the same bytes.
  */
 
-export const size = { width: 1200, height: 630 };
+export const size = { width: OG_IMAGE.width, height: OG_IMAGE.height };
+/** `og:image:alt` where the file is served; pages name the same text (`lib/seo/metadata`). */
+export const alt = OG_IMAGE_ALT;
 export const contentType = "image/png";
 
 /** The card's own words. Deliberately the site's name and nothing a page could contradict. */

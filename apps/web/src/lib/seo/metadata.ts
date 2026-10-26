@@ -55,6 +55,27 @@ export const SITE_NAME = "Calevate";
  */
 export const SITE_LOCALE = "en_IN";
 
+/** What the share card shows, for a reader who cannot see it (`og:image:alt`). */
+export const OG_IMAGE_ALT = "Calevate: AI phone agents for Indian businesses";
+
+/**
+ * The share card `app/opengraph-image.tsx` renders, named explicitly on every page.
+ *
+ * Next attaches a file-based `opengraph-image` only at the segment that holds the file, and
+ * a page's own `openGraph` REPLACES that object wholesale
+ * (`next/dist/lib/metadata/resolve-metadata.js`, `mergeMetadata` case `openGraph`, next
+ * 15.5.28), so every page that states its own Open Graph — all of them — shipped with no
+ * `og:image` and no `twitter:image`, and a pasted link previewed as bare text. The route
+ * serves at `/opengraph-image`, resolved against `metadataBase`.
+ */
+export const OG_IMAGE = {
+  url: "/opengraph-image",
+  width: 1200,
+  height: 630,
+  type: "image/png",
+  alt: OG_IMAGE_ALT,
+} as const;
+
 /** The metadata a public marketing page ships, from the three facts only the page knows. */
 export function publicPageMetadata({ path, title, description }: PublicPageMetadata): Metadata {
   const url = siteUrl(path);
@@ -69,6 +90,7 @@ export function publicPageMetadata({ path, title, description }: PublicPageMetad
       description,
       siteName: SITE_NAME,
       locale: SITE_LOCALE,
+      images: [OG_IMAGE],
     },
     twitter: {
       // `summary_large_image` rather than `summary`: the card image this site serves is
@@ -78,6 +100,7 @@ export function publicPageMetadata({ path, title, description }: PublicPageMetad
       card: "summary_large_image",
       title,
       description,
+      images: [OG_IMAGE],
     },
   };
 }

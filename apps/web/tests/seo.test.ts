@@ -231,6 +231,13 @@ describe("every public page's metadata", () => {
       expect((og as { type?: string })?.type).toBe("website");
       expect((og as { locale?: string })?.locale).toBe("en_IN");
       expect((meta.twitter as { card?: string })?.card).toBe("summary_large_image");
+      // A page's own openGraph replaces the file-based card Next attached at the root, so
+      // every page names the card itself, alt text included.
+      for (const images of [(og as { images?: unknown })?.images, (meta.twitter as { images?: unknown })?.images]) {
+        expect(images, `${path} ships no share image`).toEqual([
+          expect.objectContaining({ url: "/opengraph-image", alt: expect.stringMatching(/\S/) }),
+        ]);
+      }
     }
   });
 
