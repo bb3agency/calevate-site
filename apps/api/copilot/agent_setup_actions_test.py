@@ -22,7 +22,7 @@ from tests.conftest import accept_agreements, business_contact
 from apps.api.agents import script_builder
 from apps.api.copilot import write_tools
 from apps.api.copilot.agent_reads import AGENT_SETTINGS_READ
-from apps.api.copilot.tools import ToolContext
+from apps.api.copilot.tools import READ_TOOLS, ToolContext
 from apps.api.copilot.write_tools_test import _audit, _confirm, _principal, _user_of
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
@@ -418,3 +418,17 @@ async def test_agent_settings_reads_each_part_without_a_phone_number(part: str) 
     assert "9000000713" not in answer
     if part == "handover":
         assert "Asha" in answer
+
+
+async def test_agents_list_gives_each_agent_its_id_and_names_the_deleted_ones() -> None:
+    """FAILS IF: Pip, asked from the dashboard to act on an agent by name, has no id to act
+    on, or cannot find a deleted agent to restore."""
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _archived(tenant_id, token)
+    (agents_list,) = [tool for tool in READ_TOOLS if tool.name == "agents_list"]
+    async with tenant_session(tenant_id) as session:
+        answer = await agents_list.run(
+            session, ToolContext(tenant_id=tenant_id, role="owner"), {"limit": None}
+        )
+    assert f"[agent_id {agent_id}]" in answer
+    assert "agent_restore" in answer

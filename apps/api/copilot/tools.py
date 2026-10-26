@@ -59,6 +59,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import roster
+from apps.api.agents.schemas import AgentOut
 from apps.api.billing.plans import IST
 from apps.api.campaigns import service as campaigns_service
 from apps.api.copilot.prompt import defuse, function_tool
@@ -799,22 +800,25 @@ async def _agents_list(session: AsyncSession, context: ToolContext, args: Mappin
                 "published" if agent.published else "not published to the phone system yet",
                 f"{agent.inbound_number_count} number(s)",
                 agent.language_primary,
+                # The id the agent actions take: without it, "pause Reception" asked from
+                # the dashboard has nothing to act on.
+                f"[agent_id {agent.id}]",
             )
             if part
         )
         for agent in rows
     ]
+    deleted = await roster.list_agents(session, status="archived", limit=_DELETED_SHOWN)
     if not rows:
         # THE ARCHIVE IS THE AMBIGUITY HERE (`roster.list_agents` excludes it by default),
         # and the two cases are opposite advice: an account with no agents at all is being
         # told to create one, and an account that retired all of theirs is being told where
         # their agents went. Told the wrong one, a client who archived a line last week
         # hears that their agents have disappeared.
-        if await roster.list_agents(session, status="archived", limit=1):
+        if deleted:
             return _clean(
                 "Every voice agent in this account has been retired (archived), so there "
-                "is no working roster and no agent can take a call. Retired agents are "
-                "kept but are not listed here."
+                "is no working roster and no agent can take a call." + _deleted_footer(deleted)
             )
         return _clean(
             _nothing(
@@ -847,7 +851,20 @@ async def _agents_list(session: AsyncSession, context: ToolContext, args: Mappin
             "\nNo agent is live: every one is paused or still a draft, so none of them is "
             "answering right now."
         )
-    return _clean(body)
+    return _clean(body + _deleted_footer(deleted))
+
+
+#: Deleted agents named after the roster, newest first, so `agent_restore` has an id. A
+#: handful: the archive is the one unbounded bucket (`roster.list_agents`).
+_DELETED_SHOWN: Final = 5
+
+
+def _deleted_footer(deleted: Sequence[AgentOut]) -> str:
+    if not deleted:
+        return ""
+    return "\nDeleted (can be restored with `agent_restore`): " + "; ".join(
+        f"{agent.name} [agent_id {agent.id}]" for agent in deleted
+    )
 
 
 #: How many passages ONE `search_knowledge` call may put in front of the model, and how
@@ -1360,8 +1377,9 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
             "This account's voice agents: name, whether it answers inbound calls or makes "
             "outbound ones, whether it is live/paused/draft, whether it has been published "
             "to the phone system yet, how many phone numbers it answers on, and its main "
-            "language. Retired (archived) agents are not included. Use it to answer which "
-            "agents exist and whether one is actually switched on."
+            "language, with the id the agent actions take. Deleted agents follow, for "
+            "`agent_restore`. Use it to answer which agents exist and whether one is "
+            "actually switched on."
         ),
         parameters={
             "type": "object",

@@ -323,7 +323,8 @@ async def test_agents_list_says_which_agents_exist_and_whether_each_is_published
     # A freshly created account's agent has never been published — the tool has to say so
     # in words the model can repeat rather than by omitting the fact.
     assert "not published to the phone system yet" in result
-    assert str(agent_id) not in result  # names, never uuids
+    # The one id the next call needs (PIP-AGENT-PLAN §2a): every agent action takes it.
+    assert f"[agent_id {agent_id}]" in result
 
 
 async def test_agents_list_excludes_the_archive_because_the_roster_reader_does() -> None:
@@ -342,7 +343,10 @@ async def test_agents_list_excludes_the_archive_because_the_roster_reader_does()
 
     result = await _run("agents_list", tenant_id, limit=None)
 
-    assert "Retired Line" not in result
+    # Not on the working roster: named only after it, as one `agent_restore` can bring back.
+    roster_part, _sep, deleted_part = result.partition("Deleted (can be restored")
+    assert "Retired Line" not in roster_part
+    assert "Retired Line" in deleted_part
     # AND THE EMPTY SENTENCE IS THE ONE ABOUT THE ARCHIVE, not the one about a new account.
     # "This account has no working voice agents yet" is FALSE for a client who retired the
     # only agent they had last week, and it is the sentence they would have been given.
