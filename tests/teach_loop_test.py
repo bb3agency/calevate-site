@@ -224,6 +224,31 @@ async def test_a_pinned_fact_is_listed_first_and_marked() -> None:
 # --- the teach box --------------------------------------------------------------------
 
 
+async def test_a_retried_delivery_takes_back_a_teaching_its_cancelled_attempt_left() -> None:
+    """A redeploy cancels the attempt after the claim; arq re-delivers with `job_try` 2.
+    FAILS IF the row stays at `sorting` for ever because only `queued` can be claimed."""
+    tenant_id, _agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        started = await teaching.start_teaching(
+            session,
+            tenant_id=tenant_id,
+            input_kind="text",
+            words=teaching.clean_words("Chilli powder 120 rupees."),
+            requested_by=None,
+        )
+        await session.execute(
+            text("UPDATE kb_teachings SET status = 'sorting' WHERE id = :id"), {"id": started.id}
+        )
+    payload = {"tenant_id": str(tenant_id), "teaching_id": str(started.id)}
+    # A first delivery (a duplicate, not a retry) still finds it taken.
+    assert await kb_teach.run_kb_teaching({}, payload) == "not_queued"
+    assert await kb_teach.run_kb_teaching({"job_try": 2}, payload) == "ready"
+    async with tenant_session(tenant_id) as session:
+        assert (await teaching.get_teaching(session, started.id)).status == "ready"
+    # A finished teaching is never taken back, retry or not.
+    assert await kb_teach.run_kb_teaching({"job_try": 3}, payload) == "not_queued"
+
+
 async def test_teaching_without_ai_still_reaches_review_with_the_words_unsorted() -> None:
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:

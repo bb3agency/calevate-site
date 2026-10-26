@@ -64,12 +64,12 @@ async def _finish(
 
 async def run_copilot_job(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Claim the job, run the tool loop under `service.job_limits`, record what happened."""
-    del ctx
+    retry = int(ctx.get("job_try", 1) or 1) > 1
     job_id = UUID(str(payload["job_id"]))
     tenant_id = UUID(str(payload["tenant_id"]))
 
     async with tenant_session(tenant_id) as session:
-        job = await jobs.claim_job(session, job_id=job_id)
+        job = await jobs.claim_job(session, job_id=job_id, retry=retry)
     if job is None:
         # Cancelled before it started, or already claimed by an earlier delivery.
         return "not_queued"

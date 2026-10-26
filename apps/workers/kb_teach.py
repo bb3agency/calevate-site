@@ -236,8 +236,14 @@ async def _fail(tenant_id: UUID, teaching_id: UUID, code: str) -> None:
 
 
 async def run_kb_teaching(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    """Claim a queued teaching, read it if needed, and sort it for review."""
-    del ctx
+    """Claim a queued teaching, read it if needed, and sort it for review.
+
+    arq's re-delivery of this job (`job_try > 1`, after a redeploy cancelled the attempt
+    holding it) takes back a row left at `reading` or `sorting`: that attempt is over and
+    arq never runs two attempts of one job id at once. Without it the row stayed there for
+    ever and the teach box showed it as being sorted.
+    """
+    retry = int(ctx.get("job_try", 1) or 1) > 1
     tenant_id = UUID(str(payload["tenant_id"]))
     teaching_id = UUID(str(payload["teaching_id"]))
     async with tenant_session(tenant_id) as session:
@@ -246,10 +252,11 @@ async def run_kb_teaching(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
                 text(
                     "UPDATE kb_teachings SET status = CASE WHEN words IS NULL THEN 'reading' "
                     "ELSE 'sorting' END, updated_at = now() "
-                    "WHERE id = :id AND status = 'queued' "
+                    "WHERE id = :id AND (status = 'queued' OR (CAST(:retry AS boolean) "
+                    "AND status IN ('reading', 'sorting'))) "
                     "RETURNING status, input_kind, words, object_key, content_type, filename"
                 ),
-                {"id": teaching_id},
+                {"id": teaching_id, "retry": retry},
             )
         ).first()
     if claimed is None:

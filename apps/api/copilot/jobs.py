@@ -168,15 +168,24 @@ async def list_jobs(session: AsyncSession, *, user_id: UUID, limit: int) -> list
     return [_job(record) for record in records]
 
 
-async def claim_job(session: AsyncSession, *, job_id: UUID) -> JobRow | None:
-    """`queued` → `running`, as a CAS. None when another worker (or a retry) got it."""
+async def claim_job(session: AsyncSession, *, job_id: UUID, retry: bool = False) -> JobRow | None:
+    """`queued` → `running`, as a CAS. None when another worker got it, or it ended.
+
+    `retry` is arq's own re-delivery of THIS job after the attempt holding it was
+    cancelled (a redeploy arrives as `CancelledError`): that attempt is over, and arq never
+    runs two attempts of one job id at once, so its `running` row is taken back. Without
+    it the job sat at `running` for ever, holding one of the person's
+    `MAX_ACTIVE_JOBS_PER_USER` slots. The re-run is safe because the job's seed is its id,
+    so it replays its own action receipts rather than repeating them.
+    """
     record = (
         await session.execute(
             text(
                 "UPDATE copilot_jobs SET status = 'running', started_at = now(), "
-                f"updated_at = now() WHERE id = :id AND status = 'queued' RETURNING {_COLUMNS}"
+                "updated_at = now() WHERE id = :id AND (status = 'queued' "
+                f"OR (CAST(:retry AS boolean) AND status = 'running')) RETURNING {_COLUMNS}"
             ),
-            {"id": job_id},
+            {"id": job_id, "retry": retry},
         )
     ).first()
     return None if record is None else _job(record)

@@ -132,6 +132,21 @@ async def test_progress_is_bounded_and_the_job_route_reads_it() -> None:
     assert body["progress"][-1]["text"] == f"step {MAX_JOB_PROGRESS + 4}"
 
 
+async def test_only_a_retry_takes_back_a_running_job() -> None:
+    """A redeploy cancels the attempt holding the job; arq's retry must be able to run it.
+    FAILS IF a `running` row left by a cancelled attempt can never be claimed again."""
+    tenant_id, _slug, token = await _make_tenant()
+    job = await _job(tenant_id, token)
+    async with tenant_session(tenant_id) as session:
+        assert await jobs.claim_job(session, job_id=job.id) is not None
+    async with tenant_session(tenant_id) as session:
+        assert await jobs.claim_job(session, job_id=job.id) is None
+        assert await jobs.claim_job(session, job_id=job.id, retry=True) is not None
+        await jobs.cancel_job(session, job_id=job.id, user_id=job.user_id)
+    async with tenant_session(tenant_id) as session:
+        assert await jobs.claim_job(session, job_id=job.id, retry=True) is None
+
+
 async def test_cancel_stops_a_queued_job() -> None:
     tenant_id, slug, token = await _make_tenant()
     job = await _job(tenant_id, token)
