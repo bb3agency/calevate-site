@@ -65,7 +65,7 @@ jobs:
           --health-cmd "pg_isready -U calevate"
           --health-interval 5s --health-timeout 5s --health-retries 10
       redis:
-        image: redis:7-alpine
+        image: redis:7.4.11-alpine@sha256:57e4255cc971b1c8d6f8a6ca283ac01bc3ecdd914273ef6bfaede87aaecd6541
         ports: ["6379:6379"]
         options: >-
           --health-cmd "redis-cli ping"

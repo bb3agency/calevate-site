@@ -52,7 +52,13 @@ x-python-service: &python-service
 
 services:
   redis:
-    image: redis:7-alpine
+    # Pinned by digest for the Dockerfile's reason (D-188, hard rule 9): `redis:7-alpine`
+    # is a moving tag, so every deploy that pulled could start a Redis nobody had tested,
+    # holding the ARQ queue. The digest is the multi-arch index `redis:7-alpine` and
+    # `redis:7.4.11-alpine` both resolved to (`docker buildx imagetools inspect`,
+    # 26 Oct 2026). CI's redis service pins the same reference
+    # (`tests/compose_image_pinning_test.py`).
+    image: redis:7.4.11-alpine@sha256:57e4255cc971b1c8d6f8a6ca283ac01bc3ecdd914273ef6bfaede87aaecd6541
     restart: unless-stopped
     # DELIBERATELY NO `ports:`. Redis holds the ARQ queue and the webhook dedupe keys;
     # published on the host it is reachable from the internet the moment ufw is

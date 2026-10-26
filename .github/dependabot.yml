@@ -50,3 +50,21 @@ updates:
     ignore:
       - dependency-name: "python"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  # compose.prod.yml pins Redis by digest for the same reason; this is what keeps that pin
+  # from aging past Redis security releases ("docker-compose" ecosystem, GA 25 Feb 2025:
+  # github.blog/changelog/2025-02-25-dependabot-version-updates-now-support-docker-compose-in-general-availability).
+  # Minor and major moves stay deliberate: the queue's persistence format rides on them.
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "build"
+    labels:
+      - "dependencies"
+      - "docker"
+    ignore:
+      - dependency-name: "redis"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
