@@ -319,9 +319,9 @@ describe("a call row", () => {
     const outcome = (await screen.findAllByText("Site visit agreed"))[0];
     const row = outcome.closest("tr, li")!;
     expect(row.textContent).toContain("Needs you");
-    const dot = outcome.parentElement!.querySelector('[data-kind="lead"]')!;
+    const dot = outcome.parentElement!.querySelector('[data-kind="interested"]')!;
     expect(dot.getAttribute("aria-hidden")).toBe("true");
-    expect(dot.className).toContain("bg-brand");
+    expect(dot.className).toContain("bg-series-2");
     expect(container.querySelector('[data-kind="neutral"]')).toBeNull();
   });
 

@@ -434,22 +434,22 @@ describe("the kind of ending a call had", () => {
       "an outcome that moves the lead to interested",
       { ...done, outcome_tag: "answered", business_outcome: "site_visit", business_outcome_label: "Site visit agreed", business_outcome_lead_status: "interested" },
       "Site visit agreed",
-      "lead",
+      "interested",
     ],
     [
       "an outcome that moves the lead to hot",
       { ...done, outcome_tag: null, business_outcome: "ready", business_outcome_label: "Ready to pay", business_outcome_lead_status: "hot" },
       "Ready to pay",
-      "lead",
+      "hot",
     ],
     [
       "a lead the call needs a person for keeps its outcome",
       { ...done, outcome_tag: "needs_you", business_outcome: "wants_to_buy", business_outcome_label: "Wants to buy or book", business_outcome_lead_status: "interested" },
       "Wants to buy or book",
-      "lead",
+      "interested",
     ],
-    ["a booked call back", { ...done, outcome_tag: "call_back_booked", business_outcome_label: "Interested", business_outcome_lead_status: "interested" }, "Call back booked", "follow_up"],
-    ["a hand-over to a person", { ...done, outcome_tag: "transferred" }, "Transferred", "follow_up"],
+    ["a booked call back", { ...done, outcome_tag: "call_back_booked", business_outcome_label: "Interested", business_outcome_lead_status: "interested" }, "Call back booked", "call_back"],
+    ["a hand-over to a person", { ...done, outcome_tag: "transferred" }, "Transferred", "transferred"],
     [
       "an outcome that only marks contact",
       { ...done, outcome_tag: "answered", business_outcome: "asked_for_information", business_outcome_label: "Asked for information", business_outcome_lead_status: "contacted" },
@@ -461,16 +461,16 @@ describe("the kind of ending a call had", () => {
     ["an outcome on no list", { ...done, outcome_tag: "answered", business_outcome: "gone", business_outcome_label: "Gone", business_outcome_lead_status: null }, "Gone", "neutral"],
     ["a call still being read", { status: "completed", summary_state: "pending", outcome_tag: null }, "Being read", "neutral"],
     ["a live call", { status: "in_progress", outcome_tag: null }, "On the line", "neutral"],
-    ["an early hang-up", { ...done, outcome_tag: "hung_up_early", business_outcome_label: "Interested", business_outcome_lead_status: "interested" }, "Hung up early", "caution"],
+    ["an early hang-up", { ...done, outcome_tag: "hung_up_early", business_outcome_label: "Interested", business_outcome_lead_status: "interested" }, "Hung up early", "hung_up_early"],
     [
       "the starting set's not interested",
       { ...done, outcome_tag: "answered", business_outcome: "not_interested", business_outcome_label: "Not interested", business_outcome_lead_status: "contacted" },
       "Not interested",
-      "caution",
+      "said_no",
     ],
-    ["a missed call", { status: "no_answer", outcome_tag: "missed" }, "Missed", "failed"],
-    ["a busy line", { status: "busy", outcome_tag: null }, "Busy", "failed"],
-    ["a call that did not connect", { status: "failed", outcome_tag: null }, "Did not connect", "failed"],
+    ["a missed call", { status: "no_answer", outcome_tag: "missed" }, "Missed", "not_connected"],
+    ["a busy line", { status: "busy", outcome_tag: null }, "Busy", "not_connected"],
+    ["a call that did not connect", { status: "failed", outcome_tag: null }, "Did not connect", "not_connected"],
     ["a status this build has never heard of", { status: "teleported", outcome_tag: null }, "Teleported", "neutral"],
   ];
   it.each(cases)("%s", (_name, call, words, kind) => {
@@ -478,7 +478,7 @@ describe("the kind of ending a call had", () => {
   });
 
   it("names every kind in the legend's words", () => {
-    expect(Object.keys(OUTCOME_KIND_WORDS).sort()).toEqual(["caution", "failed", "follow_up", "lead", "neutral"]);
+    expect(Object.keys(OUTCOME_KIND_WORDS).sort()).toEqual(["call_back", "hot", "hung_up_early", "interested", "neutral", "not_connected", "said_no", "transferred"]);
   });
 });
 
@@ -516,7 +516,7 @@ describe("the business's own outcome on the verdict (D-836)", () => {
       ),
     );
     const heading = await screen.findByRole("heading", { name: "Wants to buy" });
-    expect(heading.querySelector('[data-kind="lead"][aria-hidden]')).not.toBeNull();
+    expect(heading.querySelector('[data-kind="interested"][aria-hidden]')).not.toBeNull();
   });
 
   it("puts the mark on the business outcome when Needs you heads the verdict", async () => {
@@ -533,6 +533,6 @@ describe("the business's own outcome on the verdict (D-836)", () => {
     );
     const heading = await screen.findByRole("heading", { name: "Needs you" });
     expect(heading.querySelector("[data-kind]")).toBeNull();
-    expect(screen.getByText("Wants to buy").querySelector('[data-kind="lead"]')).not.toBeNull();
+    expect(screen.getByText("Wants to buy").querySelector('[data-kind="interested"]')).not.toBeNull();
   });
 });

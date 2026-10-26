@@ -127,33 +127,59 @@ export function outcomeReason(
 
 /**
  * What kind of ending a call had, for the coloured mark beside its outcome. One set for
- * every screen that lists calls, so a colour means the same thing wherever it appears:
+ * every screen that lists calls, so a colour means the same thing wherever it appears, and
+ * one colour per kind (founder, 27 Oct 2026: a "Ready to visit" and a "Considering options"
+ * both read green, so the colour said nothing about which was which):
  *
- * - `lead`      the agent's own outcome moves the lead to interested or hot
- * - `follow_up` a call back was booked, or the call was handed to a person
- * - `neutral`   the call was had and nothing about it is good or bad news
- * - `caution`   it ended before anything was learned, or the caller said no
- * - `failed`    nobody spoke: missed, busy, voicemail, did not connect
+ * - `hot`           the agent's own outcome moves the lead to hot ("Ready to visit")
+ * - `interested`    it moves the lead to interested ("Considering options")
+ * - `call_back`     a call back was booked
+ * - `transferred`   the call was handed to a person
+ * - `neutral`       the call was had and nothing about it is good or bad news
+ * - `hung_up_early` it ended before anything was learned
+ * - `said_no`       the caller said no (the starting set's `not_interested`)
+ * - `not_connected` nobody spoke: missed, busy, voicemail, did not connect
+ *
+ * "Needs you" is not a kind: it is a request for a person, said beside the outcome by
+ * `needsAttention` with its own icon.
  */
-export type OutcomeKind = "lead" | "follow_up" | "neutral" | "caution" | "failed";
+export type OutcomeKind =
+  | "hot"
+  | "interested"
+  | "call_back"
+  | "transferred"
+  | "neutral"
+  | "hung_up_early"
+  | "said_no"
+  | "not_connected";
 
 /** The legend's words for each kind, in the order an owner reads them. */
 export const OUTCOME_KIND_WORDS: Record<OutcomeKind, string> = {
-  lead: "Likely lead",
-  follow_up: "Call back or handed over",
+  hot: "Ready to act",
+  interested: "Interested",
+  call_back: "Call back booked",
+  transferred: "Handed to your team",
   neutral: "Answered",
-  caution: "Ended early or said no",
-  failed: "Did not connect",
+  hung_up_early: "Hung up early",
+  said_no: "Said no",
+  not_connected: "Did not connect",
 };
 
 /** The facts that head a row, and their kind; null for the two that say nothing of it. */
 const FACT_KIND: Record<CallOutcome, OutcomeKind | null> = {
-  call_back_booked: "follow_up",
-  transferred: "follow_up",
-  hung_up_early: "caution",
-  missed: "failed",
+  call_back_booked: "call_back",
+  transferred: "transferred",
+  hung_up_early: "hung_up_early",
+  missed: "not_connected",
   answered: null,
   needs_you: null,
+};
+
+/** How far the agent's own outcome moves the lead, and its kind (`contacted` says nothing). */
+const LEAD_MOVE_KIND: Record<NonNullable<CallSummary["business_outcome_lead_status"]>, OutcomeKind> = {
+  hot: "hot",
+  interested: "interested",
+  contacted: "neutral",
 };
 
 /** Statuses that ended the call before anyone spoke (`STATUS_WORDS` has their words). */
@@ -194,9 +220,8 @@ export function callOutcome(call: CallOutcomeFields): { words: string; kind: Out
   if (call.outcome_tag && fact) return { words: outcomeLabel(call.outcome_tag) ?? call.outcome_tag, kind: fact };
   const label = call.business_outcome_label?.trim();
   if (label) {
-    const move = call.business_outcome_lead_status;
-    const kind: OutcomeKind =
-      move === "interested" || move === "hot" ? "lead" : call.business_outcome === SAID_NO_KEY ? "caution" : "neutral";
+    if (call.business_outcome === SAID_NO_KEY) return { words: label, kind: "said_no" };
+    const kind = lookup(LEAD_MOVE_KIND, call.business_outcome_lead_status) ?? "neutral";
     return { words: label, kind };
   }
   if (call.status === "completed") {
@@ -206,7 +231,7 @@ export function callOutcome(call: CallOutcomeFields): { words: string; kind: Out
     // A completed call with no outcome was still a conversation: "No outcome" read as a fault.
     return { words: call.summary_state === "pending" ? "Being read" : "Answered", kind: "neutral" };
   }
-  return { words: known ?? call.status, kind: NOT_CONNECTED.has(call.status) ? "failed" : "neutral" };
+  return { words: known ?? call.status, kind: NOT_CONNECTED.has(call.status) ? "not_connected" : "neutral" };
 }
 
 /** A booked call back that is still waiting after the time it was promised for. */

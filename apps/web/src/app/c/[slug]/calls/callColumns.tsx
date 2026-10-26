@@ -49,17 +49,26 @@ function LiveResult({ live }: { live: LiveView }) {
 }
 
 /**
- * The mark for each kind of ending, from the kit's status dots so "good" and "stopped" read
- * the same here as on every other state in the console. Calls add one kind the kit has no
- * tone for, a follow-up that is arranged, and it takes the charts' blue (`--series-2`)
- * because brand green already means a likely lead.
+ * The mark for each kind of ending: one colour per kind, none shared, so the colour alone
+ * tells two outcomes apart. Green is a lead ready to act, as the founder asked; the other
+ * kinds take the charts' categorical series, which is validated as one set (at least 3:1 on
+ * the surface, adjacent slots apart for colour-blind readers, `globals.css`), and red is
+ * the console's own "stopped". Grey is the faint ink rather than the chart's pale slate,
+ * which is 1.5:1 on white and vanishes at 6px.
+ *
+ * Every dot clears WCAG 1.4.11's 3:1 on both surfaces in both palettes
+ * (`tests/outcomeColours.test.ts`). The words beside it carry the meaning; the colour is for
+ * the scan down the list.
  */
 export const OUTCOME_DOT: Record<OutcomeKind, string> = {
-  lead: NOTICE_DOT.ok,
-  follow_up: "bg-series-2",
-  neutral: NOTICE_DOT.neutral,
-  caution: NOTICE_DOT.warn,
-  failed: NOTICE_DOT.stop,
+  hot: NOTICE_DOT.ok,
+  interested: "bg-series-2",
+  call_back: "bg-series-4",
+  transferred: "bg-series-5",
+  neutral: "bg-ink-faint",
+  hung_up_early: "bg-series-6",
+  said_no: "bg-series-3",
+  not_connected: NOTICE_DOT.stop,
 };
 
 type OutcomeCall = Pick<
