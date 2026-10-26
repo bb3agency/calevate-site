@@ -1886,7 +1886,9 @@ async def lift_healer_silence(session: AsyncSession, *, tenant_id: UUID, agent_i
     if numbers_can_forward():
         # The healer's forward (D-743) goes before the publish switches the agent back on.
         await clear_agent_forwards(session, tenant_id=tenant_id, agent_id=agent_id)
-    await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+    # take_calls=False: a live agent is republished live, and one the owner switched off
+    # while it was held stays off rather than coming back on the phone.
+    await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
     return True
 
 

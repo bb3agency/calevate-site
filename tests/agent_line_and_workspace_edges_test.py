@@ -307,6 +307,26 @@ async def test_lifting_a_forwarded_hold_clears_the_forward_before_the_agent_is_r
     assert await _reason(tenant_id, agent_id) is None
 
 
+async def test_lifting_a_hold_leaves_an_agent_the_owner_switched_off_switched_off() -> None:
+    tenant_id, agent_id, _ = await _published("liftoff")
+    async with tenant_session(tenant_id) as session:
+        await agents_service._stamp_inbound_silence(
+            session, agent_id=agent_id, reason=agents_service.INBOUND_SILENCE_HEALER
+        )
+        # The owner's switch-off while the healer held the line leaves the stamp in place.
+        await session.execute(
+            text("UPDATE agents SET status = 'paused' WHERE id = :a"), {"a": agent_id}
+        )
+        assert await agents_service.lift_healer_silence(
+            session, tenant_id=tenant_id, agent_id=agent_id
+        )
+    async with tenant_session(tenant_id) as session:
+        status = (
+            await session.execute(text("SELECT status FROM agents WHERE id = :a"), {"a": agent_id})
+        ).scalar_one()
+    assert status == "paused"
+
+
 async def test_a_paying_clients_studio_voice_never_lands_in_our_developer_workspace() -> None:
     """Without a client workspace on the config the Studio switch is refused before any
     vendor write, so our key is never switched on in the developer workspace for it."""
