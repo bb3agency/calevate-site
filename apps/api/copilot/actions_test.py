@@ -92,6 +92,14 @@ _REVIEWED_IMMEDIATE: dict[str, str] = {
     "call_test_prepare": "a filled-in form nobody has saved; Undo puts the form back",
     # D-893: a restored agent comes back paused — it answers nothing and calls nobody.
     "agent_restore": "returns paused, reaching no caller; Undo deletes it again",
+    # D-893 lane L6 (`account_actions.py` argues each).
+    "forwarding_line_change": (
+        "our record of how the client's own phone forwards; it dials nobody and the prior "
+        "setting is restored exactly"
+    ),
+    "lead_source_edit": "which agent a source names; the prior agent is the exact inverse",
+    "lead_source_switch": "accepting leads on or off; the prior switch is the exact inverse",
+    "low_balance_alert_set": "when a warning is sent; charges nothing, prior line restored",
 }
 
 

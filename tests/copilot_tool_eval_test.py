@@ -164,6 +164,7 @@ SIBLINGS = (
     ("agent_script_put_live", "agent_changes_apply"),
     ("agent_script_discard", "agent_changes_apply"),
     ("agent_prepare", "agent_publish"),
+    ("billing_overview", "billing_settings"),
 )
 
 

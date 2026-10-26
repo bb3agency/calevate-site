@@ -466,7 +466,47 @@ async def _numbers_list(
                 f"\nA new number cannot be bought yet: {readiness.blocker or readiness.step}. "
                 "The Your phone number screen walks through it."
             )
-    return body
+    return body + await _forwarding_and_lines(session, context.tenant_id)
+
+
+async def _forwarding_and_lines(session: AsyncSession, tenant_id: UUID) -> str:
+    """The Phone numbers screen's other two reads: the business's existing numbers
+    forwarded to Calevate (`forwarding.service.list_lines`) and the calls it may have at
+    once (`tenancy.call_lines`), which only Calevate changes."""
+    from apps.api.forwarding.service import list_lines
+    from apps.api.healer.protection import fallback_phone
+    from apps.api.tenancy.call_lines import calls_in_progress, read_call_lines
+
+    lines = await list_lines(session)
+    out = [
+        "Existing numbers forwarded to Calevate:" if lines else "No existing number is forwarded."
+    ]
+    out.extend(
+        _clean(
+            f"- {line.e164} · {line.carrier} {line.line_kind} · "
+            + (
+                "every call"
+                if line.mode == "all_calls"
+                else f"when unanswered after {line.ring_seconds}s"
+            )
+            + f" · {line.status}"
+        )
+        + f" [line_id {line.id}]"
+        for line in lines
+    )
+    state = await read_call_lines(session, tenant_id=tenant_id)
+    busy = await calls_in_progress(session, tenant_id=tenant_id)
+    out.append(
+        f"Calls at once: {state.lines} ({busy} in progress). Only Calevate changes this; "
+        "the person asks support for more."
+    )
+    backup = await fallback_phone(session)
+    out.append(
+        _clean(f"Backup phone when the agent cannot take calls: {backup}.")
+        if backup
+        else "No backup phone is set for when the agent cannot take calls."
+    )
+    return "\n" + "\n".join(out)
 
 
 async def _numbers_available(
@@ -617,43 +657,74 @@ async def _verification_status(
 async def _integrations_status(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
 ) -> str:
-    """`list_lead_sources`, `failed_deliveries` and the Integrations screen's own
-    `list_endpoints` route function. Endpoint addresses are reduced to their host."""
+    """The Lead sources and Integrations screens' reads: `list_lead_sources`, the
+    lead-calling plan and its held leads (`ingest.lead_policy`), the endpoint list route
+    function, `failed_deliveries`, and whether a Google account is connected for Sheets.
+    Endpoint addresses are reduced to their host; secrets are never read."""
     del args
     from urllib.parse import urlsplit
 
+    from apps.api.actions.credentials import list_credentials
+    from apps.api.ingest import lead_policy
     from apps.api.integrations.routes import list_endpoints
 
     sources = await list_lead_sources(session, limit=MAX_ROWS)
+    lines = [f"Lead sources: {len(sources)}."]
+    lines.extend(
+        _clean(f"- {s.source} · {'on' if s.active else 'paused'}")
+        + f" [lead_source_id {s.id}]"
+        + (f" [agent_id {s.agent_id}]" if s.agent_id else " (no agent chosen)")
+        for s in sources
+    )
+    plan = await lead_policy.load_plan(session)
+    lines.append(
+        f"New leads are called {plan.hours_start:%H:%M}-{plan.hours_end:%H:%M} IST on "
+        f"{','.join(plan.days)}, after a {plan.wait_seconds}s wait; after hours: "
+        f"{plan.after_hours}; {plan.retry_attempts} retr(ies) every "
+        f"{plan.retry_interval_minutes} min; answering machines "
+        + ("detected" if plan.detect_machines else "not detected")
+        + (
+            f"; one agent calls them all [agent_id {plan.calling_agent_id}]."
+            if plan.calling_agent_id
+            else "; each source's own agent calls."
+        )
+    )
+    held = await lead_policy.list_held(session, limit=10)
+    if held:
+        lines.append(f"Leads held after hours, waiting for a decision: {len(held)}.")
+        lines.extend(
+            f"- held {_date(h.held_at)} from {h.source} [hold_id {h.id}] [lead_id {h.lead_id}]"
+            for h in held
+        )
     endpoints = await list_endpoints(session, 50, _principal(context))
+    lines.append(f"Outbound connections: {len(endpoints)}.")
+    lines.extend(
+        _clean(
+            f"- {e.kind} to {urlsplit(str(e.url)).hostname if e.url else 'a sheet'} · "
+            + ("on" if e.active else "off")
+            + " · "
+            + ", ".join(e.events)
+        )
+        + f" [endpoint_id {e.id}]"
+        for e in endpoints[:10]
+    )
+    google = [c for c in await list_credentials(session) if c.kind == "google_sheets"]
+    lines.append(
+        "Google Sheets: connected."
+        if google
+        else "Google Sheets: not connected; the person connects Google on the Integrations "
+        "screen themselves."
+    )
     failures = await failed_deliveries(session, limit=5)
-    source_line = f"Lead sources: {len(sources)}"
-    if sources:
-        source_line += (
-            " (" + ", ".join(f"{s.source} {'on' if s.active else 'off'}" for s in sources) + ")"
-        )
-    endpoint_line = f"Outbound connections: {len(endpoints)}"
-    if endpoints:
-        endpoint_line += (
-            " ("
-            + ", ".join(
-                f"{e.kind} to {urlsplit(str(e.url)).hostname or 'a sheet'} "
-                + ("on" if e.active else "off")
-                for e in endpoints[:10]
-            )
-            + ")"
-        )
-    failure_line = f"Deliveries that did not arrive recently: {failures.total}."
-    if failures.items:
-        failure_line += " Latest: " + "; ".join(item.title for item in failures.items[:3])
-    lines = [
-        source_line + ".",
-        endpoint_line + ".",
-        failure_line,
-        "Connecting a new source or destination is done on the Lead sources and "
-        "Integrations screens, which show the address and secret to copy.",
-    ]
-    return _clean("\n".join(lines))
+    lines.append(f"Deliveries that did not arrive recently: {failures.total}.")
+    lines.extend(
+        _clean(f"- {item.title}") + f" [delivery_id {item.id}]" for item in failures.items[:5]
+    )
+    lines.append(
+        "A new source's address and secret, and a new endpoint's secret, are shown once to "
+        "the person who confirms; Meta Lead Ads is set up on the Lead sources screen."
+    )
+    return "\n".join(lines)
 
 
 # --- needs_attention -------------------------------------------------------------------
@@ -775,6 +846,7 @@ async def _team_members(
     """The team picker's own route function, `tenancy.routes.list_members` — ids, display
     names and roles, never emails. `lead_assign` takes one of these ids."""
     del args
+    from apps.api.tenancy.members import list_pending_invitations
     from apps.api.tenancy.routes import list_members
 
     members = await list_members(session, MAX_ROWS, _principal(context))
@@ -782,7 +854,18 @@ async def _team_members(
         _clean(f"- {member.name or 'unnamed'} · {member.role}") + f" [user_id {member.id}]"
         for member in members
     ]
-    return _listing(lines, shown_of="team members", nothing="This account has no team members.")
+    body = _listing(lines, shown_of="team members", nothing="This account has no team members.")
+    invitations = await list_pending_invitations(session, limit=MAX_ROWS)
+    if invitations:
+        body += "\nInvitations not yet accepted:\n" + "\n".join(
+            _clean(
+                f"- {invitation.email} · {invitation.role} · expires "
+                f"{_date(invitation.expires_at)} · sent {invitation.send_count} time(s)"
+            )
+            + f" [invitation_id {invitation.id}]"
+            for invitation in invitations
+        )
+    return body
 
 
 # --- voices_offered --------------------------------------------------------------------
@@ -806,6 +889,66 @@ async def _voices_offered(
         for voice in rows
     ]
     return _listing(lines, shown_of="voices", nothing="No voice can be chosen right now.")
+
+
+# --- billing_settings ------------------------------------------------------------------
+
+
+async def _billing_settings(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """Credits & billing's settings reads: the spending limits (`caps.read_caps` and
+    `read_spend_counters`), auto-recharge (`read_auto_recharge`), the low-credit line
+    (`chosen_low_balance_line`) and this month's AI help (`read_ai_quota`)."""
+    del args
+    from apps.api.billing.ai_quota import read_ai_quota
+    from apps.api.billing.auto_recharge import read_auto_recharge
+    from apps.api.billing.caps import read_caps, read_spend_counters
+    from apps.api.billing.service import LOW_BALANCE_INR, chosen_low_balance_line, to_paise
+
+    assert context.tenant_id is not None
+    tenant_id = context.tenant_id
+
+    def inr(value: Any) -> str:
+        return "none" if value is None else f"₹{to_paise(value)}"
+
+    caps = await read_caps(session, tenant_id=tenant_id)
+    counters = await read_spend_counters(session, tenant_id=tenant_id)
+    auto = await read_auto_recharge(session, tenant_id=tenant_id)
+    line = await chosen_low_balance_line(session, tenant_id=tenant_id)
+    quota = await read_ai_quota(session, tenant_id=tenant_id)
+    lines = [
+        f"Spending limit this month: the account's own {inr(caps.client_cap_spend)} and "
+        f"{caps.client_cap_min or 'no'} minutes; the plan's {inr(caps.admin_cap_spend)}. "
+        f"Used {inr(counters.billed_inr)} and {to_paise(counters.minutes_used)} minutes"
+        + ("; outgoing calls are stopped by the limit." if counters.capped else "."),
+        (
+            f"Auto-recharge on: adds {inr(auto.amount_inr)} below {inr(auto.threshold_inr)}, "
+            f"at most {inr(auto.monthly_cap_inr)} a month."
+            if auto.enabled
+            else "Auto-recharge off"
+            + (
+                "; a payment method is approved."
+                if auto.mandate_status == "confirmed"
+                else "; no automatic payment method is approved (the person does that)."
+            )
+        ),
+        (
+            f"Low-credit warning below {inr(LOW_BALANCE_INR)} (Calevate's)."
+            if line is None
+            else "Low-credit warning off."
+            if line == 0
+            else f"Low-credit warning below {inr(line)}."
+        ),
+        f"AI help {quota.month}: used {inr(quota.used_inr)} of {inr(quota.allowance_inr)}; "
+        + (
+            "more can be added now (`ai_allowance_extra`)."
+            if quota.extra_unavailable is None
+            else f"more cannot be added ({quota.extra_unavailable})."
+        ),
+        "The assistant never takes payments or approves payment methods.",
+    ]
+    return _clean("\n".join(lines))
 
 
 # --- the registry ----------------------------------------------------------------------
@@ -905,8 +1048,8 @@ CONSOLE_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="numbers_list",
         description=(
-            "This account's phone numbers (masked), which agent each belongs to, whether "
-            "it answers calls and its monthly price, and whether a new number can be bought."
+            "This account's phone numbers (masked) with their agent and price, whether one "
+            "can be bought, existing numbers forwarded here, calls at once and the backup phone."
         ),
         parameters=_object({}),
         permission="org:read",
@@ -934,7 +1077,7 @@ CONSOLE_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         description=(
             "The account's credit balance, how long it lasts, whether outbound calling is "
             "stopped for credit, recent statements, and where to add credit. The assistant "
-            "never takes payments."
+            "never takes payments. Limits and auto-recharge: `billing_settings`."
         ),
         parameters=_object({}),
         permission="wallet:read",
@@ -954,8 +1097,8 @@ CONSOLE_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="integrations_status",
         description=(
-            "The account's lead sources, its outbound connections (webhooks and "
-            "spreadsheets) and any deliveries that failed recently, with where to set them up."
+            "Lead sources, how new leads are called, leads held after hours, outbound "
+            "connections, Google Sheets connection and failed deliveries, with their ids."
         ),
         parameters=_object({}),
         permission="org:read",
@@ -994,8 +1137,8 @@ CONSOLE_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="team_members",
         description=(
-            "The people on this account's team, with their role and the id `lead_assign` "
-            "takes. Names only — never emails."
+            "The team with roles and user ids (`lead_assign` takes one), and invitations "
+            "not yet accepted."
         ),
         parameters=_object({}),
         permission="org:read",
@@ -1013,6 +1156,16 @@ CONSOLE_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ),
     # D-893 (L4): one agent's set-up, a part at a time, for the agent actions.
     AGENT_SETTINGS_READ,
+    ReadTool(
+        name="billing_settings",
+        description=(
+            "Spending limits, auto-recharge, the low-credit warning and this month's AI help "
+            "allowance. For the balance itself use `billing_overview`."
+        ),
+        parameters=_object({}),
+        permission="billing:read",
+        run=_billing_settings,
+    ),
 )
 
 CONSOLE_READ_TOOL_NAMES: Final[frozenset[str]] = frozenset(t.name for t in CONSOLE_READ_TOOLS)

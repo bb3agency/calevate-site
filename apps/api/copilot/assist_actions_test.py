@@ -21,6 +21,7 @@ from tests.api_security_test import _make_tenant
 
 from apps.api.agents import lead_fields
 from apps.api.copilot import assist_actions, write_tools
+from apps.api.copilot.account_actions import ACCOUNT_ACTIONS
 from apps.api.copilot.actions import WriteRefusedError
 from apps.api.copilot.agent_setup_actions import AGENT_SETUP_ACTIONS
 from apps.api.copilot.agent_tool_actions import AGENT_TOOL_ACTIONS
@@ -63,8 +64,13 @@ def test_each_is_on_its_buttons_permission_and_only_the_form_filler_skips_the_cl
         assert (tool.tier, tool.permission) == (tier, permission), name
     assert [t.name for t in assist_actions.ASSIST_ACTIONS] == list(expected)
     count = len(assist_actions.ASSIST_ACTIONS)
-    # D-854's pinned answers and D-893's agent actions were appended after them.
-    after = len(FACT_ACTIONS) + len(AGENT_SETUP_ACTIONS) + len(AGENT_TOOL_ACTIONS)
+    # D-854's pinned answers and D-893's agent and account actions were appended after them.
+    after = (
+        len(FACT_ACTIONS)
+        + len(AGENT_SETUP_ACTIONS)
+        + len(AGENT_TOOL_ACTIONS)
+        + len(ACCOUNT_ACTIONS)
+    )
     assert write_tools.WRITE_TOOLS[-count - after : -after] == assist_actions.ASSIST_ACTIONS
 
 

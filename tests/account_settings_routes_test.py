@@ -15,12 +15,11 @@ import uuid
 from decimal import Decimal
 
 import httpx
-from sqlalchemy import text
-from tests.api_security_test import _make_tenant
-
 from apps.api.billing import service as billing_service
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
+from sqlalchemy import text
+from tests.api_security_test import _make_tenant
 
 
 def _client() -> httpx.AsyncClient:
@@ -138,7 +137,10 @@ async def test_staff_may_not_edit_an_endpoint() -> None:
     staff = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
-            text("INSERT INTO users (id, email, created_at, updated_at) VALUES (:i, :e, now(), now())"),
+            text(
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
+            ),
             {"i": staff, "e": f"{staff}@example.com"},
         )
     async with tenant_session(tenant_id) as session:
@@ -262,7 +264,10 @@ async def test_staff_may_not_move_the_low_balance_line() -> None:
     staff = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
-            text("INSERT INTO users (id, email, created_at, updated_at) VALUES (:i, :e, now(), now())"),
+            text(
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
+            ),
             {"i": staff, "e": f"{staff}@example.com"},
         )
     async with tenant_session(tenant_id) as session:

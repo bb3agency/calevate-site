@@ -102,6 +102,7 @@ from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance import dnc
 from apps.api.compliance.audit import write_audit
 from apps.api.copilot import action_log
+from apps.api.copilot.account_actions import ACCOUNT_ACTIONS
 from apps.api.copilot.actions import (
     DOES_IT,
     PROPOSES_ONLY,
@@ -963,6 +964,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     # direct actions, settings, hand-over, in-call actions and lead details.
     *AGENT_SETUP_ACTIONS,
     *AGENT_TOOL_ACTIONS,
+    # D-893 lane L6: numbers, team, settings, integrations and billing settings.
+    *ACCOUNT_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}

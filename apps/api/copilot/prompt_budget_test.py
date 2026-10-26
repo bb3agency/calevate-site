@@ -32,11 +32,11 @@ from apps.api.copilot.schemas import (
 #: live agent's capture fields are confirmed first, which needs a confirm-tier twin as
 #: `agent_edit_live` is, because a tool's tier is fixed per tool. It also includes the
 #: first-agent chat's three abilities (D-854, ~320 tokens): `agent_create`'s `job`, the
-#: opening line on `agent_edit`, and `knowledge_facts_pin`. D-893's agent-page actions and
-#: `agent_settings` add ~2,600 while each action is still its own tool; the area tools
-#: (`docs/PIP-AGENT-PLAN.md` §3 F1) replace the per-tool array and bring the client prefix
-#: under 12,000.
-PREFIX_BUDGET_TOKENS = {"client": 21_400, "admin_account": 9_500, "admin_console": 6_500}
+#: opening line on `agent_edit`, and `knowledge_facts_pin`. D-893's agent-page actions,
+#: `agent_settings` and the 24 account actions add ~6,300 while each action is still its own
+#: tool; the area tools (`docs/PIP-AGENT-PLAN.md` §3 F1) replace the per-tool array and bring
+#: the client prefix under 12,000.
+PREFIX_BUDGET_TOKENS = {"client": 25_100, "admin_account": 9_500, "admin_console": 6_500}
 
 
 def _compact(value: Any) -> str:

@@ -29,6 +29,7 @@ from tests.lead_dial_routes_test import (  # reuse, never re-implement
 )
 
 from apps.api.copilot import action_log, write_tools
+from apps.api.copilot.account_actions import ACCOUNT_ACTIONS
 from apps.api.copilot.agent_setup_actions import AGENT_SETUP_ACTIONS
 from apps.api.copilot.agent_tool_actions import AGENT_TOOL_ACTIONS
 from apps.api.copilot.assist_actions import ASSIST_ACTIONS
@@ -146,6 +147,7 @@ def test_the_console_actions_are_appended_after_the_earlier_ones() -> None:
         + len(FACT_ACTIONS)
         + len(AGENT_SETUP_ACTIONS)
         + len(AGENT_TOOL_ACTIONS)
+        + len(ACCOUNT_ACTIONS)
     )
     assert names[-len(console) - later : -later] == console
     assert len(set(names)) == len(names)
