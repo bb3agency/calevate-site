@@ -132,10 +132,14 @@ async def _add_member(tenant_id: UUID, role: str) -> UUID:
 # --- the registry ----------------------------------------------------------------------------
 
 
-def test_the_account_actions_are_appended_last_and_each_has_an_area() -> None:
+def test_the_account_actions_are_appended_as_one_block_and_each_has_an_area() -> None:
+    # Appended, never inserted: the tool array is the cached prefix, so the block keeps its
+    # order and only later lanes' tools follow it.
     names = [tool.name for tool in write_tools.WRITE_TOOLS]
     mine = [tool.name for tool in ACCOUNT_ACTIONS]
-    assert names[-len(mine) :] == mine
+    start = names.index(mine[0])
+    assert names[start : start + len(mine)] == mine
+    assert start > len(names) // 2
     assert set(ACCOUNT_TOOL_AREAS) == set(mine)
     assert set(ACCOUNT_TOOL_AREAS.values()) <= {
         "numbers",
