@@ -226,6 +226,7 @@ async def test_the_export_carries_the_lead_the_calls_and_the_transcript() -> Non
         # DISCLOSURE cannot appear without a test saying so.
         "campaign_contacts": 0,
         "remembered_facts": 0,
+        "callbacks": 0,
     }
 
 
@@ -283,6 +284,7 @@ async def test_a_number_we_hold_nothing_about_gets_an_empty_but_valid_document()
         "recordings_available": 0,
         "campaign_contacts": 0,
         "remembered_facts": 0,
+        "callbacks": 0,
     }
 
 
@@ -371,6 +373,7 @@ async def test_an_undeclared_field_in_the_document_is_refused_not_dropped() -> N
                     "recordings_available": 0,
                     "campaign_contacts": 0,
                     "remembered_facts": 0,
+                    "callbacks": 0,
                 },
                 "whatsapp_threads": [{"text": "raw message body"}],
             }
@@ -580,3 +583,45 @@ async def test_what_an_agent_remembers_is_disclosed_and_a_scrubbed_memory_is_not
     assert all(entry["fact"] for entry in document["remembered"]), (
         "an emptied memory was listed, which tells the subject we hold something we do not"
     )
+
+
+async def test_a_promised_call_back_is_disclosed_with_its_note_masked() -> None:
+    """§12 erases `scheduled_callbacks` — the number and the agent's note of what the
+    caller wanted — so §11 has to report it. A caller who asked to be rung back and then
+    asked what we hold was told nothing about the promise.
+
+    FAILS IF: the export stops reading `scheduled_callbacks`, or releases another person's
+    number from the note unmasked.
+    """
+    tenant_id, agent_id, _, _ = await _tenant()
+    caller = f"+91904{uuid.uuid4().int % 10000000:07d}"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO scheduled_callbacks (id, tenant_id, agent_id, "
+                "source_execution_id, phone_e164, requested_at, booked_at, status, note, "
+                "created_at, updated_at) VALUES (:i, :t, :a, :e, :p, now() + interval '1 day', "
+                "now(), 'scheduled', :n, now(), now())"
+            ),
+            {
+                "i": uuid.uuid4(),
+                "t": tenant_id,
+                "a": agent_id,
+                "e": f"exec-{uuid.uuid4().hex[:8]}",
+                "p": caller,
+                "n": "Wants a call about the plot; or ring his brother on 9876500123",
+            },
+        )
+        await session.commit()
+
+    async with tenant_session(tenant_id) as session:
+        document = await build_subject_export(session, tenant_id=tenant_id, phone_e164=caller)
+
+    [promise] = document["callbacks"]
+    assert promise["status"] == "scheduled"
+    assert promise["requested_at"] and promise["booked_at"]
+    assert promise["settled_at"] is None
+    assert promise["note"].startswith("Wants a call about the plot")
+    assert "9876500123" not in promise["note"], "another person's number left unmasked"
+    assert document["counts"]["callbacks"] == 1
+    SubjectExportOut.model_validate(document)

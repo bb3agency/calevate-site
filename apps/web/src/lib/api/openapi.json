@@ -42689,6 +42689,69 @@
         "title": "SubjectExportCallOut",
         "type": "object"
       },
+      "SubjectExportCallbackOut": {
+        "additionalProperties": false,
+        "description": "A call-back an agent promised this person (`scheduled_callbacks`).\n\n\u00a712 erases the row's number and note; this is its \u00a711 twin. `note` is the agent's\none-line paraphrase of what the caller wanted, masked like the call summary.",
+        "properties": {
+          "booked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booked At"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "requested_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested At"
+          },
+          "settled_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settled At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "booked_at",
+          "requested_at",
+          "status",
+          "settled_at",
+          "note"
+        ],
+        "title": "SubjectExportCallbackOut",
+        "type": "object"
+      },
       "SubjectExportCampaignContactOut": {
         "additionalProperties": false,
         "description": "This number on a client's uploaded calling list, whether or not it was ever called.\n\nPresent for `SubjectExportDoNotCallOut`'s reason, and the case is starker: \u00a712 erases\n`campaign_contacts` and \u00a711 reported it nowhere, so a person whose number a client\nuploaded and who NEVER CALLED was told we hold nothing about them. They are the least\nlikely of anyone to know otherwise, having had no contact through which to find out.\n\n`has_custom_fields` rather than the fields themselves: `campaign_contacts.custom` holds\nwhatever columns the client uploaded as merge variables, in shapes we do not model. The\nboolean tells the subject such data exists so they can ask for it specifically \u2014 the\nsame halfway house as `recording_available` and `evidence_recorded`.",
@@ -42810,6 +42873,10 @@
         "additionalProperties": false,
         "description": "What the document contains, stated in the document.\n\n`leads` is the TRUE number of lead rows this number matched while `lead` carries only\nthe most recently updated one, so a second row (a tenant running two agents) is\nvisible in the answer rather than silently dropped from it.",
         "properties": {
+          "callbacks": {
+            "title": "Callbacks",
+            "type": "integer"
+          },
           "calls": {
             "title": "Calls",
             "type": "integer"
@@ -42846,7 +42913,8 @@
           "consent_records",
           "recordings_available",
           "campaign_contacts",
-          "remembered_facts"
+          "remembered_facts",
+          "callbacks"
         ],
         "title": "SubjectExportCountsOut",
         "type": "object"
@@ -43077,6 +43145,13 @@
         "additionalProperties": false,
         "description": "The whole disclosure, and therefore the whole output whitelist\n(BACKEND-PATTERNS \u00a71).",
         "properties": {
+          "callbacks": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportCallbackOut"
+            },
+            "title": "Callbacks",
+            "type": "array"
+          },
           "calls": {
             "items": {
               "$ref": "#/components/schemas/SubjectExportCallOut"
@@ -43158,6 +43233,7 @@
           "do_not_call",
           "campaign_contacts",
           "remembered",
+          "callbacks",
           "counts"
         ],
         "title": "SubjectExportOut",
@@ -43165,7 +43241,7 @@
       },
       "SubjectExportRememberedOut": {
         "additionalProperties": false,
-        "description": "A fact one of this account's agents had remembered about the subject (D-506/D-507).\n\nTHE SENTENCE ITSELF IS DISCLOSED, unlike a campaign's `custom` fields, and the\ndifference is who wrote it: `custom` is the client's data about the person, while this\nis OUR distilled sentence about them. A subject access request is precisely the\ninstrument for reading what a company has written down about you.\n\nNothing writes these yet \u2014 the producer is unbuilt and `agents.caller_memory_enabled`\ndefaults false \u2014 so this list is empty on every account today. It is modelled anyway,\nbecause a disclosure that silently lags a new store is the exact defect that made this\ndocument incomplete in the first place.",
+        "description": "A fact one of this account's agents had remembered about the subject (D-506/D-507).\n\nTHE SENTENCE ITSELF IS DISCLOSED, unlike a campaign's `custom` fields, and the\ndifference is who wrote it: `custom` is the client's data about the person, while this\nis OUR distilled sentence about them. A subject access request is precisely the\ninstrument for reading what a company has written down about you.\n\nWritten only for agents whose client switched caller memory on\n(`agents.caller_memory_enabled`, default false), so the list is empty on most accounts.",
         "properties": {
           "fact": {
             "title": "Fact",

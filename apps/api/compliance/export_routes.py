@@ -255,14 +255,27 @@ class SubjectExportRememberedOut(Strict):
     is OUR distilled sentence about them. A subject access request is precisely the
     instrument for reading what a company has written down about you.
 
-    Nothing writes these yet — the producer is unbuilt and `agents.caller_memory_enabled`
-    defaults false — so this list is empty on every account today. It is modelled anyway,
-    because a disclosure that silently lags a new store is the exact defect that made this
-    document incomplete in the first place.
+    Written only for agents whose client switched caller memory on
+    (`agents.caller_memory_enabled`, default false), so the list is empty on most accounts.
     """
 
     fact: str
     occurred_at: str | None
+
+
+class SubjectExportCallbackOut(Strict):
+    """A call-back an agent promised this person (`scheduled_callbacks`).
+
+    §12 erases the row's number and note; this is its §11 twin. `note` is the agent's
+    one-line paraphrase of what the caller wanted, masked like the call summary.
+    """
+
+    booked_at: str | None
+    #: The time the caller was promised the call.
+    requested_at: str | None
+    status: str
+    settled_at: str | None
+    note: str | None
 
 
 class SubjectExportCountsOut(Strict):
@@ -280,6 +293,7 @@ class SubjectExportCountsOut(Strict):
     recordings_available: int
     campaign_contacts: int
     remembered_facts: int
+    callbacks: int
 
 
 class SubjectExportOut(Strict):
@@ -300,6 +314,7 @@ class SubjectExportOut(Strict):
     do_not_call: SubjectExportDoNotCallOut
     campaign_contacts: list[SubjectExportCampaignContactOut]
     remembered: list[SubjectExportRememberedOut]
+    callbacks: list[SubjectExportCallbackOut]
     counts: SubjectExportCountsOut
 
 
@@ -366,6 +381,7 @@ async def subject_export(
 
 __all__ = [
     "SubjectExportCallOut",
+    "SubjectExportCallbackOut",
     "SubjectExportConsentOut",
     "SubjectExportCountsOut",
     "SubjectExportIn",

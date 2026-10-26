@@ -27907,6 +27907,25 @@ export interface components {
             summary_local?: string | null;
         };
         /**
+         * SubjectExportCallbackOut
+         * @description A call-back an agent promised this person (`scheduled_callbacks`).
+         *
+         *     §12 erases the row's number and note; this is its §11 twin. `note` is the agent's
+         *     one-line paraphrase of what the caller wanted, masked like the call summary.
+         */
+        SubjectExportCallbackOut: {
+            /** Booked At */
+            booked_at: string | null;
+            /** Note */
+            note: string | null;
+            /** Requested At */
+            requested_at: string | null;
+            /** Settled At */
+            settled_at: string | null;
+            /** Status */
+            status: string;
+        };
+        /**
          * SubjectExportCampaignContactOut
          * @description This number on a client's uploaded calling list, whether or not it was ever called.
          *
@@ -27961,6 +27980,8 @@ export interface components {
          *     visible in the answer rather than silently dropped from it.
          */
         SubjectExportCountsOut: {
+            /** Callbacks */
+            callbacks: number;
             /** Calls */
             calls: number;
             /** Campaign Contacts */
@@ -28070,6 +28091,8 @@ export interface components {
          *     (BACKEND-PATTERNS §1).
          */
         SubjectExportOut: {
+            /** Callbacks */
+            callbacks: components["schemas"]["SubjectExportCallbackOut"][];
             /** Calls */
             calls: components["schemas"]["SubjectExportCallOut"][];
             /** Campaign Contacts */
@@ -28098,10 +28121,8 @@ export interface components {
          *     is OUR distilled sentence about them. A subject access request is precisely the
          *     instrument for reading what a company has written down about you.
          *
-         *     Nothing writes these yet — the producer is unbuilt and `agents.caller_memory_enabled`
-         *     defaults false — so this list is empty on every account today. It is modelled anyway,
-         *     because a disclosure that silently lags a new store is the exact defect that made this
-         *     document incomplete in the first place.
+         *     Written only for agents whose client switched caller memory on
+         *     (`agents.caller_memory_enabled`, default false), so the list is empty on most accounts.
          */
         SubjectExportRememberedOut: {
             /** Fact */
@@ -32664,7 +32685,9 @@ export interface operations {
     admin_forget_v1_admin_engine_workspaces_tenants__tenant_id__numbers__number_id__forget_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path: {
                 tenant_id: string;
                 number_id: string;
@@ -33254,7 +33277,9 @@ export interface operations {
     record_tenant_engine_number_v1_admin_numbers_tenants__tenant_id__engine_record_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };

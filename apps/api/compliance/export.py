@@ -421,9 +421,9 @@ async def build_subject_export(
     # company has written down about you. Scrubbed rows are excluded — an erased memory is
     # gone, and listing an empty string would imply we still hold something.
     #
-    # NOTHING WRITES THESE YET: the producer is unbuilt and the per-agent switch defaults
-    # false. Included anyway, because the export must be complete on the day it does, and
-    # a disclosure that silently lags a new store is the defect this whole section is.
+    # Written by `workers/caller_memory_distil.py` only for agents whose client switched
+    # caller memory on (`agents.caller_memory_enabled`, default false), so this list is
+    # empty on most accounts.
     memory_rows = (
         await session.execute(
             text(
@@ -438,6 +438,32 @@ async def build_subject_export(
         {"fact": str(row[0]), "occurred_at": _iso(row[1])} for row in memory_rows
     ]
 
+    # THE CALL-BACKS PROMISED TO THIS PERSON. §12 erases `scheduled_callbacks` (the number
+    # and the note, `workers/retention.DERIVED_COPIES`) and §11 reported it nowhere, so a
+    # caller who asked to be rung back was told we held no such promise. The note is the
+    # agent's one-line paraphrase of what they wanted — model prose about their call, so
+    # it is disclosed like the call summary and masked the same way.
+    callback_rows = (
+        await session.execute(
+            text(
+                "SELECT booked_at, requested_at, status, settled_at, note "
+                "FROM scheduled_callbacks WHERE phone_e164 = :phone "
+                "ORDER BY booked_at ASC, id ASC"
+            ),
+            {"phone": phone_e164},
+        )
+    ).all()
+    callbacks: list[dict[str, Any]] = [
+        {
+            "booked_at": _iso(row[0]),
+            "requested_at": _iso(row[1]),
+            "status": str(row[2]),
+            "settled_at": _iso(row[3]),
+            "note": mask_foreign_numbers(row[4], subject_phone=phone_e164),
+        }
+        for row in callback_rows
+    ]
+
     document: dict[str, Any] = {
         "phone_e164": phone_e164,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -449,6 +475,7 @@ async def build_subject_export(
         "do_not_call": do_not_call,
         "campaign_contacts": campaign_contacts,
         "remembered": remembered,
+        "callbacks": callbacks,
         "counts": {
             "leads": len(lead_rows),
             "calls": len(calls),
@@ -457,6 +484,7 @@ async def build_subject_export(
             "recordings_available": sum(1 for call in calls if call["recording_available"]),
             "campaign_contacts": len(campaign_contacts),
             "remembered_facts": len(remembered),
+            "callbacks": len(callbacks),
         },
     }
 
