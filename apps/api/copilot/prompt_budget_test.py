@@ -27,17 +27,14 @@ from apps.api.copilot.schemas import (
 )
 
 #: The largest cacheable prefix each surface may carry, in estimated tokens. A change that
-#: grows one past its budget fails here and has to argue for the room. The client budget
-#: includes `agent_capture_fields_set_live` (D-839, ~310 tokens): a
-#: live agent's capture fields are confirmed first, which needs a confirm-tier twin as
-#: `agent_edit_live` is, because a tool's tier is fixed per tool. It also includes the
-#: first-agent chat's three abilities (D-854, ~320 tokens): `agent_create`'s `job`, the
-#: opening line on `agent_edit`, and `knowledge_facts_pin`. D-893's agent-page actions,
-#: `agent_settings` and the 24 account actions add ~6,300 while each action is still its own
-#: tool; the area tools (`docs/PIP-AGENT-PLAN.md` §3 F1) replace the per-tool array and bring
-#: the client prefix under 12,000. The admin surface with an account open carries the client
-#: read tools too, and D-893's knowledge reads add ~40 there.
-PREFIX_BUDGET_TOKENS = {"client": 25_100, "admin_account": 9_550, "admin_console": 6_500}
+#: grows one past its budget fails here and has to argue for the room. The client prefix is
+#: the system prompt plus the area tools (D-893): ~11,500 when the area tools landed (the
+#: tool array went from ~13,300 to ~6,100), with room for the D-893 lanes' actions up to
+#: the tool-array budget below.
+PREFIX_BUDGET_TOKENS = {"client": 17_500, "admin_account": 9_500, "admin_console": 6_500}
+
+#: The client tool array alone (PIP-AGENT-PLAN §2a): every read and action of every area.
+TOOL_ARRAY_BUDGET_TOKENS = 12_000
 
 
 def _compact(value: Any) -> str:
@@ -141,6 +138,12 @@ def test_every_surface_prefix_is_inside_its_budget() -> None:
     for name, budget in PREFIX_BUDGET_TOKENS.items():
         realm, tools, _live_block = _surfaces()[name]
         assert _prefix_tokens(realm, tools) <= budget, name
+
+
+def test_the_client_tool_array_is_inside_its_budget() -> None:
+    assert prompt_tokens_of(_compact(copilot_service.tool_array("client"))) <= (
+        TOOL_ARRAY_BUDGET_TOKENS
+    )
 
 
 def test_the_prefix_is_identical_across_users_tenants_times_and_screens() -> None:

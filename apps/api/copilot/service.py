@@ -27,6 +27,7 @@ turns, then an authored message telling them what to do instead.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import time
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
@@ -54,6 +55,7 @@ from apps.api.copilot import (
     admin_actions,
     admin_screens,
     admin_tools,
+    areas,
     attachments,
     console_reads,
     jobs,
@@ -1087,18 +1089,52 @@ def tool_array(realm: CopilotRealm, *, account_open: bool = True) -> list[dict[s
         ]
     return [
         prompt_module.set_fields_tool(),
-        *[_read_schema(tool) for tool in realm_read_tools(realm)],
-        *write_tools.write_tool_schemas(),
-        # NAVIGATION, LAST, AND CLIENT-REALM ONLY (D-524). `screens.py` is an inventory of
-        # the CLIENT console and there is no admin equivalent, so offering the tool to an
-        # operator would be offering one whose every argument is a refusal. Appended rather
-        # than inserted for the reason `set_fields` stays first: the array is the cacheable
-        # prefix, so a new tool costs one re-warm at deploy where a reordering would cost
-        # every request behind it.
+        # D-893: every client read and action, as two tools per area (`areas.py`). The
+        # registry behind them is unchanged; `area_surface().resolve` turns a call back into
+        # the registry call it names.
+        *[dict(tool) for tool in area_surface().tools],
+        # NAVIGATION AND THE BACKGROUND JOB, CLIENT-REALM ONLY (D-524, D-694). `screens.py`
+        # is an inventory of the CLIENT console and there is no admin equivalent.
         navigation.open_screen_tool(),
-        # D-694, APPENDED for the reason above: the background-job tool.
         background_tool(),
     ]
+
+
+@functools.cache
+def area_surface() -> areas.AreaSurface:
+    """The client realm's area tools, built once per process from the registries."""
+    return areas.build_surface(realm_read_tools("client"), write_tools.WRITE_TOOLS)
+
+
+def offered_names(realm: CopilotRealm, *, account_open: bool = True) -> list[str]:
+    """Every registry name the model can reach on this surface, in wire order: a flat
+    tool's own name, or each action of an area tool."""
+    surface = area_surface()
+    names: list[str] = []
+    for tool in tool_array(realm, account_open=account_open):
+        name = str(tool["function"]["name"])
+        names += list(surface.actions[name]) if surface.is_area_tool(name) else [name]
+    return names
+
+
+def _dispatch_calls(
+    realm: CopilotRealm, calls: Sequence[chat.ToolCall]
+) -> tuple[list[chat.ToolCall], tuple[chat.ToolCall, str] | None]:
+    """The registry calls the model's calls name, and the first area call that names none.
+
+    The admin realm offers no area tool, so its calls pass through. An area call that names
+    no action, or carries arguments that action does not take, is returned with the
+    sentence the model reads (`areas.AreaCallError`), so the loop hands it back."""
+    if realm != "client":
+        return list(calls), None
+    surface = area_surface()
+    resolved: list[chat.ToolCall] = []
+    for call in calls:
+        try:
+            resolved.append(surface.resolve(call))
+        except areas.AreaCallError as refused:
+            return resolved, (call, refused.reason)
+    return resolved, None
 
 
 def _read_schema(tool: tools_module.ReadTool) -> dict[str, Any]:
@@ -1204,7 +1240,10 @@ async def _run_read_tools(
     fresh: list[int] = []
     repeats: list[int] = []
     for index, call in permitted:
-        key = (call.name, call.arguments)
+        # Keyed on the call as the model wrote it, which is what the history replays
+        # (`visible_lookups`); for an area call that is the `<area>_find` call.
+        sent = call.wire or call
+        key = (sent.name, sent.arguments)
         (repeats if key in already_run else fresh).append(index)
         already_run.add(key)
 
@@ -1720,7 +1759,10 @@ async def _run_tool_loop(
     #: and a lookup whose result was cleared must be allowed to run again — see
     #: `_run_read_tools` for why a visible one is not.
     lookups_run: set[tuple[str, str]] = set()
-    read_names = frozenset(_read_tool_registry(realm))
+    # The history names an area read as `<area>_find`, so those clear like any read.
+    read_names = frozenset(_read_tool_registry(realm)) | (
+        area_surface().find_names if realm == "client" else frozenset()
+    )
 
     for turn_index in range(limits.max_turns):
         outcome: chat.ChatOutcome | None = None
@@ -1769,18 +1811,35 @@ async def _run_tool_loop(
                 extra={"turn": turn_index, "finish_reason": outcome.finish_reason},
             )
 
+        # AREA CALLS BECOME THE REGISTRY CALLS THEY NAME (D-893), before anything below
+        # reads a name, so the tier, the permission and the planner are the registry's. A
+        # wrong action or argument goes back to the model with the action's schema.
+        tool_calls, misnamed = _dispatch_calls(realm, outcome.tool_calls)
+        if misnamed is not None:
+            call, reason = misnamed
+            refusal_reasons = (reason,)
+            log.info("copilot_area_call_refused", extra={"turn": turn_index, "tool": call.name})
+            yield CopilotEvent(step=_step_start(call))
+            yield CopilotEvent(
+                step=_step_end(call, status="refused", detail=reason, started_at=None)
+            )
+            messages = _with_tool_result(
+                messages, outcome, call, "NOTHING was done. " + reason + "."
+            )
+            continue
+
         fill_calls = [
-            call for call in outcome.tool_calls if call.name == prompt_module.SET_FIELDS_TOOL_NAME
+            call for call in tool_calls if call.name == prompt_module.SET_FIELDS_TOOL_NAME
         ]
         # THE ADMIN REALM'S OWN ACTIONS (D-694) are confirm-tier by construction
         # (`admin_actions.AdminActionTool.__post_init__`), so they join the confirm path.
         admin_calls = (
-            [call for call in outcome.tool_calls if admin_actions.is_admin_action(call.name)]
+            [call for call in tool_calls if admin_actions.is_admin_action(call.name)]
             if realm == "admin"
             else []
         )
         write_calls = [
-            call for call in outcome.tool_calls if write_tools.is_write_tool(call.name)
+            call for call in tool_calls if write_tools.is_write_tool(call.name)
         ] + admin_calls
         # THE TIER SPLIT, READ FROM THE REGISTRY. `tier_of` is the one reader; a call whose
         # name is in `write_calls` always has a tier, so the `== "confirm"` test is total
@@ -1803,14 +1862,12 @@ async def _run_tool_loop(
         # touches no row, so it has no planner, no executor, no idempotency record and no
         # audit row (`navigation.py` argues why putting one on the hash chain would be
         # wrong). Both realms since D-694, each against its own screen inventory.
-        nav_calls = [
-            call for call in outcome.tool_calls if call.name == navigation.OPEN_SCREEN_TOOL_NAME
-        ]
+        nav_calls = [call for call in tool_calls if call.name == navigation.OPEN_SCREEN_TOOL_NAME]
         # A REQUEST HANDED TO A BACKGROUND JOB (D-694). Client realm only — the tool is only
         # in that array, so on the admin realm the name falls to the read path and is told
         # there is no such tool.
         background_calls = (
-            [call for call in outcome.tool_calls if call.name == BACKGROUND_TOOL_NAME]
+            [call for call in tool_calls if call.name == BACKGROUND_TOOL_NAME]
             if realm == "client"
             else []
         )
@@ -1820,7 +1877,7 @@ async def _run_tool_loop(
         # never explains itself.
         read_calls = [
             call
-            for call in outcome.tool_calls
+            for call in tool_calls
             if call.name != prompt_module.SET_FIELDS_TOOL_NAME
             and call not in write_calls
             and call not in nav_calls

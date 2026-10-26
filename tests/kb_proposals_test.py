@@ -144,7 +144,7 @@ def test_the_tool_is_registered_in_the_one_registry_and_the_one_composer() -> No
         "propose_knowledge moved within WRITE_TOOLS — registration order is wire order and "
         "part of the cacheable prompt prefix, so tools APPEND and never reorder"
     )
-    offered = [schema["function"]["name"] for schema in copilot_service.tool_array("client")]
+    offered = copilot_service.offered_names("client")
     assert TOOL in offered
 
 

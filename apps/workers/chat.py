@@ -289,6 +289,10 @@ class ToolCall:
     #: that showed it has moved. Echoing an unknown object costs nothing; dropping a needed one
     #: fails the next turn.
     extra_content: Mapping[str, Any] | None = None
+    #: The call exactly as the model sent it, when this one is the registry call an area
+    #: tool named (`copilot/areas.py`). History is replayed with `wire`, because the model
+    #: was offered the area tool, never the registry one.
+    wire: ToolCall | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -508,7 +512,10 @@ def _tool_calls_of(message: Mapping[str, Any]) -> tuple[ToolCall, ...]:
 
 def replayed_tool_call(call: ToolCall) -> dict[str, Any]:
     """`call` as one entry of a replayed assistant turn's `tool_calls`, carrying back the
-    vendor's `extra_content` untouched when it sent one (see `ToolCall.extra_content`)."""
+    vendor's `extra_content` untouched when it sent one (see `ToolCall.extra_content`).
+    A dispatched area call is replayed as the model sent it (`ToolCall.wire`)."""
+    if call.wire is not None:
+        call = call.wire
     entry: dict[str, Any] = {
         "id": call.id,
         "type": "function",

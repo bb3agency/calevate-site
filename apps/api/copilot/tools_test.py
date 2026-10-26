@@ -1012,12 +1012,23 @@ def test_the_array_offers_set_fields_then_every_read_tool_then_every_write_tool(
     cacheable prefix — a reordering costs a cache miss on every request and no test that
     only compared sets would notice."""
     names = [schema["function"]["name"] for schema in copilot_service.tool_array("client")]
+    surface = copilot_service.area_surface()
+    area_names = [tool["function"]["name"] for tool in surface.tools]
+    # D-893: the reads and actions reach the model as the area tools, in `areas.AREAS` order.
+    assert names == ["set_fields", *area_names, "open_screen", "run_in_background"]
     read_names = [tool.name for tool in copilot_service.realm_read_tools("client")]
-    write_names = [schema["function"]["name"] for schema in write_tools.write_tool_schemas()]
-    assert names == ["set_fields", *read_names, *write_names, "open_screen", "run_in_background"]
     assert set(read_names) == tools.READ_TOOL_NAMES | console_reads.CONSOLE_READ_TOOL_NAMES
-    # The three families are disjoint: a name in two registries would make dispatch in
+    reachable = copilot_service.offered_names("client")
+    assert set(reachable) == {
+        "set_fields",
+        *read_names,
+        *(tool.name for tool in write_tools.WRITE_TOOLS),
+        "open_screen",
+        "run_in_background",
+    }
+    # The families are disjoint: a name in two registries would make dispatch in
     # `_run_tool_loop` depend on which check ran first.
+    assert len(set(reachable)) == len(reachable)
     assert len(set(names)) == len(names)
 
 

@@ -178,6 +178,27 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "healer_attest_rate": _l("Recording the rate you read", "Recorded the rate"),
 }
 
+#: An area call (D-893) is shown under the registry name it resolves to; the area's own
+#: name reaches the panel only when the call named no action it has.
+_AREA_WORDS: Final[dict[str, str]] = {
+    "calls": "calls",
+    "callbacks": "call-backs",
+    "leads": "leads",
+    "campaigns": "campaigns",
+    "agents": "agents",
+    "knowledge": "knowledge",
+    "numbers": "numbers",
+    "team": "team",
+    "settings": "settings",
+    "integrations": "connections",
+    "billing": "billing",
+    "reports": "reports",
+    "routines": "repeating jobs",
+}
+for _area, _words in _AREA_WORDS.items():
+    STEP_LABELS[f"{_area}_find"] = _l(f"Looking up your {_words}", f"Looked up your {_words}")
+    STEP_LABELS[f"{_area}_do"] = _l(f"Working on your {_words}", f"Worked on your {_words}")
+
 UNKNOWN: Final[StepLabel] = _l("Trying something", "Tried something it could not do")
 
 

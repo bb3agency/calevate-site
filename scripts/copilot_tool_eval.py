@@ -75,7 +75,7 @@ from uuid import UUID
 
 import httpx
 from apps.api.billing.ai_quota import assist_ledger_rows
-from apps.api.copilot import model_tiers, service, write_tools
+from apps.api.copilot import areas, model_tiers, service, write_tools
 from apps.api.copilot.prompt import SET_FIELDS_TOOL_NAME, assert_screen_fits, render_screen
 from apps.api.copilot.schemas import CopilotAskIn, CopilotRealm
 from apps.api.core.settings import get_settings
@@ -198,7 +198,17 @@ def tools_for(case: Case) -> list[dict[str, Any]]:
 
 
 def offered(case: Case) -> frozenset[str]:
-    return frozenset(tool["function"]["name"] for tool in tools_for(case))
+    """What a case may name: a flat tool's name, or `<area tool>:<action>` (D-893)."""
+    names = frozenset(tool["function"]["name"] for tool in tools_for(case))
+    if case.realm != "client":
+        return names
+    surface = service.area_surface()
+    return (names - frozenset(surface.actions)) | surface.labels()
+
+
+def label(case: Case, call: chat.ToolCall) -> str:
+    """How a call is scored: an area call by its area tool and action."""
+    return service.area_surface().label_of(call) if case.realm == "client" else call.name
 
 
 def fixture_problems(cases: Sequence[Case]) -> list[str]:
@@ -231,6 +241,11 @@ def server_refusal(case: Case, call: chat.ToolCall) -> tuple[str, ...]:
         except service.FillRefusedError as refused:
             return tuple(refused.reasons)
         return ()
+    if case.realm == "client":
+        try:
+            call = service.area_surface().resolve(call)
+        except areas.AreaCallError as refused:
+            return (refused.reason,)
     try:
         arguments = json.loads(call.arguments or "")
     except ValueError:
@@ -328,9 +343,9 @@ def model_turn(provider: str, model: str | None) -> ChooseTurn | None:
         outcome = await one(case, messages)
         if outcome is None:
             return Choice(calls=())
-        calls = tuple(call.name for call in outcome.tool_calls)
+        calls = tuple(label(case, call) for call in outcome.tool_calls)
         refusals = [(call, server_refusal(case, call)) for call in outcome.tool_calls]
-        refused = tuple(call.name for call, reasons in refusals if reasons)
+        refused = tuple(label(case, call) for call, reasons in refusals if reasons)
         usage: tuple[TokenUsage, ...] = (outcome.usage,) if outcome.usage else ()
         first = next(((call, reasons) for call, reasons in refusals if reasons), None)
         if first is None:
@@ -340,8 +355,10 @@ def model_turn(provider: str, model: str | None) -> ChooseTurn | None:
         retry = await one(case, after_refusal(messages, outcome, *first))
         if retry is None:
             return Choice(calls=calls, usage=usage, refused=refused, then=())
-        then = tuple(call.name for call in retry.tool_calls)
-        then_refused = tuple(call.name for call in retry.tool_calls if server_refusal(case, call))
+        then = tuple(label(case, call) for call in retry.tool_calls)
+        then_refused = tuple(
+            label(case, call) for call in retry.tool_calls if server_refusal(case, call)
+        )
         usage += (retry.usage,) if retry.usage else ()
         return Choice(
             calls=calls, usage=usage, refused=refused, then=then, then_refused=then_refused

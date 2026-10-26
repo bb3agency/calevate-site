@@ -67,7 +67,7 @@ def test_the_port_is_offered_to_the_model_on_every_request() -> None:
     by role, which the array's own byte-identity test forbids. A registry entry no composer
     emitted would be the dark half of the same defect this file exists to forbid.
     """
-    names = [schema["function"]["name"] for schema in copilot_service.tool_array("client")]
+    names = copilot_service.offered_names("client")
     assert "search_knowledge" in names
 
 
@@ -103,14 +103,10 @@ def test_the_schema_carries_no_field_that_could_name_another_account() -> None:
     """The complement of the test above, asserted on the SCHEMA rather than on behaviour: a
     tenant, agent or source argument would be a way for the model to widen its own scope,
     and adding one must fail here rather than in review."""
-    (tool,) = [
-        schema
-        for schema in copilot_service.tool_array("client")
-        if schema["function"]["name"] == "search_knowledge"
-    ]
+    action = copilot_service.area_surface().actions["knowledge_find"]["search_knowledge"]
     # `scope` (D-893 L8) chooses between two corpora of the SAME account — what the agents
     # say, or everything the business gave us — and names no account, agent or source.
-    assert list(tool["function"]["parameters"]["properties"]) == ["question", "scope"]
+    assert list(action.parameters["properties"]) == ["question", "scope"]
 
 
 async def test_a_question_with_nothing_on_file_is_told_to_say_so() -> None:

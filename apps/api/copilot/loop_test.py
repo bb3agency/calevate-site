@@ -1002,8 +1002,11 @@ async def test_every_request_offers_the_write_tool_and_every_read_tool(
     # Every family the registry composes actually reaches the wire: a read tool the loop
     # never sends is a question the model cannot answer, and a write tool it never sends
     # is a change it cannot offer.
-    assert set(names) >= tools_module.READ_TOOL_NAMES
-    assert {schema["function"]["name"] for schema in write_tools.write_tool_schemas()} <= set(names)
+    # Since D-893 they reach it as the actions of the area tools.
+    assert names == [tool["function"]["name"] for tool in service.tool_array("client")]
+    reachable = set(service.offered_names("client"))
+    assert reachable >= tools_module.READ_TOOL_NAMES
+    assert {tool.name for tool in write_tools.WRITE_TOOLS} <= reachable
 
 
 async def test_a_read_tool_result_is_fed_back_and_the_model_then_answers_in_prose(
@@ -1653,3 +1656,66 @@ async def test_a_proposal_is_planned_against_the_persons_own_messages(
     assert said == [("hello", "Draft the whole script for this agent")]
     assert script_actions.NO_ANSWERS_REASON in json.dumps(sent[1][-1])
     assert not [event for event in events if event.proposal is not None]
+
+
+# --- area tools (D-893) -----------------------------------------------------------------
+
+
+async def test_an_area_lookup_runs_the_read_tool_it_names_and_replays_the_area_call(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = _fake_tools(monkeypatch, {"business_snapshot": "Last 7 days: 3 calls."})
+    wire = json.dumps({"action": "business_snapshot", "args": {"days": 7}})
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("reports_find", wire)),
+            _tool_turn(("reports_find", wire)),
+            _turn(content="Three calls."),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    assert [(call["name"], json.loads(call["arguments"])) for call in seen] == [
+        ("business_snapshot", {"days": 7})
+    ], "the repeat of the same area call is not run twice"
+    replayed = sent[1][-2]["tool_calls"][0]["function"]
+    assert replayed == {"name": "reports_find", "arguments": wire}
+    running = [e.step.tool for e in events if e.step and e.step.status == "running"]
+    assert running[0] == "business_snapshot"
+
+
+async def test_an_area_action_reaches_the_registry_tool_and_its_tier(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    planned: list[tuple[str, dict[str, Any]]] = []
+
+    async def _plan(name: str, arguments: str, **kwargs: Any) -> Any:
+        planned.append((name, json.loads(arguments)))
+        raise write_tools.WriteRefusedError("not now")
+
+    monkeypatch.setattr(write_tools, "plan_write", _plan)
+    body = {"action": "dnc_add", "args": {"lead_id": "L1", "reason": "manual"}}
+    _scripted(
+        monkeypatch,
+        [_tool_turn(("leads_do", json.dumps(body))), _turn(content="I could not.")],
+    )
+    await _drain_with_tools()
+    assert planned == [("dnc_add", {"lead_id": "L1", "reason": "manual"})]
+
+
+async def test_a_wrong_area_argument_goes_back_to_the_model_with_the_schema(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = _fake_tools(monkeypatch, {})
+    body = {"action": "leads_search", "args": {"x": 1}}
+    sent = _scripted(
+        monkeypatch,
+        [_tool_turn(("leads_find", json.dumps(body))), _turn(content="Sorry.")],
+    )
+    events = await _drain_with_tools()
+    assert seen == []
+    result = str(sent[1][-1]["content"])
+    assert result.startswith("NOTHING was done.")
+    assert "`x` is not an argument" in result and '"status"' in result
+    assert [e.step.status for e in events if e.step] == ["running", "refused"]

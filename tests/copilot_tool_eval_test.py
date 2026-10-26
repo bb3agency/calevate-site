@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterator, Mapping, Sequence
 from decimal import Decimal
 from pathlib import Path
@@ -16,7 +17,7 @@ from typing import Any
 
 import httpx
 import pytest
-from apps.api.copilot import service
+from apps.api.copilot import areas, service
 from apps.api.copilot.admin_prompt import ADMIN_SYSTEM_PROMPT
 from apps.api.copilot.prompt import SCREEN_OPEN
 from apps.api.copilot.schemas import CopilotStepEvent
@@ -60,10 +61,10 @@ def test_the_oracle_scores_every_case_right(capsys: pytest.CaptureFixture[str]) 
     ("case_id", "calls", "failure"),
     [
         ("c-create-on-form", ("set_fields",), "wrong_fill"),
-        ("c-injected-note", ("dnc_add",), "forbidden"),
+        ("c-injected-note", ("leads_do:dnc_add",), "forbidden"),
         ("c-lead-count", (), "missed"),
-        ("c-thanks", ("business_snapshot",), "unwanted"),
-        ("c-lead-count", ("leads_semantic_search",), "wrong_tool"),
+        ("c-thanks", ("reports_find:business_snapshot",), "unwanted"),
+        ("c-lead-count", ("leads_find:leads_semantic_search",), "wrong_tool"),
         ("a-rate-untyped", ("healer_attest_rate",), "forbidden"),
     ],
 )
@@ -74,7 +75,7 @@ def test_the_scorer_names_each_failure(case_id: str, calls: tuple[str, ...], fai
 def test_a_case_that_allows_words_or_a_lookup_accepts_either() -> None:
     case = _case("c-buy-credit")
     assert harness.score(case, ()).right
-    assert harness.score(case, ("billing_overview",)).right
+    assert harness.score(case, ("billing_find:billing_overview",)).right
 
 
 def test_a_fixture_naming_a_tool_the_realm_lacks_is_refused(tmp_path: Path) -> None:
@@ -168,14 +169,19 @@ SIBLINGS = (
 )
 
 
-@pytest.mark.parametrize(("first", "second"), SIBLINGS)
-def test_overlapping_tools_each_name_the_other(first: str, second: str) -> None:
+def _what_the_model_reads(name: str) -> str:
+    """A flat tool's description, or an area action's one line (D-893)."""
     descriptions = {
         tool["function"]["name"]: tool["function"]["description"]
-        for tool in (*service.tool_array("client"), *service.tool_array("admin"))
+        for tool in service.tool_array("admin")
     }
-    assert f"`{second}`" in descriptions[first]
-    assert f"`{first}`" in descriptions[second]
+    return areas.ENTRY_LINES.get(name) or descriptions[name]
+
+
+@pytest.mark.parametrize(("first", "second"), SIBLINGS)
+def test_overlapping_tools_each_name_the_other(first: str, second: str) -> None:
+    assert re.search(rf"\b{second}\b", _what_the_model_reads(first))
+    assert re.search(rf"\b{first}\b", _what_the_model_reads(second))
 
 
 # --- the operator's live run (D-816) ------------------------------------------------------
@@ -247,7 +253,7 @@ def test_a_case_replays_its_history_before_the_screen_that_shows_the_present() -
     ("calls", "failures"),
     [
         (("set_fields",), {"wrong_fill", "forbidden", "unwanted"}),
-        (("agent_script_suggest",), {"forbidden", "unwanted"}),
+        (("agents_do:agent_script_suggest",), {"forbidden", "unwanted"}),
         ((), set()),
     ],
 )
@@ -480,6 +486,6 @@ def test_a_second_wrong_turn_the_server_refuses_again_is_reported_as_held(
 
 def test_a_read_before_asking_what_a_new_agent_should_do_is_fine() -> None:
     case = _case("c-agent-create-missing")
-    assert harness.score(case, ("agents_list",)).right
+    assert harness.score(case, ("agents_find:agents_list",)).right
     assert harness.score(case, ()).right
-    assert not harness.score(case, ("agent_create",)).right
+    assert not harness.score(case, ("agents_do:agent_create",)).right

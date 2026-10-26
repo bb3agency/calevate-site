@@ -13,6 +13,9 @@ A tool is one of four kinds. Pick the kind first; everything else follows from i
 | **Confirm action** | An irreversible or costly change. | same registry, `tier="confirm"` | only after a person clicks Confirm (or Approve, in a background job) |
 | **Admin action** | A change to PLATFORM state, by an operator. | `admin_actions.py` `ADMIN_ACTIONS` | confirm only, with the console button's step-up |
 
+Every client read and action is then given an AREA in `copilot/areas.py` (§2a, D-893); a
+client tool with no area fails `areas_test.py` and refuses to build.
+
 ## 1. The tier
 
 The tier answers one question: **can this be taken back, and does it reach a caller or spend
@@ -94,6 +97,41 @@ the whole realm's tool array is the cacheable prefix:
   afterwards. Do not restate them, and do not use capitals for emphasis.
 
 Keep it short: every sentence is repeated in every request of the realm.
+
+## 2a. Areas: what the model sees (D-893)
+
+The client model is not offered one schema per tool. It is offered two tools per area,
+`<area>_find` (the reads) and `<area>_do` (the actions), each taking `{"action": <registry
+name>, "args": {...}}` (`copilot/areas.py`, PIP-AGENT-PLAN §3 F1). The areas are `calls,
+callbacks, leads, campaigns, agents, knowledge, numbers, team, settings, integrations,
+billing, reports, routines`. The registry is unchanged and still decides everything:
+`service._dispatch_calls` turns an area call into the registry call it names before the loop
+reads a name, so the tier, permission, planner, executor, Undo and audit are the tool's own.
+
+Registering a client tool is therefore one more step:
+
+```python
+# apps/api/copilot/areas.py — ENTRIES, appended inside the area's block
+AreaEntry("lead_set_status", "leads", "one lead's status; many leads: leads_bulk_update"),
+```
+
+* `line` is all the model reads about the tool besides its generated `name(arg, ...)` and
+  `now` / `confirm` marker: a short clause saying what it is for and, where two tools
+  overlap, the sibling's name (`tests/copilot_tool_eval_test.py::SIBLINGS` checks both
+  directions). The full description in `action_schema` is no longer sent; keep it accurate,
+  it is what a reviewer reads.
+* The `args` object lists every argument name of the area with its type and enum, without
+  descriptions. A wrong action or argument is refused back to the model with that action's
+  complete parameter schema (`areas.AreaCallError`), and the model corrects the call. An
+  argument that may be null may be left out.
+* The area tools are not `strict` (the shape of `args` depends on `action`); `areas.py`
+  validates against the action's own schema instead.
+* Tool-choice cases name `<area tool>:<action>` (`leads_do:lead_set_status`); flat tools
+  (`set_fields`, `open_screen`, `run_in_background`) keep their names.
+* Budget: the client tool array is at most 12,000 estimated tokens
+  (`prompt_budget_test.TOOL_ARRAY_BUDGET_TOKENS`); it was ~13,300 as 71 tools and ~6,100 as
+  23 area tools.
+* The admin realm still offers its tools one by one.
 
 ## 3. The permission check, inside the tool
 
