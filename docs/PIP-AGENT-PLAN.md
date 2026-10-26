@@ -151,6 +151,7 @@ tests at each layer → docs. No orphan route, job, column, setting or component
 | L5 Knowledge & training | 18 practice tests · 20 facts teach/edit/delete/pin · 21 guided questions · 22 files and links · the Training tab redesign |
 | L6 Account | 23 numbers buy/release/assign/forwarding/call lines · 24 team · 25 profile, hours, line-protection phone, lead sources and calling rules · integrations · billing settings |
 | L7 Reports & routines | 26 questions and summaries over calls, leads and spend · routines from chat (create/edit/pause/delete, each run asks) |
+| L8 Knowledge store | the client's whole knowledge held as readable text on our side (PDFs and links extracted too, existing ones re-read) · Pip finds, opens and searches all of it and renames, replaces, removes or overrides items · a reader on each file and link · what the agents receive is unchanged unless the admin switch `kb_send_extracted_files` is on (D-868 waits on the vendor's reply) |
 
 ## 5. Guided questions (L5)
 
