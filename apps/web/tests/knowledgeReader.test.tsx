@@ -66,7 +66,7 @@ async function openReader(me: Me = OWNER, over: Routes = {}) {
     "/v1/me": me,
     "/v1/kb/sources": [],
     "/v1/kb/uploads": [MENU],
-    "/v1/kb/struggles": [],
+    "/v1/teach/questions": { items: [], open_count: 0 },
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/kb/teach/open": { teaching: null },

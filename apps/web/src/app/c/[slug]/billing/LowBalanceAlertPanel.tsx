@@ -16,7 +16,10 @@ import { useSetLowBalanceAlert, type Wallet } from "@/lib/api/wallet";
  * balance falls below it. "0" stops that warning; the one that says credit has RUN OUT is
  * always sent, because that is when calls stop. Money stays a decimal string (hard rule 7).
  */
-export function LowBalanceAlertPanel({ session, wallet }: { session: Session; wallet: Wallet }) {
+/** Only the warning line's two fields: the panel reads nothing else of the wallet. */
+export type AlertLine = Pick<Wallet, "low_balance_threshold_inr" | "low_balance_alert_chosen">;
+
+export function LowBalanceAlertPanel({ session, wallet }: { session: Session; wallet: AlertLine }) {
   const write = useWriteAccess(session, "org:manage", "change the low-credit warning");
   const save = useSetLowBalanceAlert(session);
   const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Saved" });

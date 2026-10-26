@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { LowBalanceAlertPanel } from "@/app/c/[slug]/billing/LowBalanceAlertPanel";
+import { type AlertLine, LowBalanceAlertPanel } from "@/app/c/[slug]/billing/LowBalanceAlertPanel";
 import { EditEndpointDrawer } from "@/app/c/[slug]/integrations/EditEndpointDrawer";
 import { AgentDrawer } from "@/app/c/[slug]/lead-sources/AgentDrawer";
 import type { Agent } from "@/lib/api/agents";
@@ -9,7 +9,6 @@ import { useAgents } from "@/lib/api/agents";
 import type { Endpoint } from "@/lib/api/integrations";
 import type { LeadSource } from "@/lib/api/leadSources";
 import { useClientSession } from "@/lib/api/session";
-import type { Wallet } from "@/lib/api/wallet";
 
 import { problem, renderClientPage } from "./harness";
 
@@ -144,12 +143,12 @@ describe("choosing who answers a lead source", () => {
   });
 });
 
-const WALLET = {
+const WALLET: AlertLine = {
   low_balance_threshold_inr: "200.00",
   low_balance_alert_chosen: false,
-} as Wallet;
+};
 
-function AlertHarness({ wallet }: { wallet: Wallet }) {
+function AlertHarness({ wallet }: { wallet: AlertLine }) {
   return <LowBalanceAlertPanel session={useClientSession()} wallet={wallet} />;
 }
 

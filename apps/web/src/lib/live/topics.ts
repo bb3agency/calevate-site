@@ -222,6 +222,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "campaign-numbers",
     "forwarding",
     "call-lines",
+    "my-call-lines",
     // An agent's `inbound_number_count` is counted from `phone_numbers`.
     "agent",
     "agents",
