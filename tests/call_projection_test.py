@@ -223,6 +223,15 @@ def test_the_summary_is_its_own_labelled_chunk() -> None:
     assert chunk.first_turn_idx is None and chunk.last_turn_idx is None
 
 
+def test_a_number_in_the_summary_is_masked_before_it_is_embedded_or_indexed() -> None:
+    """`calls.summary` is stored unredacted; FAILS IF the digits reach the chunk text, which
+    is what the embedding provider is sent and what `tsv` is built from."""
+    chunk = project_summary("Caller asked for a call back on 98480 22334.", idx=0, mark=MARK)
+    assert chunk is not None
+    assert "98480" not in chunk.text and "22334" not in chunk.text
+    assert chunk.text.startswith("Summary: Caller asked for a call back on [phone")
+
+
 def test_a_null_or_marked_summary_projects_to_nothing() -> None:
     """NULL is the erased state for `calls.summary` — both erasure paths and the retention
     sweep clear it rather than marking it."""

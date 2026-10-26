@@ -81,6 +81,7 @@ from apps.api.retrieval.call_projection import (
     Turn,
     label_turn,
     project_call,
+    project_summary,
     subject_id_for,
 )
 from apps.api.retrieval.caller_projections import (
@@ -406,8 +407,10 @@ def _passage(
 ) -> str | None:
     """What this hit actually matched, re-read from the source. None when it is gone."""
     if hit.subject_kind == SUBJECT_KIND_SUMMARY:
-        body = (summary or "").strip()
-        return f"Summary: {body}" if body and body != REDACTED_MARK else None
+        # `project_summary` is the one reading of a summary, so the hit shows exactly the
+        # redacted text that was indexed, never the raw column.
+        chunk = project_summary(summary, idx=0, mark=REDACTED_MARK)
+        return chunk.text if chunk is not None else None
     if hit.first_turn_idx is None or hit.last_turn_idx is None:
         return None
     said = [

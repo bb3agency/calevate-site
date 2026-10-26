@@ -360,3 +360,60 @@ async def test_an_expired_projection_does_not_come_back_on_the_next_sweep() -> N
         )
     await _project(tenant_id)
     assert await _still_matches(tenant_id) == 0, "a sweep after expiry put the words back"
+
+
+# --- the summary is stored raw, so its projection redacts it ---------------------------
+
+DICTATED = "98480 22334"
+
+
+async def test_a_number_in_the_summary_is_neither_indexed_nor_shown_on_a_hit() -> None:
+    """`calls.summary` is unredacted at rest. FAILS IF the projection indexes the digits a
+    caller dictated, or a summary hit quotes them back to whoever searched."""
+    tenant_id, agent_id = await _tenant()
+    call_id = await _seed_call(tenant_id, agent_id, ended_at=datetime.now(UTC))
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET summary = :s WHERE id = :c"),
+            {"s": f"Caller asked for a call back on {DICTATED}.", "c": call_id},
+        )
+    assert await _project(tenant_id) > 0
+
+    async with tenant_session(tenant_id) as session:
+        indexed = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM caller_chunks WHERE tenant_id = :tid "
+                    "AND tsv @@ plainto_tsquery('english', '98480')"
+                ),
+                {"tid": tenant_id},
+            )
+        ).scalar_one()
+        row = (
+            await session.execute(
+                text(
+                    "SELECT subject_id, idx FROM caller_chunks "
+                    "WHERE call_id = :c AND subject_kind = :k"
+                ),
+                {"c": call_id, "k": call_chunks.SUBJECT_KIND_SUMMARY},
+            )
+        ).one()
+        lines = await call_chunks.describe_hits(
+            session,
+            [
+                call_chunks.CallerHit(
+                    subject_kind=call_chunks.SUBJECT_KIND_SUMMARY,
+                    subject_id=row[0],
+                    idx=int(row[1]),
+                    call_id=call_id,
+                    agent_id=agent_id,
+                    first_turn_idx=None,
+                    last_turn_idx=None,
+                    score=1.0,
+                )
+            ],
+            max_chars=500,
+        )
+    assert indexed == 0, "the dictated number is searchable in the summary's projection"
+    assert len(lines) == 1 and "[phone" in lines[0]
+    assert "98480" not in lines[0] and "22334" not in lines[0]

@@ -113,6 +113,7 @@ from uuid import UUID, uuid5
 
 from apps.api.kb.service import MAX_CHUNK_CHARS, MIN_CHUNK_CHARS, chunk_text
 from apps.api.retrieval.models import SUBJECT_CALL_SUMMARY, SUBJECT_CALL_TURN
+from apps.workers.redaction import redact
 
 #: What each speaker is called in the embedded text. The values are the `speaker` column's
 #: closed vocabulary (`crm/models.SPEAKERS`) and the labels are English because the
@@ -351,10 +352,17 @@ def project_summary(summary: str | None, *, idx: int, mark: str) -> CallChunk | 
     set `summary = NULL` rather than marking it, because summary is free prose with no
     shape worth keeping. The marker is checked anyway — one function that recognises every
     way a call can be empty is cheaper to keep true than two that each know half.
+
+    REDACTED HERE because `calls.summary` is stored unredacted (`crm.service.
+    redacted_summary` explains why it is masked on the way out rather than at rest), and
+    this text is sent to the embedding provider (D-127 G-1) and indexed into `tsv`, where a
+    dictated number would be searchable. The same `redact()` the turns went through, so a
+    summary chunk can say no more than the redacted transcript beside it.
     """
     body = (summary or "").strip()
     if not body or body == mark:
         return None
+    body = redact(body).text
     return CallChunk(
         subject_kind=SUBJECT_KIND_SUMMARY,
         idx=idx,
