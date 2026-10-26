@@ -541,6 +541,21 @@ describe("D-587 on the create paths", () => {
     expect(document.body.textContent).not.toContain("stays with the client");
   });
 
+  it("does not report the sign-in services as 'Not available yet' when that could not be read", async () => {
+    await render({
+      "/v1/integrations/connections/status": problem(503, {
+        type: "about:blank",
+        title: "Service unavailable",
+        status: 503,
+        detail: "Try again in a moment.",
+        retryable: true,
+      }),
+    });
+    await screen.findByText("Try again in a moment.");
+    expect(document.body.textContent).not.toContain("Not available yet");
+    expect(screen.getAllByRole("button", { name: /try again/i }).length).toBeGreaterThan(0);
+  });
+
   it("tells a member of staff who may do it instead", async () => {
     await render({
       "/v1/me": { ...OWNER, role: "staff", permissions: ["org:read"] },

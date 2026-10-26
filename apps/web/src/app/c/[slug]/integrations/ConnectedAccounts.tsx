@@ -145,10 +145,14 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
         title="Accounts your agents use"
         description="Connect each one once. Every agent can then use it on calls."
       >
-        {creds.isPending ? (
+        {/* Both reads decide each row: without the status, every service would read "Not
+            available yet" while it loads or after it failed, which is a false statement. */}
+        {creds.isPending || status.isPending ? (
           <Skeleton rows={4} />
         ) : creds.isError ? (
           <ProblemNotice error={creds.error} onRetry={() => void creds.refetch()} />
+        ) : status.isError ? (
+          <ProblemNotice error={status.error} onRetry={() => void status.refetch()} />
         ) : (
           <ul className="divide-y divide-line border-y border-line">
             {SIGN_IN.map((s) => {
