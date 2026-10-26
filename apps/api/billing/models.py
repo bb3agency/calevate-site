@@ -1285,12 +1285,20 @@ class RefundIntent(PKMixin, Base):
     #: The provider payment this refund is against — the same value `credit_ledger`
     #: carries as a `topup` row's `ref`.
     payment_ref: Mapped[str] = mapped_column(Text, nullable=False)
-    #: `payments.refund_idempotency_key(payment_id, amount)`. Stored rather than derived
-    #: on read so the unique index is over the exact string the provider was given.
+    #: `payments.refund_idempotency_key(payment_id, amount, attempt)`. Stored rather than
+    #: derived on read so the unique index is over the exact string the provider was given.
     refund_key: Mapped[str] = mapped_column(Text, nullable=False)
     #: INR, NUMERIC never float (hard rule 7), at the ledger's own storage scale so a
     #: claim and the compensating entry it becomes are the same number.
     amount_inr: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    #: When this attempt failed definitively (the provider refused it, it never connected,
+    #: or `refund.failed` arrived). A failed claim no longer counts against the refund
+    #: ceiling, and it is kept so the next attempt of the same amount derives a NEW key:
+    #: the provider may answer a reused key with the failed refund.
+    failed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    #: The provider refund id this claim became, once the provider answered. What
+    #: `refund.failed` matches on, so a late event for an older attempt fails only that one.
+    refund_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: WHEN the claim was taken, which is `created_at` and nothing else. There is
     #: deliberately no second `claimed_at` beside it: a claim exists from the instant it
     #: is written, so the two would be one moment stored twice — a column nothing reads,

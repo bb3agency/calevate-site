@@ -211,10 +211,18 @@ are ours: `no_payment_provider`, `provider_not_implemented:<name>`, `no_publisha
 Admin only, per client: `/admin/tenants/<id>/credits` → Refund. The refund goes to the
 original payment method through the Refunds API (normal speed, 5-7 working days), is recorded
 as a compensating negative entry, and is capped at the **unspent** credit of that payment.
-`refund.failed` releases the claim and pages (`razorpay_refund_failed`): reissue, or pay by
-bank transfer and record it. A 409 from Razorpay means the same refund is still processing:
-wait; the claim is kept. Unused credit is NOT refunded on closure (Refund Policy §2.2): the
-closure screen shows the forfeited amount before you confirm.
+`refund.failed` fails that attempt and pages (`razorpay_refund_failed`): reissue (the next
+attempt goes out under a NEW idempotency key, so Razorpay cannot answer it with the failed
+one), or pay by bank transfer and record it. A refusal from Razorpay (4xx) fails the attempt
+the same way. A 409, a timeout or a 5xx (`refund_in_progress`, `refund_outcome_unknown`)
+means the refund may exist: the claim and its key are kept, and retrying the SAME amount is
+the safe retry. Unused credit is NOT refunded on closure (Refund Policy §2.2): the closure
+screen shows the forfeited amount before you confirm.
+
+A payment with an OPEN dispute cannot be refunded (`refund_payment_disputed`): a refund beside
+a chargeback can return the money twice. Answer the dispute instead (B5): accept it to return
+the money, or contest it. Once the dispute is won, refund as usual. A payment whose dispute
+was LOST is never refunded (`refund_payment_charged_back`): the bank has already returned it.
 
 ### B5. Disputes and chargebacks
 

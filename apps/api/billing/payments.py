@@ -106,6 +106,7 @@ from apps.api.billing.credit_packs import (
     CreditPack,
     pack_paid_for,
 )
+from apps.api.billing.dispute_hold import OPEN_STATES
 from apps.api.billing.first_payment import alert_payment_reversed, on_payment_credited
 from apps.api.billing.lots import split_meta
 from apps.api.billing.rates import MONEY_Q, ROUNDING
@@ -973,8 +974,8 @@ def _refund_outcome_unknown(payment_id: str) -> ProblemError:
     )
 
 
-def refund_idempotency_key(*, payment_id: str, amount_inr: Decimal) -> str:
-    """The `X-Refund-Idempotency` value, derived by US over (payment, amount).
+def refund_idempotency_key(*, payment_id: str, amount_inr: Decimal, attempt: int = 0) -> str:
+    """The `X-Refund-Idempotency` value, derived by US over (payment, amount, attempt).
 
     Content-addressed like `topup_receipt`/`adjustment_ref`: the same refund asked for
     twice derives the same key, so a double-click or an operator retry issues ONE refund
@@ -982,10 +983,20 @@ def refund_idempotency_key(*, payment_id: str, amount_inr: Decimal) -> str:
     payment collapse onto one key — the safe direction on money leaving us, and the remedy
     (a different amount, or the full remaining balance) is one field away.
 
+    `attempt` counts the earlier attempts of this (payment, amount) that FAILED
+    definitively (`refund_intents.failed_at`). A key stays bound to its attempt: the
+    provider may answer a reused key with the refund that failed, so the next attempt
+    needs a new one. An attempt whose outcome is unknown is not failed and keeps its key,
+    which is the vendor's documented safe retry. Attempt 0 hashes exactly what the key
+    always hashed, so keys already sent are unchanged.
+
     Prefixed `rfnd_` and hex, so it satisfies the vendor's rule — at least 10 characters,
     alphanumerics/hyphens/underscores only (`normal-refunds-idempotent.md`, 9 Oct 2026).
     """
-    digest = body_hash({"payment_id": payment_id, "amount_inr": str(to_paise(amount_inr))})
+    facts: dict[str, Any] = {"payment_id": payment_id, "amount_inr": str(to_paise(amount_inr))}
+    if attempt:
+        facts["attempt"] = attempt
+    digest = body_hash(facts)
     return f"rfnd_{digest[:32]}"
 
 
@@ -1518,7 +1529,7 @@ async def claimed_refund_total_inr(
         await session.execute(
             text(
                 "SELECT COALESCE(SUM(amount_inr), 0) FROM refund_intents "
-                "WHERE tenant_id = :tid AND payment_ref = :pid"
+                "WHERE tenant_id = :tid AND payment_ref = :pid AND failed_at IS NULL"
             ),
             {"tid": tenant_id, "pid": payment_id},
         )
@@ -1581,22 +1592,41 @@ async def claim_refund(
     distinct refunds of one payment for the identical amount are not representable at the
     provider either, so this admits a replay and nothing else.
 
+    A NEW claim is refused while a dispute on the payment is open (`refund_payment_disputed`)
+    or after one was lost (`refund_payment_charged_back`): a refund beside a chargeback can
+    return the same money twice, so the dispute is accepted or contested instead (Stripe's
+    guidance for a disputed charge, docs.stripe.com/refunds `charge_for_pending_refund_
+    disputed`, read 26 Oct 2026). A won dispute puts the payment back to normal.
+
     Raises `refund_exceeds_payment` when a NEW claim would take the total past the
     payment, and `refund_exceeds_unspent` when it is more than the payment's unspent credit.
-    Nothing is written on either path and nothing has been asked of the provider.
+    Nothing is written on any refusal and nothing has been asked of the provider.
     """
     await lock_tenant_credits(session, tenant_id)
-    key = refund_idempotency_key(payment_id=payment_id, amount_inr=amount_inr)
-    existing = (
+    live = (
         await session.execute(
             text(
-                "SELECT 1 FROM refund_intents WHERE tenant_id = :tid AND refund_key = :key LIMIT 1"
+                "SELECT refund_key FROM refund_intents WHERE tenant_id = :tid "
+                "AND payment_ref = :pid AND amount_inr = :amount AND failed_at IS NULL LIMIT 1"
             ),
-            {"tid": tenant_id, "key": key},
+            {"tid": tenant_id, "pid": payment_id, "amount": amount_inr},
         )
-    ).first()
-    if existing:
-        return RefundClaim(refund_key=key, claimed=False)
+    ).scalar()
+    if live is not None:
+        return RefundClaim(refund_key=str(live), claimed=False)
+    await _refuse_if_disputed(session, tenant_id=tenant_id, payment_id=payment_id)
+    failed_attempts = (
+        await session.execute(
+            text(
+                "SELECT count(*) FROM refund_intents WHERE tenant_id = :tid "
+                "AND payment_ref = :pid AND amount_inr = :amount AND failed_at IS NOT NULL"
+            ),
+            {"tid": tenant_id, "pid": payment_id, "amount": amount_inr},
+        )
+    ).scalar()
+    key = refund_idempotency_key(
+        payment_id=payment_id, amount_inr=amount_inr, attempt=int(failed_attempts or 0)
+    )
 
     claimed = await claimed_refund_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
     remaining = payment_total_inr - claimed
@@ -1643,28 +1673,96 @@ async def claim_refund(
 
 
 async def release_refund_claim(session: AsyncSession, *, tenant_id: UUID, refund_key: str) -> None:
-    """Withdraw a claim whose provider call never happened. THE only DELETE on this table.
+    """Fail a claim whose refund definitively did not happen.
 
-    A refund the provider REFUSED moved no money, so the claim must not go on counting
-    against the client's remaining refundable balance — one transient 502 would otherwise
-    withhold money permanently, which is a worse failure than the one the claim prevents.
+    A refund the provider REFUSED (or never received, or reported failed) moved no money,
+    so the claim must not go on counting against the client's remaining refundable balance.
+    It is marked `failed_at` rather than deleted, so the next attempt of the same amount
+    counts it and derives a new idempotency key (`refund_idempotency_key`'s `attempt`).
 
-    `refund_intents` is a claim table and not a ledger, which is why this is a DELETE and
-    not a compensating row: it is in neither `db/registry.APPEND_ONLY_TABLES` nor any
-    reader of money. `outbox_messages` and `webhook_inbox_events` release a claim they
-    could not honour the same way (BACKEND-PATTERNS §4).
-
-    Called ONLY for a claim this request actually took (`RefundClaim.claimed`). Releasing
-    a replay's claim would withdraw a reservation that belongs to the refund that already
-    exists at the provider.
+    Called ONLY for a claim this request actually took (`RefundClaim.claimed`), or for the
+    claim a `refund.failed` event names. Failing a replay's claim would withdraw a
+    reservation that belongs to the refund that already exists at the provider.
     """
     await session.execute(
-        text("DELETE FROM refund_intents WHERE tenant_id = :tid AND refund_key = :key"),
+        text(
+            "UPDATE refund_intents SET failed_at = now() "
+            "WHERE tenant_id = :tid AND refund_key = :key AND failed_at IS NULL"
+        ),
         {"tid": tenant_id, "key": refund_key},
     )
     log.info(
         "razorpay_refund_claim_released",
         extra={"tenant_id": str(tenant_id)},
+    )
+
+
+async def bind_refund_claim(
+    session: AsyncSession, *, tenant_id: UUID, refund_key: str, refund_id: str
+) -> None:
+    """Record the provider refund a claim became, so `refund.failed` can name it."""
+    await session.execute(
+        text(
+            "UPDATE refund_intents SET refund_ref = :rid "
+            "WHERE tenant_id = :tid AND refund_key = :key AND refund_ref IS NULL"
+        ),
+        {"tid": tenant_id, "key": refund_key, "rid": refund_id},
+    )
+
+
+async def claim_of_failed_refund(
+    session: AsyncSession, *, tenant_id: UUID, refund: RefundEvent
+) -> str | None:
+    """The live claim a `refund.failed` event fails: the one bound to that refund id, or,
+    for an attempt whose answer never reached us, the unbound live claim of that payment
+    and amount. None when no live claim matches: a late event for an attempt already
+    failed, or a refund made outside this platform."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT refund_key FROM refund_intents WHERE tenant_id = :tid "
+                "AND failed_at IS NULL AND (refund_ref = :rid OR (refund_ref IS NULL "
+                "AND payment_ref = :pid AND amount_inr = :amount)) "
+                "ORDER BY (refund_ref = :rid) DESC NULLS LAST LIMIT 1"
+            ),
+            {
+                "tid": tenant_id,
+                "rid": refund.refund_id,
+                "pid": refund.payment_id,
+                "amount": refund.amount_inr,
+            },
+        )
+    ).scalar()
+    return None if row is None else str(row)
+
+
+async def _refuse_if_disputed(session: AsyncSession, *, tenant_id: UUID, payment_id: str) -> None:
+    """Refuse a new refund of a payment its customer's bank is disputing or has charged back."""
+    status = (
+        await session.execute(
+            text(
+                "SELECT status FROM payment_disputes WHERE tenant_id = :tid "
+                "AND payment_id = :pid AND status = ANY(:blocking) "
+                "ORDER BY (status = 'lost') DESC LIMIT 1"
+            ),
+            {"tid": tenant_id, "pid": payment_id, "blocking": [*OPEN_STATES, "lost"]},
+        )
+    ).scalar()
+    if status is None:
+        return
+    if status == "lost":
+        raise ProblemError.business_rule(
+            "refund_payment_charged_back",
+            "This payment was charged back: the customer's bank has already returned it.",
+            remediation="Do not refund it again. Check the dispute on the disputes page.",
+        )
+    raise ProblemError.business_rule(
+        "refund_payment_disputed",
+        "The customer's bank is disputing this payment, so it cannot be refunded now.",
+        remediation=(
+            "Answer the dispute instead: accept it to return the money, or contest it. If "
+            "the dispute is won, the payment can be refunded as usual."
+        ),
     )
 
 
@@ -1957,7 +2055,9 @@ async def credit_refund(
     )
 
 
-async def issue_refund(*, tenant_id: UUID, payment_id: str, amount_inr: Decimal) -> ProviderRefund:
+async def issue_refund(
+    *, tenant_id: UUID, payment_id: str, amount_inr: Decimal, idempotency_key: str
+) -> ProviderRefund:
     """Call the provider to refund a payment. NO DB session is held across this network
     call (BACKEND-PATTERNS §5: never a database lock across a provider request) — the
     caller records the compensating entry with `credit_refund` afterwards, in its own
@@ -1977,9 +2077,8 @@ async def issue_refund(*, tenant_id: UUID, payment_id: str, amount_inr: Decimal)
         raise payments_not_configured(capability.orders_reason)
 
     notes = {NOTES_TENANT_KEY: str(tenant_id)}
-    key = refund_idempotency_key(payment_id=payment_id, amount_inr=amount_inr)
     return await razorpay_orders().create_refund(
-        payment_id=payment_id, amount_inr=amount_inr, notes=notes, idempotency_key=key
+        payment_id=payment_id, amount_inr=amount_inr, notes=notes, idempotency_key=idempotency_key
     )
 
 
@@ -2114,6 +2213,8 @@ __all__ = [
     "RefundClaim",
     "RefundEvent",
     "TopUpResult",
+    "bind_refund_claim",
+    "claim_of_failed_refund",
     "claim_refund",
     "claimed_refund_total_inr",
     "credit_captured_payment",

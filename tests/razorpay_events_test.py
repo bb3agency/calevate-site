@@ -30,7 +30,7 @@ from uuid import UUID
 
 import httpx
 import pytest
-from apps.api.billing import payments
+from apps.api.billing import payment_events, payments
 from apps.api.billing.credit_packs import CreditPack, pack_by_id
 from apps.api.billing.payment_objects import record_route
 from apps.api.billing.payment_routes import (
@@ -782,7 +782,10 @@ async def test_with_no_provider_at_all_issue_refund_refuses_before_the_wire(
     _install_refund(monkeypatch, never)
     with pytest.raises(ProblemError) as raised:
         await payments.issue_refund(
-            tenant_id=tenant_id, payment_id="pay_x", amount_inr=Decimal("100.00")
+            tenant_id=tenant_id,
+            payment_id="pay_x",
+            amount_inr=Decimal("100.00"),
+            idempotency_key="rfnd_key_0123456789",
         )
     assert raised.value.code == "payments_not_configured"
 
@@ -1477,6 +1480,211 @@ async def test_a_refund_the_provider_may_have_created_keeps_its_claim_and_retrie
         _admin(),
     )
     assert out.recorded is True
+
+
+def _key_of(request: httpx.Request) -> str:
+    return request.headers[payments.REFUND_IDEMPOTENCY_HEADER]
+
+
+async def test_a_refund_that_definitively_failed_is_retried_under_a_new_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The provider may answer a reused key with the refund that failed, so the next
+    attempt of the same amount must not send it again."""
+    tenant_id = await _tenant()
+    pid = _payment_id("NEWKEY")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+
+    refused = _install_refund(
+        monkeypatch, lambda _r: httpx.Response(400, json={"error": {"description": "no"}})
+    )
+    with pytest.raises(ProblemError):
+        await issue_tenant_refund(
+            tenant_id,
+            RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="x"),
+            _request(),
+            _admin(),
+        )
+    retried = _install_refund(monkeypatch, _refund_by_amount("rfnd_NEW"))
+    out = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="again"),
+        _request(),
+        _admin(),
+    )
+    assert out.recorded is True
+    assert _key_of(retried[0]) != _key_of(refused[0])
+    assert _key_of(refused[0]) == payments.refund_idempotency_key(
+        payment_id=pid, amount_inr=Decimal("1000.00")
+    ), "the first attempt keeps the key every earlier refund was sent with"
+
+
+async def test_a_refund_whose_outcome_is_unknown_is_retried_under_the_same_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = await _tenant()
+    pid = _payment_id("SAMEKEY")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+
+    unknown = _install_refund(monkeypatch, lambda _r: httpx.Response(503, content=b"busy"))
+    with pytest.raises(ProblemError):
+        await issue_tenant_refund(
+            tenant_id,
+            RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="x"),
+            _request(),
+            _admin(),
+        )
+    retried = _install_refund(monkeypatch, _refund_by_amount("rfnd_SAME"))
+    await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="again"),
+        _request(),
+        _admin(),
+    )
+    assert _key_of(retried[0]) == _key_of(unknown[0])
+
+
+async def test_refund_failed_fails_only_the_attempt_it_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `refund.failed` fails the claim bound to that refund id. Redelivered after the
+    next attempt was made, it must not fail the new one, which would drop a refund in
+    flight out of the ceiling."""
+    tenant_id = await _tenant()
+    pid = _payment_id("FAILED")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+
+    def pending(refund_id: str) -> Any:
+        def responder(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            return httpx.Response(
+                200, json={"id": refund_id, "amount": body["amount"], "status": "pending"}
+            )
+
+        return responder
+
+    first = _install_refund(monkeypatch, pending("rfnd_FIRST"))
+    await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="x"),
+        _request(),
+        _admin(),
+    )
+    failed = {
+        **_refund_envelope(
+            refund_id="rfnd_FIRST",
+            payment_id=pid,
+            tenant_id=tenant_id,
+            amount=100000,
+            status="failed",
+        ),
+        "event": "refund.failed",
+    }
+    await payment_events.apply_refund_failed(failed)
+    async with tenant_session(tenant_id) as session:
+        assert await payments.claimed_refund_total_inr(
+            session, tenant_id=tenant_id, payment_id=pid
+        ) == Decimal("0")
+
+    second = _install_refund(monkeypatch, pending("rfnd_SECOND"))
+    await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="again"),
+        _request(),
+        _admin(),
+    )
+    assert _key_of(second[0]) != _key_of(first[0])
+    await payment_events.apply_refund_failed(failed)
+    async with tenant_session(tenant_id) as session:
+        assert await payments.claimed_refund_total_inr(
+            session, tenant_id=tenant_id, payment_id=pid
+        ) == Decimal("1000.00"), "the late event for the first attempt left the second alone"
+
+
+async def test_a_disputed_payment_cannot_be_refunded_until_the_dispute_is_won(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A refund beside a chargeback can return the same money twice, so the route refuses
+    in plain words and points at the dispute; a won dispute restores the payment."""
+    from apps.api.billing.disputes import DisputeFacts, apply_dispute_event
+
+    tenant_id = await _tenant()
+    pid = _payment_id("DISPUTED")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+    dispute_id = f"disp_{uuid.uuid4().hex[:12]}"
+
+    async def dispute(status: str) -> None:
+        async with tenant_session(tenant_id) as session:
+            await apply_dispute_event(
+                session,
+                tenant_id=tenant_id,
+                event=f"payment.dispute.{status}",
+                dispute=DisputeFacts(
+                    dispute_id=dispute_id,
+                    payment_id=pid,
+                    amount_inr=Decimal("500.00"),
+                    status=status,
+                    phase="chargeback",
+                    reason_code=None,
+                    respond_by=None,
+                ),
+            )
+
+    seen = _install_refund(monkeypatch, _refund_by_amount("rfnd_DISP"))
+    await dispute("open")
+    with pytest.raises(ProblemError) as refused:
+        await issue_tenant_refund(
+            tenant_id,
+            RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="x"),
+            _request(),
+            _admin(),
+        )
+    assert refused.value.code == "refund_payment_disputed"
+    assert "Answer the dispute" in (refused.value.remediation or "")
+    assert seen == [], "nothing was asked of the provider"
+
+    await dispute("won")
+    out = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="after the win"),
+        _request(),
+        _admin(),
+    )
+    assert out.recorded is True
+
+
+async def test_a_charged_back_payment_is_never_refunded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.billing.disputes import DisputeFacts, apply_dispute_event
+
+    tenant_id = await _tenant()
+    pid = _payment_id("LOST")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+    async with tenant_session(tenant_id) as session:
+        await apply_dispute_event(
+            session,
+            tenant_id=tenant_id,
+            event="payment.dispute.lost",
+            dispute=DisputeFacts(
+                dispute_id=f"disp_{uuid.uuid4().hex[:12]}",
+                payment_id=pid,
+                amount_inr=Decimal("500.00"),
+                status="lost",
+                phase="chargeback",
+                reason_code=None,
+                respond_by=None,
+            ),
+        )
+    _install_refund(monkeypatch, _refund_by_amount("rfnd_LOST"))
+    with pytest.raises(ProblemError) as refused:
+        await issue_tenant_refund(
+            tenant_id,
+            RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="x"),
+            _request(),
+            _admin(),
+        )
+    assert refused.value.code == "refund_payment_charged_back"
 
 
 async def test_a_second_click_on_one_refund_is_still_a_replay_and_not_a_breach(

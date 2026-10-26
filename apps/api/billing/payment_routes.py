@@ -112,6 +112,7 @@ from apps.api.billing.payments import (
     SUPPORTED_CURRENCY,
     TOKEN_EVENTS,
     RefundEvent,
+    bind_refund_claim,
     claim_refund,
     credit_refund,
     event_name,
@@ -1303,23 +1304,28 @@ async def issue_tenant_refund(
 
     try:
         refund = await issue_refund(
-            tenant_id=tenant_id, payment_id=payload.payment_id, amount_inr=amount
+            tenant_id=tenant_id,
+            payment_id=payload.payment_id,
+            amount_inr=amount,
+            idempotency_key=claim.refund_key,
         )
-    except Exception as failed:
-        # A claim left behind by a vendor timeout would shrink what this client can be
-        # refunded for ever — money withheld by an outage, which is a worse failure than
-        # the double refund the claim exists to prevent. Only a claim THIS request took is
-        # released; a replay's belongs to the refund that already exists. And not after a
-        # 2xx the provider sent and we refused to read (`REFUND_MAY_HAVE_MOVED_CODES`): a
-        # refund exists there, and freeing its claim takes it out of the ceiling.
-        if claim.claimed and not (
-            isinstance(failed, ProblemError) and failed.code in REFUND_MAY_HAVE_MOVED_CODES
-        ):
+    except ProblemError as failed:
+        # A definitive refusal fails the attempt: it stops counting against the ceiling and
+        # the next attempt derives a new key, because the provider may answer this one
+        # with the failure. Whether this request took the claim or replayed it does not
+        # matter: both sent this key and both got the same answer. An outcome that may
+        # have moved money (`REFUND_MAY_HAVE_MOVED_CODES`) keeps the claim and its key,
+        # the documented safe retry.
+        if failed.code not in REFUND_MAY_HAVE_MOVED_CODES:
             async with tenant_session(tenant_id) as session:
                 await release_refund_claim(
                     session, tenant_id=tenant_id, refund_key=claim.refund_key
                 )
         raise
+    async with tenant_session(tenant_id) as session:
+        await bind_refund_claim(
+            session, tenant_id=tenant_id, refund_key=claim.refund_key, refund_id=refund.refund_id
+        )
     ip = client_request_ip(request)
 
     recorded = False

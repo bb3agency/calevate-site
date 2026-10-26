@@ -44,6 +44,7 @@ from apps.api.billing.payments import (
     PROVIDER,
     CapturedPayment,
     RefundEvent,
+    claim_of_failed_refund,
     credit_captured_payment,
     credit_refund,
     extract_captured_payment,
@@ -51,7 +52,6 @@ from apps.api.billing.payments import (
     find_topup,
     payment_attempt_ids,
     payment_order_id,
-    refund_idempotency_key,
     release_refund_claim,
 )
 from apps.api.billing.platform_fee import charge_for_order, paid_with, record_payment
@@ -374,17 +374,15 @@ async def apply_refund_processed(
 
 async def apply_refund_failed(envelope: Any) -> EventResult:
     """A refund Razorpay could not process: no money left us, so the claim it held on the
-    payment's refund ceiling is released and the admin is told (`razorpay_refund_failed`)."""
+    payment's refund ceiling is failed (the next attempt gets a new key) and the admin is
+    told (`razorpay_refund_failed`). Only the claim this refund was bound to, so a late
+    redelivery for an earlier attempt cannot fail the attempt that replaced it."""
     refund: RefundEvent = extract_refund(envelope)
     async with tenant_session(refund.tenant_id) as session:
         await _require_tenant(session, refund.tenant_id)
-        await release_refund_claim(
-            session,
-            tenant_id=refund.tenant_id,
-            refund_key=refund_idempotency_key(
-                payment_id=refund.payment_id, amount_inr=refund.amount_inr
-            ),
-        )
+        key = await claim_of_failed_refund(session, tenant_id=refund.tenant_id, refund=refund)
+        if key is not None:
+            await release_refund_claim(session, tenant_id=refund.tenant_id, refund_key=key)
         await write_audit(
             session,
             action="refund.failed",
