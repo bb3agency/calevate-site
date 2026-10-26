@@ -38,20 +38,25 @@ async def _call(
     outcome: str | None = None,
     direction: str = "outbound",
     started_ist_hour: int | None = 11,
+    lead_id: uuid.UUID | None = None,
+    created_days_ago: int = 0,
 ) -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
-                "to_e164, status, duration_s, outcome_tag, started_at, created_at, updated_at) "
-                "VALUES (:i, :t, :a, :e, :dir, '+919876500001', :st, :dur, :out, "
+                "to_e164, status, duration_s, outcome_tag, lead_id, started_at, created_at, "
+                "updated_at) "
+                "VALUES (:i, :t, :a, :e, :dir, '+919876500001', :st, :dur, :out, :lead, "
                 # started_at is stored UTC; the IST hour the test asks for is 5:30 ahead.
                 "  CASE WHEN :h IS NULL THEN NULL ELSE "
                 "    date_trunc('day', now()) + make_interval(hours => :h) "
                 "      - interval '5 hours 30 minutes' END, "
-                "now(), now())"
+                "now() - make_interval(days => :ago), now())"
             ),
             {
+                "lead": lead_id,
+                "ago": created_days_ago,
                 "i": uuid7(),
                 "t": tenant_id,
                 "a": agent_id,
@@ -82,24 +87,60 @@ async def test_voicemail_and_no_answer_are_dials_not_conversations() -> None:
     assert result["outcomes"]["no_answer"] == 1, "un-tagged calls report their status honestly"
 
 
-async def test_qualified_counts_leads_not_calls() -> None:
-    """Three calls that move one lead to `interested` are ONE qualified outcome."""
-    tenant_id, agent_id = await _tenant()
-    for _ in range(3):
-        await _call(tenant_id, agent_id, status="completed", duration_s=60)
+async def _lead(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID, phone: str, status: str = "interested"
+) -> uuid.UUID:
+    lead_id = uuid7()
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, "
-                "created_at, updated_at) VALUES (:i, :t, :a, '+919876500001', 'inbound_call', "
-                "'interested', now(), now())"
+                "created_at, updated_at) VALUES (:i, :t, :a, :p, 'inbound_call', "
+                ":s, now(), now())"
             ),
-            {"i": uuid7(), "t": tenant_id, "a": agent_id},
+            {"i": lead_id, "t": tenant_id, "a": agent_id, "p": phone, "s": status},
         )
+    return lead_id
+
+
+async def test_qualified_counts_leads_not_calls() -> None:
+    """Three calls that move one lead to `interested` are ONE qualified outcome."""
+    tenant_id, agent_id = await _tenant()
+    lead_id = await _lead(tenant_id, agent_id, "+919876500001")
+    for _ in range(3):
+        await _call(tenant_id, agent_id, status="completed", duration_s=60, lead_id=lead_id)
+    async with tenant_session(tenant_id) as session:
         result = await performance(session)
 
     assert result["funnel"] == {"calls": 3, "connected": 3, "qualified": 1}
     assert result["qualify_rate_pct"] == 33, "1 of 3 connected conversations converted"
+
+
+async def test_qualified_is_drawn_from_the_windows_connected_calls() -> None:
+    """A qualified lead counts when one of its connected calls is in the window. One last
+    reached two months ago and edited today (renamed, reassigned, bulk-moved) is not a
+    conversion this week, and a lead reached only on a missed call is not one at all —
+    counting by `updated_at` put both in and pushed the rate past 100%."""
+    tenant_id, agent_id = await _tenant()
+    reached = await _lead(tenant_id, agent_id, "+919876500001")
+    edited_today = await _lead(tenant_id, agent_id, "+919876500002", status="hot")
+    missed_only = await _lead(tenant_id, agent_id, "+919876500003", status="won")
+    await _call(tenant_id, agent_id, status="completed", duration_s=60, lead_id=reached)
+    await _call(
+        tenant_id,
+        agent_id,
+        status="completed",
+        duration_s=60,
+        lead_id=edited_today,
+        created_days_ago=60,
+    )
+    await _call(tenant_id, agent_id, status="no_answer", lead_id=missed_only)
+
+    async with tenant_session(tenant_id) as session:
+        result = await performance(session, days=7)
+
+    assert result["funnel"] == {"calls": 2, "connected": 1, "qualified": 1}
+    assert result["qualify_rate_pct"] == 100
 
 
 async def test_rates_are_none_not_zero_before_any_calls() -> None:

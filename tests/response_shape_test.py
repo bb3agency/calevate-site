@@ -381,7 +381,17 @@ async def test_a_brand_new_tenant_still_gets_a_usage_panel() -> None:
 
 async def test_the_performance_panel_answers_a_declared_model_with_calls_in_it() -> None:
     tenant_id, agent_id, headers = await _owner_tenant("perf")
+    lead_id = uuid7()
     async with tenant_session(tenant_id) as session:
+        # Qualified is drawn from the window's connected calls, so the calls are this lead's.
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, "
+                "created_at, updated_at) VALUES (:i, :t, :a, '+919876500001', 'inbound_call', "
+                "'interested', now(), now())"
+            ),
+            {"i": lead_id, "t": tenant_id, "a": agent_id},
+        )
         for status, duration, outcome, direction, ist_hour in (
             ("completed", 120, "answered", "outbound", 11),
             ("completed", 90, None, "inbound", 11),
@@ -393,12 +403,13 @@ async def test_the_performance_panel_answers_a_declared_model_with_calls_in_it()
             await session.execute(
                 text(
                     "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
-                    "to_e164, status, duration_s, outcome_tag, started_at, created_at, "
+                    "to_e164, status, duration_s, outcome_tag, lead_id, started_at, created_at, "
                     "updated_at) VALUES (:i, :t, :a, :e, :dir, '+919876500001', :st, :dur, "
-                    ":out, date_trunc('day', now()) + make_interval(hours => :h) "
+                    ":out, :lead, date_trunc('day', now()) + make_interval(hours => :h) "
                     "  - interval '5 hours 30 minutes', now(), now())"
                 ),
                 {
+                    "lead": lead_id,
                     "i": uuid7(),
                     "t": tenant_id,
                     "a": agent_id,
@@ -410,14 +421,6 @@ async def test_the_performance_panel_answers_a_declared_model_with_calls_in_it()
                     "h": ist_hour,
                 },
             )
-        await session.execute(
-            text(
-                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, "
-                "created_at, updated_at) VALUES (:i, :t, :a, '+919876500001', 'inbound_call', "
-                "'interested', now(), now())"
-            ),
-            {"i": uuid7(), "t": tenant_id, "a": agent_id},
-        )
         expected = PerformanceOut.model_validate(await performance(session, days=30))
 
     async with _client() as http:

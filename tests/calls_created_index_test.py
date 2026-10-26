@@ -85,8 +85,8 @@ async def test_the_reads_by_creation_time_use_the_index() -> None:
     finally:
         event.remove(sync_engine, "before_cursor_execute", capture)
 
-    # failed calls, plus the Performance funnel, outcomes and busiest hours.
-    assert len(captured) == 4
+    # failed calls, plus the Performance funnel, qualified leads, outcomes and busiest hours.
+    assert len(captured) == 5
     async with tenant_session(tenant_id) as session:
         await session.execute(text("SET LOCAL enable_seqscan = off"))
         connection = await session.connection()

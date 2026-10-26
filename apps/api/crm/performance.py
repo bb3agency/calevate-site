@@ -13,9 +13,10 @@ The definitions matter more than the SQL and are stated here once:
   demo inflates its connect rate. The status exclusion is the load-bearing half: an
   answering machine gives a `voicemail` a perfectly real duration, so "duration > 0"
   alone readmits exactly the calls the definition rules out.
-- **Qualified** = the LEAD moved past `new` (contacted/interested/hot/won). Lead-level,
-  not call-level: three calls that qualify one lead are one qualified outcome, and the
-  funnel exists to show conversion, not activity.
+- **Qualified** = a lead with a connected call in the window that now stands past `new`
+  (contacted/interested/hot/won). Lead-level, not call-level: three calls that qualify
+  one lead are one qualified outcome, and the funnel exists to show conversion, not
+  activity. Drawn from the connected calls, so it can never exceed them.
 - **Busiest hours are IST.** The histogram exists so the owner can staff the counter
   and pick campaign windows; a UTC histogram of an Indian business day is off by 5.5
   hours, which is worse than no histogram.
@@ -104,14 +105,21 @@ async def performance(
     calls = int(funnel_row[0] or 0) if funnel_row else 0
     connected = int(funnel_row[1] or 0) if funnel_row else 0
 
+    # The funnel's last step is drawn from its middle one: a lead counts when one of ITS
+    # connected calls is in the window. Counting qualified leads by `updated_at` instead
+    # filed any edit to an old lead (a rename, a reassignment) under this window, ignored
+    # the test-call switch, and let a bulk status change push the rate past 100%.
     qualified = (
         await session.execute(
             text(
-                "SELECT count(*) FROM leads WHERE deleted_at IS NULL "
-                f"AND status IN {QUALIFIED_STATUSES!r} AND updated_at >= :since "
-                "AND (CAST(:until AS timestamptz) IS NULL OR updated_at < :until)"
+                "SELECT count(*) FROM leads l WHERE l.deleted_at IS NULL "
+                f"AND l.status IN {QUALIFIED_STATUSES!r} "
+                # `IN`, not a correlated EXISTS: `calls` has no `lead_id` index, so the
+                # window's calls are read once through `ix_calls_tenant_created`.
+                "AND l.id IN (SELECT lead_id FROM calls "
+                f"  WHERE {CONNECTED_SQL} AND {_CALLS_IN_WINDOW})"
             ),
-            {"since": since, "until": until},
+            params,
         )
     ).scalar()
 
