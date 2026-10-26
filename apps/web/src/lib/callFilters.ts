@@ -19,6 +19,13 @@ export const OUTCOMES = [
 ] as const;
 export type CallOutcome = (typeof OUTCOMES)[number]["value"];
 
+/** Whether a call was marked handled (`follow_up`, D-893); leads filter on their latest call. */
+export const FOLLOW_UP = [
+  { value: "not_done", label: "Not handled yet" },
+  { value: "done", label: "Handled" },
+] as const;
+export type FollowUpFilter = (typeof FOLLOW_UP)[number]["value"];
+
 export const DIRECTIONS = [
   { value: "inbound", label: "Incoming" },
   { value: "outbound", label: "Outgoing" },

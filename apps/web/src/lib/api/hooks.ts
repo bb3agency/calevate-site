@@ -286,11 +286,16 @@ export interface CallsLogFilters {
   campaignId?: string;
   /** `false` leaves out free-trial test calls; anything else includes them. */
   testCalls?: boolean;
+  /** The call marked handled (`done`) or not yet (`not_done`) (D-893). */
+  followUp?: "done" | "not_done";
+  /** A call-back is waiting for the caller (`true`) or none is (`false`). */
+  callbackOpen?: boolean;
 }
 
 /** The query string for the log and its export; one mapping, so the file is the table. */
 function callsLogQuery(filters: CallsLogFilters): Record<string, string | undefined> {
-  const { status, agentId, campaignId, outcome, direction, since, until, testCalls } = filters;
+  const { status, agentId, campaignId, outcome, direction, since, until, testCalls, followUp, callbackOpen } =
+    filters;
   return {
     status,
     agent_id: agentId,
@@ -300,6 +305,8 @@ function callsLogQuery(filters: CallsLogFilters): Record<string, string | undefi
     since,
     until,
     test_calls: testCalls === false ? "false" : undefined,
+    follow_up: followUp,
+    callback_open: callbackOpen === undefined ? undefined : String(callbackOpen),
   };
 }
 

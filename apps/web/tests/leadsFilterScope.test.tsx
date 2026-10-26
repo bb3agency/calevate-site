@@ -349,12 +349,67 @@ describe("the CSV refusal is on the screen, not only in a tooltip", () => {
  * derived from `LeadLens` itself, so every filter the wire has is a filter this
  * derivation answers for — including `agent_id`, which no control on the screen sets yet.
  */
+describe("the call filters (D-893) are server filters on the one lens", () => {
+  it("sends last call, follow-up and call-back to the server and clears them with the rest", async () => {
+    const { calls } = await renderClientPage(<LeadsPage />, routes());
+    const lastCall = await screen.findByLabelText("Last call");
+    await act(async () => {
+      fireEvent.change(lastCall, { target: { value: "missed" } });
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Follow-up"), { target: { value: "not_done" } });
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Call-back"), { target: { value: "false" } });
+    });
+    await waitFor(() =>
+      expect(lastSearchLens(calls)).toMatchObject({
+        last_outcome: "missed",
+        follow_up: "not_done",
+        callback_open: false,
+      }),
+    );
+    // Narrowed by calls, emptied by the filter: never "you have no leads".
+    expect(await screen.findByText("No leads match these filters")).toBeTruthy();
+    expect(screen.getByText(/More filters · 3 in use/)).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Clear the filters" }));
+    });
+    await waitFor(() => {
+      const lens = lastSearchLens(calls);
+      expect(lens.last_outcome).toBeUndefined();
+      expect(lens.follow_up).toBeUndefined();
+      expect(lens.callback_open).toBeUndefined();
+    });
+  });
+
+  it("counts a created-date range as in force and drops it on clear", () => {
+    const lens: LeadLens = { created_from: "2026-10-20", created_to: "2026-10-26" };
+    expect(filtersInForce(lens)).toEqual(["created_from", "created_to"]);
+    expect(anyFilterInForce({ callback_open: false })).toBe(true);
+    expect(anyFilterInForce({ follow_up: undefined, last_outcome: "" })).toBe(false);
+  });
+});
+
 describe("the derivation is exhaustive over the lens, not over the filters we remembered", () => {
   it("answers for every narrowing key the lens has, and for nothing else", () => {
     // `columns` changes what a row SHOWS, never which rows there are.
     expect(LEAD_FILTER_KEYS).not.toContain("columns");
     expect([...LEAD_FILTER_KEYS].sort()).toEqual(
-      ["agent_id", "ask", "assigned_to", "fields", "search", "status"].sort(),
+      [
+        "agent_id",
+        "ask",
+        "assigned_to",
+        "callback_open",
+        "created_from",
+        "created_to",
+        "fields",
+        "follow_up",
+        "last_outcome",
+        "search",
+        "status",
+      ].sort(),
     );
   });
 

@@ -7,6 +7,7 @@ import { useFollowUpActions } from "@/components/calls/followUpActions";
 import { ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
+import { PlanCard } from "@/components/copilot/PlanCard";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
@@ -211,7 +212,12 @@ export function LeadsScreen() {
 
   /** How many of the "More filters" are narrowing the rows, for its closed state. */
   const moreInUse =
-    (f.assignedTo ? 1 : 0) + Object.values(f.facetValues).filter((values) => values.length > 0).length;
+    (f.assignedTo ? 1 : 0) +
+    Object.values(f.facetValues).filter((values) => values.length > 0).length +
+    (f.created ? 1 : 0) +
+    (f.lastOutcome ? 1 : 0) +
+    (f.followUp ? 1 : 0) +
+    (f.callbackOpen !== undefined ? 1 : 0);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const panelId = useId();
 
@@ -304,6 +310,16 @@ export function LeadsScreen() {
         facets={facets}
         facetValues={f.facetValues}
         onFacetValues={f.setFacetValues}
+        calls={{
+          created: f.created,
+          onCreated: f.setCreated,
+          lastOutcome: f.lastOutcome,
+          onLastOutcome: f.setLastOutcome,
+          followUp: f.followUp,
+          onFollowUp: f.setFollowUp,
+          callbackOpen: f.callbackOpen,
+          onCallbackOpen: f.setCallbackOpen,
+        }}
         views={savedViews}
         activeViewId={f.activeViewId}
         canSaveView={mayApplyView.allowed}
@@ -360,6 +376,9 @@ export function LeadsScreen() {
         onSelectWholeQuery={() => setSelection({ ids: [], wholeQuery: true })}
         onClear={() => setSelection(EMPTY_SELECTION)}
         onDismissResult={() => setBulkResult(null)}
+        renderPlan={(planId) => (
+          <PlanCard session={session} planId={planId} onDismiss={() => setBulkResult(null)} />
+        )}
         onRun={(body) =>
           bulk.mutate(
             { lens, body },

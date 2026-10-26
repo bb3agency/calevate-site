@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { SelectionBar } from "@/components/arc/filter-toolbar";
@@ -99,6 +99,7 @@ export function BulkActionBar({
   onClear,
   onRun,
   onDismissResult,
+  renderPlan,
 }: {
   selection: BulkSelection;
   /** The server's `total` for the current lens — `undefined` while it is unknown. */
@@ -119,6 +120,11 @@ export function BulkActionBar({
   onClear: () => void;
   onRun: (body: LeadBulkBody) => void;
   onDismissResult: () => void;
+  /**
+   * A filter too large for one request runs as an approved plan (D-893) and the answer
+   * carries its id instead of counts; the screen draws the plan's own card for it.
+   */
+  renderPlan: (planId: string) => ReactNode;
 }) {
   const [action, setAction] = useState<LeadBulkAction>("status");
   const [status, setStatus] = useState<LeadStatus>("contacted");
@@ -146,6 +152,13 @@ export function BulkActionBar({
     setTyped("");
   }, [selection]);
 
+  const summary =
+    result === null ? null : result.plan_id ? (
+      <div className="mt-3">{renderPlan(result.plan_id)}</div>
+    ) : (
+      <BulkResultSummary result={result} nameFor={nameFor} onDismiss={onDismissResult} />
+    );
+
   // Nothing selected and nothing to report: the bar is not on screen at all.
   if (!active && !result) return null;
 
@@ -160,7 +173,7 @@ export function BulkActionBar({
         aria-label="Bulk actions"
         className="border-y border-line py-3"
       >
-        <BulkResultSummary result={result} nameFor={nameFor} onDismiss={onDismissResult} />
+        {summary}
       </div>
     );
   }
@@ -218,7 +231,7 @@ export function BulkActionBar({
         </p>
       ) : null}
 
-      {result && <BulkResultSummary result={result} nameFor={nameFor} onDismiss={onDismissResult} />}
+      {summary}
 
       {/* THE SCOPE, in the count's own words — never a bare "N selected", which does not
           say WHICH n. */}

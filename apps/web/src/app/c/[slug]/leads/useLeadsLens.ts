@@ -12,7 +12,7 @@ import { PAGE_SIZE } from "./leadsTable";
  * WHICH ROWS AND WHICH COLUMNS — the leads screen's filter state, and the one `LeadLens`
  * built from it that the table, the facet counts and the CSV export all read. That
  * sharing is the screen's correctness claim: the file cannot disagree with the table about
- * the filters when one object spells them (`lib/api/leads.ts::lensQuery`).
+ * the filters when one object spells them (`lib/api/leads.ts::lensBody`).
  *
  * Every filter here is SERVER-side. A page holds 100 rows, so a filter applied in the
  * browser would be a filter over whatever happened to load.
@@ -38,6 +38,12 @@ export function useLeadsLens(needKey: string = "need") {
    * column, the business's own fields included, is one tick away in the chooser.
    */
   const [chosenColumns, setChosenColumns] = useState<string[] | undefined>();
+  /** When the lead came in, as India days, both ends included (D-893). */
+  const [created, setCreated] = useState<{ start: string; end: string } | null>(null);
+  /** How the lead's latest call ended (`lib/callFilters.OUTCOMES`). */
+  const [lastOutcome, setLastOutcome] = useState<string | undefined>();
+  const [followUp, setFollowUp] = useState<"done" | "not_done" | undefined>();
+  const [callbackOpen, setCallbackOpen] = useState<boolean | undefined>();
   const [activeViewId, setActiveViewId] = useState<string | undefined>();
   const [offset, setOffset] = useState(0);
 
@@ -54,6 +60,11 @@ export function useLeadsLens(needKey: string = "need") {
     ask: askTerm || undefined,
     assigned_to: assignedTo,
     fields: facetValues,
+    created_from: created?.start,
+    created_to: created?.end,
+    last_outcome: lastOutcome,
+    follow_up: followUp,
+    callback_open: callbackOpen,
     columns: chosenColumns ?? DEFAULT_LEAD_COLUMNS.map((key) => (key === "need" ? needKey : key)),
   };
 
@@ -78,6 +89,12 @@ export function useLeadsLens(needKey: string = "need") {
     // filter, so it is answered rather than skipped.
     agent_id: () => {},
     fields: () => setFacetValues({}),
+    // One picker sets both ends, so either end clears the range.
+    created_from: () => setCreated(null),
+    created_to: () => setCreated(null),
+    last_outcome: () => setLastOutcome(undefined),
+    follow_up: () => setFollowUp(undefined),
+    callback_open: () => setCallbackOpen(undefined),
   };
   const clearFilters = () => {
     for (const clear of Object.values(clearFilter)) clear();
@@ -110,6 +127,14 @@ export function useLeadsLens(needKey: string = "need") {
     setFacetValues,
     chosenColumns,
     setChosenColumns,
+    created,
+    setCreated,
+    lastOutcome,
+    setLastOutcome,
+    followUp,
+    setFollowUp,
+    callbackOpen,
+    setCallbackOpen,
     activeViewId,
     setActiveViewId,
     offset,

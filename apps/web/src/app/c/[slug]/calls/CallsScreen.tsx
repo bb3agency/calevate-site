@@ -46,6 +46,7 @@ import { useLiveCalls, type CallLive } from "@/lib/api/liveCalls";
 import { useClientRealm } from "@/lib/api/session";
 import {
   DIRECTIONS,
+  FOLLOW_UP,
   OUTCOMES,
   RANGES,
   callWindow,
@@ -107,6 +108,9 @@ export function CallsScreen({ slug }: { slug: string }) {
   // On by default: a trial account has only test calls, and a log that hid every one of
   // them would read as "nobody has called". Each one carries a "Test call" tag.
   const [testCalls, setTestCalls] = useState(true);
+  /** Marked handled or not yet (D-893), and whether a call-back is waiting. */
+  const [followUpFilter, setFollowUpFilter] = useState<"done" | "not_done" | undefined>();
+  const [callbackOpen, setCallbackOpen] = useState<boolean | undefined>();
 
   const today = istDateStamp();
   const filters: CallsLogFilters = {
@@ -116,6 +120,8 @@ export function CallsScreen({ slug }: { slug: string }) {
     outcome,
     direction,
     testCalls,
+    followUp: followUpFilter,
+    callbackOpen,
     ...(dates ? callWindow("custom", today, dates.start, dates.end) : {}),
   };
   const calls = useCallsLog(session, { ...filters, pageSize: CALLS_PAGE_SIZE });
@@ -123,7 +129,17 @@ export function CallsScreen({ slug }: { slug: string }) {
   // The file arriving is its own success; the button's tick says it started.
   const exporting = useActionFeedback(exportCalls, { errorTitle: "Could not export your calls" });
   const exportAccess = useWriteAccess(session, "calls:read_raw", "export your calls");
-  const filtered = Boolean(status || agentId || campaignId || outcome || direction || dates || !testCalls);
+  const filtered = Boolean(
+    status ||
+      agentId ||
+      campaignId ||
+      outcome ||
+      direction ||
+      dates ||
+      !testCalls ||
+      followUpFilter ||
+      callbackOpen !== undefined,
+  );
   const phone = useMediaQuery(PHONE);
 
   /* Who rings a caller back: the agent that took the call when it places calls, else the
@@ -217,6 +233,24 @@ export function CallsScreen({ slug }: { slug: string }) {
         value: direction ?? "",
         options: [{ value: "", label: "Both" }, ...DIRECTIONS.map((d) => ({ value: d.value, label: d.label }))],
       },
+      {
+        id: "calls-follow-up",
+        label: "Follow-up",
+        type: "select",
+        value: followUpFilter ?? "",
+        options: [{ value: "", label: "Any" }, ...FOLLOW_UP.map((f) => ({ value: f.value, label: f.label }))],
+      },
+      {
+        id: "calls-callback",
+        label: "Call-back",
+        type: "select",
+        value: callbackOpen === undefined ? "" : String(callbackOpen),
+        options: [
+          { value: "", label: "Any" },
+          { value: "true", label: "Waiting" },
+          { value: "false", label: "None waiting" },
+        ],
+      },
     ],
     facts: [
       {
@@ -244,6 +278,10 @@ export function CallsScreen({ slug }: { slug: string }) {
         const wanted = asText(item.value);
         if (item.field_id === "calls-outcome") {
           setOutcome(OUTCOMES.find((o) => o.value === wanted)?.value);
+        } else if (item.field_id === "calls-follow-up") {
+          setFollowUpFilter(FOLLOW_UP.find((f) => f.value === wanted)?.value);
+        } else if (item.field_id === "calls-callback") {
+          setCallbackOpen(wanted === "true" ? true : wanted === "false" ? false : undefined);
         } else if (item.field_id === "calls-direction") {
           setDirection(DIRECTIONS.find((d) => d.value === wanted)?.value);
         } else if (item.field_id === "calls-range") {
@@ -271,12 +309,20 @@ export function CallsScreen({ slug }: { slug: string }) {
     setDirection(undefined);
     setDates(null);
     setTestCalls(true);
+    setFollowUpFilter(undefined);
+    setCallbackOpen(undefined);
   };
 
   const active: ActiveFilter[] = [
     ...(outcome ? [{ id: "outcome", label: OUTCOMES.find((o) => o.value === outcome)?.label ?? outcome, onRemove: () => setOutcome(undefined) }] : []),
     ...(dates ? [{ id: "dates", label: formatDateRange(dates.start, dates.end), onRemove: () => setDates(null) }] : []),
     ...(direction ? [{ id: "direction", label: DIRECTIONS.find((d) => d.value === direction)?.label ?? direction, onRemove: () => setDirection(undefined) }] : []),
+    ...(followUpFilter
+      ? [{ id: "follow-up", label: FOLLOW_UP.find((f) => f.value === followUpFilter)?.label ?? followUpFilter, onRemove: () => setFollowUpFilter(undefined) }]
+      : []),
+    ...(callbackOpen !== undefined
+      ? [{ id: "callback", label: callbackOpen ? "Call-back waiting" : "No call-back waiting", onRemove: () => setCallbackOpen(undefined) }]
+      : []),
     ...(!testCalls ? [{ id: "tests", label: "Test calls left out", onRemove: () => setTestCalls(true) }] : []),
     ...(agentId ? [{ id: "agent", label: `Agent: ${agentName ?? "the chosen agent"}`, onRemove: () => setAgentId(undefined) }] : []),
     ...(campaignId ? [{ id: "campaign", label: "One campaign's calls", onRemove: () => setCampaignId(undefined) }] : []),
@@ -320,6 +366,35 @@ export function CallsScreen({ slug }: { slug: string }) {
                       {d.label}
                     </option>
                   ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="sr-only">Follow-up</span>
+                <select
+                  value={followUpFilter ?? ""}
+                  onChange={(e) => setFollowUpFilter(FOLLOW_UP.find((f) => f.value === e.target.value)?.value)}
+                  className={`${FIELD} mt-0 w-auto`}
+                >
+                  <option value="">Any follow-up</option>
+                  {FOLLOW_UP.map((f) => (
+                    <option key={f.value} value={f.value}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="sr-only">Call-back</span>
+                <select
+                  value={callbackOpen === undefined ? "" : String(callbackOpen)}
+                  onChange={(e) =>
+                    setCallbackOpen(e.target.value === "" ? undefined : e.target.value === "true")
+                  }
+                  className={`${FIELD} mt-0 w-auto`}
+                >
+                  <option value="">Any call-back</option>
+                  <option value="true">Call-back waiting</option>
+                  <option value="false">No call-back waiting</option>
                 </select>
               </label>
               <label className="inline-flex cursor-pointer items-center gap-2 px-1 text-meta text-ink-muted touch:min-h-11">

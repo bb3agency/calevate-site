@@ -7,6 +7,7 @@ import type { Me } from "@/lib/api/client";
 import type { Lead, Member } from "@/lib/api/leads";
 
 import { problem, renderClientPage, type ApiCall } from "./harness";
+import { PLAN_ID, planFixture } from "./planFixture";
 import { LEAD_FIELDS_CORE_ONLY } from "./fixtures/sharedReads";
 
 /**
@@ -286,7 +287,7 @@ describe("selection scope is never ambiguous", () => {
         "POST /v1/leads/search": leadList([LEAD_A, LEAD_B], 140),
         "/v1/leads/facets?status=hot": FACETS,
       }),
-      "POST /v1/leads/bulk?status=hot": {
+      "POST /v1/leads/bulk": {
         action: "status",
         scope: "filter",
         requested: 140,
@@ -319,15 +320,56 @@ describe("selection scope is never ambiguous", () => {
     fireEvent.click(screen.getByRole("button", { name: /Apply to 140/ }));
 
     const posted = await lastCallTo(calls, "/v1/leads/bulk", "POST");
-    // THE LENS TRAVELS IN THE QUERY STRING, exactly as the table sends its non-PII half.
-    // `search` is the one field that does not, and cannot: see `useBulkLeads`.
-    expect(posted.path).toBe("/v1/leads/bulk?status=hot");
+    // THE LENS TRAVELS IN THE BODY as `lens`, the same `lensBody` the table sends, nested
+    // so the filter's `status` ("hot") cannot collide with the action's ("contacted").
+    expect(posted.path).toBe("/v1/leads/bulk");
     expect(JSON.parse(posted.body ?? "{}")).toEqual({
       scope: "filter",
       action: "status",
       status: "contacted",
       expected_count: 140,
+      lens: { status: "hot" },
     });
+  });
+
+  it("shows the plan card when a large filter runs as a plan", async () => {
+    await renderClientPage(<LeadsPage />, {
+      ...routes({
+        "POST /v1/leads/search": leadList([LEAD_A, LEAD_B], 140),
+        "/v1/leads/facets?status=hot": FACETS,
+      }),
+      "POST /v1/leads/bulk": {
+        action: "status",
+        scope: "filter",
+        requested: 140,
+        changed: 0,
+        unchanged: 0,
+        failures: [],
+        plan_id: PLAN_ID,
+      },
+      [`/v1/copilot/plans/${PLAN_ID}`]: planFixture({
+        origin: "console",
+        status: "running",
+        approved_at: "2026-10-27T10:00:00Z",
+        started_at: "2026-10-27T10:00:01Z",
+        done_count: 40,
+        pending_count: 100,
+        can_approve: false,
+      }),
+    });
+
+    fireEvent.click(await screen.findByRole("radio", { name: /^Hot/ }));
+    fireEvent.click(await screen.findByLabelText("Select all leads on this page"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Select all 140 leads matching these filters/ }),
+    );
+    await review();
+    fireEvent.change(screen.getByLabelText("Type 140 to confirm"), { target: { value: "140" } });
+    fireEvent.click(screen.getByRole("button", { name: /Apply to 140/ }));
+
+    // Not "140 could not be changed": the counts are the plan's, read from the plan.
+    expect(await screen.findByText("Set 140 leads to contacted")).toBeTruthy();
+    expect(screen.queryByText(/could not be changed/)).toBeNull();
   });
 
   it("clears the selection when the filter moves", async () => {

@@ -51,6 +51,11 @@ const IN_FORCE: Record<LeadFilterKey, (lens: LeadLens) => boolean> = {
   agent_id: (lens) => Boolean(lens.agent_id),
   // A key mapped to an empty array is a facet the client OPENED and chose nothing in.
   fields: (lens) => Object.values(lens.fields ?? {}).some((values) => values.length > 0),
+  created_from: (lens) => Boolean(lens.created_from),
+  created_to: (lens) => Boolean(lens.created_to),
+  last_outcome: (lens) => Boolean(lens.last_outcome),
+  follow_up: (lens) => lens.follow_up !== undefined,
+  callback_open: (lens) => lens.callback_open !== undefined,
 };
 
 /** Every key that narrows the rows, in one place — the screen's clear-all iterates it. */

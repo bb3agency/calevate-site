@@ -185,6 +185,29 @@ describe("the call log", () => {
     expect(calls.some((c) => c.path === "/v1/calls?test_calls=false&limit=100")).toBe(true);
   });
 
+  it("asks the server for calls not yet handled and with no call-back waiting (D-893)", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes([call()], {
+        "/v1/calls?follow_up=not_done&limit=100": [call()],
+        "/v1/calls?follow_up=not_done&callback_open=false&limit=100": [],
+      }),
+    );
+    fireEvent.change(await screen.findByRole("combobox", { name: "Follow-up" }), {
+      target: { value: "not_done" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Call-back" }), {
+      target: { value: "false" },
+    });
+    await screen.findByText("No calls match this filter");
+    expect(
+      calls.some((c) => c.path === "/v1/calls?follow_up=not_done&callback_open=false&limit=100"),
+    ).toBe(true);
+    // Each is a removable chip, in words.
+    expect(screen.getByRole("button", { name: "Remove the filter: Not handled yet" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove the filter: No call-back waiting" })).toBeTruthy();
+  });
+
   it("renders a status it has never seen rather than dropping the row", async () => {
     const { container } = await renderClientPage(
       page,
