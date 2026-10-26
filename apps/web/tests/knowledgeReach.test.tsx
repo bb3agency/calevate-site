@@ -9,10 +9,9 @@ import type { KbUpload } from "@/lib/api/kb";
 import { renderClientPage, type Routes } from "./harness";
 
 /**
- * WHAT A STATUS MAY CLAIM (D-874). A PDF's and a link's words do not reach the agents yet:
- * nothing is extracted from either (`apps/api/kb/models.text_is_read`) and the engine is
- * sent the chunks' text alone (`engine/thinnest.attach_kb`), so a published PDF is a live
- * row with nothing in it. The page must say so, calmly, and never "In use".
+ * WHAT A STATUS MAY CLAIM (D-874, D-893 L8). A PDF's and a link's words are read into a copy
+ * the owner and Pip can open, and reach the agents only while our console sends them — the
+ * server's `reaches_agents`. Until it does, a published PDF must never be called "In use".
  */
 
 const ME: Me = {
@@ -26,7 +25,7 @@ const ME: Me = {
 };
 
 function upload(over: Partial<KbUpload> = {}): KbUpload {
-  return {
+  const base: KbUpload = {
     id: "u1",
     source_id: "s1",
     name: "Price list.pdf",
@@ -41,29 +40,46 @@ function upload(over: Partial<KbUpload> = {}): KbUpload {
     source_url: null,
     text_provenance: null,
     change_detected_at: null,
+    read_state: "ready",
+    read_detail: null,
+    page_count: 1,
+    reaches_agents: false,
     ...over,
   };
+  // What the server says unless a test says otherwise: a converted kind always reaches.
+  return { ...base, reaches_agents: over.reaches_agents ?? !["pdf", "url"].includes(base.source_kind) };
 }
 
 describe("which kinds reach the agents", () => {
-  it("counts every kind we read into text, and neither a PDF nor a link", () => {
-    for (const kind of ["docx", "txt", "csv", "xlsx", "image"]) {
-      expect(reachesAgents({ source_kind: kind }), kind).toBe(true);
-    }
-    expect(reachesAgents({ source_kind: "pdf" })).toBe(false);
-    expect(reachesAgents({ source_kind: "url" })).toBe(false);
+  it("is the server's answer, never a list of kinds kept here", () => {
+    expect(reachesAgents(upload({ source_kind: "docx" }))).toBe(true);
+    expect(reachesAgents(upload())).toBe(false);
+    expect(reachesAgents(upload({ reaches_agents: true }))).toBe(true);
   });
 
-  it("never calls a published PDF or link in use, and says what to do instead", () => {
+  it("never calls a published PDF or link in use while the agents do not get it", () => {
     const pdf = uploadState(upload());
     expect(pdf.label).toBe("Saved, not used yet");
-    expect(pdf.meaning).toContain("Your agents can't read PDFs yet");
-    expect(pdf.meaning).toContain("Word file");
+    expect(pdf.meaning).toContain("Saved — your agents don't use this yet");
+    expect(pdf.meaning).toContain("You and Pip can open it");
     expect(pdf.tone).toBe("neutral");
 
     const link = uploadState(upload({ source_kind: "url", name: "Prices page", source_url: "https://example.in" }));
     expect(link.label).toBe("Saved, not used yet");
-    expect(link.meaning).toContain("Your agents can't read web pages yet");
+    expect(link.meaning).toContain("open the page");
+  });
+
+  it("calls a PDF in use once the server says its words reach the agents", () => {
+    expect(uploadState(upload({ reaches_agents: true })).label).toBe("In use");
+  });
+
+  it("says while the words are being read, and when they could not be", () => {
+    const reading = upload({ read_state: "reading", is_live: false, ingest_status: "processing" });
+    expect(uploadState(reading).label).toBe("Being read");
+    expect(uploadSteps(reading)).toBeNull();
+    const failed = upload({ read_state: "failed", read_detail: "This PDF is locked with a password." });
+    expect(uploadState(failed).label).toBe("Couldn't read");
+    expect(uploadState(failed).meaning).toBe("This PDF is locked with a password.");
   });
 
   it("says the same of a PDF that is still moving, and draws no steps towards 'In use'", () => {
@@ -107,12 +123,12 @@ describe("the one Add area (D-874)", () => {
     expect(screen.getByRole("button", { name: "Let Pip teach it" })).toBeTruthy();
   });
 
-  it("says before a PDF or a link is sent that the agents cannot read it yet", async () => {
+  it("says before a PDF or a link is sent what we do with it, and promises nothing the row may deny", async () => {
     await renderKnowledge();
     fireEvent.click(await screen.findByRole("radio", { name: "File" }));
-    expect(screen.getByText(/You can save a PDF, but your agents can't read PDFs yet/)).toBeTruthy();
+    expect(screen.getByText(/We read its words so you and Pip can open and search it/)).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "Link" }));
-    expect(screen.getByText(/You can save a link, but your agents can't read web pages yet/)).toBeTruthy();
+    expect(screen.getByText(/We read that one page so you and Pip can open and search it/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /save link/i })).toBeTruthy();
   });
 

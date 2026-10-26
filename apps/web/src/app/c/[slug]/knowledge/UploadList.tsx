@@ -27,6 +27,7 @@ import {
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
+import { ReaderDrawer } from "./ReaderDrawer";
 import { awaitsConfirmation, fileSize, isMachineRead, uploadState, uploadSteps } from "./uploadCopy";
 import { StatusPill } from "@/components/console/statusPill";
 
@@ -55,6 +56,7 @@ export function UploadRow({ upload }: { upload: KbUpload }) {
   useActionFeedback(original, { errorDisplay: "inline" });
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
   const [reviewing, setReviewing] = useState(false);
+  const [reading, setReading] = useState(false);
 
   const Icon = lookup(KIND_ICONS, shown.source_kind) ?? FileText;
   const size = fileSize(shown.byte_size);
@@ -69,7 +71,14 @@ export function UploadRow({ upload }: { upload: KbUpload }) {
         <Icon aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="min-w-0 break-words text-sm font-medium text-ink">{shown.name}</span>
+            {/* The name opens the reader: what we hold for it, and whether the agents use it. */}
+            <button
+              type="button"
+              onClick={() => setReading(true)}
+              className="min-w-0 break-words text-left text-sm font-medium text-ink underline-offset-2 hover:underline touch:min-h-11"
+            >
+              {shown.name}
+            </button>
             <StatusPill tone={state.tone}>{state.label}</StatusPill>
           </div>
           <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-ink-faint">
@@ -115,6 +124,7 @@ export function UploadRow({ upload }: { upload: KbUpload }) {
         <RowMenu
           label={shown.name}
           items={[
+            { id: "read", label: "Read it", onSelect: () => setReading(true) },
             /* A LINK HAS NOTHING TO DOWNLOAD, and the API says so by name, so the row
                offers the page itself. A file's address is FETCHED ON THE CLICK: it lasts
                five minutes, so one painted when the list loaded would be dead by the time
@@ -148,6 +158,17 @@ export function UploadRow({ upload }: { upload: KbUpload }) {
       )}
 
       {reviewing && <ExtractedText upload={shown} onDone={() => setReviewing(false)} />}
+
+      {reading && (
+        <ReaderDrawer
+          upload={shown}
+          onClose={() => setReading(false)}
+          onRemove={() => {
+            setReading(false);
+            setConfirmingRemoval(true);
+          }}
+        />
+      )}
 
       {confirmingRemoval && (
         <ConfirmDialog

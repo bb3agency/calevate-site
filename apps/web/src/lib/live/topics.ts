@@ -131,6 +131,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "kb-preview",
     "kb-staff-curation",
     "kb-upload",
+    "kb-upload-text",
     "kb-uploads",
     "kb-knows",
     "kb-teaching",

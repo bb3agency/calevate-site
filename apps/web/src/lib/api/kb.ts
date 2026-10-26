@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { apiRequest, apiUpload, type Session, type UploadProgress } from "./client";
 import { queryKeys } from "./hooks";
 import type { components } from "./schema";
+import { knowsKey } from "./teach";
 
 type Schemas = components["schemas"];
 
@@ -118,6 +119,8 @@ export type KbUploadDownload = Schemas["DownloadOut"];
  *   photograph awaiting confirmation would poll until the tab closed.
  */
 export function uploadSettled(upload: KbUpload): boolean {
+  // A PDF's or link's words being read is movement too (D-893 L8): "Read it again" sets it.
+  if (upload.read_state === "reading") return false;
   if (["processed", "error", "conversion_failed", "conversion_unavailable"].includes(upload.ingest_status)) {
     return true;
   }
@@ -168,10 +171,15 @@ export function useKbUpload(session: Session, upload: KbUpload): UseQueryResult<
   });
 }
 
-/** Everything an upload invalidates: its own list, and the sources list it also appears in. */
+/**
+ * Everything an upload invalidates: its own list, the sources list it also appears in, the
+ * "what it knows" list, and the stored words a reader shows (`kbUploadTextKey`).
+ */
 function invalidateKnowledge(client: ReturnType<typeof useQueryClient>, session: Session): void {
   void client.invalidateQueries({ queryKey: ["kb-uploads", session.orgSlug] });
   void client.invalidateQueries({ queryKey: ["kb", session.orgSlug] });
+  void client.invalidateQueries({ queryKey: ["kb-upload-text", session.orgSlug] });
+  void client.invalidateQueries({ queryKey: knowsKey(session.orgSlug) });
 }
 
 export function useUploadDocument(session: Session) {
@@ -179,13 +187,21 @@ export function useUploadDocument(session: Session) {
   return useMutation({
     mutationFn: ({
       file,
+      name,
       onProgress,
     }: {
       file: File;
+      /**
+       * The name of an item this file REPLACES. The server numbers versions per name, so
+       * the new file becomes the next version of the same item and takes its place once it
+       * is read, with the earlier version kept as history (D-893 L8, "Replace file").
+       */
+      name?: string;
       onProgress?: (progress: UploadProgress) => void;
     }) => {
       const form = new FormData();
       form.set("file", file);
+      if (name) form.set("name", name);
       return apiUpload<KbUpload>(session, "/v1/kb/uploads", form, { onProgress });
     },
     onSuccess: () => invalidateKnowledge(client, session),
@@ -224,6 +240,47 @@ export function useDeleteUpload(session: Session) {
   return useMutation({
     mutationFn: (uploadId: string) =>
       apiRequest<void>(session, `/v1/kb/uploads/${uploadId}`, { method: "DELETE" }),
+    onSuccess: () => invalidateKnowledge(client, session),
+  });
+}
+
+export type KbUploadText = Schemas["UploadTextOut"];
+
+/** The stored words of one file, photo or link, one reading page at a time (D-893 L8). */
+export const kbUploadTextKey = (slug: string, uploadId: string, page: number) =>
+  ["kb-upload-text", slug, uploadId, page] as const;
+
+export function useKbUploadText(
+  session: Session,
+  uploadId: string | null,
+  page: number,
+): UseQueryResult<KbUploadText> {
+  return useQuery({
+    queryKey: kbUploadTextKey(session.orgSlug, uploadId ?? "", page),
+    queryFn: () => apiRequest<KbUploadText>(session, `/v1/kb/uploads/${uploadId}/text?page=${page}`),
+    enabled: Boolean(uploadId),
+  });
+}
+
+/** Rename a file, photo or link: every version, so its history stays one item. */
+export function useRenameUpload(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ uploadId, name }: { uploadId: string; name: string }) =>
+      apiRequest<KbUpload>(session, `/v1/kb/uploads/${uploadId}`, { method: "PATCH", body: { name } }),
+    onSuccess: () => invalidateKnowledge(client, session),
+  });
+}
+
+/**
+ * Read a PDF or a web page again. The answer already says `read_state: "reading"`, so the
+ * row's own poll (`useKbUpload`) watches it settle.
+ */
+export function useRereadUpload(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (uploadId: string) =>
+      apiRequest<KbUpload>(session, `/v1/kb/uploads/${uploadId}/read`, { method: "POST" }),
     onSuccess: () => invalidateKnowledge(client, session),
   });
 }

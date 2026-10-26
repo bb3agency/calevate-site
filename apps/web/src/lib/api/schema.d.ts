@@ -8989,7 +8989,11 @@ export interface paths {
         delete: operations["delete_upload_v1_kb_uploads__upload_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Rename a document, photo or link
+         * @description Every version is renamed, so its history stays one item.
+         */
+        patch: operations["rename_upload_v1_kb_uploads__upload_id__patch"];
         trace?: never;
     };
     "/v1/kb/uploads/{upload_id}/confirm": {
@@ -9024,6 +9028,46 @@ export interface paths {
          * @description For a PDF the file itself is what the agent is handed; there are no chunks to preview and none are invented.
          */
         get: operations["download_original_v1_kb_uploads__upload_id__original_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/uploads/{upload_id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a PDF or a web page again
+         * @description Reads the file or page into our copy again, for one we could not read or a page that changed. Poll the upload for `read_state`.
+         */
+        post: operations["reread_upload_v1_kb_uploads__upload_id__read_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/uploads/{upload_id}/text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The words we hold for one document, photo or link, a page at a time
+         * @description What was read out of the file or page, as stored: one PDF page, or a few paragraphs, per reading page. `reaches_agents` says whether the agents use it.
+         */
+        get: operations["read_upload_text_v1_kb_uploads__upload_id__text_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -26175,6 +26219,11 @@ export interface components {
             /** Removed */
             removed: number;
         };
+        /** RenameIn */
+        RenameIn: {
+            /** Name */
+            name: string;
+        };
         /**
          * ReplaceIn
          * @description Which agents get a fresh set of business fields. Omit `agent_ids` for all of them.
@@ -29508,6 +29557,13 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** TextSectionOut */
+        TextSectionOut: {
+            /** Content */
+            content: string;
+            /** Label */
+            label: string;
+        };
         /** ThinnestWorkspaceOut */
         ThinnestWorkspaceOut: {
             /** Matches Setting */
@@ -30654,6 +30710,17 @@ export interface components {
             is_live: boolean;
             /** Name */
             name: string;
+            /** Page Count */
+            page_count?: number | null;
+            /**
+             * Reaches Agents
+             * @default true
+             */
+            reaches_agents: boolean;
+            /** Read Detail */
+            read_detail?: string | null;
+            /** Read State */
+            read_state?: string | null;
             /** Review State */
             review_state: string;
             /**
@@ -30671,6 +30738,37 @@ export interface components {
             updated_at?: string | null;
             /** Version */
             version: number;
+        };
+        /**
+         * UploadTextOut
+         * @description The words we hold for one file, photo or link, one reading page at a time.
+         */
+        UploadTextOut: {
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Note */
+            note?: string | null;
+            /** Origin */
+            origin: string;
+            /** Page */
+            page: number;
+            /** Pages */
+            pages: number;
+            /** Reaches Agents */
+            reaches_agents: boolean;
+            /** Sections */
+            sections: components["schemas"]["TextSectionOut"][];
+            /** State */
+            state: string;
+            /**
+             * Upload Id
+             * Format: uuid
+             */
+            upload_id: string;
+            /** Version */
+            version?: number | null;
         };
         /**
          * UsagePanelOut
@@ -47916,6 +48014,41 @@ export interface operations {
             };
         };
     };
+    rename_upload_v1_kb_uploads__upload_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     confirm_upload_v1_kb_uploads__upload_id__confirm_post: {
         parameters: {
             query?: never;
@@ -47965,6 +48098,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DownloadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    reread_upload_v1_kb_uploads__upload_id__read_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_upload_text_v1_kb_uploads__upload_id__text_get: {
+        parameters: {
+            query?: {
+                page?: number;
+            };
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadTextOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -31,7 +31,7 @@ export type TryChatReply = Schemas["TryChatOut"];
 
 
 
-const knowsKey = (slug: string) => ["kb-knows", slug] as const;
+export const knowsKey = (slug: string) => ["kb-knows", slug] as const;
 const struggleKey = (slug: string, agentId?: string) => ["kb-struggles", slug, agentId ?? null] as const;
 const teachingKey = (slug: string, id: string | null) => ["kb-teaching", slug, id] as const;
 const casesKey = (slug: string, agentId: string) => ["agent-test-cases", slug, agentId] as const;

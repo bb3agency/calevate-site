@@ -78,26 +78,32 @@ export function awaitsConfirmation(upload: KbUpload): boolean {
 }
 
 /**
- * The kinds whose words reach the agents. A PDF and a link do NOT, today: no text is
- * extracted from either (`apps/api/kb/models.text_is_read` treats both as engine-native, so
- * `workers/kb_ingest` skips extraction), the publish sends the source's chunks as `text`
- * and nothing else (`kb/service._Payload.ref`, `engine/thinnest.attach_kb`), and both
- * kinds have no chunks — so the agent is handed an empty document even when the row is
- * `is_live`. D-868 changes that; until it lands this screen must not call them in use.
- * Word, text, CSV, Excel and photos are read into text and do reach the agents.
+ * WHETHER THE WORDS REACH THE AGENTS IS THE SERVER'S ANSWER, NOT THIS FILE'S (D-893 L8).
+ * Word, text, CSV, Excel and photos are read into text and that text is what the agents
+ * are sent. A PDF's and a link's words are read into a copy the owner and Pip can open and
+ * search, and reach the agents only while our console sends them (`reaches_agents`,
+ * `apps/api/kb/service.upload_reaches_agents`). Until it does, the row must not say "In use".
  */
-const NOT_READ_BY_AGENTS: Readonly<Record<string, string>> = {
+const READ_COPY_KINDS: ReadonlySet<string> = new Set(["pdf", "url"]);
+
+/** Said under a PDF or link the agents do not use yet, once its words are read. */
+const NOT_USED_YET: Readonly<Record<string, string>> = {
   pdf:
-    "Your agents can't read PDFs yet. We're adding it. Until then, send the pages as " +
-    "photos or as a Word file, or type the key details under Write it.",
+    "Saved — your agents don't use this yet. You and Pip can open it and search it. If " +
+    "callers need it now, type the key details under Write it.",
   url:
-    "Your agents can't read web pages yet. We're adding it. Until then, type the " +
-    "details callers ask about under Write it.",
+    "Saved — your agents don't use this yet. You and Pip can open the page and search " +
+    "it. If callers need it now, type the key details under Write it.",
 };
 
-/** Does what this upload says reach the agents at all? See `NOT_READ_BY_AGENTS`. */
-export function reachesAgents(upload: Pick<KbUpload, "source_kind">): boolean {
-  return lookup(NOT_READ_BY_AGENTS, upload.source_kind) === undefined;
+/** Does what this upload says reach the agents? The server's `reaches_agents`. */
+export function reachesAgents(upload: Pick<KbUpload, "reaches_agents">): boolean {
+  return upload.reaches_agents !== false;
+}
+
+/** Is this a PDF or a link, whose words we read into a copy? */
+export function isReadCopy(upload: Pick<KbUpload, "source_kind">): boolean {
+  return READ_COPY_KINDS.has(upload.source_kind);
 }
 
 /** A refusal the owner has to act on, which outranks every other state on the row. */
@@ -113,19 +119,40 @@ function isStopped(upload: KbUpload): boolean {
 export function uploadState(upload: KbUpload): UploadState {
   const isLink = upload.source_kind === "url";
   const thing = isLink ? "page" : "file";
-  const notRead = lookup(NOT_READ_BY_AGENTS, upload.source_kind) ?? null;
 
-  // Ahead of `is_live`: a published PDF or link is live with nothing in it, and "In use"
-  // would tell the owner callers are hearing their price list when they are not.
-  // Refusals still come first (below), because those need the owner whatever the kind.
-  if (notRead && !isStopped(upload)) {
-    return {
-      label: "Saved, not used yet",
-      meaning: notRead,
-      tone: QUIET_TONE,
-      working: false,
-      awaitingConfirmation: false,
-    };
+  // A PDF or a link, ahead of `is_live`: published, it still reaches the agents only when
+  // `reaches_agents` says so, and "In use" would tell the owner callers are hearing their
+  // price list when they are not. Refusals still come first, whatever the kind.
+  if (isReadCopy(upload) && !isStopped(upload)) {
+    if (upload.read_state === "reading") {
+      return {
+        label: "Being read",
+        meaning: `We are reading the words in this ${thing}. This usually takes a minute.`,
+        tone: WORK_TONE,
+        working: true,
+        awaitingConfirmation: false,
+      };
+    }
+    if (upload.read_state === "failed") {
+      return {
+        label: "Couldn't read",
+        meaning:
+          upload.read_detail ??
+          `We could not read the words in this ${thing}. It is still saved; try reading it again.`,
+        tone: STOP_TONE,
+        working: false,
+        awaitingConfirmation: false,
+      };
+    }
+    if (!reachesAgents(upload)) {
+      return {
+        label: "Saved, not used yet",
+        meaning: lookup(NOT_USED_YET, upload.source_kind) ?? NOT_USED_YET.pdf!,
+        tone: QUIET_TONE,
+        working: false,
+        awaitingConfirmation: false,
+      };
+    }
   }
 
   if (upload.is_live) {
@@ -263,8 +290,10 @@ export function uploadState(upload: KbUpload): UploadState {
 export function uploadSteps(
   upload: KbUpload,
 ): { steps: { id: string; label: string }[]; current: number } | null {
-  // A PDF or a link has no "In use" step to walk towards yet.
-  if (upload.is_live || !reachesAgents(upload)) return null;
+  // A PDF or a link the agents do not use has no "In use" step to walk towards.
+  if (upload.is_live || !reachesAgents(upload) || (isReadCopy(upload) && upload.read_state === "reading")) {
+    return null;
+  }
   if (awaitsConfirmation(upload)) {
     return {
       steps: [
@@ -309,8 +338,8 @@ export const ACCEPT_ATTRIBUTE = ACCEPTED_EXTENSIONS.join(",");
 
 /**
  * The kinds whose words reach the agents, as a sentence for the person. PDFs are accepted
- * too (`ACCEPTED_EXTENSIONS`) but said apart, in `PDF_NOTE`, because they do not reach
- * the agents yet (`NOT_READ_BY_AGENTS`).
+ * too (`ACCEPTED_EXTENSIONS`) but said apart, in `PDF_NOTE`, because whether the agents use
+ * one is decided per item (`reaches_agents`) and said on its row.
  */
 export const READ_KINDS_SENTENCE =
   "Send what you already have: a Word document, an Excel or CSV sheet, a text file, or a " +
@@ -318,11 +347,11 @@ export const READ_KINDS_SENTENCE =
 
 /** Said beside the file control so a PDF is never sent believing the agents will read it. */
 export const PDF_NOTE =
-  "You can save a PDF, but your agents can't read PDFs yet. We're adding it. Until then, send the pages as photos or as a Word file.";
+  "You can save a PDF too. We read its words so you and Pip can open and search it, and each one shows whether your agents use it.";
 
 /** Said beside the link control, for the same reason. */
 export const LINK_NOTE =
-  "You can save a link, but your agents can't read web pages yet. We're adding it. Until then, type the details callers ask about under Write it.";
+  "We read that one page so you and Pip can open and search it. Each link shows whether your agents use it.";
 
 /** `apps/api/kb/uploads.MAX_UPLOAD_BYTES`, said the way the refusal says it. */
 export const MAX_UPLOAD_MB = 20;

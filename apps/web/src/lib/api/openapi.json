@@ -38121,6 +38121,22 @@
         "title": "RemoveContactsOut",
         "type": "object"
       },
+      "RenameIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "RenameIn",
+        "type": "object"
+      },
       "ReplaceIn": {
         "additionalProperties": false,
         "description": "Which agents get a fresh set of business fields. Omit `agent_ids` for all of them.",
@@ -46598,6 +46614,25 @@
         "title": "TestWebhookIn",
         "type": "object"
       },
+      "TextSectionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "content"
+        ],
+        "title": "TextSectionOut",
+        "type": "object"
+      },
       "ThinnestWorkspaceOut": {
         "additionalProperties": false,
         "properties": {
@@ -49536,6 +49571,44 @@
             "title": "Name",
             "type": "string"
           },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "reaches_agents": {
+            "default": true,
+            "title": "Reaches Agents",
+            "type": "boolean"
+          },
+          "read_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read Detail"
+          },
+          "read_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read State"
+          },
           "review_state": {
             "title": "Review State",
             "type": "string"
@@ -49599,6 +49672,87 @@
           "version"
         ],
         "title": "UploadOut",
+        "type": "object"
+      },
+      "UploadTextOut": {
+        "additionalProperties": false,
+        "description": "The words we hold for one file, photo or link, one reading page at a time.",
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "pages": {
+            "title": "Pages",
+            "type": "integer"
+          },
+          "reaches_agents": {
+            "title": "Reaches Agents",
+            "type": "boolean"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/TextSectionOut"
+            },
+            "title": "Sections",
+            "type": "array"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "upload_id": {
+            "format": "uuid",
+            "title": "Upload Id",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "upload_id",
+          "name",
+          "kind",
+          "state",
+          "reaches_agents",
+          "origin",
+          "page",
+          "pages",
+          "sections"
+        ],
+        "title": "UploadTextOut",
         "type": "object"
       },
       "UsagePanelOut": {
@@ -76295,6 +76449,55 @@
           "knowledge-base"
         ],
         "x-calevate-permission": "agents:read"
+      },
+      "patch": {
+        "description": "Every version is renamed, so its history stays one item.",
+        "operationId": "rename_upload_v1_kb_uploads__upload_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Rename a document, photo or link",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "kb:write"
       }
     },
     "/v1/kb/uploads/{upload_id}/confirm": {
@@ -76373,6 +76576,100 @@
           }
         },
         "summary": "A short-lived link to the uploaded file",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/kb/uploads/{upload_id}/read": {
+      "post": {
+        "description": "Reads the file or page into our copy again, for one we could not read or a page that changed. Poll the upload for `read_state`.",
+        "operationId": "reread_upload_v1_kb_uploads__upload_id__read_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Read a PDF or a web page again",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/uploads/{upload_id}/text": {
+      "get": {
+        "description": "What was read out of the file or page, as stored: one PDF page, or a few paragraphs, per reading page. `reaches_agents` says whether the agents use it.",
+        "operationId": "read_upload_text_v1_kb_uploads__upload_id__text_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadTextOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The words we hold for one document, photo or link, a page at a time",
         "tags": [
           "knowledge-base"
         ],

@@ -31,8 +31,9 @@ import {
  *    Only the SIZE is checked in the browser: the API refuses `.doc` with a remediation
  *    naming the fix (Save as .docx), which a generic refusal here would hide.
  * 2. **What reaches the agents is said before a file is chosen**, and a PDF is said apart
- *    (`PDF_NOTE`): it is accepted and stored, but its words do not reach the agents yet
- *    (D-868), and a client must not send one believing they do.
+ *    (`PDF_NOTE`): its words are read for the owner and Pip, and whether the agents use
+ *    them is the server's answer per item (`reaches_agents`, D-893 L8), so the note
+ *    promises nothing the row may later deny.
  * 3. **Progress is real bytes, not a spinner.** 20 MB over a phone uplink is minutes of
  *    apparent silence, and a form that looks frozen gets pressed twice — the same price
  *    list arriving twice. `apiUpload` reports what has actually left the device.
@@ -49,7 +50,7 @@ export function AddFile({ allowed }: { allowed: boolean }) {
     successToast: (sent) => `${sent.name} received`,
     successDescription: (sent) =>
       sent.source_kind === "pdf"
-        ? "It is saved. Your agents can't read PDFs yet."
+        ? "It is saved, and we're reading its words now. Its row says whether your agents use it."
         : "We're reading it now. You'll see it in the list below.",
   });
 
@@ -114,9 +115,10 @@ export function AddFile({ allowed }: { allowed: boolean }) {
 }
 
 /**
- * THE LINK HALF OF THE ADD AREA. A link is stored and checked for changes, but no text is
- * taken from the page, so its words do not reach the agents yet (D-868) — `LINK_NOTE` says
- * so before anything is typed, and the button says "Save", not "Add to your agents".
+ * THE LINK HALF OF THE ADD AREA. A link is stored, its one page read and checked for
+ * changes; whether the agents use its words is said on its row (`reaches_agents`, D-893
+ * L8). So `LINK_NOTE` promises only the reading, and the button says "Save", not "Add to
+ * your agents".
  */
 export function AddLink({ allowed, reason }: { allowed: boolean; reason: string | null }) {
   const session = useClientSession();

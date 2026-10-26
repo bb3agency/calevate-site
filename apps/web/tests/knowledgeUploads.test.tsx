@@ -60,11 +60,15 @@ const STAFF: Me = { ...ME, role: "staff", permissions: ["agents:read"] };
 type UploadWire = KbUpload;
 
 function upload(over: Partial<UploadWire> = {}): UploadWire {
-  return {
+  const base: UploadWire = {
+    read_state: null,
+    read_detail: null,
+    page_count: null,
+    reaches_agents: true,
     id: UPLOAD_ID,
     source_id: SOURCE_ID,
     name: "Price list.docx",
-    // A kind whose words reach the agents; a PDF does not yet (D-868), see its own test.
+    // A kind whose words always reach the agents; a PDF's depend on the server (D-893 L8).
     source_kind: "docx",
     ingest_status: "processed",
     ingest_detail: null,
@@ -78,6 +82,9 @@ function upload(over: Partial<UploadWire> = {}): UploadWire {
     change_detected_at: null,
     ...over,
   };
+  // The server's answer unless the test gives one: a PDF's or link's words are not sent
+  // while the console switch is off (D-893 L8), every converted kind's are.
+  return { ...base, reaches_agents: over.reaches_agents ?? !["pdf", "url"].includes(base.source_kind) };
 }
 
 async function renderKnowledge(
@@ -263,8 +270,8 @@ describe("the control the founder could not find", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("a Word document, an Excel or CSV sheet, a text file");
     expect(text).toContain("20 MB");
-    // A PDF is accepted, but it is said apart: its words do not reach the agents yet.
-    expect(text).toContain("your agents can't read PDFs yet");
+    // A PDF is accepted, and said apart: its row says whether the agents use its words.
+    expect(text).toContain("You can save a PDF too");
     // The picker's own filter carries the same list, so the file browser greys out a
     // `.doc` rather than letting it be chosen and refused.
     expect(filePicker().accept).toContain(".docx");
@@ -394,8 +401,8 @@ describe("the control the founder could not find", () => {
 
     await ready();
     fireEvent.click(screen.getByRole("radio", { name: "Link" }));
-    // Said before anything is typed: a link is saved, and its words do not reach the agents.
-    expect(screen.getByText(/your agents can't read web pages yet/)).toBeTruthy();
+    // Said before anything is typed: a link is saved and its one page read.
+    expect(screen.getByText(/We read that one page/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/web address/i), {
       target: { value: "https://example.in/prices" },
     });
