@@ -80,6 +80,11 @@ organizations(id, name, slug UNIQUE CHECK (slug ~ '^[a-z0-9-]{3,40}$') IMMUTABLE
   -- (34,470 rows / 596 buffers / 9.7 ms, measured): the policy's `id IN (SELECT ...)` branch
   -- cannot be an index condition. Keyed reads (`slug =`, `id =`) plan as index scans and are
   -- what every request path uses; the one unkeyed reader is the admin directory.
+  -- low_balance_alert_inr NUMERIC(12,2) NULL, CHECK 0..100000 (migration f1a6c3e9d204,
+  -- D-893 L6): the balance below which the client is warned credit is low. NULL is
+  -- Calevate's line (`billing.service.LOW_BALANCE_INR`), 0 stops the low warning; the
+  -- empty-wallet warning ignores it. Read only through `billing.service.low_balance_line`
+  -- (the ledger's crossing, `Balance.is_low`, the wallet reads, the attention queue).
 reserved_slugs(slug PK)              -- admin, api, login, settings, app, www, ...
 users(id, clerk_user_id UNIQUE, email, name, phone, deactivated_at, email_verified_at)
   -- clerk_user_id: NOTHING WRITES OR READS IT since D-177. Kept one release under hard

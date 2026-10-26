@@ -575,8 +575,41 @@ lived in a route body it moved into a service both doors call.
 * **Never through Pip:** connecting an account (keys, OAuth), and switching caller memory on
   before the owner has confirmed its statement on the Settings tab — the planner refuses and
   sends the person there; `set_caller_memory` is always called with `attested_by=None`.
-* **The prefix budget** rose to 21,400 tokens while each action is its own tool;
+* **The prefix budget** rose to 25,100 tokens (with §17) while each action is its own tool;
   `docs/PIP-AGENT-PLAN.md` §3 F1's area tools replace the per-tool array.
 * Tests: `copilot/agent_setup_actions_test.py`, `copilot/agent_tool_actions_test.py`; tool
   choice: the `c-agent-*`, `c-script-put-live`, `c-script-discard`, `c-script-version`,
   `c-lead-*` cases.
+
+## 17. The account's own settings (D-893 lane L6, `copilot/account_actions.py`)
+
+| Area | Tools (tier) | The button's function |
+|---|---|---|
+| numbers | `number_assign` (confirm), `forwarding_line_add` (confirm, code), `forwarding_line_change` (immediate), `forwarding_line_remove` (confirm), `forwarding_line_test` (confirm, code) | `number_catalog.assign_number_to_agent`, `forwarding.service.create_line` / `update_line` / `delete_line`, `forwarding.testing.start_test` |
+| team | `team_invite` (confirm; code for an owner), `team_member_role` (confirm; code to make an owner), `team_member_remove`, `team_invitation` (resend or cancel) | `tenancy.members.send_team_invitation`, `change_member_role`, `remove_member`, `resend_and_mail_invitation`, `revoke_invitation` |
+| settings | `line_protection_phone`, `lead_source_create`, `lead_source_edit` (immediate), `lead_source_switch` (immediate), `lead_source_rotate`, `lead_calling_rules`, `held_lead_decide` | `healer.protection.set_fallback_phone` / `clear_fallback_phone`, `ingest.service.create_lead_source` / `set_source_agent` / `set_active` / `rotate_secret`, `lead_policy.save_and_apply` / `release_held` / `drop_held` |
+| integrations | `crm_endpoint_create` (confirm, code), `crm_endpoint_edit`, `crm_endpoint_act` (switch off, new secret), `crm_delivery_resend` | `integrations.service.create_webhook_endpoint` / `update_endpoint` / `deactivate_endpoint` / `rotate_endpoint_secret` / `resend_delivery` |
+| billing | `spend_caps_set`, `auto_recharge_set`, `low_balance_alert_set` (immediate), `ai_allowance_extra` | `caps.apply_client_caps`, `auto_recharge.save_auto_recharge`, `billing.service.set_low_balance_line`, `ai_quota.purchase_ai_overage` |
+
+Unmarked tools are confirm. Reads: `numbers_list` (numbers, forwarded numbers, calls at once,
+backup phone), `team_members` (with pending invitations), `integrations_status` (lead sources,
+the lead-calling plan, held leads, endpoints, Google Sheets connection, failed deliveries, each
+with its id) and `billing_settings`.
+
+* **Never here (PIP-AGENT-PLAN §1).** No payment, top-up order or payment-method approval;
+  `auto_recharge_set` refuses to switch on without a method the person approved on Credits &
+  billing. Connecting Google is the person's own sign-in; Pip only says whether it is connected.
+* **Secrets are shown once, to the person.** A new lead source, endpoint or rotated secret goes
+  in `Executed.detail` (the confirming person's response) and never in `recorded`, the audit
+  summary or a Plan.
+* **The emailed code (D-730).** `ACCOUNT_CODE_ACTIONS` names each tool whose button needs a code
+  and builds its exact `X-Confirm-Action` (`add_forwarded_number:<slug>`,
+  `forwarding_test:<slug>`, `invite_owner:<slug>:<email>`, `promote_owner:<slug>:<user id>`,
+  `create_endpoint:<slug>`). While `CODE_GATE_ON_CONFIRM` is false (until Pip's confirm can ask
+  for the code, PIP-AGENT-PLAN F4) those planners refuse and name the screen.
+* **Areas.** `ACCOUNT_TOOL_AREAS` maps each tool to its area for the F1 facade.
+* Tests: `apps/api/copilot/account_actions_test.py`, `tests/account_settings_routes_test.py`;
+  tool choice: the `c-number-*`, `c-forwarding-*`, `c-team-*`, `c-invite-*`, `c-backup-phone`,
+  `c-source-*`, `c-calling-hours`, `c-held-call`, `c-endpoint-off`, `c-delivery-resend`,
+  `c-sheets-connected`, `c-spend-cap`, `c-low-alert`, `c-auto-recharge-off` and
+  `c-topup-refused` cases.
