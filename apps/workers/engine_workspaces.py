@@ -532,6 +532,14 @@ async def poll_business_details_in_review(ctx: dict[str, Any]) -> str:
                 "engine_business_details_poll_failed",
                 extra={"tenant_id": str(row.tenant_id), "code": exc.code},
             )
+        except Exception as exc:
+            # Rows are read in tenant order, so one that crashes and ends the poll would
+            # stop every application after it on every tick.
+            tally["unreadable"] += 1
+            log.error(
+                "engine_business_details_poll_crashed",
+                extra={"tenant_id": str(row.tenant_id), "error": type(exc).__name__},
+            )
     summary = " ".join(f"{key}={value}" for key, value in tally.items())
     return f"in_review={len(rows)} {summary}"
 

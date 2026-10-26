@@ -246,6 +246,35 @@ async def test_the_hourly_check_repairs_drift_everywhere_and_alarms(
     assert alarms == ["engine_workspace_retention_repaired", "engine_workspace_retention_drift"]
 
 
+async def test_a_workspace_that_crashes_does_not_end_the_walk(
+    vendor: RetentionVendor, alarms: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apps.workers.workspace_walk import WorkspaceVisit
+
+    crashing, _ = await _client_workspace()
+    tenant_id, workspace = await _client_workspace()
+    vendor.held[workspace] = None
+    real_leg = engine_retention._client_leg
+
+    async def _leg(tenant: UUID, ws: str, *, repair: bool) -> str:
+        if tenant == crashing:
+            raise ConnectionResetError("database went away")
+        return await real_leg(tenant, ws, repair=repair)
+
+    async def _walk(_sweep: str, **_kw: Any) -> Any:
+        yield WorkspaceVisit(tenant_id=crashing, workspace="org_crashing")
+        yield WorkspaceVisit(tenant_id=tenant_id, workspace=workspace)
+
+    monkeypatch.setattr(engine_retention, "_client_leg", _leg)
+    monkeypatch.setattr(engine_retention, "walk_workspaces", _walk)
+
+    result = await engine_retention.sweep_engine_retention({})
+
+    assert result.endswith("in_step=0 repaired=1 failed=1")
+    assert vendor.patches == [(workspace, 30)]
+    assert alarms == ["engine_workspace_retention_repaired", "engine_workspace_retention_drift"]
+
+
 async def test_the_developer_workspaces_answer_is_kept_until_the_next_good_read(
     vendor: RetentionVendor, alarms: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

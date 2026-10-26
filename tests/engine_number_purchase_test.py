@@ -674,6 +674,33 @@ async def test_an_application_being_checked_is_read_again_within_minutes(
     assert (await jobs.poll_business_details_in_review({})).startswith("in_review=0 ")
 
 
+async def test_an_application_that_crashes_does_not_stop_the_ones_after_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    first, second = uuid.uuid4(), uuid.uuid4()
+    read: list[UUID] = []
+
+    async def _rows(**_kw: Any) -> list[Any]:
+        return [SimpleNamespace(tenant_id=first), SimpleNamespace(tenant_id=second)]
+
+    async def _leg(tenant_id: UUID, tally: dict[str, int]) -> None:
+        if tenant_id == first:
+            raise ConnectionResetError("database went away")
+        read.append(tenant_id)
+
+    monkeypatch.setattr(jobs, "engine_has_workspaces", lambda: True)
+    monkeypatch.setattr(jobs, "engine_number_provider", lambda: "thinnest")
+    monkeypatch.setattr(jobs, "workspaces_in_review", _rows)
+    monkeypatch.setattr(jobs, "_business_details_leg", _leg)
+
+    summary = await jobs.poll_business_details_in_review({})
+
+    assert read == [second]
+    assert summary.startswith("in_review=2 ") and "unreadable=1" in summary
+
+
 # --- one charge parser (audit fix 4) --------------------------------------------------------
 
 

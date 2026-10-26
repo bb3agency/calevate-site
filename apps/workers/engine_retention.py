@@ -188,6 +188,19 @@ async def sweep_engine_retention(ctx: dict[str, Any]) -> str:
                 },
             )
             continue
+        except Exception as exc:
+            # A database error or a timeout is this workspace's alone. Left to propagate it
+            # would end the walk before the cursor passed this workspace, so every later
+            # tick would stop on it again and the workspaces after it would never be read.
+            tally["failed"] += 1
+            log.error(
+                "engine_retention_check_crashed",
+                extra={
+                    "tenant_id": str(visit.tenant_id) if visit.tenant_id else None,
+                    "error": type(exc).__name__,
+                },
+            )
+            continue
         tally[outcome] += 1
     _alarm(tally["repaired"], tally["failed"])
     summary = " ".join(f"{key}={value}" for key, value in tally.items())
