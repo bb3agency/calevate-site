@@ -234,6 +234,39 @@ async def test_a_transient_failure_retries_that_agent_and_settles_the_run(
     )
 
 
+async def test_a_retry_is_queued_in_the_transaction_that_moves_the_cursor_past_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Committed apart, a worker dying between the two re-walked the agent on resume and
+    queued a second retry that `retrying` counted once, so the run never finished."""
+    tenant_id, agent_id, _bearer = await _tenant()
+    await _published(tenant_id, agent_id)
+
+    async def flaky(**_: Any) -> Any:
+        raise ProblemError(kind="dependency", code="engine_unreachable", title="x", detail="y")
+
+    real_queue = worker.queue_agent_retry
+    cursor_at_queue: list[Any] = []
+
+    async def spy(session: Any, run: uuid.UUID, **kwargs: Any) -> Any:
+        cursor_at_queue.append(
+            (
+                await session.execute(
+                    text("SELECT cursor_agent_id, retrying FROM live_apply_runs WHERE id = :id"),
+                    {"id": run},
+                )
+            ).one()
+        )
+        return await real_queue(session, run, **kwargs)
+
+    monkeypatch.setattr(worker, "converge_agent", flaky)
+    monkeypatch.setattr(worker, "queue_agent_retry", spy)
+    run_id = await _queue(tenant_id)
+    await drain_live_apply(tenant_id)
+    assert [(str(c), r) for c, r in cursor_at_queue] == [(str(agent_id), 1)]
+    assert await _outbox(AGENT_JOB, run_id) == 1
+
+
 async def test_an_agent_that_never_recovers_is_given_up_and_alarmed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

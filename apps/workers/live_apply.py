@@ -129,7 +129,11 @@ async def _record_failure(
     code: str,
     was_retrying: bool,
     detail: dict[str, Any] | None = None,
-) -> None:
+    advance: dict[str, Any] | None = None,
+) -> bool:
+    """Count the agent failed and alarm. With `advance` (the walk), the cursor moves in the
+    same transaction, so a worker dying between the two cannot count it twice on resume.
+    False when the run was superseded and nothing was written."""
     failure: dict[str, Any] = {
         "tenant_id": str(tenant_id),
         "agent_id": str(agent_id),
@@ -146,6 +150,8 @@ async def _record_failure(
         # The agent's display name, so the console can say which one without a lookup.
         failure["agent_name"] = str(name)[:120]
     async with untenanted_session() as session:
+        if advance is not None and (await session.execute(_ADVANCE, advance)).first() is None:
+            return False
         await session.execute(
             _FAILED,
             {
@@ -172,6 +178,7 @@ async def _record_failure(
         agent_id=str(agent_id),
         reason=code,
     )
+    return True
 
 
 async def _queue_retry(run_id: UUID, *, tenant_id: UUID, agent_id: UUID) -> None:
@@ -206,7 +213,19 @@ async def apply_live_settings(ctx: dict[str, Any], payload: dict[str, Any]) -> s
 
     applied = 0
     for tenant_id, agent_id in batch:
-        done, gone, retrying = 0, 0, 0
+        # Whatever this agent's outcome writes commits WITH the cursor that moves past it:
+        # written apart, a worker dying in between re-walked the agent on resume, counting
+        # a failure twice or queueing a second retry that `retrying` counted once, so the
+        # run never reached `retrying = 0` and never finished.
+        advance = {
+            "id": run_id,
+            "ct": tenant_id,
+            "ca": agent_id,
+            "applied": 0,
+            "gone": 0,
+            "retrying": 0,
+            "lease": LEASE_S,
+        }
         try:
             outcome, _name = await converge_agent(tenant_id=tenant_id, agent_id=agent_id)
         except Exception as exc:
@@ -224,36 +243,32 @@ async def apply_live_settings(ctx: dict[str, Any], payload: dict[str, Any]) -> s
                     )
                 return f"maintenance applied={applied}"
             if is_permanent(exc):
-                await _record_failure(
+                moved = await _record_failure(
                     run_id,
                     tenant_id=tenant_id,
                     agent_id=agent_id,
                     code=failure_code(exc),
                     detail=failure_detail(exc),
                     was_retrying=False,
+                    advance=advance,
                 )
             else:
-                await _queue_retry(run_id, tenant_id=tenant_id, agent_id=agent_id)
-                retrying = 1
+                async with untenanted_session() as session:
+                    moved = (
+                        await session.execute(_ADVANCE, {**advance, "retrying": 1})
+                    ).first() is not None
+                    if moved:
+                        await queue_agent_retry(
+                            session, run_id, tenant_id=tenant_id, agent_id=agent_id
+                        )
         else:
-            done, gone = (1, 0) if outcome == "applied" else (0, 1)
-        applied += done
-        async with untenanted_session() as session:
-            moved = (
-                await session.execute(
-                    _ADVANCE,
-                    {
-                        "id": run_id,
-                        "ct": tenant_id,
-                        "ca": agent_id,
-                        "applied": done,
-                        "gone": gone,
-                        "retrying": retrying,
-                        "lease": LEASE_S,
-                    },
-                )
-            ).first()
-        if moved is None:
+            done = 1 if outcome == "applied" else 0
+            applied += done
+            async with untenanted_session() as session:
+                moved = (
+                    await session.execute(_ADVANCE, {**advance, "applied": done, "gone": 1 - done})
+                ).first() is not None
+        if not moved:
             log.info("live_apply_superseded", extra={"run_id": str(run_id)})
             return f"superseded applied={applied}"
 
