@@ -1000,7 +1000,11 @@ async def _dispatch_for_campaign(
             # an opt-out committed by another connection while this batch is mid-flight
             # blocks the very next contact rather than waiting for the next tick.
             decision = await check_dispatch(
-                session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), phone_e164=phone
+                session,
+                tenant_id=tenant_id,
+                agent_id=UUID(str(agent_id)),
+                phone_e164=phone,
+                halt_read_by_caller=True,
             )
             if not decision.allowed:
                 await _refuse_contact(session, contact_id, rule=decision.rule or "unknown")

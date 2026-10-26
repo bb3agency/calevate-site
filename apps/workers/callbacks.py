@@ -159,6 +159,8 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                     tenant_id=tenant_id,
                     agent_id=callback.agent_id,
                     phone_e164=callback.phone_e164,
+                    # Read fresh three lines up, once per call-back.
+                    halt_read_by_caller=True,
                 )
             if not decision.allowed:
                 rule = decision.rule or "unknown"

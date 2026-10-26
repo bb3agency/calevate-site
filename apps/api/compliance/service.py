@@ -961,6 +961,7 @@ async def check_dispatch(
     phone_e164: str,
     trial_call: bool = False,
     own_number_attested: bool = False,
+    halt_read_by_caller: bool = False,
 ) -> DispatchDecision:
     """Returns a decision rather than raising, so callers can render *why* a button is
     disabled — SURFACES §2b asks for blocked features to be visibly explained instead
@@ -982,8 +983,15 @@ async def check_dispatch(
     agent and its truthful answers (hard rule 5), the pledge, the agreements, the spend cap,
     the India-only destination, the do-not-call list and consent, and calling hours unless
     the owner attested the number as their own (`own_number_attested`, founder 23 Oct
-    2026)."""
-    platform = await get_platform_status()
+    2026).
+
+    The big red switch is read FRESH, past the process memo and the Redis copy, unless
+    `halt_read_by_caller`: a click-to-dial is one read per click, and a halt set in another
+    process must stop the very next one rather than up to `loadshed`'s memo later, because
+    a dial placed after `dial_recall`'s one scan is never recalled. Only the dispatch ticks,
+    which read the switch fresh themselves just before calling here once per contact, pass
+    True."""
+    platform = await get_platform_status(force_refresh=not halt_read_by_caller)
     if platform.outbound_halted:
         return DispatchDecision(
             allowed=False,

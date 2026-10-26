@@ -199,7 +199,7 @@ async def test_the_dial_gate_itself_refuses_during_a_drain() -> None:
         maintenance_reason="Upgrading the telephony stack.",
     )
 
-    async def _draining() -> PlatformStatus:
+    async def _draining(*, force_refresh: bool = False) -> PlatformStatus:
         return draining
 
     with mock.patch.object(compliance_service, "get_platform_status", _draining):
