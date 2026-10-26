@@ -37,6 +37,7 @@ import httpx
 from calevate_shared.call_script import upgrade_to_v2
 from calevate_shared.engine import VoiceEngine
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_builder, trial_results
 from apps.api.agents.assist_leg import account_assist_leg
@@ -202,17 +203,24 @@ async def _meter(tenant_id: UUID, answer: JsonAnswer[Any], feature: str) -> None
     """A completed AI step is money spent: recorded in its own transaction (crm/assist §4),
     with any paid leg that answered unusably in front of it."""
     async with tenant_session(tenant_id) as session:
-        await crm_assist.meter_earlier(
-            session, tenant_id=tenant_id, earlier=answer.earlier, feature=feature
-        )
-        await crm_assist.meter_assist(
-            session,
-            tenant_id=tenant_id,
-            ref=new_assist_ref(),
-            result=answer,
-            feature=feature,
-            model=answer.model,
-        )
+        await _meter_in(session, tenant_id, answer, feature)
+
+
+async def _meter_in(
+    session: AsyncSession, tenant_id: UUID, answer: JsonAnswer[Any], feature: str
+) -> None:
+    """`_meter` in the caller's transaction, for a step that stores what it paid for."""
+    await crm_assist.meter_earlier(
+        session, tenant_id=tenant_id, earlier=answer.earlier, feature=feature
+    )
+    await crm_assist.meter_assist(
+        session,
+        tenant_id=tenant_id,
+        ref=new_assist_ref(),
+        result=answer,
+        feature=feature,
+        model=answer.model,
+    )
 
 
 async def _meter_refused(tenant_id: UUID, refused: ProblemError, feature: str) -> None:
@@ -878,7 +886,6 @@ async def improve_run(
     answer = await propose_improvement(
         brief, base, failures, tenant_leg=tenant_leg, quota_exhausted=exhausted
     )
-    await _meter(tenant_id, answer, ASSIST_FEATURE_TEST_IMPROVE)
     record = improvement_record(
         answer,
         base=base,
@@ -890,6 +897,8 @@ async def improve_run(
     )
     found = bool(record.get("edits") or record.get("facts"))
     stop: ImproveStop = "completed" if found else "no_change"
+    # Charged in the transaction that stores the answer: committed alone, a job stopped
+    # before the store re-runs, finds no stored `input_hash` and is charged again.
     async with tenant_session(tenant_id) as session:
         await store_improvement(
             session,
@@ -899,6 +908,7 @@ async def improve_run(
             stop=stop,
             note=None if found else NO_EDITS_NOTE,
         )
+        await _meter_in(session, tenant_id, answer, ASSIST_FEATURE_TEST_IMPROVE)
     return stop, record
 
 

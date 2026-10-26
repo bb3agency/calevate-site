@@ -895,6 +895,51 @@ async def test_improving_needs_a_failure_and_the_allowance(
     assert again.improve_note == worker.SAME_INPUT_NOTE
 
 
+async def test_an_improvement_that_is_not_stored_is_not_charged(
+    azure: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The charge and the stored answer are one transaction. Charged first, a job stopped
+    before its store re-ran, found no stored `input_hash` and was charged a second time."""
+    tenant_id, agent_id = await _agent()
+    run_id = await _failed_run(tenant_id, agent_id, [NOT_INTERESTED])
+    monkeypatch.setattr(
+        chat,
+        "complete",
+        _model(
+            [
+                {
+                    "edits": [
+                        _edit(
+                            "set_objection",
+                            objection="Not interested",
+                            text="Accept it politely and thank them.",
+                        )
+                    ],
+                    "facts": [],
+                }
+            ]
+        ),
+    )
+
+    async def _lost(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("the worker stopped before the store")
+
+    monkeypatch.setattr(worker, "store_improvement", _lost)
+    with pytest.raises(RuntimeError):
+        await worker.improve_run(tenant_id, agent_id, run_id, keys=None)
+    async with tenant_session(tenant_id) as session:
+        charged = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM usage_events WHERE tenant_id = :t "
+                    "AND meta->>'feature' = 'agent_test_improve'"
+                ),
+                {"t": tenant_id},
+            )
+        ).scalar_one()
+    assert charged == 0
+
+
 async def test_a_platform_or_setting_failure_is_never_sent_to_the_improver(
     azure: None,
 ) -> None:
