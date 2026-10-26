@@ -98,7 +98,7 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
         </h3>
         <InfoTip label="Remembering callers">
           <p>
-            Two things, always on or off together. Your agents remember the people they have
+            Two things, always on or off together, for this agent. It remembers the people it has
             spoken to, so someone who rings again is greeted with what they asked about last
             time. And when a caller asks to be rung back at a particular time, that call is
             booked for exactly then and goes out already knowing the conversation.
@@ -141,7 +141,7 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
           <p className="mt-3 flex items-start gap-2 text-xs text-ink-muted">
             <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
-              Your agents now say, as they say goodbye, that a short note is kept.
+              This agent now says, as it says goodbye, that a short note is kept.
               That sentence cannot be switched off on its own — it appears with the call notices on{" "}
               <strong>Overview</strong>, and it goes away when this goes off.
             </span>
