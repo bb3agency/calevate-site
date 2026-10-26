@@ -80458,8 +80458,26 @@
     },
     "/v1/numbers/own/purchase": {
       "post": {
-        "description": "Buys the number, charges this account's first month at the price the status shows, and points it at the chosen agent. Repeating the same `request_key` never buys a second number. Refused, with nothing charged, while the business is not verified or its details not approved, or if somebody else took the number.",
+        "description": "Buys the number, charges this account's first month at the price the status shows, and points it at the chosen agent. Repeating the same `request_key` never buys a second number. Refused, with nothing charged, while the business is not verified or its details not approved, or if somebody else took the number. Needs the code emailed for `buy_number:<slug>` in `X-Confirm-Action`.",
         "operationId": "purchase_own_number_v1_numbers_own_purchase_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {

@@ -10139,7 +10139,7 @@ export interface paths {
         put?: never;
         /**
          * Buy a number in this business's name — charges the first month now
-         * @description Buys the number, charges this account's first month at the price the status shows, and points it at the chosen agent. Repeating the same `request_key` never buys a second number. Refused, with nothing charged, while the business is not verified or its details not approved, or if somebody else took the number.
+         * @description Buys the number, charges this account's first month at the price the status shows, and points it at the chosen agent. Repeating the same `request_key` never buys a second number. Refused, with nothing charged, while the business is not verified or its details not approved, or if somebody else took the number. Needs the code emailed for `buy_number:<slug>` in `X-Confirm-Action`.
          */
         post: operations["purchase_own_number_v1_numbers_own_purchase_post"];
         delete?: never;
@@ -50364,7 +50364,9 @@ export interface operations {
     purchase_own_number_v1_numbers_own_purchase_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
