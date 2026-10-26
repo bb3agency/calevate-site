@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
@@ -398,3 +399,101 @@ async def test_a_dial_that_is_not_a_test_call_cannot_ask_to_ring_at_any_hour() -
             phone_e164="+919876543210",
             rings_at_any_hour=True,
         )
+
+
+async def test_attesting_something_that_is_not_a_phone_number_is_refused() -> None:
+    principal = Principal(
+        realm="client", user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), role="owner"
+    )
+    with pytest.raises(ProblemError):
+        await trial_calls.attest_own_number(principal=principal, number="not a number", ip=None)
+
+
+def _gate_allows(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _allowed(*_: Any, **__: Any) -> Any:
+        return SimpleNamespace(allowed=True, rule=None, reason=None)
+
+    async def _no_trial(*_: Any, **__: Any) -> None:
+        return None
+
+    monkeypatch.setattr(trial_calls, "check_dispatch", _allowed)
+    monkeypatch.setattr(trial_calls, "read_trial_access", _no_trial)
+
+
+async def test_with_neither_a_running_trial_nor_paid_access_the_call_is_not_ready(
+    line: Line, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gate's answer alone is not enough: something must say which line the call takes."""
+    _tenant_id, agent_id, principal = await _account(line)
+    _gate_allows(monkeypatch)
+
+    async def _not_paid(*_: Any, **__: Any) -> None:
+        return None
+
+    monkeypatch.setattr(trial_calls, "read_paid_test_access", _not_paid)
+
+    result = await _place(principal, agent_id, str(uuid.uuid4()))
+
+    assert (result.status, result.blocked_rule) == ("blocked", trial_calls.NOT_READY_RULE)
+
+
+async def test_a_test_copy_that_cannot_be_refreshed_frees_the_key(
+    line: Line, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing was dialled, so the same key may be sent again once the copy can be made."""
+    _tenant_id, agent_id, principal = await _account(line)
+    _gate_allows(monkeypatch)
+
+    async def _paid(*_: Any, **__: Any) -> Any:
+        return SimpleNamespace(
+            blocker=None,
+            line="trial_line_copy",
+            max_call_seconds=60,
+            daily_cap=3,
+            day_start=datetime.now(UTC),
+        )
+
+    async def _refresh_fails(**_: Any) -> str:
+        raise RuntimeError("vendor refused the copy")
+
+    monkeypatch.setattr(trial_calls, "read_paid_test_access", _paid)
+    monkeypatch.setattr(trial_calls, "refresh_test_copy", _refresh_fails)
+    key = str(uuid.uuid4())
+
+    for _ in range(2):  # the second is not `idempotent_request_in_flight`: the key was freed
+        with pytest.raises(RuntimeError):
+            await _place(principal, agent_id, key)
+
+
+def test_the_vendor_says_gone_on_a_404_or_our_own_not_found_only() -> None:
+    assert agents_service._vendor_says_gone(ProblemError.not_found("Agent"))
+    assert not agents_service._vendor_says_gone(ProblemError.conflict("x", "y"))
+    assert not agents_service._vendor_says_gone(RuntimeError("boom"))
+
+
+class _CountingSession:
+    """Answers the advisory lock, then today's count of placed test calls."""
+
+    def __init__(self, placed: int) -> None:
+        self.placed = placed
+
+    async def execute(self, *_: Any, **__: Any) -> Any:
+        return SimpleNamespace(scalar_one=lambda: self.placed)
+
+
+async def test_a_paid_test_call_past_the_daily_cap_is_refused_under_the_lock() -> None:
+    """Counted with this call's own row, so a call at the cap passes and one past it does not;
+    two placed at once cannot both slip under."""
+    test = agents_service.OwnerTestDial(
+        max_call_seconds=60, daily_cap=3, day_start=datetime.now(UTC)
+    )
+    session: Any = _CountingSession(3)
+    await agents_service._hold_paid_test_slot(session, tenant_id=uuid.uuid4(), test=test)
+
+    with pytest.raises(ProblemError) as refused:
+        await agents_service._hold_paid_test_slot(
+            _CountingSession(4),  # type: ignore[arg-type]
+            tenant_id=uuid.uuid4(),
+            test=test,
+        )
+    assert refused.value.code == trial_calls.DAILY_CAP_RULE

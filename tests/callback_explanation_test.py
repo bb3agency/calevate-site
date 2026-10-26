@@ -91,3 +91,20 @@ async def test_a_deferral_reason_does_not_outlive_the_dial_that_followed_it() ->
     assert row is not None
     assert row["status"] == "completed"
     assert _view(row).explanation == _ENDINGS["completed"]
+
+
+def test_a_follow_up_the_business_scheduled_is_introduced_as_the_business_s() -> None:
+    """A call the business arranged is not "the call-back they asked for": the caller never
+    asked, so the agent opens with what the business set up and what it is about."""
+    from apps.api.callbacks.service import CLIENT_SCHEDULE_PREFIX, context_note
+
+    at = datetime(2026, 10, 27, 5, 0, tzinfo=UTC)  # 10:30 IST
+    source = f"{CLIENT_SCHEDULE_PREFIX}campaign"
+
+    assert context_note(at, "site visit timing", source=source) == (
+        "The business arranged this follow-up call for 27 Oct at 10:30. "
+        "What it is about: site visit timing"
+    )
+    assert context_note(at, None, source=source) == (
+        "The business arranged this follow-up call for 27 Oct at 10:30."
+    )

@@ -348,3 +348,32 @@ def test_the_dashboard_lines_name_the_gift() -> None:
         "We added ₹500.00 of calling credit to your account. It's on us."
     )
     assert "paid account" in comp_notices.notice_text(kind="paid", amount=None)
+
+
+def test_a_reason_of_blanks_is_no_reason() -> None:
+    """Three characters of padding pass the length check; what is left after trimming is
+    what gets kept on the account and sent to every super admin."""
+    from apps.api.billing.comp_routes import MakePaidIn
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        MakePaidIn(reason="   ab   ")
+    assert MakePaidIn(reason="  pilot partner ").reason == "pilot partner"
+
+
+async def test_an_operator_conversion_leaves_an_account_already_made_paid_as_it_was() -> None:
+    """The first route to paid is the one kept: a later trial conversion does not restamp a
+    complimentary account as `operator_conversion`."""
+    from apps.api.billing.first_payment import on_complimentary_conversion, on_operator_conversion
+
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        assert await on_complimentary_conversion(
+            session, tenant_id=tenant_id, reason="pilot partner"
+        )
+        assert await on_operator_conversion(session, tenant_id=tenant_id) is False
+
+    via = await _scalar(
+        tenant_id, "SELECT first_paid_via FROM organizations WHERE id = :t", t=tenant_id
+    )
+    assert via == "complimentary"

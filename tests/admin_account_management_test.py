@@ -376,3 +376,22 @@ def test_the_console_links_remedies_by_rule_names_the_gates_really_emit() -> Non
         f"these are not readiness rules, so their rows lose their remedy link: {sorted(unknown)}. "
         f"The rules this screen can receive are {sorted(ROW_COPY)}."
     )
+
+
+async def test_readiness_names_a_platform_fee_pause_the_dial_gate_refuses_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other outbound-only pause `account_dial_blockers` makes: an unpaid platform fee."""
+    from apps.api.legal import readiness
+
+    async def _paused(*_: Any, **__: Any) -> bool:
+        return True
+
+    monkeypatch.setattr(readiness, "platform_fee_paused", _paused)
+    tenant_id = await _tenant("Fee Owed Dental", slug=f"fee-{uuid.uuid4().hex[:8]}")
+    _, headers = await _operator()
+
+    body = await _get(f"/v1/admin/tenants/{tenant_id}/readiness", headers=headers)
+
+    assert readiness.PLATFORM_FEE_RULE in [row["rule"] for row in body["rows"]]
+    assert body["may_operate"] is False
