@@ -180,6 +180,20 @@ export function useRotateLeadSourceSecret(session: Session) {
   });
 }
 
+/** `PATCH /v1/lead-sources/{id}` — which agent answers this source's leads (null: none). */
+export function useSetLeadSourceAgent(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ webhookId, agentId }: { webhookId: string; agentId: string | null }) =>
+      apiRequest<components["schemas"]["LeadSourceAgentOut"]>(
+        session,
+        `/v1/lead-sources/${webhookId}`,
+        { method: "PATCH", body: { agent_id: agentId } },
+      ),
+    onSuccess: () => void client.invalidateQueries({ queryKey: listKey(session) }),
+  });
+}
+
 export function useSetLeadSourceActive(session: Session) {
   const client = useQueryClient();
   return useMutation({

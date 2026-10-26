@@ -2096,6 +2096,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/forwarding/codes": CODES,
       "/v1/forwarding/lines/l1/tests?limit=5": [SETTLED_TEST],
       "/v1/forwarding/save-number": { enabled: true },
+      "/v1/call-lines": { call_lines: 2, in_progress: 1, on_trial: false },
     },
   },
   {

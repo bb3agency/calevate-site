@@ -24,6 +24,7 @@ function settingsRoutes(over: Routes = {}): Routes {
     "/v1/forwarding/codes": CODES,
     "/v1/forwarding/lines/l1/tests?limit=5": [SETTLED_TEST],
     "/v1/forwarding/save-number": { enabled: false },
+    "/v1/call-lines": { call_lines: 2, in_progress: 0, on_trial: false },
     ...over,
   };
 }

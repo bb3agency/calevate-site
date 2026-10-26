@@ -32,6 +32,7 @@ import { asText } from "@/lib/copilot/types";
 
 import { AddCreditDrawer } from "./AddCredit";
 import { AutoRechargePanel } from "./AutoRechargePanel";
+import { LowBalanceAlertPanel } from "./LowBalanceAlertPanel";
 import {
   VOICE_TIERS,
   formatWhole,
@@ -390,6 +391,7 @@ export function BillingScreen({ slug }: { slug: string }) {
         />
         <UnfinishedPayments session={session} />
         {!billingRefused && <AutoRechargePanel session={session} />}
+        {!billingRefused && <LowBalanceAlertPanel session={session} wallet={wallet.data} />}
         {/* D-707: the monthly platform fee, a separate payment from calling credit. */}
         {!billingRefused && <PlatformFeeCard session={session} />}
       </div>

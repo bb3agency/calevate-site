@@ -19,7 +19,7 @@ import {
 } from "@tanstack/react-query";
 
 import { adminSession, callLinesConfirmation, confirmedAdminRequest } from "./admin";
-import { apiRequest } from "./client";
+import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
 export type CallLines = components["schemas"]["CallLinesOut"];
@@ -48,6 +48,19 @@ export function useSetCallLines(tenantId: string): UseMutationResult<CallLines, 
     onSuccess: (data) => {
       client.setQueryData(callLinesKey(tenantId), data);
     },
+  });
+}
+
+export type MyCallLines = components["schemas"]["ClientCallLinesOut"];
+
+/**
+ * `GET /v1/call-lines` (`org:read`) — the client's own view: the lines in force and how
+ * many are busy now. Read-only by design; only Calevate changes the number.
+ */
+export function useMyCallLines(session: Session): UseQueryResult<MyCallLines> {
+  return useQuery({
+    queryKey: ["my-call-lines", session.orgSlug],
+    queryFn: () => apiRequest<MyCallLines>(session, "/v1/call-lines"),
   });
 }
 

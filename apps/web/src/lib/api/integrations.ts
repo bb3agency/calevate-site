@@ -287,6 +287,24 @@ export function useDeactivateEndpoint(session: Session) {
   });
 }
 
+export type EndpointChange = Schemas["UpdateEndpointIn"];
+
+/**
+ * `PATCH /v1/integrations/endpoints/{id}` — new events and opt-ins for an active endpoint.
+ * The address cannot change here: a new destination is a new endpoint, behind its code.
+ */
+export function useUpdateEndpoint(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ endpointId, change }: { endpointId: string; change: EndpointChange }) =>
+      apiRequest<Endpoint>(session, `/v1/integrations/endpoints/${endpointId}`, {
+        method: "PATCH",
+        body: change,
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["endpoints", session.orgSlug] }),
+  });
+}
+
 export type SecretRotation = Schemas["RotateEndpointSecretOut"];
 
 /**

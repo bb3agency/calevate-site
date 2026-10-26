@@ -29,6 +29,7 @@ import {
 import { useClientSession } from "@/lib/api/session";
 
 import { AddSourceDrawer } from "./AddSourceDrawer";
+import { AgentDrawer } from "./AgentDrawer";
 import { CallingPlan } from "./CallingPlan";
 import { DeliveryLog } from "./DeliveryLog";
 import { HeldLeads } from "./HeldLeads";
@@ -106,6 +107,7 @@ export function LeadSourcesScreen() {
 
   const [adding, setAdding] = useState(false);
   const [rotating, setRotating] = useState<LeadSource | null>(null);
+  const [choosingAgent, setChoosingAgent] = useState<LeadSource | null>(null);
   const [testSourceId, setTestSourceId] = useState("");
   const [metaSourceId, setMetaSourceId] = useState("");
   const [payloadText, setPayloadText] = useState("");
@@ -227,6 +229,7 @@ export function LeadSourcesScreen() {
         onToggle={(item) => setActiveFeedback.run({ webhookId: item.id, active: !item.active })}
         onTest={openTest}
         onRotate={setRotating}
+        onAgent={setChoosingAgent}
         onMeta={(item) => openMeta(item.id)}
       />
 
@@ -240,6 +243,14 @@ export function LeadSourcesScreen() {
         agents={agents}
         canWrite={write.allowed}
       />
+      {choosingAgent && (
+        <AgentDrawer
+          source={choosingAgent}
+          agents={agents}
+          session={session}
+          onClose={() => setChoosingAgent(null)}
+        />
+      )}
       <RotateDrawer
         source={rotating}
         onClose={() => setRotating(null)}

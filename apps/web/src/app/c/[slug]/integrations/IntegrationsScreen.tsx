@@ -32,6 +32,7 @@ import { CopyRow } from "../lead-sources/IssuedSecretNotice";
 import { AddDestinationDrawer } from "./AddDestinationDrawer";
 import { ConnectedAccounts } from "./ConnectedAccounts";
 import { DeliveryLog } from "./DeliveryLog";
+import { EditEndpointDrawer } from "./EditEndpointDrawer";
 import { EndpointList } from "./EndpointList";
 import { useIntegrationsCopilot } from "./copilot";
 
@@ -61,6 +62,7 @@ export function IntegrationsScreen() {
   const write = useWriteAccess(session, "org:manage", "change where events are sent");
   const [adding, setAdding] = useState(false);
   const [stopping, setStopping] = useState<Endpoint | null>(null);
+  const [editing, setEditing] = useState<Endpoint | null>(null);
   // A new signing secret: which endpoint is being asked about, then the secret, shown once.
   const rotate = useRotateEndpointSecret(session);
   const rotateFeedback = useActionFeedback(rotate, { errorDisplay: "inline" });
@@ -133,6 +135,7 @@ export function IntegrationsScreen() {
           busy={deactivate.isPending || rotate.isPending}
           onStop={setStopping}
           onRotate={setRotating}
+          onEdit={setEditing}
         />
         <p className="mt-3 max-w-prose text-meta text-ink-muted">
           Another CRM? Add a Zapier, Make or Pabbly webhook here and map the fields there.
@@ -209,6 +212,16 @@ export function IntegrationsScreen() {
           </div>
         )}
       </Drawer>
+
+      {editing && options.data && (
+        <EditEndpointDrawer
+          endpoint={editing}
+          catalogue={options.data.events}
+          session={session}
+          write={write}
+          onClose={() => setEditing(null)}
+        />
+      )}
 
       {options.data && (
         <AddDestinationDrawer

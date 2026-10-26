@@ -44,6 +44,7 @@ import {
   type ForwardedLine,
   type ForwardingMode,
 } from "@/lib/api/forwarding";
+import { callsAtOnce, useMyCallLines } from "@/lib/api/callLines";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 
@@ -109,8 +110,43 @@ export function PhoneNumbersScreen() {
           </div>
         )}
       </Section>
+      <CallsAtOnce session={session} />
       <SaveNumber session={session} />
     </div>
+  );
+}
+
+/** How many calls the account can have at once. Only Calevate changes it, so the row
+ *  says whom to ask rather than offering a control. */
+function CallsAtOnce({ session }: { session: Session }) {
+  const lines = useMyCallLines(session);
+  return (
+    <Section title="Calls at once">
+      {lines.isLoading ? (
+        <Skeleton rows={1} label="Loading calls at once" />
+      ) : lines.error || !lines.data ? (
+        <ProblemNotice
+          error={lines.error ?? new Error("This did not load.")}
+          onRetry={() => void lines.refetch()}
+        />
+      ) : (
+        <SettingRows className="border-y border-line">
+          <SettingRow
+            label={callsAtOnce(lines.data.call_lines)}
+            hint={
+              lines.data.on_trial
+                ? "A free trial has one line. It grows when you start paying."
+                : "Need more? Ask us and we will raise it."
+            }
+            value={
+              <StatusPill tone={lines.data.in_progress > 0 ? "ok" : "neutral"}>
+                {lines.data.in_progress} on a call now
+              </StatusPill>
+            }
+          />
+        </SettingRows>
+      )}
+    </Section>
   );
 }
 

@@ -9,13 +9,12 @@ import type { Session } from "@/lib/api/client";
 import type { WriteAccess } from "@/lib/api/hooks";
 import { useCreateEndpoint, type OutboundEvent } from "@/lib/api/integrations";
 
+import { EndpointExtras, wireExtras, type ExtrasState } from "./EndpointExtras";
 import { EventChoices, INPUT } from "./EventChoices";
 
-
-
 /**
- * Register a webhook. Unchanged in behaviour; it now draws its events from the catalogue
- * and lives in its own component so the Sheets form beside it can hold its own state.
+ * Register a webhook. Its events come from the catalogue and its extras from
+ * `EndpointExtras`, the same controls the edit drawer uses.
  */
 export function WebhookForm({
   session,
@@ -33,21 +32,11 @@ export function WebhookForm({
   const [url, setUrl] = useState("");
   const valid = useFormValidation();
   const [events, setEvents] = useState<OutboundEvent[]>(["lead.created"]);
-  // The three `call.completed` opt-ins. All start OFF, matching the server default and
-  // the base contract (summary and outcome only). `includeRawTranscript` is layered on
-  // `includeTranscript` — the server refuses raw without redacted — so the checkbox is
-  // disabled until the redacted transcript is on, and turning that off clears raw too.
-  const [includeRecordingUrl, setIncludeRecordingUrl] = useState(false);
-  const [includeTranscript, setIncludeTranscript] = useState(false);
-  const [includeRawTranscript, setIncludeRawTranscript] = useState(false);
-  // Only meaningful when the client subscribes to `call.completed`; otherwise nothing
-  // carries them. Shown regardless so the choice is visible, but the copy says so.
-  const callCompletedSelected = events.includes("call.completed");
-  // `call.recording_ready` exists to carry the recording link, and the server refuses it
-  // without that opt-in, so choosing it switches the link on and holds it there.
-  const recordingReadySelected = events.includes("call.recording_ready");
-  const sendsRecordingUrl =
-    recordingReadySelected || (callCompletedSelected && includeRecordingUrl);
+  const [extras, setExtras] = useState<ExtrasState>({
+    includeRecordingUrl: false,
+    includeTranscript: false,
+    includeRawTranscript: false,
+  });
 
   return (
     <div className="space-y-3">
@@ -61,19 +50,7 @@ export function WebhookForm({
         noValidate
         onSubmit={valid.onSubmit(() => {
           create.mutate(
-            {
-              url,
-              events,
-              // The transcript extras ride on `call.completed` only, and are hidden
-              // without it: an option ticked and then hidden by unticking that event is
-              // not sent. The recording link also rides on `call.recording_ready`.
-              include_recording_url: sendsRecordingUrl,
-              include_transcript: callCompletedSelected && includeTranscript,
-              // Never send raw without redacted, matching the server's own rule; the UI
-              // already keeps them in step, and this is the belt to that braces.
-              include_raw_transcript:
-                callCompletedSelected && includeTranscript && includeRawTranscript,
-            },
+            { url, events, ...wireExtras(events, extras) },
             {
               onSuccess: (data) => {
                 onSecret(data.secret);
@@ -83,12 +60,8 @@ export function WebhookForm({
           );
         })}
       >
-        {/* A PERSISTENT label, not the placeholder alone. axe's `label` rule accepts a
-            placeholder as an accessible name (tests/a11y.ts says so, and it is why this
-            defect survived the sweep going green), but the text disappears the moment
-            somebody types — which is WCAG 3.3.2's entire complaint, and worst for the
-            reader who most needs to re-check what a field wanted. The rest of the
-            console labels its fields this way; this input was the exception. */}
+        {/* A persistent label, not the placeholder alone (WCAG 3.3.2): the placeholder
+            disappears the moment somebody types. */}
         <div>
           <label className="block">
             <span className={FIELD_LABEL}>Where should we send them?</span>
@@ -103,8 +76,7 @@ export function WebhookForm({
               className={INPUT}
             />
           </label>
-          {/* Outside the label for the reason the comment above it gives about the hint:
-              enclosed, the sentence becomes part of the field's accessible name. */}
+          {/* Outside the label, so the sentence is not part of the field's name. */}
           {valid.error("url")}
         </div>
         <EventChoices
@@ -117,81 +89,12 @@ export function WebhookForm({
             )
           }
         />
-        {/* The `call.completed` extras, shown only once that event is chosen: they mean
-            nothing without it. Off by default: the base body is the summary and the
-            outcome, and each of these sends more of the customer's own data to your
-            endpoint, so each is a deliberate choice. The unredacted warning is part of
-            its option and shows whenever the option does. */}
-        {(callCompletedSelected || recordingReadySelected) && (
-          <fieldset className="settings-enter space-y-1.5 border-l-2 border-line pl-4">
-            <legend className={FIELD_LABEL}>
-              {callCompletedSelected ? "When a call finishes, also send…" : "Also send…"}
-            </legend>
-            <label className="flex items-start gap-2 text-body">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={sendsRecordingUrl}
-                disabled={!write.allowed || recordingReadySelected}
-                onChange={(e) => setIncludeRecordingUrl(e.target.checked)}
-              />
-              <span className="text-ink-muted">
-                A link to the call recording
-                <span className="block text-meta text-ink-faint">
-                  A short-lived, signed link to our copy of the audio — not the audio itself.
-                  It expires within minutes, so fetch it as soon as you receive it.
-                  {recordingReadySelected &&
-                    " Always on with “A call recording is ready”, which exists to send this link."}
-                </span>
-              </span>
-            </label>
-            {callCompletedSelected && (
-              <>
-                <label className="flex items-start gap-2 text-body">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={includeTranscript}
-                    disabled={!write.allowed}
-                    onChange={(e) => {
-                      const on = e.target.checked;
-                      setIncludeTranscript(on);
-                      // Raw can never outlive redacted — the server refuses that pairing.
-                      if (!on) setIncludeRawTranscript(false);
-                    }}
-                  />
-                  <span className="text-ink-muted">
-                    The transcript, redacted
-                    <span className="block text-meta text-ink-faint">
-                      The conversation with personal details (numbers, IDs, OTPs) masked — the
-                      same text your team sees on the call screen.
-                    </span>
-                  </span>
-                </label>
-                <label className="flex items-start gap-2 text-body">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={includeRawTranscript}
-                    // The second opt-in only makes sense on top of the first, and the server
-                    // requires it — so the control is dead until the redacted transcript is on.
-                    disabled={!write.allowed || !includeTranscript}
-                    onChange={(e) => setIncludeRawTranscript(e.target.checked)}
-                  />
-                  <span className="text-ink-muted">
-                    The transcript, unredacted
-                    <span className="block text-meta text-warn">
-                      Sends the FULL transcript — every phone number, ID and OTP spoken on the
-                      call — to your endpoint in the clear. Only turn this on if your system is
-                      allowed to hold that data. Turning it on needs the same permission as
-                      reading a raw transcript.
-                    </span>
-                  </span>
-                </label>
-              </>
-            )}
-          </fieldset>
-        )}
+        <EndpointExtras
+          events={events}
+          extras={extras}
+          onChange={setExtras}
+          disabled={!write.allowed}
+        />
         <ActionButton
           type="submit"
           status={createFeedback.status}

@@ -376,6 +376,7 @@ export function prepaidWallet(over: Partial<Wallet> = {}): Wallet {
     balance_inr: "3400.00",
     is_low: false,
     low_balance_threshold_inr: "200.00",
+    low_balance_alert_chosen: false,
     granted_inr: "0.00",
     paid_inr: "2500.00",
     trial: null,

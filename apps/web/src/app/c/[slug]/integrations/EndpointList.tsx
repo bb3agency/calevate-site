@@ -27,6 +27,7 @@ export function EndpointList({
   busy,
   onStop,
   onRotate,
+  onEdit,
 }: {
   endpoints: ReturnType<typeof useEndpoints>;
   write: WriteAccess;
@@ -34,6 +35,8 @@ export function EndpointList({
   onStop: (endpoint: Endpoint) => void;
   /** Offer a new signing secret for an active webhook (not a sheet, which has none). */
   onRotate: (endpoint: Endpoint) => void;
+  /** Change the events and extras of an active destination. */
+  onEdit: (endpoint: Endpoint) => void;
 }) {
   const columns: DataColumn<Endpoint>[] = [
     {
@@ -96,6 +99,15 @@ export function EndpointList({
       cell: (endpoint) =>
         endpoint.active ? (
           <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              disabled={!write.allowed || busy}
+              onClick={() => onEdit(endpoint)}
+              aria-label={`Change what is sent to ${endpoint.url}`}
+              className={SECONDARY_BUTTON_SM}
+            >
+              Change
+            </button>
             {endpoint.kind !== SHEET_KIND && (
               <button
                 type="button"

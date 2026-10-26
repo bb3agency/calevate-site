@@ -31,7 +31,7 @@
  * Types come from `schema.d.ts` (`pnpm gen:api`), never hand-mirrored.
  */
 
-import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 import { formatINR, formatIST } from "@/components/ui";
@@ -414,4 +414,24 @@ export function trialTimeLeft(trial: WalletTrial, now: Date = new Date()): Trial
  */
 export function trialEndsAt(trial: WalletTrial): string {
   return `${formatIST(trial.ends_at)} IST`;
+}
+
+export type LowBalanceAlert = Schemas["LowBalanceAlertOut"];
+
+/**
+ * `PUT /v1/billing/wallet/low-balance-alert` — the balance below which the owner is warned.
+ * `null` returns to Calevate's line and `"0"` switches the low warning off; the warning
+ * that credit has run out is always sent. The wallet re-reads, because its threshold and
+ * its `is_low` verdict both follow the line.
+ */
+export function useSetLowBalanceAlert(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (thresholdInr: string | null) =>
+      apiRequest<LowBalanceAlert>(session, "/v1/billing/wallet/low-balance-alert", {
+        method: "PUT",
+        body: { threshold_inr: thresholdInr },
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: walletKey(session.orgSlug) }),
+  });
 }

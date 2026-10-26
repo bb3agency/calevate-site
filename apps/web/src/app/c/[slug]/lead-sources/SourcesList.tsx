@@ -48,6 +48,7 @@ export function SourcesList({
   onToggle,
   onTest,
   onRotate,
+  onAgent,
   onMeta,
 }: {
   sources: ReturnType<typeof useLeadSources>;
@@ -58,6 +59,7 @@ export function SourcesList({
   onToggle: (source: LeadSource) => void;
   onTest: (source: LeadSource) => void;
   onRotate: (source: LeadSource) => void;
+  onAgent: (source: LeadSource) => void;
   onMeta: (source: LeadSource) => void;
 }) {
   if (sources.isLoading) return <Skeleton rows={2} />;
@@ -146,6 +148,12 @@ export function SourcesList({
           ...(row.source === META_SOURCE
             ? [{ id: "meta", label: "Meta setup and recovery", onSelect: () => onMeta(row) }]
             : []),
+          {
+            id: "agent",
+            label: "Choose who answers",
+            onSelect: () => onAgent(row),
+            disabled: !canWrite,
+          },
           {
             id: "rotate",
             label: "Issue a new secret",
