@@ -1967,3 +1967,48 @@ Built as D-884.
 
 Still open after §35: a forced refresh of `GET /byok/voices` (requested); the longer-first-
 words and repeated-hello behaviour, which only a call can show.
+
+## 36. Reply times on our calls (drafted 27 Oct 2026; the founder sends, nothing sent yet)
+
+From the latency research of 27 Oct 2026 (`docs/evidence/latency-research-2026-10-27.md`
+§4, questions T1-T6; T7, GPT-Live-1, is left out by the founder's decision of 27 Oct 2026).
+D-896 built what is ours: the facts callers ask most are now in each agent's instructions,
+and each call records the settings it ran on, so we can compare reply times once these are
+answered. T2 was asked twice before (§26 item 1, §28 item 14) and T5 once (21 Oct, Q9).
+
+What each answer changes:
+- **T1** decides whether our before/after numbers can be trusted at all: our median on Ear
+  (2.14-2.22 s) sits just above the 2,000 ms filler delay.
+- **T2** tells us which part of a slow reply to work on.
+- **T3** lets us count the lookups the known facts remove, and switch knowledge off per agent
+  over the API.
+- **T4-T6** tell us whether Ear, sentence length or region are worth tuning.
+
+> Subject: Reply times on our calls: six questions
+>
+> Hi Ashutosh,
+>
+> We are working on how quickly our agents answer on live calls. Our typical reply is about
+> 1.6 to 2.2 seconds, and about a second of that is the model's first word. To keep working
+> on the rest, we need a few details we can't see from our side.
+>
+> 1. **Fillers in the reply time.** When the agent says a filler line ("thinkingLines") or an
+>    Ear acknowledgement before it answers, is that counted as the agent's first audio in
+>    `quality.responseMs`? If so, could `quality` also report the time to the first word of
+>    the actual answer?
+> 2. **Where the time goes in each turn.** Could you share, or add to Get Call, the split of a
+>    turn's wait: the end-of-speech wait, Ear's second pause check, the final transcript, the
+>    first sentence being ready, and the voice's first audio? Even the per-turn timing logs for
+>    a few of our recent calls would help.
+> 3. **Knowledge on calls.** Could the "knowledge on calls" switch be set per agent over the
+>    API (for example in `PATCH /agents/{id}/tools`)? And could `quality` include how many
+>    turns searched knowledge on each call?
+> 4. **Ear's second check.** How long does Ear's second pause check take on average, and can
+>    it be tuned?
+> 5. **When speech starts.** Does the voice start speaking a reply at a comma or clause, or
+>    only once a full sentence is ready?
+> 6. **Region.** Where do the call audio, the speech recogniser, and the requests to Cartesia
+>    and Gemini run?
+>
+> Thanks,
+> Umesh
