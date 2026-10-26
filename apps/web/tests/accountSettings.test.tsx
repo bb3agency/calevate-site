@@ -27,7 +27,7 @@ const ME = {
   impersonating: false,
 };
 
-const ALLOWED = { allowed: true, reason: null };
+const ALLOWED = { allowed: true, reason: null, unknown: false };
 
 const ENDPOINT: Endpoint = {
   id: "e1",
