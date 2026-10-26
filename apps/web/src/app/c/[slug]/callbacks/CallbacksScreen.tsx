@@ -267,7 +267,7 @@ export function CallbacksScreen() {
         >
           <p>
             <MonoValue className="tabular-nums text-ink">{formatPhone(stopping.phone_e164)}</MonoValue>{" "}
-            asked to be rung back on{" "}
+            is due a call back at{" "}
             <strong className="font-semibold text-ink">{formatIST(stopping.requested_at)}</strong>.
           </p>
           <p>

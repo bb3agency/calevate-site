@@ -78,5 +78,10 @@ describe("a call-back's note", () => {
 
     expect(await screen.findByText(`Note: ${note}`)).toBeTruthy();
     expect(screen.queryByText(/They said/)).toBeNull();
+
+    // Nor does the confirmation say the person asked: a retry or a team's booking did not.
+    fireEvent.click(screen.getByRole("button", { name: "Call it off" }));
+    expect(await screen.findByText(/is due a call back at/)).toBeTruthy();
+    expect(screen.queryByText(/asked to be rung back/)).toBeNull();
   });
 });
