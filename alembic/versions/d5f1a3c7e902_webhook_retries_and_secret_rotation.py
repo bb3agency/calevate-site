@@ -1,7 +1,7 @@
 """outbound webhook deliveries retry on a persisted schedule; endpoint secrets rotate in place
 
 Revision ID: d5f1a3c7e902
-Revises: c8a4e2f7b913
+Revises: e5b1d9c3a7f2
 Create Date: 2026-10-26 17:00:00.000000
 
 1. `webhook_deliveries.next_attempt_at` and `outbox_message_id`: a webhook delivery that
@@ -25,7 +25,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "d5f1a3c7e902"
-down_revision: str | None = "c8a4e2f7b913"
+down_revision: str | None = "e5b1d9c3a7f2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
