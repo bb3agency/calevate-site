@@ -1993,6 +1993,17 @@ async def _plan_capture_fields_common(
             "`agent_capture_fields_set_live`, which the person confirms first"
         )
     current = await _current_fields(session, parsed.agent_id)
+    # The version the card shows as "current": a confirm that lands after the list changed on
+    # the Fields tab is refused rather than replacing that newer list with this one.
+    shown_version = (
+        await session.execute(
+            text(
+                "SELECT COALESCE(s.version, 0) FROM agents a LEFT JOIN extraction_schemas s "
+                "ON s.id = a.extraction_schema_id WHERE a.id = :aid"
+            ),
+            {"aid": parsed.agent_id},
+        )
+    ).scalar_one()
     proposed = ", ".join(field.label for field in fields) or "nothing"
     return Plan(
         object_id=str(parsed.agent_id),
@@ -2009,6 +2020,7 @@ async def _plan_capture_fields_common(
         args={
             "agent_id": str(parsed.agent_id),
             "fields": [field.model_dump(mode="json") for field in fields],
+            "expected_version": int(shown_version),
         },
     )
 
@@ -2031,14 +2043,20 @@ async def _execute_capture_fields(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
     """`validate_fields` then `write_schema` — `PUT /v1/agents/{id}/extraction-schema`'s two
-    steps, unchanged."""
+    steps, with the version the card showed as its CAS."""
     del actor
     from apps.api.agents.extraction_routes import validate_fields, write_schema
 
     agent_id = UUID(str(args["agent_id"]))
     fields = _extraction_fields(list(args["fields"]))
     validate_fields(fields)
-    result = await write_schema(session, agent_id=agent_id, fields=fields)
+    shown = args.get("expected_version")
+    result = await write_schema(
+        session,
+        agent_id=agent_id,
+        fields=fields,
+        expected_version=None if shown is None else int(shown),
+    )
     return Executed(
         applied=bool(result.changed),
         detail=(
