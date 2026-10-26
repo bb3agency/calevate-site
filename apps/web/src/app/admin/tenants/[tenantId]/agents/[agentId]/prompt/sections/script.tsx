@@ -27,6 +27,26 @@ import {
 } from "@/lib/api/prompts";
 import type { PendingState } from "@/lib/api/publishing";
 
+/**
+ * Whether a saved version waits for Apply, as the server decides it: only an agent that is
+ * `live` AND on the voice platform stages (`prompts.py::write_prompt_version`). A draft,
+ * ready or paused agent uses each save at once, and a published one is re-sent with it.
+ * `undefined` while the pending read has not answered, so no sentence claims either lane.
+ */
+export function savesStage(pending: PendingState | undefined): boolean | undefined {
+  if (!pending) return undefined;
+  return pending.agent_status === "live" && pending.published;
+}
+
+/** One sentence for what pressing Save does to this agent, from `savesStage`. */
+export function saveConsequence(pending: PendingState | undefined): string {
+  const stages = savesStage(pending);
+  if (stages === undefined) return "Every save is a new version.";
+  return stages
+    ? "Every save is a new version, staged: callers keep hearing the live one until someone presses Apply to live calls."
+    : "This agent is not taking calls, so every save is a new version it uses straight away. Once it takes calls, saves wait for Apply to live calls.";
+}
+
 /** The rollback consequence, said in the list and again in the confirmation. */
 const ROLLBACK_RULE =
   "Rolling back creates a NEW version with that content — history is never rewritten — and it applies IMMEDIATELY, because a rollback is how you recover from a bad change, so it does not wait behind Apply.";
@@ -39,8 +59,8 @@ const ROLLBACK_RULE =
  * to Voice and back never loses typing and the screen assistant's fill lands in the same
  * state the textarea renders.
  *
- * Saving STAGES; a rollback does not — it goes live at once, which is why it alone asks
- * first and repeats the rule inside the question.
+ * On an agent taking calls saving STAGES; a rollback does not — it goes live at once, which
+ * is why it alone asks first and repeats the rule inside the question.
  */
 export function ScriptSection({
   tenantId,
@@ -71,7 +91,10 @@ export function ScriptSection({
   // The dialog closes on success, so the outcome is said where the operator lands.
   const rollbackFeedback = useActionFeedback(rollback, {
     errorDisplay: "inline",
-    successToast: (_data, vars) => `Rolled back to v${vars.version}. Callers hear it now.`,
+    successToast: (_data, vars) =>
+      savesStage(pending)
+        ? `Rolled back to v${vars.version}. Callers hear it now.`
+        : `Rolled back to v${vars.version}. The agent uses it from now on.`,
   });
   const valid = useFormValidation();
   const [confirming, setConfirming] = useState<PromptVersion | null>(null);
@@ -135,12 +158,15 @@ export function ScriptSection({
             >
               Save as new version
             </ActionButton>
-            {/* Under two-speed publishing a save STAGES, it does not go live — the single
-                most expensive thing this screen could get wrong, so it is said beside the
-                button rather than behind an ⓘ. */}
+            {/* Whether a save stages or is used at once is the single most expensive thing
+                this screen could get wrong, so it is said beside the button and follows
+                the agent's state rather than assuming it is taking calls. */}
             <p className="text-meta text-ink-muted">
-              Saving stages the version. Callers keep hearing the live one until you press
-              Apply to live calls, in Live.
+              {savesStage(pending) === false
+                ? "This agent is not taking calls, so saving makes this the version it uses."
+                : savesStage(pending)
+                  ? "Saving stages the version. Callers keep hearing the live one until you press Apply to live calls, in Live."
+                  : "Saving makes a new version."}
             </p>
           </div>
         </form>
@@ -237,7 +263,8 @@ export function ScriptSection({
  * is the definition of `has_pending` and not a second rule.
  *
  * While the pending read is unavailable the badge says "draft" and claims nothing
- * about live: a wrong green badge is worse than a missing one.
+ * about live: a wrong green badge is worse than a missing one. On an agent not taking
+ * calls the version in force is "In use": no caller hears it, so "Live" would be false.
  */
 export function VersionBadges({
   entry,
@@ -257,7 +284,7 @@ export function VersionBadges({
 
   return (
     <>
-      {isLive && <StatusPill tone="ok">Live</StatusPill>}
+      {isLive && <StatusPill tone="ok">{savesStage(pending) ? "Live" : "In use"}</StatusPill>}
       {isStaged && <StatusPill tone="warn">Staged</StatusPill>}
       {entry.active && !isLive && !isStaged && <StatusPill tone="neutral">Draft</StatusPill>}
     </>

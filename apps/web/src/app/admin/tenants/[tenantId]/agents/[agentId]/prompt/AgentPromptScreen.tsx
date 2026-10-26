@@ -7,8 +7,13 @@ import { SettingsLayout, type SettingsSection } from "@/components/console/setti
 import { ProblemNotice } from "@/components/ui";
 import { useAdminAccess } from "@/app/admin/access";
 import { useTenant, useTenantAgents } from "@/lib/api/admin";
-import { usePromptHistory } from "@/lib/api/prompts";
-import { usePublishingRefresh, useTenantExperiment, useTenantPending } from "@/lib/api/publishing";
+import { usePromptHistory, type PromptVersion } from "@/lib/api/prompts";
+import {
+  usePublishingRefresh,
+  useTenantExperiment,
+  useTenantPending,
+  type PendingState,
+} from "@/lib/api/publishing";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
@@ -21,10 +26,23 @@ import { CallHandlingPanel } from "./sections/callHandling";
 import { ReplyLengthPanel } from "./sections/replyLength";
 import { ExperimentPanel } from "./sections/experiment";
 import { GoLivePanel, PublishingPanel } from "./sections/live";
-import { ScriptSection } from "./sections/script";
+import { ScriptSection, saveConsequence } from "./sections/script";
 import { PromptLayersPanel } from "./sections/told";
 import { ModelPanel } from "./sections/model";
 import { VoicePanel } from "./sections/voice";
+
+/** The version the agent runs now, for the assistant: the staged row's `live_version` while
+ *  a script change waits, else the draft pointer (the two are equal with nothing staged). */
+export function liveVersionFact(
+  pending: PendingState | undefined,
+  history: PromptVersion[] | undefined,
+): string {
+  if (!pending || !history) return "could not be read";
+  const version = pending.has_pending
+    ? pending.pending.find((change) => change.field === "script")?.live_version
+    : history.find((entry) => entry.active)?.version;
+  return version == null ? "none is in use" : String(version);
+}
 
 /**
  * ONE AGENT: its script, voice and limits, and proof of what callers hear (admin surface —
@@ -35,15 +53,17 @@ import { VoicePanel } from "./sections/voice";
  * read-back's truthful-answer and disclosure verdicts, which are never behind a section
  * switch (UX-DOCTRINE §8.7); **Script** holds the editor, the one large button.
  *
- * Two-speed publishing (SURFACES §2b) is why Live and Script are separate: saving a version
- * STAGES it (`agents.system_prompt_id` is the draft pointer, `live_prompt_id` is what callers
- * hear) and only **Apply to live calls** moves the live one. The client sees the same staged
- * state on their own screen and cannot act on it.
+ * Two-speed publishing (SURFACES §2b) is why Live and Script are separate: on an agent taking
+ * calls saving a version STAGES it (`agents.system_prompt_id` is the draft pointer,
+ * `live_prompt_id` is what callers hear) and only **Apply to live calls** moves the live one.
+ * An agent not taking calls uses each save at once (`saveConsequence` says which). The client
+ * sees the same staged state on their own screen and cannot act on it.
  *
  * Reads go through the tenant's impersonated session (the slug comes from `useTenant`, a
  * cache hit under the layout) and writes go to admin routes: read as the tenant, write as
  * ourselves (D-22).
  */
+
 const SECTIONS_BASE: SettingsSection[] = [
   { id: "live", label: "Live" },
   { id: "script", label: "Script" },
@@ -97,8 +117,7 @@ export function AgentPromptScreen({ tenantId, agentId }: { tenantId: string; age
         value: body,
         writable: write.allowed,
         help:
-          "The full instruction the agent thinks with. Saving STAGES it; callers keep " +
-          "hearing the live version until a person presses Apply. Do not write the AI " +
+          `The full instruction the agent thinks with. ${saveConsequence(pending.data)} Do not write the AI ` +
           "disclosure or the recording notice here — the server appends both to every " +
           "published prompt and verifies them against the engine, and nothing written " +
           "in this box can withdraw them. Minimum 20 characters.",
@@ -124,10 +143,10 @@ export function AgentPromptScreen({ tenantId, agentId }: { tenantId: string; age
       },
       {
         key: "live_version",
-        label: "Version callers hear now",
-        value: history.data
-          ? (history.data.find((entry) => entry.active)?.version.toString() ?? "none is live")
-          : "could not be read",
+        label: "Version the agent runs now",
+        // `active` is the DRAFT pointer; while a change is staged the version in force is the
+        // pending row's `live_version`, so reading `active` named the staged one as live.
+        value: liveVersionFact(pending.data, history.data),
       },
       {
         key: "has_pending",
@@ -179,7 +198,7 @@ export function AgentPromptScreen({ tenantId, agentId }: { tenantId: string; age
             {pending.data?.has_pending && <StatusPill tone="warn">Change staged</StatusPill>}
           </>
         }
-        description="Every save is a new version, staged until someone presses Apply to live calls."
+        description={saveConsequence(pending.data)}
       />
 
       {tenant.error && <ProblemNotice error={tenant.error} onRetry={() => tenant.refetch()} />}

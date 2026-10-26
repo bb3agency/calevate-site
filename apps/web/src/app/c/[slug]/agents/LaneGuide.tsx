@@ -71,7 +71,7 @@ function LaneBody({ lanes }: { lanes: ReturnType<typeof useLanes> }) {
           and the precedence rule stays as the smaller line beneath it because SURFACES §2b
           asks for it to be STATED and it is the server's own words for it. */}
       <p className="text-sm font-medium text-ink">
-        A change to what the agent SAYS waits until it is applied. Everything
+        On an agent taking calls, a change to what it SAYS waits until it is put live. Everything
         else is in force on the next call.
       </p>
       <p className="mt-1 text-xs text-ink-muted">

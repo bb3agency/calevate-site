@@ -391,3 +391,81 @@ describe("reply length", () => {
     await screen.findByText("Upstream unavailable");
   });
 });
+
+/**
+ * Only an agent that is `live` and on the voice platform stages a saved version
+ * (`prompts.py::write_prompt_version`); a draft, ready or paused one uses each save at once.
+ * The page used to say "staged until someone presses Apply" for every agent, and badged the
+ * version a draft agent will use "Live" though no caller hears it.
+ */
+describe("what saving does, said for this agent's state", () => {
+  const STAGED_PENDING = {
+    field: "script",
+    lane: "staged",
+    staged_version: 2,
+    live_version: 1,
+    staged_at: "2026-10-20T05:00:00Z",
+    headline: "Script changes are waiting to go live.",
+    why: "It waits until it is put live.",
+  };
+  const TWO_VERSIONS = [
+    { ...HISTORY[0]!, id: "0192f0aa-7777-7000-8000-0000000000c4", version: 2, active: true },
+    { ...HISTORY[0]!, active: false },
+  ];
+
+  it("says a draft agent uses each save at once, and badges its version In use", async () => {
+    nav.params = new URLSearchParams("section=script");
+    const { container } = await render();
+
+    await screen.findByText(/not taking calls, so every save is a new version it uses straight away/);
+    expect(container.textContent).not.toContain("staged until someone presses Apply");
+    await screen.findByText("In use");
+    expect(
+      screen.getByText("This agent is not taking calls, so saving makes this the version it uses."),
+    ).toBeTruthy();
+  });
+
+  it("says a live agent stages each save, and badges the staged version", async () => {
+    nav.params = new URLSearchParams("section=script");
+    await render({
+      [HISTORY_PATH]: TWO_VERSIONS,
+      [PENDING_PATH]: pending({
+        agent_status: "live",
+        published: true,
+        has_pending: true,
+        pending: [STAGED_PENDING],
+      }),
+    });
+
+    await screen.findByText(/staged: callers keep hearing the live one until someone presses Apply/);
+    await screen.findByText("Staged");
+    expect(screen.getByText(/Saving stages the version/)).toBeTruthy();
+    expect(screen.queryByText("In use")).toBeNull();
+  });
+
+  it("tells a published agent not taking calls that saves reach it without Apply", async () => {
+    await render({ [PENDING_PATH]: pending({ agent_status: "paused", published: true }) });
+
+    await screen.findByText(/on the voice platform and not taking calls\. Each saved script is sent/);
+    expect(screen.queryByText(/Script changes reach it through Apply/)).toBeNull();
+  });
+
+  it("does not say callers hear an applied version the voice platform was never sent", async () => {
+    const APPLY_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/apply`;
+    await render({
+      [HISTORY_PATH]: TWO_VERSIONS,
+      [PENDING_PATH]: pending({
+        agent_status: "paused",
+        published: false,
+        has_pending: true,
+        pending: [STAGED_PENDING],
+      }),
+      [`POST ${APPLY_PATH}`]: { applied: true, live_version: 2, engine_synced: false },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Apply to live calls" }));
+
+    await screen.findByText(/v2 is now the version in use.*no caller hears it yet/);
+    expect(screen.queryByText(/callers now hear/)).toBeNull();
+  });
+});

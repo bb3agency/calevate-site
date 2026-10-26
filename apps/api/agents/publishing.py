@@ -149,7 +149,7 @@ LANES: tuple[LaneEntry, ...] = (
         precedence=1,
         why=(
             "The script decides what the agent says, and a bad version is discovered "
-            "by a customer on the phone. It waits for Apply."
+            "by a customer on the phone. On an agent taking calls it waits until it is put live."
         ),
     ),
     LaneEntry(

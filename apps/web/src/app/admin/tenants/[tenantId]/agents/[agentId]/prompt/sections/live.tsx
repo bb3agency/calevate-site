@@ -128,8 +128,11 @@ export function GoLivePanel({
           </NoticeBox>
         ) : pending.published ? (
           <p className="text-body text-ink-muted">
-            This agent is on the voice platform. Script changes reach it through Apply to
-            live calls.
+            {/* Only a `live` agent stages a save (`prompts.py::write_prompt_version`); a
+                ready or paused one is re-sent with each save. */}
+            {pending.agent_status === "live"
+              ? "This agent is on the voice platform. Script changes reach it through Apply to live calls."
+              : "This agent is on the voice platform and not taking calls. Each saved script is sent to it straight away; nothing waits for Apply."}
           </p>
         ) : (
           <>
@@ -296,13 +299,13 @@ export function PublishingPanel({
 
         {apply.data && (
           <p className="text-meta text-ink-muted">
-            {apply.data.applied
-              ? `Applied — callers now hear v${apply.data.live_version}.`
-              : `Nothing to apply — v${apply.data.live_version} was already live.`}
-            {apply.data.applied &&
-              (apply.data.engine_synced
-                ? " The voice platform has it."
-                : " The agent is not live, so nothing was sent to the voice platform.")}
+            {/* "Callers now hear" only when the platform has it: an unsynced apply moved our
+                pointer and nothing a caller can hear. */}
+            {!apply.data.applied
+              ? `Nothing to apply — v${apply.data.live_version} was already live.`
+              : apply.data.engine_synced
+                ? `Applied — callers now hear v${apply.data.live_version}. The voice platform has it.`
+                : `Applied — v${apply.data.live_version} is now the version in use. The agent is not live, so nothing was sent to the voice platform and no caller hears it yet.`}
           </p>
         )}
         {undo.data && (
