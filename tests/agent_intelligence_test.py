@@ -273,7 +273,10 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # D-883 trimmed the platform layers and added the ambiguous-amount read-back (7,042 before).
     # D-888 added today's date and the name as per-call values, the name and days rules, and
     # named places, projects and how the caller found the business among facts (6,894 before).
-    assert len(prompt) <= 7_276
+    # D-894 made a reaction fit or go, put the one question last, answered a pace complaint,
+    # said a caller's time or number back in their words and asked for a short first
+    # sentence (7,276 before).
+    assert len(prompt) <= 7_530
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

@@ -158,8 +158,13 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
 #: projects, availability and how the caller found the business among the facts (about 75),
 #: no choices for counts or amounts (about 35), and the one way to say a fact is missing
 #: (about 30).
-PER_CALL_MAX = 6_867
-PER_CALL_ONE_LANGUAGE_MAX = 5_992
+#: D-894 (27 Oct 2026) RAISED both by 254, for the founder's two Sri Estates test calls: a
+#: reaction that fits or is left out rather than one every turn (about 50), one question at
+#: the end of a turn (about 15), a pace complaint answered with shorter sentences and the call
+#: carried on (about 85), a caller's own words for a time or number said back (about 75), and
+#: a short first sentence, which the engine voices sooner (about 20).
+PER_CALL_MAX = 7_121
+PER_CALL_ONE_LANGUAGE_MAX = 6_246
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:

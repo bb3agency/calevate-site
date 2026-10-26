@@ -101,3 +101,47 @@ def test_the_style_layer_states_the_directives_the_guide_specifies() -> None:
     # D-714: the answer first. Turn length, one question a turn, titles in full and varied
     # openings are ThinnestAI's own speaking rules, which every call keeps (D-814).
     assert "lead with the answer" in block
+
+
+def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
+    """D-894. On two Sri Estates test calls the agent said "glad" to "we are still looking",
+    put "good"/"OK" before every next question, said "six" back as the Telugu "aaru gantalu",
+    asked two things in one turn and, told it talked too fast, apologised and asked "anything
+    else?". Each fix is one clause of HOW TO SPEAK, pinned so a reword cannot drop it."""
+    lines = VOICE_STYLE_GUIDANCE.splitlines()
+
+    def bullet(start: str) -> str:
+        return next(line for line in lines if line.startswith(start))
+
+    react = bullet("- Asked something?")
+    assert "React only if it fits what they said" in react
+    assert "never the same way twice" in react and "often not at all" in react
+    # The engine voices a reply a sentence at a time, so a short first one is heard sooner.
+    assert bullet("- One or two short sentences").startswith(
+        "- One or two short sentences, the first shortest, then wait"
+    )
+    # The words it overused are not named: a named word can come back more often.
+    for stock in ("సంతోషం", "మంచిది", "సరే"):
+        assert stock not in VOICE_STYLE_GUIDANCE
+
+    assert bullet("- One question a turn").startswith("- One question a turn, at its end;")
+
+    pace = bullet("- Talked over?")
+    assert "Told you are too fast? Sorry once" in pace
+    assert "go on where you were" in pace
+
+    amounts = bullet("- Amounts the English way")
+    assert "A time or number they said goes back in their words" in amounts
+    assert '("six" stays "six")' in amounts
+    # Numbers taken from the caller are still read back a few digits at a time.
+    assert "numbers a few digits at a time, a mobile has ten" in bullet("- Read back")
+    # "Never say the time" is about the clock, so it cannot read as "never say a time".
+    assert "never say the time now." in VOICE_STYLE_GUIDANCE
+
+
+def test_the_founders_fixes_reach_every_prompt_and_the_floor_stays_last() -> None:
+    prompt = compose_engine_prompt(_config("Call leads for Sri Estates."))
+    assert '"six" stays "six"' in prompt
+    assert "React only if it fits what they said" in prompt
+    assert carries_truthful_answer_floor(prompt)
+    assert prompt.rindex(TRUTHFUL_ANSWER_MARKER) > prompt.index(VOICE_STYLE_GUIDANCE)

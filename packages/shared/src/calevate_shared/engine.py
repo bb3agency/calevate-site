@@ -2843,23 +2843,49 @@ _REGISTER_BULLET: Final = (
 #: digits; times as people say them (founder, 23 Oct 2026, D-861). The examples are Telugu
 #: because a Telugu agent said "రెండు కోట్ల" where the founder's rule is the English amount,
 #: and its call writes every word in Telugu letters.
+#: D-894, from the founder's Sri Estates test calls of 27 Oct 2026:
+#: - "React in a few words" on every turn became a stock reaction on every turn: "glad"
+#:   (సంతోషం అండి) to "we are still looking", and "good"/"OK" (మంచిది అండి, సరే అండి) before
+#:   each next question. A reaction now has to fit what was said, is never the same twice and
+#:   is often left out; models reuse one acknowledgement unless told to vary it (PolyAI
+#:   utterance design; OpenAI Realtime prompting guide, "vary your responses"). The words are
+#:   not named here, for the reason `spoken_style.AvoidForm` gives: a word named in a prompt
+#:   can come back more often.
+#: - The caller said "six" and heard "ఆరు గంటలకు" back. A value the caller said goes back in
+#:   their own words: callers keep the words their partner uses (lexical entrainment, Brennan
+#:   and Clark 1996), and Telugu callers switch to English for numbers and times. Amounts the
+#:   agent brings up itself keep the English-way rule above; the read-back below is unchanged.
+#: - A question with a second one after it was talked over, and "too fast and hurried" got an
+#:   apology and then "anything else?", which closes the call on a caller who was still in
+#:   it. So one question, last, and the pace complaint is answered in the turns that follow.
+#:   The model cannot change the voice's speed; shorter sentences and commas are what it
+#:   controls (docs.cartesia.ai sonic-3 prompting tips, read 27 Oct 2026: "a comma or period
+#:   usually produces the right pause"). Its `<speed>` tag is not offered: the model may write
+#:   no brackets, and a Clear voice is not Cartesia. The speed itself is the agent's own
+#:   setting (D-884).
+#: - "The first shortest": the engine voices a reply a sentence at a time, so a short first
+#:   sentence (the answer, or a reaction that fits) starts sounding sooner; the saving per turn
+#:   is an ESTIMATE (50-200 ms, integrator's latency notes of 27 Oct 2026), not measured.
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
-    "- One or two short sentences, then wait; more only if asked.\n"
+    "- One or two short sentences, the first shortest, then wait; more only if asked.\n"
     '- Asked something? Lead with the answer, never "do you want to know". Told something? '
-    "React in a few words, then ask the next thing.\n"
-    '- One question a turn, each turn begun differently; choices for times ("morning or '
-    'evening?"), never for counts or amounts. Never re-ask what they said or repeat a '
-    "sentence.\n"
+    "React only if it fits what they said, never the same way twice, often not at all; then "
+    "ask the next thing.\n"
+    "- One question a turn, at its end; each turn begun differently; choices for times "
+    '("morning or evening?"), never for counts or amounts. Never re-ask what they said or '
+    "repeat a sentence.\n"
     "- Say only your own part, never the caller's. Half an answer? Offer your reading as a "
     'question with a way out ("one kg, or more?"); never finish it for them.\n'
     "- Unsure or not interested? Offer once, then close politely.\n"
-    "- Talked over? Stop, answer, then go on shorter.\n"
+    "- Talked over? Stop, answer, then go on shorter. Told you are too fast? Sorry once, then "
+    "shorter sentences, and go on where you were.\n"
     '- Write for a voice: a comma where you breathe, "?" on every question. No markdown, '
     "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
-    "time.\n"
+    "time now.\n"
     '- Amounts the English way in the call\'s letters ("వన్ ట్వంటీ రూపీస్", "టూ క్రోర్స్"), '
-    "never ₹ or digits.\n"
+    'never ₹ or digits. A time or number they said goes back in their words ("six" stays '
+    '"six").\n'
     "- Read back what you heard and wait for a yes; numbers a few digits at a time, a mobile "
     'has ten; an amount that could be a range or a decimal ("one two crores") as which one '
     '("one to two crores?").\n'

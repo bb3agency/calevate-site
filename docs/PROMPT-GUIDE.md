@@ -123,7 +123,8 @@ In HOW TO SPEAK:
   amount that could be a range or a decimal ("one two crores") is read back as the one meant
   ("one to two crores?") before going on: on 24 Oct 2026 an echo saved 120 for 200 (D-883).
 - Amounts the English way, written in the call's own letters ("వన్ ట్వంటీ రూపీస్", "టూ
-  క్రోర్స్"), never ₹ or digits (D-861; times are said as people say them).
+  క్రోర్స్"), never ₹ or digits (D-861; times are said as people say them). A time or number
+  the caller said goes back in their own words: "six" stays "six" (D-894).
 - Asked to repeat, say it shorter.
 - If the caller talks over the agent, it stops, answers, then carries on where it was. It
   never asks for what the caller already said.
@@ -171,7 +172,8 @@ layers stay within their 14 Oct size (the three-language cap below):
 **What the October calls showed (D-856, 23 Oct 2026).** Five Raghava test calls against one
 competitor call the founder judged natural (`docs/evidence/call-quality-vs-outpero-2026-10-23.md`).
 The competitor's turns were not shorter; they reacted, asked one thing with choices, offered a
-reading of a half answer, and closed on what happens next. HOW TO SPEAK now says:
+reading of a half answer, and closed on what happens next. HOW TO SPEAK says (the reaction as
+D-894 amended it, below):
 - Asked something? Lead with the answer, never "do you want to know". Told something? React in
   a few words, then ask the next thing. One question a turn; choices help.
 - Half an answer? Offer the reading as a question with a way out ("one kg, or more?"); never
@@ -184,6 +186,14 @@ CALL tells an agent that answers calls, when asked who or why, to say so in one 
 now is a good time (it also rings out on trial test calls and call backs). The test loop notes
 `asks_to_tell` and counts a question restated with its options as one; four standing callers
 (half answer, who is calling, just WhatsApp me, already bought) join the rotation.
+
+**What the 27 Oct calls showed (D-894).** "React in a few words" on every turn became a stock
+reaction on every turn ("glad" to "we are still looking", "good" before each question). The
+reaction now has to fit what was said, is never the same twice and is often left out; the
+one question comes at the end of the turn; "you talk too fast" gets one sorry, then shorter
+sentences and the call carries on (the model cannot change the voice's speed, which is the
+agent's own setting, D-884). The test loop notes `same_opening` when one short reaction opens
+three or more replies.
 
 **Per-trade step plans (D-856).** `apps/api/agents/trade_playbooks.py` holds, per trade and job,
 five steps with a done-when branch, what to ask (one thing a turn), the trade's objections and a
