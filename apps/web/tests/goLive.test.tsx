@@ -130,6 +130,19 @@ describe("the guide", () => {
     expect(await screen.findByRole("heading", { name: "Choose your number" })).toBeTruthy();
   });
 
+  it("points an account with no agent to making one, on the switch-on step", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/go-live": guide({ current: "switch_on", move: { ...guide().move, state: "done" } }),
+        "/v1/agents": [],
+      }),
+    );
+    expect(await screen.findByText("You have no agent to switch on yet.")).toBeTruthy();
+    const make = screen.getByRole("link", { name: "Make an agent" });
+    expect(make.getAttribute("href")).toBe("/c/acme/agents/new");
+  });
+
   it("goes on to the business check, which opens the existing flow", async () => {
     await renderClientPage(page, routes());
     fireEvent.click(await screen.findByRole("button", { name: /Verify your business/ }));

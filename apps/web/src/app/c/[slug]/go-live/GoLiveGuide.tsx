@@ -9,7 +9,8 @@ import { ArrowRight } from "lucide-react";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { TaskSteps, type TaskStep } from "@/components/interior/task-steps";
-import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { EmptyState } from "@/components/console/emptyState";
+import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import { isDeleted } from "@/lib/agentState";
 import { useAgentLifecycle, useAgents, type Agent } from "@/lib/api/agents";
 import {
@@ -117,6 +118,7 @@ export function GoLiveGuide({ slug }: { slug: string }) {
           <SwitchOnStep
             guide={data}
             agentHref={(id) => href(`/c/${slug}/agents/${id}`)}
+            newAgentHref={href(`/c/${slug}/agents/new`)}
             onBack={() => go("number")}
             onFinished={() => router.push(href(`/c/${slug}`))}
           />
@@ -358,11 +360,14 @@ function NumberStep({
 function SwitchOnStep({
   guide,
   agentHref,
+  newAgentHref,
   onBack,
   onFinished,
 }: {
   guide: GoLive;
   agentHref: (id: string) => string;
+  /** Where an account with no agent makes one. */
+  newAgentHref: string;
   onBack: () => void;
   onFinished: () => void;
 }) {
@@ -395,6 +400,19 @@ function SwitchOnStep({
             <SwitchRow key={agent.id} agent={agent} agentHref={agentHref(agent.id)} />
           ))}
         </ul>
+      ) : agents.isSuccess ? (
+        // Every agent deleted, or none made yet: the step has nothing to switch on, so it
+        // says so and points at the one thing that gives it something.
+        <EmptyState
+          className="rounded-card border border-line"
+          message="You have no agent to switch on yet."
+          hint="Make an agent, then come back here to put it on your number."
+          action={
+            <Link href={newAgentHref} className={PRIMARY_BUTTON}>
+              Make an agent
+            </Link>
+          }
+        />
       ) : null}
       {finish.error ? <ProblemNotice error={finish.error} /> : null}
     </StepScreen>
