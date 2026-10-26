@@ -655,6 +655,9 @@ inbound_webhooks(id, tenant_id, source ENUM[meta_lead_ads,website_form,zoho,shee
   secret_ref TEXT, agent_id, mapping JSONB, active BOOL)   -- lead-in → instant call
 outbound_webhooks(id, tenant_id, kind ENUM[webhook,google_sheets], url TEXT,
   secret_ref TEXT, events TEXT[],           -- e.g. {lead.created, lead.updated, call.completed}
+  previous_secret_ref TEXT NULL, previous_secret_expires_at TIMESTAMPTZ NULL,
+                                            -- both or neither (d5f1a3c7e902): the secret a
+                                            -- rotation replaced, still signing until then
   mapping JSONB, active BOOL)               -- us → client's tools (D-23); table ships in M1,
                                             -- delivery starts M2; HMAC-signed, our envelope;
                                             -- deliveries logged in webhook_deliveries(direction=out)
@@ -1547,7 +1550,10 @@ audit_log(id, actor_type ENUM[admin,user,system], actor_id, tenant_id, action, o
   -- (`GET /v1/ops/audit/verify`) instead of disappearing quietly.
 webhook_deliveries(id, direction ENUM[in,out], source, event_type, status, attempts,
   signature_valid BOOL, payload_ref, endpoint_id NULL → outbound_webhooks ON DELETE SET NULL,
+  next_attempt_at NULL, outbox_message_id NULL,
   first_at, last_at)                 -- ONE row per delivery, not per attempt
+  -- status 'retrying' + next_attempt_at: an outbound webhook waiting on its retry
+  -- schedule; the retry sweep re-enqueues it from outbox_message_id (d5f1a3c7e902).
   -- endpoint_id is outbound-only (D-23) and is how the client-facing delivery screen
   -- scopes rows: it filters THROUGH outbound_webhooks, which IS tenant-RLS'd, so this
   -- table needs no policy of its own.

@@ -28,7 +28,6 @@ from apps.api.integrations import service
 from apps.api.reliability.service import claim_outbox_batch, enqueue_outbox
 from apps.workers import outbound_webhooks
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
-from arq import Retry
 from sqlalchemy import text
 from tests.conftest import create_org_with_receptionist
 
@@ -530,14 +529,16 @@ async def test_the_last_allowed_try_knows_it_is_the_last(monkeypatch) -> None:
         "delivery_id": str(uuid7()),
     }
 
-    # Not the last try: the job must ASK for a retry, in the only way arq honours.
-    with pytest.raises(Retry):
-        await deliver_outbound_webhook({"job_try": 1}, payload)
+    # A signed webhook keeps its OWN schedule (`service.WEBHOOK_RETRY_SCHEDULE`), waited
+    # out as a row: not the last try, so the row waits and nothing alerts.
+    outcome = await deliver_outbound_webhook({"job_try": 1}, payload)
+    assert outcome.startswith("retry 2 at"), outcome
     assert fired == [], "a retryable failure is not an incident yet"
 
-    # The last try: alert and STOP, rather than ask for a retry that will never come.
-    outcome = await deliver_outbound_webhook({"job_try": WORKER_MAX_TRIES}, payload)
-    assert outcome == f"exhausted after {WORKER_MAX_TRIES}"
+    # The last scheduled try (the sweep names it in the payload): alert and STOP.
+    last = service.WEBHOOK_MAX_ATTEMPTS
+    outcome = await deliver_outbound_webhook({"job_try": 1}, {**payload, "attempt": last})
+    assert outcome == f"exhausted after {last}"
     assert fired == ["outbound_webhook_exhausted"], "the alert fires on the real last try"
 
 

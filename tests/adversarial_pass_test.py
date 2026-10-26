@@ -653,6 +653,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
         {},
     ),
     ("DELETE", "/v1/integrations/endpoints/{endpoint_id}", {}, {}),
+    ("POST", "/v1/integrations/endpoints/{endpoint_id}/rotate-secret", {}, {}),
     ("DELETE", "/v1/invitations/{invitation_id}", {}, {}),
     ("POST", "/v1/invitations/{invitation_id}/resend", {}, {}),
     ("DELETE", "/v1/lead-sources/{webhook_id}", {}, {}),
@@ -733,6 +734,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # list above never addressed, and the one with the most to lose — it answers with the
     # unredacted body we POSTed to a CRM, from a table with no RLS policy on it.
     ("GET", "/v1/integrations/deliveries/{delivery_id}/payload", {}, {}),
+    # Scoped through `outbound_webhooks` for the same reason (`service.resend_delivery`).
+    ("POST", "/v1/integrations/deliveries/{delivery_id}/resend", {}, {}),
     # The call-script builder lane. `{agent_id}` names an agents row; every one resolves it
     # under the caller's RLS (`script_builder._agent_or_404`, `publishing._load`) so a
     # neighbour's agent is invisible → 404. Clearing a script suggestion (D-820) writes

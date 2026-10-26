@@ -4,9 +4,16 @@ import { useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { Drawer } from "@/components/console/drawer";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Section } from "@/components/console/section";
-import { ProblemNotice, RestrictionNote, SECONDARY_BUTTON_SM } from "@/components/ui";
+import {
+  PRIMARY_BUTTON,
+  ProblemNotice,
+  RestrictionNote,
+  SECONDARY_BUTTON_SM,
+  formatIST,
+} from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
   useDeactivateEndpoint,
@@ -14,10 +21,14 @@ import {
   useDeliveryPayload,
   useEndpointOptions,
   useEndpoints,
+  useResendDelivery,
+  useRotateEndpointSecret,
   type Endpoint,
+  type SecretRotation,
 } from "@/lib/api/integrations";
 import { useClientSession } from "@/lib/api/session";
 
+import { CopyRow } from "../lead-sources/IssuedSecretNotice";
 import { AddDestinationDrawer } from "./AddDestinationDrawer";
 import { ConnectedAccounts } from "./ConnectedAccounts";
 import { DeliveryLog } from "./DeliveryLog";
@@ -50,6 +61,14 @@ export function IntegrationsScreen() {
   const write = useWriteAccess(session, "org:manage", "change where events are sent");
   const [adding, setAdding] = useState(false);
   const [stopping, setStopping] = useState<Endpoint | null>(null);
+  // A new signing secret: which endpoint is being asked about, then the secret, shown once.
+  const rotate = useRotateEndpointSecret(session);
+  const rotateFeedback = useActionFeedback(rotate, { errorDisplay: "inline" });
+  const [rotating, setRotating] = useState<Endpoint | null>(null);
+  const [issued, setIssued] = useState<SecretRotation | null>(null);
+  // "Send again" on a delivery that finally failed; the refusal shows above the log.
+  const resend = useResendDelivery(session);
+  useActionFeedback(resend, { errorDisplay: "inline", successToast: "Sending it again" });
 
   /**
    * Opening a delivered body is gated on reading RAW call data, not on managing the
@@ -108,7 +127,13 @@ export function IntegrationsScreen() {
           />
         )}
         {deactivate.error && !stopping && <ProblemNotice error={deactivate.error} />}
-        <EndpointList endpoints={endpoints} write={write} busy={deactivate.isPending} onStop={setStopping} />
+        <EndpointList
+          endpoints={endpoints}
+          write={write}
+          busy={deactivate.isPending || rotate.isPending}
+          onStop={setStopping}
+          onRotate={setRotating}
+        />
         <p className="mt-3 max-w-prose text-meta text-ink-muted">
           Another CRM? Add a Zapier, Make or Pabbly webhook here and map the fields there.
         </p>
@@ -122,7 +147,68 @@ export function IntegrationsScreen() {
         onTogglePayload={togglePayload}
         payload={payload}
         payloadStatus={payloadFeedback.status}
+        canResend={write.allowed}
+        resend={resend}
       />
+
+      {rotating && (
+        <ConfirmDialog
+          title="Issue a new signing secret?"
+          confirmLabel="Issue a new secret"
+          pendingLabel="Issuing…"
+          cancelLabel="Keep the current one"
+          status={rotateFeedback.status}
+          error={rotate.error}
+          onCancel={() => {
+            rotate.reset();
+            setRotating(null);
+          }}
+          onConfirm={() =>
+            rotate.mutate(
+              { endpointId: rotating.id },
+              {
+                onSuccess: (result) => {
+                  setRotating(null);
+                  setIssued(result);
+                },
+              },
+            )
+          }
+        >
+          <p>
+            Your system at <span className="break-all font-mono text-ink">{rotating.url}</span>{" "}
+            gets a new secret to check our signature with.
+          </p>
+          <p>
+            For the next 24 hours every delivery is signed with both the old and the new
+            secret, so it keeps verifying while you switch. After that only the new one signs.
+          </p>
+        </ConfirmDialog>
+      )}
+
+      <Drawer
+        open={issued !== null}
+        onClose={() => setIssued(null)}
+        title="Your new signing secret"
+        width="lg"
+        footer={
+          <button type="button" onClick={() => setIssued(null)} className={PRIMARY_BUTTON}>
+            I&apos;ve saved it
+          </button>
+        }
+      >
+        {issued && (
+          <div className="space-y-3 text-body">
+            <p className="font-medium text-ink">Copy this now — we will not show it again.</p>
+            <CopyRow label="Signing secret" value={issued.secret} copyLabel="Copy signing secret" />
+            <p className="text-meta text-ink-muted">
+              {issued.previous_secret_expires_at
+                ? `The old secret also signs every delivery until ${formatIST(issued.previous_secret_expires_at)}. Switch your system to the new one before then.`
+                : "The old secret has stopped signing. Switch your system to the new one now."}
+            </p>
+          </div>
+        )}
+      </Drawer>
 
       {options.data && (
         <AddDestinationDrawer

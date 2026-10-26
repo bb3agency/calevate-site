@@ -8,7 +8,17 @@ webhook_deliveries: forensic log both directions.
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -49,7 +59,15 @@ class InboundWebhook(PKMixin, TimestampMixin, Base):
 
 class OutboundWebhook(PKMixin, TimestampMixin, Base):
     __tablename__ = "outbound_webhooks"
-    __table_args__ = (CheckConstraint(f"kind IN {OUTBOUND_KINDS!r}", name="kind_enum"),)
+    __table_args__ = (
+        CheckConstraint(f"kind IN {OUTBOUND_KINDS!r}", name="kind_enum"),
+        # Migration d5f1a3c7e902, the inbound twin's rule: a retiring secret and its
+        # deadline are one fact.
+        CheckConstraint(
+            "(previous_secret_ref IS NULL) = (previous_secret_expires_at IS NULL)",
+            name="previous_secret_paired",
+        ),
+    )
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
@@ -57,6 +75,11 @@ class OutboundWebhook(PKMixin, TimestampMixin, Base):
     kind: Mapped[str] = mapped_column(String, nullable=False)
     url: Mapped[str | None] = mapped_column(Text)
     secret_ref: Mapped[str | None] = mapped_column(Text)
+    # A webhook's signing secret before its last rotation. Every delivery is signed with it
+    # as well as with `secret_ref` until `previous_secret_expires_at`, so a receiver can
+    # switch secrets without refusing a single delivery (`service.rotate_endpoint_secret`).
+    previous_secret_ref: Mapped[str | None] = mapped_column(Text)
+    previous_secret_expires_at: Mapped[datetime | None] = mapped_column()
     events: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
     mapping: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
@@ -109,6 +132,11 @@ class WebhookDelivery(PKMixin, Base):
     __tablename__ = "webhook_deliveries"
     __table_args__ = (
         CheckConstraint(f"direction IN {DELIVERY_DIRECTIONS!r}", name="direction_enum"),
+        Index(
+            "ix_webhook_deliveries_retry_due",
+            "next_attempt_at",
+            postgresql_where=text("status = 'retrying'"),
+        ),
     )
 
     direction: Mapped[str] = mapped_column(String, nullable=False)
@@ -136,6 +164,12 @@ class WebhookDelivery(PKMixin, Base):
     endpoint_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("outbound_webhooks.id", ondelete="RESTRICT")
     )
+    # Outbound webhooks only (migration d5f1a3c7e902): a transient failure leaves the row
+    # `retrying` until this instant, when `workers/outbound_webhooks.
+    # retry_outbound_deliveries` re-enqueues the delivery from `outbox_message_id`, the
+    # outbox message whose payload is its body. NULL when nothing is waiting.
+    next_attempt_at: Mapped[datetime | None] = mapped_column()
+    outbox_message_id: Mapped[UUID | None] = mapped_column()
     first_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     last_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)

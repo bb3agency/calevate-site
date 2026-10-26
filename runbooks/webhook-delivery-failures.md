@@ -151,11 +151,24 @@ GROUP BY status;
 
 ## 4. ARQ delivery job and its retry ladder
 
-`deliver_outbound_webhook` (`apps/workers/outbound_webhooks.py`) asks for a retry by
-raising `arq.Retry(defer=...)` — and ONLY that. A plain `raise` is terminal on the first
-attempt under arq 0.28, which is exactly how this alert was unreachable for a while;
-if you are changing this worker, that distinction is the whole ladder.
-`MAX_ATTEMPTS` (= `WORKER_MAX_TRIES`, 3) with waits of `RETRY_BACKOFF_S` = 30s then 120s.
+**A signed webhook** retries on its own schedule, `service.WEBHOOK_RETRY_SCHEDULE`: 8
+attempts, waiting 5s, 5m, 30m, 2h, 5h, 10h and 10h (about 27½ hours). The wait is a row,
+not a queued job: the delivery is `webhook_deliveries.status = 'retrying'` with
+`next_attempt_at`, and the cron `retry_outbound_deliveries` (every ten seconds) re-enqueues
+it from the outbox message that holds its body (`outbox_message_id`), with
+`payload.attempt` set and job id `deliver_outbound_webhook:retry:<delivery>:<attempt>`.
+A redeploy or a Redis restart therefore loses no retry. To see what is waiting:
+`SELECT id, attempts, next_attempt_at FROM webhook_deliveries WHERE status = 'retrying'
+ORDER BY next_attempt_at;`. A due retry whose outbox message was erased or pruned ends
+`failed` with `reason = 'delivery_body_not_held'`. A client can send a finally `failed`
+delivery once more themselves (`POST /v1/integrations/deliveries/{id}/resend`, "Send
+again" on Integrations), under the same delivery id.
+
+**A Google Sheets append** keeps arq's shared ladder: it asks for a retry by raising
+`arq.Retry(defer=...)` — and ONLY that. A plain `raise` is terminal on the first attempt
+under arq 0.28, which is exactly how this alert was unreachable for a while; if you are
+changing this worker, that distinction is the whole ladder. `MAX_ATTEMPTS`
+(= `WORKER_MAX_TRIES`, 3) with waits of `RETRY_BACKOFF_S` = 30s then 120s.
 
 **Two terminal strings, and they mean different things:**
 
@@ -233,7 +246,7 @@ All from `deliver` / `sign_payload` / `verify_signature` in
    endpoint behind an http→https redirect fails every delivery.
 2. **Respond within 10 seconds** (`DELIVERY_TIMEOUT_S`). Ack fast, process async.
 3. **Verify the signature correctly.** Header `X-Calevate-Signature`, format
-   `t={timestamp},v1={hex}` — HMAC-SHA256 over the string `{timestamp}.{body}` with
+   `t={timestamp},v1={hex}` (two `v1` during a rotation; accept any match) — HMAC-SHA256 over the string `{timestamp}.{body}` with
    their endpoint secret. Tolerance is 5 minutes (`tolerance_s = 300` in
    `verify_signature` — shipped reference implementation). The two classic client bugs:
    verifying over the body alone (missing the `{timestamp}.` prefix), and a server
@@ -252,10 +265,13 @@ all `org:manage`):
 
 - List endpoints + secret fingerprints (`GET /v1/integrations/endpoints`).
 - Register a new endpoint — secret shown once (`POST /v1/integrations/endpoints`).
-- Rotate a secret: create a new endpoint, point their CRM at it, deactivate the old.
+- Rotate a secret in place (`POST /v1/integrations/endpoints/{id}/rotate-secret`): the
+  old secret keeps signing beside the new one for up to a day, so nothing fails while
+  their CRM switches; `grace_minutes: 0` retires it at once (a leak).
 - Deactivate an endpoint (`DELETE /v1/integrations/endpoints/{id}`).
 - Read recent delivery attempts — status/attempts/timestamps
   (`GET /v1/integrations/deliveries`, up to 200).
+- Send a finally failed delivery again, once (`POST /v1/integrations/deliveries/{id}/resend`).
 - List subscribable events (`GET /v1/integrations/events`).
 
 Needs us (admin realm / config row):

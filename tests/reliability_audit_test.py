@@ -940,7 +940,9 @@ async def test_a_raising_job_is_actually_retried_by_a_real_worker(
     tries: list[int] = []
 
     async def _endpoint(session: Any, endpoint_id: uuid.UUID) -> dict[str, Any]:
-        return {"url": "https://down.example/hook", "secret": "s", "mapping": {}}
+        # A Sheets append: the kind still on arq's shared ladder. A signed webhook waits
+        # out its own schedule as a row (`integrations.WEBHOOK_RETRY_SCHEDULE`).
+        return {"url": None, "secret": "s", "mapping": {}, "kind": "google_sheets"}
 
     async def _refuse(**kwargs: Any) -> integrations.DeliveryResult:
         return integrations.DeliveryResult(delivered=False, status_code=503, error="HTTP 503")
@@ -949,7 +951,9 @@ async def test_a_raising_job_is_actually_retried_by_a_real_worker(
         tries.append(int(kwargs["attempts"]))
 
     monkeypatch.setattr(integrations, "load_endpoint", _endpoint)
-    monkeypatch.setattr(integrations, "deliver", _refuse)
+    monkeypatch.setattr(
+        outbound_webhooks, "_deliver_to_endpoint", lambda **kwargs: _refuse(**kwargs)
+    )
     monkeypatch.setattr(integrations, "record_delivery", _record)
     # Real backoff is minutes; the ladder's SHAPE is what is under test, not its pace.
     monkeypatch.setattr(outbound_webhooks, "RETRY_BACKOFF_S", (0.02, 0.02))

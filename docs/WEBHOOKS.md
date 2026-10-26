@@ -121,7 +121,7 @@ Ask us to set this up if your CRM needs fixed column names.
 | Header                 | Value |
 | ---------------------- | ----- |
 | `Content-Type`         | `application/json` |
-| `X-Calevate-Signature` | `t={timestamp},v1={hmac_hex}` — see §1.4 |
+| `X-Calevate-Signature` | `t={timestamp},v1={hmac_hex}`, with a second `,v1={hmac_hex}` during a secret rotation — see §1.4 and §1.6 |
 | `X-Calevate-Timestamp` | Unix seconds, same value as `t` in the signature |
 | `X-Calevate-Event`     | The event type, e.g. `lead.created` |
 | `X-Calevate-Delivery`  | The delivery id (same as the envelope `id`) |
@@ -139,19 +139,25 @@ import hashlib, hmac, time
 
 
 def verify(secret: str, signature_header: str, raw_body: bytes) -> bool:
-    parts = dict(p.split("=", 1) for p in signature_header.split(",") if "=" in p)
-    ts, provided = parts.get("t"), parts.get("v1")
-    if not ts or not provided:
+    pairs = [p.split("=", 1) for p in signature_header.split(",") if "=" in p]
+    timestamps = [value for key, value in pairs if key == "t"]
+    signatures = [value for key, value in pairs if key == "v1"]
+    if len(timestamps) != 1 or not signatures:
         return False
+    ts = timestamps[0]
     if abs(int(time.time()) - int(ts)) > 300:  # reject > 5 min skew
         return False
     signed = ts.encode() + b"." + raw_body
-    expected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
-    # Constant-time, and on bytes: a str holding a non-ASCII character raises.
-    return hmac.compare_digest(expected.encode(), provided.encode())
+    expected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest().encode()
+    # Constant-time, and on bytes: a str holding a non-ASCII character raises. Accept the
+    # delivery when ANY v1 matches: during a rotation there is one per secret (§1.6).
+    return any([hmac.compare_digest(expected, s.encode()) for s in signatures])
 ```
 
-Three rules that matter:
+Four rules that matter:
+
+- **Accept any matching `v1`.** Outside a rotation there is exactly one; during one there
+  are two, the new secret's first, so a receiver holding either secret keeps verifying.
 
 - **Reject timestamps older or newer than 300 seconds.** The timestamp is inside the
   signed string, so an attacker cannot move a captured signature onto a fresh timestamp.
@@ -165,9 +171,20 @@ Three rules that matter:
 - **Only a 2xx response counts as delivered.** **Redirects are not followed**: we will
   not chase a signed body to a host you did not register, so a 3xx is a failure.
 - **Timeout is 10 seconds** per attempt. Respond fast and process async on your side.
-- **Retry ladder: 3 attempts total**, driven by our job queue, waiting **30 seconds then
-  2 minutes**. After the 3rd failed attempt the delivery is marked `failed`, we stop, and
-  our on-call is alerted that your integration is broken.
+- **Retry schedule: 8 attempts over about 27½ hours.** After a failed attempt we wait
+  **5 seconds, then 5 minutes, 30 minutes, 2 hours, 5 hours, 10 hours and 10 hours**
+  (the first six steps of the Standard Webhooks recommended schedule). While it waits the
+  delivery shows as `retrying` with its `next_attempt_at`; the wait is kept in our
+  database, so a restart on our side loses none of them. After the 8th failed attempt the
+  delivery is marked `failed`, we stop, and our on-call is alerted that your integration
+  is broken. A Google Sheets destination keeps a shorter schedule: 3 attempts, 30 seconds
+  then 2 minutes apart.
+- **Send again.** A `failed` delivery can be sent once more from the Integrations screen,
+  or with `POST /v1/integrations/deliveries/{id}/resend` (`202`): same envelope `id`, same
+  body, same `created_at`, so a receiver that already processed it deduplicates it. `409
+  delivery_not_failed` if it is not failed; `422` if its destination was deactivated or we
+  no longer hold its body (kept 90 days, destroyed by an erasure request).
+  `GET /v1/integrations/deliveries` says which ones can be (`resendable`).
 - **Not every failure is retried, and that is deliberate.** A timeout, a connection or
   TLS failure, a 5xx, a 408, a 425 or a 429 gets the full ladder. **Any other 4xx stops
   immediately** and is recorded as rejected with your status code: a 401, 404 or 422 is
@@ -178,8 +195,9 @@ Three rules that matter:
   same across retries.
 - **One forensic row per delivery** (not per attempt): retries update the same row's
   attempt count and status. `GET /v1/integrations/deliveries` shows the last 50 (up to
-  `?limit=200`) with `status` (`delivered` / `failed` / `skipped`), `attempts`,
-  `first_at`, `last_at` — so "did it reach my CRM?" needs no support ticket.
+  `?limit=200`) with `status` (`delivered` / `retrying` / `failed` / `skipped`),
+  `attempts`, `first_at`, `last_at`, `next_attempt_at` and `resendable` — so "did it
+  reach my CRM?" needs no support ticket.
 - An event queued for an endpoint you deactivated before it was sent is recorded as
   `skipped`, not retried.
 
@@ -225,14 +243,16 @@ URL, not returning a `3xx` from the old one.
   §9.2.2): deactivating an already-inactive endpoint is `204`, so a retry after a lost
   response is safe. `404` means only that no endpoint of yours has that id.
 
-**To rotate a secret:** create a new endpoint with the same URL, deploy the new secret
-to your receiver (accept both during the cutover), then deactivate the old endpoint.
-There is no in-place rotation, by design — a secret is born with its endpoint and shown
-once. **While both endpoints are active, every event reaches you twice**, once per
-endpoint, under two different `id`s (an `id` is per delivery, and each endpoint has its
-own). Deduplicating on `id` does not collapse them; the pair shares `event`, `created_at`
-and the object's id (`data.lead_id` or `data.call_id`), so key on those three for the
-length of the cutover, and keep it short.
+**To rotate a secret:** `POST /v1/integrations/endpoints/{id}/rotate-secret` (or "New
+signing secret" on the Integrations screen) issues a new secret, returned once. For the
+next `grace_minutes` (default and maximum 1440, one day) every delivery carries **two**
+`v1` signatures, the new secret's first and the old one's second, so a receiver that
+accepts any matching `v1` (§1.4) keeps verifying while you deploy the new secret;
+`previous_secret_expires_at` in the response and on `GET /v1/integrations/endpoints` says
+when the old one stops signing. Send `grace_minutes: 0` to stop the old secret signing at
+once, which is what a leaked secret needs. The endpoint, its id, its deliveries and their
+ids are unchanged. A Google Sheets destination has no signing secret (`422
+endpoint_secret_not_rotatable`); deactivating an endpoint ends its rotation window.
 
 ### 1.7 Getting the recording and transcript on `call.completed`
 

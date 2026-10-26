@@ -246,7 +246,7 @@ from apps.workers.onboarding_completion import (
     SWEEP_SECOND as ONBOARDING_SWEEP_SECOND,
 )
 from apps.workers.onboarding_completion import complete_finished_onboardings
-from apps.workers.outbound_webhooks import deliver_outbound_webhook
+from apps.workers.outbound_webhooks import deliver_outbound_webhook, retry_outbound_deliveries
 from apps.workers.outbox_consumer import consume_outbox_once
 from apps.workers.own_model_key import (
     push_own_model_key,
@@ -669,6 +669,17 @@ CRON_JOBS = [
         walk=bounded("one untenanted session, one bounded batch of outbox rows"),
         second={0, 10, 20, 30, 40, 50},
         run_at_startup=True,
+    ),
+    # The outbound webhook retry schedule's clock: a delivery waiting as a `retrying` row
+    # is re-enqueued once its `next_attempt_at` passes. Every ten seconds because the
+    # first wait is five; offset from the outbox tick it feeds the same queue as.
+    # `max_tries` explicit (`cron()` defaults it to 1): the claim rolls back with a failed
+    # enqueue, so a retried tick picks the same rows up again and nothing is lost.
+    _cron(
+        traced_job(retry_outbound_deliveries),
+        walk=bounded("one untenanted UPDATE claiming at most RETRY_SWEEP_BATCH due rows"),
+        second={5, 15, 25, 35, 45, 55},
+        max_tries=WORKER_MAX_TRIES,
     ),
     # THE MAINTENANCE WINDOW'S ONLY ACTUATOR (D-544). Every fifteen seconds, because the
     # cadence IS the resolution of three promises a client and an operator both feel: how

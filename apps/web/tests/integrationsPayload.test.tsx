@@ -78,6 +78,8 @@ function delivery(over: Partial<Delivery> = {}): Delivery {
     first_at: "2026-08-13T10:00:00Z",
     last_at: "2026-08-13T10:00:00Z",
     payload_stored: true,
+    next_attempt_at: null,
+    resendable: false,
     ...over,
   };
 }

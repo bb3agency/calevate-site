@@ -82,11 +82,12 @@ import hashlib
 import hmac
 import json
 import re
+import secrets
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 import httpx
@@ -226,6 +227,34 @@ DELIVERY_HEADER = "X-Calevate-Delivery"
 DELIVERY_TIMEOUT_S = 10.0
 MAX_ATTEMPTS = WORKER_MAX_TRIES
 
+#: A signed webhook's own retry schedule: the wait before each retry, indexed by the
+#: attempt that just failed: eight attempts over about 27.6 hours. The first six waits are
+#: the Standard Webhooks recommended schedule (5s, 5m, 30m, 2h, 5h, 10h; spec/standard-
+#: webhooks.md "Retry schedule", read 26 Oct 2026), which then goes on to 14h, 20h and 24h;
+#: we stop after one more 10h, so a receiver down for a day still gets every lead and a
+#: dead one is reported the next day rather than the third. The
+#: Sheets append keeps the shared `MAX_ATTEMPTS` ladder. The waits are rows, not arq
+#: deferrals: `webhook_deliveries.next_attempt_at`, swept by
+#: `workers/outbound_webhooks.retry_outbound_deliveries`, so a redeploy or a Redis restart
+#: loses none of them.
+WEBHOOK_RETRY_SCHEDULE: Final[tuple[timedelta, ...]] = (
+    timedelta(seconds=5),
+    timedelta(minutes=5),
+    timedelta(minutes=30),
+    timedelta(hours=2),
+    timedelta(hours=5),
+    timedelta(hours=10),
+    timedelta(hours=10),
+)
+WEBHOOK_MAX_ATTEMPTS: Final = len(WEBHOOK_RETRY_SCHEDULE) + 1
+
+#: The delivery status of a webhook waiting for its next scheduled attempt.
+RETRYING: Final = "retrying"
+
+#: How long a rotated-out webhook secret keeps signing, by default and at most (the
+#: inbound twin's `ingest.service.MAX_GRACE_MINUTES`, one day).
+ROTATION_GRACE_MINUTES: Final = 24 * 60
+
 #: The four inbound outcomes that leave NO row in `webhook_deliveries`, by the alert code
 #: each one raises. This is the list an intrusion investigation reads for inbound scope,
 #: and it is here — beside the module docstring that argues why the table cannot answer —
@@ -289,33 +318,55 @@ def secret_fingerprint(secret: str) -> str:
     return hashlib.sha256(secret.encode()).hexdigest()[:8]
 
 
-def sign_payload(secret: str, *, timestamp: str, body: str) -> str:
+def _mac(secret: str, *, timestamp: str, body: str) -> str:
+    return hmac.new(secret.encode(), f"{timestamp}.{body}".encode(), hashlib.sha256).hexdigest()
+
+
+def sign_payload(
+    secret: str, *, timestamp: str, body: str, previous_secret: str | None = None
+) -> str:
     """`t={ts},v1={hex}` — the timestamp is INSIDE the signed string.
 
     A signature over the body alone is a bearer token for that body forever. With the
     timestamp signed, a receiver that rejects old timestamps also rejects replays, and
     an attacker cannot move a valid signature onto a fresh timestamp.
+
+    During a rotation window (`previous_secret`) the header carries one `v1=` per secret,
+    the current one first: `t={ts},v1={new},v1={old}`. That is Stripe's shape for the same
+    header grammar (one v1 signature per active secret while a secret rolls; REPORTED from
+    secondary write-ups of docs.stripe.com/webhooks, 26 Oct 2026), so a receiver that
+    accepts any matching `v1` keeps verifying whichever secret it holds. Standard Webhooks
+    separates its signatures with spaces instead; ours stays comma-separated because the
+    header was already `key=value` pairs joined by commas.
     """
-    mac = hmac.new(secret.encode(), f"{timestamp}.{body}".encode(), hashlib.sha256)
-    return f"t={timestamp},v1={mac.hexdigest()}"
+    header = f"t={timestamp},v1={_mac(secret, timestamp=timestamp, body=body)}"
+    if previous_secret:
+        header += f",v1={_mac(previous_secret, timestamp=timestamp, body=body)}"
+    return header
 
 
 def verify_signature(secret: str, *, header: str, body: str, tolerance_s: int = 300) -> bool:
     """The receiver's side, shipped so our docs can point at real code (and so the
-    tests assert the scheme rather than our implementation of it)."""
-    parts = dict(piece.split("=", 1) for piece in header.split(",") if "=" in piece)
-    timestamp, provided = parts.get("t"), parts.get("v1")
-    if not timestamp or not provided:
+    tests assert the scheme rather than our implementation of it). Accepts the header
+    when ANY `v1` signature matches `secret`, which is what keeps a receiver working
+    through a rotation whichever of the two secrets it holds."""
+    pieces = [piece.split("=", 1) for piece in header.split(",") if "=" in piece]
+    timestamps = [value for key, value in pieces if key == "t"]
+    provided = [value for key, value in pieces if key == "v1"]
+    if len(timestamps) != 1 or not provided:
         return False
+    timestamp = timestamps[0]
     try:
         age = abs(int(datetime.now(UTC).timestamp()) - int(timestamp))
     except ValueError:
         return False
     if age > tolerance_s:
         return False
-    expected = hmac.new(secret.encode(), f"{timestamp}.{body}".encode(), hashlib.sha256)
+    expected = _mac(secret, timestamp=timestamp, body=body).encode("ascii")
     # Bytes: `compare_digest` raises TypeError on a `str` with any non-ASCII character.
-    return hmac.compare_digest(expected.hexdigest().encode("ascii"), provided.encode("utf-8"))
+    # Every candidate is compared, so the time taken does not say which one matched.
+    matches = [hmac.compare_digest(expected, value.encode("utf-8")) for value in provided]
+    return any(matches)
 
 
 def build_envelope(
@@ -515,7 +566,8 @@ async def load_endpoint(session: AsyncSession, endpoint_id: UUID) -> dict[str, A
     row = (
         await session.execute(
             text(
-                "SELECT id, url, secret_ref, mapping, active, kind, include_recording_url "
+                "SELECT id, url, secret_ref, mapping, active, kind, include_recording_url, "
+                "CASE WHEN previous_secret_expires_at > now() THEN previous_secret_ref END "
                 "FROM outbound_webhooks WHERE id = :id"
             ),
             {"id": endpoint_id},
@@ -533,6 +585,8 @@ async def load_endpoint(session: AsyncSession, endpoint_id: UUID) -> dict[str, A
         "mapping": row[3] or {},
         "kind": row[5],
         "include_recording_url": bool(row[6]),
+        # The secret a rotation retired, while its window is open; None after it.
+        "previous_secret": row[7],
     }
 
 
@@ -617,7 +671,9 @@ async def deactivate_endpoint(session: AsyncSession, *, endpoint_id: UUID) -> bo
     """
     result = await session.execute(
         text(
-            "UPDATE outbound_webhooks SET active = false, updated_at = now() "
+            # A retiring secret goes with the endpoint, as the inbound twin's does.
+            "UPDATE outbound_webhooks SET active = false, previous_secret_ref = NULL, "
+            "previous_secret_expires_at = NULL, updated_at = now() "
             "WHERE id = :id AND active = true"
         ),
         {"id": endpoint_id},
@@ -632,6 +688,178 @@ async def deactivate_endpoint(session: AsyncSession, *, endpoint_id: UUID) -> bo
     if exists is None:
         raise ProblemError.not_found("Endpoint")
     return False
+
+
+@dataclass(frozen=True, slots=True)
+class SecretRotation:
+    secret: str
+    previous_secret_expires_at: datetime | None
+
+
+async def rotate_endpoint_secret(
+    session: AsyncSession, *, endpoint_id: UUID, grace_minutes: int
+) -> SecretRotation:
+    """Give an active webhook endpoint a new signing secret, in place.
+
+    The old secret keeps signing beside the new one for `grace_minutes` (every delivery
+    carries both signatures, `sign_payload`), so the client can deploy the new secret to
+    their receiver without one delivery failing verification; `grace_minutes = 0` retires
+    it at once, which is what a leaked secret needs. One UPDATE, so the row never holds a
+    new secret without the record of the old one (`ingest.service.rotate_secret`'s
+    argument). A rotation during a rotation retires the older of the two immediately: only
+    the secret being replaced is kept. Sheets endpoints hold a credential reference, not a
+    signing secret, and are refused.
+    """
+    if not 0 <= grace_minutes <= ROTATION_GRACE_MINUTES:
+        raise ProblemError(
+            kind="validation",
+            code="grace_out_of_range",
+            title="Grace period out of range",
+            detail=f"The old secret may stay valid for at most {ROTATION_GRACE_MINUTES} minutes.",
+            fields=[{"field": "grace_minutes", "rule": "range", "message": str(grace_minutes)}],
+        )
+    secret = secrets.token_urlsafe(32)
+    row = (
+        await session.execute(
+            text(
+                "UPDATE outbound_webhooks SET secret_ref = :new, "
+                "  previous_secret_ref = CASE WHEN :grace > 0 THEN secret_ref END, "
+                "  previous_secret_expires_at = CASE WHEN :grace > 0 "
+                "    THEN now() + make_interval(mins => :grace) END, "
+                "  updated_at = now() "
+                "WHERE id = :id AND kind = 'webhook' AND active "
+                "RETURNING previous_secret_expires_at"
+            ),
+            {"id": endpoint_id, "new": secret, "grace": grace_minutes},
+        )
+    ).first()
+    if row is None:
+        found = (
+            await session.execute(
+                text("SELECT kind, active FROM outbound_webhooks WHERE id = :id"),
+                {"id": endpoint_id},
+            )
+        ).first()
+        if found is None:
+            raise ProblemError.not_found("Endpoint")
+        raise ProblemError.business_rule(
+            "endpoint_secret_not_rotatable",
+            "Only an active webhook endpoint has a signing secret to replace.",
+            remediation="A Google Sheets destination has no signing secret; a deactivated "
+            "endpoint signs nothing.",
+        )
+    return SecretRotation(secret=secret, previous_secret_expires_at=row[0])
+
+
+async def resend_delivery(session: AsyncSession, *, delivery_id: UUID) -> None:
+    """Queue one more attempt of a delivery that finally failed, under the same delivery
+    id (so the receiver's dedupe on the envelope `id` still holds) and the same body.
+
+    CAS on `status = 'failed'`: a second click, or a click racing the scheduled sweep,
+    moves nothing. The body comes from the outbox message that carried it, so a delivery
+    whose message has been pruned or erased cannot be sent again. Scoped through
+    `outbound_webhooks` because this table has no RLS policy (`delivery_status`).
+    """
+    result = await session.execute(
+        text(
+            "UPDATE webhook_deliveries d SET status = :retrying, next_attempt_at = now(), "
+            "  reason = NULL, last_at = now() "
+            "WHERE d.id = :id AND d.direction = 'out' AND d.status = 'failed' "
+            "  AND d.endpoint_id IN (SELECT id FROM outbound_webhooks WHERE active) "
+            "  AND EXISTS (SELECT 1 FROM outbox_messages m WHERE m.id = d.outbox_message_id)"
+        ),
+        {"id": delivery_id, "retrying": RETRYING},
+    )
+    if rowcount_of(result) == 1:
+        return
+    row = (
+        await session.execute(
+            text(
+                "SELECT d.status, w.active, EXISTS (SELECT 1 FROM outbox_messages m "
+                "  WHERE m.id = d.outbox_message_id) "
+                "FROM webhook_deliveries d JOIN outbound_webhooks w ON w.id = d.endpoint_id "
+                "WHERE d.id = :id AND d.direction = 'out'"
+            ),
+            {"id": delivery_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Delivery")
+    status, active, held = row
+    if status != "failed":
+        raise ProblemError.conflict(
+            "delivery_not_failed",
+            "Only a delivery that failed can be sent again.",
+            remediation="A delivery that arrived, or is still being retried, needs nothing.",
+        )
+    if not active:
+        raise ProblemError.business_rule(
+            "delivery_endpoint_inactive",
+            "This delivery's destination has been deactivated.",
+            remediation="Add the destination again; new events will be sent to it.",
+        )
+    if not held:
+        raise ProblemError.business_rule(
+            "delivery_body_not_held",
+            "We no longer hold what was sent, so it cannot be sent again.",
+            remediation="Bodies are kept for 90 days and destroyed by an erasure request.",
+        )
+    raise ProblemError.conflict("delivery_not_failed", "This delivery cannot be sent again.")
+
+
+@dataclass(frozen=True, slots=True)
+class DueRetry:
+    delivery_id: UUID
+    attempt: int
+    payload: dict[str, Any] | None
+
+
+#: Deliveries one sweep re-enqueues at most; the rest wait for the next tick, oldest first.
+RETRY_SWEEP_BATCH: Final = 200
+
+
+async def claim_due_retries(
+    session: AsyncSession, *, limit: int = RETRY_SWEEP_BATCH
+) -> list[DueRetry]:
+    """The `retrying` deliveries whose time has come, claimed by clearing their
+    `next_attempt_at` (SKIP LOCKED, so two sweeps never take the same row), with the
+    outbox payload that is their body. Platform machinery: neither table has a tenant
+    policy, so this runs in an untenanted session and the caller enqueues in the same
+    transaction — a failed enqueue rolls the claim back."""
+    rows = (
+        await session.execute(
+            text(
+                "UPDATE webhook_deliveries d SET next_attempt_at = NULL "
+                "FROM (SELECT id FROM webhook_deliveries WHERE status = :retrying "
+                "  AND next_attempt_at <= now() ORDER BY next_attempt_at "
+                "  LIMIT :limit FOR UPDATE SKIP LOCKED) due "
+                "WHERE d.id = due.id "
+                "RETURNING d.id, d.attempts, "
+                "  (SELECT m.payload FROM outbox_messages m WHERE m.id = d.outbox_message_id)"
+            ),
+            {"retrying": RETRYING, "limit": limit},
+        )
+    ).all()
+    return [
+        DueRetry(
+            delivery_id=UUID(str(r[0])),
+            attempt=int(r[1] or 0) + 1,
+            payload=r[2] if isinstance(r[2], dict) else None,
+        )
+        for r in rows
+    ]
+
+
+async def fail_unheld_retry(session: AsyncSession, *, delivery_id: UUID) -> None:
+    """A due retry whose body is gone (the outbox message was erased or pruned) ends
+    `failed`, saying so, rather than waiting for ever."""
+    await session.execute(
+        text(
+            "UPDATE webhook_deliveries SET status = 'failed', reason = 'delivery_body_not_held', "
+            "last_at = now() WHERE id = :id"
+        ),
+        {"id": delivery_id},
+    )
 
 
 async def delivery_status(session: AsyncSession, delivery_id: UUID) -> str | None:
@@ -739,6 +967,8 @@ async def record_delivery(
     channel: str = "http",
     reason: str | None = None,
     payload_ref: str | None = None,
+    next_attempt_at: datetime | None = None,
+    outbox_message_id: UUID | None = None,
 ) -> None:
     """Forensic log, upserted by delivery id so retries update one row (SEC-COMP §5).
 
@@ -768,39 +998,38 @@ async def record_delivery(
     say "an error". A failure a client can fix is worth a column.
     """
     source = f"{channel}_{status_code}" if status_code else channel
+    params = {
+        "id": delivery_id,
+        "src": source,
+        "event": event,
+        "status": status,
+        "attempts": attempts,
+        "endpoint": endpoint_id,
+        "reason": reason,
+        "ref": payload_ref,
+        "next_at": next_attempt_at,
+        "message": outbox_message_id,
+    }
     result = await session.execute(
         text(
             "UPDATE webhook_deliveries SET attempts = :attempts, status = :status, "
             "source = :src, reason = :reason, payload_ref = COALESCE(:ref, payload_ref), "
+            "next_attempt_at = :next_at, "
+            "outbox_message_id = COALESCE(:message, outbox_message_id), "
             "last_at = now() WHERE id = :id"
         ),
-        {
-            "attempts": attempts,
-            "status": status,
-            "src": source,
-            "reason": reason,
-            "ref": payload_ref,
-            "id": delivery_id,
-        },
+        params,
     )
     if rowcount_of(result) == 0:
         await session.execute(
             text(
                 "INSERT INTO webhook_deliveries (id, direction, source, event_type, status, "
-                "attempts, endpoint_id, reason, payload_ref, first_at, last_at, created_at) "
+                "attempts, endpoint_id, reason, payload_ref, next_attempt_at, "
+                "outbox_message_id, first_at, last_at, created_at) "
                 "VALUES (:id, 'out', :src, :event, :status, :attempts, :endpoint, :reason, "
-                ":ref, now(), now(), now())"
+                ":ref, :next_at, :message, now(), now(), now())"
             ),
-            {
-                "id": delivery_id,
-                "src": source,
-                "event": event,
-                "status": status,
-                "attempts": attempts,
-                "endpoint": endpoint_id,
-                "reason": reason,
-                "ref": payload_ref,
-            },
+            params,
         )
 
 
@@ -808,6 +1037,7 @@ async def deliver(
     *,
     url: str,
     secret: str,
+    previous_secret: str | None = None,
     event: str,
     envelope: dict[str, Any],
     client: httpx.AsyncClient | None = None,
@@ -848,7 +1078,9 @@ async def deliver(
     timestamp = str(int(datetime.now(UTC).timestamp()))
     headers = {
         "Content-Type": "application/json",
-        SIGNATURE_HEADER: sign_payload(secret, timestamp=timestamp, body=body),
+        SIGNATURE_HEADER: sign_payload(
+            secret, timestamp=timestamp, body=body, previous_secret=previous_secret
+        ),
         TIMESTAMP_HEADER: timestamp,
         EVENT_HEADER: event,
         DELIVERY_HEADER: str(envelope["id"]),

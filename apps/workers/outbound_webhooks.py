@@ -2,7 +2,10 @@
 
 The outbox has already guaranteed the event is real and committed. This job's only
 question is whether the client's endpoint accepted it, and its only outputs are a
-delivery row and — on a retryable failure — an `arq.Retry` that the retry ladder walks.
+delivery row and — on a retryable failure — the next attempt: for a signed webhook a
+`retrying` row with `next_attempt_at` on `service.WEBHOOK_RETRY_SCHEDULE` (about a day,
+waited out in the database and re-enqueued by `retry_outbound_deliveries`), for a Sheets
+append an `arq.Retry` that the shared ladder walks.
 
 **Both D-23 endpoint kinds land here.** A signed POST (`kind='webhook'`) and a Google
 Sheets append (`kind='google_sheets'`) differ only in the transport at the end: the
@@ -47,6 +50,7 @@ no longer exists would be noise forever.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -55,12 +59,19 @@ from calevate_shared.backoff import ladder_delay_s
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import enqueue, job_id_for
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.integrations import service
+from apps.api.reliability.service import outbox_message_id
 from apps.workers import sheets_sync, storage
 
 log = get_logger(__name__)
+
+#: This module's own job, by the name a retry is enqueued under (`service.
+#: OUTBOUND_WEBHOOK_JOB` is the same string for the fan-out; the registration guard keeps
+#: both answering to `settings.FUNCTIONS`).
+JOB_NAME = "deliver_outbound_webhook"
 
 # Seconds to wait before each retry, indexed by the attempt that just failed. One entry
 # shorter than the budget, because the last attempt has nothing after it. Real backoff
@@ -150,6 +161,7 @@ async def _deliver_to_endpoint(
         return await service.deliver(
             url=str(endpoint["url"]),
             secret=str(endpoint["secret"] or ""),
+            previous_secret=endpoint.get("previous_secret"),
             event=event,
             envelope=envelope,
         )
@@ -237,7 +249,13 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
     # Retries reuse the delivery id so the forensic row is one row per delivery, not
     # one per attempt — and so a receiver deduplicating on it sees a retry as a retry.
     delivery_id = UUID(str(payload["delivery_id"])) if payload.get("delivery_id") else uuid7()
-    attempt = int(ctx.get("job_try", 1))
+    job_try = int(ctx.get("job_try", 1))
+    # A scheduled retry or a "Send again" (`retry_outbound_deliveries`) names its attempt;
+    # the outbox's own run, and arq's retries of a Sheets append, count with arq.
+    attempt = int(payload.get("attempt") or 1) + job_try - 1
+    # The outbox message holding this body, recorded so a later retry can re-read it.
+    # None for a sweep-run attempt, whose row already names it.
+    message_id = outbox_message_id(JOB_NAME, ctx.get("job_id"))
 
     # ── 1. READ, and close. ────────────────────────────────────────────────────────
     #
@@ -344,6 +362,24 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
         result=result,
     )
 
+    # A signed webhook waits for its next attempt as a row (`service.
+    # WEBHOOK_RETRY_SCHEDULE`); a Sheets append keeps arq's shared ladder below.
+    transient = not result.delivered and _is_transient(result)
+    scheduled = (
+        _kind_of(endpoint) == service.WEBHOOK_KIND
+        and transient
+        and attempt < service.WEBHOOK_MAX_ATTEMPTS
+    )
+    next_attempt_at = (
+        datetime.now(UTC) + service.WEBHOOK_RETRY_SCHEDULE[attempt - 1] if scheduled else None
+    )
+    if result.delivered:
+        status = "delivered"
+    elif scheduled:
+        status = service.RETRYING
+    else:
+        status = "failed"
+
     # ── 3. WRITE the outcome, in a transaction that opens after every wait is over. ──
     async with tenant_session(tenant_id) as session:
         await service.record_delivery(
@@ -351,7 +387,9 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
             delivery_id=delivery_id,
             endpoint_id=endpoint_id,
             event=event,
-            status="delivered" if result.delivered else "failed",
+            status=status,
+            next_attempt_at=next_attempt_at,
+            outbox_message_id=message_id,
             attempts=attempt,
             status_code=result.status_code,
             channel=result.channel,
@@ -387,12 +425,14 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
             "reason": result.error,
         },
     )
-    transient = _is_transient(result)
-    if transient and attempt < service.MAX_ATTEMPTS:
+    if scheduled:
+        assert next_attempt_at is not None
+        return f"retry {attempt + 1} at {next_attempt_at.isoformat()}"
+    if transient and _kind_of(endpoint) != service.WEBHOOK_KIND and job_try < service.MAX_ATTEMPTS:
         # The one exception type arq treats as "not finished". The delivery row is
         # already committed — the session closed above — so the retry starts from a
         # recorded attempt, not from nothing.
-        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
+        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, job_try))
 
     # Give up loudly, whether the budget ran out or the endpoint rejected the request
     # outright. The client's integration is broken and someone has to know; a silent
@@ -416,4 +456,33 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
     return f"rejected {result.status_code if result.status_code is not None else result.error}"
 
 
-__all__ = ["deliver_outbound_webhook"]
+async def retry_outbound_deliveries(ctx: dict[str, Any]) -> str:
+    """Every ten seconds: re-enqueue the webhook deliveries whose scheduled retry (or
+    "Send again") is due, each with its original outbox body, its delivery id and its
+    attempt number.
+
+    The claim and the enqueue share one transaction, so a queue that is down rolls the
+    claim back and the next tick tries again. The job id names the delivery and the
+    attempt, so a re-enqueue of the same attempt is refused by arq, and it is not an
+    outbox job id, so `consume_outbox_once` runs it rather than skipping it as consumed.
+    """
+    del ctx
+    enqueued = unheld = 0
+    async with untenanted_session() as session:
+        for due in await service.claim_due_retries(session):
+            if due.payload is None:
+                await service.fail_unheld_retry(session, delivery_id=due.delivery_id)
+                unheld += 1
+                continue
+            await enqueue(
+                JOB_NAME,
+                {**due.payload, "attempt": due.attempt},
+                job_id=job_id_for(JOB_NAME, "retry", str(due.delivery_id), str(due.attempt)),
+            )
+            enqueued += 1
+    if unheld:
+        log.info("outbound_retry_body_gone", extra={"count": unheld})
+    return f"enqueued={enqueued} unheld={unheld}"
+
+
+__all__ = ["deliver_outbound_webhook", "retry_outbound_deliveries"]

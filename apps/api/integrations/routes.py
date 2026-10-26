@@ -81,6 +81,8 @@ EventName = Literal[
 # which is one string away from a ledger that records an action nothing searches for.
 ENDPOINT_CREATED = "integration_endpoint.created"
 ENDPOINT_DISABLED = "integration_endpoint.disabled"
+ENDPOINT_SECRET_ROTATED = "integration_endpoint.secret_rotated"
+DELIVERY_RESENT = "webhook_delivery.resent"
 
 
 def assert_may_opt_into_raw_transcript(payload: CreateEndpointIn, principal: Principal) -> None:
@@ -295,6 +297,9 @@ class EndpointOut(Strict):
     include_transcript: bool
     include_raw_transcript: bool
     created_at: datetime
+    # Until when the secret a rotation replaced still signs alongside the current one;
+    # None outside a rotation window (and on every sheets endpoint).
+    previous_secret_expires_at: datetime | None = None
 
 
 class DeliveryOut(Strict):
@@ -312,6 +317,11 @@ class DeliveryOut(Strict):
     # could file it under (`service.body_subject`). The screen offers the link only when
     # this is true, so nobody clicks through to a refusal.
     payload_stored: bool
+    # When a `retrying` delivery is tried next (the webhook retry schedule); None otherwise.
+    next_attempt_at: datetime | None = None
+    # Whether "Send again" can work: a `failed` delivery to an active endpoint whose body
+    # the outbox still holds (`service.resend_delivery` refuses the rest, each with a reason).
+    resendable: bool = False
 
 
 class DeliveryPayloadOut(Strict):
@@ -395,7 +405,8 @@ async def list_endpoints(
         await session.execute(
             text(
                 "SELECT id, url, events, active, secret_ref, created_at, kind, "
-                "include_recording_url, include_transcript, include_raw_transcript "
+                "include_recording_url, include_transcript, include_raw_transcript, "
+                "CASE WHEN previous_secret_expires_at > now() THEN previous_secret_expires_at END "
                 "FROM outbound_webhooks ORDER BY created_at DESC LIMIT :limit"
             ),
             {"limit": limit},
@@ -413,6 +424,7 @@ async def list_endpoints(
             include_transcript=bool(r[8]),
             include_raw_transcript=bool(r[9]),
             created_at=r[5],
+            previous_secret_expires_at=r[10],
         )
         for r in rows
     ]
@@ -769,6 +781,101 @@ async def deactivate_endpoint(
         )
 
 
+class RotateEndpointSecretIn(Strict):
+    #: How long the replaced secret keeps signing beside the new one. 0 retires it at once,
+    #: which is what a leaked secret needs.
+    grace_minutes: int = Field(
+        default=service.ROTATION_GRACE_MINUTES, ge=0, le=service.ROTATION_GRACE_MINUTES
+    )
+
+
+class RotateEndpointSecretOut(Strict):
+    id: UUID
+    #: The new signing secret, returned this once and never again.
+    secret: str
+    secret_fingerprint: str
+    #: Until when the replaced secret also signs every delivery; None when it was retired
+    #: at once.
+    previous_secret_expires_at: datetime | None
+
+
+@router.post(
+    "/endpoints/{endpoint_id}/rotate-secret",
+    response_model=RotateEndpointSecretOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Issue a new signing secret, with the old one still signing for a stated window",
+    description=(
+        "Replace a webhook endpoint's signing secret in place. The new secret is returned "
+        "once. Until `previous_secret_expires_at` every delivery carries two `v1` "
+        "signatures, one per secret, so your receiver keeps verifying while you deploy the "
+        "new one (`grace_minutes`, default and maximum 1440). Send `grace_minutes: 0` to "
+        "stop the old secret signing immediately. 409 for a Google Sheets destination or a "
+        "deactivated endpoint."
+    ),
+)
+async def rotate_endpoint_secret(
+    endpoint_id: UUID,
+    payload: RotateEndpointSecretIn,
+    session: Session,
+    request: Request,
+    principal: EndpointOwner,
+) -> RotateEndpointSecretOut:
+    assert principal.tenant_id is not None
+    rotation = await service.rotate_endpoint_secret(
+        session, endpoint_id=endpoint_id, grace_minutes=payload.grace_minutes
+    )
+    await write_audit(
+        session,
+        action=ENDPOINT_SECRET_ROTATED,
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="outbound_webhook",
+        object_id=str(endpoint_id),
+        ip=client_request_ip(request),
+        # The grace, as for a lead source: "rotated with a day's overlap" and "retired on
+        # the spot" are different answers to an incident review. Never the secret.
+        summary={"grace_minutes": payload.grace_minutes},
+    )
+    return RotateEndpointSecretOut(
+        id=endpoint_id,
+        secret=rotation.secret,
+        secret_fingerprint=service.secret_fingerprint(rotation.secret),
+        previous_secret_expires_at=rotation.previous_secret_expires_at,
+    )
+
+
+@router.post(
+    "/deliveries/{delivery_id}/resend",
+    status_code=202,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Send a failed delivery again — same delivery id, same body",
+    description=(
+        "Queue one more attempt of a delivery whose retries ran out or that your endpoint "
+        "refused. It goes out under the SAME envelope `id` and with the same body, so a "
+        "receiver that already processed it deduplicates it. 409 `delivery_not_failed` "
+        "when it is not failed; 422 when its destination was deactivated or its body is "
+        "no longer held."
+    ),
+)
+async def resend_delivery(
+    delivery_id: UUID,
+    session: Session,
+    request: Request,
+    principal: EndpointOwner,
+) -> None:
+    assert principal.tenant_id is not None
+    await service.resend_delivery(session, delivery_id=delivery_id)
+    await write_audit(
+        session,
+        action=DELIVERY_RESENT,
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="webhook_delivery",
+        object_id=str(delivery_id),
+        ip=client_request_ip(request),
+    )
+
+
 @router.get(
     "/deliveries",
     response_model=list[DeliveryOut],
@@ -796,8 +903,11 @@ async def list_deliveries(
                 # The presence of the key, never the key. `payload_ref` contains the
                 # subject's row id, and this endpoint is `org:read` — the raw body is
                 # two permissions further up.
-                "d.payload_ref IS NOT NULL "
-                "FROM webhook_deliveries d WHERE d.direction = 'out' "
+                "d.payload_ref IS NOT NULL, d.next_attempt_at, "
+                "(d.status = 'failed' AND w.active AND EXISTS (SELECT 1 FROM outbox_messages m "
+                "  WHERE m.id = d.outbox_message_id)) "
+                "FROM webhook_deliveries d JOIN outbound_webhooks w ON w.id = d.endpoint_id "
+                "WHERE d.direction = 'out' "
                 "AND d.endpoint_id IN (SELECT id FROM outbound_webhooks) "
                 "ORDER BY d.last_at DESC LIMIT :limit"
             ),
@@ -813,6 +923,8 @@ async def list_deliveries(
             first_at=r[4],
             last_at=r[5],
             payload_stored=bool(r[6]),
+            next_attempt_at=r[7],
+            resendable=bool(r[8]),
         )
         for r in rows
     ]

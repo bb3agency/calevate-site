@@ -8401,6 +8401,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/integrations/deliveries/{delivery_id}/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a failed delivery again — same delivery id, same body
+         * @description Queue one more attempt of a delivery whose retries ran out or that your endpoint refused. It goes out under the SAME envelope `id` and with the same body, so a receiver that already processed it deduplicates it. 409 `delivery_not_failed` when it is not failed; 422 when its destination was deactivated or its body is no longer held.
+         */
+        post: operations["resend_delivery_v1_integrations_deliveries__delivery_id__resend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/integrations/endpoints": {
         parameters: {
             query?: never;
@@ -8474,6 +8494,26 @@ export interface paths {
          * @description Deactivate an endpoint. The endpoint and its delivery history are kept, so past attempts stay readable. Idempotent: deactivating an endpoint that is already inactive returns 204, so retrying after a lost response is safe. 404 means only that no endpoint of yours has that id.
          */
         delete: operations["deactivate_endpoint_v1_integrations_endpoints__endpoint_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/endpoints/{endpoint_id}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a new signing secret, with the old one still signing for a stated window
+         * @description Replace a webhook endpoint's signing secret in place. The new secret is returned once. Until `previous_secret_expires_at` every delivery carries two `v1` signatures, one per secret, so your receiver keeps verifying while you deploy the new one (`grace_minutes`, default and maximum 1440). Send `grace_minutes: 0` to stop the old secret signing immediately. 409 for a Google Sheets destination or a deactivated endpoint.
+         */
+        post: operations["rotate_endpoint_secret_v1_integrations_endpoints__endpoint_id__rotate_secret_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -18100,8 +18140,15 @@ export interface components {
              * Format: date-time
              */
             last_at: string;
+            /** Next Attempt At */
+            next_attempt_at?: string | null;
             /** Payload Stored */
             payload_stored: boolean;
+            /**
+             * Resendable
+             * @default false
+             */
+            resendable: boolean;
             /** Status */
             status: string | null;
         };
@@ -18589,6 +18636,8 @@ export interface components {
             include_transcript: boolean;
             /** Kind */
             kind: string;
+            /** Previous Secret Expires At */
+            previous_secret_expires_at?: string | null;
             /** Secret Fingerprint */
             secret_fingerprint: string | null;
             /** Url */
@@ -26349,6 +26398,28 @@ export interface components {
             expected_version: number;
             /** Secret */
             secret: string;
+        };
+        /** RotateEndpointSecretIn */
+        RotateEndpointSecretIn: {
+            /**
+             * Grace Minutes
+             * @default 1440
+             */
+            grace_minutes: number;
+        };
+        /** RotateEndpointSecretOut */
+        RotateEndpointSecretOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Previous Secret Expires At */
+            previous_secret_expires_at: string | null;
+            /** Secret */
+            secret: string;
+            /** Secret Fingerprint */
+            secret_fingerprint: string;
         };
         /** RotateSecretIn */
         RotateSecretIn: {
@@ -46499,6 +46570,37 @@ export interface operations {
             };
         };
     };
+    resend_delivery_v1_integrations_deliveries__delivery_id__resend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_endpoints_v1_integrations_endpoints_get: {
         parameters: {
             query?: {
@@ -46617,6 +46719,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rotate_endpoint_secret_v1_integrations_endpoints__endpoint_id__rotate_secret_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                endpoint_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RotateEndpointSecretIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RotateEndpointSecretOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

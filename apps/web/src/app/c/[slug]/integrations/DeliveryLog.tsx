@@ -13,7 +13,12 @@ import {
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import type { WriteAccess } from "@/lib/api/hooks";
-import { eventLabel, useDeliveries, useDeliveryPayload } from "@/lib/api/integrations";
+import {
+  eventLabel,
+  useDeliveries,
+  useDeliveryPayload,
+  type useResendDelivery,
+} from "@/lib/api/integrations";
 import { lookup } from "@/lib/lookup";
 import { StatusPill } from "@/components/console/statusPill";
 import type { NoticeTone } from "@/components/ui";
@@ -41,6 +46,8 @@ import type { NoticeTone } from "@/components/ui";
 const STATUS_TONE: Record<string, NoticeTone> = {
   delivered: "ok",
   failed: "stop",
+  // Waiting for its next scheduled attempt (the webhook retry schedule, about a day).
+  retrying: "warn",
   skipped: "neutral",
 };
 export function DeliveryLog({
@@ -51,6 +58,8 @@ export function DeliveryLog({
   onTogglePayload,
   payload,
   payloadStatus,
+  canResend,
+  resend,
 }: {
   deliveries: ReturnType<typeof useDeliveries>;
   payloadAccess: WriteAccess;
@@ -60,6 +69,9 @@ export function DeliveryLog({
   payload: ReturnType<typeof useDeliveryPayload>;
   /** The open request's state, shown on the row's View button. */
   payloadStatus: FeedbackStatus;
+  /** May this reader send a failed delivery again (`org:manage`). */
+  canResend: boolean;
+  resend: ReturnType<typeof useResendDelivery>;
 }) {
   return (
     <Section title="Recent deliveries" description="What we sent to your destinations, and whether it arrived.">
@@ -70,6 +82,7 @@ export function DeliveryLog({
           already has the shell's read-only banner. `unknown` is the case that had no
           voice at all: a dead `/v1/me` withdrew the column exactly like a refusal. */}
       <RestrictionNote reason={payloadAccess.unknown ? payloadAccess.reason : null} />
+      {resend.error && <ProblemNotice error={resend.error} />}
 
       {/* A failed read AND a paused one (offline: not loading, `error === null`,
           `data === undefined`) both refuse here, so the card never falls through to
@@ -108,6 +121,22 @@ export function DeliveryLog({
                   <StatusPill tone={lookup(STATUS_TONE, delivery.status) ?? "neutral"} className="capitalize">
                     {delivery.status}
                   </StatusPill>
+                  {delivery.next_attempt_at && (
+                    <span className="mt-1 block text-xs text-ink-muted">
+                      next try {formatIST(delivery.next_attempt_at)}
+                    </span>
+                  )}
+                  {delivery.resendable && canResend && (
+                    <button
+                      type="button"
+                      onClick={() => resend.mutate(delivery.id)}
+                      disabled={resend.isPending}
+                      aria-label={`Send this ${eventLabel(delivery.event_type ?? "") ?? "delivery"} again`}
+                      className={`mt-1 ${SECONDARY_BUTTON_SM}`}
+                    >
+                      {resend.isPending && resend.variables === delivery.id ? "Sending…" : "Send again"}
+                    </button>
+                  )}
                 </td>
                 <td className="py-2 tabular-nums text-ink-muted">
                   {delivery.attempts}

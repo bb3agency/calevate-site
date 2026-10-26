@@ -6,7 +6,7 @@ import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { IconTile } from "@/components/console/iconTile";
-import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatIST } from "@/components/ui";
 import type { WriteAccess } from "@/lib/api/hooks";
 import { SHEET_KIND, eventLabel, useEndpoints, type Endpoint } from "@/lib/api/integrations";
 import { StatusPill } from "@/components/console/statusPill";
@@ -26,11 +26,14 @@ export function EndpointList({
   write,
   busy,
   onStop,
+  onRotate,
 }: {
   endpoints: ReturnType<typeof useEndpoints>;
   write: WriteAccess;
   busy: boolean;
   onStop: (endpoint: Endpoint) => void;
+  /** Offer a new signing secret for an active webhook (not a sheet, which has none). */
+  onRotate: (endpoint: Endpoint) => void;
 }) {
   const columns: DataColumn<Endpoint>[] = [
     {
@@ -78,6 +81,11 @@ export function EndpointList({
               ? "Google connection ready"
               : "not connected to Google yet — deliveries will fail until we connect it"
             : `key ···${endpoint.secret_fingerprint ?? "—"}`}
+          {endpoint.previous_secret_expires_at && (
+            <span className="block">
+              old key also signs until {formatIST(endpoint.previous_secret_expires_at)}
+            </span>
+          )}
         </span>
       ),
     },
@@ -87,15 +95,28 @@ export function EndpointList({
       align: "right",
       cell: (endpoint) =>
         endpoint.active ? (
-          <button
-            type="button"
-            disabled={!write.allowed || busy}
-            onClick={() => onStop(endpoint)}
-            aria-label={`Stop sending events to ${endpoint.url}`}
-            className={SECONDARY_BUTTON_SM}
-          >
-            Stop sending events
-          </button>
+          <div className="flex flex-wrap justify-end gap-2">
+            {endpoint.kind !== SHEET_KIND && (
+              <button
+                type="button"
+                disabled={!write.allowed || busy}
+                onClick={() => onRotate(endpoint)}
+                aria-label={`New signing secret for ${endpoint.url}`}
+                className={SECONDARY_BUTTON_SM}
+              >
+                New signing secret
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={!write.allowed || busy}
+              onClick={() => onStop(endpoint)}
+              aria-label={`Stop sending events to ${endpoint.url}`}
+              className={SECONDARY_BUTTON_SM}
+            >
+              Stop sending events
+            </button>
+          </div>
         ) : (
           // There is no re-activate route, so a stopped row says how to resume.
           <span className="text-xs text-ink-faint">stopped — add a new endpoint to resume</span>

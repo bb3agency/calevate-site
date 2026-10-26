@@ -280,6 +280,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "admin/client-health",
   ],
   integrations: [
+    // A failed delivery is an item in the attention queue and the bell (`crm/attention.
+    // failed_deliveries` reads `webhook_deliveries`), and leaves it when sent again.
+    ...SUMMARY,
     "endpoints",
     "deliveries",
     "lead-sources",

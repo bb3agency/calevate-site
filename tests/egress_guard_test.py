@@ -53,7 +53,6 @@ from apps.api.integrations.egress_guard import (
 from apps.api.integrations.routes import ENDPOINT_CREATED
 from apps.api.main import app
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
-from arq import Retry
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 from tests.conftest import create_org_with_receptionist
@@ -1163,14 +1162,18 @@ async def test_a_transient_delivery_failure_is_still_retried(
             return await real(**{**kwargs, "client": client})
 
     monkeypatch.setattr(service, "deliver", routed)
-    with pytest.raises(Retry):
-        await deliver_outbound_webhook(
-            {"job_try": 1},
-            {
-                "tenant_id": str(tenant_id),
-                "endpoint_id": str(endpoint_id),
-                "event": "lead.created",
-                "data": {"lead_id": "1"},
-                "delivery_id": str(uuid7()),
-            },
-        )
+    delivery_id = uuid7()
+    outcome = await deliver_outbound_webhook(
+        {"job_try": 1},
+        {
+            "tenant_id": str(tenant_id),
+            "endpoint_id": str(endpoint_id),
+            "event": "lead.created",
+            "data": {"lead_id": "1"},
+            "delivery_id": str(delivery_id),
+        },
+    )
+    # The webhook retry schedule: a row waiting for its next attempt, not a refusal.
+    assert outcome.startswith("retry 2 at"), outcome
+    async with tenant_session(tenant_id) as session:
+        assert await service.delivery_status(session, delivery_id) == service.RETRYING

@@ -285,3 +285,46 @@ export function useDeactivateEndpoint(session: Session) {
     onSuccess: () => void client.invalidateQueries({ queryKey: ["endpoints", session.orgSlug] }),
   });
 }
+
+export type SecretRotation = Schemas["RotateEndpointSecretOut"];
+
+/**
+ * `POST /v1/integrations/endpoints/{id}/rotate-secret` — a new signing secret, shown once.
+ *
+ * The old secret keeps signing beside it until `previous_secret_expires_at` (a day by
+ * default), so the client deploys the new one without a delivery failing verification;
+ * `grace_minutes: 0` retires it at once, for a leaked secret. The endpoint list re-reads,
+ * because its fingerprint and rotation deadline both moved.
+ */
+export function useRotateEndpointSecret(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ endpointId, graceMinutes }: { endpointId: string; graceMinutes?: number }) =>
+      apiRequest<SecretRotation>(session, `/v1/integrations/endpoints/${endpointId}/rotate-secret`, {
+        method: "POST",
+        body: graceMinutes === undefined ? {} : { grace_minutes: graceMinutes },
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["endpoints", session.orgSlug] }),
+  });
+}
+
+/**
+ * `POST /v1/integrations/deliveries/{id}/resend` — one more attempt of a delivery that
+ * finally failed, under the same delivery id and body. The delivery list and the
+ * needs-attention queue (which lists failed deliveries) both re-read.
+ */
+export function useResendDelivery(session: Session) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (deliveryId: string) =>
+      apiRequest<void>(session, `/v1/integrations/deliveries/${deliveryId}/resend`, {
+        method: "POST",
+      }),
+    onSuccess: () =>
+      Promise.all(
+        ["deliveries", "attention", "notifications", "dashboard"].map((family) =>
+          client.invalidateQueries({ queryKey: [family, session.orgSlug] }),
+        ),
+      ),
+  });
+}

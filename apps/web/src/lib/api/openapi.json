@@ -16902,8 +16902,25 @@
             "title": "Last At",
             "type": "string"
           },
+          "next_attempt_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Attempt At"
+          },
           "payload_stored": {
             "title": "Payload Stored",
+            "type": "boolean"
+          },
+          "resendable": {
+            "default": false,
+            "title": "Resendable",
             "type": "boolean"
           },
           "status": {
@@ -17991,6 +18008,18 @@
           "kind": {
             "title": "Kind",
             "type": "string"
+          },
+          "previous_secret_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Secret Expires At"
           },
           "secret_fingerprint": {
             "anyOf": [
@@ -38838,6 +38867,58 @@
           "expected_version"
         ],
         "title": "RotateCredentialIn",
+        "type": "object"
+      },
+      "RotateEndpointSecretIn": {
+        "additionalProperties": false,
+        "properties": {
+          "grace_minutes": {
+            "default": 1440,
+            "maximum": 1440.0,
+            "minimum": 0.0,
+            "title": "Grace Minutes",
+            "type": "integer"
+          }
+        },
+        "title": "RotateEndpointSecretIn",
+        "type": "object"
+      },
+      "RotateEndpointSecretOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "previous_secret_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Secret Expires At"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "string"
+          },
+          "secret_fingerprint": {
+            "title": "Secret Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "secret",
+          "secret_fingerprint",
+          "previous_secret_expires_at"
+        ],
+        "title": "RotateEndpointSecretOut",
         "type": "object"
       },
       "RotateSecretIn": {
@@ -74421,6 +74502,45 @@
         "x-calevate-permission": "calls:read_raw"
       }
     },
+    "/v1/integrations/deliveries/{delivery_id}/resend": {
+      "post": {
+        "description": "Queue one more attempt of a delivery whose retries ran out or that your endpoint refused. It goes out under the SAME envelope `id` and with the same body, so a receiver that already processed it deduplicates it. 409 `delivery_not_failed` when it is not failed; 422 when its destination was deactivated or its body is no longer held.",
+        "operationId": "resend_delivery_v1_integrations_deliveries__delivery_id__resend_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "delivery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Delivery Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Send a failed delivery again \u2014 same delivery id, same body",
+        "tags": [
+          "integrations"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/integrations/endpoints": {
       "get": {
         "operationId": "list_endpoints_v1_integrations_endpoints_get",
@@ -74607,6 +74727,57 @@
           }
         },
         "summary": "Deactivate \u2014 kept, not deleted, so the delivery history stays readable",
+        "tags": [
+          "integrations"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/integrations/endpoints/{endpoint_id}/rotate-secret": {
+      "post": {
+        "description": "Replace a webhook endpoint's signing secret in place. The new secret is returned once. Until `previous_secret_expires_at` every delivery carries two `v1` signatures, one per secret, so your receiver keeps verifying while you deploy the new one (`grace_minutes`, default and maximum 1440). Send `grace_minutes: 0` to stop the old secret signing immediately. 409 for a Google Sheets destination or a deactivated endpoint.",
+        "operationId": "rotate_endpoint_secret_v1_integrations_endpoints__endpoint_id__rotate_secret_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "endpoint_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Endpoint Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateEndpointSecretIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotateEndpointSecretOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Issue a new signing secret, with the old one still signing for a stated window",
         "tags": [
           "integrations"
         ],
