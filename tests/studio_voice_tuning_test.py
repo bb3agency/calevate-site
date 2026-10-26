@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -21,6 +22,7 @@ from apps.api.agents.hosted_voices import StudioListingWorkspace
 from apps.api.agents.service import _load_agent, _to_config
 from apps.api.agents.voice_tuning_routes import admin_router
 from apps.api.agents.voice_tuning_routes import router as client_router
+from apps.api.billing.plans import IST
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.core.redis import get_redis
@@ -571,6 +573,22 @@ async def test_a_sample_the_voice_refuses_is_not_counted(
         left = (await client.get(f"/v1/agents/{agent_id}/voice-tuning", headers=headers)).json()
     assert refused.json()["type"].endswith("/voice_speed_not_for_this_voice")
     assert left["previews_left_today"] == voice_tuning.CLIENT_PREVIEWS_PER_DAY
+
+
+async def test_a_refund_across_ist_midnight_lands_on_the_day_it_was_counted() -> None:
+
+    tenant_id = uuid.uuid4()
+    late = datetime(2026, 10, 26, 23, 59, 59, tzinfo=IST)
+    next_day = voice_tuning._preview_key(tenant_id, datetime(2026, 10, 27, 0, 0, 1, tzinfo=IST))
+    redis = get_redis()
+    counted = await voice_tuning.take_client_preview(tenant_id, now=late)
+    await voice_tuning.refund_client_preview(counted)
+    assert int(await redis.get(counted) or 0) == 0
+    assert await redis.get(next_day) is None
+    # A counter already gone is not recreated at -1 with no expiry.
+    await redis.delete(counted)
+    await voice_tuning.refund_client_preview(counted)
+    assert await redis.exists(counted) == 0
 
 
 # --- the default emotion (D-843) -----------------------------------------------------------

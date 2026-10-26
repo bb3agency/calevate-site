@@ -438,8 +438,11 @@ async def client_previews_left(tenant_id: UUID, *, now: datetime | None = None) 
     return max(0, CLIENT_PREVIEWS_PER_DAY - int(raw or 0))
 
 
-async def take_client_preview(tenant_id: UUID, *, now: datetime | None = None) -> None:
-    """Count one sample against the account's IST day and refuse past the cap.
+async def take_client_preview(tenant_id: UUID, *, now: datetime | None = None) -> str:
+    """Count one sample against the account's IST day and refuse past the cap. Returns the
+    counter's key, which a refund must decrement: recomputing it from the clock after the
+    engine answers would, across IST midnight, decrement the NEXT day's counter instead,
+    creating it at -1 with no expiry and granting that day an extra sample.
 
     INCR and EXPIRE NX in one round trip, `core/ratelimit.consume`'s shape, so no failure
     between them can leave a counter with no expiry. It fails CLOSED, unlike request limiting:
@@ -471,13 +474,23 @@ async def take_client_preview(tenant_id: UUID, *, now: datetime | None = None) -
             remediation="Try again tomorrow.",
             status=429,
         )
+    return key
 
 
-async def refund_client_preview(tenant_id: UUID, *, now: datetime | None = None) -> None:
+#: DECR only a counter that still exists: a bare DECR on a missing key creates it at -1
+#: with no TTL, an immortal key worth one free sample.
+_REFUND_SCRIPT: Final = (
+    "if redis.call('EXISTS', KEYS[1]) == 1 then return redis.call('DECR', KEYS[1]) end return false"
+)
+
+
+async def refund_client_preview(key: str) -> None:
     """Give back a sample the engine did not speak, so a refusal (a voice that keeps its own
-    pace) does not use up the day. Best effort: a failed refund only costs the account one."""
+    pace) does not use up the day. `key` is what `take_client_preview` returned, so the
+    refund lands on the day the sample was counted against. Best effort: a failed refund
+    only costs the account one."""
     try:
-        await get_redis().decr(_preview_key(tenant_id, now))
+        await get_redis().eval(_REFUND_SCRIPT, 1, key)  # type: ignore[misc]
     except Exception as exc:
         log.warning("voice_preview_refund_failed", extra={"error": type(exc).__name__})
 

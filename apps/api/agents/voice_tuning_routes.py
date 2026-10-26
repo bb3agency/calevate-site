@@ -416,7 +416,7 @@ async def preview_agent_voice_tuning(
         direction=str(direction),
         business=str(business),
     )
-    await voice_tuning.take_client_preview(tenant_id)
+    counted = await voice_tuning.take_client_preview(tenant_id)
     try:
         with in_workspace(workspace):
             audio = await engine.preview_own_key_voice(
@@ -426,7 +426,7 @@ async def preview_agent_voice_tuning(
                 tuning=tuning,
             )
     except Exception:
-        await voice_tuning.refund_client_preview(tenant_id)
+        await voice_tuning.refund_client_preview(counted)
         raise
     log.info(
         "client_voice_preview_spoken",
