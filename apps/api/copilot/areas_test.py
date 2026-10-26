@@ -73,7 +73,13 @@ def test_an_omitted_nullable_argument_is_sent_as_null() -> None:
     resolved = copilot_service.area_surface().resolve(
         _call("leads_find", {"action": "leads_search", "args": {}})
     )
-    assert json.loads(resolved.arguments) == {"status": None, "search": None, "limit": None}
+    assert json.loads(resolved.arguments) == {
+        "status": None,
+        "search": None,
+        "limit": None,
+        "lens": None,
+        "detail": None,
+    }
 
 
 def test_a_non_area_call_passes_through_unchanged() -> None:

@@ -37,10 +37,11 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
 from apps.api.core.stepup import ActionCode, ClientActionCode, client_confirmation
 from apps.api.crm import columns as lead_column_registry
-from apps.api.crm import lead_search, saved_views, service, translation
+from apps.api.crm import lead_search, lens, saved_views, service, translation
 from apps.api.crm.attention import attention_queue
 from apps.api.crm.captured import captured_fields, lead_unlisted
 from apps.api.crm.lead_dial import place_lead_call
+from apps.api.crm.lens import LEAD_ROW_FILTER_FIELDS, LeadRowFilters
 from apps.api.crm.live_calls import MAX_LIVE_IDS, CallLiveOut, read_live_calls
 from apps.api.crm.performance import performance
 from apps.api.crm.recording_download import DOWNLOAD_LINK_TTL_S, recording_download_for
@@ -55,6 +56,7 @@ from apps.api.crm.schemas import (
     CallTranslationOut,
     CapturedFieldsOut,
     DashboardOut,
+    FollowUpFilter,
     LeadBulkFailureOut,
     LeadBulkIn,
     LeadBulkOut,
@@ -126,15 +128,28 @@ async def get_calls(
     status: str | None = None,
     agent_id: UUID | None = None,
     outcome: OutcomeTag | None = None,
-    direction: service.CallDirection | None = None,
+    direction: lens.CallDirection | None = None,
     since: datetime | None = Query(None, description="Calls started at or after this instant"),
     until: datetime | None = Query(None, description="Calls started before this instant"),
     test_calls: bool = Query(True, description="False leaves out free-trial test calls"),
     campaign_id: UUID | None = Query(None, description="Only the calls one campaign placed"),
+    follow_up: FollowUpFilter | None = Query(
+        None, description="done: marked handled; not_done: not marked handled"
+    ),
+    callback_open: bool | None = Query(None, description="True: a call-back is waiting"),
     principal: Principal = Depends(requires("calls:read")),
 ) -> list[CallSummaryOut]:
     filters = _call_filters(
-        status, agent_id, outcome, direction, since, until, test_calls, campaign_id
+        status,
+        agent_id,
+        outcome,
+        direction,
+        since,
+        until,
+        test_calls,
+        campaign_id,
+        follow_up=follow_up,
+        callback_open=callback_open,
     )
     return await service.list_calls(
         session,
@@ -152,12 +167,15 @@ def _call_filters(
     status: str | None,
     agent_id: UUID | None,
     outcome: OutcomeTag | None,
-    direction: service.CallDirection | None,
+    direction: lens.CallDirection | None,
     since: datetime | None,
     until: datetime | None,
     test_calls: bool = True,
     campaign_id: UUID | None = None,
-) -> service.CallFilters:
+    *,
+    follow_up: FollowUpFilter | None = None,
+    callback_open: bool | None = None,
+) -> lens.CallFilters:
     for instant in (since, until):
         if instant is not None and instant.tzinfo is None:
             raise ProblemError(
@@ -167,7 +185,7 @@ def _call_filters(
                 detail="The dates need a time zone, so a day means the same day for everyone.",
                 remediation="Send them like 2026-10-10T00:00:00+05:30.",
             )
-    return service.CallFilters(
+    return lens.CallFilters(
         status=status,
         agent_id=agent_id,
         outcome=outcome,
@@ -176,6 +194,8 @@ def _call_filters(
         until=until,
         test_calls=test_calls,
         campaign_id=campaign_id,
+        follow_up=follow_up,
+        callback_open=callback_open,
     )
 
 
@@ -231,16 +251,27 @@ async def export_calls(
     status: str | None = None,
     agent_id: UUID | None = None,
     outcome: OutcomeTag | None = None,
-    direction: service.CallDirection | None = None,
+    direction: lens.CallDirection | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
     test_calls: bool = True,
     campaign_id: UUID | None = None,
+    follow_up: FollowUpFilter | None = None,
+    callback_open: bool | None = None,
     x_confirm_action: ConfirmAction = None,
 ) -> Response:
     await _require_export_code(code, principal, request, x_confirm_action, "export_calls")
     filters = _call_filters(
-        status, agent_id, outcome, direction, since, until, test_calls, campaign_id
+        status,
+        agent_id,
+        outcome,
+        direction,
+        since,
+        until,
+        test_calls,
+        campaign_id,
+        follow_up=follow_up,
+        callback_open=callback_open,
     )
     export = await service.export_calls_csv(session, filters)
     await write_audit(
@@ -257,6 +288,8 @@ async def export_calls(
             "since": since.isoformat() if since else None,
             "until": until.isoformat() if until else None,
             "agent_id": str(agent_id) if agent_id else None,
+            "follow_up": follow_up,
+            "callback_open": callback_open,
         },
     )
     return Response(
@@ -535,39 +568,7 @@ def _parse_columns(raw: str | None) -> list[str] | None:
     return keys or None
 
 
-def _parse_field_filters(raw: list[str], allowed: frozenset[str]) -> service.FieldFilters:
-    """`f=key:value` → `{key: [value, ...]}`, refusing anything this agent cannot filter on.
-
-    Split on the FIRST colon, which is unambiguous because an extraction key is
-    `^[a-z][a-z0-9_]{0,39}$` and therefore contains none — a value that contains one
-    survives intact.
-    """
-    parsed: service.FieldFilters = {}
-    for entry in raw:
-        key, sep, value = entry.partition(":")
-        if not sep or not key or not value:
-            raise ProblemError(
-                kind="validation",
-                code="lead_filter_malformed",
-                title="Unreadable filter",
-                detail=f"{entry!r} is not a filter. Filters are written `f=field:value`.",
-                remediation="Re-apply the filter from the Leads screen.",
-            )
-        if key not in allowed:
-            # Named, because the client can act on it: this is the field an admin removed
-            # from their capture list, and the fix is to drop the chip.
-            raise ProblemError(
-                kind="validation",
-                code="lead_filter_unknown_field",
-                title="Unknown filter",
-                detail=f"“{key}” is not a filterable field on this agent's capture list.",
-                remediation=(
-                    "Clear that filter and pick one from the panel. If it was a saved "
-                    "view, open it again — the view will tell you which filters it lost."
-                ),
-            )
-        parsed.setdefault(key, []).append(value)
-    return parsed
+_parse_field_filters = lens.parse_field_filters
 
 
 def _tenant_of(principal: Principal) -> UUID:
@@ -673,6 +674,7 @@ async def _leads_page(session: AsyncSession, lens: LeadSearchIn, *, tenant_id: U
             agent_id=lens.agent_id,
             assigned_to=lens.assigned_to,
             field_filters=field_filters,
+            more=LeadRowFilters.of(lens),
         )
         return LeadListOut(
             items=list(found.leads),
@@ -699,6 +701,7 @@ async def _leads_page(session: AsyncSession, lens: LeadSearchIn, *, tenant_id: U
         agent_id=lens.agent_id,
         assigned_to=lens.assigned_to,
         field_filters=field_filters,
+        more=LeadRowFilters.of(lens),
     )
     return LeadListOut(
         items=page.items,
@@ -794,6 +797,7 @@ async def _lead_facets(session: AsyncSession, lens: LeadLensIn) -> LeadFacetsOut
         search=lens.search,
         assigned_to=lens.assigned_to,
         field_filters=field_filters,
+        more=LeadRowFilters.of(lens),
     )
     return LeadFacetsOut(
         facets=[
@@ -982,6 +986,7 @@ async def _export_and_summary(
         search=lens.search,
         assigned_to=lens.assigned_to,
         field_filters=field_filters,
+        more=LeadRowFilters.of(lens),
         columns=chosen,
     )
     summary: dict[str, Any] = {
@@ -1003,6 +1008,8 @@ async def _export_and_summary(
         # FACET keys only, and never their values — a facet value is a client's own
         # captured data ("budget: 40L") and belongs in no log line.
         "field_filters": sorted(field_filters) or None,
+        # Which of the D-893 filters narrowed it, by name only.
+        "lens_filters": sorted(lens.model_fields_set & LEAD_ROW_FILTER_FIELDS) or None,
     }
     return export, summary
 

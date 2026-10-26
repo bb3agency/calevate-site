@@ -62,16 +62,19 @@ from apps.api.agents import roster
 from apps.api.agents.schemas import AgentOut
 from apps.api.billing.plans import IST
 from apps.api.campaigns import service as campaigns_service
+from apps.api.copilot import lens_args
 from apps.api.copilot.prompt import defuse, function_tool
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.context import Principal
+from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import Permission, role_has
 from apps.api.crm import lead_search
+from apps.api.crm import lens as crm_lens
 from apps.api.crm import service as crm_service
 from apps.api.crm.models import CALL_STATUSES
 from apps.api.crm.performance import performance
-from apps.api.crm.schemas import LeadOut, LeadStatus
+from apps.api.crm.schemas import CallLensIn, LeadLensIn, LeadOut, LeadStatus
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.kb import service as kb_service
 from apps.api.kb.store import search_store, undelivered_source_ids
@@ -582,11 +585,38 @@ async def _leads_search(
     del context
     asked = _asked_status(args)
     search = strip_invisible(str(args.get("search") or "")).strip()[:80] or None
+    # D-893: the whole leads lens, and a summary (count and a few examples) by default.
+    try:
+        lens = lens_args.lead_lens(args.get("lens"), status=asked, search=search)
+        scope = await crm_lens.resolve_lead_scope(session, lens)
+    except lens_args.LensArgumentError as refused:
+        return f"Not looked up: {refused.reason}. Fix the lens and ask again."
+    except ProblemError as problem:
+        return _clean(f"Not looked up: {problem.detail} {problem.remediation or ''}".strip())
+    asked = scope.status
+    narrowed = lens.model_dump(exclude_defaults=True).keys() - {"status"}
     page = await crm_service.list_leads_page(
-        session, limit=_cap(args.get("limit")), status=asked, search=search
+        session,
+        limit=_rows_for(args),
+        status=asked,
+        search=scope.search,
+        agent_id=scope.agent_id,
+        assigned_to=scope.assigned_to,
+        field_filters=scope.field_filters,
+        more=scope.more,
     )
     lines = [_lead_line(lead) for lead in page.items]
     label = f"leads{f' with status {asked}' if asked else ''}"
+    if narrowed:
+        held = sum(page.status_counts.values())
+        breakdown = ", ".join(f"{name} {count}" for name, count in page.status_counts.items())
+        if held == 0:
+            return "No leads match these filters."
+        return _clean(
+            f"{held} lead(s) match these filters ({breakdown}).\n"
+            + _listing(lines, total=page.total, shown_of=label, nothing="None in that stage.")
+            + _handle_line(lens, page.total)
+        )
     # THE COUNT LINE IS UNCONDITIONAL, AND THAT IS THE FIX (D-497). It used to be an
     # artefact of `_listing`: a total appeared only when it EXCEEDED the rows shown, so
     # "how many leads do I have?" was answerable from this tool only for an account with
@@ -630,7 +660,22 @@ async def _leads_search(
                 account_has_any=True,
             ),
         )
+        + (_handle_line(lens, page.total) if asked else "")
     )
+
+
+def _rows_for(args: Mapping[str, Any]) -> int:
+    """How many rows a lens read shows: a few for `summary` (the default), else `limit`."""
+    if args.get("detail") == "full":
+        return _cap(args.get("limit"))
+    return min(lens_args.SUMMARY_EXAMPLES, _cap(args.get("limit")))
+
+
+def _handle_line(lens: LeadLensIn | CallLensIn, total: int) -> str:
+    """The lens the model passes to an action to act on exactly this set (D-893 §2a)."""
+    if total == 0:
+        return ""
+    return f"\nTo act on all {total}, pass lens {lens_args.handle(lens)} to the action."
 
 
 async def _calls_recent(
@@ -655,7 +700,23 @@ async def _calls_recent(
     # Tenancy is the RLS session this was handed, not an argument — see `_Executor`.
     del context
     asked = _asked_status(args)
-    rows = await crm_service.list_calls(session, limit=_cap(args.get("limit")), status=asked)
+    # D-893: the whole calls lens, a count, and a few examples by default.
+    try:
+        lens = lens_args.call_lens(args.get("lens"), status=asked)
+        filters = crm_lens.call_filters(lens)
+    except lens_args.LensArgumentError as refused:
+        return f"Not looked up: {refused.reason}. Fix the lens and ask again."
+    except ProblemError as problem:
+        return _clean(f"Not looked up: {problem.detail}")
+    asked = filters.status
+    rows = await crm_service.list_calls(session, limit=_rows_for(args), filters=filters)
+    narrowed = bool(lens.model_dump(exclude_defaults=True).keys() - {"status"})
+    if narrowed or rows:
+        total = await crm_lens.count_calls(session, filters)
+        if narrowed and total == 0:
+            return "No calls match these filters."
+    else:
+        total = 0
     lines = [
         " · ".join(
             part
@@ -689,12 +750,14 @@ async def _calls_recent(
     return _clean(
         _listing(
             lines,
+            total=total,
             shown_of=f"calls{f' with status {asked}' if asked else ''}",
             # Unreachable — `rows` is non-empty above — but `_listing` takes no default
             # sentence on purpose, and a caller that could not say which empty it means
             # would be the caller that gets it wrong.
             nothing=_nothing("calls", next_step=_START_CALLS),
         )
+        + _handle_line(lens, total)
     )
 
 
@@ -1289,10 +1352,12 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
                 },
                 "limit": {
                     "anyOf": [{"type": "integer"}, {"type": "null"}],
-                    "description": f"How many to return, at most {MAX_ROWS}. Null means 10.",
+                    "description": f"With detail full, how many rows, at most {MAX_ROWS}.",
                 },
+                "lens": lens_args.LEAD_LENS_SCHEMA,
+                "detail": lens_args.DETAIL_SCHEMA,
             },
-            "required": ["status", "search", "limit"],
+            "required": ["status", "search", "limit", "lens", "detail"],
             "additionalProperties": False,
         },
         permission="leads:read",
@@ -1360,10 +1425,12 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
                 },
                 "limit": {
                     "anyOf": [{"type": "integer"}, {"type": "null"}],
-                    "description": f"How many to return, at most {MAX_ROWS}. Null means 10.",
+                    "description": f"With detail full, how many rows, at most {MAX_ROWS}.",
                 },
+                "lens": lens_args.CALL_LENS_SCHEMA,
+                "detail": lens_args.DETAIL_SCHEMA,
             },
-            "required": ["status", "limit"],
+            "required": ["status", "limit", "lens", "detail"],
             "additionalProperties": False,
         },
         permission="calls:read",

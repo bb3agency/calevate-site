@@ -39,6 +39,14 @@ from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.attention import block_remedy
 from apps.api.crm.captured import captured_fields
+from apps.api.crm.lens import (
+    CALL_AT,
+    CallFilters,
+    FieldFilters,
+    LeadRowFilters,
+    call_where,
+    lead_row_clauses,
+)
 from apps.api.crm.live_calls import LIVE_STATE_SQL, live_state_params
 from apps.api.crm.outcomes import normalise as normalise_outcome
 from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
@@ -86,11 +94,6 @@ LEAD_STATUSES: tuple[str, ...] = get_args(LeadStatus)
 # click into a hung worker, so the read is bounded and says so when it hits the bound —
 # a silently truncated contact export is a worse failure than a refused one.
 MAX_EXPORT_ROWS = 20_000
-
-#: One faceted filter: an extraction-schema key → the values selected under it. Values
-#: are OR'd, keys are AND'd (`_lead_scope`), which is the standard faceted-search
-#: semantic and the one users already expect from every storefront they have used.
-FieldFilters = dict[str, list[str]]
 
 #: The rail's whole latency budget, in milliseconds. Researched number, and the one
 #: `lead_facets` has always claimed to be inside; it is a ceiling on the SCREEN, not on
@@ -199,61 +202,9 @@ def redacted_summary(value: str | None) -> str | None:
 # --- calls --------------------------------------------------------------------
 
 
-CallDirection = Literal["inbound", "outbound"]
-
-
-@dataclass(frozen=True, slots=True)
-class CallFilters:
-    """What the Calls screen narrows by; the list and its CSV export read the same one, so
-    "export what I am looking at" means exactly that."""
-
-    status: str | None = None
-    agent_id: UUID | None = None
-    outcome: OutcomeTag | None = None
-    direction: CallDirection | None = None
-    #: Half-open `[since, until)` on when the call happened (`_CALL_AT`); aware instants.
-    since: datetime | None = None
-    until: datetime | None = None
-    #: The calls one campaign placed (`calls.campaign_id`), for its results' call links.
-    campaign_id: UUID | None = None
-    #: False leaves out free-trial test calls (`calls.trial_call`).
-    test_calls: bool = True
-
-
-#: When a call happened, for filtering and ordering the log: when it connected, else when it
-#: was placed or arrived. On `started_at` alone a call still ringing, and one nobody
-#: answered, fell outside every date range and sorted below the whole history.
-_CALL_AT: Final = "COALESCE(c.started_at, c.created_at)"
+#: Which calls (`crm/lens.py`, D-893): one definition for the log, its export and Pip.
+_CALL_AT: Final = CALL_AT
 _LIVE_STATE: Final = f"({LIVE_STATE_SQL})"
-
-
-def _call_where(filters: CallFilters) -> tuple[str, dict[str, Any]]:
-    clauses: list[str] = []
-    params: dict[str, Any] = {}
-    if filters.status:
-        clauses.append("c.status = :status")
-        params["status"] = filters.status
-    if filters.agent_id:
-        clauses.append("c.agent_id = :agent_id")
-        params["agent_id"] = filters.agent_id
-    if filters.outcome:
-        clauses.append("c.outcome_tag = :outcome")
-        params["outcome"] = filters.outcome
-    if filters.direction:
-        clauses.append("c.direction = :direction")
-        params["direction"] = filters.direction
-    if filters.since:
-        clauses.append(f"{_CALL_AT} >= :since")
-        params["since"] = filters.since
-    if filters.until:
-        clauses.append(f"{_CALL_AT} < :until")
-        params["until"] = filters.until
-    if filters.campaign_id:
-        clauses.append("c.campaign_id = :campaign_id")
-        params["campaign_id"] = filters.campaign_id
-    if not filters.test_calls:
-        clauses.append("c.trial_call IS NOT TRUE")
-    return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
 
 
 async def list_calls(
@@ -267,7 +218,7 @@ async def list_calls(
     include_credits: bool = False,
     with_previews: bool = False,
 ) -> list[CallSummaryOut]:
-    where, params = _call_where(filters or CallFilters(status=status, agent_id=agent_id))
+    where, params = call_where(filters or CallFilters(status=status, agent_id=agent_id))
     params |= {"limit": min(limit, MAX_PAGE), "offset": offset} | live_state_params()
 
     credits_column = _CREDITS_USED_COLUMN if include_credits else "NULL"
@@ -865,6 +816,7 @@ def _lead_scope(
     assigned_to: UUID | None = None,
     field_filters: FieldFilters | None = None,
     skip_field: str | None = None,
+    more: LeadRowFilters | None = None,
 ) -> list[str]:
     """The filters that define WHICH leads a request is about, minus `status`.
 
@@ -929,6 +881,9 @@ def _lead_scope(
         clauses.append(f"l.data ->> :ff_k{i} = ANY(:ff_v{i})")
         params[f"ff_k{i}"] = key
         params[f"ff_v{i}"] = list(values)
+    if more is not None:
+        # D-893's dates, latest-call, call-back, follow-up and captured-text predicates.
+        clauses += lead_row_clauses(more, params)
     return clauses
 
 
@@ -954,6 +909,7 @@ async def list_leads_page(
     agent_id: UUID | None = None,
     assigned_to: UUID | None = None,
     field_filters: FieldFilters | None = None,
+    more: LeadRowFilters | None = None,
 ) -> LeadPage:
     """A page of leads and a truthful per-status breakdown of the set it came from.
 
@@ -979,6 +935,7 @@ async def list_leads_page(
         agent_id=agent_id,
         assigned_to=assigned_to,
         field_filters=field_filters,
+        more=more,
     )
     scope_where = f"WHERE {' AND '.join(scope)}"
 
@@ -1023,6 +980,40 @@ async def list_leads_page(
     return LeadPage(items=[_lead_out(r) for r in rows], total=total, status_counts=counts)
 
 
+async def lead_ids_matching(
+    session: AsyncSession,
+    *,
+    status: str | None = None,
+    search: str | None = None,
+    agent_id: UUID | None = None,
+    assigned_to: UUID | None = None,
+    field_filters: FieldFilters | None = None,
+    more: LeadRowFilters | None = None,
+) -> list[UUID]:
+    """Every lead the lens matches, newest first, with no cap: what a plan freezes
+    (`crm/lens.lead_ids`, D-893). The same `_lead_scope` as the table and the export."""
+    params: dict[str, Any] = {}
+    clauses = _lead_scope(
+        params,
+        search=search,
+        agent_id=agent_id,
+        assigned_to=assigned_to,
+        field_filters=field_filters,
+        more=more,
+    )
+    if status:
+        clauses.append("l.status = :status")
+        params["status"] = status
+    rows = await session.execute(
+        text(
+            f"SELECT l.id FROM leads l WHERE {' AND '.join(clauses)} "
+            "ORDER BY l.created_at DESC, l.id DESC"
+        ),
+        params,
+    )
+    return [UUID(str(row[0])) for row in rows.all()]
+
+
 async def leads_ranked_by_id(
     session: AsyncSession,
     *,
@@ -1032,6 +1023,7 @@ async def leads_ranked_by_id(
     agent_id: UUID | None = None,
     assigned_to: UUID | None = None,
     field_filters: FieldFilters | None = None,
+    more: LeadRowFilters | None = None,
 ) -> list[LeadOut]:
     """These leads, in the order they were given, with the Leads screen's filters applied.
 
@@ -1060,6 +1052,7 @@ async def leads_ranked_by_id(
         agent_id=agent_id,
         assigned_to=assigned_to,
         field_filters=field_filters,
+        more=more,
     )
     clauses.append("l.id = ANY(:ids)")
     if status:
@@ -1121,6 +1114,7 @@ async def lead_facets(
     search: str | None = None,
     assigned_to: UUID | None = None,
     field_filters: FieldFilters | None = None,
+    more: LeadRowFilters | None = None,
 ) -> FacetSet:
     """The filter rail, counted over the set the client is actually looking at.
 
@@ -1174,6 +1168,7 @@ async def lead_facets(
             assigned_to=assigned_to,
             field_filters=field_filters,
             skip_field=column.key,
+            more=more,
         )
         if status:
             clauses.append("l.status = :status")
@@ -1824,6 +1819,7 @@ async def resolve_bulk_targets(
     agent_id: UUID | None = None,
     assigned_to: UUID | None = None,
     field_filters: FieldFilters | None = None,
+    more: LeadRowFilters | None = None,
 ) -> BulkTargets:
     """Which leads the action is about — `ids is None` means "everything the lens matches".
 
@@ -1871,6 +1867,7 @@ async def resolve_bulk_targets(
         agent_id=agent_id,
         assigned_to=assigned_to,
         field_filters=field_filters,
+        more=more,
     )
     if status:
         clauses.append("l.status = :status")
@@ -2008,7 +2005,7 @@ async def export_calls_csv(session: AsyncSession, filters: CallFilters) -> CallE
     """The Calls screen's filtered list as a CSV, newest first, capped at
     `MAX_EXPORT_ROWS`. The summary is the redacted one, as on the screen: it is
     transcript-derived, and a full transcript has its own gated route."""
-    where, params = _call_where(filters)
+    where, params = call_where(filters)
     params["limit"] = MAX_EXPORT_ROWS + 1
     rows = (
         await session.execute(
@@ -2079,6 +2076,7 @@ async def export_leads_csv(
     assigned_to: UUID | None = None,
     field_filters: FieldFilters | None = None,
     columns: list[str] | None = None,
+    more: LeadRowFilters | None = None,
 ) -> LeadExport:
     """CSV export with schema-driven columns (TRD §7 (e)).
 
@@ -2128,6 +2126,7 @@ async def export_leads_csv(
         agent_id=agent_id,
         assigned_to=assigned_to,
         field_filters=field_filters,
+        more=more,
     )
     if status:
         clauses.append("l.status = :status")

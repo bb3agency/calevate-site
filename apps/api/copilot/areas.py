@@ -358,7 +358,25 @@ def _with_nulls(parameters: Mapping[str, Any], args: Mapping[str, Any]) -> dict[
     for key in parameters.get("required", []):
         if key not in filled and _nullable(properties.get(key, {})):
             filled[key] = None
+    for key, value in list(filled.items()):
+        nested = _object_schema(properties.get(key, {}))
+        if isinstance(value, dict) and nested is not None:
+            filled[key] = _with_nulls(nested, value)
     return filled
+
+
+def _object_schema(schema: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """The object form of a property schema (itself, or its object alternative)."""
+    if schema.get("type") == "object" and "properties" in schema:
+        return schema
+    return next(
+        (
+            option
+            for option in schema.get("anyOf", ())
+            if option.get("type") == "object" and "properties" in option
+        ),
+        None,
+    )
 
 
 def _compact(value: Any) -> str:

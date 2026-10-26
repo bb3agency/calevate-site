@@ -63,6 +63,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.core.logging import get_logger
 from apps.api.crm import service as crm_service
 from apps.api.crm.lead_projection import LEAD_SUBJECT_KIND
+from apps.api.crm.lens import LeadRowFilters
 from apps.api.crm.models import LEAD_STATUSES
 from apps.api.crm.schemas import LEAD_ASK_MAX_CHARS, LeadOut
 from apps.api.retrieval.caller_search import MAX_K, search_caller_chunks
@@ -121,6 +122,7 @@ async def search_leads(
     agent_id: UUID | None = None,
     assigned_to: UUID | None = None,
     field_filters: crm_service.FieldFilters | None = None,
+    more: LeadRowFilters | None = None,
 ) -> LeadSearch:
     """Leads whose captured answers match `question`, narrowed by the screen's filters.
 
@@ -163,6 +165,7 @@ async def search_leads(
         agent_id=agent_id,
         assigned_to=assigned_to,
         field_filters=field_filters,
+        more=more,
     )
     counts: dict[str, int] = dict.fromkeys(LEAD_STATUSES, 0)
     for lead in matched:

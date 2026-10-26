@@ -674,7 +674,8 @@ async def test_the_row_cap_is_the_servers_and_the_truncation_is_declared() -> No
     for index in range(tools.MAX_ROWS + 5):
         await _lead(tenant_id, agent_id, name=f"Lead {index}", phone=f"+91987650{index:04d}")
 
-    result = await _run("leads_search", tenant_id, status=None, limit=500)
+    # D-893: a summary shows a few rows; `detail: full` is the page the cap applies to.
+    result = await _run("leads_search", tenant_id, status=None, limit=500, detail="full")
 
     assert f"Showing {tools.MAX_ROWS} of {tools.MAX_ROWS + 5} leads" in result
     assert result.count("\n- ") + 1 == tools.MAX_ROWS + 1  # header + MAX_ROWS rows

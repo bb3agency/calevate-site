@@ -25,6 +25,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from calevate_shared.business_outcomes import LeadMove
+from calevate_shared.extraction import OutcomeTag
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from apps.api.agents.trial_panel import TrialPanelOut
@@ -487,6 +488,38 @@ class LeadFacetsOut(Strict):
 LEAD_ASK_MAX_CHARS = 2000
 
 
+#: Whether a call was marked handled: `done` is `resolved`, `not_done` is anything else.
+FollowUpFilter = Literal["done", "not_done"]
+
+
+class CapturedFieldFilterIn(Strict):
+    """One captured detail to match: `key` is the field's key, `value` is compared as text
+    (`equals`: the whole value, ignoring case; `contains`: anywhere in it). Bound as a
+    parameter, never written into the query."""
+
+    key: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
+    op: Literal["equals", "contains"] = "equals"
+    value: str = Field(min_length=1, max_length=200)
+
+
+class CallLensIn(Strict):
+    """WHICH CALLS (D-893 F2): the Calls screen's filters, its export's and Pip's, in one
+    shape. Days are India days, both ends included; `crm/lens.call_filters` turns them into
+    instants."""
+
+    status: str | None = None
+    agent_id: UUID | None = None
+    outcome: OutcomeTag | None = None
+    direction: Literal["inbound", "outbound"] | None = None
+    from_day: date | None = None
+    to_day: date | None = None
+    test_calls: bool = True
+    campaign_id: UUID | None = None
+    follow_up: FollowUpFilter | None = None
+    #: True: the call has a call-back waiting; False: it has none waiting.
+    callback_open: bool | None = None
+
+
 class LeadLensIn(Strict):
     """The Leads table's lens — WHICH ROWS and WHICH COLUMNS — carried in a request BODY.
 
@@ -531,6 +564,26 @@ class LeadLensIn(Strict):
     #: Facet filters as `key:value`, repeated. An unknown key is REFUSED, never dropped —
     #: dropping one would widen the set, which on the export is a mailed contact list.
     f: list[str] = Field(default_factory=list)
+    # D-893 F2. Each is a predicate `crm/lens.LeadRowFilters` turns into SQL; the screens,
+    # exports, bulk and Pip all read them from here.
+    #: When the lead was created, as India days, both ends included.
+    created_from: date | None = None
+    created_to: date | None = None
+    #: When its latest call happened, as India days, both ends included.
+    last_call_from: date | None = None
+    last_call_to: date | None = None
+    #: What its latest call came to.
+    last_outcome: OutcomeTag | None = None
+    #: Which way its latest call went.
+    direction: Literal["inbound", "outbound"] | None = None
+    #: False leaves out leads whose latest call was a free-trial test call.
+    test_calls: bool = True
+    #: True: a call-back is waiting for it; False: none is.
+    callback_open: bool | None = None
+    #: Its latest call marked handled (`done`) or not (`not_done`).
+    follow_up: FollowUpFilter | None = None
+    #: Captured details: each one matches the field's text exactly or contains it.
+    captured: list[CapturedFieldFilterIn] = Field(default_factory=list, max_length=5)
 
 
 class LeadSearchIn(LeadLensIn):
