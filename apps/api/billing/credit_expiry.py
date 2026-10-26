@@ -14,6 +14,13 @@ EXPIRY IS AN APPEND, NEVER AN EDIT (hard rule 4). `expire_lot` writes one `adjus
 `credit_ledger` for the credit still on the lot (negative, `meta.kind = credit_expiry`, keyed
 `credit_expiry:<lot_id>` so a replay writes nothing) and closes the lot through the same CAS a
 re-price uses. Only credit still unspent lapses; a lot already spent has nothing to expire.
+
+CORRECTIONS OF A LAPSED PURCHASE (`billing/service.py`). Credit put back on it (an upward
+restatement, a won dispute's release) never reopens the lapsed lot: it opens its own lot at
+the purchase's rates on the term a purchase made now gets (`apply_credit_to_lots`). A
+reversal of it (an adjustment, a dispute hold, a refund) is met first from the credit that
+lapsed, given back by a `credit_expiry_restated` row, so the same rupees are not taken twice
+(`remove_credit_from_lots`).
 """
 
 from __future__ import annotations

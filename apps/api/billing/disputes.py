@@ -302,6 +302,10 @@ async def _hold(session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFacts
     }
     if removal.splits:
         meta["lots"] = split_meta(removal.splits)
+    if removal.expiry_restated_inr > 0:
+        # The part of the hold met from credit that had lapsed: given back by a
+        # compensating row, so a release must not credit it a second time.
+        meta["expiry_restated_inr"] = str(removal.expiry_restated_inr)
     await record_entry(
         session,
         tenant_id=tenant_id,
@@ -341,7 +345,15 @@ async def _release(session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFa
         session, tenant_id=tenant_id, reason="adjustment", ref=ref
     ):
         return False
-    amount = abs(hold.amount_inr)
+    # What the hold actually took: its own row, less any lapsed credit the hold was met
+    # from and that a compensating row already gave back.
+    restated = (
+        await session.execute(
+            text("SELECT meta->>'expiry_restated_inr' FROM credit_ledger WHERE id = :id"),
+            {"id": hold.entry_id},
+        )
+    ).scalar()
+    amount = abs(hold.amount_inr) - Decimal(str(restated or 0))
     balance = await record_entry(
         session,
         tenant_id=tenant_id,
@@ -354,6 +366,7 @@ async def _release(session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFa
             "dispute_ref": dispute.dispute_id,
             "payment_ref": dispute.payment_id,
         },
+        allow_zero=True,
     )
     released = await find_entry_by_ref(session, tenant_id=tenant_id, reason="adjustment", ref=ref)
     assert released is not None

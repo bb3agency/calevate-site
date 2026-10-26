@@ -34,7 +34,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import ROUND_FLOOR, Decimal
-from typing import Any, Final, Literal, NamedTuple
+from typing import Any, Final, Literal, NamedTuple, cast
 from uuid import UUID
 
 from calevate_shared.engine import LLM_MODELS
@@ -1214,18 +1214,55 @@ async def apply_credit_to_lots(
     remainder = (credits_inr - repaid).quantize(MONEY_Q, rounding=ROUNDING)
     if remainder <= 0:
         return CreditedLot(lot_id=None, credits_inr=Decimal("0"), repaid_overdraft_inr=repaid)
-    if restate_lot_id is not None:
-        await credit_lots.adjust_lot_for_restatement(
-            session, lot_id=restate_lot_id, delta=remainder
-        )
-        return CreditedLot(
-            lot_id=restate_lot_id, credits_inr=remainder, repaid_overdraft_inr=repaid
-        )
     # A PURCHASE's credit lapses on the term in force now (D-840); a grant, a migration and
     # an override carry none. Imported here: `credit_expiry` imports this module.
-    from apps.api.billing.credit_expiry import credit_expiry_months, expires_at_for
+    from apps.api.billing.credit_expiry import (
+        credit_expiry_months,
+        credit_expiry_ref,
+        expires_at_for,
+    )
 
     months = credit_expiry_months() if source == "topup" else None
+    if restate_lot_id is not None:
+        target = await credit_lots.read_lot(session, lot_id=restate_lot_id)
+        lapsed = (
+            target is not None
+            and target.expires_at is not None
+            and (
+                target.expires_at <= datetime.now(UTC)
+                or await read_entry_by_ref(
+                    session,
+                    tenant_id=tenant_id,
+                    reason="adjustment",
+                    ref=credit_expiry_ref(restate_lot_id),
+                )
+                is not None
+            )
+        )
+        if target is None or not lapsed:
+            await credit_lots.adjust_lot_for_restatement(
+                session, lot_id=restate_lot_id, delta=remainder
+            )
+            return CreditedLot(
+                lot_id=restate_lot_id, credits_inr=remainder, repaid_overdraft_inr=repaid
+            )
+        # THE PURCHASE'S LOT IS PAST ITS EXPIRY. Growing it would reopen a lapsed lot (one
+        # the expiry job has already closed and keyed, so it would never lapse again) or put
+        # credit on a lot the next run lapses whole. The money is credited now, so it opens
+        # its own lot at that purchase's frozen rates, on the term a purchase made now gets.
+        lot_id = await credit_lots.open_lot(
+            session,
+            tenant_id=tenant_id,
+            credits_inr=remainder,
+            clear_inr_per_min=target.clear_inr_per_min,
+            studio_inr_per_min=target.studio_inr_per_min,
+            source=cast(credit_lots.LotSource, target.source),
+            pack_id=target.pack_id,
+            ledger_entry_id=ledger_entry_id,
+            override_of_pack_id=target.override_of_pack_id,
+            expires_at=None if months is None else expires_at_for(datetime.now(UTC), months=months),
+        )
+        return CreditedLot(lot_id=lot_id, credits_inr=remainder, repaid_overdraft_inr=repaid)
     lot_id = await credit_lots.open_lot(
         session,
         tenant_id=tenant_id,
@@ -1410,6 +1447,62 @@ class CreditRemoval:
 
     splits: list[credit_lots.LotSplit]
     overdraft_inr: Decimal
+    #: Lapsed credit of the corrected purchase that this reversal restated first
+    #: (`_restate_lapsed_credit`), by a compensating row already written; the caller's
+    #: own row still records the whole reversal.
+    expiry_restated_inr: Decimal = Decimal("0.00")
+
+
+#: `credit_ledger.meta.kind` of the row that gives back credit an expiry took, because a
+#: reversal of that same purchase is being recorded (`remove_credit_from_lots`).
+CREDIT_EXPIRY_RESTATED_META_KIND: Final = "credit_expiry_restated"
+
+_LAPSED_UNRESTATED_SQL: Final = (
+    "SELECT COALESCE(SUM(-delta) FILTER (WHERE meta->>'kind' = :lapsed), 0) "
+    "- COALESCE(SUM(delta) FILTER (WHERE meta->>'kind' = :restated), 0) "
+    "FROM credit_ledger WHERE tenant_id = :tid AND reason = 'adjustment' "
+    "AND meta->>'lot_id' = :lot"
+)
+
+
+async def _restate_lapsed_credit(
+    session: AsyncSession, *, tenant_id: UUID, lot_id: UUID, amount_inr: Decimal
+) -> Decimal:
+    """Give back up to `amount_inr` of what an expiry took off this lot and nothing earlier
+    gave back, as one compensating `adjustment` row; return how much. Zero for a lot that
+    never lapsed."""
+    from apps.api.billing.credit_expiry import CREDIT_EXPIRY_META_KIND
+
+    lapsed = (
+        await session.execute(
+            text(_LAPSED_UNRESTATED_SQL),
+            {
+                "tid": tenant_id,
+                "lot": str(lot_id),
+                "lapsed": CREDIT_EXPIRY_META_KIND,
+                "restated": CREDIT_EXPIRY_RESTATED_META_KIND,
+            },
+        )
+    ).scalar()
+    restated = min(amount_inr, Decimal(str(lapsed or 0)))
+    if restated <= 0:
+        return _ZERO_PAISE
+    await record_entry(
+        session,
+        tenant_id=tenant_id,
+        delta=restated,
+        reason="adjustment",
+        # Unique per reversal: the caller's own ref is its idempotency key and is checked
+        # under the credit lock before this runs.
+        ref=f"{CREDIT_EXPIRY_RESTATED_META_KIND}:{lot_id}:{uuid7()}",
+        meta={
+            "kind": CREDIT_EXPIRY_RESTATED_META_KIND,
+            "lot_id": str(lot_id),
+            "credits_inr": str(restated),
+        },
+        allow_negative=True,
+    )
+    return restated
 
 
 def _overdraft_of(splits: Sequence[credit_lots.LotSplit]) -> Decimal:
@@ -1475,6 +1568,32 @@ async def remove_credit_from_lots(
             session, tenant_id=tenant_id, ledger_entry_id=corrected_entry_id
         )
     )
+    restated_lapse = (
+        _ZERO_PAISE
+        if lot is None
+        else await _restate_lapsed_credit(
+            session, tenant_id=tenant_id, lot_id=lot.lot_id, amount_inr=amount_inr
+        )
+    )
+    if restated_lapse > 0:
+        # The purchase's credit LAPSED (D-840) and the lapse already took it off the
+        # wallet. The reversal is met first from that lapsed credit, which is restated by
+        # the compensating row just written, so the client does not lose the same rupees
+        # twice; only what the lapse cannot cover comes off the rest of the queue. The
+        # closed lot is left closed.
+        remaining = amount_inr - restated_lapse
+        splits = (
+            []
+            if remaining <= 0
+            else await credit_lots.consume(
+                session, tenant_id=tenant_id, demand=credit_lots.AiAssistDemand(credits=remaining)
+            )
+        )
+        return CreditRemoval(
+            splits=splits,
+            overdraft_inr=_overdraft_of(splits),
+            expiry_restated_inr=restated_lapse,
+        )
     if lot is not None and amount_inr < lot.credits_total:
         restated = await credit_lots.adjust_lot_for_restatement(
             session, lot_id=lot.lot_id, delta=-amount_inr
@@ -3811,6 +3930,7 @@ __all__ = [
     "Balance",
     "CorrectableEntry",
     "CreditReason",
+    "CREDIT_EXPIRY_RESTATED_META_KIND",
     "CreditRemoval",
     "CreditTotals",
     "CreditedLot",

@@ -150,3 +150,184 @@ async def test_a_lot_not_yet_due_is_left_alone_when_asked_directly(expiry_on: No
         assert await expire_lot(session, tenant_id=tenant_id, lot_id=lot_id, now=early) is None
         balance = await get_balance(session, tenant_id=tenant_id)
     assert balance.amount_inr == Decimal("500")
+
+
+async def _lapse(tenant_id: uuid.UUID, lot_id: uuid.UUID) -> None:
+    async with tenant_session(tenant_id) as session:
+        lot = await credit_lots.read_lot(session, lot_id=lot_id)
+        assert lot is not None and lot.expires_at is not None
+        later = lot.expires_at + timedelta(seconds=1)
+        assert await expire_lot(session, tenant_id=tenant_id, lot_id=lot_id, now=later)
+
+
+async def _entry_of(tenant_id: uuid.UUID, lot_id: uuid.UUID) -> uuid.UUID:
+    async with tenant_session(tenant_id) as session:
+        entry = (
+            await session.execute(
+                text("SELECT ledger_entry_id FROM credit_lots WHERE id = :l"), {"l": lot_id}
+            )
+        ).scalar_one()
+    return uuid.UUID(str(entry))
+
+
+async def _lots_total(tenant_id: uuid.UUID) -> Decimal:
+    async with tenant_session(tenant_id) as session:
+        total = (
+            await session.execute(
+                text("SELECT COALESCE(SUM(credits_remaining), 0) FROM credit_lots")
+            )
+        ).scalar()
+    return Decimal(str(total))
+
+
+async def test_credit_restated_onto_a_lapsed_purchase_opens_its_own_lot(expiry_on: None) -> None:
+    """A restatement grew the purchase's lot through `_RESTATE_LOT`, which REOPENED the lapsed
+    lot: its expiry row was already written, so it never lapsed again, and the daily job
+    found it due on every run."""
+    tenant_id, _agent = await _tenant(monthly_fee=None)
+    lapsed_id = await _buy(tenant_id, "1000")
+    await _lapse(tenant_id, lapsed_id)
+    async with tenant_session(tenant_id) as session:
+        balance = await record_entry(
+            session, tenant_id=tenant_id, delta=Decimal("500"), reason="topup", ref="RESTATE-1"
+        )
+        entry = await find_entry_by_ref(
+            session, tenant_id=tenant_id, reason="topup", ref="RESTATE-1"
+        )
+        assert entry is not None
+        credited = await apply_credit_to_lots(
+            session,
+            tenant_id=tenant_id,
+            credits_inr=Decimal("500"),
+            balance_after=balance.amount_inr,
+            rates=LotRates(clear_inr_per_min=Decimal("9"), studio_inr_per_min=Decimal("9")),
+            source="topup",
+            pack_id=None,
+            ledger_entry_id=entry.entry_id,
+            restate_lot_id=lapsed_id,
+        )
+        old = await credit_lots.read_lot(session, lot_id=lapsed_id)
+        new = await credit_lots.read_lot(session, lot_id=credited.lot_id)  # type: ignore[arg-type]
+    assert credited.lot_id not in (None, lapsed_id)
+    assert old is not None and old.closed_at is not None and old.credits_remaining == 0
+    assert new is not None and new.credits_remaining == Decimal("500.0000")
+    assert (new.clear_inr_per_min, new.studio_inr_per_min) == (Decimal("4.50"), Decimal("6.00"))
+    assert new.expires_at is not None and new.expires_at > datetime.now(UTC)
+
+
+async def test_reversing_a_lapsed_purchase_takes_back_its_lapsed_credit_first(
+    expiry_on: None,
+) -> None:
+    """A reversal of a purchase whose credit had lapsed used to take the WHOLE amount off the
+    client's other purchases, so the lapsed rupees were lost twice. It is met first from the
+    lapsed credit, given back by a compensating row, and only the rest comes off the queue."""
+    from apps.api.billing.service import CREDIT_EXPIRY_RESTATED_META_KIND, remove_credit_from_lots
+
+    tenant_id, _agent = await _tenant(monthly_fee=None)
+    first = await _buy(tenant_id, "1000")
+    second = await _buy(tenant_id, "1000")
+    async with tenant_session(tenant_id) as session:
+        spent = await credit_lots.consume(
+            session, tenant_id=tenant_id, demand=credit_lots.AiAssistDemand(credits=Decimal("400"))
+        )
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal("-400"),
+            reason="usage",
+            meta={"lots": [{"lot_id": str(s.lot_id)} for s in spent]},
+        )
+    await _lapse(tenant_id, first)  # ₹600 of the first purchase lapses
+    entry_id = await _entry_of(tenant_id, first)
+    async with tenant_session(tenant_id) as session:
+        removal = await remove_credit_from_lots(
+            session, tenant_id=tenant_id, corrected_entry_id=entry_id, amount_inr=Decimal("1000")
+        )
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal("-1000"),
+            reason="adjustment",
+            ref="REVERSE-LAPSED",
+            allow_negative=True,
+        )
+        balance = (await get_balance(session, tenant_id=tenant_id)).amount_inr
+        kinds = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT delta FROM credit_ledger WHERE tenant_id = :t "
+                        "AND meta->>'kind' = :k"
+                    ),
+                    {"t": tenant_id, "k": CREDIT_EXPIRY_RESTATED_META_KIND},
+                )
+            )
+            .scalars()
+            .all()
+        )
+        remaining_second = await credit_lots.read_lot(session, lot_id=second)
+    assert removal.expiry_restated_inr == Decimal("600.0000")
+    assert [Decimal(str(d)) for d in kinds] == [Decimal("600.0000")]
+    assert balance == Decimal("600")
+    assert remaining_second is not None and remaining_second.credits_remaining == Decimal("600")
+    assert await _lots_total(tenant_id) == balance, "the lots still say what the balance says"
+
+    # A second reversal finds nothing left to give back.
+    async with tenant_session(tenant_id) as session:
+        again = await remove_credit_from_lots(
+            session, tenant_id=tenant_id, corrected_entry_id=entry_id, amount_inr=Decimal("100")
+        )
+    assert again.expiry_restated_inr == Decimal("0")
+
+
+async def test_a_dispute_on_a_lapsed_purchase_won_back_leaves_the_balance_where_it_was(
+    expiry_on: None,
+) -> None:
+    """The hold is met from the lapsed credit first, so the release gives back only what the
+    hold really took; it used to restore lapsed credit as spendable money."""
+    from apps.api.billing.disputes import DisputeFacts, apply_dispute_event
+
+    tenant_id, _agent = await _tenant(monthly_fee=None)
+    ref = f"TEST-{uuid.uuid4().hex[:12]}"
+    async with tenant_session(tenant_id) as session:
+        balance = await record_entry(
+            session, tenant_id=tenant_id, delta=Decimal("1000"), reason="topup", ref=ref
+        )
+        entry = await find_entry_by_ref(session, tenant_id=tenant_id, reason="topup", ref=ref)
+        assert entry is not None
+        credited = await apply_credit_to_lots(
+            session,
+            tenant_id=tenant_id,
+            credits_inr=Decimal("1000"),
+            balance_after=balance.amount_inr,
+            rates=LotRates(clear_inr_per_min=Decimal("4.50"), studio_inr_per_min=Decimal("6.00")),
+            source="topup",
+            pack_id=None,
+            ledger_entry_id=entry.entry_id,
+        )
+    assert credited.lot_id is not None
+    await _lapse(tenant_id, credited.lot_id)
+    other = await _buy(tenant_id, "300")
+    dispute_id = f"disp_{uuid.uuid4().hex[:12]}"
+    for status in ("open", "won"):
+        async with tenant_session(tenant_id) as session:
+            await apply_dispute_event(
+                session,
+                tenant_id=tenant_id,
+                event=f"payment.dispute.{status}",
+                dispute=DisputeFacts(
+                    dispute_id=dispute_id,
+                    payment_id=ref,
+                    amount_inr=Decimal("1000"),
+                    status=status,
+                    phase="chargeback",
+                    reason_code=None,
+                    respond_by=None,
+                ),
+            )
+    async with tenant_session(tenant_id) as session:
+        final = (await get_balance(session, tenant_id=tenant_id)).amount_inr
+        untouched = await credit_lots.read_lot(session, lot_id=other)
+    assert final == Decimal("300")
+    assert untouched is not None and untouched.credits_remaining == Decimal("300")
+    assert await _lots_total(tenant_id) == final
