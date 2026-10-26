@@ -63,7 +63,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.quality.sampling import draw_week_sample, ist_week_start
-from apps.workers.fleet_walk import WalkBudget
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 
 log = get_logger(__name__)
 
@@ -71,11 +71,9 @@ log = get_logger(__name__)
 #: before it as a late-arrival sweep. More would be re-querying settled weeks forever.
 _WEEKS_BACK = 2
 
-#: `ORDER BY id` is load-bearing rather than tidy: the walk below can run out of its time
-#: budget, and an UNORDERED directory starves a different arbitrary slice of the fleet every
-#: week — so no client is reliably sampled and nobody can say which were missed. Ordered,
-#: the starved tail is stable and the alarm's advice ("the fleet has outgrown one tick") is
-#: actionable. The same argument `dispatcher._ERASURE_DIRECTORY` makes for the same walk.
+#: The walk below can run out of its time budget. `resumed_walk` starts each pass after the
+#: last tenant the previous one reached, so consecutive truncated passes cover the fleet
+#: instead of skipping the same tail every week.
 _DIRECTORY = "SELECT id FROM organizations WHERE deleted_at IS NULL ORDER BY id"
 
 
@@ -106,9 +104,7 @@ async def draw_for_tenants(tenant_ids: Sequence[UUID], weeks: Sequence[date]) ->
     # The pass stops itself rather than being cancelled by arq mid-tenant and re-run from
     # the top — see the module docstring and `fleet_walk.WalkBudget`.
     budget = WalkBudget()
-    for tenant_id in tenant_ids:
-        if budget.spent():
-            break
+    async for tenant_id in resumed_walk("qa_samples", tenant_ids, budget):
         probed += 1
         try:
             async with tenant_session(tenant_id) as scoped:

@@ -142,7 +142,7 @@ from apps.api.tenancy.engine_retention import call_content_days
 from apps.api.tenancy.engine_workspace import own_workspace
 from apps.workers import storage
 from apps.workers.engine_customer_data import seal_subject
-from apps.workers.fleet_walk import WalkBudget
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 
 log = get_logger(__name__)
 
@@ -866,10 +866,9 @@ async def apply_retention(ctx: dict[str, Any]) -> str:
             detail=(
                 f"tonight's retention sweep reached {totals.get('tenants_scanned', 0)} of "
                 f"{len(tenants)} tenant(s) inside its {int(budget.budget.total_seconds())}s "
-                f"budget; {unreached} were never swept. Because the tenant list is ordered, "
-                "the same tenants are skipped every night until this is acted on — their "
-                "expired recordings, transcripts, leads and extractions are being held past "
-                "the retention period we publish (DPDP s.8(7))."
+                f"budget; {unreached} were never swept. The next sweep starts with them, "
+                "but until it reaches them their expired recordings, transcripts, leads and "
+                "extractions are held past the retention period we publish (DPDP s.8(7))."
             ),
         )
     failed = totals.get("tenants_failed", 0)
@@ -923,9 +922,7 @@ async def sweep_tenants(
     swept = 0
     failed = 0
     scanned = 0
-    for tenant_id in tenants:
-        if walk.spent():
-            break
+    async for tenant_id in resumed_walk("retention", tenants, walk):
         scanned += 1
         try:
             counts = await sweep_tenant(tenant_id)

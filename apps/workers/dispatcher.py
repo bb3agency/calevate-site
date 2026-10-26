@@ -40,7 +40,7 @@ from apps.api.reliability.service import (
 )
 from apps.workers.extraction import MODEL_FAILURE
 from apps.workers.extraction_reread import REREAD_FINISHED_SQL
-from apps.workers.fleet_walk import FLEET_WALK_DEADLINE, WalkBudget
+from apps.workers.fleet_walk import FLEET_WALK_DEADLINE, WalkBudget, resumed_walk
 from apps.workers.pipeline import EXTRACTION_OWED_SQL, PIPELINE_STALL_AFTER, callable_tenants
 
 log = get_logger(__name__)
@@ -492,9 +492,7 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
     # The wall clock, not a counter — see `fleet_walk.WalkBudget`.
     budget = WalkBudget(ERASURE_PROBE_DEADLINE)
     tenants = await _all_tenants()
-    for tenant_id in tenants:
-        if budget.spent():
-            break
+    async for tenant_id in resumed_walk("overdue_erasures", tenants, budget):
         probed += 1
         try:
             async with tenant_session(tenant_id) as session:
@@ -571,10 +569,9 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
         # not "no erasure is stuck", it is "no erasure is stuck among the tenants we got
         # to". Silent truncation on THIS alarm is worse than on any other in the tree,
         # because the thing it stops watching is a statutory right with no poller behind
-        # it. The starved tail is stable — `_ERASURE_DIRECTORY` orders by tenant id — so
-        # the same tenants are skipped every hour until this is acted on, which is the
-        # same deliberate-and-therefore-announced trade `pipeline.
-        # reconcile_outstanding_calls` makes.
+        # it. The next hour's walk resumes after the last tenant this one reached
+        # (`fleet_walk.resumed_walk`), so the unreached tenants are probed next, but each
+        # is unwatched for an hour per truncated pass.
         alert(
             "WORKER_DELIVERY",
             "erasure_probe_deadline_exhausted",

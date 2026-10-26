@@ -64,12 +64,12 @@ from apps.api.compliance.tenant_erasure import REQUIRED_STATUS, request_tenant_e
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.db.session import admin_session, tenant_session
-from apps.workers.fleet_walk import WalkBudget
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 
 log = get_logger(__name__)
 
-#: Every live organisation, in a stable order so a truncated pass resumes from the same
-#: place next tick rather than sampling a different half of the fleet each night. The same
+#: Every live organisation; a truncated pass resumes after the last tenant reached
+#: (`fleet_walk.resumed_walk`) rather than restarting at the top each night. The same
 #: directory `qa_sampling._DIRECTORY` walks, and read through `admin_session`, which widens
 #: `USING` on `organizations` ONLY (migration b57e2f9c4a13) and unlocks no client data.
 _DIRECTORY = "SELECT id FROM organizations WHERE deleted_at IS NULL ORDER BY id"
@@ -183,9 +183,7 @@ async def sweep_trials(ctx: dict[str, Any]) -> str:
 
     budget = WalkBudget()
     expired = filed = blocked = failed = probed = 0
-    for tenant_id in tenant_ids:
-        if budget.spent():
-            break
+    async for tenant_id in resumed_walk("trials", tenant_ids, budget):
         probed += 1
         try:
             if await _close_if_expired(tenant_id, now=now):

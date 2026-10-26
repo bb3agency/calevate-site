@@ -49,7 +49,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session
 from apps.workers import call_language
 from apps.workers.chat import TokenUsage
-from apps.workers.fleet_walk import WalkBudget
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.redaction import redact
 
 log = get_logger(__name__)
@@ -378,9 +378,7 @@ async def backfill_call_translations(ctx: dict[str, Any]) -> str:
     budget = WalkBudget()
     found: list[tuple[Any, UUID, UUID]] = []
     reached = 0
-    for tenant_id in tenant_ids:
-        if budget.spent():
-            break
+    async for tenant_id in resumed_walk("call_translations", tenant_ids, budget):
         reached += 1
         found.extend(
             (at, tenant_id, call_id) for at, call_id in await _untried_candidates(tenant_id, budget)

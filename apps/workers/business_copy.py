@@ -83,7 +83,7 @@ from apps.api.tenancy.business_copy import (
     missing_placeholders,
 )
 from apps.api.tenancy.models import BUSINESS_COPY_TRIGGERS
-from apps.workers.fleet_walk import WalkBudget
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.lead_fields_draft import business_context
 from apps.workers.redaction import redact
 from apps.workers.script_assist import (
@@ -653,9 +653,7 @@ async def sweep_business_copies(ctx: dict[str, Any]) -> str:
         tenant_ids = [UUID(str(r[0])) for r in (await directory.execute(text(_DIRECTORY))).all()]
     budget = WalkBudget()
     counts = {"probed": 0, "queued": 0, "failed": 0}
-    for tenant_id in tenant_ids:
-        if budget.spent():
-            break
+    async for tenant_id in resumed_walk("business_copies", tenant_ids, budget):
         counts["probed"] += 1
         try:
             if await _due(tenant_id, now=now):

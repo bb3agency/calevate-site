@@ -47,7 +47,7 @@ from apps.api.core.transport import get_transport
 from apps.api.db.session import admin_session, tenant_session
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
-from apps.workers.fleet_walk import WalkBudget
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.trial_notices import ist_moment
 
 log = get_logger(__name__)
@@ -234,9 +234,7 @@ async def issue_platform_fees(ctx: dict[str, Any]) -> str:
 
     budget = WalkBudget()
     counts: dict[str, int] = {"probed": 0, "issued": 0, "noticed": 0, "exempt": 0, "failed": 0}
-    for tenant_id in tenant_ids:
-        if budget.spent():
-            break
+    async for tenant_id in resumed_walk("platform_fees", tenant_ids, budget):
         counts["probed"] += 1
         try:
             outcome = await settle_tenant(tenant_id, amount_inr=switch.amount_inr, now=now)

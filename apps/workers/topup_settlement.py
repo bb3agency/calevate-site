@@ -90,7 +90,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import admin_session, tenant_session
-from apps.workers.fleet_walk import WalkBudget
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 
 log = get_logger(__name__)
 
@@ -118,8 +118,7 @@ SETTLEMENT_MINUTES: tuple[int, ...] = (13, 43)
 #: looking, not a list.
 _ALERT_ID_LIMIT = 5
 
-#: `ORDER BY id` for `qa_sampling._DIRECTORY`'s reason: a truncated walk must starve the
-#: same stable tail rather than a different arbitrary slice each tick.
+#: A truncated pass resumes after the last tenant reached (`fleet_walk.resumed_walk`).
 _DIRECTORY = "SELECT id FROM organizations WHERE deleted_at IS NULL ORDER BY id"
 
 #: One tenant's attempts inside the window. The whole window rather than only the stuck
@@ -205,9 +204,7 @@ async def scan_tenants(
     last_settlement: datetime | None = None
     probed = 0
     failed = 0
-    for tenant_id in tenant_ids:
-        if walk.spent():
-            break
+    async for tenant_id in resumed_walk("topup_settlement", tenant_ids, walk):
         probed += 1
         try:
             async with tenant_session(tenant_id) as session:

@@ -194,6 +194,7 @@ from apps.workers.extraction import (
     extract_call,
     model_answered,
 )
+from apps.workers.fleet_walk import WalkCursor
 from apps.workers.handoff import settle_handoff
 from apps.workers.moments import (
     derive_moments,
@@ -5229,14 +5230,10 @@ _OUTSTANDING_SET_ASIDE_SWEEP = "outstanding_probe"
 #: turning one cron tick into thousands of requests against the engine we are already
 #: failing to hear from.
 #:
-#: WHAT IT COSTS, said plainly: `callable_tenants()` is ordered by tenant id, so a sweep
-#: that exhausts the budget starves the SAME tail of the fleet every time until the
-#: incident clears or those calls fall past the horizon. That is why hitting it is
-#: ALERTED rather than merely bounded — a truncated sweep that passed quietly would be the
-#: same defect as a truncated listing reporting `complete=True`. A rotating start offset
-#: was the alternative and was rejected: it needs durable state to be fair and makes the
-#: sweep non-deterministic to reason about, in exchange for spreading an incident the
-#: alert already says to go and fix.
+#: A sweep that exhausts it stops, ALERTS (a truncated sweep that passed quietly would be
+#: the same defect as a truncated listing reporting `complete=True`), and the next sweep
+#: resumes after the last tenant this one finished (`fleet_walk.WalkCursor`), so the tail
+#: is reached on the following ticks rather than starved until the incident clears.
 OUTSTANDING_PROBE_BUDGET = 200
 
 #: A call the ENGINE still calls non-terminal this long after it started. Not a repair —
@@ -5296,7 +5293,10 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
     excluded = await set_aside_ids(_OUTSTANDING_SET_ASIDE_SWEEP)
     # Asked and not moved: still running, unreadable, or settled with nothing owed.
     unmoved: list[str] = []
-    for tenant_id in await callable_tenants():
+    # Resumed after the last tenant a sweep finished, so a truncated sweep does not leave
+    # the same tail of the ordering unprobed every half hour.
+    cursor = WalkCursor("outstanding_calls")
+    for tenant_id in await cursor.order(await callable_tenants()):
         if probes >= OUTSTANDING_PROBE_BUDGET:
             truncated = True
             break
@@ -5371,6 +5371,9 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
             )
             record_reconciliation_repair(kind="outside_listing_window")
             repaired += 1
+        if not truncated:
+            # A tenant cut part-way is not reached, so the next sweep starts with it.
+            await cursor.reached(tenant_id)
 
     await set_aside(_OUTSTANDING_SET_ASIDE_SWEEP, unmoved, for_=OUTSTANDING_PROBE_SET_ASIDE)
     if abandoned:

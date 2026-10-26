@@ -53,7 +53,7 @@ from apps.api.core.transport import get_transport
 from apps.api.db.session import admin_session, tenant_session
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
-from apps.workers.fleet_walk import WalkBudget
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.trials import _DIRECTORY
 
 log = get_logger(__name__)
@@ -389,9 +389,7 @@ async def send_trial_ending_notices(ctx: dict[str, Any]) -> str:
 
     budget = WalkBudget()
     sent = failed = probed = 0
-    for tenant_id in tenant_ids:
-        if budget.spent():
-            break
+    async for tenant_id in resumed_walk("trial_notices", tenant_ids, budget):
         probed += 1
         try:
             outcome = await notify_ending_if_due(tenant_id, now=now)

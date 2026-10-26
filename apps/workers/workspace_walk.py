@@ -22,18 +22,14 @@ from dataclasses import dataclass
 from typing import Final
 from uuid import UUID
 
-from apps.api.core.logging import get_logger
-from apps.api.core.redis import get_redis
 from apps.api.tenancy.engine_workspace import WorkspaceRow, active_workspaces
-
-log = get_logger(__name__)
+from apps.workers.fleet_walk import WalkCursor, rotate_after
 
 #: Customer workspaces one tick of a sweep visits. Each visit is one to a few vendor
 #: listings; at the plan caps (3 on pay-as-you-go, 100 on Pro) a tick covers every client.
 DEFAULT_WORKSPACE_BUDGET: Final = 100
 
 _CURSOR_KEY: Final = "calevate:workspace-walk:{sweep}"
-_CURSOR_TTL_S: Final = 30 * 24 * 3600
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,28 +44,9 @@ class WorkspaceVisit:
 DEVELOPER: Final = WorkspaceVisit(tenant_id=None, workspace=None)
 
 
-async def _cursor(sweep: str) -> str | None:
-    try:
-        value = await get_redis().get(_CURSOR_KEY.format(sweep=sweep))
-    except Exception as exc:
-        log.warning("workspace_walk_cursor_unreadable", extra={"reason": type(exc).__name__})
-        return None
-    return value if isinstance(value, str) and value else None
-
-
-async def _advance(sweep: str, tenant_id: UUID) -> None:
-    try:
-        await get_redis().set(_CURSOR_KEY.format(sweep=sweep), str(tenant_id), ex=_CURSOR_TTL_S)
-    except Exception as exc:
-        log.warning("workspace_walk_cursor_unwritable", extra={"reason": type(exc).__name__})
-
-
 def rotate(rows: list[WorkspaceRow], after: str | None) -> list[WorkspaceRow]:
     """`rows` starting after the tenant `after`, wrapping round; unchanged with no cursor."""
-    if after is None:
-        return rows
-    later = [row for row in rows if str(row.tenant_id) > after]
-    return later + [row for row in rows if str(row.tenant_id) <= after]
+    return rotate_after(rows, after, key=lambda row: str(row.tenant_id))
 
 
 @dataclass(slots=True)
@@ -93,7 +70,8 @@ async def walk_workspaces(
         if report is not None:
             report.visited += 1
         yield DEVELOPER
-    rows = rotate(await active_workspaces(), await _cursor(sweep))
+    cursor = WalkCursor(sweep, key_template=_CURSOR_KEY)
+    rows = rotate(await active_workspaces(), await cursor.last())
     chosen = rows[:budget]
     if report is not None:
         report.deferred = max(len(rows) - len(chosen), 0)
@@ -101,7 +79,7 @@ async def walk_workspaces(
         yield WorkspaceVisit(tenant_id=row.tenant_id, workspace=row.workspace_id)
         if report is not None:
             report.visited += 1
-        await _advance(sweep, row.tenant_id)
+        await cursor.reached(row.tenant_id)
 
 
 async def all_workspaces(*, include_developer: bool = True) -> list[WorkspaceVisit]:

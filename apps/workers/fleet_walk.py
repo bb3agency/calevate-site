@@ -30,9 +30,8 @@ than one job's constant:
 
 So a walk stops itself, deliberately and while it can still say so, rather than being
 stopped by arq. A truncated pass ALERTS — silence would read exactly like a healthy fleet
-— and the walk's directory is ordered, so the starved tail is stable and the same tenants
-are skipped every tick until somebody acts on it, instead of a different random slice
-each time.
+— and the next pass resumes after the last tenant reached (`WalkCursor`), so truncated
+passes rotate through the whole fleet rather than skipping the same tail every time.
 
 A TIME budget, not a tenant COUNT, for the reason `dispatcher.ERASURE_PROBE_DEADLINE`
 already gives: the per-item cost is a database session under whatever load the box is
@@ -48,8 +47,15 @@ to stay under — the one outcome a deadline may not have.
 from __future__ import annotations
 
 import time
+from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
+from uuid import UUID
+
+from apps.api.core.logging import get_logger
+from apps.api.core.redis import get_redis
+
+log = get_logger(__name__)
 
 #: The default budget for one fleet-wide walk.
 #:
@@ -151,11 +157,96 @@ def bounded(cost: str) -> WalkShape:
     return WalkShape(fleet_wide=False, every_tick=False, cost=cost)
 
 
+# --- where the next pass starts ------------------------------------------------------
+#
+# A budget alone starves a STABLE tail: every pass walks the directory in id order and
+# stops at the same place, so the clients past the cut are never reached however often the
+# job runs. `WalkCursor` keeps, per walk, the last tenant a pass reached, and the next pass
+# starts after it and wraps round, so consecutive truncated passes cover the whole fleet.
+# `workspace_walk` keeps its vendor-workspace cursor the same way, through this class.
+#
+# In Redis, as a hint rather than a record: a lost cursor restarts the rotation at the
+# first tenant and skips nothing, and an unreachable Redis degrades to the id order these
+# walks always had rather than failing the pass.
+
+#: One key per walk. Thirty days outlives the slowest schedule (weekly) several times over.
+FLEET_CURSOR_KEY = "calevate:fleet-walk:{walk}"
+CURSOR_TTL_S = 30 * 24 * 3600
+
+
+def rotate_after[T](items: Sequence[T], after: str | None, *, key: Callable[[T], str]) -> list[T]:
+    """`items` (in their order) starting after the one whose key is `after`, wrapping round.
+
+    Compares keys rather than looking `after` up, so a tenant deleted since the last pass
+    still places the start correctly. Unchanged with no cursor.
+    """
+    if after is None:
+        return list(items)
+    later = [item for item in items if key(item) > after]
+    return later + [item for item in items if key(item) <= after]
+
+
+class WalkCursor:
+    """The resume point of one named walk. `order` the directory, then `reached` each id."""
+
+    __slots__ = ("_key",)
+
+    def __init__(self, walk: str, *, key_template: str = FLEET_CURSOR_KEY) -> None:
+        self._key = key_template.format(walk=walk, sweep=walk)
+
+    async def last(self) -> str | None:
+        try:
+            value = await get_redis().get(self._key)
+        except Exception as exc:
+            log.warning("fleet_walk_cursor_unreadable", extra={"reason": type(exc).__name__})
+            return None
+        return value if isinstance(value, str) and value else None
+
+    async def order(self, tenant_ids: Sequence[UUID]) -> list[UUID]:
+        """The directory in the order this pass walks it: after the last one reached."""
+        return rotate_after(sorted(tenant_ids, key=str), await self.last(), key=str)
+
+    async def reached(self, tenant_id: UUID) -> None:
+        await self.reached_key(str(tenant_id))
+
+    async def reached_key(self, key: str) -> None:
+        try:
+            await get_redis().set(self._key, key, ex=CURSOR_TTL_S)
+        except Exception as exc:
+            log.warning("fleet_walk_cursor_unwritable", extra={"reason": type(exc).__name__})
+
+
+async def resumed_walk[T](
+    walk: str,
+    items: Sequence[T],
+    budget: WalkBudget,
+    *,
+    key: Callable[[T], str] = str,
+) -> AsyncIterator[T]:
+    """`items` in key order from where the last pass of `walk` stopped, until `budget` is
+    spent. An item counts as reached once the caller's loop body for it has finished (the
+    cursor moves when the next one is asked for), so one whose body raised is walked again
+    next pass. Replaces `for x in items: if budget.spent(): break`.
+    """
+    cursor = WalkCursor(walk)
+    ordered = rotate_after(sorted(items, key=key), await cursor.last(), key=key)
+    for item in ordered:
+        if budget.spent():
+            return
+        yield item
+        await cursor.reached_key(key(item))
+
+
 __all__ = [
+    "CURSOR_TTL_S",
+    "FLEET_CURSOR_KEY",
     "FLEET_WALK_DEADLINE",
     "WalkBudget",
+    "WalkCursor",
     "WalkShape",
     "bounded",
     "every_tick",
     "fleet_wide",
+    "resumed_walk",
+    "rotate_after",
 ]
