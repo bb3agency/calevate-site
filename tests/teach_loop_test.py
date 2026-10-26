@@ -324,6 +324,39 @@ async def test_a_rule_cannot_be_saved_without_naming_its_agent() -> None:
     assert refused.value.code == "teaching_rule_needs_agent"
 
 
+async def test_an_agent_this_business_does_not_have_is_a_404_not_a_stored_reference() -> None:
+    """The foreign key ignores RLS: without the check first, a facts-only save stored another
+    business's agent id, and an unknown id failed the FK as a 500."""
+    tenant_id, _ = await _tenant()
+    neighbour, neighbour_agent = await _tenant()
+    del neighbour
+    for agent_id in (neighbour_agent, uuid.uuid4()):
+        async with tenant_session(tenant_id) as session:
+            started = await teaching.start_teaching(
+                session,
+                tenant_id=tenant_id,
+                input_kind="text",
+                words="We open at 9.",
+                requested_by=None,
+            )
+            await session.execute(
+                text("UPDATE kb_teachings SET status = 'ready' WHERE id = :id"), {"id": started.id}
+            )
+        with pytest.raises(ProblemError) as refused:
+            async with tenant_session(tenant_id) as session:
+                await teaching.save(
+                    session,
+                    tenant_id=tenant_id,
+                    teaching_id=started.id,
+                    items=[teaching.TeachItem(kind="fact", text="We open at 9.")],
+                    agent_id=agent_id,
+                    saved_by=None,
+                    client_user_id=None,
+                    auto_approve=True,
+                )
+        assert refused.value.status == 404
+
+
 async def test_a_voice_note_stops_with_its_words_for_the_teach_box(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

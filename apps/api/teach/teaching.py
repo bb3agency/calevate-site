@@ -258,6 +258,10 @@ async def save(
     auto_approve: bool,
 ) -> Saved:
     """Keep the reviewed items: facts into knowledge now, rules to one agent's script."""
+    # Before the write: `kb_teachings.agent_id`'s foreign key ignores RLS, so another
+    # business's agent would be stored, and an unknown id would fail the key as a 500.
+    if agent_id is not None:
+        await _agent_exists(session, agent_id)
     claimed = (
         await session.execute(
             text(
@@ -286,12 +290,10 @@ async def save(
     rule_texts = [item.text for item in items if item.kind == "rule"]
     if not fact_texts and not pinned_texts and not rule_texts:
         raise ProblemError.business_rule("teaching_empty", "Keep at least one fact or rule.")
-    if rule_texts:
-        if agent_id is None:
-            raise ProblemError.business_rule(
-                "teaching_rule_needs_agent", "Choose which agent the rules are for."
-            )
-        await _agent_exists(session, agent_id)
+    if rule_texts and agent_id is None:
+        raise ProblemError.business_rule(
+            "teaching_rule_needs_agent", "Choose which agent the rules are for."
+        )
     added = await fact_store.add_facts(
         session,
         tenant_id=tenant_id,
