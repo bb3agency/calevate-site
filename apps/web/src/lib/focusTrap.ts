@@ -65,10 +65,32 @@ import { useEffect, useRef, type RefObject } from "react";
 const TABBABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/**
+ * Elements a Tab press can actually reach. The selector alone is not that list: a control
+ * hidden by CSS (`hidden lg:flex`, as the sidebar's collapse toggle is below `lg`) still
+ * matches it, `focus()` on it does nothing, and a trap that picks it as `first` swallows
+ * every Tab without moving focus. `checkVisibility()` answers "is it rendered" (display:
+ * none on it or an ancestor, `visibility: hidden`); jsdom has no layout and no such
+ * method, so there the list is the selector's. `[inert]` and `[hidden]` subtrees are
+ * dropped by hand because jsdom implements neither for focus.
+ */
 export function tabbablesWithin(root: HTMLElement | null): HTMLElement[] {
   if (!root) return [];
-  return Array.from(root.querySelectorAll<HTMLElement>(TABBABLE));
+  return Array.from(root.querySelectorAll<HTMLElement>(TABBABLE)).filter(
+    (element) =>
+      element.closest("[inert],[hidden]") === null &&
+      (typeof element.checkVisibility !== "function" ||
+        element.checkVisibility({ visibilityProperty: true })),
+  );
 }
+
+/**
+ * The armed traps, oldest first. Only the LAST one handles Tab. A confirmation opened
+ * from a drawer is portalled outside the drawer's panel, so with every trap handling Tab
+ * the drawer pulled focus back to its own first control and the dialog then pulled it to
+ * ITS first, and Tab alone could never reach the dialog's confirm button.
+ */
+const armedTraps: object[] = [];
 
 /**
  * Where focus lands when the trap arms.
@@ -104,6 +126,8 @@ export function useFocusTrap(
 
   useEffect(() => {
     if (!active) return;
+    const token = {};
+    armedTraps.push(token);
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
         // Only an Escape pressed in THIS panel (or with focus on nothing) closes it. A
@@ -120,6 +144,7 @@ export function useFocusTrap(
         return;
       }
       if (event.key !== "Tab") return;
+      if (armedTraps[armedTraps.length - 1] !== token) return;
       const items = tabbablesWithin(panel.current);
       const first = items[0];
       const last = items[items.length - 1];
@@ -140,6 +165,10 @@ export function useFocusTrap(
       }
     };
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      const at = armedTraps.indexOf(token);
+      if (at !== -1) armedTraps.splice(at, 1);
+    };
   }, [active, panel]);
 }

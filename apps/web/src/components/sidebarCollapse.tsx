@@ -253,7 +253,8 @@ export const sidebarNavClass = "custom-scrollbar relative flex-1 overflow-y-auto
  * collapses, so no nav item moves vertically during the gesture.
  *
  * Below `lg` none of it applies: the panel is the 255px drawer, the mark is shown, the
- * toggle is not rendered at all and the close button is, exactly as before.
+ * toggle is in the DOM but `display: none` (so `lib/focusTrap.tabbablesWithin` must skip
+ * it) and the close button is shown, exactly as before.
  */
 export function SidebarBrand({
   isCollapsed,
