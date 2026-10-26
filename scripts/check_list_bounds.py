@@ -232,6 +232,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/kb/struggles": BoundedByConstruction(
         by="`teach.struggles.MAX_GAPS` open gaps plus `MAX_CALLS` calls, both in the LIMIT."
     ),
+    "GET /v1/teach/questions": BoundedByConstruction(
+        by="`teach.questions.MAX_QUESTIONS` gap topics in the LIMIT plus at most three "
+        "practice and setup questions."
+    ),
     "GET /v1/kb/teach/{teaching_id}": BoundedByConstruction(
         by="one teaching's items, at most `workers.kb_teach.MAX_ITEMS` and 30 on save (`SaveIn`)."
     ),

@@ -11901,6 +11901,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/teach/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The questions the agents need answered, most-asked first, with drafted answers
+         * @description Open knowledge gaps grouped by topic, the facts practice callers need, and what the business profile leaves open, merged by topic. `agent_id` narrows the callers' questions to one agent; the rest belong to the account. A read queues drafts for questions whose inputs changed (`drafting`), except in a view-as session.
+         */
+        get: operations["list_teach_questions_v1_teach_questions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teach/questions/{key}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Answer a question: it becomes a fact every agent knows, and the question closes */
+        post: operations["answer_teach_question_v1_teach_questions__key__answer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/teach/questions/{key}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Not something we answer: the question leaves the list */
+        post: operations["dismiss_teach_question_v1_teach_questions__key__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/team/members": {
         parameters: {
             query?: never;
@@ -13757,6 +13811,11 @@ export interface components {
             services?: components["schemas"]["ServiceItem"][];
             /** Text */
             text?: string | null;
+        };
+        /** AnswerQuestionIn */
+        AnswerQuestionIn: {
+            /** Answer */
+            answer: string;
         };
         /**
          * AnswersIn
@@ -18348,6 +18407,11 @@ export interface components {
             recording_notice_enabled: boolean;
             /** Truthful Answer Rule */
             truthful_answer_rule: string;
+        };
+        /** DismissQuestionIn */
+        DismissQuestionIn: {
+            /** Reason */
+            reason?: string | null;
         };
         /** DisputeActionOut */
         DisputeActionOut: {
@@ -25538,6 +25602,15 @@ export interface components {
             /** Prompt */
             prompt: string;
         };
+        /** QuestionSettledOut */
+        QuestionSettledOut: {
+            /** Fact Id */
+            fact_id: string | null;
+            /** Gaps Closed */
+            gaps_closed: number;
+            /** Key */
+            key: string;
+        };
         /** QuestionsOut */
         QuestionsOut: {
             /** Disclosure */
@@ -28457,6 +28530,47 @@ export interface components {
             pinned: boolean;
             /** Text */
             text: string;
+        };
+        /** TeachQuestionOut */
+        TeachQuestionOut: {
+            /** Agent Ids */
+            agent_ids: string[];
+            /** Callers */
+            callers: number;
+            /** Draft */
+            draft: string | null;
+            /** Draft Source Kind */
+            draft_source_kind: ("profile" | "fact" | "answer" | "file") | null;
+            /** Draft Source Label */
+            draft_source_label: string | null;
+            /** Drafting */
+            drafting: boolean;
+            /** Example */
+            example: string | null;
+            /** Key */
+            key: string;
+            /** Latest At */
+            latest_at: string | null;
+            /** Latest Call Id */
+            latest_call_id: string | null;
+            /** Question */
+            question: string;
+            /** Times */
+            times: number;
+            /** Topic */
+            topic: string;
+            /**
+             * Why
+             * @enum {string}
+             */
+            why: "callers" | "practice" | "setup";
+        };
+        /** TeachQuestionsOut */
+        TeachQuestionsOut: {
+            /** Items */
+            items: components["schemas"]["TeachQuestionOut"][];
+            /** Open Count */
+            open_count: number;
         };
         /** TeachingOut */
         TeachingOut: {
@@ -53168,6 +53282,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountReadinessOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_teach_questions_v1_teach_questions_get: {
+        parameters: {
+            query?: {
+                agent_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeachQuestionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    answer_teach_question_v1_teach_questions__key__answer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswerQuestionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionSettledOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    dismiss_teach_question_v1_teach_questions__key__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DismissQuestionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionSettledOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

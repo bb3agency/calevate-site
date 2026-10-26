@@ -99,6 +99,7 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "kb_uploads": "knowledge",
     "kb_facts": "knowledge",
     "kb_teachings": "knowledge",
+    "teach_questions": "knowledge_gaps",
     "kb_index_documents": "knowledge",
     "engine_kb_routes": "knowledge",
     "pipecat_kb_objects": "knowledge",

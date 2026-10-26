@@ -5008,6 +5008,22 @@
         "title": "AnswerIn",
         "type": "object"
       },
+      "AnswerQuestionIn": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Answer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer"
+        ],
+        "title": "AnswerQuestionIn",
+        "type": "object"
+      },
       "AnswersIn": {
         "additionalProperties": false,
         "description": "The follow-up answers the owner gave. A question skipped is simply left out.",
@@ -17168,6 +17184,25 @@
           "truthful_answer_rule"
         ],
         "title": "DisclosureOut",
+        "type": "object"
+      },
+      "DismissQuestionIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "DismissQuestionIn",
         "type": "object"
       },
       "DisputeActionOut": {
@@ -36435,6 +36470,38 @@
         "title": "QuestionOut",
         "type": "object"
       },
+      "QuestionSettledOut": {
+        "additionalProperties": false,
+        "properties": {
+          "fact_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fact Id"
+          },
+          "gaps_closed": {
+            "title": "Gaps Closed",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "fact_id",
+          "gaps_closed"
+        ],
+        "title": "QuestionSettledOut",
+        "type": "object"
+      },
       "QuestionsOut": {
         "additionalProperties": false,
         "properties": {
@@ -43753,6 +43820,166 @@
           "text"
         ],
         "title": "TeachItemIO",
+        "type": "object"
+      },
+      "TeachQuestionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Agent Ids",
+            "type": "array"
+          },
+          "callers": {
+            "title": "Callers",
+            "type": "integer"
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft"
+          },
+          "draft_source_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "profile",
+                  "fact",
+                  "answer",
+                  "file"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft Source Kind"
+          },
+          "draft_source_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft Source Label"
+          },
+          "drafting": {
+            "title": "Drafting",
+            "type": "boolean"
+          },
+          "example": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Example"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "latest_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest At"
+          },
+          "latest_call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Call Id"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "times": {
+            "title": "Times",
+            "type": "integer"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          },
+          "why": {
+            "enum": [
+              "callers",
+              "practice",
+              "setup"
+            ],
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "question",
+          "topic",
+          "why",
+          "callers",
+          "times",
+          "agent_ids",
+          "latest_call_id",
+          "latest_at",
+          "example",
+          "draft",
+          "draft_source_kind",
+          "draft_source_label",
+          "drafting"
+        ],
+        "title": "TeachQuestionOut",
+        "type": "object"
+      },
+      "TeachQuestionsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TeachQuestionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "open_count": {
+            "title": "Open Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "open_count"
+        ],
+        "title": "TeachQuestionsOut",
         "type": "object"
       },
       "TeachingOut": {
@@ -84134,6 +84361,152 @@
           "agents"
         ],
         "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/teach/questions": {
+      "get": {
+        "description": "Open knowledge gaps grouped by topic, the facts practice callers need, and what the business profile leaves open, merged by topic. `agent_id` narrows the callers' questions to one agent; the rest belong to the account. A read queues drafts for questions whose inputs changed (`drafting`), except in a view-as session.",
+        "operationId": "list_teach_questions_v1_teach_questions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeachQuestionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The questions the agents need answered, most-asked first, with drafted answers",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/teach/questions/{key}/answer": {
+      "post": {
+        "operationId": "answer_teach_question_v1_teach_questions__key__answer_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerQuestionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionSettledOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Answer a question: it becomes a fact every agent knows, and the question closes",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/teach/questions/{key}/dismiss": {
+      "post": {
+        "operationId": "dismiss_teach_question_v1_teach_questions__key__dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DismissQuestionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionSettledOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Not something we answer: the question leaves the list",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "kb:write"
       }
     },
     "/v1/team/members": {

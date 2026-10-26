@@ -1840,15 +1840,19 @@ async def missing_facts(session: AsyncSession) -> list[MissingFact]:
     in passes only by the agent saying it does not have it, and a real caller gets the same
     answer. So the owner is told before the first run, where adding the facts helps, rather
     than after a run that looks like the agent's fault (D-849). Read from the business's
-    facts and its published knowledge documents, which every agent of the client carries
-    (D-689)."""
+    facts, its published knowledge documents and its profile's priced services, all of
+    which every agent of the client carries (D-689; the profile as [T0 FACTS] lines,
+    `tenancy/business_profile.fact_lines`)."""
     has_price = (
         await session.execute(
             text(
                 "SELECT EXISTS (SELECT 1 FROM kb_facts WHERE removed_at IS NULL "
                 "AND text ~* :pattern) OR EXISTS (SELECT 1 FROM kb_documents d "
                 "JOIN kb_sources s ON s.id = d.source_id WHERE s.is_active "
-                "AND s.published_at IS NOT NULL AND d.content ~* :pattern)"
+                "AND s.published_at IS NOT NULL AND d.content ~* :pattern) "
+                "OR EXISTS (SELECT 1 FROM business_profiles p, "
+                "jsonb_array_elements(p.services) AS item "
+                "WHERE COALESCE(item->>'price_inr', '') <> '')"
             ),
             {"pattern": _PRICE_PATTERN},
         )

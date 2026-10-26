@@ -3659,6 +3659,7 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         await session.execute(text("DELETE FROM agent_rule_proposals"))
         await session.execute(text("DELETE FROM kb_facts"))
         await session.execute(text("DELETE FROM kb_teachings"))
+        await session.execute(text("DELETE FROM teach_questions"))
         # Leads held after hours for release (D-716): a hold left behind could still be
         # released into a call-back after the certificate said the account holds nothing.
         await session.execute(text("DELETE FROM lead_call_holds"))

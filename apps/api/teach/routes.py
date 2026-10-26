@@ -30,12 +30,13 @@ from apps.api.core.rbac import permission_meta
 from apps.api.db.base import uuid7
 from apps.api.kb.curation import goes_live_without_review, requires_kb_curation
 from apps.api.teach import facts as fact_store
-from apps.api.teach import knows, rules, struggles, teaching, test_cases, try_chat
+from apps.api.teach import knows, questions, rules, struggles, teaching, test_cases, try_chat
 from apps.api.teach import pinned as pinned_store
 from apps.api.teach.models import (
     MAX_CASE_EXPECTED_CHARS,
     MAX_CASE_LINE_CHARS,
     MAX_CASE_LINES,
+    MAX_DISMISS_REASON_CHARS,
     MAX_FACT_CHARS,
     MAX_PINNED_ANSWER_CHARS,
     MAX_PINNED_QUESTION_CHARS,
@@ -548,6 +549,180 @@ async def where_it_struggled(
         StruggleOut.model_validate(s, from_attributes=True)
         for s in await struggles.list_struggles(session, agent_id=agent_id)
     ]
+
+
+# --- questions to answer (D-893) ---------------------------------------------------
+
+
+class TeachQuestionOut(Strict):
+    #: The topic key; the path segment the answer and dismiss routes take.
+    key: str
+    #: The question in plain words.
+    question: str
+    topic: str
+    #: `callers` (asked on real calls) · `practice` (practice callers ask it and nothing
+    #: known answers it) · `setup` (the business profile leaves it open).
+    why: Literal["callers", "practice", "setup"]
+    #: Calls on which a caller asked it; 0 for practice and setup questions.
+    callers: int
+    times: int
+    agent_ids: list[UUID]
+    latest_call_id: UUID | None
+    latest_at: datetime | None
+    #: What a caller said, redacted like every quote on this surface.
+    example: str | None
+    #: An answer drafted from what the business gave us; only with its source.
+    draft: str | None
+    #: `profile` · `fact` · `answer` · `file`.
+    draft_source_kind: Literal["profile", "fact", "answer", "file"] | None
+    #: The source as the owner reads it ("Your business profile", a file's name).
+    draft_source_label: str | None
+    #: A draft is being written; read again shortly.
+    drafting: bool
+
+
+class TeachQuestionsOut(Strict):
+    items: list[TeachQuestionOut]
+    open_count: int
+
+
+def _question_out(q: questions.Question) -> TeachQuestionOut:
+    return TeachQuestionOut(
+        key=q.key,
+        question=q.question,
+        topic=q.topic,
+        why=q.why,
+        callers=q.callers,
+        times=q.times,
+        agent_ids=list(q.agent_ids),
+        latest_call_id=q.latest_call_id,
+        latest_at=q.latest_at,
+        example=q.example,
+        draft=q.draft,
+        draft_source_kind=q.draft_source_kind,
+        draft_source_label=q.draft_source_label,
+        drafting=q.drafting,
+    )
+
+
+@router.get(
+    "/v1/teach/questions",
+    response_model=TeachQuestionsOut,
+    openapi_extra=permission_meta("calls:read"),
+    summary="The questions the agents need answered, most-asked first, with drafted answers",
+    description=(
+        "Open knowledge gaps grouped by topic, the facts practice callers need, and what the "
+        "business profile leaves open, merged by topic. `agent_id` narrows the callers' "
+        "questions to one agent; the rest belong to the account. A read queues drafts for "
+        "questions whose inputs changed (`drafting`), except in a view-as session."
+    ),
+)
+async def list_teach_questions(
+    session: Session,
+    agent_id: UUID | None = Query(default=None),
+    principal: Principal = Depends(requires("calls:read")),
+) -> TeachQuestionsOut:
+    assert principal.tenant_id is not None
+    if agent_id is not None:
+        await assert_agent_visible(session, agent_id)
+    found = await questions.list_questions(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        queue_drafts=not principal.impersonating,
+    )
+    return TeachQuestionsOut(
+        items=[_question_out(q) for q in found.items], open_count=found.open_count
+    )
+
+
+class AnswerQuestionIn(Strict):
+    answer: str = Field(min_length=1, max_length=MAX_FACT_CHARS)
+
+
+class DismissQuestionIn(Strict):
+    #: The owner's own note ("we do not do home visits").
+    reason: str | None = Field(default=None, max_length=MAX_DISMISS_REASON_CHARS)
+
+
+class QuestionSettledOut(Strict):
+    key: str
+    #: The fact the answer became; null for a dismissal or words the agents already knew.
+    fact_id: UUID | None
+    gaps_closed: int
+
+
+async def _audit_question(
+    session: AsyncSession,
+    request: Request,
+    principal: Principal,
+    settled: questions.Settled,
+    action: str,
+) -> None:
+    await write_audit(
+        session,
+        action=action,
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="teach_question",
+        object_id=settled.key,
+        ip=client_request_ip(request),
+        summary={"gaps_closed": settled.gaps_closed, "fact_added": settled.fact_id is not None},
+    )
+
+
+@router.post(
+    "/v1/teach/questions/{key}/answer",
+    response_model=QuestionSettledOut,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Answer a question: it becomes a fact every agent knows, and the question closes",
+)
+async def answer_teach_question(
+    key: str,
+    payload: AnswerQuestionIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires_kb_curation()),
+) -> QuestionSettledOut:
+    assert principal.tenant_id is not None
+    settled = await questions.answer_question(
+        session,
+        tenant_id=principal.tenant_id,
+        key=key,
+        answer=payload.answer,
+        saved_by=principal.user_id,
+        client_user_id=principal.client_user_id,
+        auto_approve=_auto_approve(principal),
+    )
+    await _audit_question(session, request, principal, settled, "teach_question.answer")
+    return QuestionSettledOut(
+        key=settled.key, fact_id=settled.fact_id, gaps_closed=settled.gaps_closed
+    )
+
+
+@router.post(
+    "/v1/teach/questions/{key}/dismiss",
+    response_model=QuestionSettledOut,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Not something we answer: the question leaves the list",
+)
+async def dismiss_teach_question(
+    key: str,
+    payload: DismissQuestionIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires_kb_curation()),
+) -> QuestionSettledOut:
+    assert principal.tenant_id is not None
+    settled = await questions.dismiss_question(
+        session,
+        tenant_id=principal.tenant_id,
+        key=key,
+        reason=payload.reason,
+        client_user_id=principal.client_user_id,
+    )
+    await _audit_question(session, request, principal, settled, "teach_question.dismiss")
+    return QuestionSettledOut(key=settled.key, fact_id=None, gaps_closed=settled.gaps_closed)
 
 
 # --- rules waiting for a script ----------------------------------------------------

@@ -291,6 +291,7 @@ from apps.workers.studio_voice_key import (
     push_studio_voice_key_to_workspace,
     sweep_studio_workspaces,
 )
+from apps.workers.teach_questions import draft_teach_question
 from apps.workers.tls_expiry import check_tls_expiry
 from apps.workers.topup_settlement import SETTLEMENT_MINUTES, sweep_topup_settlement
 from apps.workers.trial_notices import (
@@ -378,6 +379,9 @@ FUNCTIONS: list[Any] = [
         # (founder decision 11), both from the outbox (`apps/api/teach/`).
         run_kb_teaching,
         run_agent_test_cases,
+        # A guided question's grounded draft answer (D-893), from the outbox
+        # (`teach/questions.list_questions`).
+        draft_teach_question,
         # "Meet your agent" (D-855), from the outbox (`first_run/service.py`): a spoken piece
         # of the brief heard, its follow-up questions chosen, and the first agent built.
         hear_first_run_recording,

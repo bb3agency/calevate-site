@@ -39,6 +39,7 @@ from apps.workers.script_assist import (
 from calevate_shared.call_script import CallScript, ExampleLine, compile_call_script
 from calevate_shared.engine import AgentConfig, compose_engine_prompt, engine_prompt_layers
 from calevate_shared.spoken_style import PackChoice
+from sqlalchemy import text as sql
 from tests.kb_workflow_test import _tenant_with_published_agent
 
 TE = "te-IN"
@@ -296,6 +297,9 @@ def test_the_improver_may_not_write_a_long_or_claiming_opening() -> None:
 async def test_missing_prices_are_named_until_a_fact_gives_one() -> None:
     tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
+        # The fixture's profile prices its services, and those reach every agent too.
+        assert await missing_facts(session) == []
+        await session.execute(sql("UPDATE business_profiles SET services = '[]'::jsonb"))
         assert await missing_facts(session) == ["prices"]
         await pinned.add_pinned(
             session,

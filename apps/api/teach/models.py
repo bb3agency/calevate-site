@@ -224,17 +224,88 @@ class CallTestCaseDraft(PKMixin, TimestampMixin, Base):
     title: Mapped[str | None] = mapped_column(Text)
 
 
+#: A question's drafted answer: `queued` (the worker will write it), `ready` (a grounded
+#: draft), `none` (nothing the business gave answers it, or no AI could be spent).
+DRAFT_STATUSES = ("queued", "ready", "none")
+#: Where a draft's answer came from, named to the owner beside it.
+DRAFT_SOURCE_KINDS = ("profile", "fact", "answer", "file")
+QUESTION_SETTLED = ("answered", "dismissed")
+MAX_QUESTION_KEY_CHARS = 120
+MAX_DISMISS_REASON_CHARS = 300
+
+
+class TeachQuestion(PKMixin, TimestampMixin, Base):
+    """What the account has decided about one guided question, and its cached draft (D-893).
+
+    One row per question key (a knowledge-gap topic key such as `pricing`), shared by every
+    agent because knowledge belongs to the client (D-689). The list itself is computed on
+    every read (`teach/questions.py`); this row holds only what cannot be recomputed: that
+    the owner answered or dismissed a question the gaps do not carry, and the drafted answer
+    with the fingerprint of the inputs it was written from, so it is written again only when
+    those change."""
+
+    __tablename__ = "teach_questions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "question_key"),
+        CheckConstraint(
+            f"char_length(question_key) BETWEEN 1 AND {MAX_QUESTION_KEY_CHARS}",
+            name="question_key_length",
+        ),
+        CheckConstraint(
+            f"draft_status IS NULL OR draft_status IN {DRAFT_STATUSES!r}",
+            name="draft_status_enum",
+        ),
+        CheckConstraint(
+            f"draft_source_kind IS NULL OR draft_source_kind IN {DRAFT_SOURCE_KINDS!r}",
+            name="draft_source_kind_enum",
+        ),
+        CheckConstraint("(draft IS NULL) = (draft_source_kind IS NULL)", name="draft_has_source"),
+        CheckConstraint(
+            f"draft IS NULL OR char_length(draft) BETWEEN 1 AND {MAX_FACT_CHARS}",
+            name="draft_length",
+        ),
+        CheckConstraint(
+            "inputs_hash IS NULL OR inputs_hash ~ '^[0-9a-f]{64}$'", name="inputs_hash_hex"
+        ),
+        CheckConstraint(f"settled IS NULL OR settled IN {QUESTION_SETTLED!r}", name="settled_enum"),
+        CheckConstraint("(settled IS NULL) = (settled_at IS NULL)", name="settled_pair"),
+        CheckConstraint(
+            f"settled_reason IS NULL OR char_length(settled_reason) <= {MAX_DISMISS_REASON_CHARS}",
+            name="settled_reason_length",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    question_key: Mapped[str] = mapped_column(Text, nullable=False)
+    inputs_hash: Mapped[str | None] = mapped_column(Text)
+    draft_status: Mapped[str | None] = mapped_column(Text)
+    draft: Mapped[str | None] = mapped_column(Text)
+    draft_source_kind: Mapped[str | None] = mapped_column(Text)
+    draft_source_label: Mapped[str | None] = mapped_column(Text)
+    settled: Mapped[str | None] = mapped_column(Text)
+    settled_reason: Mapped[str | None] = mapped_column(Text)
+    settled_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    settled_at: Mapped[datetime | None]
+
+
 __all__ = [
+    "DRAFT_SOURCE_KINDS",
+    "DRAFT_STATUSES",
     "FACT_ORIGINS",
     "MAX_CASE_EXPECTED_CHARS",
     "MAX_CASE_LINES",
     "MAX_CASE_LINE_CHARS",
     "MAX_CASE_TITLE_CHARS",
+    "MAX_DISMISS_REASON_CHARS",
     "MAX_FACT_CHARS",
     "MAX_PINNED_ANSWER_CHARS",
     "MAX_PINNED_QUESTION_CHARS",
+    "MAX_QUESTION_KEY_CHARS",
     "MAX_RULE_CHARS",
     "MAX_TEACH_WORDS",
+    "QUESTION_SETTLED",
     "RULE_STATUSES",
     "TEACH_INPUT_KINDS",
     "TEACH_STATUSES",
@@ -244,4 +315,5 @@ __all__ = [
     "CallTestCaseDraft",
     "KbFact",
     "KbTeaching",
+    "TeachQuestion",
 ]
