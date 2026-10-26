@@ -141,6 +141,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     published: true,
     inbound_number_count: 1,
     extraction_fields: [],
+    extraction_schema_version: 0,
     // D-454: inheriting all the way up — what this fixture always meant
     // implicitly, back when an agent had no opinion about its model.
     llm_tier: null,
@@ -1205,8 +1206,9 @@ describe("editing what an agent captures (the extraction variables)", () => {
     const put = calls.find((call) => call.method === "PUT");
     expect(put?.path).toBe("/v1/agents/agent-1/extraction-schema");
     // The whole ordered list, not a per-field patch — the edited label and reason ride the
-    // existing key.
+    // existing key — with the version the editor loaded, so a newer list is not overwritten.
     expect(JSON.parse(put?.body ?? "{}")).toEqual({
+      expected_version: 0,
       fields: [
         {
           key: "visit_reason",
@@ -1377,6 +1379,42 @@ describe("editing what an agent captures (the extraction variables)", () => {
     expect(alert.textContent).toContain("“status” is a built-in column.");
     // The whole-list PUT was still what was attempted.
     expect(calls.some((call) => call.method === "PUT")).toBe(true);
+  });
+
+  it("refuses to save over a list changed elsewhere and offers the current one", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({
+          extraction_schema_version: 3,
+          extraction_fields: [field({ key: "visit_reason", label: "Reason for visit" })],
+        }),
+        "PUT /v1/agents/agent-1/extraction-schema": problem(409, {
+          type: "urn:calevate:conflict/extraction_schema_changed_elsewhere",
+          title: "Conflict",
+          detail: "These details were changed somewhere else after you opened them.",
+        }),
+      }),
+    );
+
+    await screen.findByText("Reception");
+    const panel = card(captures);
+    await openEditors(panel);
+    await pressable(panel, /Add variable/);
+    await act(async () => {
+      fireEvent.change(within(panel).getByLabelText("Name"), { target: { value: "Why" } });
+    });
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Save variables/));
+    });
+
+    await within(panel).findByText(/changed somewhere else/);
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole("button", { name: "Load the current list" }));
+    });
+    await openEditors(panel);
+    expect(within(panel).getByDisplayValue("Reason for visit")).toBeTruthy();
+    expect(within(panel).queryByText(/changed somewhere else/)).toBeNull();
   });
 
   it("adds a variable, derives a key from its name, and saves the pair", async () => {

@@ -50,7 +50,9 @@ import type {
   LeadFieldsAgent,
   LeadFieldsDraft,
   ReplaceOut,
+  SaveAgentLeadFieldsIn,
 } from "@/lib/api/leadFields";
+import { ApiProblem } from "@/lib/api/client";
 import type { LeadSuggestionsApi } from "@/lib/api/leadSuggestions";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { lookup } from "@/lib/lookup";
@@ -70,7 +72,7 @@ const CORE_MEANING: Readonly<Record<string, string>> = {
 };
 
 export interface LeadDetailsWrites {
-  save: UseMutationResult<ExtractionSchemaOut, Error, { agentId: string; fields: LeadField[] }>;
+  save: UseMutationResult<ExtractionSchemaOut, Error, SaveAgentLeadFieldsIn>;
   /** The operator's button. On the client's screen the draft is asked of Pip (D-821). */
   draft?: UseMutationResult<DraftRequestOut, Error, void>;
   /** The owner's review of a finished draft: keep these keys. Client only. */
@@ -429,6 +431,17 @@ function AgentEditor({
   const validation = useFormValidation();
   const saved = useMemo(() => canonical(agent.business_fields), [agent.business_fields]);
   const dirty = canonical(toWireFields(rows)) !== saved;
+  // The version the rows were loaded from, sent as `expected_version`. A newer list (a kept
+  // suggestion, Pip, the agent's own screen) is adopted while the rows are untouched; with
+  // edits in progress the save is refused instead of dropping the newer fields.
+  const [base, setBase] = useState(() => ({ version: agent.version, canonical: saved }));
+  const adoptCurrent = () => {
+    setBase({ version: agent.version, canonical: saved });
+    setRows(agent.business_fields.map(toDraft));
+  };
+  if (agent.version !== base.version && canonical(toWireFields(rows)) === base.canonical) {
+    adoptCurrent();
+  }
   useUnsavedGuard(dirty);
   const clientError = clientValidationError(rows);
   const { save, replace, useSuggestions } = writes;
@@ -460,7 +473,13 @@ function AgentEditor({
       className="space-y-4"
       onSubmit={validation.onSubmit(() => {
         if (disabled || !dirty || clientError) return;
-        save.mutate({ agentId: agent.id, fields: toWireFields(rows) });
+        save.mutate(
+          { agentId: agent.id, fields: toWireFields(rows), expected_version: base.version },
+          {
+            onSuccess: (result) =>
+              setBase({ version: result.version, canonical: canonical(result.fields) }),
+          },
+        );
       })}
     >
       {many && (
@@ -507,6 +526,18 @@ function AgentEditor({
       </button>
 
       {save.error && <ProblemNotice error={save.error} />}
+      {save.error instanceof ApiProblem && save.error.code === "extraction_schema_changed_elsewhere" && (
+        <button
+          type="button"
+          className={SECONDARY_BUTTON}
+          onClick={() => {
+            adoptCurrent();
+            save.reset();
+          }}
+        >
+          Load the current list
+        </button>
+      )}
       {replace.error && !confirming && <ProblemNotice error={replace.error} />}
 
       <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">

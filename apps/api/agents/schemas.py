@@ -155,6 +155,9 @@ class AgentOut(BaseModel):
     engine_voice_id: str | None = None
     engine_model_id: str | None = None
     extraction_fields: list[ExtractionField] = []
+    #: The version `extraction_fields` came from; 0 when the agent has none yet. The editor
+    #: sends it back as `expected_version` so a save cannot drop another writer's fields.
+    extraction_schema_version: int = 0
 
 
 __all__ = ["AgentOut"]

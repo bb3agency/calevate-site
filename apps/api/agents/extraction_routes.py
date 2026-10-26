@@ -113,6 +113,11 @@ class ExtractionSchemaIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     fields: list[ExtractionField] = Field(max_length=MAX_EXTRACTION_FIELDS)
+    #: The schema version the editor was showing (0 for an agent with none yet). Sent, a
+    #: save over a version somebody else wrote since (another owner, Pip, an accepted
+    #: suggestion) is refused rather than silently dropping their fields, because the body
+    #: is the WHOLE list. Omitted, the list replaces whatever is there.
+    expected_version: int | None = Field(default=None, ge=0)
 
 
 class ExtractionSchemaOut(BaseModel):
@@ -251,7 +256,11 @@ async def _read_current(
 
 
 async def _write_schema(
-    session: AsyncSession, *, agent_id: UUID, fields: list[ExtractionField]
+    session: AsyncSession,
+    *,
+    agent_id: UUID,
+    fields: list[ExtractionField],
+    expected_version: int | None = None,
 ) -> ExtractionSchemaOut:
     """Insert a new schema version and point the agent at it — or do nothing if the list is
     unchanged. The caller has already validated `fields`.
@@ -278,6 +287,13 @@ async def _write_schema(
             core_fields=list(CORE_LEAD_FIELDS),
             version=current_version,
             changed=False,
+        )
+    # After the no-op check: re-sending what is already on file loses nobody's edit.
+    if expected_version is not None and expected_version != current_version:
+        raise ProblemError.conflict(
+            "extraction_schema_changed_elsewhere",
+            "These details were changed somewhere else after you opened them.",
+            remediation="Reload to see the current list, then make your change again.",
         )
 
     # `MAX(version)+1` over the agent's own rows, not `current_version + 1`: it is the value
@@ -402,7 +418,12 @@ async def set_extraction_schema(
 ) -> ExtractionSchemaOut:
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
     _validate_fields(payload.fields)
-    result = await _write_schema(session, agent_id=agent_id, fields=payload.fields)
+    result = await _write_schema(
+        session,
+        agent_id=agent_id,
+        fields=payload.fields,
+        expected_version=payload.expected_version,
+    )
     await write_audit(
         session,
         action="agent.extraction_schema_set",
@@ -439,7 +460,12 @@ async def admin_set_extraction_schema(
     that inferred the tenant would be un-callable for a mutation."""
     _validate_fields(payload.fields)
     async with tenant_session(tenant_id) as scoped:
-        result = await _write_schema(scoped, agent_id=agent_id, fields=payload.fields)
+        result = await _write_schema(
+            scoped,
+            agent_id=agent_id,
+            fields=payload.fields,
+            expected_version=payload.expected_version,
+        )
         await write_audit(
             scoped,
             action="admin.agent_extraction_schema_set",

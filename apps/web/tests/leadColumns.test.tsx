@@ -91,6 +91,7 @@ const AGENT: Agent = {
   archived_at: null,
   inbound_number_count: 1,
   extraction_fields: [],
+  extraction_schema_version: 0,
   // D-454: the model this agent runs on. `null` + source "platform" is an agent
   // inheriting all the way up, which is what every pre-D-454 fixture described
   // implicitly by having no opinion at all.

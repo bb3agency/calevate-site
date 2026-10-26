@@ -108,6 +108,7 @@ function created(over: Partial<Agent> = {}): Agent {
     published: false,
     inbound_number_count: 0,
     extraction_fields: [],
+    extraction_schema_version: 0,
     // D-454: inheriting all the way up — what this fixture always meant
     // implicitly, back when an agent had no opinion about its model.
     llm_tier: null,

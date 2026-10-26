@@ -30,6 +30,13 @@ export type LeadFields = Schemas["LeadFieldsOut"];
 export type LeadFieldsAgent = Schemas["LeadFieldsAgentOut"];
 export type LeadFieldsDraft = Schemas["LeadFieldsDraftOut"];
 export type LeadField = Schemas["ExtractionField"];
+/** One agent's whole list, with the version the editor loaded (`expected_version`): a save
+ *  over a newer version is refused with `extraction_schema_changed_elsewhere`. */
+export type SaveAgentLeadFieldsIn = {
+  agentId: string;
+  fields: LeadField[];
+  expected_version?: number;
+};
 export type ReplaceOut = Schemas["ReplaceOut"];
 export type DraftRequestOut = Schemas["DraftRequestOut"];
 export type DraftReviewOut = Schemas["LeadFieldsReviewOut"];
@@ -106,14 +113,14 @@ export function useReplaceLeadFields(
 
 export function useSaveAgentLeadFields(
   session: Session,
-): UseMutationResult<ExtractionSchemaOut, Error, { agentId: string; fields: LeadField[] }> {
+): UseMutationResult<ExtractionSchemaOut, Error, SaveAgentLeadFieldsIn> {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ agentId, fields }) =>
+    mutationFn: ({ agentId, fields, expected_version }) =>
       apiRequest<ExtractionSchemaOut>(
         session,
         `/v1/agents/${encodeURIComponent(agentId)}/extraction-schema`,
-        { method: "PUT", body: { fields } },
+        { method: "PUT", body: { fields, expected_version } },
       ),
     onSuccess: (_out, { agentId }) =>
       Promise.all([
@@ -181,14 +188,14 @@ export function useAdminReplaceLeadFields(
 
 export function useAdminSaveAgentLeadFields(
   tenantId: string,
-): UseMutationResult<ExtractionSchemaOut, Error, { agentId: string; fields: LeadField[] }> {
+): UseMutationResult<ExtractionSchemaOut, Error, SaveAgentLeadFieldsIn> {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ agentId, fields }) =>
+    mutationFn: ({ agentId, fields, expected_version }) =>
       apiRequest<ExtractionSchemaOut>(
         adminSession(),
         `/v1/admin/tenants/${encodeURIComponent(tenantId)}/agents/${encodeURIComponent(agentId)}/extraction-schema`,
-        { method: "PUT", body: { fields } },
+        { method: "PUT", body: { fields, expected_version } },
       ),
     onSuccess: () => client.invalidateQueries({ queryKey: leadFieldsKeys.admin(tenantId) }),
   });

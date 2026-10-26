@@ -12999,6 +12999,11 @@ export interface components {
              */
             extraction_fields: components["schemas"]["ExtractionField"][];
             /**
+             * Extraction Schema Version
+             * @default 0
+             */
+            extraction_schema_version: number;
+            /**
              * First Words
              * @default
              */
@@ -19248,6 +19253,8 @@ export interface components {
          *     holding the form.
          */
         ExtractionSchemaIn: {
+            /** Expected Version */
+            expected_version?: number | null;
             /** Fields */
             fields: components["schemas"]["ExtractionField"][];
         };

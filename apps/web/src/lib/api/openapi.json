@@ -3185,6 +3185,11 @@
             "title": "Extraction Fields",
             "type": "array"
           },
+          "extraction_schema_version": {
+            "default": 0,
+            "title": "Extraction Schema Version",
+            "type": "integer"
+          },
           "first_words": {
             "default": "",
             "title": "First Words",
@@ -19886,6 +19891,18 @@
         "additionalProperties": false,
         "description": "The whole new ordered field list. `extra=\"forbid\"` on every field\n(`ExtractionField`), so an unknown key on a variable is a 422 rather than a silently\ndropped edit.\n\n`max_length` HERE and not on `ExtractionField`/`ExtractionSchemaSpec`, deliberately.\nThose two models also parse what is ALREADY STORED (`_read_current`, `crm.service.\nlead_columns`, `crm/lead_chunks._fields_for`), and a ceiling added to a read model is a\nceiling that turns every row written before it existed into a 500 on the client's own\nLeads screen. A bound belongs on the write, where the person who can act on it is\nholding the form.",
         "properties": {
+          "expected_version": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          },
           "fields": {
             "items": {
               "$ref": "#/components/schemas/ExtractionField"

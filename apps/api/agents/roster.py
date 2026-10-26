@@ -96,7 +96,9 @@ AGENT_ROSTER_SQL = (
     # pointer `agents/service._load_agent` publishes from.
     "pv.body, "
     # The reply languages after the main one, appended for the reason above.
-    "a.languages_extra "
+    "a.languages_extra, "
+    # The capture schema's version, the editor's save token (`expected_version`).
+    "es.version "
     "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
     "LEFT JOIN organizations o ON o.id = a.tenant_id "
     "LEFT JOIN prompt_versions pv ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -158,6 +160,7 @@ def agent_out(r: Any) -> AgentOut:
         # The agent's OWN fields; the core every agent also captures is
         # `GET /v1/lead-fields` (`calevate_shared.lead_fields`).
         extraction_fields=business_only(r[8]),
+        extraction_schema_version=int(r[23] or 0),
         ai_disclosure_line=r[9],
         ai_disclosure_enabled=bool(r[10]),
         recording_notice_line=r[11],

@@ -23,6 +23,7 @@ import { InfoTip } from "@/components/console/infoTip";
 import { isDeleted } from "@/lib/agentState";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useSetExtractionSchema, type Agent } from "@/lib/api/agents";
+import { ApiProblem } from "@/lib/api/client";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -71,6 +72,23 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
   const savedCanonical = useMemo(() => canonical(agent.extraction_fields), [agent.extraction_fields]);
   const wireFields = toWireFields(rows);
   const dirty = canonical(wireFields) !== savedCanonical;
+  // The version the rows were loaded from, sent back as `expected_version`. A newer list
+  // written elsewhere (Pip, a kept suggestion, another owner) is adopted while the rows are
+  // untouched; with edits in progress the base stays put, so the save is refused rather
+  // than writing the whole old list over the newer one.
+  const [base, setBase] = useState(() => ({
+    version: agent.extraction_schema_version,
+    canonical: savedCanonical,
+  }));
+  const adoptCurrent = () => {
+    setBase({ version: agent.extraction_schema_version, canonical: savedCanonical });
+    setRows(agent.extraction_fields.map(toDraft));
+  };
+  if (agent.extraction_schema_version !== base.version && canonical(wireFields) === base.canonical) {
+    adoptCurrent();
+  }
+  const conflict =
+    save.error instanceof ApiProblem && save.error.code === "extraction_schema_changed_elsewhere";
   // The same `dirty` the save button reads, told to the browser: a reload here throws away
   // a re-designed CRM column list that nothing else holds. `lib/useUnsavedGuard.ts`.
   useUnsavedGuard(dirty);
@@ -267,6 +285,18 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
       {save.error && (
         <div className="mt-3">
           <ProblemNotice error={save.error} />
+          {conflict && (
+            <button
+              type="button"
+              className={`mt-2 ${SECONDARY_BUTTON}`}
+              onClick={() => {
+                adoptCurrent();
+                save.reset();
+              }}
+            >
+              Load the current list
+            </button>
+          )}
         </div>
       )}
 
@@ -276,12 +306,13 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
         onSubmit={valid.onSubmit(() => {
           if (!write.allowed || !dirty || clientError || save.isPending) return;
           save.mutate(
-            { fields: toWireFields(rows) },
+            { fields: toWireFields(rows), expected_version: base.version },
             {
               onSuccess: (result) => {
                 // Repaint from the server's stored answer, not the draft — the validator
                 // may have trimmed or reordered, and the screen must show what is on file.
                 setRows(result.fields.map(toDraft));
+                setBase({ version: result.version, canonical: canonical(result.fields) });
               },
             },
           );

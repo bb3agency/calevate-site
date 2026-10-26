@@ -207,8 +207,14 @@ describe("the lead details screen", () => {
     await waitFor(() => {
       const put = calls.find((c) => c.method === "PUT");
       expect(put?.path).toBe("/v1/agents/a1/extraction-schema");
-      const sent = JSON.parse(put?.body ?? "{}") as { fields: { key: string }[] };
+      const sent = JSON.parse(put?.body ?? "{}") as {
+        fields: { key: string }[];
+        expected_version: number;
+      };
       expect(sent.fields.map((f) => f.key)).toEqual(["product", "pack_size"]);
+      // The version the editor loaded: a list changed since (a kept suggestion, Pip) is
+      // refused by the server instead of being overwritten by this whole-list save.
+      expect(sent.expected_version).toBe(1);
     });
   });
 });

@@ -60,6 +60,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     published: true,
     inbound_number_count: 1,
     extraction_fields: [],
+    extraction_schema_version: 0,
     llm_tier: null,
     llm_tier_effective: "standard",
     llm_tier_label: "Standard",

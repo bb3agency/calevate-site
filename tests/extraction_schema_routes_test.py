@@ -183,6 +183,56 @@ async def test_owner_can_replace_the_list_and_it_bumps_the_version() -> None:
         assert pointed == start_version + 1
 
 
+async def test_a_save_from_a_stale_version_is_refused_and_keeps_the_newer_list() -> None:
+    """The body is the WHOLE list, so a save made from an older read would drop whatever
+    another writer (Pip, a kept suggestion, a second owner) added since."""
+    _tid, agent_id, token = await _tenant()
+    app = _app()
+    async with _client(app) as http:
+        start = (
+            await http.get(f"/v1/agents/{agent_id}/extraction-schema", headers=_bearer(token))
+        ).json()["version"]
+        newer = await http.put(
+            f"/v1/agents/{agent_id}/extraction-schema",
+            json={"fields": _TWO_FIELDS, "expected_version": start},
+            headers=_bearer(token),
+        )
+        assert newer.status_code == 200, newer.text
+        stale = await http.put(
+            f"/v1/agents/{agent_id}/extraction-schema",
+            json={"fields": _TWO_FIELDS[:1], "expected_version": start},
+            headers=_bearer(token),
+        )
+        assert stale.status_code == 409, stale.text
+        assert stale.json()["type"].endswith("extraction_schema_changed_elsewhere")
+        # Re-sending exactly what is on file is not a lost update, whatever version it names.
+        same = await http.put(
+            f"/v1/agents/{agent_id}/extraction-schema",
+            json={"fields": _TWO_FIELDS, "expected_version": start},
+            headers=_bearer(token),
+        )
+        assert same.status_code == 200 and same.json()["changed"] is False
+        after = await http.get(f"/v1/agents/{agent_id}/extraction-schema", headers=_bearer(token))
+        assert [f["key"] for f in after.json()["fields"]] == ["budget", "area"]
+
+
+async def test_the_roster_carries_the_version_the_editor_sends_back() -> None:
+    tenant_id, agent_id, token = await _tenant()
+    app = _app()
+    async with _client(app) as http:
+        saved = await http.put(
+            f"/v1/agents/{agent_id}/extraction-schema",
+            json={"fields": _TWO_FIELDS},
+            headers=_bearer(token),
+        )
+    from apps.api.agents.roster import agent_by_id
+
+    async with tenant_session(tenant_id) as session:
+        agent = await agent_by_id(session, agent_id)
+    assert agent is not None
+    assert agent.extraction_schema_version == saved.json()["version"]
+
+
 async def test_re_putting_the_same_list_changes_nothing() -> None:
     _tid, agent_id, token = await _tenant()
     app = _app()

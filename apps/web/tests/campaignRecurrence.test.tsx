@@ -85,6 +85,7 @@ const AGENT: Agent = {
   archived_at: null,
   inbound_number_count: 1,
   extraction_fields: [],
+  extraction_schema_version: 0,
   // D-454: inheriting all the way up, which is what this fixture always meant.
   llm_tier: null,
   llm_tier_effective: "standard",
