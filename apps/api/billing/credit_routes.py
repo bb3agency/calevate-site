@@ -248,8 +248,8 @@ from apps.api.billing.service import (
     get_balance,
     grant_ref,
     lock_tenant_credits,
-    lot_of_entry,
     lot_reprice_ref,
+    purchase_lot_of_entry,
     rate_card_at,
     read_correctable_entry,
     read_recorded_payment,
@@ -1990,7 +1990,11 @@ async def record_restatement(
             ledger_entry_id=written.entry_id,
             restate_lot_id=(
                 anchor_lot.lot_id
-                if (anchor_lot := await lot_of_entry(scoped, ledger_entry_id=anchor.entry_id))
+                if (
+                    anchor_lot := await purchase_lot_of_entry(
+                        scoped, tenant_id=tenant_id, ledger_entry_id=anchor.entry_id
+                    )
+                )
                 else None
             ),
         )

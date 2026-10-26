@@ -1269,6 +1269,44 @@ async def lot_of_entry(session: AsyncSession, *, ledger_entry_id: UUID) -> Entry
     return EntryLot(lot_id=UUID(str(found[0])), credits_total=Decimal(str(found[1])))
 
 
+#: The lot a re-price opened in place of `:lot`: its marker row names the closed lot in
+#: `meta.lot_id`, and the replacement carries the marker as its `ledger_entry_id`.
+_REPRICE_SUCCESSOR_SQL: Final = (
+    "SELECT l.id, l.credits_total FROM credit_ledger e "
+    "JOIN credit_lots l ON l.ledger_entry_id = e.id "
+    "WHERE e.tenant_id = :tid AND e.reason = 'adjustment' "
+    "AND e.meta->>'kind' = :kind AND e.meta->>'lot_id' = :lot"
+)
+
+
+async def purchase_lot_of_entry(
+    session: AsyncSession, *, tenant_id: UUID, ledger_entry_id: UUID
+) -> EntryLot | None:
+    """The lot that holds a purchase's credit NOW: the lot its row opened, or the lot a
+    re-price replaced it with, followed to the end of the chain.
+
+    Every correction of a purchase (a restatement, a refund's unspent-credit ceiling, a
+    dispute's hold and release, an adjustment) acts on the purchase's credit. After a
+    re-price that credit sits on the replacement, while the lot the row opened is closed at
+    the superseded rates; restating onto that one reopened it at the dearer rates D-561
+    forbids, and a refund read its zero remainder as nothing left to refund.
+    """
+    lot = await lot_of_entry(session, ledger_entry_id=ledger_entry_id)
+    # Terminates: a re-price closes its lot (`lot_is_spent` refuses a closed one) and opens
+    # a new one, so the chain only ever moves to a lot opened later.
+    while lot is not None:
+        successor = (
+            await session.execute(
+                text(_REPRICE_SUCCESSOR_SQL),
+                {"tid": tenant_id, "kind": LOT_REPRICE_META_KIND, "lot": str(lot.lot_id)},
+            )
+        ).first()
+        if successor is None:
+            return lot
+        lot = EntryLot(lot_id=UUID(str(successor[0])), credits_total=Decimal(str(successor[1])))
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class LotDebit:
     """One debit as the lots answered it."""
@@ -1433,7 +1471,9 @@ async def remove_credit_from_lots(
     lot = (
         None
         if corrected_entry_id is None
-        else await lot_of_entry(session, ledger_entry_id=corrected_entry_id)
+        else await purchase_lot_of_entry(
+            session, tenant_id=tenant_id, ledger_entry_id=corrected_entry_id
+        )
     )
     if lot is not None and amount_inr < lot.credits_total:
         restated = await credit_lots.adjust_lot_for_restatement(
@@ -3810,6 +3850,7 @@ __all__ = [
     "plan_tier_of",
     "prepaid_call_statement_lines",
     "priced_llm_surcharge",
+    "purchase_lot_of_entry",
     "rate_card_at",
     "rate_to_display",
     "read_correctable_entry",

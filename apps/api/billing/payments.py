@@ -116,7 +116,7 @@ from apps.api.billing.service import (
     find_topup,
     get_balance,
     lock_tenant_credits,
-    lot_of_entry,
+    purchase_lot_of_entry,
     rate_card_at,
     record_entry,
     remove_credit_from_lots,
@@ -1532,7 +1532,7 @@ async def unspent_credit_of_payment(
     """What of this payment's purchased credit the client has not spent and is not
     already being refunded: its lot's remaining credit, less refunds claimed and not yet
     processed (a processed refund has already taken its credit off the lot)."""
-    lot = await lot_of_entry(session, ledger_entry_id=entry_id)
+    lot = await purchase_lot_of_entry(session, tenant_id=tenant_id, ledger_entry_id=entry_id)
     if lot is None:
         return Decimal("0.00")
     remaining = (

@@ -38,7 +38,11 @@ from decimal import Decimal
 import pytest
 from apps.api.billing import lots as credit_lots
 from apps.api.billing.credit_packs import CreditPack, pack_by_id
-from apps.api.billing.credit_routes import lot_reprice_confirmation
+from apps.api.billing.credit_routes import (
+    credit_adjustment_confirmation,
+    lot_reprice_confirmation,
+    topup_restatement_confirmation,
+)
 from apps.api.billing.credit_routes import lots_router as credit_lots_router
 from apps.api.billing.credit_routes import router as credit_router
 from apps.api.billing.lots import CallDemand, read_open_lots
@@ -649,3 +653,60 @@ async def test_a_reprice_that_raises_both_tiers_names_both_of_them() -> None:
     assert studio in detail, detail
     assert ", and " in detail, "both tiers, joined — this is the plural branch"
     assert len(await lot_rows(tenant_id)) == 1, "the refusal opened no second lot"
+
+
+async def test_a_correction_of_a_repriced_purchase_lands_on_the_replacement() -> None:
+    """A restatement and an adjustment correct the PURCHASE's credit, which after a re-price
+    sits on the replacement. The restatement used to grow the lot the payment opened, so it
+    reopened that closed lot at the superseded, dearer rates, ahead of the replacement in
+    the queue: one bank transfer priced at two cards, and a re-price's 'only ever cheaper'
+    rule bypassed for the added credit."""
+    token, tenant_id = await _admin(), await _tenant()
+    ref = f"UTR-{uuid.uuid4().hex[:8]}"
+    async with _client() as http:
+        posted = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credits",
+            headers={**_headers(token), "X-Confirm-Action": f"record_payment:{tenant_id}"},
+            json={"amount_inr": "6000.00", "payment_ref": ref},
+        )
+        assert posted.status_code == 200, posted.text
+        entry_id = uuid.UUID(posted.json()["entry_id"])
+        lot_id = uuid.UUID(posted.json()["lot"]["lot_id"])
+        repriced = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credit-lots/{lot_id}/override",
+            headers=_headers(token, lot_reprice_confirmation(lot_id)),
+            json={"pack_id": "max", "reason": "founding client"},
+        )
+        assert repriced.status_code == 200, repriced.text
+        replacement_id = uuid.UUID(repriced.json()["lot"]["lot_id"])
+        restated = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credits/restatements",
+            headers=_headers(token, topup_restatement_confirmation(ref, Decimal("8000.00"))),
+            json={
+                "payment_ref": ref,
+                "corrected_amount_inr": "8000.00",
+                "reason": "the statement shows the larger figure",
+            },
+        )
+        assert restated.status_code == 200, restated.text
+        assert restated.json()["lot"]["lot_id"] == str(replacement_id)
+        adjusted = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credits/adjustments",
+            headers=_headers(token, credit_adjustment_confirmation(entry_id)),
+            json={
+                "corrects_entry_id": str(entry_id),
+                "amount_inr": "1000.00",
+                "reason": "part of it was a different client's transfer",
+            },
+        )
+        assert adjusted.status_code in (200, 201), adjusted.text
+
+    rows = {row["id"]: row for row in await lot_rows(tenant_id)}
+    assert len(rows) == 2
+    assert rows[lot_id]["closed_at"] is not None
+    assert rows[lot_id]["credits_remaining"] == Decimal("0.0000")
+    replacement = rows[replacement_id]
+    assert replacement["credits_remaining"] == Decimal("7000.0000")
+    deepest = _pack("max")
+    assert replacement["clear_inr_per_min"] == deepest.clear_inr_per_min
+    assert await _balance(tenant_id) == Decimal("7000.0000")

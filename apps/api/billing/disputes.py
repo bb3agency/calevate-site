@@ -46,7 +46,7 @@ from apps.api.billing.service import (
     find_entry_by_ref,
     find_topup,
     lock_tenant_credits,
-    lot_of_entry,
+    purchase_lot_of_entry,
     rate_card_at,
     record_entry,
     remove_credit_from_lots,
@@ -332,7 +332,13 @@ async def _release(session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFa
     released = await find_entry_by_ref(session, tenant_id=tenant_id, reason="adjustment", ref=ref)
     assert released is not None
     paid = await find_topup(session, tenant_id=tenant_id, ref=dispute.payment_id)
-    lot = None if paid is None else await lot_of_entry(session, ledger_entry_id=paid.entry_id)
+    lot = (
+        None
+        if paid is None
+        else await purchase_lot_of_entry(
+            session, tenant_id=tenant_id, ledger_entry_id=paid.entry_id
+        )
+    )
     await apply_credit_to_lots(
         session,
         tenant_id=tenant_id,
