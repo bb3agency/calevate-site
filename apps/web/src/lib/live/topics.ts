@@ -109,7 +109,18 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "admin/campaigns",
     "admin/campaign-check",
   ],
-  callbacks: [...SUMMARY, "callbacks", "callback-check"],
+  callbacks: [
+    ...SUMMARY,
+    "callbacks",
+    "callback-check",
+    // A call row and a call's page say what its booked call back came to, and a lead says
+    // when its next one is: all read through `scheduled_callbacks` (`crm/service.py`).
+    "call",
+    "calls",
+    "calls-log",
+    "lead",
+    "leads",
+  ],
   knowledge_gaps: [...SUMMARY, "knowledge-gaps", "kb-struggles", "readiness"],
   knowledge: [
     "kb",

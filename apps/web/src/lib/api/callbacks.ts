@@ -68,10 +68,18 @@ export function useCancelCallback(
       apiRequest<ScheduledCallback>(session, `/v1/callbacks/${callbackId}`, {
         method: "DELETE",
       }),
+    // The call it was booked on and the lead it is for both say what it came to.
     onSuccess: () =>
-      Promise.all([
-        client.invalidateQueries({ queryKey: callbackKeys.list(session.orgSlug, true) }),
-        client.invalidateQueries({ queryKey: callbackKeys.list(session.orgSlug, false) }),
-      ]),
+      Promise.all(
+        [
+          callbackKeys.list(session.orgSlug, true),
+          callbackKeys.list(session.orgSlug, false),
+          ["call", session.orgSlug],
+          ["calls", session.orgSlug],
+          ["calls-log", session.orgSlug],
+          ["lead", session.orgSlug],
+          ["leads", session.orgSlug],
+        ].map((queryKey) => client.invalidateQueries({ queryKey })),
+      ),
   });
 }
