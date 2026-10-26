@@ -155,7 +155,15 @@ export function useEditLead(session: Session) {
   return useMutation({
     mutationFn: ({ leadId, edit }: { leadId: string; edit: LeadEdit }) =>
       apiRequest<Lead>(session, `/v1/leads/${leadId}`, { method: "PATCH", body: edit }),
-    onSuccess: (_lead, { leadId }) => invalidateEditedLead(client, session.orgSlug, leadId),
+    onSuccess: (_lead, { leadId, edit }) => {
+      invalidateEditedLead(client, session.orgSlug, leadId);
+      // Calls name the caller from their lead, so a rename shows on the call log too.
+      if (edit.name !== undefined) {
+        for (const family of ["call", "calls", "calls-log"]) {
+          void client.invalidateQueries({ queryKey: [family, session.orgSlug] });
+        }
+      }
+    },
   });
 }
 

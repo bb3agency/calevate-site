@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { useCancelCallback } from "@/lib/api/callbacks";
+import { useEditLead } from "@/lib/api/leads";
 import type { Session } from "@/lib/api/client";
 import { familiesFor } from "@/lib/live/topics";
 
@@ -45,6 +46,37 @@ describe("calling off a call-back", () => {
         ),
       );
     });
+  });
+});
+
+describe("renaming a lead", () => {
+  it("re-reads the calls that name the caller from it", async () => {
+    stubApi({ "PATCH /v1/leads/l1": { id: "l1", name: "Ravi" } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidated = vi.spyOn(client, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useEditLead(SESSION), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ leadId: "l1", edit: { name: "Ravi" } });
+    });
+
+    const keys = invalidated.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey));
+    for (const family of ["call", "calls", "calls-log"]) {
+      expect(keys).toContain(JSON.stringify([family, "acme"]));
+    }
+  });
+
+  // `leads` announces `leads`, and a teammate's rename reaches this screen as a note.
+  it("is a live note the call log refetches on", () => {
+    const families = familiesFor(["leads"]);
+    for (const family of ["call", "calls", "calls-log"]) {
+      expect(families).toContain(family);
+    }
   });
 });
 

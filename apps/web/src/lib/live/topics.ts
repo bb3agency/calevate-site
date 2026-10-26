@@ -88,6 +88,10 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "lead-views",
     "lead-captured",
     "lead-calling",
+    // A call row and a call's page name the caller from their lead (`_LEAD_NAME_COLUMN`).
+    "call",
+    "calls",
+    "calls-log",
     "ingest-activity",
     "members",
     // `lead_field_drafts` announces `leads`; a draft that fails writes nothing else.
