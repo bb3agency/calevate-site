@@ -543,3 +543,40 @@ reviewed. No model is called, so nothing is metered and no allowance is checked.
 * **Screens learn of an immediate action as it lands.** `useCopilotConversation` refreshes
   the queries in `lib/api/copilot.INVALIDATES` when an `action` frame arrives, as a confirm
   already did, so a card built from those reads ticks without a reload.
+
+## 16. The agent page's remaining buttons (D-893, lane L4)
+
+Every agent button a client can press is now also a Pip action, calling the button's own
+service (`copilot/agent_setup_actions.py`, `copilot/agent_tool_actions.py`). Where the logic
+lived in a route body it moved into a service both doors call.
+
+| Tool | Tier, permission, audit | Service (the button's) |
+|---|---|---|
+| `agent_restore` | immediate, `org:manage`, `agent.restored` | `lifecycle.restore_agent`; Undo archives again while the agent is still paused with no number given to it (`ActionTool.acts_on_archived` exempts it from the deleted-agent refusal) |
+| `agent_prepare` | confirm, `org:manage`, `agent.prepared` | `lifecycle.prepare_agent` ("Get it ready") |
+| `agent_script_put_live` | confirm, `org:manage`, `agent.script_published` | `agents/script_publish.put_draft_live`, bound to the draft's `saved_at` and the version the card read |
+| `agent_script_discard` | confirm, `org:manage`, `agent.changes_undone` | `publishing.undo_staged` |
+| `agent_script_version_restore` | confirm, `org:manage`, `agent.script_version_restored` | `script_builder.restore_into_draft` |
+| `agent_settings_set` | confirm, `agents:write` (owner settings also need `org:manage`, checked inside), `agent.settings_set` | `voice_tuning.set_voice_tuning`, `call_handling.set_agent_call_handling`, `publishing.set_call_cap`, `llm_tiers.resolve_agent_tier` + `lifecycle.update_agent`, `publishing.set_caller_memory` |
+| `agent_handover_set` | confirm, `org:manage`, `agent.handoff.replace` | `handoff.replace_handoff` |
+| `agent_action_set` / `_switch` / `_remove` | confirm, `org:manage`, `action_tool.saved` / `.switched` / `.deleted` | `actions/agent_tools` (each re-syncs a live agent's actions) |
+| `lead_fields_keep_draft` | confirm, `org:manage`, `lead_fields.draft_reviewed` | `agents/lead_fields_writes.keep_draft` |
+| `lead_fields_reset` | confirm, `org:manage`, `lead_fields.replaced` | `agents/lead_fields_writes.replace_with_standard` |
+| `lead_suggestion_answer` | confirm, `org:manage`, `agent.lead_suggestion_answered` | `field_suggestions.accept` / `.dismiss` |
+
+* **The read is `agent_settings`** (`copilot/agent_reads.py`, `agents:read`) with a `part`:
+  `settings`, `script`, `handover`, `actions`, `lead_fields`. One schema instead of five keeps
+  the prefix small. The hand-over part names people and their contact ids, never a number.
+* **`agent_settings_set` takes `changes: [{setting, value}]`**, values as words (`on`/`off`,
+  numbers, `default` to follow the account or the voice). Each value is parsed and checked by
+  the writer's own range check while the card is drawn; volume and emotion are refused on a
+  voice that is not Studio. AI model is a tier, so only `offerable_models()` can be chosen
+  (`resolve_tier_choice`).
+* **Never through Pip:** connecting an account (keys, OAuth), and switching caller memory on
+  before the owner has confirmed its statement on the Settings tab — the planner refuses and
+  sends the person there; `set_caller_memory` is always called with `attested_by=None`.
+* **The prefix budget** rose to 21,400 tokens while each action is its own tool;
+  `docs/PIP-AGENT-PLAN.md` §3 F1's area tools replace the per-tool array.
+* Tests: `copilot/agent_setup_actions_test.py`, `copilot/agent_tool_actions_test.py`; tool
+  choice: the `c-agent-*`, `c-script-put-live`, `c-script-discard`, `c-script-version`,
+  `c-lead-*` cases.

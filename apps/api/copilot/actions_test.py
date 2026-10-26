@@ -90,6 +90,8 @@ _REVIEWED_IMMEDIATE: dict[str, str] = {
     ),
     # D-822: it saves no test; it fills in the call page's form, which the person saves.
     "call_test_prepare": "a filled-in form nobody has saved; Undo puts the form back",
+    # D-893: a restored agent comes back paused — it answers nothing and calls nobody.
+    "agent_restore": "returns paused, reaching no caller; Undo deletes it again",
 }
 
 

@@ -618,7 +618,8 @@ AGENT_PUBLISH: Final = ActionTool(
         "Propose putting one of this business's voice agents LIVE on the phone system, so "
         "it starts answering and placing real calls. Works from any screen. The agent must "
         "already have a script; if it does not, the platform refuses and tells you so — "
-        "relay that refusal, do not try again." + PROPOSES_ONLY,
+        "relay that refusal, do not try again. To try it in chat without calls use "
+        "`agent_prepare`." + PROPOSES_ONLY,
         {
             "agent_id": {
                 "type": "string",

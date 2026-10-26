@@ -239,6 +239,20 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "business_copy_refresh",
         # D-854's pinned answers APPEND.
         "knowledge_facts_pin",
+        # D-893's agent page actions APPEND.
+        "agent_restore",
+        "agent_prepare",
+        "agent_script_put_live",
+        "agent_script_discard",
+        "agent_script_version_restore",
+        "agent_settings_set",
+        "agent_handover_set",
+        "agent_action_set",
+        "agent_action_switch",
+        "agent_action_remove",
+        "lead_fields_keep_draft",
+        "lead_fields_reset",
+        "lead_suggestion_answer",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]

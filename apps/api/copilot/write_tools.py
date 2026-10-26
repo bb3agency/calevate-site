@@ -122,6 +122,8 @@ from apps.api.copilot.actions import (
     parse_args,
 )
 from apps.api.copilot.agent_actions import AGENT_ACTIONS
+from apps.api.copilot.agent_setup_actions import AGENT_SETUP_ACTIONS
+from apps.api.copilot.agent_tool_actions import AGENT_TOOL_ACTIONS
 from apps.api.copilot.assist_actions import ASSIST_ACTIONS
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
@@ -957,6 +959,10 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *ASSIST_ACTIONS,
     # D-854: the questions callers ask most, pinned from the first-agent chat.
     *FACT_ACTIONS,
+    # D-893 (L4): the agent page's remaining buttons — restore, get ready, the Script tab's
+    # direct actions, settings, hand-over, in-call actions and lead details.
+    *AGENT_SETUP_ACTIONS,
+    *AGENT_TOOL_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}
@@ -1027,7 +1033,7 @@ async def _refuse_a_deleted_agent(
     is registered. A `WriteRefusedError` rather than a `ProblemError`: this is something the
     model must relay in words, not retry around.
     """
-    if tool.object_type != "agent":
+    if tool.object_type != "agent" or tool.acts_on_archived:
         return
     raw = args.get("agent_id")
     if not isinstance(raw, str):

@@ -161,6 +161,9 @@ SIBLINGS = (
     ("platform_tenants", "admin_client_standing"),
     ("agent_script_suggest", "agent_tests_fix"),
     ("propose_knowledge", "knowledge_teach"),
+    ("agent_script_put_live", "agent_changes_apply"),
+    ("agent_script_discard", "agent_changes_apply"),
+    ("agent_prepare", "agent_publish"),
 )
 
 

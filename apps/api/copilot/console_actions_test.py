@@ -29,6 +29,8 @@ from tests.lead_dial_routes_test import (  # reuse, never re-implement
 )
 
 from apps.api.copilot import action_log, write_tools
+from apps.api.copilot.agent_setup_actions import AGENT_SETUP_ACTIONS
+from apps.api.copilot.agent_tool_actions import AGENT_TOOL_ACTIONS
 from apps.api.copilot.assist_actions import ASSIST_ACTIONS
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
@@ -137,8 +139,14 @@ _MUST_CONFIRM = {
 def test_the_console_actions_are_appended_after_the_earlier_ones() -> None:
     names = [tool.name for tool in write_tools.WRITE_TOOLS]
     console = [tool.name for tool in CONSOLE_ACTIONS]
-    # Only D-820's, D-821's, D-822's and D-854's actions are registered after them.
-    later = len(SCRIPT_ACTIONS) + len(ASSIST_ACTIONS) + len(FACT_ACTIONS)
+    # Only D-820's, D-821's, D-822's, D-854's and D-893's actions are registered after them.
+    later = (
+        len(SCRIPT_ACTIONS)
+        + len(ASSIST_ACTIONS)
+        + len(FACT_ACTIONS)
+        + len(AGENT_SETUP_ACTIONS)
+        + len(AGENT_TOOL_ACTIONS)
+    )
     assert names[-len(console) - later : -later] == console
     assert len(set(names)) == len(names)
 

@@ -2263,7 +2263,8 @@ AGENT_CHANGES_APPLY: Final = ActionTool(
     schema=action_schema(
         "agent_changes_apply",
         "Propose putting a live agent's saved-but-not-live script change in front of "
-        "callers. `agent_detail` says whether one is waiting." + PROPOSES_ONLY,
+        "callers. `agent_detail` says whether one is waiting. For the unsaved draft use "
+        "`agent_script_put_live`; to drop the change, `agent_script_discard`." + PROPOSES_ONLY,
         {"agent_id": {"type": "string", "description": "The agent's id, never invented."}},
     ),
     plan=_plan_agent_changes_apply,

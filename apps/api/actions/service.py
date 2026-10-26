@@ -300,6 +300,29 @@ def _validate(
     return params, config
 
 
+def check_definition(
+    *,
+    kind: str,
+    provider: str | None,
+    name: str,
+    description: str,
+    trigger: str,
+    params: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> None:
+    """The stored-tool rules, asked before anything is written — so a card describing an
+    action that `create_tool` would refuse is never shown."""
+    _validate(
+        kind=kind,
+        provider=provider,
+        name=name,
+        description=description,
+        trigger=trigger,
+        params_raw=params,
+        config_raw=config,
+    )
+
+
 #: The agent's newest extraction schema — the same one its Leads columns and its next call's
 #: extraction use (`crm.service._AGENT_SCHEMA_SQL`). RLS scopes the row to this tenant.
 _AGENT_FIELDS_SQL = (

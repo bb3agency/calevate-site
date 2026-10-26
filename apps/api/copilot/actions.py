@@ -394,6 +394,9 @@ class ActionTool:
     #: Not at approval: the re-plan there has no conversation, and the person's click on a
     #: card that showed the arguments is their own word for them.
     grounded: Grounding | None = None
+    #: The one agent action whose subject is a deleted (archived) agent: restoring it.
+    #: Every other agent-subject tool is refused on one (`write_tools._refuse_a_deleted_agent`).
+    acts_on_archived: bool = False
 
     def __post_init__(self) -> None:
         if self.tier == "immediate" and self.undo is None:

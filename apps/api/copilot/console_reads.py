@@ -54,6 +54,7 @@ from apps.api.compliance.kyc import kyc_not_verified_reason, read_kyc
 from apps.api.compliance.kyc_documents import current_documents
 from apps.api.compliance.outbound_pledge import pledge_blocker
 from apps.api.compliance.service import credits_exhausted
+from apps.api.copilot.agent_reads import AGENT_SETTINGS_READ
 from apps.api.copilot.tools import (
     MAX_ROWS,
     ReadTool,
@@ -1010,6 +1011,8 @@ CONSOLE_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         permission="agents:read",
         run=_voices_offered,
     ),
+    # D-893 (L4): one agent's set-up, a part at a time, for the agent actions.
+    AGENT_SETTINGS_READ,
 )
 
 CONSOLE_READ_TOOL_NAMES: Final[frozenset[str]] = frozenset(t.name for t in CONSOLE_READ_TOOLS)
