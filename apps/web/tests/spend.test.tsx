@@ -171,6 +171,7 @@ const FLEET: FleetSpend = {
   margin_inr: "-184100.00",
   margin_pct: null,
   ai_absorbed_inr: "0.81",
+  absorbed_other_inr: "0.00",
   trial_cost_inr: "0.00",
   paid_cost_inr: "1200000.00",
   paid_margin_inr: "-184100.00",
@@ -189,6 +190,7 @@ const FLEET: FleetSpend = {
       margin_pct: null,
       ai_absorbed_inr: "0.81",
       ai_requests: 3,
+      absorbed_other_inr: "0.00",
       unpriced_rows: 0,
       trial_cost_inr: "0.00",
       trial_in_month: false,
@@ -209,6 +211,7 @@ const FLEET: FleetSpend = {
       margin_pct: "0.00",
       ai_absorbed_inr: "0.00",
       ai_requests: 0,
+      absorbed_other_inr: "0.00",
       unpriced_rows: 0,
       trial_cost_inr: "0.00",
       trial_in_month: false,
@@ -970,6 +973,30 @@ describe("the operator's half", () => {
     expect(screen.getByText("AI we absorb", { selector: "p" })).toBeTruthy();
     const rows = container.querySelectorAll("tbody tr");
     expect(within(rows[0] as HTMLElement).getByText("3 actions")).toBeTruthy();
+  });
+
+  it("shows the forwarding checks and messages we absorb, and hides the tile at zero", async () => {
+    const { unmount } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: FLEET,
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
+    await screen.findByText("Vasavi Dental");
+    expect(screen.queryByText("Other costs we absorb", { selector: "p" })).toBeNull();
+    unmount();
+
+    const absorbing = {
+      ...FLEET,
+      absorbed_other_inr: "1.10",
+      tenants: [{ ...FLEET.tenants[0], absorbed_other_inr: "1.10" }, FLEET.tenants[1]],
+    };
+    const rendered = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: absorbing,
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
+    await screen.findByText("Vasavi Dental");
+    expect(tileValue(rendered.container, "Other costs we absorb")).toBe("₹1.10");
+    const rows = rendered.container.querySelectorAll("tbody tr");
+    expect(within(rows[0] as HTMLElement).getAllByText("₹1.10").length).toBeGreaterThan(0);
   });
 
   it("names a client whose month could not be priced, instead of it vanishing", async () => {

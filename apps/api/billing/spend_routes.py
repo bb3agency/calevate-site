@@ -44,7 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.admin import service as admin_service
 from apps.api.billing import rates, tts_speaking_rate
 from apps.api.billing import service as billing
-from apps.api.billing.ai_quota import AiUsage, read_ai_usage
+from apps.api.billing.ai_quota import AiUsage
 from apps.api.billing.attribution import (
     AgentAttribution,
     CallAttribution,
@@ -513,6 +513,11 @@ class FleetTenantOut(Strict):
     ai_absorbed_inr: str
     #: Distinct AI actions behind `ai_absorbed_inr`, one per user action.
     ai_requests: int
+    #: The other costs we absorb for this client this month: forwarding checks, WhatsApp
+    #: messages and the console's speech-to-text (`cost_breakdown.ABSORBED_OTHER_UNIT_TYPES`).
+    #: Outside `cost_inr` and the margin like `ai_absorbed_inr`, and the same figure as
+    #: `TenantSpendOut.cost_all_in.absorbed_other_inr`.
+    absorbed_other_inr: str
     #: `TenantSpendOut.unpriced_rows` for this client (D-840).
     unpriced_rows: int = 0
     #: Metered minus the voice platform's figure over this month's settled calls, rupees;
@@ -638,6 +643,8 @@ class FleetSpendOut(Strict):
     #: The sum of every row's `ai_absorbed_inr`: AI cost we carried across the fleet,
     #: outside the revenue, cost and margin totals above.
     ai_absorbed_inr: str
+    #: The sum of every row's `absorbed_other_inr`, outside the totals above likewise.
+    absorbed_other_inr: str
     #: The sum of every row's `unpriced_rows`: usage rows the cost total leaves out (D-840).
     unpriced_rows: int = 0
     tenants: list[FleetTenantOut]
@@ -1136,6 +1143,7 @@ class _FleetRow:
     plan_tier: str
     margin: dict[str, object]
     ai: AiUsage
+    absorbed_other_inr: Decimal
     trial_cost_inr: Decimal
     trial_in_month: bool
     variance: ChargeVariance | None
@@ -1213,10 +1221,11 @@ async def fleet_spend(
                         {"tid": tenant_id, "start": window_start, "next": window_next},
                     )
                 ).one()
-                # The free assistant counts: those rupees are ours to absorb whatever
-                # the client's allowance says.
-                ai = await read_ai_usage(
-                    scoped, tenant_id=tenant_id, month=period, include_free=True
+                # The client Spend screen's own reader, so the board and that screen
+                # cannot disagree about what we absorbed. Its AI half includes the free
+                # assistant: those rupees are ours whatever the client's allowance says.
+                absorbed = await read_month_cost_breakdown(
+                    scoped, tenant_id=tenant_id, month=period
                 )
                 trial_cost = await month_trial_cost_inr(scoped, tenant_id=tenant_id, month=period)
                 trial_in_month = await trial_overlaps(
@@ -1263,7 +1272,8 @@ async def fleet_spend(
                 slug=str(org[2]),
                 plan_tier=str(org[3]),
                 margin=margin,
-                ai=ai,
+                ai=absorbed.ai,
+                absorbed_other_inr=absorbed.absorbed_other_inr,
                 trial_cost_inr=trial_cost,
                 trial_in_month=trial_in_month or trial_cost > 0,
                 variance=variance,
@@ -1290,7 +1300,10 @@ async def fleet_spend(
     total_margin = revenue - cost
     trial_cost = sum((r.trial_cost_inr for r in walked), Decimal("0.00"))
     fleet_paid = paid_margin(revenue_inr=revenue, cost_inr=cost, trial_cost_inr=trial_cost)
-    ai_absorbed = sum((r.ai.used_inr for r in walked), Decimal("0"))
+    # The column totals add up the rows AS PRINTED. AI rows carry sub-paisa digits, so a
+    # total rounded from the exact sum could sit a paisa off the column above it.
+    ai_absorbed = sum((to_paise(r.ai.used_inr) for r in walked), Decimal("0.00"))
+    absorbed_other = sum((to_paise(r.absorbed_other_inr) for r in walked), Decimal("0.00"))
     return FleetSpendOut(
         month=period,
         clients=len(walked),
@@ -1305,7 +1318,8 @@ async def fleet_spend(
         paid_cost_inr=str(fleet_paid.cost_inr),
         paid_margin_inr=str(fleet_paid.margin_inr),
         paid_margin_pct=_money(fleet_paid.margin_pct),
-        ai_absorbed_inr=str(to_paise(ai_absorbed)),
+        ai_absorbed_inr=str(ai_absorbed),
+        absorbed_other_inr=str(absorbed_other),
         unpriced_rows=sum(int(str(r.margin["legs_unpriced"])) for r in walked),
         tenants=[
             FleetTenantOut(
@@ -1326,6 +1340,7 @@ async def fleet_spend(
                 paid_margin_pct=_money(paid.margin_pct),
                 ai_absorbed_inr=str(to_paise(r.ai.used_inr)),
                 ai_requests=r.ai.requests,
+                absorbed_other_inr=str(to_paise(r.absorbed_other_inr)),
                 unpriced_rows=int(str(r.margin["legs_unpriced"])),
                 charge_variance_inr=(
                     None if r.variance is None else str(to_paise(r.variance.variance_inr))

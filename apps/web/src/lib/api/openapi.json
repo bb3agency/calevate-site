@@ -20816,6 +20816,10 @@
         "additionalProperties": false,
         "description": "GET /v1/admin/spend \u2014 every live client's month, worst margin first.\n\nThe totals are sums of the rows, computed here rather than queried: `usage_events` is\nFORCE RLS'd and an untenanted session sees zero rows by design, so a cross-tenant\n`SUM` is unaskable in app code and reaching for the admin DB role to get one would\nbreak hard rule 1. `billing/models.PlatformAiSpend` records the same constraint and\nthe same answer one ledger over. Each client's numbers are read INSIDE that client's\nown `tenant_session`, so no query here sees two tenants at once.",
         "properties": {
+          "absorbed_other_inr": {
+            "title": "Absorbed Other Inr",
+            "type": "string"
+          },
           "ai_absorbed_inr": {
             "title": "Ai Absorbed Inr",
             "type": "string"
@@ -20913,6 +20917,7 @@
           "paid_margin_inr",
           "paid_margin_pct",
           "ai_absorbed_inr",
+          "absorbed_other_inr",
           "tenants",
           "undecidable",
           "tts_plan"
@@ -20924,6 +20929,10 @@
         "additionalProperties": false,
         "description": "One client on the fleet board.",
         "properties": {
+          "absorbed_other_inr": {
+            "title": "Absorbed Other Inr",
+            "type": "string"
+          },
           "ai_absorbed_inr": {
             "title": "Ai Absorbed Inr",
             "type": "string"
@@ -21040,7 +21049,8 @@
           "paid_margin_inr",
           "paid_margin_pct",
           "ai_absorbed_inr",
-          "ai_requests"
+          "ai_requests",
+          "absorbed_other_inr"
         ],
         "title": "FleetTenantOut",
         "type": "object"

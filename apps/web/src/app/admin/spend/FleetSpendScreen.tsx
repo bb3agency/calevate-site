@@ -97,6 +97,12 @@ export function FleetSpendScreen() {
             value: data.ai_absorbed_inr,
           },
           {
+            key: "absorbed_other_inr",
+            label:
+              "Forwarding checks, WhatsApp messages and voice notes we absorbed across the fleet (₹), outside revenue, cost and margin",
+            value: data.absorbed_other_inr,
+          },
+          {
             key: "loss_making",
             label: "Clients whose month is losing money",
             value: String(data.tenants.filter((row) => losing(row.paid_margin_inr)).length),
@@ -202,6 +208,14 @@ function Totals({ data }: { data: FleetSpend }) {
         value={formatINR(data.ai_absorbed_inr)}
         hint={`${ASSISTANT_NAME}, AI tools, the standby model and post-call extraction. Not billed, not in the margin.`}
       />
+      {/* The same absorbed line each client's Spend screen shows ("all in"); hidden at zero. */}
+      {!isZeroMoney(data.absorbed_other_inr) && (
+        <Metric
+          label="Other costs we absorb"
+          value={formatINR(data.absorbed_other_inr)}
+          hint="Forwarding checks, WhatsApp messages and voice notes. Not billed, not in the margin."
+        />
+      )}
     </MetricRow>
   );
 }
@@ -281,6 +295,17 @@ function ClientTable({ data }: { data: FleetSpend }) {
               {formatCount(tenant.ai_requests)} {tenant.ai_requests === 1 ? "action" : "actions"}
             </span>
           )}
+        </span>
+      ),
+    },
+    {
+      id: "absorbed-other",
+      header: "Other we absorb",
+      align: "right",
+      hideBelow: "lg",
+      cell: (tenant) => (
+        <span className={`${num} text-ink-muted`}>
+          {isZeroMoney(tenant.absorbed_other_inr) ? "—" : formatINR(tenant.absorbed_other_inr)}
         </span>
       ),
     },

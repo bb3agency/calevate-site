@@ -19606,6 +19606,8 @@ export interface components {
          *     own `tenant_session`, so no query here sees two tenants at once.
          */
         FleetSpendOut: {
+            /** Absorbed Other Inr */
+            absorbed_other_inr: string;
             /** Ai Absorbed Inr */
             ai_absorbed_inr: string;
             /** Clients */
@@ -19645,6 +19647,8 @@ export interface components {
          * @description One client on the fleet board.
          */
         FleetTenantOut: {
+            /** Absorbed Other Inr */
+            absorbed_other_inr: string;
             /** Ai Absorbed Inr */
             ai_absorbed_inr: string;
             /** Ai Requests */

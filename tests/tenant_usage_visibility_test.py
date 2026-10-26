@@ -202,6 +202,56 @@ async def test_forwarding_checks_whatsapp_and_voice_notes_are_in_the_all_in_cost
     `_NOT_AI_UNITS` and from the AI reader by its unit list, so the "all in" figure left
     them out entirely."""
     tenant_id, expected = await _trial_client_with_prod_rows()
+    await _absorbed_other_rows(tenant_id)
+    token = await _admin_token()
+    async with _client() as http:
+        spend = await http.get(
+            f"/v1/admin/tenants/{tenant_id}/spend", headers={"Authorization": f"Bearer {token}"}
+        )
+    assert spend.status_code == 200, spend.text
+    month = spend.json()["cost_all_in"]
+
+    assert month["absorbed_other_inr"] == "1.10"
+    assert Decimal(month["total_inr"]) == (expected + Decimal("1.10")).quantize(Decimal("0.01"))
+    assert month["calls"] == 0 and month["other_inr"] == "0.00"
+
+
+async def test_the_fleet_board_carries_the_same_absorbed_costs_as_the_client_spend_screen() -> None:
+    """The fleet board read only the dashboard-AI ledger, so a client's forwarding checks,
+    WhatsApp messages and console voice notes were on its Spend screen and on no fleet
+    figure; and its column totals were rounded from the exact sum, so they could sit a
+    paisa off the rows printed above them."""
+    from apps.api.billing import spend_routes
+
+    tenant_id, _ = await _trial_client_with_prod_rows()
+    await _absorbed_other_rows(tenant_id)
+    token = await _admin_token()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(spend_routes, "FLEET_BUDGET_S", 3600.0)
+        async with _client() as http:
+            board = await http.get("/v1/admin/spend", headers={"Authorization": f"Bearer {token}"})
+            spend = await http.get(
+                f"/v1/admin/tenants/{tenant_id}/spend",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+    assert board.status_code == 200, board.text
+    body = board.json()
+    mine = next(row for row in body["tenants"] if row["tenant_id"] == str(tenant_id))
+    all_in = spend.json()["cost_all_in"]
+
+    assert mine["absorbed_other_inr"] == "1.10" == all_in["absorbed_other_inr"]
+    assert mine["ai_requests"] == 4
+    rows = body["tenants"]
+    assert Decimal(body["absorbed_other_inr"]) == sum(
+        (Decimal(row["absorbed_other_inr"]) for row in rows), Decimal("0")
+    )
+    assert Decimal(body["ai_absorbed_inr"]) == sum(
+        (Decimal(row["ai_absorbed_inr"]) for row in rows), Decimal("0")
+    )
+
+
+async def _absorbed_other_rows(tenant_id: UUID) -> None:
+    """₹0.85 of WhatsApp and ₹0.25 of console speech-to-text: ₹1.10 absorbed, not AI."""
     async with tenant_session(tenant_id) as session:
         for unit, qty, price in (
             ("whatsapp_msg", Decimal("1"), Decimal("0.8500")),
@@ -223,14 +273,3 @@ async def test_forwarding_checks_whatsapp_and_voice_notes_are_in_the_all_in_cost
                     "meta": "{}",
                 },
             )
-    token = await _admin_token()
-    async with _client() as http:
-        spend = await http.get(
-            f"/v1/admin/tenants/{tenant_id}/spend", headers={"Authorization": f"Bearer {token}"}
-        )
-    assert spend.status_code == 200, spend.text
-    month = spend.json()["cost_all_in"]
-
-    assert month["absorbed_other_inr"] == "1.10"
-    assert Decimal(month["total_inr"]) == (expected + Decimal("1.10")).quantize(Decimal("0.01"))
-    assert month["calls"] == 0 and month["other_inr"] == "0.00"
