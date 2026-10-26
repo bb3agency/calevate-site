@@ -234,6 +234,29 @@ def test_a_notice_carrying_a_phone_number_is_refused() -> None:
         client_notification(_facts(nature="Caller 9876543210's recording was listed."))
 
 
+@pytest.mark.parametrize(
+    "written",
+    ["98765 43210", "+91 98765 43210", "+91-98765-43210", "09876543210", "098765-43210"],
+)
+def test_a_phone_number_written_the_way_people_type_it_is_refused(written: str) -> None:
+    """The 5+5 grouping and the trunk `0` are how a number is typed by hand; a guard that
+    only knows the CRM's contiguous form lets exactly the hurried note through."""
+    with pytest.raises(IncompleteBreachNoticeError):
+        client_notification(_facts(extent=f"The record for {written} was exposed."))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Recordings for approximately 1,200 calls across 2 accounts.",
+        "Exposure window 2026-08-02 to 2026-08-16, reference 20260817.",
+        "Object count 12345 67890 listed.",
+    ],
+)
+def test_counts_and_dates_are_not_mistaken_for_a_number(text: str) -> None:
+    client_notification(_facts(extent=text))
+
+
 def test_a_naive_awareness_timestamp_is_refused() -> None:
     """Every deadline is computed from `aware_at`. A naive timestamp on an incident that
     spans midnight IST is a missed statutory deadline with a plausible explanation."""

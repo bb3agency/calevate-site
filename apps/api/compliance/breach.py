@@ -108,14 +108,15 @@ CERT_IN_HOURS: Final = 6
 # and quietly licensing every hour below it.
 WITHOUT_DELAY: Final = "without delay"
 
-# What a notice may never contain. Indian E.164 and bare-10-digit subscriber numbers, the
-# two forms a hurried incident note actually carries. Deliberately crude: this is a
-# refusal, not a redactor — a notice with a number in it goes back to its author.
+# What a notice may never contain: an Indian mobile number in the forms a hurried incident
+# note actually carries — E.164, bare ten digits, the trunk-prefixed `0` form, and the
+# 5+5 grouping people type (`98765 43210`). Deliberately crude: this is a refusal, not a
+# redactor — a notice with a number in it goes back to its author.
 #
 # The lookarounds rather than `\b`: there is no word boundary between the `1` of `+91` and
 # the `9` that starts the subscriber number, so a `\b` form matches a bare ten digits and
 # misses the E.164 one — which is the form actually pasted out of a CRM.
-_PHONE_SHAPED = re.compile(r"(?<!\d)(?:\+?91[-\s]?)?[6-9]\d{9}(?!\d)")
+_PHONE_SHAPED = re.compile(r"(?<!\d)(?:\+?91[-\s]?|0)?[6-9]\d{4}[-\s]?\d{5}(?!\d)")
 
 
 class IncompleteBreachNoticeError(ValueError):
@@ -163,7 +164,9 @@ class BreachFacts:
     cause_findings: str
     #: What stops it happening again.
     remedial_measures: str
-    #: The human who answers questions about this notice: name, role, email, phone.
+    #: The human who answers questions about this notice: name, role and email. Not a
+    #: mobile number, even our own: `validate` cannot tell a staff mobile from a data
+    #: principal's and refuses both, so the reachable channel here is the incident mailbox.
     contact: str
     #: What we do not yet know, and when we will next update. Empty only when the
     #: investigation is closed at the time of writing.
