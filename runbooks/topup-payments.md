@@ -235,6 +235,10 @@ their OUTBOUND calling pauses; inbound is untouched; the client's screens say wh
   cap the client sets, one recharge in flight per client.
 - Razorpay sends the pre-debit notification and debits 25 h (UPI) / 36 h 5 min (cards) after
   it, retrying failed debits itself. We fail a charge Razorpay has not answered in 3 days.
+- A debit request that timed out or came back unreadable (log line
+  `auto_recharge_payment_unconfirmed`) is left pending, not failed: the bank may have been
+  asked, so no second recharge starts until the webhook settles it or the 3 days pass. Check
+  the order id from the log line in the Razorpay dashboard if the client asks.
 - After `auto_recharge_max_failures` (default 3) failures in a row it switches off and the
   client is emailed (`auto_recharge_disabled`, attention).
 - A mandate the client pauses or cancels in their UPI app arrives as `token.paused` /

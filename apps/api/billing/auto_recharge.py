@@ -89,6 +89,15 @@ NoticeKind = Literal[
 #: with a margin, and Razorpay refunds anything it captures later than its own window.
 CHARGE_ANSWER_WINDOW: Final = timedelta(days=3)
 
+#: The recurring-payment call's refusals that do not prove nothing was asked of the bank: a
+#: timeout after the request left us, or a 2xx we could not read. The charge stays pending
+#: for the webhook (or `expire_unanswered`) to settle: failing it would let the next tick
+#: start a second debit while the first may still land, and would take it out of the
+#: monthly cap that `_month_spent` counts from pending and captured charges.
+CHARGE_MAY_HAVE_MOVED_CODES: Final[frozenset[str]] = frozenset(
+    {"payment_provider_unreachable", "payment_provider_unreadable"}
+)
+
 #: Defaults offered before a client has chosen anything (the founder's examples).
 DEFAULT_THRESHOLD_INR: Final = Decimal("500.00")
 DEFAULT_AMOUNT_INR: Final = Decimal("2000.00")
@@ -649,7 +658,9 @@ async def maybe_start_recharge(tenant_id: UUID) -> str:
 
     Claim first (one transaction: the pending row, the notice, the audit), then the
     provider calls with no session held, then the order and payment ids. A provider
-    failure fails the claim and counts against the switch.
+    failure fails the claim and counts against the switch, except a payment request that
+    may have reached the bank (`CHARGE_MAY_HAVE_MOVED_CODES`): that claim stays pending and
+    the outcome is `unconfirmed`.
     """
     claim_id = uuid7()
     now = datetime.now(UTC)
@@ -727,15 +738,24 @@ async def maybe_start_recharge(tenant_id: UUID) -> str:
                 ),
                 {"oid": order_id, "id": claim_id},
             )
-        payment_id = await api.create_recurring_payment(
-            email=email,
-            contact=phone,
-            amount_inr=amount,
-            order_id=order_id,
-            customer_id=str(customer_id),
-            token_id=str(token_id),
-            notes=notes,
-        )
+        try:
+            payment_id = await api.create_recurring_payment(
+                email=email,
+                contact=phone,
+                amount_inr=amount,
+                order_id=order_id,
+                customer_id=str(customer_id),
+                token_id=str(token_id),
+                notes=notes,
+            )
+        except ProblemError as exc:
+            if exc.code not in CHARGE_MAY_HAVE_MOVED_CODES:
+                raise
+            log.warning(
+                "auto_recharge_payment_unconfirmed",
+                extra={"tenant_id": str(tenant_id), "order_id": order_id, "code": exc.code},
+            )
+            return "unconfirmed"
     except ProblemError as exc:
         async with tenant_session(tenant_id) as session:
             await _fail_charge(session, tenant_id=tenant_id, charge_id=claim_id, code=exc.code)

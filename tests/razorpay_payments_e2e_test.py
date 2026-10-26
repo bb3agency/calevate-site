@@ -759,6 +759,40 @@ async def test_repeated_failures_switch_auto_recharge_off(monkeypatch: pytest.Mo
     assert notices == 1
 
 
+@pytest.mark.parametrize("code", ["payment_provider_unreachable", "payment_provider_unreadable"])
+async def test_a_debit_request_that_may_have_reached_the_bank_is_not_started_again(
+    monkeypatch: pytest.MonkeyPatch, code: str
+) -> None:
+    """A timeout after the recurring-payment request left us, or a 2xx we could not read,
+    does not prove the bank was not asked. Failing the charge freed the pending slot, so the
+    next tick started a second debit beside a first that could still land a day later."""
+    tenant_id = await _tenant()
+    await _confirmed_mandate(tenant_id)
+
+    class Ambiguous(FakeApi):
+        async def create_recurring_payment(self, **kwargs: Any) -> str:
+            self.recurring.append(kwargs)
+            raise ProblemError(kind="dependency", code=code, title="x", detail="x", remediation="x")
+
+    fake = Ambiguous()
+    monkeypatch.setattr(auto_recharge, "razorpay_api", lambda: fake)
+    assert await auto_recharge.maybe_start_recharge(tenant_id) == "unconfirmed"
+    assert await auto_recharge.maybe_start_recharge(tenant_id) == "in_flight"
+    assert len(fake.recurring) == 1
+    async with tenant_session(tenant_id) as session:
+        state = await auto_recharge.read_auto_recharge(session, tenant_id=tenant_id)
+        status = (
+            await session.execute(
+                text("SELECT status FROM auto_recharge_charges WHERE tenant_id = :t"),
+                {"t": tenant_id},
+            )
+        ).scalar_one()
+    assert status == "pending"
+    assert state.consecutive_failures == 0
+    assert state.pending_charge_inr == Decimal("2000.00")
+    assert state.month_charged_inr == Decimal("2000.00"), "it still counts against the cap"
+
+
 async def test_token_events_move_the_mandate_and_a_cancel_switches_it_off() -> None:
     tenant_id = await _tenant()
     token_id = await _confirmed_mandate(tenant_id)

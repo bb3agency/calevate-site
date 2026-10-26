@@ -58,7 +58,7 @@ async def sweep_auto_recharge(ctx: dict[str, Any]) -> dict[str, int]:
     """One pass. A tenant whose recharge fails does not stop the others."""
     if not payment_capability().creates_orders:
         return {"skipped": 1}
-    started = expired = refreshed = failed = 0
+    started = unconfirmed = expired = refreshed = failed = 0
     async with untenanted_session() as session:
         pending_tenants = [
             UUID(str(r[0]))
@@ -97,8 +97,15 @@ async def sweep_auto_recharge(ctx: dict[str, Any]) -> dict[str, int]:
             failed += 1
             continue
         started += outcome == "started"
+        unconfirmed += outcome == "unconfirmed"
         failed += outcome == "failed"
-    return {"started": started, "expired": expired, "refreshed": refreshed, "failed": failed}
+    return {
+        "started": started,
+        "unconfirmed": unconfirmed,
+        "expired": expired,
+        "refreshed": refreshed,
+        "failed": failed,
+    }
 
 
 async def reconcile_razorpay(ctx: dict[str, Any]) -> dict[str, int]:
