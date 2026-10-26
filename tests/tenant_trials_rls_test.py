@@ -26,8 +26,6 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from tests.conftest import accept_agreements, create_org_with_receptionist
 
-pytestmark = pytest.mark.asyncio
-
 
 async def _org_with_trial() -> uuid.UUID:
     created = await create_org_with_receptionist(

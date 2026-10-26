@@ -43,8 +43,6 @@ from tests.conftest import (
     mark_paid_for_tests,
 )
 
-pytestmark = pytest.mark.asyncio
-
 
 async def _org(plan_tier: str = "prepaid") -> tuple[uuid.UUID, uuid.UUID]:
     created = await create_org_with_receptionist(

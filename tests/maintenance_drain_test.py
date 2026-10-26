@@ -55,8 +55,6 @@ from calevate_shared.engine import (
 from calevate_shared.events import TERMINAL_STATUSES
 from sqlalchemy import text
 
-pytestmark = pytest.mark.asyncio
-
 
 async def _clear_windows() -> None:
     """Leave no open window behind. This table has ONE open slot for the whole suite."""

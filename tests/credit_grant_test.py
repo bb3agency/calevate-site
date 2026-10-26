@@ -39,8 +39,6 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from tests.conftest import accept_agreements, create_org_with_receptionist
 
-pytestmark = pytest.mark.asyncio
-
 
 async def _tenant(plan_tier: str = "prepaid") -> uuid.UUID:
 

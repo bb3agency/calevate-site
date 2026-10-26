@@ -25,8 +25,6 @@ from tests.conftest import (
     create_org_with_receptionist,
 )
 
-pytestmark = pytest.mark.asyncio
-
 STAFF = "+919812345601"
 ALWAYS_OPEN = (
     "{"

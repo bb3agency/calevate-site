@@ -16,7 +16,6 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-import pytest
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
@@ -25,8 +24,6 @@ from calevate_shared.calling_window import DEFAULT_WINDOW, IST
 from calevate_shared.engine import ExecutionSnapshot, HandoffLeg
 from sqlalchemy import text
 from tests.conftest import accept_agreements, create_org_with_receptionist
-
-pytestmark = pytest.mark.asyncio
 
 
 async def _fixture() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, str]:

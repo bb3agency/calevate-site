@@ -44,8 +44,6 @@ from sqlalchemy import text
 from tests.agent_lifecycle_test import _code, _fresh_engine, _number, _tenant, _write_script
 from tests.tm_registration_test import _with_platform_tm
 
-pytestmark = pytest.mark.asyncio
-
 
 def _app() -> FastAPI:
     application = FastAPI()

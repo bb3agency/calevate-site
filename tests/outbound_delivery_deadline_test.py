@@ -32,10 +32,7 @@ from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from typing import Any
 
-import pytest
 from apps.api.integrations import service
-
-pytestmark = pytest.mark.asyncio
 
 Handler = Callable[[asyncio.StreamReader, asyncio.StreamWriter], Coroutine[Any, Any, None]]
 

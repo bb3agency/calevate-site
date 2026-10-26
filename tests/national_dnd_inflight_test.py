@@ -10,7 +10,6 @@ predates it.
 
 from __future__ import annotations
 
-import pytest
 from apps.api.compliance.preference_scrub import national_dnd_blocker
 from apps.api.db.session import tenant_session
 from apps.workers import campaign_dispatch
@@ -23,8 +22,6 @@ from tests.campaign_dispatch_audit_test import (  # noqa: F401 - autouse fixture
     _tick_one_campaign,
 )
 from tests.national_dnd_test import record_test_scrub
-
-pytestmark = pytest.mark.asyncio
 
 
 async def test_a_number_the_scrub_blocks_mid_call_is_not_redialled() -> None:

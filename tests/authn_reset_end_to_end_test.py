@@ -32,8 +32,6 @@ from apps.workers.email_render import render
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
-pytestmark = [pytest.mark.asyncio]
-
 REALMS = ("client", "admin")
 OLD_PASSWORD = "vijayawada-front-desk-ledger"
 #: Eight characters and not on the blocklist: the D-765 floor, exactly.

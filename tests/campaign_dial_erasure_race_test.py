@@ -35,8 +35,6 @@ from tests.campaign_dispatch_audit_test import (  # noqa: F401 - autouse fixture
     _tick_one_campaign,
 )
 
-pytestmark = pytest.mark.asyncio
-
 
 async def _erase(tenant_id: uuid.UUID, phone: str) -> str:
     async with tenant_session(tenant_id) as session:

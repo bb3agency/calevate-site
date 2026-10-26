@@ -15,15 +15,12 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
 from apps.api.agents import lifecycle, publishing, script_builder
 from apps.api.agents.live_apply import converge_agent
 from apps.api.db.session import tenant_session
 from calevate_shared.call_script import CallScript
 from sqlalchemy import text
 from tests.agent_lifecycle_test import _fresh_engine, _number, _tenant, _write_script
-
-pytestmark = pytest.mark.asyncio
 
 
 async def _ready_agent() -> tuple[uuid.UUID, uuid.UUID]:

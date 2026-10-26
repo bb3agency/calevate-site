@@ -35,8 +35,6 @@ from apps.api.db.session import _CONNECT_ARGS, get_engine
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-pytestmark = pytest.mark.asyncio
-
 
 async def test_the_libpq_connection_really_carries_every_bound_we_declare() -> None:
     """Read the parameters back off the live connection the app's own engine hands out.

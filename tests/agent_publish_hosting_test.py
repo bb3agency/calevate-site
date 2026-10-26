@@ -44,16 +44,6 @@ from apps.api.engine.fake import EXTERNAL_DEPLOYMENT_CAPABILITIES, FakeEngine
 from sqlalchemy import text
 from tests.conftest import accept_agreements, create_org_with_receptionist
 
-# NO `pytestmark = pytest.mark.asyncio` HERE, DELIBERATELY. `pyproject.toml` sets
-# `asyncio_mode = "auto"`, so every `async def test_` is collected as a coroutine test with
-# no mark at all — and once this file gained SYNC tests the mark became actively wrong,
-# emitting `PytestWarning: ... is marked with '@pytest.mark.asyncio' but it is not an async
-# function` for each of them on every run. Warnings are not errors here (there is no
-# `filterwarnings = error`), which is exactly why one can sit in a suite unnoticed.
-# Measured across `tests/`: this was the ONLY one of ~158 files mixing sync and async tests
-# that carried the mark; every other one omits it, so removing it follows the convention
-# rather than inventing one.
-
 
 @pytest.fixture
 def externally_deployed_engine() -> Iterator[FakeEngine]:

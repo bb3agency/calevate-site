@@ -32,8 +32,6 @@ from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.workers import auth_email
 from arq import Retry
 
-pytestmark = pytest.mark.asyncio
-
 #: Read at IMPORT, in a synchronous context. `Path.read_text()` inside an `async def` is
 #: a blocking call on the event loop and ruff (ASYNC240) refuses it — correctly, even for
 #: a test — so the one file this suite inspects as TEXT is loaded once, here.

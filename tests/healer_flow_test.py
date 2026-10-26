@@ -25,8 +25,6 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from tests.conftest import accept_agreements, create_org_with_receptionist, fund_wallet
 
-pytestmark = pytest.mark.asyncio
-
 TENANT_TABLES = (
     "heal_client_incidents",
     "heal_fallback_phones",

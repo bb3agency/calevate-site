@@ -10,7 +10,6 @@ tick handed the placeholder to the engine as a phone number.
 
 from __future__ import annotations
 
-import pytest
 from apps.api.compliance.caller_ref import ANONYMIZED_PREFIX
 from apps.api.compliance.service import DESTINATION_ERASED_RULE, PERSON_LEVEL_REFUSALS
 from apps.api.db.session import tenant_session
@@ -26,8 +25,6 @@ from tests.campaign_dispatch_audit_test import (  # noqa: F401 - autouse fixture
 )
 from tests.outbound_consent_policy_test import _fresh_phone, _gate
 from tests.outbound_consent_policy_test import _tenant as _consent_tenant
-
-pytestmark = pytest.mark.asyncio
 
 
 async def test_a_contact_whose_retention_ran_out_mid_call_is_never_dialled_again() -> None:

@@ -63,8 +63,6 @@ from apps.workers.inbound_cutover import apply_inbound_credit_state
 from sqlalchemy import text
 from tests.conftest import accept_agreements, create_org_with_receptionist, mark_paid_for_tests
 
-pytestmark = pytest.mark.asyncio
-
 
 async def _tenant(*, tier: str = "prepaid") -> tuple[UUID, UUID]:
     """A prepaid tenant with a scripted inbound agent and an empty wallet."""

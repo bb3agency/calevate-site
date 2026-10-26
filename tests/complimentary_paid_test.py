@@ -28,8 +28,6 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.credit_grant_test import _tenant
 
-pytestmark = pytest.mark.asyncio
-
 
 async def _admin(role: str, email: str | None = None) -> str:
     admin_id = uuid.uuid4()

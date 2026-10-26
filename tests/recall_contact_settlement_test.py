@@ -30,8 +30,6 @@ from tests.campaign_dispatch_audit_test import (  # noqa: F401 - autouse fixture
     _tick_one_campaign,
 )
 
-pytestmark = pytest.mark.asyncio
-
 
 class _Stop:
     """The engine as the recall jobs use it: `outcome` for our dial, UNKNOWN for any

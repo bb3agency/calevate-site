@@ -24,8 +24,6 @@ import httpx
 import pytest
 from apps.api.core import loadshed, middleware
 
-pytestmark = pytest.mark.asyncio
-
 
 def _client() -> httpx.AsyncClient:
     from apps.api.main import app

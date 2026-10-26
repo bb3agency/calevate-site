@@ -37,8 +37,6 @@ from apps.workers.maintenance import NOTIFY_JOB, maintenance_tick
 from sqlalchemy import text
 from tests.conftest import accept_agreements, create_org_with_receptionist
 
-pytestmark = pytest.mark.asyncio
-
 
 def _answers(in_flight: InFlight) -> Callable[..., Awaitable[InFlight]]:
     """A `probe_in_flight` that answers a fixed measurement.

@@ -29,8 +29,6 @@ from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from tests.conftest import accept_agreements, create_org_with_receptionist
 
-pytestmark = pytest.mark.asyncio
-
 
 async def _publishable_tenant() -> tuple[uuid.UUID, uuid.UUID]:
     """A fresh org whose agent can actually be published, so a refusal below is THIS rule."""

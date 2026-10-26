@@ -30,8 +30,6 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.conftest import accept_agreements, create_org_with_receptionist, fund_wallet
 
-pytestmark = pytest.mark.asyncio
-
 
 def _client() -> AsyncClient:
     application = FastAPI()

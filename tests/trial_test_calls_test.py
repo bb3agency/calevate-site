@@ -56,8 +56,6 @@ from calevate_shared.engine import CallContext
 from sqlalchemy import text
 from tests.conftest import _owner_of, accept_agreements, create_org_with_receptionist, fund_wallet
 
-pytestmark = pytest.mark.asyncio
-
 TRIAL_NUMBER = "+918045678901"
 
 

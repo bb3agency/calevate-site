@@ -49,8 +49,6 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
-pytestmark = [pytest.mark.asyncio]
-
 #: Well above the realm floor (`authn/policy.min_password_chars`) and not on the
 #: blocklist, so these clear the policy on both realms.
 OLD_PASSWORD = "chinnamma-clinic-front-desk"

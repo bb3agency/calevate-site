@@ -299,6 +299,13 @@ asyncio_default_test_loop_scope = "session"
 # promote the test or delete it.
 xfail_strict = true
 asyncio_default_fixture_loop_scope = "session"
+# Auto mode collects every `async def test_` without a mark, so a module-wide
+# `pytestmark = pytest.mark.asyncio` only ever adds the mark to SYNC tests, where
+# pytest-asyncio warns once per test. Warnings are not errors here, so that wall went
+# unread across 30 files; this one is an error so it cannot come back.
+filterwarnings = [
+    "error:The test .* is marked with '@pytest.mark.asyncio' but it is not an async function:pytest.PytestWarning",
+]
 testpaths = ["tests", "apps", "packages"]
 # apps/* are virtual workspace members imported by path (apps.api.main), so the
 # repo root must be importable. `apps/voice-runtime` is hyphenated (D-18) and so is

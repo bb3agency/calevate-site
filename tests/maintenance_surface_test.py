@@ -61,8 +61,6 @@ from sqlalchemy import text
 from tests.admin_security_test import _make_admin
 from tests.conftest import create_org_with_receptionist
 
-pytestmark = pytest.mark.asyncio
-
 
 def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://api")

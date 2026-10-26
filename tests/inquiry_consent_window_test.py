@@ -21,8 +21,6 @@ from apps.api.ingest.service import _record_dial_consent_granted
 from sqlalchemy import text
 from tests.outbound_consent_policy_test import _fresh_phone, _tenant
 
-pytestmark = pytest.mark.asyncio
-
 #: 11:00 IST, the middle of the calling window, so the hours rule can never be what refuses.
 _PINNED_IST = datetime(2026, 8, 11, 11, 0, tzinfo=UTC)
 
