@@ -52,6 +52,36 @@ async def fallback_phone(session: AsyncSession) -> str | None:
     return str(row[0]) if row else None
 
 
+async def set_fallback_phone(
+    session: AsyncSession, *, tenant_id: UUID, user_id: UUID | None, phone_e164: str
+) -> None:
+    """Save the phone a held line's callers are passed to. `PUT /v1/healer/fallback-phone`
+    and Pip's `line_protection_phone_set` both call this; the number is validated by the
+    caller's model (`routes.FallbackPhoneIn`).
+
+    A phone that forwards to the Calevate number would bring a held line's callers straight
+    back to it (D-746), so it is refused here rather than in each door."""
+    from apps.api.forwarding.service import assert_not_forwarded
+
+    await assert_not_forwarded(session, [phone_e164])
+    await session.execute(
+        text(
+            "INSERT INTO heal_fallback_phones (id, tenant_id, phone_e164, updated_by, "
+            "created_at, updated_at) VALUES (:id, :tid, :phone, :by, now(), now()) "
+            "ON CONFLICT (tenant_id) DO UPDATE SET phone_e164 = EXCLUDED.phone_e164, "
+            "updated_by = EXCLUDED.updated_by, updated_at = now()"
+        ),
+        {"id": uuid7(), "tid": tenant_id, "phone": phone_e164, "by": user_id},
+    )
+
+
+async def clear_fallback_phone(session: AsyncSession) -> bool:
+    """Remove the fallback phone; a held line then plays a short message. True when one
+    was set."""
+    removed = (await session.execute(text("DELETE FROM heal_fallback_phones RETURNING id"))).first()
+    return removed is not None
+
+
 async def forward_target(session: AsyncSession, *, agent_id: UUID) -> str | None:
     """The phone to forward this agent's callers to, if the healer is forwarding them."""
     row = (

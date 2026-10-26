@@ -47,7 +47,6 @@ from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.base import uuid7
-from apps.api.forwarding.service import assert_not_forwarded
 from apps.api.healer import (
     decisions,
     incidents,
@@ -365,22 +364,11 @@ async def put_fallback_phone(
     payload: FallbackPhoneIn, session: Session, principal: Writer, request: Request
 ) -> FallbackPhoneOut:
     assert principal.tenant_id is not None
-    # A phone that forwards to the Calevate number would bring a held line's callers
-    # straight back to it (D-746).
-    await assert_not_forwarded(session, [payload.phone_e164])
-    await session.execute(
-        text(
-            "INSERT INTO heal_fallback_phones (id, tenant_id, phone_e164, updated_by, "
-            "created_at, updated_at) VALUES (:id, :tid, :phone, :by, now(), now()) "
-            "ON CONFLICT (tenant_id) DO UPDATE SET phone_e164 = EXCLUDED.phone_e164, "
-            "updated_by = EXCLUDED.updated_by, updated_at = now()"
-        ),
-        {
-            "id": uuid7(),
-            "tid": principal.tenant_id,
-            "phone": payload.phone_e164,
-            "by": principal.user_id,
-        },
+    await protection.set_fallback_phone(
+        session,
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        phone_e164=payload.phone_e164,
     )
     await write_audit(
         session,
@@ -405,7 +393,7 @@ async def delete_fallback_phone(
     session: Session, principal: Writer, request: Request
 ) -> FallbackPhoneOut:
     assert principal.tenant_id is not None
-    await session.execute(text("DELETE FROM heal_fallback_phones"))
+    await protection.clear_fallback_phone(session)
     await write_audit(
         session,
         actor=principal,

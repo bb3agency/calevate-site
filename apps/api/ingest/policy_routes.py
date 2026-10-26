@@ -14,10 +14,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.live_apply import queue_live_apply
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.trial_access import TRIAL_REFUSALS, restricting_trial
 from apps.api.core.auth import client_request_ip, requires
@@ -161,7 +159,7 @@ async def put_lead_calling(
     tenant_id = principal.tenant_id
     assert tenant_id is not None
     async with tenant_session(tenant_id) as session:
-        plan, machine_changed = await lead_policy.save_plan(
+        plan, updating = await lead_policy.save_and_apply(
             session,
             tenant_id=tenant_id,
             plan=LeadCallPlan(
@@ -192,28 +190,6 @@ async def put_lead_calling(
                 "detect_machines": plan.detect_machines,
             },
         )
-        updating = 0
-        if machine_changed:
-            # The answering-machine switch is part of every agent's call settings, so the
-            # save brings this client's live agents onto it in the same transaction.
-            updating = int(
-                (
-                    await session.execute(
-                        text(
-                            "SELECT count(*) FROM agents WHERE status = 'live' "
-                            "AND engine_agent_ref IS NOT NULL AND deleted_at IS NULL"
-                        )
-                    )
-                ).scalar()
-                or 0
-            )
-            await queue_live_apply(
-                session,
-                scope="tenant",
-                tenant_id=tenant_id,
-                reason="lead_calling.detect_machines",
-                requested_by=principal.user_id,
-            )
         return await _out(session, tenant_id, plan, agents_updated=updating)
 
 

@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.authn.service import enqueue_invitation_email
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import (
     PermissionDependency,
@@ -495,7 +494,7 @@ async def invite_member(
         # An owner key outlives the session that issued it and survives a password reset,
         # so a session left open must not be enough to hand one out (D-730's ground).
         await code.require(x_confirm_action, invite_owner_confirmation(request, str(payload.email)))
-    invitation_id, token = await members_service.create_team_invitation(
+    invitation_id = await members_service.send_team_invitation(
         session,
         tenant_id=tenant_id,
         actor_user_id=principal.user_id,
@@ -518,11 +517,6 @@ async def invite_member(
             {"i": invitation_id},
         )
     ).one()
-    # ENQUEUED IN THE REQUEST'S OWN TRANSACTION, so the invitation row and its email share
-    # one fate: an invitation committed without its mail is a person who is never told, and
-    # a mail sent for a row that rolled back is a link that does not work. The outbox is
-    # what makes that atomic (BACKEND-PATTERNS §4).
-    await enqueue_invitation_email(session, to=str(row[0]), token=token)
     return InvitationCreatedOut(
         id=invitation_id,
         email=str(row[0]),
@@ -634,13 +628,9 @@ async def resend_invitation(
     request: Request,
     principal: Principal = Depends(MEMBERSHIP_WRITE),
 ) -> ResentInvitationOut:
-    # The rotation and its mail share one transaction, for `invite_member`'s reason: a
-    # rotation committed without its email would kill a working link and replace it with
-    # nothing.
-    resent = await members_service.resend_team_invitation(
+    resent = await members_service.resend_and_mail_invitation(
         session, actor_role=principal.role, invitation_id=invitation_id
     )
-    await enqueue_invitation_email(session, to=resent.email, token=resent.token)
     await write_audit(
         session,
         action=f"member.invitation_resent:{resent.role}",

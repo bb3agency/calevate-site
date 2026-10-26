@@ -302,6 +302,43 @@ async def save_plan(
     return stored, stored.detect_machines != before
 
 
+async def save_and_apply(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    plan: LeadCallPlan,
+    user_id: UUID | None,
+    reason: str = "lead_calling.detect_machines",
+) -> tuple[LeadCallPlan, int]:
+    """Store the plan and, when the answering-machine switch moved, bring this client's
+    live agents onto it through the live-apply seam queued in the same transaction (D-720).
+    Returns the plan as stored and how many live agents are being updated.
+
+    `PUT /v1/lead-calling` and Pip's `lead_calling_rules_set` both call this."""
+    from apps.api.agents.live_apply import queue_live_apply
+
+    stored, machine_changed = await save_plan(
+        session, tenant_id=tenant_id, plan=plan, user_id=user_id
+    )
+    if not machine_changed:
+        return stored, 0
+    updating = int(
+        (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM agents WHERE status = 'live' "
+                    "AND engine_agent_ref IS NOT NULL AND deleted_at IS NULL"
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    await queue_live_apply(
+        session, scope="tenant", tenant_id=tenant_id, reason=reason, requested_by=user_id
+    )
+    return stored, updating
+
+
 # --- holding --------------------------------------------------------------------------
 
 

@@ -67,8 +67,10 @@ __all__ = [
     "list_pending_invitations",
     "lock_owner_ids",
     "remove_member",
+    "resend_and_mail_invitation",
     "resend_team_invitation",
     "revoke_invitation",
+    "send_team_invitation",
 ]
 
 
@@ -423,6 +425,57 @@ async def resend_team_invitation(
     from apps.api.admin import service as admin_service
 
     return await admin_service.resend_invitation(session, invitation_id=invitation_id)
+
+
+async def send_team_invitation(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    actor_user_id: UUID | None,
+    actor_role: str | None,
+    email: str,
+    role: str,
+) -> UUID:
+    """Mint an invitation and queue its email in the caller's transaction — what
+    `POST /v1/invitations` and Pip's `team_invite` both do.
+
+    One transaction for the row and its mail (through the outbox, BACKEND-PATTERNS §4): an
+    invitation committed without its mail is a person who is never told, and a mail sent for
+    a row that rolled back is a link that does not work. The address is read back from the
+    row so the mail goes where the invitation is bound, as normalised by the mint.
+    """
+    from apps.api.authn.service import enqueue_invitation_email
+
+    invitation_id, token = await create_team_invitation(
+        session,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        actor_role=actor_role,
+        email=email,
+        role=role,
+    )
+    bound = (
+        await session.execute(
+            text("SELECT email FROM invitations WHERE id = :i"), {"i": invitation_id}
+        )
+    ).scalar_one()
+    await enqueue_invitation_email(session, to=str(bound), token=token)
+    return invitation_id
+
+
+async def resend_and_mail_invitation(
+    session: AsyncSession, *, actor_role: str | None, invitation_id: UUID
+) -> ResentInvitation:
+    """`resend_team_invitation` plus its email, in one transaction, for
+    `send_team_invitation`'s reason: a rotation committed without its mail would kill a
+    working link and replace it with nothing."""
+    from apps.api.authn.service import enqueue_invitation_email
+
+    resent = await resend_team_invitation(
+        session, actor_role=actor_role, invitation_id=invitation_id
+    )
+    await enqueue_invitation_email(session, to=resent.email, token=resent.token)
+    return resent
 
 
 @dataclass(frozen=True, slots=True)
