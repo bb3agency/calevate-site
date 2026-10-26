@@ -422,6 +422,95 @@ async def test_a_missing_template_value_is_not_filled_by_the_next_one(
     assert result.payload == {"error": "missing_template_value", "missing": ["customer_name"]}
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("blank", ["", "   ", "\n\t"])
+async def test_a_blank_template_value_is_missing_not_sent_empty(
+    monkeypatch: pytest.MonkeyPatch, blank: str
+) -> None:
+    """A template sent with an empty variable is refused by the provider for good; refused
+    here instead, the model is told to ask the caller for it."""
+    monkeypatch.setattr(execution, "resolve_credential", _fake_secret("KEY"))
+    monkeypatch.setattr(whatsapp, "check_dispatch", _fake_allowed_dispatch())
+    monkeypatch.setattr(whatsapp, "read_messaging_consent", _fake_consent(messageable=True))
+    tool = _loaded(
+        kind="whatsapp",
+        provider="meta_cloud",
+        credential_id=uuid4(),
+        config=WhatsAppConfig(
+            recipient_param="caller",
+            template="booking_confirmed",
+            language="en",
+            phone_number_id="1234567890",
+            body_params=["customer_name"],
+        ).model_dump(),
+        params=[
+            {"name": "caller", "source": "lead_var", "lead_var": "caller_phone"},
+            {"name": "customer_name", "source": "ai", "type": "string", "description": "name"},
+        ],
+    )
+    sent: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request.content)
+        return httpx.Response(200, json={"ok": True})
+
+    async with _mock_client(handler) as client:
+        result = await execution.execute_action(
+            _FakeSession(),
+            tool=tool,
+            received={"caller": "+919000000000", "customer_name": blank},
+            source="in_call",
+            client=client,
+            audit=False,
+        )
+    assert sent == []
+    assert result.payload == {"error": "missing_template_value", "missing": ["customer_name"]}
+
+
+def test_every_builder_sends_template_values_on_one_line() -> None:
+    """A new line, a tab or a run of spaces in a template variable is refused by Meta
+    (reported as error 132018), and AiSensy and Interakt fill the same Meta templates. A
+    caller's address or an owner's description can hold all three."""
+    raw = "Flat 4,\nRoad 2\t  near     the temple "
+    one_line = "Flat 4, Road 2 near the temple"
+    cfg = WhatsAppConfig(
+        recipient_param="caller",
+        template="hello",
+        language="en",
+        phone_number_id="123456",
+        body_params=["a"],
+        header_param="h",
+    )
+    meta = whatsapp.build_meta_cloud(
+        cfg, access_token="T", recipient_e164="+919000000000", header_value=raw, body_values=[raw]
+    )
+    assert meta.json_body is not None
+    template = meta.json_body["template"]
+    assert isinstance(template, dict)
+    assert template["components"] == [
+        {"type": "header", "parameters": [{"type": "text", "text": one_line}]},
+        {"type": "body", "parameters": [{"type": "text", "text": one_line}]},
+    ]
+    interakt = whatsapp.build_interakt(
+        cfg, api_key="K", recipient_e164="+919000000000", header_value=raw, body_values=[raw]
+    )
+    assert interakt.json_body is not None
+    assert interakt.json_body["template"] == {
+        "name": "hello",
+        "languageCode": "en",
+        "bodyValues": [one_line],
+        "headerValues": [one_line],
+    }
+    aisensy = whatsapp.build_aisensy(
+        cfg.model_copy(update={"header_param": None}),
+        api_key="K",
+        recipient_e164="+919000000000",
+        body_values=[raw],
+    )
+    assert aisensy.json_body is not None
+    assert aisensy.json_body["templateParams"] == [one_line]
+
+
 def _calendar_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     """The platform OAuth client configured, the refresh token resolvable, and Google's
     hosts resolving to a public address through the guard's own seam."""

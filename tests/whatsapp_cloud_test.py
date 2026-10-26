@@ -205,6 +205,23 @@ async def test_a_template_with_no_variables_sends_no_components_at_all() -> None
     assert bodies[0]["template"]["components"] == []
 
 
+async def test_a_variable_goes_out_on_one_line() -> None:
+    """A business or agent name typed with a line break or a tab would have Meta refuse the
+    whole send for good (reported as error 132018); it is sent single-spaced instead."""
+    bodies: list[Any] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        bodies.append(_json.loads(request.content))
+        return _ok()
+
+    await _transport(handler).send(_message(variables=("Front\ndesk\t  agent     two ",)))
+
+    parameters = bodies[0]["template"]["components"][0]["parameters"]
+    assert parameters == [{"type": "text", "text": "Front desk agent two"}]
+
+
 # --- what counts as delivered --------------------------------------------------
 
 

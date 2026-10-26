@@ -361,6 +361,23 @@ def _digits(e164: str) -> str:
     return e164.lstrip("+")
 
 
+def template_text(value: str) -> str:
+    """A template variable as a WhatsApp template accepts it: one line, single-spaced.
+
+    A text parameter may not carry a new line, a tab or more than four spaces in a row; Meta
+    refuses the whole send with error 132018 ("Param text cannot have new-line/tab characters
+    or more than 4 consecutive spaces"). That rule is not on Meta's own error-code page
+    (developers.facebook.com/documentation/business-messaging/whatsapp/support/error-codes.md,
+    read 26 Oct 2026, says only "issue with the parameters"); it is REPORTED, quoted from the
+    API's answer by support.wati.io (template formatting rules), chatbase.co/docs/api-v2/
+    whatsapp and community.make.com/t/71756. Collapsing whitespace is harmless if the rule
+    is narrower than reported, and AiSensy and Interakt hand the same values to the same
+    Meta template. The values reach here from what a caller said, a lead field or an owner's
+    form, any of which can hold a line break, and a refusal is permanent.
+    """
+    return " ".join(value.split())
+
+
 def build_aisensy(
     config: WhatsAppConfig,
     *,
@@ -389,7 +406,7 @@ def build_aisensy(
             "campaignName": config.template,
             "destination": recipient_e164,
             "userName": (recipient_name or "").strip() or recipient_e164,
-            "templateParams": body_values,
+            "templateParams": [template_text(v) for v in body_values],
         },
     )
 
@@ -421,13 +438,16 @@ def build_meta_cloud(
     components: list[dict[str, object]] = []
     if header_value is not None:
         components.append(
-            {"type": "header", "parameters": [{"type": "text", "text": header_value}]}
+            {
+                "type": "header",
+                "parameters": [{"type": "text", "text": template_text(header_value)}],
+            }
         )
     if body_values:
         components.append(
             {
                 "type": "body",
-                "parameters": [{"type": "text", "text": v} for v in body_values],
+                "parameters": [{"type": "text", "text": template_text(v)} for v in body_values],
             }
         )
     template: dict[str, object] = {
@@ -473,10 +493,10 @@ def build_interakt(
     template: dict[str, object] = {
         "name": config.template,
         "languageCode": config.language or "en",
-        "bodyValues": body_values,
+        "bodyValues": [template_text(v) for v in body_values],
     }
     if header_value is not None:
-        template["headerValues"] = [header_value]
+        template["headerValues"] = [template_text(header_value)]
     return PreparedRequest(
         method="POST",
         url="https://api.interakt.ai/v1/public/message/",
@@ -511,4 +531,5 @@ __all__ = [
     "build_meta_cloud",
     "spoken_answer",
     "spoken_consent_from_args",
+    "template_text",
 ]

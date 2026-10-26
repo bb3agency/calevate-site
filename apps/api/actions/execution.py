@@ -630,7 +630,13 @@ async def _run_whatsapp(
     template_bindings = ([config.header_param] if config.header_param else []) + list(
         config.body_params
     )
-    missing = [name for name in template_bindings if values.get(name) is None]
+    # A blank counts as missing: a template sent with an empty variable is refused by the
+    # provider for good, where a refusal here lets the model ask the caller.
+    missing = [
+        name
+        for name in template_bindings
+        if values.get(name) is None or not wa.template_text(_stringify(values[name]))
+    ]
     if missing:
         return _refused("missing_template_value", missing=missing)
     return await _send_template(

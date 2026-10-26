@@ -158,6 +158,7 @@ from typing import Any
 
 import httpx
 
+from apps.api.actions.whatsapp import template_text
 from apps.api.core.logging import get_logger
 from apps.workers.whatsapp import SendResult, SendStatus, WhatsAppMessage
 
@@ -366,7 +367,8 @@ def _body(message: WhatsAppMessage) -> dict[str, Any]:
                     {
                         "type": "body",
                         "parameters": [
-                            {"type": "text", "text": value} for value in message.variables
+                            {"type": "text", "text": template_text(value)}
+                            for value in message.variables
                         ],
                     }
                 ]
