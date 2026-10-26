@@ -3,7 +3,12 @@ import { describe, expect, it } from "vitest";
 
 import TeamPage from "@/app/c/[slug]/settings/team/page";
 import type { Me } from "@/lib/api/client";
-import type { Member, MemberRemoved, PendingInvitation } from "@/lib/api/members";
+import {
+  inviteOwnerConfirmation,
+  type Member,
+  type MemberRemoved,
+  type PendingInvitation,
+} from "@/lib/api/members";
 
 import { problem, renderClientPage } from "./harness";
 
@@ -241,6 +246,10 @@ describe("what a click actually sends", () => {
         expected_role: "staff",
       });
       expect(patch!.path).toBe(`/v1/members/${STAFF.id}`);
+      // Making someone an owner takes a code typed for that person.
+      expect(patch!.headers["X-Confirm-Action"]).toMatch(
+        new RegExp(`^promote_owner:[^:]+:${STAFF.id}$`),
+      );
     });
   });
 
@@ -521,5 +530,14 @@ describe("no colleague's access changes on one unconfirmed press", () => {
     expect(
       screen.getByRole("button", { name: "More actions for Priya" }),
     ).toBeTruthy();
+  });
+});
+
+describe("the owner invitation's confirmation", () => {
+  it("is bound to the account and the lower-cased address, as the server builds it", () => {
+    const session = { orgSlug: "sri-clinic" } as Parameters<typeof inviteOwnerConfirmation>[0];
+    expect(inviteOwnerConfirmation(session, " Anita@Clinic.Example ")).toBe(
+      "invite_owner:sri-clinic:anita@clinic.example",
+    );
   });
 });

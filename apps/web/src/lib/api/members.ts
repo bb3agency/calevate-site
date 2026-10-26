@@ -26,6 +26,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { CLIENT_ACCEPT_INVITE_PATH } from "@/lib/authn/clientAuthn";
 import { LINK_TOKEN_PARAM } from "@/lib/authn/useLinkToken";
 
+import { accountAction, withAccountCode } from "./accountCode";
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
@@ -85,6 +86,16 @@ export function usePendingInvitations(session: Session): UseQueryResult<PendingI
 }
 
 /** Both lists move together: accepting, revoking and removing all touch each other. */
+/** Mirrors `tenancy/routes.invite_owner_confirmation`: bound to the address. */
+export function inviteOwnerConfirmation(session: Session, email: string): string {
+  return `${accountAction(session, "invite_owner")}:${email.trim().toLowerCase()}`;
+}
+
+/** Mirrors `tenancy/routes.promote_owner_confirmation`: bound to the person. */
+export function promoteOwnerConfirmation(session: Session, userId: string): string {
+  return `${accountAction(session, "promote_owner")}:${userId}`;
+}
+
 function invalidateTeam(client: ReturnType<typeof useQueryClient>, org: string) {
   void client.invalidateQueries({ queryKey: teamKeys.members(org) });
   void client.invalidateQueries({ queryKey: teamKeys.invitations(org) });
@@ -102,11 +113,19 @@ export function useSetMemberRole(session: Session) {
       role: MemberRole;
       /** What the row was showing when the button was pressed — the CAS guard. */
       expectedRole: MemberRole;
-    }) =>
-      apiRequest<Member>(session, `/v1/members/${userId}`, {
-        method: "PATCH",
-        body: { role, expected_role: expectedRole },
-      }),
+    }) => {
+      const send = (confirmAction?: string) =>
+        apiRequest<Member>(session, `/v1/members/${userId}`, {
+          method: "PATCH",
+          body: { role, expected_role: expectedRole },
+          confirmAction,
+        });
+      if (role !== "owner" || expectedRole === "owner") return send();
+      const action = promoteOwnerConfirmation(session, userId);
+      return withAccountCode(action, "Making a colleague an owner of this account.", () =>
+        send(action),
+      );
+    },
     onSuccess: () => invalidateTeam(client, session.orgSlug),
   });
 }
@@ -123,11 +142,17 @@ export function useRemoveMember(session: Session) {
 export function useInviteMember(session: Session) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ email, role }: { email: string; role: MemberRole }) =>
-      apiRequest<CreatedInvitation>(session, "/v1/invitations", {
-        method: "POST",
-        body: { email, role },
-      }),
+    mutationFn: ({ email, role }: { email: string; role: MemberRole }) => {
+      const send = (confirmAction?: string) =>
+        apiRequest<CreatedInvitation>(session, "/v1/invitations", {
+          method: "POST",
+          body: { email, role },
+          confirmAction,
+        });
+      if (role !== "owner") return send();
+      const action = inviteOwnerConfirmation(session, email);
+      return withAccountCode(action, "Inviting an owner of this account.", () => send(action));
+    },
     onSuccess: () => invalidateTeam(client, session.orgSlug),
   });
 }

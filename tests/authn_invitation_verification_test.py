@@ -146,7 +146,11 @@ async def _invite(slug: str, token: str, email: str, role: str) -> str:
         created = await http.post(
             "/v1/invitations",
             json={"email": email, "role": role},
-            headers=_headers(slug, token),
+            headers={
+                **_headers(slug, token),
+                # An owner invitation takes a code typed for that address.
+                **({"X-Confirm-Action": f"invite_owner:{slug}:{email}"} if role == "owner" else {}),
+            },
         )
     assert created.status_code == 201, created.text
     assert "token" not in created.json(), "D-190: the response must not carry the secret"

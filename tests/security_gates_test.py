@@ -287,6 +287,7 @@ async def _client_cookie(token: str) -> tuple[uuid.UUID, str]:
 
 
 def _client_gates(slug: str) -> list[tuple[str, str, dict[str, Any] | None, str]]:
+    invitee, member = uuid.uuid4().hex[:10], uuid.uuid4()
     return [
         ("GET", "/v1/calls/export.csv", None, f"export_calls:{slug}"),
         ("GET", "/v1/leads/export.csv", None, f"export_leads:{slug}"),
@@ -320,11 +321,25 @@ def _client_gates(slug: str) -> list[tuple[str, str, dict[str, Any] | None, str]
         ),
         ("POST", f"/v1/forwarding/lines/{uuid.uuid4()}/tests", {}, f"forwarding_test:{slug}"),
         ("PUT", "/v1/forwarding/save-number", {"enabled": True}, f"save_number_message:{slug}"),
+        # An owner invitation and a promotion to owner grant access that outlives the
+        # session and survives a password reset; bound to the address or the person.
+        (
+            "POST",
+            "/v1/invitations",
+            {"email": f"owner-{invitee}@example.com", "role": "owner"},
+            f"invite_owner:{slug}:owner-{invitee}@example.com",
+        ),
+        (
+            "PATCH",
+            f"/v1/members/{member}",
+            {"role": "owner", "expected_role": "staff"},
+            f"promote_owner:{slug}:{member}",
+        ),
     ]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("index", range(8))
+@pytest.mark.parametrize("index", range(len(_client_gates("probe"))))
 async def test_a_client_action_needs_a_code_typed_for_it(index: int) -> None:
     _tenant_id, slug, token = await _make_tenant()
     user_id, cookie = await _client_cookie(token)

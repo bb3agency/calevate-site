@@ -46778,7 +46778,9 @@ export interface operations {
     invite_member_v1_invitations_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -49116,7 +49118,9 @@ export interface operations {
     set_member_role_v1_members__user_id__patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path: {
                 user_id: string;
             };

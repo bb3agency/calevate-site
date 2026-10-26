@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Annotated, Literal, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +35,7 @@ from apps.api.core.rbac import (
     permission_meta,
     withheld_from_view_as,
 )
+from apps.api.core.stepup import ClientActionCode, client_confirmation
 from apps.api.kb.curation import CURATE_PERMISSION, may_curate_knowledge
 from apps.api.tenancy import members as members_service
 
@@ -453,6 +454,21 @@ def requires_membership_write() -> PermissionDependency:
 #: identical dependency objects would be four cache entries for one question.
 MEMBERSHIP_WRITE: PermissionDependency = requires_membership_write()
 
+ConfirmAction = Annotated[str | None, Header(alias="X-Confirm-Action")]
+
+
+def invite_owner_confirmation(request: Request, email: str) -> str:
+    """`invite_owner:<slug>:<address>` — bound to the address, so a code typed to invite one
+    person as owner cannot be spent inviting another. Lower-cased the way the browser's
+    `toLowerCase` does, so both sides build the same string."""
+    return f"{client_confirmation(request, 'invite_owner')}:{email.strip().lower()}"
+
+
+def promote_owner_confirmation(request: Request, user_id: UUID) -> str:
+    """`promote_owner:<slug>:<user id>` — making a colleague an owner grants what an owner
+    invitation grants, so it takes the same kind of code, bound to the person."""
+    return f"{client_confirmation(request, 'promote_owner')}:{user_id}"
+
 
 @router.post(
     "/invitations",
@@ -465,6 +481,7 @@ async def invite_member(
     payload: InvitationIn,
     session: Session,
     request: Request,
+    code: ClientActionCode,
     # `tenant_of`, not `principal.tenant_id`: the same dependency `deps.db` already
     # resolved (so it is cached, not re-authenticated) and the one that TYPES the value
     # as present. `Principal.tenant_id` is `UUID | None` because an admin principal
@@ -472,7 +489,12 @@ async def invite_member(
     # cannot be None, and saying so with a dependency beats saying so with a cast.
     tenant_id: UUID = Depends(tenant_of),
     principal: Principal = Depends(MEMBERSHIP_WRITE),
+    x_confirm_action: ConfirmAction = None,
 ) -> InvitationCreatedOut:
+    if payload.role == "owner":
+        # An owner key outlives the session that issued it and survives a password reset,
+        # so a session left open must not be enough to hand one out (D-730's ground).
+        await code.require(x_confirm_action, invite_owner_confirmation(request, str(payload.email)))
     invitation_id, token = await members_service.create_team_invitation(
         session,
         tenant_id=tenant_id,
@@ -650,8 +672,12 @@ async def set_member_role(
     payload: MemberRoleIn,
     session: Session,
     request: Request,
+    code: ClientActionCode,
     principal: Principal = Depends(MEMBERSHIP_WRITE),
+    x_confirm_action: ConfirmAction = None,
 ) -> MemberOut:
+    if payload.role == "owner" and payload.expected_role != "owner":
+        await code.require(x_confirm_action, promote_owner_confirmation(request, user_id))
     previous = await members_service.change_member_role(
         session,
         actor_user_id=principal.user_id,

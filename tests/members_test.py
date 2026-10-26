@@ -126,7 +126,10 @@ async def test_an_owner_promotes_and_demotes_a_colleague_and_the_log_says_so() -
         promoted = await http.patch(
             f"/v1/members/{colleague}",
             json={"role": "owner", "expected_role": "staff"},
-            headers=_headers(slug, token),
+            headers={
+                **_headers(slug, token),
+                "X-Confirm-Action": f"promote_owner:{slug}:{colleague}",
+            },
         )
         demoted = await http.patch(
             f"/v1/members/{colleague}",
@@ -391,7 +394,10 @@ async def test_a_role_change_against_a_stale_screen_is_refused_not_reapplied() -
         await http.patch(
             f"/v1/members/{colleague}",
             json={"role": "owner", "expected_role": "staff"},
-            headers=_headers(slug, token),
+            headers={
+                **_headers(slug, token),
+                "X-Confirm-Action": f"promote_owner:{slug}:{colleague}",
+            },
         )
         stale = await http.patch(
             f"/v1/members/{colleague}",

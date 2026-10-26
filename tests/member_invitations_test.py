@@ -297,7 +297,10 @@ async def test_a_revoked_invitation_cannot_be_redeemed_afterwards() -> None:
         created = await http.post(
             "/v1/invitations",
             json={"email": address, "role": "owner"},
-            headers=_headers(slug, token),
+            headers={
+                **_headers(slug, token),
+                "X-Confirm-Action": f"invite_owner:{slug}:{address}",
+            },
         )
         body = created.json()
         revoked = await http.delete(f"/v1/invitations/{body['id']}", headers=_headers(slug, token))
