@@ -57,7 +57,7 @@ from apps.api.billing.models import MONEY
 from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.billing.service import ROUNDING as SERVICE_ROUNDING
 from apps.api.db.base import Base
-from apps.workers.pipeline import _unit_price
+from apps.workers.pipeline import _ledger_minutes, _unit_price
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -275,3 +275,25 @@ def test_the_metering_writer_ignores_a_hostile_ambient_context() -> None:
         "the default this test is defending against is no longer half-even; re-read the "
         "argument in billing/rates.py before relaxing anything"
     )
+
+
+def test_a_minute_rows_qty_times_price_reads_back_the_leg() -> None:
+    """`unit_cost_paid` is struck against the qty the row stores, not the exact minutes.
+
+    A 47-second call with a ₹2.50 minute leg: dividing by 0.78333… minutes and letting the
+    column round the qty to 0.7833 read back as ₹2.4999. With the qty rounded first, every
+    duration up to an hour reads back within half a price quantum per unit of qty.
+    """
+    leg = Decimal("2.50")
+    qty = _ledger_minutes(Decimal(47))
+    price = _unit_price(leg, qty)
+    assert qty == Decimal("0.7833") and price is not None
+    assert abs(qty * price - leg) < Decimal("0.00005")
+
+    for seconds in range(1, 3601):
+        minutes = _ledger_minutes(Decimal(seconds))
+        assert minutes == minutes.quantize(MONEY_Q)
+        leg = (Decimal(-(-seconds // 30)) / 2 * Decimal("3.1915")).quantize(MONEY_Q)
+        price = _unit_price(leg, minutes)
+        assert price is not None
+        assert abs(minutes * price - leg) <= minutes * MONEY_Q / 2, seconds

@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
-from typing import Any, Final, Literal, NoReturn
+from typing import Any, Final, Literal, NoReturn, cast
 from uuid import UUID
 
 from arq import Retry
@@ -57,7 +57,7 @@ from calevate_shared.extraction import (
     clip_headline,
 )
 from calevate_shared.lead_fields import with_core
-from sqlalchemy import text
+from sqlalchemy import Numeric, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
@@ -87,6 +87,7 @@ from apps.api.billing.models import (
     ASSIST_FEATURE_CALL_EXTRACTION,
     ASSIST_FEATURE_CALL_LANGUAGE,
     LLM_CACHED_UNIT_TYPE,
+    UsageEvent,
 )
 from apps.api.billing.plans import (
     OVERAGE_RATE_SECOND_SQL,
@@ -3265,6 +3266,25 @@ def _lead_source(*, direction: str, trial: bool, campaign: bool) -> str:
     return "campaign" if campaign else "outbound_call"
 
 
+#: The quantum `usage_events.qty` stores at, read off the column.
+_QTY_Q: Final = Decimal(1).scaleb(
+    -(cast("Numeric[Decimal]", UsageEvent.__table__.c.qty.type).scale or 0)
+)
+
+
+def _ledger_minutes(duration_s: Decimal) -> Decimal:
+    """A call's measured minutes at the scale `usage_events.qty` stores them.
+
+    Rounded HERE, before a leg is divided by it, so `unit_cost_paid` is struck against the
+    quantity the row actually holds. Dividing by the exact 0.78333… minutes of a 47-second
+    call and letting the column round the qty to 0.7833 afterwards put two roundings into
+    `qty * unit_cost_paid`: a ₹2.50 minute leg read back as ₹2.4999. With the qty rounded
+    first only the price's own rounding is left, which is at most half a quantum per unit
+    of qty.
+    """
+    return (duration_s / Decimal(60)).quantize(_QTY_Q, rounding=ROUNDING)
+
+
 def _unit_price(leg_inr: Decimal | None, qty: Decimal) -> Decimal | None:
     """A leg's cost expressed per unit of `qty` — NUMERIC throughout (hard rule 7).
 
@@ -3778,9 +3798,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         test_minutes = (
             minute_cost.billed_minutes
             if minute_cost is not None
-            else (Decimal(snapshot.duration_s or 0) / Decimal(60)).quantize(
-                Decimal("0.0001"), rounding=ROUNDING
-            )
+            else _ledger_minutes(Decimal(snapshot.duration_s or 0))
         )
         if await meter_test_arrival(
             session,
@@ -4018,7 +4036,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # `usage_summary` bills minutes off `telephony_s.qty`. Writing the leg TOTAL in
         # that column reported ~50x our real cost for a 95-second call and — with the
         # tts/llm rows carrying qty 0 — dropped those legs from the cost side entirely.
-        minutes = duration_s / Decimal(60)
+        minutes = _ledger_minutes(duration_s)
         # WHAT THE CLIENT IS BILLED FOR, which is not the measured minute above: whole
         # 30-second steps, rounded up (D-681). `minutes` stays the cost rows' quantity.
         #
