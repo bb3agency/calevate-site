@@ -210,7 +210,8 @@ async def remove(
     Same shape as `DELETE /v1/lead-sources/{id}` and `DELETE /v1/leads/views/{id}`,
     which is the answer this repo already gives for a delete with nothing to report.
     """
-    removal = await dnc.remove_entry(session, entry_id=entry_id)
+    assert principal.tenant_id is not None
+    removal = await dnc.remove_entry(session, tenant_id=principal.tenant_id, entry_id=entry_id)
     await write_audit(
         session,
         action="dnc.removed",

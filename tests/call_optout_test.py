@@ -585,7 +585,7 @@ async def test_an_optout_over_a_hand_typed_entry_is_still_the_callers_to_keep() 
 
     with pytest.raises(ProblemError) as refused:
         async with tenant_session(tenant_id) as session:
-            await dnc_module.remove_entry(session, entry_id=entry_id)
+            await dnc_module.remove_entry(session, tenant_id=tenant_id, entry_id=entry_id)
     assert refused.value.code == "dnc_consumer_optout"
 
     async with tenant_session(tenant_id) as session:

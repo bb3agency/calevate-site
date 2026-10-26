@@ -430,8 +430,12 @@ def _consumer_optout_refusal() -> ProblemError:
     )
 
 
-async def remove_entry(session: AsyncSession, *, entry_id: UUID) -> Removal:
+async def remove_entry(session: AsyncSession, *, tenant_id: UUID, entry_id: UUID) -> Removal:
     """Delete one hand-added tenant entry. Returns the audit row's payload.
+
+    The addition was pushed to the client's own workspace list (`add_numbers`), so the
+    removal is queued there too, in this transaction — otherwise our list says callable
+    while the platform's agent and campaigns keep refusing the number.
 
     Deliberately NOT an admin-realm route. It cannot be one: `admin:tenants` is a
     MUTATING permission, and D-22 refuses mutating permissions while impersonating —
@@ -480,6 +484,9 @@ async def remove_entry(session: AsyncSession, *, entry_id: UUID) -> Removal:
             raise _consumer_optout_refusal()
         # RLS refusing the write looks exactly like this. Do not report success.
         raise ProblemError.not_found("DNC entry")
+    await queue_engine_dnc_removal(
+        session, tenant_id=tenant_id, entry_id=entry_id, phone_e164=str(row[2])
+    )
     return Removal(source=str(source), subject_ref=subject_ref(row[2]))
 
 

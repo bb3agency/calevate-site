@@ -296,6 +296,33 @@ async def test_a_number_suppressed_again_is_left_on_the_platform_list(
     assert [r for r in vendor.requests if r[0] == "DELETE"] == []
 
 
+async def test_removing_a_hand_added_number_takes_it_off_the_workspace_list_too(
+    monkeypatch: pytest.MonkeyPatch, vendor: FakeWorkspaceVendor
+) -> None:
+    """The addition was pushed to the platform; a removal that stayed ours alone left the
+    platform's agent and campaigns refusing a number our list says is callable."""
+    from apps.api.compliance import dnc
+
+    monkeypatch.setattr(get_settings(), "engine", "thinnest")
+    _provisioned(monkeypatch)
+    tenant_id = await _tenant()
+    phone = _phone()
+    async with tenant_session(tenant_id) as session:
+        await dnc.add_numbers(session, tenant_id=tenant_id, raw_numbers=[phone], source="manual")
+        entry_id = (
+            await session.execute(
+                text("SELECT id FROM dnc_list WHERE tenant_id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+        await dnc.remove_entry(session, tenant_id=tenant_id, entry_id=uuid.UUID(str(entry_id)))
+    [payload] = await _outbox(engine_dnc.ENGINE_DNC_REMOVE_JOB, tenant_id)
+    assert phone.lstrip("+") not in json.dumps(payload)
+
+    assert await jobs.remove_engine_dnc({}, payload) == "removed"
+    [(method, path, header, _body)] = vendor.requests
+    assert (method, path, header) == ("DELETE", f"/do-not-call/{phone.lstrip('+')}", WORKSPACE)
+
+
 async def test_a_restore_is_not_queued_without_a_workspace_of_the_clients_own(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

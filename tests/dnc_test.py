@@ -661,7 +661,7 @@ async def test_a_removal_that_deletes_no_row_reports_not_found_rather_than_succe
     async with tenant_session(tenant_id) as session:
         racing = _StolenUnderneath(session, tenant_id, uuid.UUID(str(entry_id)))
         with pytest.raises(ProblemError) as caught:
-            await dnc.remove_entry(racing, entry_id=uuid.UUID(str(entry_id)))  # type: ignore[arg-type]
+            await dnc.remove_entry(racing, tenant_id=tenant_id, entry_id=uuid.UUID(str(entry_id)))  # type: ignore[arg-type]
 
     assert caught.value.status == 404
     assert caught.value.code == "not_found"
@@ -711,7 +711,9 @@ async def test_a_customer_request_over_a_typed_entry_makes_it_undeletable() -> N
 
     with pytest.raises(ProblemError) as refused:
         async with tenant_session(tenant_id) as session:
-            await dnc.remove_entry(session, entry_id=uuid.UUID(str(rows[upgraded])))
+            await dnc.remove_entry(
+                session, tenant_id=tenant_id, entry_id=uuid.UUID(str(rows[upgraded]))
+            )
     assert refused.value.code == "dnc_consumer_optout"
 
 
@@ -743,7 +745,7 @@ async def test_a_removal_racing_the_callers_own_opt_out_never_deletes_the_opt_ou
 
     async def remove() -> dnc.Removal:
         async with tenant_session(tenant_id) as session:
-            return await dnc.remove_entry(session, entry_id=entry_id)
+            return await dnc.remove_entry(session, tenant_id=tenant_id, entry_id=entry_id)
 
     async with tenant_session(tenant_id) as upgrading:
         await add_to_dnc(upgrading, tenant_id=tenant_id, phone_e164=phone, source="call_optout")

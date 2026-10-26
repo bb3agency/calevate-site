@@ -4,9 +4,10 @@ Founder decision (8 Oct 2026, revised): do-not-call is two-way per client. Our p
 list decides every dial (the dispatch gate), and each addition is also put on the list of
 the client's own ThinnestAI customer workspace, so the platform's agent and its campaigns
 refuse the number too. The other direction — `contact.opted_out` heard by the platform's
-agent — is `apps/workers/engine_signals.py`. A number the client RESTORES (an opt-out
-recorded by mistake, or one the person has since withdrawn) is taken off that workspace
-list again, so the two lists do not disagree in the direction that silently blocks calls.
+agent — is `apps/workers/engine_signals.py`. A hand-added entry the client REMOVES, and a
+number the client RESTORES (an opt-out recorded by mistake, or one the person has since
+withdrawn), are taken off that workspace list again, so the two lists do not disagree in
+the direction that silently blocks calls.
 
 ONLY INTO THE CLIENT'S OWN WORKSPACE. The platform's list is per workspace; until a client
 has its own (`tenancy/engine_workspace.own_workspace`), a change stays ours alone and
@@ -77,7 +78,7 @@ async def queue_engine_dnc_push(
 async def queue_engine_dnc_removal(
     session: AsyncSession, *, tenant_id: UUID, entry_id: UUID, phone_e164: str
 ) -> bool:
-    """Queue taking one restored number off the client's own workspace list, in the
+    """Queue taking one removed or restored number off the client's own workspace list, in the
     caller's transaction. False, and nothing queued, off the engine or while the tenant has
     no own workspace."""
     if get_settings().engine not in DNC_PUSH_ENGINES:

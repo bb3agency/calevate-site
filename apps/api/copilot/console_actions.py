@@ -563,9 +563,8 @@ async def _execute_dnc_remove(
     inside the DELETE so a concurrent upgrade to an opt-out is never lifted."""
     from apps.api.compliance import dnc
 
-    del actor
     parsed = parse_args(_DncRemoveSigned, args)
-    removal = await dnc.remove_entry(session, entry_id=parsed.entry_id)
+    removal = await dnc.remove_entry(session, tenant_id=actor.tenant_id, entry_id=parsed.entry_id)
     return Executed(
         applied=True,
         detail="That number is off your do-not-call list.",
