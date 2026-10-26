@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -29,9 +29,6 @@ from apps.api.billing.plans import IST
 from apps.api.core.errors import ProblemError
 from apps.api.crm.schemas import CallLensIn, CapturedFieldFilterIn, LeadLensIn
 from apps.api.db.like import contains_pattern
-
-if TYPE_CHECKING:
-    from apps.api.crm.schemas import LeadOut
 
 #: The two lens shapes, under the names the plan and Pip use.
 LeadLens = LeadLensIn
@@ -369,32 +366,6 @@ async def lead_ids(session: AsyncSession, scope: LeadScope) -> list[UUID]:
     )
 
 
-@dataclass(frozen=True, slots=True)
-class LeadPreview:
-    """A lens answered for a reader who must not be handed thousands of rows: how many,
-    and the first few."""
-
-    total: int
-    examples: list[LeadOut]
-
-
-async def preview_leads(session: AsyncSession, scope: LeadScope, *, examples: int) -> LeadPreview:
-    from apps.api.crm import service
-
-    page = await service.list_leads_page(
-        session,
-        limit=max(examples, 1),
-        offset=0,
-        status=scope.status,
-        search=scope.search,
-        agent_id=scope.agent_id,
-        assigned_to=scope.assigned_to,
-        field_filters=scope.field_filters,
-        more=scope.more,
-    )
-    return LeadPreview(total=page.total, examples=page.items[:examples])
-
-
 def describe_lead_lens(lens: LeadLensIn) -> str:
     """The lens in the words a person reads on a plan card. Names fields, never values of a
     caller's data beyond what the person typed as the filter."""
@@ -442,7 +413,6 @@ __all__ = [
     "CallLens",
     "FieldFilters",
     "LeadLens",
-    "LeadPreview",
     "LeadRowFilters",
     "LeadScope",
     "call_filters",
@@ -455,6 +425,5 @@ __all__ = [
     "lead_ids",
     "lead_row_clauses",
     "parse_field_filters",
-    "preview_leads",
     "resolve_lead_scope",
 ]

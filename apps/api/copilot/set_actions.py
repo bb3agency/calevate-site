@@ -35,7 +35,6 @@ from apps.api.campaigns import controls as campaign_controls
 from apps.api.copilot import lens_args, plans
 from apps.api.copilot.actions import ToolActor, WriteRefusedError, parse_args
 from apps.api.copilot.sanitize import strip_invisible
-from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.crm import lens as crm_lens
 from apps.api.crm import service as crm_service
@@ -54,16 +53,6 @@ _LEAD_IDS_SCHEMA: Final[dict[str, Any]] = {
 DialConsent = Literal[
     "existing_customer", "inbound_enquiry", "web_form_optin", "offline_form_optin"
 ]
-
-
-def _principal(actor: ToolActor) -> Principal:
-    return Principal(
-        realm="client",
-        user_id=actor.user_id,
-        tenant_id=actor.tenant_id,
-        role=actor.role,
-        impersonating=actor.impersonating,
-    )
 
 
 async def chosen_leads(session: AsyncSession, args: Mapping[str, Any]) -> tuple[list[UUID], str]:
@@ -702,16 +691,19 @@ async def _dial(
     result = await campaigns_service.launch_campaign(
         session, tenant_id=actor.tenant_id, campaign_id=campaign_id
     )
+    # The plan worker launches it, after the person's click: nobody is at a keyboard here,
+    # so the row is the system's and names who approved. The approval itself is audited
+    # with that person's address by the approve route (`copilot.plan_approved`).
     await write_audit(
         session,
         action="campaign.launched",
-        actor=_principal(actor),
+        actor_type="system",
         tenant_id=actor.tenant_id,
         object_type="campaign",
         object_id=str(campaign_id),
-        ip=None,
         summary={
             "via": "copilot_plan",
+            "approved_by": str(actor.user_id),
             "dialable": result["dialable"],
             "dnc_scrubbed": result["dnc_scrubbed"],
         },

@@ -58,8 +58,8 @@ sudo -u postgres psql -d calevate -c "SELECT status, count(*) FROM copilot_plan_
 
 ## 4. Stopping it
 
-The client stops a plan from its card (Cancel), which is `POST /v1/copilot/plans/{id}/
-cancel`: every target not yet reached is marked skipped ("Cancelled before it was
+The client stops a plan from its card (Cancel), which is
+`POST /v1/copilot/plans/{id}/cancel`: every target not yet reached is marked skipped ("Cancelled before it was
 reached.") and the worker stops before its next batch. An operator does not cancel a
 client's plan for them; if a plan must stop and the client cannot be reached, pause the
 account's outbound through the usual controls (`runbooks/calls-stopped.md`) — a non-dialling

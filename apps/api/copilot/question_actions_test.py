@@ -16,6 +16,7 @@ import pytest
 from sqlalchemy import text
 from tests.teach_questions_test import _gap, _owner, _tenant
 
+from apps.api.agents import test_conversations
 from apps.api.copilot import write_tools
 from apps.api.copilot.actions import WriteRefusedError
 from apps.api.copilot.console_reads import CONSOLE_READ_TOOLS
@@ -236,8 +237,8 @@ async def test_a_run_goes_through_request_run(monkeypatch: pytest.MonkeyPatch) -
         asked.update(kwargs)
         return _Run()
 
-    monkeypatch.setattr(question_actions.test_conversations, "readiness", ready)
-    monkeypatch.setattr(question_actions.test_conversations, "request_run", request_run)
+    monkeypatch.setattr(test_conversations, "readiness", ready)
+    monkeypatch.setattr(test_conversations, "request_run", request_run)
     monkeypatch.setattr(question_actions, "require_ai_assist", allowed)
     with pytest.raises(WriteRefusedError):
         await _propose(
