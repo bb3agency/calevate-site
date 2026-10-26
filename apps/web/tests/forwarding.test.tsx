@@ -47,6 +47,19 @@ describe("Settings > Phone numbers", () => {
     expect(screen.getByText("No calls from this number for three days.")).toBeTruthy();
   });
 
+  it("reopens Change on the saved setting, not on an edit that was cancelled", async () => {
+    await renderClientPage(<PhoneNumbersSettingsPage />, settingsRoutes());
+    const change = async () => {
+      const button = await screen.findByRole("button", { name: "Change" });
+      await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(button);
+      return screen.getByLabelText("How long your phone rings first") as HTMLSelectElement;
+    };
+    fireEvent.change(await change(), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect((await change()).value).toBe("20");
+  });
+
   it("fills the Calevate number and ring time into the codes, with no tel: links", async () => {
     const { container } = await renderClientPage(<PhoneNumbersSettingsPage />, settingsRoutes());
     expect(await screen.findByText("**61*08012345678**20#")).toBeTruthy();

@@ -172,7 +172,18 @@ function LineSettings({
           value={modeSummary(line.mode, line.ring_seconds)}
           action={
             editing ? undefined : (
-              <button type="button" className={TEXT_ACTION} disabled={!allowed} onClick={() => setEditing(true)}>
+              <button
+                type="button"
+                className={TEXT_ACTION}
+                disabled={!allowed}
+                onClick={() => {
+                  // Every edit starts from what is saved: an edit abandoned with Cancel, or a
+                  // line changed since this row mounted, must not be what Save sends.
+                  setMode(line.mode);
+                  setSeconds(line.ring_seconds || DEFAULT_RING_SECONDS);
+                  setEditing(true);
+                }}
+              >
                 Change
               </button>
             )
