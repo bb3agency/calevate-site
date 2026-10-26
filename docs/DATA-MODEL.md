@@ -875,6 +875,15 @@ kb_retrieval_logs(id, tenant_id, call_id, query, tier ENUM[t0,t1,t2,t3,t4],
   -- the chunks: this table still has no producer and cannot have one (see
   -- `apps/api/kb/models.py::KbRetrievalLog`), because the retrieval whose outcome it would
   -- log happens inside the engine. Add it with a PRODUCER, or not at all.
+teach_questions(id, tenant_id, question_key, inputs_hash NULL, draft_status NULL
+  ENUM[queued,ready,none], draft NULL, draft_source_kind NULL ENUM[profile,fact,answer,file],
+  draft_source_label NULL, settled NULL ENUM[answered,dismissed], settled_reason NULL,
+  settled_by NULL, settled_at NULL, UNIQUE(tenant_id, question_key))
+  -- D-893, migration f2a6c8e1d5b9, FORCEd RLS. The Questions to answer list is computed on
+  -- every read (`teach/questions.py`: open gaps by topic, practice and setup questions);
+  -- this row keeps only what cannot be recomputed: the owner's answer or dismissal of a
+  -- question no open gap carries, and the draft with the fingerprint of the inputs it was
+  -- written from (`draft IS NULL` iff no source). Tenant erasure deletes it.
 ```
 
 ## 8. Billing & Metering (append-only)

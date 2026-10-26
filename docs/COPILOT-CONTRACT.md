@@ -613,3 +613,25 @@ with its id) and `billing_settings`.
   `c-source-*`, `c-calling-hours`, `c-held-call`, `c-endpoint-off`, `c-delivery-resend`,
   `c-sheets-connected`, `c-spend-cap`, `c-low-alert`, `c-auto-recharge-off` and
   `c-topup-refused` cases.
+
+## 18. Knowledge and training actions (D-893 lane L5, `copilot/question_actions.py`, `TRAINING_ACTIONS`)
+
+| Tool | Tier, permission, audit | Executor (the page button's function) |
+|---|---|---|
+| `knowledge_questions` (read) | `calls:read` | `teach/questions.list_questions`, never queuing a draft |
+| `knowledge_question_settle` | confirm, `kb:write` with curation, `teach_question.answer` | `questions.answer_question`; `answer` null is `dismiss_question` |
+| `knowledge_fact_change` | confirm, `kb:write`, `kb_fact.edit` | `facts.update_fact` (edit, pin, unpin), `facts.remove_fact`, `pinned.reorder` (move) |
+| `agent_tests_run` | confirm, `org:manage`, `agent.tests_requested` | `test_conversations.request_run` after `require_ai_assist`; `again` signs the latest finished run as `retest_of` |
+| `agent_test_add` | immediate with Undo, `agents:write`, `agent_test_case.create` | `test_cases.create_case`; Undo deletes the test unless it is running |
+
+* **Why confirm.** An answer or a changed fact is said to callers by every live agent on its
+  next call, and a sentence said to a caller cannot be taken back (the reason
+  `knowledge_facts_pin` is confirm). A test run spends the AI allowance.
+* **Questions are keyed by topic** (`pricing`, `timings`, a phrase-derived `q_...`), the
+  same word in every account, so answering closes every agent's open gap on that topic.
+* **`knowledge_sources` lists facts** by their `fact:<id>` reference, which `knowledge_fact_change` takes as `fact_id` (a bare id works too).
+* **Budget.** Adding these five without raising `PREFIX_BUDGET_TOKENS` cut the
+  `PROPOSES_ONLY` and `DOES_IT` suffixes (repeated on every action) to their meaning and
+  shortened the knowledge and training siblings' descriptions.
+* Tests: `apps/api/copilot/question_actions_test.py`, `tests/teach_questions_test.py`; tool
+  choice: the `c-question*`, `c-fact-*`, `c-tests-run` and `c-test-add` cases.
