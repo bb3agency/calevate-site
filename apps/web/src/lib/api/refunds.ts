@@ -59,7 +59,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatRupeeRate } from "@/components/ui";
 
 import { apiRequest, type Session } from "./client";
-import { creditsKey, rupeeFault, type Payment } from "./credits";
+import { invalidateWallet, rupeeFault, type Payment } from "./credits";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -250,6 +250,6 @@ export function useIssueRefund(session: Session, tenantId: string) {
         confirmAction: refundConfirmationHeader(tenantId, draft.payment.payment_ref),
       });
     },
-    onSuccess: () => void client.invalidateQueries({ queryKey: creditsKey(tenantId) }),
+    onSuccess: () => invalidateWallet(client, tenantId),
   });
 }

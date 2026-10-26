@@ -47,7 +47,13 @@
  * blanking the row (`lib/lookup.ts`).
  */
 
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { formatRupeeRate } from "@/components/ui";
 import { needsReauthentication } from "@/lib/authn/problems";
@@ -124,6 +130,15 @@ export const LEDGER_LIMIT = 50;
 
 export function creditsKey(tenantId: string): readonly unknown[] {
   return ["admin", "credits", tenantId];
+}
+
+/**
+ * After any write that moves this client's wallet: the ledger, and the tenant record whose
+ * `minutes_left` / `credit_inr` the wallet summary and the overview render.
+ */
+export function invalidateWallet(client: QueryClient, tenantId: string): void {
+  void client.invalidateQueries({ queryKey: creditsKey(tenantId) });
+  void client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] });
 }
 
 /**
@@ -336,7 +351,7 @@ export function useRecordTopUp(session: Session, tenantId: string) {
     // The balance and the ledger both moved — and on a replay neither did, which is
     // just as important to re-read: the screen must show the ledger as it IS, not the
     // one it had before a colleague's entry landed.
-    onSuccess: () => void client.invalidateQueries({ queryKey: creditsKey(tenantId) }),
+    onSuccess: () => invalidateWallet(client, tenantId),
   });
 }
 
@@ -445,7 +460,7 @@ export function useRecordAdjustment(session: Session, tenantId: string) {
     // Three things moved: the balance, the ledger, and every entry's `reversible_inr`.
     // The third is why a replay must re-read too — the figure the next correction is
     // offered against is derived from rows this screen cannot recompute.
-    onSuccess: () => void client.invalidateQueries({ queryKey: creditsKey(tenantId) }),
+    onSuccess: () => invalidateWallet(client, tenantId),
   });
 }
 
@@ -480,13 +495,13 @@ export type RestatementResult = Schemas["RestatementOut"];
  * operator is reading. So a confirmation captured for ₹50,000 cannot travel with a
  * request for ₹500,000, and changing the figure means confirming the new one.
  *
- * The amount is passed through as the operator's DIGITS, never parsed. The server
- * quantizes both this string and the ledger key with the same function, so `50000.0`
- * and `50000.00` agree on the wire — but a `Number()` here would be the one place
+ * The amount is sent at two decimals from the operator's DIGITS, never parsed, because the
+ * server compares the header to `to_paise(amount)` exactly: `50000` must be sent as
+ * `50000.00` or the gate refuses it. A `Number()` here would be the one place
  * hard rule 7 broke, on the field that decides how much money appears.
  */
 export function topupRestatementConfirmation(paymentRef: string, correctedAmountInr: string): string {
-  return `restate_topup:${paymentRef}:${correctedAmountInr.trim()}`;
+  return `restate_topup:${paymentRef}:${toTwoDecimals(correctedAmountInr)}`;
 }
 
 /**
@@ -557,7 +572,7 @@ export function useRecordRestatement(session: Session, tenantId: string) {
     // The balance, the ledger and the payment's own total all moved — and the third is
     // what the NEXT restatement of this payment would be measured against, so a stale
     // one on screen is how somebody restates from a figure that is no longer true.
-    onSuccess: () => void client.invalidateQueries({ queryKey: creditsKey(tenantId) }),
+    onSuccess: () => invalidateWallet(client, tenantId),
   });
 }
 
@@ -750,6 +765,6 @@ export function useGrantCredits(session: Session, tenantId: string) {
         needsReauthentication,
       );
     },
-    onSuccess: () => void client.invalidateQueries({ queryKey: creditsKey(tenantId) }),
+    onSuccess: () => invalidateWallet(client, tenantId),
   });
 }

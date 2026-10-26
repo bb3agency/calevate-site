@@ -50,7 +50,7 @@ import { withActionCode } from "@/lib/authn/stepUpPrompt";
 
 import { endTrialConfirmation } from "./admin";
 import { apiRequest, type Session } from "./client";
-import { creditsKey } from "./credits";
+import { invalidateWallet } from "./credits";
 
 import type { components } from "./schema";
 
@@ -183,7 +183,7 @@ export function useStartTrial(session: Session, tenantId: string) {
     },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: trialKey(tenantId) });
-      void client.invalidateQueries({ queryKey: creditsKey(tenantId) });
+      invalidateWallet(client, tenantId);
     },
   });
 }
@@ -223,7 +223,7 @@ export function useEndTrial(session: Session, tenantId: string) {
     },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: trialKey(tenantId) });
-      void client.invalidateQueries({ queryKey: creditsKey(tenantId) });
+      invalidateWallet(client, tenantId);
     },
   });
 }

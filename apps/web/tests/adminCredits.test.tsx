@@ -935,6 +935,17 @@ describe("correcting a wrong entry", () => {
  * 6. **A refusal is a refusal.** The server's problem+json renders and the draft
  *    survives it, so the operator fixes the number rather than retyping everything.
  */
+describe("the restatement confirmation", () => {
+  it("is sent at two decimals, which is what the server compares it to", () => {
+    // The server builds `restate_topup:<ref>:<to_paise(amount)>`; a figure typed without
+    // paise used to be echoed as typed and refused every time.
+    expect(topupRestatementConfirmation("UTR1", "50000")).toBe("restate_topup:UTR1:50000.00");
+    expect(topupRestatementConfirmation("UTR1", " 50000.5 ")).toBe(
+      "restate_topup:UTR1:50000.50",
+    );
+  });
+});
+
 describe("restating an under-recorded payment", () => {
   it("sends the TOTAL as a string, with the confirmation that carries the amount", async () => {
     const { calls } = await render({

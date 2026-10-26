@@ -103,6 +103,8 @@ export function useReleaseNumber(tenantId: string) {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["admin", "number-costs"] });
       void client.invalidateQueries({ queryKey: ["admin", "numbers"] });
+      // The voice-platform panel beside it lists the same number.
+      void client.invalidateQueries({ queryKey: ["admin", "engine-numbers", tenantId] });
     },
   });
 }

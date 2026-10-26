@@ -45,7 +45,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { adminSession } from "@/lib/api/admin";
 import { apiRequest } from "@/lib/api/client";
-import { creditsKey } from "@/lib/api/credits";
+import { invalidateWallet } from "@/lib/api/credits";
 import type { components } from "@/lib/api/schema";
 
 type Schemas = components["schemas"];
@@ -116,6 +116,6 @@ export function useApplyLotOverride(tenantId: string) {
         body: { pack_id: packId, reason },
         confirmAction: lotOverrideConfirmation(lotId),
       }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: creditsKey(tenantId) }),
+    onSuccess: () => invalidateWallet(client, tenantId),
   });
 }
