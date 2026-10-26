@@ -69,6 +69,11 @@ export function AlertsScreen() {
   const state = useMyAlertOptIn(session);
   const record = useRecordMyAlertOptIn(session);
   const recordFeedback = useActionFeedback(record, { errorDisplay: "inline" });
+  // One mutation drives both controls, and the refetch after it swaps Grant for Withdraw
+  // inside the success hold: each control shows the feedback only for its own act, or the
+  // new button reads "Stopped" right after the owner agreed.
+  const feedbackFor = (act: "granted" | "withdrawn") =>
+    record.variables?.status === act ? recordFeedback.status : "idle";
   /**
    * `org:manage` — the permission that already governs the account's own settings, and
    * the one only the `owner` role holds. Agreeing to receive WhatsApp about your own
@@ -198,7 +203,7 @@ export function AlertsScreen() {
                   <WithdrawControl
                     allowed={write.allowed}
                     reason={write.reason}
-                    status={recordFeedback.status}
+                    status={feedbackFor("withdrawn")}
                     onWithdraw={() =>
                       record.mutate({
                         status: "withdrawn",
@@ -216,7 +221,7 @@ export function AlertsScreen() {
                         ? null
                         : "Nothing to agree to until we can send them.")
                     }
-                    status={recordFeedback.status}
+                    status={feedbackFor("granted")}
                     onGrant={() =>
                       record.mutate({
                         status: "granted",

@@ -119,6 +119,26 @@ describe("the client's own WhatsApp alert opt-in", () => {
     });
   });
 
+  it("does not show the agreement's 'done' on the Stop button that replaces it", async () => {
+    let granted = false;
+    const { calls } = await renderClientPage(<AlertsPage />, {
+      "/v1/me": ME,
+      [WHATSAPP_ALERTS_PATH]: () =>
+        granted ? optIn({ status: "granted", messageable: true }) : optIn(),
+      [`POST ${WHATSAPP_ALERTS_PATH}`]: () => {
+        granted = true;
+        return optIn({ status: "granted", messageable: true });
+      },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /I agree/ }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    // The re-read lands inside the success hold and swaps the controls.
+    const stop = await screen.findByRole("button", { name: /Stop sending me/ });
+    expect(stop.getAttribute("data-status")).toBe("idle");
+    const spoken = screen.getAllByRole("status").map((region) => region.textContent ?? "");
+    expect(spoken.join(" ")).not.toContain("Stopped");
+  });
+
   it("sends back a version the server has superseded rather than papering over it", async () => {
     // A build rendering older wording must send THAT version and be refused, which is
     // what makes the refusal reachable at all. The screen renders the refusal it gets.
