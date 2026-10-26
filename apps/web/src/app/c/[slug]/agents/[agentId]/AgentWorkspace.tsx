@@ -88,7 +88,7 @@ export function AgentWorkspace({ slug, agentId }: { slug: string; agentId: strin
         },
   );
 
-  if (agent.error) {
+  if (agent.error && !agent.data) {
     // The way back stays: a 404 on a bookmarked agent is when a person most needs it.
     return (
       <div className="space-y-4">
@@ -98,7 +98,18 @@ export function AgentWorkspace({ slug, agentId }: { slug: string; agentId: strin
     );
   }
   if (agent.isLoading || !agent.data) return <Skeleton rows={8} />;
-  return <AgentDetail agent={agent.data} slug={slug} />;
+  // A failed REFRESH keeps the page mounted under the refusal: TanStack keeps the last
+  // answer, and unmounting it threw away whatever the owner was typing in its forms.
+  return (
+    <>
+      {agent.error && (
+        <div className="mb-4">
+          <ProblemNotice error={agent.error} onRetry={() => void agent.refetch()} />
+        </div>
+      )}
+      <AgentDetail agent={agent.data} slug={slug} />
+    </>
+  );
 }
 
 function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {

@@ -253,6 +253,40 @@ export function toPatch(draft: ProfileDraft, step: StepId): ProfilePatch {
   }
 }
 
+/** The draft fields each step edits (`toPatch` reads exactly these). */
+const STEP_FIELDS = {
+  hours: ["business_hours"],
+  branches: ["branches"],
+  services: ["services"],
+  faqs: ["faqs"],
+  staff: ["staff"],
+  booking: ["booking_rules"],
+  contacts: ["escalation_contacts"],
+  languages: ["languages"],
+} as const satisfies Record<StepId, readonly (keyof ProfileDraft)[]>;
+
+/**
+ * The draft brought up to a newer profile: a step whose part still reads as it did when
+ * loaded (`base`) takes the newer values, a step the owner has edited keeps the typing.
+ * Without it a wizard left open kept the profile as first loaded, and "Save and continue"
+ * on a step nobody touched wrote that old copy over what Pip or another tab saved since
+ * (on Contacts, deleting contacts added meanwhile).
+ */
+export function rebaseDraft(
+  draft: ProfileDraft,
+  base: ProfileDraft,
+  latest: ProfileDraft,
+): ProfileDraft {
+  const next: ProfileDraft = { ...draft };
+  for (const step of Object.keys(STEP_FIELDS) as StepId[]) {
+    if (JSON.stringify(toPatch(draft, step)) !== JSON.stringify(toPatch(base, step))) continue;
+    for (const field of STEP_FIELDS[step]) {
+      Object.assign(next, { [field]: latest[field] });
+    }
+  }
+  return next;
+}
+
 /** The DOM id a control carries, derived from the wire path it edits — so a field error
  *  and the control it is about cannot have two names. */
 export function profileFieldId(path: string): string {

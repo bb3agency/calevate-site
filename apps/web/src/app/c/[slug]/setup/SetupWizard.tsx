@@ -19,6 +19,7 @@ import { ApiProblem } from "@/lib/api/client";
 import {
   STEPS,
   draftFromProfile,
+  rebaseDraft,
   fieldMessage,
   stepStates,
   toPatch,
@@ -72,9 +73,19 @@ export function SetupWizard() {
   });
 
   if (profile.isPending) return <Skeleton rows={6} />;
-  if (profile.isError)
+  if (!profile.data)
     return <ProblemNotice error={profile.error} onRetry={() => void profile.refetch()} />;
-  return <Wizard profile={profile.data} canWrite={write.allowed} reason={write.reason} href={href} />;
+  // A failed refresh keeps the wizard mounted under the refusal, so typing is not lost.
+  return (
+    <>
+      {profile.isError && (
+        <div className="mb-4">
+          <ProblemNotice error={profile.error} onRetry={() => void profile.refetch()} />
+        </div>
+      )}
+      <Wizard profile={profile.data} canWrite={write.allowed} reason={write.reason} href={href} />
+    </>
+  );
 }
 
 function Wizard({
@@ -102,8 +113,15 @@ function Wizard({
   const headingRef = useRef<HTMLHeadingElement>(null);
   const moved = useRef(false);
 
-  // Seeded once: a refetch must never overwrite what the client is typing.
+  // A refetch never overwrites what the client is typing, but a step nobody has touched
+  // follows the newer profile (`rebaseDraft`), so saving it cannot write an old copy back.
   const [draft, setDraft] = useState<ProfileDraft>(() => draftFromProfile(profile));
+  const [loaded, setLoaded] = useState(() => ({ profile, draft: draftFromProfile(profile) }));
+  if (loaded.profile !== profile) {
+    const latest = draftFromProfile(profile);
+    setDraft(rebaseDraft(draft, loaded.draft, latest));
+    setLoaded({ profile, draft: latest });
+  }
   const eg = useVerticalExamples(profile.vertical_template ?? null);
   const requested = params.get("step");
   const firstTodo = profile.setup.steps.findIndex((step) => step.state === "todo");

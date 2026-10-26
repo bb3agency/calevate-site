@@ -2127,6 +2127,34 @@ describe("changing what an agent is", () => {
     expect(JSON.parse(patched?.body ?? "{}")).not.toHaveProperty("name");
   });
 
+  it("keeps the owner's typing when a refresh of the agent fails", async () => {
+    let fail = false;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": () =>
+          fail ? problem(503, { title: "Upstream unavailable", detail: "Try again." }) : agent(),
+      }),
+      "acme",
+      client,
+    );
+    await screen.findByText("Reception");
+    const panel = card("What it is");
+    await act(async () => {
+      fireEvent.change(within(panel).getByLabelText(/^Name/), { target: { value: "Front desk" } });
+    });
+
+    fail = true;
+    await act(async () => {
+      await client.invalidateQueries();
+    });
+
+    await screen.findByText("Try again.");
+    const nameInput = within(card("What it is")).getByLabelText(/^Name/) as HTMLInputElement;
+    expect(nameInput.value).toBe("Front desk");
+  });
+
   it("keeps an archived agent's details as they were, and says why", async () => {
     // The server refuses the edit (`agent_archived`) because what a retired agent WAS is a
     // record somebody may be reading. A disabled form whose every input is dead is worse

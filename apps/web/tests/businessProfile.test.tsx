@@ -6,6 +6,7 @@ import { SetupChecklist } from "@/app/c/[slug]/SetupChecklist";
 import { BusinessProfileScreen } from "@/app/c/[slug]/settings/business/BusinessProfileScreen";
 import {
   draftFromProfile,
+  rebaseDraft,
   stepCopy,
   toPatch,
   type BusinessProfile,
@@ -66,6 +67,25 @@ function profile(over: Partial<BusinessProfile> = {}): BusinessProfile {
 }
 
 describe("the wire mapping", () => {
+  it("brings untouched steps up to a newer profile and keeps the edited ones", () => {
+    // The wizard left open while a contact is added elsewhere: saving the untouched Contacts
+    // step from the first copy deleted that contact.
+    const first = draftFromProfile(profile());
+    const typing = { ...first, booking_rules: "Call to book." };
+    const newer = draftFromProfile(
+      profile({
+        booking_rules: "Book on WhatsApp.",
+        contacts: [
+          { id: "c1", label: "Reception", phone_e164: "+919000000123", note: null },
+          { id: "c2", label: "Owner", phone_e164: "+919000000124", note: null },
+        ],
+      }),
+    );
+    const rebased = rebaseDraft(typing, first, newer);
+    expect(toPatch(rebased, "contacts").contacts?.map((c) => c.id)).toEqual(["c1", "c2"]);
+    expect(rebased.booking_rules).toBe("Call to book.");
+  });
+
   it("keeps closed apart from not answered", () => {
     const draft = draftFromProfile(profile());
     const tue = draft.business_hours.find((day) => day.day === "tue");
