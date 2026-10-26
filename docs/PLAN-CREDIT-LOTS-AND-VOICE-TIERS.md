@@ -698,9 +698,10 @@ Phase C's fail-loud design (C.3) stands unchanged. What follows is only what it 
 - **Hinglish code-switching is documented; Telugu-English is NOT** ("absent from docs", not
   "unsupported"). → The voice catalogue's Telugu entries carry that caveat, and the agent
   screen must not promise Telugu-English mixing.
-- **Pro Voice Cloning bills 1.5 credits/character**, a 50% premium. → If a cloned voice is
-  ever offered, it is a THIRD rate on the pack, not the Cartesia rate. Out of scope here;
-  named so nobody assumes parity.
+- **Cloned voices bill at the standard rate, 1 credit/character**, Pro clones included
+  (Cartesia's "Create a new voice" dialog, founder-relayed 26 Oct 2026, VENDOR-PUBLISHED). → A
+  Studio agent on a cloned voice costs the same Cartesia rate as any other Studio voice; no
+  third rate. (This line earlier said Pro clones bill 1.5×; that was wrong.)
 - **Cartesia publishes a caching pattern** — pre-generate stock phrases as raw PCM, cache,
   splice into the live stream; "cached clips skip the API, so those segments are faster and
   free", and the clip must match the live stream's encoding and sample rate exactly

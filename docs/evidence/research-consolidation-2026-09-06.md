@@ -386,7 +386,9 @@ leg with Bolna kept.** Every number below is the TTS-API number.
 | Enterprise | custom | custom | custom | — | — |
 
 - **~1 credit per character on every TTS endpoint; no streaming premium; same rate on
-  `sonic-3`, `-3.5`, `-3.6`** (VERIFIED). Only exception: Pro Voice Cloning at 1.5×.
+  `sonic-3`, `-3.5`, `-3.6`** (VERIFIED), and on Instant, Pro and localized clones too
+  (Cartesia's "Create a new voice" dialog, founder-relayed 26 Oct 2026; an earlier "Pro
+  clones 1.5×" here was wrong).
 - **Pay-as-you-go with no monthly minimum: NO** (VERIFIED, absence confirmed). Cheapest
   commercial entry is Pro $5/mo.
 - **Cartesia Scale is 10% dearer per character than Bulbul v3; Pro is 47% dearer.** Gnani
@@ -437,7 +439,8 @@ leg with Bolna kept.** Every number below is the TTS-API number.
   by the general DPA (cartesia.ai/legal/dpa), whose self-serve signability is UNKNOWN.
 - "GDPR, SOC 2 Type II, PCI-DSS service provider, HIPAA compliant" (VERIFIED as a statement
   on the ZDR docs page); the reports sit behind trust.cartesia.ai access request — UNKNOWN.
-- Cloning: Instant on Pro+, Professional on Startup+ at 1.5 credits/char; rights over a
+- Cloning: Instant on Pro+, Professional on Startup+, both at 1 credit/char (Pro clone: 30–120
+  min of audio, ~180 min training; founder-relayed product dialog, 26 Oct 2026); rights over a
   cloned voice UNKNOWN.
 
 ### 4.6 The startup programme — the highest-leverage item in the corpus

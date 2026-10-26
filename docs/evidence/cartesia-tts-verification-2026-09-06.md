@@ -62,8 +62,10 @@ read from the OSS code separately.
 - `sonic-3` is DEPRECATED, sunset **20 Oct 2026**; `sonic-3.5` carries no announced
   retirement; `sonic-3.6` is stable. The adapter must not default to `sonic-3`.
 - 8 kHz `pcm_mulaw` / `pcm_alaw` are native `output_format` values - no resample.
-- 1 credit = 1 char on every Sonic model and every endpoint (no streaming premium); Pro
-  Voice Cloning is 1.5 credits/char.
+- 1 credit = 1 char on every Sonic model and every endpoint (no streaming premium), and on
+  every cloned voice too: Instant, Pro and localized clones all bill 1 credit/char (Cartesia's
+  "Create a new voice" dialog, founder-relayed screenshot 26 Oct 2026, VENDOR-PUBLISHED).
+  ⚠ This line said Pro Voice Cloning was 1.5 credits/char; that was wrong (§ cloning below).
 - Telugu (`te`) is on the per-snapshot language lists for 3.5 and 3.6; the Telugu VOICE
   catalogue is behind login (play.cartesia.ai/voices) - count and ids UNKNOWN.
 - Training: the privacy policy permits training on content with a prospective-only opt-out
@@ -115,7 +117,7 @@ Comparator to beat: Sarvam Bulbul v3 at ₹3.00/1,000 chars = ₹1.08–1.62/cal
 
 A **June 2026 self-serve signup promotion** gives new Pro/Startup/Scale monthly subscribers a 25% discount on the monthly subscription fee for 12 consecutive billing cycles (VENDOR-PUBLISHED, cartesia.ai/legal/promotion-terms-jun-2026, dated June 14, 2026). This lowers Startup to ~$36.75/mo and Scale to ~$224.25/mo for a year, but it discounts the **subscription fee**, not the credit allotment or per-character rate, so it does not change ₹/1,000-chars once the free tier is exhausted — it only reduces the effective monthly floor while credits last.[^5]
 
-**Credits vs. characters:** confirmed 1 credit ≈ 1 character for standard TTS on every model — Cartesia's docs make no distinction between `sonic-3`, `sonic-3.5`, and `sonic-preview`/Sonic-3.6 on this rate (VERIFIED). The only credit-rate exception found is **Pro Voice Cloning**, billed at 1.5 credits/character — a 50% premium versus standard voices (VERIFIED, per Cartesia's own blog on Professional Voice Cloning).[^6][^2]
+**Credits vs. characters:** confirmed 1 credit ≈ 1 character for standard TTS on every model — Cartesia's docs make no distinction between `sonic-3`, `sonic-3.5`, and `sonic-preview`/Sonic-3.6 on this rate (VERIFIED). Cloned voices are no exception: Cartesia's own "Create a new voice" dialog states a usage rate of **1 credit/character of TTS** for Instant, Pro and localized clones alike (VENDOR-PUBLISHED, founder-relayed screenshot of the in-product dialog, 26 Oct 2026). ⚠ This paragraph earlier said Pro Voice Cloning billed 1.5 credits/character from Cartesia's blog; the product's own dialog contradicts it and wins.[^2]
 
 **Free tier:** 20,000 credits/month (~27 minutes of Sonic-3.6 audio), 2 concurrent TTS requests, no commercial-use license, no voice cloning (VERIFIED). Not to be priced on, per the brief, but usable for a pilot before committing spend.[^3][^1]
 
@@ -186,7 +188,7 @@ Cartesia lists Telugu (`te`) as a supported language for the `sonic-3.6-2026-08-
 
 **Certifications:** Cartesia states it is "GDPR, SOC 2 Type II, PCI-DSS service provider, and HIPAA compliant" (VERIFIED, quoted directly from docs.cartesia.ai/enterprise/zero-data-retention, which points to trust.cartesia.ai for "full details"), and repeats HIPAA/SOC2 claims on its Safety and GDPR blog pages (VENDOR-PUBLISHED). The actual SOC 2 report or ISO certificate itself sits behind trust.cartesia.ai, which was reached but not penetrable without an access request — **the specific certificate/report is UNKNOWN pending a Trust Center access request at trust.cartesia.ai**.[^19][^20][^21][^17]
 
-**Voice cloning on self-serve plans:** Instant Voice Cloning is available starting on Pro ($5/mo); Professional Voice Cloning (PVC) requires Startup ($49/mo) and above, with training free and generation billed at **1.5 credits/character** (50% more than standard synthesis) (VERIFIED, cartesia.ai/blog/pro-voice-cloning). Minimum audio sample and turnaround time for PVC are **UNKNOWN** from the sources reviewed; this closes by checking the in-product cloning flow at play.cartesia.ai. What rights Cartesia takes over a cloned voice specifically are **UNKNOWN** — not addressed in the DPA or privacy policy text retrieved; closes by reading the Terms of Service section on user-generated voice content, which was not fully retrievable in this pass.[^6]
+**Voice cloning on self-serve plans:** Instant Voice Cloning is available starting on Pro ($5/mo); Professional Voice Cloning (PVC) requires Startup ($49/mo) and above, and generation billed at **1 credit/character**, the same as standard synthesis. From Cartesia's in-product "Create a new voice" dialog (VENDOR-PUBLISHED, founder-relayed screenshot, 26 Oct 2026): Instant clone needs 5–10 seconds of audio, trains free in about 10 seconds; Pro clone needs 30–120 minutes of audio and trains in about 180 minutes; Voice Localization starts from an existing voice and costs about 100 credits and 30 seconds to train; all three use 1 credit/character. ⚠ This paragraph earlier said Pro clones bill 1.5 credits/character (from cartesia.ai/blog/pro-voice-cloning); the product dialog contradicts it and wins. What rights Cartesia takes over a cloned voice specifically are **UNKNOWN** — not addressed in the DPA or privacy policy text retrieved; closes by reading the Terms of Service section on user-generated voice content, which was not fully retrievable in this pass.[^6]
 
 ### A6. The startup programme
 
@@ -211,7 +213,7 @@ Bolna's own docs describe a "Preview Welcome Message" play button tied to the ag
 
 **3. Filler/thinking sounds during tool calls.** No vendor documentation was found stating a free or discounted mechanism for filler audio specifically; UNKNOWN.
 
-**4. Model choice within Cartesia.** Standard TTS costs the same ~1 credit/character across `sonic-3`, `sonic-3.5`, and `sonic-3.6`/`sonic-preview` (VERIFIED) — **no cheaper Sonic model exists**; the only credit-rate difference is Pro Voice Cloning at 1.5×, which is more expensive, not less.[^2]
+**4. Model choice within Cartesia.** Standard TTS costs the same ~1 credit/character across `sonic-3`, `sonic-3.5`, and `sonic-3.6`/`sonic-preview` (VERIFIED) — **no cheaper Sonic model exists**, and cloned voices (Instant, Pro, localized) bill the same 1 credit/character (Cartesia's "Create a new voice" dialog, founder-relayed 26 Oct 2026).[^2]
 
 **5. Cheaper TTS vendors with real Telugu, ranked by ₹/1,000 chars:**
 
