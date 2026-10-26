@@ -324,7 +324,7 @@ async def recompile_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: U
                 "SELECT a.status, a.engine_agent_ref, pv.body, pv.compiled_t0_context, "
                 "pv.structured_script, (a.system_prompt_id IS DISTINCT FROM a.live_prompt_id) "
                 "FROM agents a JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
-                "WHERE a.id = :aid AND a.deleted_at IS NULL"
+                "WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
             ),
             {"aid": agent_id},
         )

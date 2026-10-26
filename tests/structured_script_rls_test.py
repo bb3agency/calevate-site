@@ -187,6 +187,59 @@ async def test_a_save_from_an_older_copy_is_refused_rather_than_written_over_a_n
     assert saved.version == 3
 
 
+async def test_platform_rewrites_wait_for_an_owners_save_in_progress() -> None:
+    """A platform rewrite (field reasons, example lines, pinned facts, T0) reads the draft
+    and writes the next version from it. Without taking the agent row it could read version
+    N while the owner's save commits N+1, then write N+2 from N and drop the owner's edit."""
+    from apps.api.teach import pinned
+    from sqlalchemy.exc import DBAPIError
+
+    tenant_id, agent_id = await _tenant()
+    await _save(tenant_id, agent_id, CallScript(opening_line="Namaste!"))
+
+    # Each writer is called where it has nothing to change, so it writes nothing: only its
+    # READ can be what waits for the owner's lock.
+    async def rewrite(session: object) -> object:
+        return await script_builder.rewrite_script(
+            session,  # type: ignore[arg-type]
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            script=None,
+            notes="platform",
+        )
+
+    async def recompile_pinned(session: object) -> object:
+        return await pinned.recompile_agent(
+            session,  # type: ignore[arg-type]
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+        )
+
+    async def recompile_t0(session: object) -> object:
+        return await t0.recompile_t0(
+            session,  # type: ignore[arg-type]
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            knowledge=[],
+        )
+
+    for writer in (rewrite, recompile_pinned, recompile_t0):
+        # A first run may normalise the body once; the second has nothing left to change.
+        for _ in range(2):
+            async with tenant_session(tenant_id) as alone:
+                changed = await writer(alone)
+        assert changed is None, "the writer must have nothing to change"
+        async with tenant_session(tenant_id) as owner:
+            # The owner's save holds the agent row until it commits.
+            await owner.execute(
+                text("SELECT 1 FROM agents WHERE id = :aid FOR UPDATE"), {"aid": agent_id}
+            )
+            with pytest.raises(DBAPIError):
+                async with tenant_session(tenant_id) as platform:
+                    await platform.execute(text("SET LOCAL lock_timeout = '300ms'"))
+                    await writer(platform)
+
+
 async def test_a_first_save_expects_no_script() -> None:
     tenant_id, agent_id = await _tenant()
     saved = await _save(
