@@ -354,6 +354,46 @@ async def test_contact_upload_dedupes_and_counts_malformed_without_guessing() ->
     assert rows[1][1] == {"city": "Hyderabad"}, "extra CSV columns ride along for the prompt"
 
 
+async def test_a_contact_upload_is_one_insert_however_long_the_list() -> None:
+    """An upload is up to 5,000 rows; one INSERT per contact made the request's time grow
+    with the list."""
+    from apps.api.db.session import get_engine
+    from sqlalchemy import event
+
+    tenant_id, agent_id = await _tenant()
+    inserts: list[str] = []
+
+    def capture(_conn: Any, _cursor: Any, statement: str, *_rest: Any) -> None:
+        if statement.lstrip().startswith("INSERT INTO campaign_contacts"):
+            inserts.append(statement)
+
+    async with tenant_session(tenant_id) as session:
+        campaign_id = await _create_campaign(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Big list",
+            classification="service",
+            number_id=None,
+            dlt_template_id=None,
+            concurrency=3,
+        )
+        sync_engine = get_engine().sync_engine
+        event.listen(sync_engine, "before_cursor_execute", capture)
+        try:
+            counts = await service.add_contacts(
+                session,
+                tenant_id=tenant_id,
+                campaign_id=campaign_id,
+                contacts=[{"phone": f"98765{n:05d}"} for n in range(300)],
+            )
+        finally:
+            event.remove(sync_engine, "before_cursor_execute", capture)
+
+    assert counts == {"added": 300, "malformed": 0, "duplicate": 0, "foreign": 0}
+    assert len(inserts) == 1
+
+
 async def test_a_contact_upload_stores_no_hash_of_the_number() -> None:
     """`campaign_contacts` carries no derivative of the phone number at all.
 

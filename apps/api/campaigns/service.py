@@ -886,6 +886,7 @@ async def add_contacts(
 
     added, malformed, duplicate, foreign = 0, 0, 0, 0
     seen: set[str] = set()
+    batch: list[tuple[UUID, str, str | None, str]] = []
     for row in contacts:
         phone = normalize_phone(str(row.get("phone") or ""))
         if phone is None:
@@ -919,26 +920,44 @@ async def add_contacts(
         # is no `dedupe_hash` arm left in `_CAMPAIGN_CONTACT_ERASE_SQL` either. This
         # comment stays because the INSERT below is where somebody would put the write
         # back.
-        result = await session.execute(
-            text(
-                "INSERT INTO campaign_contacts (id, tenant_id, campaign_id, phone_e164, name, "
-                "custom, status, attempts, created_at, updated_at) VALUES "
-                "(:id, :tid, :cid, :phone, :name, CAST(:custom AS jsonb), 'pending', 0, "
-                "now(), now()) ON CONFLICT (campaign_id, phone_e164) DO NOTHING"
-            ),
-            {
-                "id": uuid7(),
-                "tid": tenant_id,
-                "cid": campaign_id,
-                "phone": phone,
-                "name": str(row.get("name") or "").strip() or None,
-                "custom": json.dumps({k: v for k, v in row.items() if k not in ("phone", "name")}),
-            },
+        batch.append(
+            (
+                uuid7(),
+                phone,
+                str(row.get("name") or "").strip() or None,
+                json.dumps({k: v for k, v in row.items() if k not in ("phone", "name")}),
+            )
         )
-        if rowcount_of(result):
-            added += 1
-        else:
-            duplicate += 1
+    if batch:
+        # ONE statement for the whole upload rather than one round trip per contact: an
+        # upload is up to 5,000 rows (`AddContactsIn`), and the per-row INSERT made the
+        # request's time grow with the list. A number already on the campaign returns no
+        # row, so what was not returned is the cross-batch duplicate count.
+        ids, phones, names, customs = (list(column) for column in zip(*batch, strict=True))
+        inserted = (
+            await session.execute(
+                text(
+                    "INSERT INTO campaign_contacts (id, tenant_id, campaign_id, phone_e164, "
+                    "name, custom, status, attempts, created_at, updated_at) "
+                    "SELECT u.id, :tid, :cid, u.phone, u.name, CAST(u.custom AS jsonb), "
+                    "'pending', 0, now(), now() "
+                    "FROM unnest(CAST(:ids AS uuid[]), CAST(:phones AS text[]), "
+                    "CAST(:names AS text[]), CAST(:customs AS text[])) "
+                    "AS u(id, phone, name, custom) "
+                    "ON CONFLICT (campaign_id, phone_e164) DO NOTHING RETURNING id"
+                ),
+                {
+                    "tid": tenant_id,
+                    "cid": campaign_id,
+                    "ids": ids,
+                    "phones": phones,
+                    "names": names,
+                    "customs": customs,
+                },
+            )
+        ).all()
+        added = len(inserted)
+        duplicate += len(batch) - added
     return {"added": added, "malformed": malformed, "duplicate": duplicate, "foreign": foreign}
 
 
