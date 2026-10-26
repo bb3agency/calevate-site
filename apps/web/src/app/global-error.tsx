@@ -13,10 +13,9 @@
  *
  * Two consequences that shape everything below, and both are easy to get wrong:
  *
- * 1. **The root layout's `<html>` className is gone**, and with it the font variables and
- *    the theme class. So the page re-stamps the theme itself (the same inline script the
- *    root layout runs, from the same module — one source, so the two cannot disagree) and
- *    names an explicit fallback font stack, because `--font-pp-mori` is no longer defined.
+ * 1. **The root layout's `<html>` className is gone**, and with it the font variables. So
+ *    the page names an explicit fallback font stack, because `--font-pp-mori` is no longer
+ *    defined. (There is no theme class to restore: the product is light-only, D-471.)
  * 2. **The stylesheet may or may not have loaded.** On a client-side throw it is already in
  *    the document; on a root-layout failure during SSR it may not be. So the essential
  *    colours are ALSO written as inline styles off the same custom properties, with literal
