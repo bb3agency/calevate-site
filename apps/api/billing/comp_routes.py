@@ -44,7 +44,7 @@ from apps.api.billing.credit_routes import (
     record_grant,
 )
 from apps.api.billing.first_payment import on_complimentary_conversion
-from apps.api.billing.service import to_paise
+from apps.api.billing.service import lock_tenant_credits, to_paise
 from apps.api.billing.trials import TRIAL_ACTIVE, read_trial
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
@@ -184,6 +184,11 @@ async def make_paid(
     )
     ip = client_request_ip(request)
     async with tenant_session(tenant_id) as scoped:
+        # `credit:` before anything else, because the conversion ends the trial, which takes
+        # `spend_state:`, and the grant below takes `credit:`. The meter takes them in that
+        # order (`caps.lock_tenant_spend_state`), so the reverse here deadlocks against a
+        # call finishing at the same moment.
+        await lock_tenant_credits(scoped, tenant_id)
         before = await _status(scoped, tenant_id)
         unlocked = await on_complimentary_conversion(
             scoped, tenant_id=tenant_id, reason=payload.reason

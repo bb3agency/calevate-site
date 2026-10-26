@@ -210,6 +210,45 @@ async def test_credit_in_the_same_step_is_granted_and_told_once() -> None:
     )
 
 
+async def test_making_paid_takes_the_credit_lock_before_the_spend_state_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The meter locks `credit:` then `spend_state:`. Making an account paid ended the trial
+    (`spend_state:`) and then granted (`credit:`), the reverse order, so it deadlocked
+    against a call finishing at the same moment and one of the two was aborted."""
+    from apps.api.billing import trials
+
+    superadmin = await _admin("superadmin")
+    tenant_id = await _tenant()
+    await _trial(tenant_id)
+    held: list[bool] = []
+    real = trials.lock_tenant_spend_state
+
+    async def spend_lock_checking_credit(session: Any, tid: uuid.UUID) -> None:
+        async with untenanted_session() as other:
+            free = (
+                await other.execute(
+                    text("SELECT pg_try_advisory_xact_lock(hashtextextended(:k, 0))"),
+                    {"k": f"credit:{tid}"},
+                )
+            ).scalar()
+        held.append(not free)
+        await real(session, tid)
+
+    monkeypatch.setattr(trials, "lock_tenant_spend_state", spend_lock_checking_credit)
+    made = await _post(
+        _paid_path(tenant_id),
+        superadmin,
+        {
+            "reason": "pilot customer",
+            "grant": {"amount_inr": "100.00", "grant_ref": "PAID-LOCK-1", "reason": "pilot"},
+        },
+        make_paid_confirmation(tenant_id, Decimal("100")),
+    )
+    assert made.status_code == 200, made.text
+    assert held and all(held), "the credit lock was not held when the trial's counters reset"
+
+
 async def test_a_large_grant_in_the_same_step_needs_the_amount_typed_again() -> None:
     superadmin = await _admin("superadmin")
     tenant_id = await _tenant()
