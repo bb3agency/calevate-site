@@ -35,6 +35,7 @@ import {
   useQuery,
   useQueryClient,
   type InfiniteData,
+  type QueryClient,
   type UseInfiniteQueryResult,
   type UseQueryResult,
 } from "@tanstack/react-query";
@@ -154,17 +155,24 @@ export function useEditLead(session: Session) {
   return useMutation({
     mutationFn: ({ leadId, edit }: { leadId: string; edit: LeadEdit }) =>
       apiRequest<Lead>(session, `/v1/leads/${leadId}`, { method: "PATCH", body: edit }),
-    onSuccess: (_lead, { leadId }) => {
-      // Invalidate rather than patch: an edit also writes a timeline row, the server may
-      // have moved the lead itself (a hot-lead rule fires on the pipeline side), and the
-      // list's status counts are computed over the filtered set — so a screen filtered to
-      // "assigned to me" has to re-ask rather than re-render.
-      void client.invalidateQueries({ queryKey: ["leads", session.orgSlug] });
-      void client.invalidateQueries({ queryKey: ["dashboard", session.orgSlug] });
-      void client.invalidateQueries({ queryKey: ["lead", session.orgSlug, leadId] });
-      void client.invalidateQueries({ queryKey: ["lead-timeline", session.orgSlug, leadId] });
-    },
+    onSuccess: (_lead, { leadId }) => invalidateEditedLead(client, session.orgSlug, leadId),
   });
+}
+
+/**
+ * Everything one lead's edit (owner, status, name) can move. Invalidate rather than patch:
+ * an edit also writes a timeline row, the server may have moved the lead itself (a
+ * hot-lead rule fires on the pipeline side), and the list's status counts AND the facet
+ * counts are computed over the filtered set — so a screen filtered to "assigned to me"
+ * has to re-ask rather than re-render. Shared by the leads table and the swipe deck, which
+ * edit the same row through the same route.
+ */
+export function invalidateEditedLead(client: QueryClient, org: string, leadId: string): void {
+  void client.invalidateQueries({ queryKey: ["leads", org] });
+  void client.invalidateQueries({ queryKey: ["lead-facets", org] });
+  void client.invalidateQueries({ queryKey: ["dashboard", org] });
+  void client.invalidateQueries({ queryKey: ["lead", org, leadId] });
+  void client.invalidateQueries({ queryKey: ["lead-timeline", org, leadId] });
 }
 
 /** What a row needs to know about its own edit: is mine in flight, and did mine fail. */

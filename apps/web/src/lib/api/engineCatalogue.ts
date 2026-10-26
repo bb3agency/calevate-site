@@ -40,9 +40,18 @@ function catalogueOptions(session: Session, audienceKey: string, agentId?: strin
   };
 }
 
+/**
+ * A client's audience key carries its org: the answer is per account (whether its Studio
+ * voices are offerable follows that account's workspace), and one `QueryClient` holds more
+ * than one account across an org switch or a view-as session.
+ */
+export function clientCatalogueAudience(session: Session): string {
+  return `client:${session.orgSlug}`;
+}
+
 /** From a client's own session. */
 export function useEngineCatalogue(session: Session): UseQueryResult<EngineCatalogue> {
-  return useQuery(catalogueOptions(session, "client"));
+  return useQuery(catalogueOptions(session, clientCatalogueAudience(session)));
 }
 
 /** From the console, through the impersonation session for that tenant. */

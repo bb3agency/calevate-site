@@ -138,6 +138,7 @@ export function usePlaceTrialCall(session: Session) {
       // The dashboard's trial card reads the trial from the dashboard read (D-786).
       void client.invalidateQueries({ queryKey: queryKeys.dashboard(session.orgSlug) });
       void client.invalidateQueries({ queryKey: ["calls", session.orgSlug] });
+      void client.invalidateQueries({ queryKey: queryKeys.callsLog(session.orgSlug) });
     },
   });
 }

@@ -41,7 +41,7 @@ import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount, istDa
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import type { CallSummary } from "@/lib/api/client";
-import { useCallsLog, useExportCalls, useWriteAccess, type CallsLogFilters } from "@/lib/api/hooks";
+import { queryKeys, useCallsLog, useExportCalls, useWriteAccess, type CallsLogFilters } from "@/lib/api/hooks";
 import { useLiveCalls, type CallLive } from "@/lib/api/liveCalls";
 import { useClientRealm } from "@/lib/api/session";
 import {
@@ -173,7 +173,7 @@ export function CallsScreen({ slug }: { slug: string }) {
     const fresh = endedReads(live.data).filter((read) => !Object.hasOwn(ended, read.id));
     if (!fresh.length) return;
     setEnded((before) => ({ ...before, ...Object.fromEntries(fresh.map((read) => [read.id, read])) }));
-    void queryClient.invalidateQueries({ queryKey: ["calls-log", session.orgSlug] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.callsLog(session.orgSlug) });
   }, [live.data, ended, queryClient, session.orgSlug]);
   // A failed live read leaves each live row on its own status; the sentence under the count
   // says why "Dialling…" may not move.

@@ -30,6 +30,8 @@ import {
 } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
+import { queryKeys } from "./hooks";
+import { invalidateEditedLead } from "./leads";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -84,9 +86,7 @@ export function useMarkLeadStatus(session: Session) {
         method: "PATCH",
         body: { status, expected_status: expectedStatus },
       }),
-    onSettled: () => {
-      void client.invalidateQueries({ queryKey: ["leads", session.orgSlug] });
-    },
+    onSettled: (_lead, _err, { leadId }) => invalidateEditedLead(client, session.orgSlug, leadId),
   });
 }
 
@@ -110,7 +110,9 @@ export function useMarkCallFollowUp(session: Session) {
       }),
     onSettled: (_out, _err, { callId }) => {
       void client.invalidateQueries({ queryKey: ["calls", session.orgSlug] });
-      void client.invalidateQueries({ queryKey: ["call", session.orgSlug, callId] });
+      // The calls screen's log renders the follow-up mark too, under its own family.
+      void client.invalidateQueries({ queryKey: queryKeys.callsLog(session.orgSlug) });
+      void client.invalidateQueries({ queryKey: queryKeys.call(session.orgSlug, callId) });
     },
   });
 }

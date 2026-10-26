@@ -55,6 +55,9 @@ export const queryKeys = {
   dashboard: (org: string) => ["dashboard", org] as const,
   calls: (org: string, filters: Record<string, unknown>) =>
     ["calls", org, filters] as const,
+  /** The calls screen's paged log — the PREFIX of every filter and page size it caches.
+   *  A different family from `calls`, so a write that adds or marks a call names both. */
+  callsLog: (org: string) => ["calls-log", org] as const,
   call: (org: string, id: string) => ["call", org, id] as const,
   leads: (org: string, filters: Record<string, unknown>) =>
     ["leads", org, filters] as const,
@@ -307,7 +310,7 @@ export function useCallsLog(
   const { pageSize } = filters;
   const params = callsLogQuery(filters);
   return useInfiniteQuery({
-    queryKey: ["calls-log", session.orgSlug, { ...params, pageSize }],
+    queryKey: [...queryKeys.callsLog(session.orgSlug), { ...params, pageSize }],
     queryFn: ({ pageParam }) =>
       apiRequest<CallSummary[]>(
         session,
@@ -441,6 +444,7 @@ export function useCallLead(session: Session) {
     onSuccess: (_result, { leadId, agentId, contextNote }) => {
       held.current.delete(attemptOf(leadId, agentId, contextNote));
       void client.invalidateQueries({ queryKey: ["calls", session.orgSlug] });
+      void client.invalidateQueries({ queryKey: queryKeys.callsLog(session.orgSlug) });
     },
   });
 }
@@ -488,6 +492,8 @@ export function useCallBack(session: Session, callId: string) {
         queryKey: ["callback-check", session.orgSlug, callId],
       });
       void client.invalidateQueries({ queryKey: ["calls", session.orgSlug] });
+      void client.invalidateQueries({ queryKey: queryKeys.callsLog(session.orgSlug) });
+      void client.invalidateQueries({ queryKey: queryKeys.call(session.orgSlug, callId) });
     },
   });
 }

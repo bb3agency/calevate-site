@@ -82,6 +82,8 @@ export function useReviewLeadFieldsDraft(
       Promise.all([
         client.invalidateQueries({ queryKey: leadFieldsKeys.client(session.orgSlug) }),
         client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
+        // Every inheriting agent's `extraction_fields` moved, and the write names no agent.
+        client.invalidateQueries({ queryKey: agentKeys.allDetails(session.orgSlug) }),
       ]),
   });
 }
@@ -97,6 +99,7 @@ export function useReplaceLeadFields(
       Promise.all([
         client.invalidateQueries({ queryKey: leadFieldsKeys.client(session.orgSlug) }),
         client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
+        client.invalidateQueries({ queryKey: agentKeys.allDetails(session.orgSlug) }),
       ]),
   });
 }

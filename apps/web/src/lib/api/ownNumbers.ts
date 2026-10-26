@@ -20,6 +20,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
+import { agentKeys } from "./agents";
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
@@ -169,6 +170,9 @@ export function usePurchaseOwnNumber(session: Session) {
       void client.invalidateQueries({ queryKey: ["own-numbers", session.orgSlug] });
       void client.invalidateQueries({ queryKey: ["campaign-numbers", session.orgSlug] });
       void client.invalidateQueries({ queryKey: ["wallet", session.orgSlug] });
+      // A number bought for an agent changes that agent's number count.
+      void client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) });
+      void client.invalidateQueries({ queryKey: agentKeys.allDetails(session.orgSlug) });
     },
   });
 }
@@ -184,6 +188,9 @@ export function useReleaseOwnNumber(session: Session) {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["own-numbers", session.orgSlug] });
       void client.invalidateQueries({ queryKey: ["campaign-numbers", session.orgSlug] });
+      // A released number no longer counts towards the agent that answered on it.
+      void client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) });
+      void client.invalidateQueries({ queryKey: agentKeys.allDetails(session.orgSlug) });
     },
   });
 }

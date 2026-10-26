@@ -37,6 +37,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
+import { agentKeys } from "./agents";
 import { agreementsKey } from "./agreements";
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
@@ -215,6 +216,9 @@ export function useAssignNumber(
       void client.invalidateQueries({ queryKey: ["campaign-numbers", session.orgSlug] });
       void client.invalidateQueries({ queryKey: ["campaign-check", session.orgSlug] });
       void client.invalidateQueries({ queryKey: agreementsKey(session.orgSlug) });
+      // The roster's "Answers N numbers" and each agent's own number count.
+      void client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) });
+      void client.invalidateQueries({ queryKey: agentKeys.allDetails(session.orgSlug) });
     },
   });
 }

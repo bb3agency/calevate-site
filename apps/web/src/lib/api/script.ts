@@ -271,12 +271,8 @@ export function useSaveScript(
   return useMutation({
     mutationFn: (payload: SaveScriptIn) =>
       apiRequest<SaveScriptOut>(session, base(agentId), { method: "PUT", body: payload }),
-    onSuccess: () =>
-      Promise.all([
-        client.invalidateQueries({ queryKey: scriptKeys.one(session.orgSlug, agentId) }),
-        client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
-        client.invalidateQueries({ queryKey: publishingKeys.pending(session.orgSlug, agentId) }),
-      ]),
+    // Includes the history, which marks the version callers hear.
+    onSuccess: () => invalidateScript(client, session, agentId),
   });
 }
 
@@ -307,12 +303,8 @@ export function useApplyScript(
   return useMutation({
     mutationFn: (payload: ApplyIn) =>
       apiRequest<ApplyOut>(session, `${base(agentId)}/apply`, { method: "POST", body: payload }),
-    onSuccess: () =>
-      Promise.all([
-        client.invalidateQueries({ queryKey: scriptKeys.one(session.orgSlug, agentId) }),
-        client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
-        client.invalidateQueries({ queryKey: publishingKeys.pending(session.orgSlug, agentId) }),
-      ]),
+    // Includes the history, which marks the version callers hear.
+    onSuccess: () => invalidateScript(client, session, agentId),
   });
 }
 
@@ -324,12 +316,8 @@ export function useUndoScript(
   const client = useQueryClient();
   return useMutation({
     mutationFn: () => apiRequest<UndoOut>(session, `${base(agentId)}/undo`, { method: "POST" }),
-    onSuccess: () =>
-      Promise.all([
-        client.invalidateQueries({ queryKey: scriptKeys.one(session.orgSlug, agentId) }),
-        client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
-        client.invalidateQueries({ queryKey: publishingKeys.pending(session.orgSlug, agentId) }),
-      ]),
+    // Includes the history, which marks the version callers hear.
+    onSuccess: () => invalidateScript(client, session, agentId),
   });
 }
 

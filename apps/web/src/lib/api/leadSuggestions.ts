@@ -96,6 +96,7 @@ export function useLeadSuggestions(session: Session, agentId: string): LeadSugge
     Promise.all([
       client.invalidateQueries({ queryKey: leadFieldsKeys.client(session.orgSlug) }),
       client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
+      client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
     ]),
   );
   return { query, ...answers };

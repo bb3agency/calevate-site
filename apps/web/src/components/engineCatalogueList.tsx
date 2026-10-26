@@ -15,6 +15,7 @@ import { viewAsSession } from "@/lib/api/admin";
 import { useAgent, useUpdateAgent, type Agent } from "@/lib/api/agents";
 import type { Session } from "@/lib/api/client";
 import {
+  clientCatalogueAudience,
   useEngineCatalogue,
   useHeldVoice,
   useTenantEngineCatalogue,
@@ -600,7 +601,7 @@ export function ClientEngineVoices({ session, agentId }: { session: Session; age
   const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Voice saved" });
   const catalogue = useEngineCatalogue(session);
   const voiceId = agent.data?.engine_voice_id ?? null;
-  const held = useHeldVoice(session, "client", agentId, voiceId, catalogue.data);
+  const held = useHeldVoice(session, clientCatalogueAudience(session), agentId, voiceId, catalogue.data);
   return (
     <EngineVoiceList
       catalogue={catalogue}
