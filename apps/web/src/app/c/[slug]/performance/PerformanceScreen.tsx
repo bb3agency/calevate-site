@@ -72,6 +72,13 @@ function defaultRange(): DateRange {
   return { start: addDays(today, -29), end: today };
 }
 
+/** A picked range, cut to the last `MAX_DAYS` days of it: the reads cover at most that
+ *  many, and the page must not name dates its figures do not include. */
+export function clampRange(next: DateRange): DateRange {
+  if (daysBetween(next.start, next.end) <= MAX_DAYS) return next;
+  return { start: addDays(next.end, -(MAX_DAYS - 1)), end: next.end };
+}
+
 export function PerformanceScreen() {
   const session = useClientSession();
   const me = useMe(session);
@@ -176,7 +183,7 @@ export function PerformanceScreen() {
         <DateRangePicker
           label="Dates"
           value={range}
-          onChange={(next) => setRange(next ?? defaultRange())}
+          onChange={(next) => setRange(next ? clampRange(next) : defaultRange())}
           max={today}
           min={addDays(today, -(MAX_DAYS * 2))}
           className="w-full max-w-80 sm:w-80"

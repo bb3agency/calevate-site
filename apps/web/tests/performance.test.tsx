@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest";
 
 import PerformancePage from "@/app/c/[slug]/performance/page";
+import { clampRange } from "@/app/c/[slug]/performance/PerformanceScreen";
 import { todayIST } from "@/components/arc/ist-dates";
 import type { Durations, Heatmap, Stats, Timeline } from "@/lib/api/analytics";
 import type { Me } from "@/lib/api/client";
@@ -127,6 +128,16 @@ async function figure(label: string): Promise<string> {
 }
 
 describe("the performance report", () => {
+  it("cuts a picked range to the last 366 days, which is all the figures cover", () => {
+    // The reads cap at 366 days while the header named the whole picked range.
+    expect(clampRange({ start: "2025-03-01", end: "2026-10-26" })).toEqual({
+      start: "2025-10-26",
+      end: "2026-10-26",
+    });
+    const short = { start: "2026-10-01", end: "2026-10-26" };
+    expect(clampRange(short)).toBe(short);
+  });
+
   it("says there is nothing to measure rather than reporting 0%", async () => {
     await renderClientPage(page, routes({ [PATHS.stats]: stats({ answer_rate_pct: [null, null, null] }) }));
     const rate = await figure("Answer rate");
