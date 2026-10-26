@@ -8,6 +8,8 @@ import {
   useEndMaintenance,
   useScheduleMaintenance,
 } from "@/lib/api/maintenance";
+import { useReviewKyc, useSetDigiLockerRequirement } from "@/lib/api/kycReview";
+import { useSetNumberEngineRef } from "@/lib/api/numbers";
 import { usePostStatus, useResolveIncident } from "@/lib/api/opsHealer";
 
 import { problem, renderAdminPage } from "./harness";
@@ -21,6 +23,8 @@ import { problem, renderAdminPage } from "./harness";
 
 const WINDOW = "019f2000-0000-7000-8000-000000000001";
 const INCIDENT = "019f2000-0000-7000-8000-000000000002";
+const TENANT = "019f2000-0000-7000-8000-000000000003";
+const NUMBER = "019f2000-0000-7000-8000-000000000004";
 
 function reauthRequired() {
   return problem(403, {
@@ -103,6 +107,36 @@ const CASES: Case[] = [
     useRun: () => {
       const m = usePostStatus();
       return () => m.mutateAsync({ incidentId: null, title: "Calls delayed", component: "calls" });
+    },
+  },
+  {
+    name: "decide a KYC review",
+    method: "POST",
+    path: `/v1/admin/tenants/${TENANT}/kyc/review`,
+    confirm: `kyc_review:${TENANT}:reject`,
+    useRun: () => {
+      const m = useReviewKyc(TENANT);
+      return () => m.mutateAsync({ decision: "reject", reason: "Unreadable", pan_checked: false });
+    },
+  },
+  {
+    name: "lift a DigiLocker requirement",
+    method: "POST",
+    path: `/v1/admin/tenants/${TENANT}/kyc/digilocker-requirement`,
+    confirm: `clear_digilocker_requirement:${TENANT}`,
+    useRun: () => {
+      const m = useSetDigiLockerRequirement(TENANT);
+      return () => m.mutateAsync({ required: false, reason: null });
+    },
+  },
+  {
+    name: "record a number's voice platform handle",
+    method: "POST",
+    path: `/v1/admin/numbers/tenants/${TENANT}/${NUMBER}/engine-ref`,
+    confirm: `set_engine_ref:${TENANT}:${NUMBER}`,
+    useRun: () => {
+      const m = useSetNumberEngineRef(TENANT);
+      return () => m.mutateAsync({ numberId: NUMBER, ref: "pn_1" });
     },
   },
 ];

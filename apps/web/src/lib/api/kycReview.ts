@@ -8,7 +8,12 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import {
+  adminSession,
+  clearDigiLockerConfirmation,
+  confirmedAdminRequest,
+  kycReviewConfirmation,
+} from "./admin";
 import { apiRequest } from "./client";
 import { openProtectedFile } from "./protectedFile";
 import { HOLDS_QUERY_KEY } from "./holds";
@@ -55,31 +60,42 @@ function useRefresh(tenantId: string) {
       client.invalidateQueries({ queryKey: QUEUE_KEY }),
       client.invalidateQueries({ queryKey: ["admin", "kyc"] }),
       client.invalidateQueries({ queryKey: HOLDS_QUERY_KEY }),
+      // The overview's readiness rows and account facts read the same record.
+      client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] }),
     ]);
   };
 }
 
+/** Approve or reject. Step-up: the decision deletes the owner's ID file and, on approval,
+ * opens outbound calling, so it is confirmed like recording KYC by hand. */
 export function useReviewKyc(tenantId: string) {
   const refresh = useRefresh(tenantId);
   return useMutation({
     mutationFn: (body: KycReviewIn) =>
-      apiRequest<AdminKyc>(adminSession(), `/v1/admin/tenants/${tenantId}/kyc/review`, {
-        method: "POST",
-        body,
-      }),
+      confirmedAdminRequest<AdminKyc>(
+        `/v1/admin/tenants/${tenantId}/kyc/review`,
+        { method: "POST", body, confirmAction: kycReviewConfirmation(tenantId, body.decision) },
+        body.decision === "approve" ? "Approving this verification." : "Rejecting this verification.",
+      ),
     onSuccess: refresh,
   });
 }
 
+/** Requiring DigiLocker only blocks, so it is a plain write; clearing lifts an outbound
+ * block and is confirmed with a code. */
 export function useSetDigiLockerRequirement(tenantId: string) {
   const refresh = useRefresh(tenantId);
   return useMutation({
-    mutationFn: (body: { required: boolean; reason: string | null }) =>
-      apiRequest<AdminKyc>(
-        adminSession(),
-        `/v1/admin/tenants/${tenantId}/kyc/digilocker-requirement`,
-        { method: "POST", body },
-      ),
+    mutationFn: (body: { required: boolean; reason: string | null }) => {
+      const path = `/v1/admin/tenants/${tenantId}/kyc/digilocker-requirement`;
+      return body.required
+        ? apiRequest<AdminKyc>(adminSession(), path, { method: "POST", body })
+        : confirmedAdminRequest<AdminKyc>(
+            path,
+            { method: "POST", body, confirmAction: clearDigiLockerConfirmation(tenantId) },
+            "Lifting the DigiLocker requirement.",
+          );
+    },
     onSuccess: refresh,
   });
 }

@@ -71,6 +71,64 @@ def test_the_new_admin_actions_are_appended_and_confirm_only() -> None:
     assert '"admin_kyc_review"' in admin and '"admin_kyc_review"' not in client
 
 
+def test_a_per_client_action_demands_its_console_routes_confirmation() -> None:
+    """The assistant used to propose a client-page action with no confirmation while the
+    console button for the same act (provisioning a workspace, releasing a number, deciding
+    a KYC review) demanded step-up — so the assistant was a way around the gate."""
+    tenant, number = uuid.uuid4(), uuid.uuid4()
+    by_name = {tool.name: tool for tool in admin_actions.ADMIN_ACTIONS}
+    expected = {
+        "admin_kyc_review": ({"decision": "approve"}, f"kyc_review:{tenant}:approve"),
+        "admin_workspace_provision": ({}, f"provision_workspace:{tenant}"),
+        "admin_number_release": (
+            {"number_id": str(number)},
+            f"release_number:{tenant}:{number}",
+        ),
+    }
+    for name, (args, confirmation) in expected.items():
+        confirm = by_name[name].confirm_action
+        assert confirm is not None, name
+        assert confirm(args, tenant) == confirmation, name
+
+
+async def test_confirming_a_kyc_decision_through_the_assistant_takes_the_step_up() -> None:
+    token = await _make_admin(role="operator")
+    tenant_id, _slug, _client_token = await _make_tenant()
+    await _submitted_kyc(tenant_id)
+    proposal = await admin_actions.plan_admin_action(
+        "admin_kyc_review",
+        json.dumps(
+            {
+                "decision": "reject",
+                "document_ref": None,
+                "reason": "Unreadable.",
+                "pan_checked": False,
+            }
+        ),
+        principal=_admin(token, "operator"),
+        viewing_tenant_id=tenant_id,
+    )
+    asked: list[str] = []
+
+    def refuse(action: str) -> None:
+        asked.append(action)
+        raise WriteRefusedError("stale factor")
+
+    async with untenanted_session() as session:
+        with pytest.raises(WriteRefusedError):
+            await admin_actions.confirm_admin(
+                session,
+                proposal.token,
+                principal=_admin(token, "operator"),
+                require_step_up=refuse,
+                ip=None,
+            )
+    assert asked == [f"kyc_review:{tenant_id}:reject"]
+    async with tenant_session(tenant_id) as session:
+        status = (await session.execute(text("SELECT status FROM kyc_records"))).scalar()
+    assert status == "submitted", "a refused step-up must change nothing"
+
+
 async def test_a_per_client_action_needs_a_clients_page_open() -> None:
     token = await _make_admin()
     with pytest.raises(WriteRefusedError) as refused:
@@ -109,7 +167,9 @@ async def test_a_kyc_rejection_is_proposed_then_recorded_in_the_clients_session(
         principal=_admin(token, "operator"),
         viewing_tenant_id=tenant_id,
     )
-    assert proposal.confirm_action is None and proposal.proposed == "rejected"
+    # The console's review button demands this exact confirmation, so the assistant does too.
+    assert proposal.confirm_action == f"kyc_review:{tenant_id}:reject"
+    assert proposal.proposed == "rejected"
     async with tenant_session(tenant_id) as session:
         before = (await session.execute(text("SELECT status FROM kyc_records"))).scalar()
     assert before == "submitted"

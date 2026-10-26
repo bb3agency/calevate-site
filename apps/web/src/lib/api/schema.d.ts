@@ -1093,7 +1093,7 @@ export interface paths {
         put?: never;
         /**
          * Record the voice platform's handle for a number, and start it answering
-         * @description Records the identifier the voice platform uses for a number the client brought on their own operator account, which is the one fact that lets an agent be set to answer it. Without it every publish of the agent answering this number reports success and the phone does not ring. If the number is attached to a live agent, the routing happens in this request rather than waiting for the next publish; the counts say what the voice platform was told.
+         * @description Records the identifier the voice platform uses for a number the client brought on their own operator account, which is the one fact that lets an agent be set to answer it. Without it every publish of the agent answering this number reports success and the phone does not ring. If the number is attached to a live agent, the routing happens in this request rather than waiting for the next publish; the counts say what the voice platform was told. Needs `X-Confirm-Action: set_engine_ref:<tenant_id>:<number_id>` and a fresh second factor.
          */
         post: operations["set_engine_ref_v1_admin_numbers_tenants__tenant_id___number_id__engine_ref_post"];
         delete?: never;
@@ -2682,7 +2682,7 @@ export interface paths {
         put?: never;
         /**
          * Require (or stop requiring) a DigiLocker verification for this client
-         * @description Requiring blocks this client's OUTBOUND calls until a DigiLocker verification completes after this moment; inbound calls are unaffected. Clearing lifts it.
+         * @description Requiring blocks this client's OUTBOUND calls until a DigiLocker verification completes after this moment; inbound calls are unaffected. Clearing lifts it, and needs `X-Confirm-Action: clear_digilocker_requirement:<tenant_id>` and a fresh second factor.
          */
         post: operations["set_tenant_digilocker_requirement_v1_admin_tenants__tenant_id__kyc_digilocker_requirement_post"];
         delete?: never;
@@ -2724,7 +2724,7 @@ export interface paths {
         put?: never;
         /**
          * Approve or reject a client's identity verification
-         * @description Approving records the business as verified against its certificate and registry number; on the manual path it also needs `pan_checked: true`, the reviewer's statement that the PAN details matched at Income Tax, which is stored with who and when. Rejecting needs a reason the client is shown. Either way the owner's ID file is deleted and only its type and masked number are kept.
+         * @description Approving records the business as verified against its certificate and registry number; on the manual path it also needs `pan_checked: true`, the reviewer's statement that the PAN details matched at Income Tax, which is stored with who and when. Rejecting needs a reason the client is shown. Either way the owner's ID file is deleted and only its type and masked number are kept, so the decision needs `X-Confirm-Action: kyc_review:<tenant_id>:<decision>` and a fresh second factor.
          */
         post: operations["review_kyc_v1_admin_tenants__tenant_id__kyc_review_post"];
         delete?: never;
@@ -33337,7 +33337,9 @@ export interface operations {
     set_engine_ref_v1_admin_numbers_tenants__tenant_id___number_id__engine_ref_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
                 number_id: string;
@@ -36371,7 +36373,9 @@ export interface operations {
     set_tenant_digilocker_requirement_v1_admin_tenants__tenant_id__kyc_digilocker_requirement_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };
@@ -36438,7 +36442,9 @@ export interface operations {
     review_kyc_v1_admin_tenants__tenant_id__kyc_review_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };

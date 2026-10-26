@@ -158,6 +158,11 @@ async def _admin_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer dev:admin:{await _admin_id()}"}
 
 
+def confirmed(headers: dict[str, str], action: str) -> dict[str, str]:
+    """`headers` plus the step-up echo a review decision or a DigiLocker clear demands."""
+    return {**headers, "X-Confirm-Action": action}
+
+
 async def _agent(tenant_id: UUID, *, direction: str = "outbound") -> UUID:
     agent_id = uuid.uuid4()
     async with tenant_session(tenant_id) as session:
@@ -314,7 +319,14 @@ async def test_the_admin_requires_and_clears_digilocker_and_both_are_audited() -
         assert set_it.status_code == 200, set_it.text
         assert set_it.json()["digilocker_outstanding"] is True
         assert (await _dial(tenant_id, agent_id)).rule == "kyc_digilocker_required"
-        cleared = await http.post(path, headers=admin, json={"required": False})
+        unconfirmed = await http.post(path, headers=admin, json={"required": False})
+        assert unconfirmed.status_code == 403, "lifting the outbound block takes step-up"
+        assert unconfirmed.json()["type"].endswith("/step_up_required")
+        cleared = await http.post(
+            path,
+            headers=confirmed(admin, f"clear_digilocker_requirement:{tenant_id}"),
+            json={"required": False},
+        )
     assert cleared.status_code == 200, cleared.text
     assert cleared.json()["digilocker_required"] is False
     _allowed_or_hours(await _dial(tenant_id, agent_id))
@@ -336,10 +348,11 @@ async def test_the_admin_requires_and_clears_digilocker_and_both_are_audited() -
 
 
 async def test_the_requirement_route_404s_a_tenant_that_does_not_exist() -> None:
+    absent = uuid.uuid4()
     async with _client() as http:
         response = await http.post(
-            f"/v1/admin/tenants/{uuid.uuid4()}/kyc/digilocker-requirement",
-            headers=await _admin_headers(),
+            f"/v1/admin/tenants/{absent}/kyc/digilocker-requirement",
+            headers=confirmed(await _admin_headers(), f"clear_digilocker_requirement:{absent}"),
             json={"required": False},
         )
     assert response.status_code == 404
@@ -786,7 +799,7 @@ async def test_the_manual_path_submits_reviews_and_deletes_the_owner_id(s3: Fake
         assert download.headers["content-disposition"].startswith("attachment")
         approved = await http.post(
             f"/v1/admin/tenants/{tenant_id}/kyc/review",
-            headers=admin,
+            headers=confirmed(admin, f"kyc_review:{tenant_id}:approve"),
             json={"decision": "approve", "pan_checked": True},
         )
     assert approved.status_code == 200, approved.text
@@ -817,16 +830,23 @@ async def test_a_rejection_needs_a_reason_and_also_deletes_the_owner_id(s3: Fake
     admin = await _admin_headers()
     path = f"/v1/admin/tenants/{tenant_id}/kyc/review"
     async with _client() as http:
-        no_reason = await http.post(path, headers=admin, json={"decision": "reject"})
+        reject = confirmed(admin, f"kyc_review:{tenant_id}:reject")
+        no_reason = await http.post(path, headers=reject, json={"decision": "reject"})
         assert no_reason.status_code == 422
+        replayed = await http.post(
+            path, headers=reject, json={"decision": "approve", "pan_checked": True}
+        )
+        assert replayed.status_code == 403, "a confirmation for rejecting cannot approve"
         rejected = await http.post(
             path,
-            headers=admin,
+            headers=reject,
             json={"decision": "reject", "reason": "The name does not match the owner"},
         )
         assert rejected.status_code == 200, rejected.text
         again = await http.post(
-            path, headers=admin, json={"decision": "approve", "pan_checked": True}
+            path,
+            headers=confirmed(admin, f"kyc_review:{tenant_id}:approve"),
+            json={"decision": "approve", "pan_checked": True},
         )
     assert again.status_code == 422, "a decided record is not waiting for review"
     assert rejected.json()["owner_id_masked"] == "XXXXX4321X"
@@ -977,7 +997,9 @@ async def test_approving_a_document_review_needs_the_pan_check_and_records_who_a
     tenant_id = UUID(str(org["id"]))
     await _manual_submission(org, s3)
     admin_id = await _admin_id()
-    admin = {"Authorization": f"Bearer dev:admin:{admin_id}"}
+    admin = confirmed(
+        {"Authorization": f"Bearer dev:admin:{admin_id}"}, f"kyc_review:{tenant_id}:approve"
+    )
     path = f"/v1/admin/tenants/{tenant_id}/kyc/review"
     async with _client() as http:
         unchecked = await http.post(path, headers=admin, json={"decision": "approve"})
@@ -1062,7 +1084,7 @@ async def test_a_review_with_no_document_path_needs_no_pan_check(s3: FakeS3) -> 
     async with _client() as http:
         approved = await http.post(
             f"/v1/admin/tenants/{tenant_id}/kyc/review",
-            headers=await _admin_headers(),
+            headers=confirmed(await _admin_headers(), f"kyc_review:{tenant_id}:approve"),
             json={"decision": "approve"},
         )
     assert approved.status_code == 200, approved.text
@@ -1200,7 +1222,7 @@ async def test_a_decided_owner_id_whose_delete_failed_is_retried_and_then_purged
     async with _client() as http:
         approved = await http.post(
             f"/v1/admin/tenants/{tenant_id}/kyc/review",
-            headers=await _admin_headers(),
+            headers=confirmed(await _admin_headers(), f"kyc_review:{tenant_id}:approve"),
             json={"decision": "approve", "pan_checked": True},
         )
     assert approved.status_code == 200, approved.text

@@ -533,7 +533,14 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # ONE MORE records a number the voice platform holds for a client
     # (`admin/number_routes.py::record_tenant_engine_number`, `record_engine_number_confirmation`,
     # bound to the client): it collects a rented number's first month, as recording by hand does.
-    assert sites == 86, f"found {sites} step-up call sites, expected 86; the census went stale"
+    # THREE MORE on the KYC and number-handle writes (`tests/security_gates_test.py`):
+    # deciding a KYC review (`compliance/kyc_admin_routes.py`, `kyc_review_confirmation`,
+    # bound to client and decision) unlocks outbound and deletes the owner's ID file, as
+    # `record_kyc` beside it already demanded; clearing a DigiLocker requirement
+    # (`clear_digilocker_confirmation`) lifts an outbound block; recording a number's voice
+    # platform handle (`admin/number_routes.py::set_engine_ref`, `engine_ref_confirmation`,
+    # bound to client and number) decides which line rings the client's agent.
+    assert sites == 89, f"found {sites} step-up call sites, expected 89; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

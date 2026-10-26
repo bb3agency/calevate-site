@@ -10,10 +10,14 @@
 the shape `record_kyc_verification` shares. Every action is
 audited; every read of one client's rows records an admin tenant read.
 
-NO STEP-UP, deliberately, matching `record_kyc_verification`: each of these is reversible on
-the same screen by the same operator (a rejected client resubmits; a requirement is cleared
-or set again), and the step-up census (`tests/authn_stepup_test.py`) reserves the gate for
-acts that outlive the session or cannot be undone.
+STEP-UP on the two writes that open the outbound gate or destroy a file, as
+`admin/routes.py::record_kyc_verification` (the other way to mark a record verified) does:
+a review decision (`kyc_review_confirmation`, bound to the client AND the decision, so a
+header captured to reject cannot approve) unlocks outbound calling and deletes the owner's
+ID file, which nobody can put back; CLEARING a DigiLocker requirement lifts an outbound
+block. Leaving either ungated beside a gated `record_kyc` made that gate decorative. SETTING
+a requirement is the safe direction (it only blocks) and is undone on the same screen, so it
+takes no code.
 
 THE PAN IS CHECKED AT INCOME TAX BEFORE A MANUAL APPROVAL (D-696). The reviewer matches the
 PAN, the owner's full name and date of birth at the free "Verify Your PAN" service and ticks
@@ -31,7 +35,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,12 +60,21 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 KycOperator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
+
+
+def kyc_review_confirmation(tenant_id: UUID, decision: str) -> str:
+    return f"kyc_review:{tenant_id}:{decision}"
+
+
+def clear_digilocker_confirmation(tenant_id: UUID) -> str:
+    return f"clear_digilocker_requirement:{tenant_id}"
 
 
 class KycReviewItem(BaseModel):
@@ -329,7 +342,9 @@ class KycReviewIn(BaseModel):
         "number; on the manual path it also needs `pan_checked: true`, the reviewer's "
         "statement that the PAN details matched at Income Tax, which is stored with who and "
         "when. Rejecting needs a reason the client is shown. Either way the owner's ID "
-        "file is deleted and only its type and masked number are kept."
+        "file is deleted and only its type and masked number are kept, so the decision "
+        "needs `X-Confirm-Action: kyc_review:<tenant_id>:<decision>` and a fresh second "
+        "factor."
     ),
 )
 async def review_kyc(
@@ -339,7 +354,10 @@ async def review_kyc(
     request: Request,
     principal: KycOperator,
     tasks: BackgroundTasks,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> AdminKycOut:
+    step_up.require(x_confirm_action, kyc_review_confirmation(tenant_id, body.decision))
     assert principal.user_id is not None
     # The decision itself is `kyc_review.decide_kyc_review`, which the admin assistant's
     # `admin_kyc_review` action calls too.
@@ -383,7 +401,9 @@ class DigiLockerRequirementIn(BaseModel):
     summary="Require (or stop requiring) a DigiLocker verification for this client",
     description=(
         "Requiring blocks this client's OUTBOUND calls until a DigiLocker verification "
-        "completes after this moment; inbound calls are unaffected. Clearing lifts it."
+        "completes after this moment; inbound calls are unaffected. Clearing lifts it, and "
+        "needs `X-Confirm-Action: clear_digilocker_requirement:<tenant_id>` and a fresh "
+        "second factor."
     ),
 )
 async def set_tenant_digilocker_requirement(
@@ -392,7 +412,11 @@ async def set_tenant_digilocker_requirement(
     session: AdminSession,
     request: Request,
     principal: KycOperator,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> AdminKycOut:
+    if not body.required:
+        step_up.require(x_confirm_action, clear_digilocker_confirmation(tenant_id))
     assert principal.user_id is not None
     if body.required and not body.reason:
         raise ProblemError(

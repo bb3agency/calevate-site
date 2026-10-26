@@ -114,7 +114,7 @@ class AdminActionTool:
     where: str
     #: The `X-Confirm-Action` value the equivalent BUTTON demands, computed from the
     #: canonical arguments, or None when the button asks for no step-up.
-    confirm_action: Callable[[Mapping[str, Any]], str] | None
+    confirm_action: Callable[[Mapping[str, Any], UUID | None], str] | None
     #: WHICH SESSION the plan, the execution and the audit row run in (D-698). `platform`
     #: is an untenanted session for platform state. `tenant` is the account whose page the
     #: operator has open (`viewing_tenant_id`), entered with its own `tenant_session` — the
@@ -211,14 +211,17 @@ PLATFORM_HALT_OUTBOUND: Final = AdminActionTool(
     ),
     plan=_plan_halt,
     execute=_execute_halt,
-    confirm_action=lambda args: platform_confirmation(outbound_halted=True, load_shed_mode=None),
+    confirm_action=lambda _args, _tenant: platform_confirmation(
+        outbound_halted=True, load_shed_mode=None
+    ),
 )
 
 # --- D-698: the per-client actions an operator takes from a client's page ----------------
 #
 # Each is `scope="tenant"`: it acts on the account whose page is open and runs in that
-# account's own session, exactly as its console route does. None of their buttons asks for
-# step-up, so none does here (`confirm_action=None`); the halt above keeps its own.
+# account's own session, exactly as its console route does, and demands the confirmation
+# that route demands, computed from the open account — otherwise the assistant would be a
+# way around the console's step-up (`copilot/admin_routes.py::confirm_admin_copilot_proposal`).
 
 
 async def _client_name(session: AsyncSession, tenant_id: UUID) -> str:
@@ -237,6 +240,29 @@ async def _client_name(session: AsyncSession, tenant_id: UUID) -> str:
 def _viewing(actor: AdminActor) -> UUID:
     assert actor.viewing_tenant_id is not None  # `scope="tenant"` refuses without one
     return actor.viewing_tenant_id
+
+
+def _client_of(tenant: UUID | None) -> UUID:
+    assert tenant is not None  # `scope="tenant"` refuses before a confirmation is computed
+    return tenant
+
+
+def _kyc_review_confirmation(args: Mapping[str, Any], tenant: UUID | None) -> str:
+    from apps.api.compliance.kyc_admin_routes import kyc_review_confirmation
+
+    return kyc_review_confirmation(_client_of(tenant), str(args["decision"]))
+
+
+def _workspace_provision_confirmation(_args: Mapping[str, Any], tenant: UUID | None) -> str:
+    from apps.api.admin.engine_workspace_routes import workspace_provision_confirmation
+
+    return workspace_provision_confirmation(_client_of(tenant))
+
+
+def _number_release_confirmation(args: Mapping[str, Any], tenant: UUID | None) -> str:
+    from apps.api.admin.engine_workspace_routes import release_number_confirmation
+
+    return release_number_confirmation(_client_of(tenant), UUID(str(args["number_id"])))
 
 
 class _KycReviewArgs(BaseModel):
@@ -356,7 +382,7 @@ ADMIN_KYC_REVIEW: Final = AdminActionTool(
     ),
     plan=_plan_kyc_review,
     execute=_execute_kyc_review,
-    confirm_action=None,
+    confirm_action=_kyc_review_confirmation,
     scope="tenant",
 )
 
@@ -421,7 +447,7 @@ ADMIN_WORKSPACE_PROVISION: Final = AdminActionTool(
     ),
     plan=_plan_workspace_provision,
     execute=_execute_workspace_provision,
-    confirm_action=None,
+    confirm_action=_workspace_provision_confirmation,
     scope="tenant",
 )
 
@@ -497,7 +523,7 @@ ADMIN_NUMBER_RELEASE: Final = AdminActionTool(
     ),
     plan=_plan_admin_number_release,
     execute=_execute_admin_number_release,
-    confirm_action=None,
+    confirm_action=_number_release_confirmation,
     scope="tenant",
 )
 
@@ -770,7 +796,7 @@ async def _execute_healer_resolve(
     )
 
 
-def _resolve_confirmation(args: Mapping[str, Any]) -> str:
+def _resolve_confirmation(args: Mapping[str, Any], _tenant: UUID | None) -> str:
     from apps.api.healer.routes import resolve_confirmation
 
     return resolve_confirmation(UUID(str(args["incident"])))
@@ -944,7 +970,7 @@ async def _execute_healer_attest(
     )
 
 
-def _attest_confirmation(args: Mapping[str, Any]) -> str:
+def _attest_confirmation(args: Mapping[str, Any], _tenant: UUID | None) -> str:
     from apps.api.core.settings import get_settings
     from apps.api.ops.engine_minute_routes import engine_minute_confirmation
 
@@ -1103,7 +1129,11 @@ async def plan_admin_action(
         cost=None if plan.cost is None else strip_invisible(plan.cost),
         reversal=strip_invisible(plan.reversal),
         expires_at=expires_at,
-        confirm_action=None if tool.confirm_action is None else tool.confirm_action(plan.args),
+        confirm_action=(
+            None
+            if tool.confirm_action is None
+            else tool.confirm_action(plan.args, viewing_tenant_id)
+        ),
     )
 
 
@@ -1187,10 +1217,10 @@ async def confirm_admin(
         raise _refused("This suggestion is no longer valid.")
     # STEP-UP BEFORE THE BURN: a refusal for a stale second factor must leave the token
     # usable once the operator has re-proved it.
-    if tool.confirm_action is not None:
-        require_step_up(tool.confirm_action(args))
     if tool.scope == "tenant" and viewing is None:
         raise _refused("This suggestion was made without a client's page open.")
+    if tool.confirm_action is not None:
+        require_step_up(tool.confirm_action(args, viewing))
     object_id = str(claims.get("obj") or "") or None
     await write_tools.burn_proposal(str(claims["jti"]))
     try:

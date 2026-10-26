@@ -45,6 +45,7 @@ from tests.kyc_two_paths_test import (
     _manual_submission,
     _tenant,
     _verify_kyc_only,
+    confirmed,
 )
 from tests.outbound_registration_gate_test import _gate, _tenant_agent
 from tests.workspace_support import give_own_workspace
@@ -218,7 +219,7 @@ async def test_a_reviewed_owner_id_is_no_longer_handed_to_the_reviewer(s3: FakeS
         owner = next(d for d in detail.json()["documents"] if d["slot"] == "owner_id")
         decided = await http.post(
             f"/v1/admin/tenants/{tenant_id}/kyc/review",
-            headers=admin,
+            headers=confirmed(admin, f"kyc_review:{tenant_id}:reject"),
             json={"decision": "reject", "reason": "The PAN card is unreadable"},
         )
         assert decided.status_code == 200, decided.text
@@ -303,7 +304,7 @@ async def test_an_llp_is_approved_against_its_llpin_and_needs_the_number(s3: Fak
             json={"owner_id_type": "pan", "owner_id_number": "ABCDE1234F"},
         )
         assert sent.status_code == 200, sent.text
-        admin = await _admin_headers()
+        admin = confirmed(await _admin_headers(), f"kyc_review:{tenant_id}:approve")
         path = f"/v1/admin/tenants/{tenant_id}/kyc/review"
         no_number = await http.post(
             path, headers=admin, json={"decision": "approve", "pan_checked": True}
@@ -346,7 +347,7 @@ async def test_a_review_after_the_owner_id_was_already_purged_queues_no_delete(
     async with _client() as http:
         decided = await http.post(
             f"/v1/admin/tenants/{tenant_id}/kyc/review",
-            headers=await _admin_headers(),
+            headers=confirmed(await _admin_headers(), f"kyc_review:{tenant_id}:reject"),
             json={"decision": "reject", "reason": "Please send a clearer copy"},
         )
     assert decided.status_code == 200, decided.text

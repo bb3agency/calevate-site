@@ -353,6 +353,7 @@ def _confirmation_for(key: str, ids: dict[str, str]) -> str | None:
         ),
         "POST /v1/admin/tenants/{tenant_id}/invitations": f"invite_member:{subject}",
         "POST /v1/admin/tenants/{tenant_id}/kyc": f"record_kyc:{subject}",
+        "POST /v1/admin/tenants/{tenant_id}/kyc/review": f"kyc_review:{subject}:reject",
         "POST /v1/admin/tenants/{tenant_id}/numbers": f"provision_number:{subject}",
         "PUT /v1/admin/tenants/{tenant_id}/feature-flags/{flag}": (
             f"set_feature_flag:{subject}:{ids.get('flag', '')}"

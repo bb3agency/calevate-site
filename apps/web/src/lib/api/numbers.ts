@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   adminSession,
   confirmedAdminRequest,
+  engineRefConfirmation,
   recordEngineNumberConfirmation,
   releaseNumberConfirmation,
 } from "./admin";
@@ -41,14 +42,20 @@ export function useSetNumberEngineRef(tenantId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ numberId, ref }: { numberId: string; ref: string }) =>
-      apiRequest<components["schemas"]["EngineRefOut"]>(
-        adminSession(),
+      confirmedAdminRequest<components["schemas"]["EngineRefOut"]>(
         `/v1/admin/numbers/tenants/${tenantId}/${numberId}/engine-ref`,
-        { method: "POST", body: { engine_number_ref: ref } },
+        {
+          method: "POST",
+          body: { engine_number_ref: ref },
+          confirmAction: engineRefConfirmation(tenantId, numberId),
+        },
+        "Recording this number's handle.",
       ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["admin", "number-costs"] });
       void client.invalidateQueries({ queryKey: ["admin", "numbers"] });
+      // The voice-platform panel on the same page names each number's answering agent.
+      void client.invalidateQueries({ queryKey: ["admin", "engine-numbers", tenantId] });
     },
   });
 }

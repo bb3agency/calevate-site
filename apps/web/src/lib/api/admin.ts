@@ -84,6 +84,12 @@ export const provisionNumberConfirmation = (tenantId: string) => `provision_numb
 export const recordEngineNumberConfirmation = (tenantId: string) =>
   `record_engine_number:${tenantId}`;
 export const recordKycConfirmation = (tenantId: string) => `record_kyc:${tenantId}`;
+export const kycReviewConfirmation = (tenantId: string, decision: "approve" | "reject") =>
+  `kyc_review:${tenantId}:${decision}`;
+export const clearDigiLockerConfirmation = (tenantId: string) =>
+  `clear_digilocker_requirement:${tenantId}`;
+export const engineRefConfirmation = (tenantId: string, numberId: string) =>
+  `set_engine_ref:${tenantId}:${numberId}`;
 export const memberRoleConfirmation = (tenantId: string, userId: string) =>
   `change_member_role:${tenantId}:${userId}`;
 export const featureFlagConfirmation = (tenantId: string, flag: string) =>

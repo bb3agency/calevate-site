@@ -202,10 +202,32 @@ def _admin_gates(t: str) -> list[tuple[str, str, dict[str, Any] | None, str]]:
             {"default_llm_model": None},
             f"set_llm_default:{t}",
         ),
+        # A review decision unlocks outbound and deletes the owner's ID file; bound to the
+        # decision so a header captured to reject cannot approve.
+        (
+            "POST",
+            f"/v1/admin/tenants/{t}/kyc/review",
+            {"decision": "reject", "reason": "The certificate is unreadable"},
+            f"kyc_review:{t}:reject",
+        ),
+        # Clearing lifts an outbound block; setting one is the safe direction and is ungated.
+        (
+            "POST",
+            f"/v1/admin/tenants/{t}/kyc/digilocker-requirement",
+            {"required": False},
+            f"clear_digilocker_requirement:{t}",
+        ),
+        # The handle decides which phone line rings this client's agent.
+        (
+            "POST",
+            f"/v1/admin/numbers/tenants/{t}/{n}/engine-ref",
+            {"engine_number_ref": "pn_gate_probe"},
+            f"set_engine_ref:{t}:{n}",
+        ),
     ]
 
 
-GATE_COUNT = 22
+GATE_COUNT = 25
 
 
 def test_the_gate_list_is_the_one_this_file_claims() -> None:

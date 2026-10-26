@@ -76,6 +76,12 @@ def record_engine_number_confirmation(tenant_id: UUID) -> str:
     return f"record_engine_number:{tenant_id}"
 
 
+def engine_ref_confirmation(tenant_id: UUID, number_id: UUID) -> str:
+    """Bound to the number: the handle decides which phone line rings this client's agent,
+    so a wrong one routes somebody else's callers to it in the same request."""
+    return f"set_engine_ref:{tenant_id}:{number_id}"
+
+
 class AvailableNumberOut(BaseModel):
     """One number the voice platform says it could sell us, at the price it said.
 
@@ -363,7 +369,8 @@ async def buy_number(
         "to answer it. Without it every publish of the agent answering this number "
         "reports success and the phone does not ring. If the number is attached to a live "
         "agent, the routing happens in this request rather than waiting for the next "
-        "publish; the counts say what the voice platform was told."
+        "publish; the counts say what the voice platform was told. Needs "
+        "`X-Confirm-Action: set_engine_ref:<tenant_id>:<number_id>` and a fresh second factor."
     ),
 )
 async def set_engine_ref(
@@ -373,7 +380,10 @@ async def set_engine_ref(
     session: AdminSession,
     request: Request,
     principal: NumberOperator,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> EngineRefOut:
+    step_up.require(x_confirm_action, engine_ref_confirmation(tenant_id, number_id))
     async with tenant_session(tenant_id) as scoped:
         routing = await agents_service.set_number_engine_ref(
             scoped, number_id=number_id, engine_number_ref=payload.engine_number_ref
