@@ -1721,6 +1721,38 @@ calls.follow_up_state NULL IN (resolved, needs_you), follow_up_set_at, follow_up
   NULL FK users SET NULL  -- a person's mark, never rewritten by the pipeline
 ```
 
+## 9d. Plans: one approval for an action over a set (D-893, migration `f4b8d2a61c39`)
+
+```
+copilot_plans(id, tenant_id FK organizations RESTRICT, user_id FK users CASCADE,
+  origin IN (pip, console), tool (an ActionTool name), target_type IN (lead, call, callback),
+  args jsonb (the action's arguments, lens included), title, why, lens_text (who, in words),
+  run_at NULL, target_count >= 0, excluded_count >= 0,
+  exclusions jsonb ([{reason, count}]), estimate_inr NUMERIC(14,2) NULL >= 0
+  (NULL = not known), estimate_note,
+  plan_hash (sha256 of tool, change, frozen targets, exclusions, estimate, run_at),
+  status IN (proposed, approved, running, done, cancelled, expired), expires_at,
+  approved_at (NOT NULL once approved/running/done), started_at, finished_at,
+  done_count, skipped_count, failed_count, result NULL,
+  campaign_id NULL FK campaigns SET NULL, created_at, updated_at)
+  -- FORCE-RLS tenant_isolation plus copilot_plans_ops_read (FOR SELECT, untenanted
+  -- sessions: the resume sweep finds stalled plans across tenants). user_id CASCADE: a plan runs as
+  -- the person who approved it and has nobody to run as once they are gone; what it did
+  -- is in the rows it touched and audit_log. Partial index on (updated_at) WHERE status
+  -- IN (approved, running) serves the resume sweep.
+copilot_plan_targets(id, tenant_id, plan_id FK copilot_plans CASCADE, target_id, position,
+  excluded bool, status IN (pending, done, skipped, failed), reason NULL, finished_at NULL,
+  created_at, updated_at, UNIQUE(plan_id, target_id))
+  -- FORCE-RLS. The targets are FROZEN when the plan is built: approval binds the hash of
+  -- exactly these rows. The UNIQUE pair is the run's idempotency key; each target is
+  -- re-checked when it runs (still matching, still allowed) and skipped with a reason
+  -- otherwise. target_id is not a FK: it names a lead, a call or a lead to book, by
+  -- target_type. Erased with the tenant; per-subject erasure is exempt
+  -- (check_erasure_coverage) because a row holds an id and a status, never PII.
+campaigns.kind IN (standard, pip) DEFAULT standard
+  -- pip: the campaign a dialling plan (calls_place_bulk) created and launched.
+```
+
 ## 10. Migration & Integrity Rules
 
 - Alembic; every migration reversible; RLS policies live in migrations (not ad-hoc).
