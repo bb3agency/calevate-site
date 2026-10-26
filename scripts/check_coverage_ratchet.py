@@ -450,6 +450,12 @@ AREAS: tuple[Area, ...] = (
             # `copilot_consents` (D-788) is an append-only ledger: the owner's acceptance of
             # the assistant disclosure, the evidence that unmasked sending was agreed to.
             "apps/api/copilot/models.py",
+            # `organizations.low_balance_alert_inr` (D-893 L6) is the balance below which an
+            # account is told its credit is low — money, so this area's failures.
+            "apps/api/tenancy/models.py",
+            # `copilot_plans.estimate_inr` (D-893 F3) is the credit a plan's card says it
+            # will spend before one click approves it — money, so this area's failures.
+            "apps/api/copilot/plan_models.py",
         ),
         why=(
             "metering, credits, caps, rating and invoicing. Money arithmetic fails "
