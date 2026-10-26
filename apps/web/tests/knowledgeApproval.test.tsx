@@ -142,7 +142,7 @@ async function renderKnowledge(
     "/v1/kb/sources": sources,
     "/v1/kb/staff-curation": STAFF_CURATION,
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
-    "/v1/kb/struggles": [],
+    "/v1/teach/questions": { items: [], open_count: 0 },
     "/v1/kb/teach/open": { teaching: null },
     // The document list (D-534). Empty by default: every assertion in this file is about
     // the PASTED-TEXT ladder, and an unrouted endpoint would leave a second `role="alert"`

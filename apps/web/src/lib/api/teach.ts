@@ -22,7 +22,6 @@ export type Fact = Schemas["FactOut"];
 export type KnownItem = Schemas["KnownItemOut"];
 export type Teaching = Schemas["TeachingOut"];
 export type TeachItem = Schemas["TeachItemIO"];
-export type Struggle = Schemas["StruggleOut"];
 export type ProposedRule = Schemas["RuleOut"];
 export type TestCase = Schemas["TestCaseOut"];
 export type TestCases = Schemas["TestCasesOut"];
@@ -32,7 +31,6 @@ export type TryChatReply = Schemas["TryChatOut"];
 
 
 export const knowsKey = (slug: string) => ["kb-knows", slug] as const;
-const struggleKey = (slug: string, agentId?: string) => ["kb-struggles", slug, agentId ?? null] as const;
 const teachingKey = (slug: string, id: string | null) => ["kb-teaching", slug, id] as const;
 const casesKey = (slug: string, agentId: string) => ["agent-test-cases", slug, agentId] as const;
 
@@ -54,14 +52,6 @@ export function useKnows(session: Session): UseQueryResult<Knows> {
         (data?.pinned_not_yet_on ?? []).some((entry) => entry.reason === "on_the_way");
       return arriving ? 15_000 : false;
     },
-  });
-}
-
-export function useStruggles(session: Session, agentId?: string): UseQueryResult<Struggle[]> {
-  const query = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
-  return useQuery({
-    queryKey: struggleKey(session.orgSlug, agentId),
-    queryFn: () => apiRequest<Struggle[]>(session, `/v1/kb/struggles${query}`),
   });
 }
 
@@ -125,7 +115,7 @@ export function useSaveTeaching(session: Session) {
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: knowsKey(session.orgSlug) });
-      void client.invalidateQueries({ queryKey: ["kb-struggles", session.orgSlug] });
+      void client.invalidateQueries({ queryKey: ["teach-questions", session.orgSlug] });
       void client.invalidateQueries({ queryKey: ["kb", session.orgSlug] });
       void client.invalidateQueries({ queryKey: openTeachingKey(session.orgSlug) });
     },
@@ -223,6 +213,16 @@ export function useRunTestCases(session: Session, agentId: string) {
     mutationFn: () =>
       apiRequest<TestCases>(session, `/v1/agents/${agentId}/test-cases/run`, { method: "POST" }),
     onSuccess: (data) => client.setQueryData(casesKey(session.orgSlug, agentId), data),
+  });
+}
+
+/** Save a test written by hand: what the caller says, and what the agent should do. */
+export function useCreateTestCase(session: Session, agentId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { title: string; caller_lines: string[]; expected: string }) =>
+      apiRequest<TestCase>(session, `/v1/agents/${agentId}/test-cases`, { method: "POST", body }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: casesKey(session.orgSlug, agentId) }),
   });
 }
 

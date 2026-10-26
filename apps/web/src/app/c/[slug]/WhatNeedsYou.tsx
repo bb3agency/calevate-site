@@ -10,6 +10,7 @@ import { formatCount } from "@/components/ui";
 import type { Dashboard } from "@/lib/api/client";
 import type { useAttention } from "@/lib/api/attention";
 import type { useKnowledgeGaps } from "@/lib/api/knowledgeGaps";
+import { QUESTION_PARAM, QUESTIONS_TAB } from "@/lib/api/teachQuestions";
 import { activeTrial, minutesLeftPhrase, walletState, type useWallet } from "@/lib/api/wallet";
 
 import { AttentionBanner } from "./AttentionBanner";
@@ -87,14 +88,22 @@ export function WhatNeedsYou({
 
   const unanswered = gaps.data?.open_count ?? 0;
   if (unanswered > 0) {
-    // One agent's gaps open on its Training tab, which leads with them while any are open
-    // (D-826); several agents' open on Knowledge, whose "Where it struggled" lists them all.
+    // One agent's gaps open on its Training tab, which leads with its Questions to answer
+    // (D-826, D-893); several agents' open the same list, account-wide, on Knowledge. One
+    // topic opens on that question, never on a blank page.
+    const complete = gaps.data?.items.length === unanswered;
     const agentIds = new Set(gaps.data?.items.map((gap) => gap.agent_id));
+    const topics = new Set(gaps.data?.items.map((gap) => gap.topic_key));
     const [only] = agentIds;
+    const [topic] = topics;
+    const focus =
+      complete && topic !== undefined && topics.size === 1
+        ? `${QUESTION_PARAM}=${encodeURIComponent(topic)}`
+        : null;
     const teachHref =
-      only !== undefined && agentIds.size === 1 && gaps.data?.items.length === unanswered
-        ? `/agents/${only}?section=training`
-        : "/knowledge";
+      only !== undefined && agentIds.size === 1 && complete
+        ? `/agents/${only}?section=training${focus ? `&${focus}` : ""}`
+        : `/knowledge?${focus ?? QUESTIONS_TAB}`;
     rows.push({
       key: "gaps",
       text: (

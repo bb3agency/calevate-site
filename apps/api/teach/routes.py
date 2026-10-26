@@ -1,7 +1,7 @@
 """Client-realm routes for teaching and the improvement loop.
 
 Reads are `agents:read` (what the agents know, a teaching's state, saved tests) or
-`calls:read` (where they struggled, a test drafted from a call). Changing what the agents
+`calls:read` (the questions to answer, a test drafted from a call). Changing what the agents
 know is `kb:write` through `requires_kb_curation()`, the gate every knowledge write uses.
 Saved tests and the test chat are `agents:write`; settling a waiting rule is `org:manage`,
 the permission the script itself is written under. Every mutation writes an audit row with
@@ -30,7 +30,7 @@ from apps.api.core.rbac import permission_meta
 from apps.api.db.base import uuid7
 from apps.api.kb.curation import goes_live_without_review, requires_kb_curation
 from apps.api.teach import facts as fact_store
-from apps.api.teach import knows, questions, rules, struggles, teaching, test_cases, try_chat
+from apps.api.teach import knows, questions, rules, teaching, test_cases, try_chat
 from apps.api.teach import pinned as pinned_store
 from apps.api.teach.models import (
     MAX_CASE_EXPECTED_CHARS,
@@ -511,44 +511,6 @@ async def discard_teaching(
     _: Principal = Depends(requires_kb_curation()),
 ) -> TeachingOut:
     return _teaching_out(await teaching.discard(session, teaching_id))
-
-
-# --- where it struggled ------------------------------------------------------------
-
-
-class StruggleOut(Strict):
-    id: UUID
-    #: `didnt_know` · `put_off` (pushed to a call back or WhatsApp) · `unanswered` ·
-    #: `needed_you` (the call ended needing the owner).
-    kind: str
-    gap_id: UUID | None
-    agent_id: UUID
-    agent_name: str | None
-    topic: str
-    #: Redacted, like every quote on this surface.
-    question: str | None
-    answer: str | None
-    times: int
-    calls: int
-    last_call_id: UUID | None
-    last_seen_at: datetime
-
-
-@router.get(
-    "/v1/kb/struggles",
-    response_model=list[StruggleOut],
-    openapi_extra=permission_meta("calls:read"),
-    summary="Where the agents struggled on real calls, found from the calls",
-)
-async def where_it_struggled(
-    session: Session,
-    agent_id: UUID | None = Query(default=None),
-    _: Principal = Depends(requires("calls:read")),
-) -> list[StruggleOut]:
-    return [
-        StruggleOut.model_validate(s, from_attributes=True)
-        for s in await struggles.list_struggles(session, agent_id=agent_id)
-    ]
 
 
 # --- questions to answer (D-893) ---------------------------------------------------

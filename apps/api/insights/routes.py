@@ -1,4 +1,4 @@
-"""Client-realm Knowledge Gaps endpoints (SURFACES §2 — the urgent surface).
+"""Client-realm Knowledge Gaps read (SURFACES §2 — the urgent surface).
 
 Every route declares its permission twice, the pattern `crm/routes.py` documents: a
 dependency that ENFORCES it and `openapi_extra` that DOCUMENTS it, checked at boot by
@@ -6,10 +6,9 @@ dependency that ENFORCES it and `openapi_extra` that DOCUMENTS it, checked at bo
 
 NO RAW-TRANSCRIPT GATE HERE, and its absence is the design: every quote this surface
 returns comes from a column that only ever holds redacted text (hard rule 6). Reading is
-`calls:read` (owner + staff); acting on a gap — dismiss or teach — is `kb:write`, because
-both are decisions about what the agent knows, the same permission the agent page's
-knowledge controls carry (D-21). Both mutations write an `audit_log` row, like every other
-client mutation.
+`calls:read` (owner + staff). Answering or dismissing a gap is done by topic, through the
+Questions to answer routes (`teach/routes.py`, D-893), which close every agent's gap on
+that topic at once.
 """
 
 from __future__ import annotations
@@ -17,25 +16,17 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
 from apps.api.insights import service
-from apps.api.insights.schemas import (
-    GapDismissIn,
-    GapTeachIn,
-    KnowledgeGapListOut,
-    KnowledgeGapOut,
-)
-from apps.api.kb.curation import requires_kb_curation
+from apps.api.insights.schemas import KnowledgeGapListOut
 
 router = APIRouter(prefix="/v1", tags=["insights"])
-
 Session = Annotated[AsyncSession, Depends(db)]
 
 
@@ -62,72 +53,6 @@ async def list_knowledge_gaps(
     return await service.list_gaps(
         session, agent_id=agent_id, status=status_filter, limit=limit, offset=offset
     )
-
-
-@router.post(
-    "/knowledge-gaps/{gap_id}/dismiss",
-    response_model=KnowledgeGapOut,
-    openapi_extra=permission_meta("kb:write"),
-    summary="Dismiss a knowledge gap — it leaves the urgent list, occurrences stay",
-)
-async def dismiss_knowledge_gap(
-    gap_id: UUID,
-    payload: GapDismissIn,
-    session: Session,
-    request: Request,
-    # `requires_kb_curation()`, NOT `requires("kb:write")` — additive; see
-    # `kb/curation.py`. Deciding what an agent knows is one capability (D-21), so the
-    # owner's switch reaches the two knowledge-gap writes exactly as it reaches the
-    # Add-Knowledge form, and does not reach anything else.
-    principal: Principal = Depends(requires_kb_curation()),
-) -> KnowledgeGapOut:
-    out = await service.dismiss_gap(session, gap_id, principal=principal, reason=payload.reason)
-    await write_audit(
-        session,
-        action="knowledge_gap.dismiss",
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        object_type="knowledge_gap",
-        object_id=str(gap_id),
-        ip=client_request_ip(request),
-        # Ids and a boolean — never the reason text or the quote, both of which are
-        # transcript-derived and belong in no log line (hard rule 6).
-        summary={"topic_key": out.topic_key, "had_reason": bool(payload.reason)},
-    )
-    return out
-
-
-@router.post(
-    "/knowledge-gaps/{gap_id}/teach",
-    response_model=KnowledgeGapOut,
-    openapi_extra=permission_meta("kb:write"),
-    summary="Teach the missing answer — records it and seeds a KB draft for review",
-)
-async def teach_knowledge_gap(
-    gap_id: UUID,
-    payload: GapTeachIn,
-    session: Session,
-    request: Request,
-    # `requires_kb_curation()`, NOT `requires("kb:write")` — additive; see
-    # `kb/curation.py`. Deciding what an agent knows is one capability (D-21), so the
-    # owner's switch reaches the two knowledge-gap writes exactly as it reaches the
-    # Add-Knowledge form, and does not reach anything else.
-    principal: Principal = Depends(requires_kb_curation()),
-) -> KnowledgeGapOut:
-    out = await service.teach_gap(session, gap_id, principal=principal, payload=payload)
-    await write_audit(
-        session,
-        action="knowledge_gap.teach",
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        object_type="knowledge_gap",
-        object_id=str(gap_id),
-        ip=client_request_ip(request),
-        # `kb_drafted` records whether a review draft was seeded; the taught answer itself
-        # is client content and is not logged.
-        summary={"topic_key": out.topic_key, "kb_drafted": payload.create_kb_draft},
-    )
-    return out
 
 
 __all__ = ["router"]

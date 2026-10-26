@@ -12,13 +12,13 @@
  * `LEGACY_SECTIONS` keeps every address the twelve-section page had working: a bookmark,
  * or a test result's "Open call handling", opens the tab that holds it now.
  *
- * Training carries the count of questions it could not answer on real calls, read with the
- * same filters as the list in that tab, so the badge and the list share one cached query.
+ * Training carries the count of its Questions to answer (D-893), read with the same query as
+ * the list at the top of that tab, so the badge and the list are one cached read.
  */
 
 import type { SettingsSection } from "@/components/console/settingsLayout";
 import type { Agent } from "@/lib/api/agents";
-import { useKnowledgeGaps } from "@/lib/api/knowledgeGaps";
+import { useTeachQuestions } from "@/lib/api/teachQuestions";
 import { useClientSession } from "@/lib/api/session";
 
 export const AGENT_TABS = {
@@ -45,15 +45,13 @@ export const LEGACY_SECTIONS: Readonly<Record<string, AgentTab>> = {
   advanced: "settings",
 };
 
-/** The open-gap read Training's list makes; shared so the badge and the list are one query. */
-export const OPEN_GAPS = { status: "open", limit: 20 } as const;
 
 export function useAgentSections(agent: Pick<Agent, "id">): SettingsSection[] {
   const session = useClientSession();
-  const gaps = useKnowledgeGaps(session, { agentId: agent.id, ...OPEN_GAPS });
+  const questions = useTeachQuestions(session, agent.id);
   // No badge while the count is unread or failed: Training's own list says which, and a
   // missing badge claims nothing.
-  const open = gaps.isSuccess && gaps.data.open_count > 0 ? gaps.data.open_count : null;
+  const open = questions.isSuccess && questions.data.open_count > 0 ? questions.data.open_count : null;
   return (Object.keys(AGENT_TABS) as AgentTab[]).map((id) => ({
     id,
     label: AGENT_TABS[id],

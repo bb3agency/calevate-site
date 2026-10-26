@@ -20,6 +20,7 @@ import {
 } from "@/components/ui";
 import { useKbChunks, useKbUploads, type KbUpload, type useKbSources } from "@/lib/api/kb";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { PRICES_QUESTION } from "@/lib/api/teachQuestions";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import {
   useAddFact,
@@ -56,9 +57,12 @@ function matches(query: string, ...values: (string | null | undefined)[]): boole
 export function WhatItKnows({
   canWrite,
   sources,
+  onAnswerQuestions,
 }: {
   canWrite: boolean;
   sources: ReturnType<typeof useKbSources>;
+  /** Opens the Questions to answer view, on one question when it names one. */
+  onAnswerQuestions?: (key: string) => void;
 }) {
   const session = useClientSession();
   const knows = useKnows(session);
@@ -117,10 +121,20 @@ export function WhatItKnows({
             <>
               <span className="block font-medium text-ink">Your agents don&rsquo;t know anything yet</span>
               <span className="mt-1 block">
-                Add your prices, timings and the answers callers ask for most, and every one of
-                your agents can use them.
+                Start with the questions callers ask most. Every agent uses what you answer.
               </span>
             </>
+          }
+          action={
+            onAnswerQuestions && canWrite ? (
+              <button
+                type="button"
+                className={SECONDARY_BUTTON_SM}
+                onClick={() => onAnswerQuestions(PRICES_QUESTION)}
+              >
+                Answer the first questions
+              </button>
+            ) : undefined
           }
         />
       </div>

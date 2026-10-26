@@ -125,7 +125,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "lead",
     "leads",
   ],
-  knowledge_gaps: [...SUMMARY, "knowledge-gaps", "kb-struggles", "readiness"],
+  knowledge_gaps: [...SUMMARY, "knowledge-gaps", "readiness", "teach-questions"],
   knowledge: [
     "kb",
     "kb-preview",
@@ -136,7 +136,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "kb-knows",
     "kb-teaching",
     "kb-teaching-open",
-    "kb-struggles",
+    // A new fact or file can answer a question practice callers or setup were waiting on.
+    "teach-questions",
     "admin/kb",
     "admin/kb-preview",
     "readiness",

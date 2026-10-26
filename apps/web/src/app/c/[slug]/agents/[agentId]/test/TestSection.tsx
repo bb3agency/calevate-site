@@ -36,6 +36,7 @@ import {
   type RunTestsBody,
 } from "@/lib/api/script";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { PRICES_QUESTION, knowledgeQuestionsHref } from "@/lib/api/teachQuestions";
 import { openAssistant } from "@/lib/copilot/launcher";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -206,7 +207,7 @@ export function TestSection({
             canRun={canRun}
             status={runStatus}
             onRun={() => start({})}
-            knowledgeHref={href(`/c/${slug}/knowledge`)}
+            pricesHref={href(knowledgeQuestionsHref(slug, PRICES_QUESTION))}
           />
         ))}
       {run.error && !refusal && <ProblemNotice error={run.error} />}

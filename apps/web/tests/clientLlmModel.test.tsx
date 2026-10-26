@@ -483,11 +483,7 @@ function agentRoutes(over: Record<string, unknown> = {}) {
       tools: [],
     },
     "/v1/integrations/credentials": [],
-    "/v1/knowledge-gaps?agent_id=agent-1&status=open&limit=20": {
-      items: [],
-      open_count: 0,
-      total: 0,
-    },
+    "/v1/teach/questions?agent_id=agent-1": { items: [], open_count: 0 },
     "/v1/agents/agent-1/handoff": {
       agent_id: "agent-1",
       enabled: false,

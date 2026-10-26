@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 GapStatus = Literal["open", "taught", "dismissed"]
 GapSignal = Literal["dont_know", "deferred_channel", "unanswered_question"]
@@ -62,25 +62,9 @@ class KnowledgeGapListOut(Strict):
     total: int
 
 
-class GapDismissIn(Strict):
-    """Dismiss a gap. An optional note the client leaves for their own audit trail."""
-
-    reason: str | None = Field(default=None, max_length=2000)
-
-
-class GapTeachIn(Strict):
-    """Teach the answer to a gap. `answer` is the fact the agent was missing; when
-    `create_kb_draft` is set the service seeds a KB draft from it (see `service.teach_gap`)."""
-
-    answer: str = Field(min_length=1, max_length=8000)
-    create_kb_draft: bool = True
-
-
 __all__ = [
-    "GapDismissIn",
     "GapSignal",
     "GapStatus",
-    "GapTeachIn",
     "KnowledgeGapListOut",
     "KnowledgeGapOut",
 ]

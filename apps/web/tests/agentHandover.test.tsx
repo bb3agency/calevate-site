@@ -153,11 +153,7 @@ function routes(over: Record<string, unknown> = {}) {
       tools: [],
     },
     "/v1/integrations/credentials": [],
-    "/v1/knowledge-gaps?agent_id=agent-1&status=open&limit=20": {
-      items: [],
-      open_count: 0,
-      total: 0,
-    },
+    "/v1/teach/questions?agent_id=agent-1": { items: [], open_count: 0 },
     "/v1/agents/lanes": LANES,
     // The header's "spent this month" line (owners hold billing:read).
     [AGENT_SPEND_PATH]: spendThisMonth(),

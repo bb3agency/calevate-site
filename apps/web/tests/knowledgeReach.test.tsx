@@ -105,7 +105,7 @@ async function renderKnowledge(over: Routes = {}) {
     "/v1/me": ME,
     "/v1/kb/sources": [],
     "/v1/kb/uploads": [],
-    "/v1/kb/struggles": [],
+    "/v1/teach/questions": { items: [], open_count: 0 },
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/kb/teach/open": { teaching: null },
@@ -143,30 +143,37 @@ describe("the one Add area (D-874)", () => {
     );
   });
 
-  it("goes back to writing when the owner answers a question the agents could not", async () => {
+  it("sends an empty knowledge list to the questions to answer, open on prices", async () => {
     await renderKnowledge({
-      "/v1/kb/struggles": [
-        {
-          id: "g1",
-          kind: "didnt_know",
-          gap_id: "g1",
-          agent_id: "agent-1",
-          agent_name: "Front desk",
-          topic: "Parking",
-          question: "Is there parking?",
-          answer: null,
-          times: 1,
-          calls: 1,
-          last_call_id: null,
-          last_seen_at: "2026-10-10T10:00:00Z",
-        },
-      ],
+      "/v1/teach/questions": {
+        items: [
+          {
+            key: "pricing",
+            question: "What do your products or services cost?",
+            topic: "Pricing",
+            why: "practice",
+            callers: 0,
+            times: 0,
+            agent_ids: [],
+            latest_call_id: null,
+            latest_at: null,
+            example: null,
+            draft: null,
+            draft_source_kind: null,
+            draft_source_label: null,
+            drafting: false,
+          },
+        ],
+        open_count: 1,
+      },
     });
-    fireEvent.click(await screen.findByRole("radio", { name: "Link" }));
-    fireEvent.click(await screen.findByRole("tab", { name: "Couldn’t answer · 1" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Add the answer" }));
-    expect(screen.getByRole("radio", { name: "Write it" }).getAttribute("aria-checked")).toBe("true");
-    expect(await screen.findByText(/Answering a caller who asked/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Answer the first questions" }));
+    expect(
+      (await screen.findByRole("tab", { name: "Questions to answer · 1" })).getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(
+      await screen.findByLabelText("Your answer to: What do your products or services cost?"),
+    ).toBeTruthy();
   });
 });
 

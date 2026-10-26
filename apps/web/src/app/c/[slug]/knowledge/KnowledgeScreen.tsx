@@ -1,18 +1,19 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { PageHeader } from "@/components/console/pageHeader";
+import { QuestionsToAnswer } from "@/components/improvement/QuestionsToAnswer";
 import { Tabs } from "@/components/interior/tabs";
 import { ProblemNotice, RestrictionNote, formatCount } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useKbSources } from "@/lib/api/kb";
-import { useStruggles } from "@/lib/api/teach";
+import { QUESTION_PARAM, useTeachQuestions } from "@/lib/api/teachQuestions";
 
 import { AddArea } from "./AddArea";
 import { WhatItKnows } from "./WhatItKnows";
-import { WhereItStruggled } from "./WhereItStruggled";
 import { StaffCurationSwitch } from "./permissions";
 
 /**
@@ -22,7 +23,8 @@ import { StaffCurationSwitch } from "./permissions";
  *
  * One Add area at the top (write it, send a file, save a link), then two views: everything
  * the agents were given, grouped by kind with each item's plain status, and the questions
- * they could not answer on real calls (founder decision 11).
+ * they need answered (D-893), the same list as an agent's Training tab, account-wide. A link
+ * with `?question=pricing` opens that view on that question.
  *
  * The screen renders no `<h1>`: the shell prints the page title from the nav list.
  *
@@ -33,7 +35,9 @@ import { StaffCurationSwitch } from "./permissions";
 export function KnowledgeScreen() {
   const session = useClientSession();
   const sources = useKbSources(session);
-  const struggles = useStruggles(session);
+  const questions = useTeachQuestions(session);
+  const params = useSearchParams();
+  const [focus, setFocus] = useState(params.get(QUESTION_PARAM));
 
   /**
    * TEACHING IS `kb:write` AND NOTHING ELSE. Reading what an agent knows is `agents:read`
@@ -49,16 +53,13 @@ export function KnowledgeScreen() {
    */
   const curationWrite = useWriteAccess(session, "org:manage", "change who may add things here");
 
-  const [tab, setTab] = useState("knows");
-  const [answering, setAnswering] = useState<{
-    gapId: string | null;
-    question: string;
-    key: number;
-  } | null>(null);
+  const [tab, setTab] = useState(
+    focus !== null || params.get("tab") === "questions" ? "questions" : "knows",
+  );
 
   // A count only from a read that answered: while it is out or after it failed, the tab
   // says nothing about how many there are, and its panel says why.
-  const unanswered = struggles.isSuccess && struggles.data.length > 0 ? struggles.data.length : null;
+  const open = questions.isSuccess && questions.data.open_count > 0 ? questions.data.open_count : null;
 
   return (
     <div className="max-w-4xl space-y-8 pb-12">
@@ -67,34 +68,32 @@ export function KnowledgeScreen() {
       <RestrictionNote reason={write.reason} />
       {sources.error && <ProblemNotice error={sources.error} onRetry={() => sources.refetch()} />}
 
-      <AddArea allowed={write.allowed} reason={write.reason} answering={answering} />
+      <AddArea allowed={write.allowed} reason={write.reason} />
 
       <Tabs
         label="What your agents know"
         items={[
           { value: "knows", label: "What they know" },
           {
-            value: "struggled",
-            label: unanswered ? `Couldn’t answer · ${formatCount(unanswered)}` : "Couldn’t answer",
+            value: "questions",
+            label: open ? `Questions to answer · ${formatCount(open)}` : "Questions to answer",
           },
         ]}
         value={tab}
         onValueChange={setTab}
         panelClassName="pt-6"
         renderPanel={(current) =>
-          current === "struggled" ? (
-            <WhereItStruggled
-              canWrite={write.allowed}
-              onAddAnswer={(struggle) =>
-                setAnswering({
-                  gapId: struggle.gap_id ?? null,
-                  question: struggle.question ?? struggle.topic,
-                  key: Date.now(),
-                })
-              }
-            />
+          current === "questions" ? (
+            <QuestionsToAnswer focus={focus} />
           ) : (
-            <WhatItKnows canWrite={write.allowed} sources={sources} />
+            <WhatItKnows
+              canWrite={write.allowed}
+              sources={sources}
+              onAnswerQuestions={(key) => {
+                setFocus(key);
+                setTab("questions");
+              }}
+            />
           )
         }
       />

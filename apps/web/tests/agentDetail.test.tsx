@@ -281,18 +281,12 @@ function routes(over: Record<string, unknown> = {}) {
       tools: [],
     },
     "/v1/integrations/credentials": [],
-    // The KnowledgeGaps card's read, for the SAME reason — and it is not optional. Left
-    // unstubbed, the harness throws, the card renders the generic "We could not reach
-    // Calevate" notice, and the screen then holds TWO elements with role="alert". Every
-    // `findByRole("alert")` in this file is then a race it loses whenever that second
-    // alert has painted first: it is not a slow test, it is an ambiguous one, and it fails
-    // in CI far more often than here. Empty because gaps are `knowledgeGaps.test.tsx`'s
-    // subject; this only has to stop the panel raising an alert of its own.
-    "/v1/knowledge-gaps?agent_id=agent-1&status=open&limit=20": {
-      items: [],
-      open_count: 0,
-      total: 0,
-    },
+    // The Questions to answer read (the Training badge and list), for the SAME reason — and
+    // it is not optional. Left unstubbed, the harness throws, the list renders the generic
+    // "We could not reach Calevate" notice, and the screen then holds TWO elements with
+    // role="alert", so every `findByRole("alert")` here becomes a race. Empty because the
+    // list is `teachQuestions.test.tsx`'s subject.
+    "/v1/teach/questions?agent_id=agent-1": { items: [], open_count: 0 },
     // The handover panel's read (D-533), for the SAME reason as the two entries above and
     // not because this file asserts anything about it — `agentHandover.test.tsx` is that
     // subject. Unstubbed, the panel raises its own `role="alert"` and every
@@ -2186,12 +2180,14 @@ describe("Training shows what the agent knows (D-689: the business's knowledge, 
     await renderClientPage(page, routes(TRAINING_READS));
 
     const heading = await screen.findByRole("heading", { level: 3, name: "What it knows" });
-    const panel = heading.closest("section") as HTMLElement;
+    const panel = heading.closest("details") as HTMLElement;
     await within(panel).findByText("Red chilli powder is ₹120 for 250 g.");
-    // A file or link is counted as saved, never as known: a PDF's or a link's words do
-    // not reach the agents yet (D-868), and this read cannot tell which files those are.
-    expect(panel.textContent).toContain("2 facts, shared by all your agents. 1 file or link saved.");
-    const facts = within(panel).getAllByRole("listitem").map((row) => row.textContent);
+    // Folded to one line (D-893 §6): files and links are counted, never claimed as known,
+    // because a PDF's or a link's words do not reach the agents yet (D-868).
+    expect(panel.textContent).toContain("2 facts, 1 file or link, shared by all your agents.");
+    const facts = within(within(panel).getAllByRole("list")[0]!)
+      .getAllByRole("listitem")
+      .map((row) => row.textContent);
     expect(facts).toEqual(["Red chilli powder is ₹120 for 250 g.", "We deliver in Kukatpally."]);
     const link = within(panel).getByRole("link", { name: /Open What your agents know/ });
     expect(link.getAttribute("href")).toBe("/c/acme/knowledge");
@@ -2540,17 +2536,20 @@ describe("progressive disclosure defaults", () => {
     expect(disclosed("What it says at the start of every call")).toBe(false);
   });
 
-  it("never hides what it captures or what it knows behind one", async () => {
+  it("never hides what it captures behind one, and folds what it knows to a line (D-893)", async () => {
     openSection("captured");
     const first = await renderClientPage(page, routes());
     await screen.findByText("Reception");
     expect(disclosed("What it writes down")).toBe(false);
     first.unmount();
 
+    // Founder, 26 Oct 2026 (PIP-AGENT-PLAN §6): on Training the questions come first and
+    // what it knows is one line that opens on click, saying how much it knows when closed.
     openSection("training");
     await renderClientPage(page, routes(TRAINING_READS));
     await screen.findByRole("heading", { level: 3, name: "What it knows" });
-    expect(disclosed("What it knows")).toBe(false);
+    expect(disclosed("What it knows")).toBe(true);
+    expect(await screen.findByText("2 facts, 1 file or link, shared by all your agents.")).toBeTruthy();
   });
 
   it("states the tier in force on the Model section before any option", async () => {
@@ -2660,46 +2659,51 @@ describe("the assistant sees every panel on a tab (D-826)", () => {
   });
 });
 
-describe("Training leads with real calls while they left questions open (D-826)", () => {
+describe("Training is the checklist first, the rest folded (D-893 §6)", () => {
   beforeEach(() => openSection("training"));
 
-  const OPEN_GAP = {
-    "/v1/knowledge-gaps?agent_id=agent-1&status=open&limit=20": {
+  const OPEN_QUESTION = {
+    "/v1/teach/questions?agent_id=agent-1": {
       items: [
         {
-          id: "gap-1",
-          agent_id: "agent-1",
-          agent_name: "Reception",
-          signal: "dont_know",
-          topic_label: "Do you open on Sundays?",
-          example_answer: "I am not sure.",
-          occurrence_count: 2,
-          call_count: 2,
-          status: "open",
-          first_seen_at: "2026-10-18T09:00:00Z",
-          last_seen_at: "2026-10-18T09:00:00Z",
-          last_call_id: "call-1",
+          key: "timings",
+          question: "When are you open?",
+          topic: "Opening hours",
+          why: "callers",
+          callers: 2,
+          times: 2,
+          agent_ids: ["agent-1"],
+          latest_call_id: "call-1",
+          latest_at: "2026-10-18T09:00:00Z",
+          example: "Do you open on Sundays?",
+          draft: null,
+          draft_source_kind: null,
+          draft_source_label: null,
+          drafting: false,
         },
       ],
       open_count: 1,
-      total: 1,
     },
   };
   const order = () =>
     screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent?.trim() ?? "");
 
-  it("puts Where it struggled first when there are open questions", async () => {
-    await renderClientPage(page, routes({ ...TRAINING_READS, ...OPEN_GAP }));
-    await screen.findByText("Do you open on Sundays?");
+  it("leads with the questions to answer, then Try it, then the folded summaries", async () => {
+    await renderClientPage(page, routes({ ...TRAINING_READS, ...OPEN_QUESTION }));
+    await screen.findByText("When are you open?");
     const headings = order();
-    expect(headings.indexOf("Where it struggled on real calls")).toBeLessThan(headings.indexOf("Teach your agents"));
+    expect(headings[0]).toBe("Questions to answer");
+    expect(headings.indexOf("Try it")).toBeLessThan(headings.indexOf("What it knows"));
+    expect(headings.indexOf("What it knows")).toBeLessThan(headings.indexOf("Saved tests"));
+    expect(headings.indexOf("Saved tests")).toBeLessThan(headings.indexOf("Practice callers"));
+    // The tab's badge counts the same list.
+    expect((await screen.findByRole("tab", { name: /Training/ })).textContent).toContain("1");
   });
 
-  it("keeps the founder's order when nothing is open", async () => {
-    await renderClientPage(page, routes(TRAINING_READS));
-    await screen.findByText("Nothing unanswered");
-    const headings = order();
-    expect(headings.indexOf("Teach your agents")).toBeLessThan(headings.indexOf("Where it struggled on real calls"));
+  it("opens on the question a link named", async () => {
+    nav.params = new URLSearchParams("section=training&question=timings");
+    await renderClientPage(page, routes({ ...TRAINING_READS, ...OPEN_QUESTION }));
+    expect(await screen.findByLabelText("Your answer to: When are you open?")).toBeTruthy();
   });
 });
 

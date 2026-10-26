@@ -1189,8 +1189,26 @@ describe("unanswered questions", () => {
     );
     const card = await needsYou();
     expect(card.textContent).toContain("2 questions your agents could not answer");
+    // One topic: the list opens on that question, never on a blank page (D-893).
     expect(within(card).getByRole("link", { name: "Teach the answers" }).getAttribute("href")).toBe(
-      "/c/acme/agents/agent-1?section=training",
+      "/c/acme/agents/agent-1?section=training&question=pricing",
+    );
+  });
+
+  it("opens the questions view of Knowledge when several agents asked several things", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/knowledge-gaps?status=open&limit=20": {
+          items: [GAP, { ...GAP, id: "gap-2", agent_id: "agent-2", topic_key: "delivery" }],
+          open_count: 2,
+          total: 2,
+        },
+      }),
+    );
+    const card = await needsYou();
+    expect(within(card).getByRole("link", { name: "Teach the answers" }).getAttribute("href")).toBe(
+      "/c/acme/knowledge?tab=questions",
     );
   });
 
@@ -1206,7 +1224,9 @@ describe("unanswered questions", () => {
       }),
     );
     const card = await needsYou();
-    expect(within(card).getByRole("link", { name: "Teach the answers" }).getAttribute("href")).toBe("/c/acme/knowledge");
+    expect(within(card).getByRole("link", { name: "Teach the answers" }).getAttribute("href")).toBe(
+      "/c/acme/knowledge?question=pricing",
+    );
   });
 
   it("says it could not check, with a retry, when the read fails", async () => {

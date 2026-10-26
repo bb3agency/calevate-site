@@ -701,12 +701,6 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ),
     ("GET", "/v1/compliance/deletion-requests/{request_id}", {}, {}),
     ("GET", "/v1/kb/sources/{source_id}/preview", {}, {}),
-    # The D-46x knowledge-gap surface: two `{gap_id}` mutations in the client space. Both
-    # resolve the gap through `_load_gap`, whose `WHERE g.id = :id` runs under the caller's
-    # RLS scope — so a neighbour's id is invisible and the answer is a row-not-found 404,
-    # not a handler comparison. Swept so that stays true.
-    ("POST", "/v1/knowledge-gaps/{gap_id}/dismiss", {}, {}),
-    ("POST", "/v1/knowledge-gaps/{gap_id}/teach", {"answer": "It is 500 rupees."}, {}),
     (
         "POST",
         "/v1/leads/{lead_id}/call",
@@ -1003,6 +997,14 @@ _NOT_AN_OBJECT_REFERENCE: dict[str, str] = {
     "POST /v1/integrations/oauth/{kind}/callback": (
         "`kind` is one of three provider names, a Literal; the row it writes is the "
         "caller's own, under their tenant's RLS."
+    ),
+    "POST /v1/teach/questions/{key}/answer": (
+        "`key` is a topic key such as `pricing`, the same word in every account; the gaps it "
+        "closes and the row it writes are read and written under the caller's tenant RLS, so "
+        "a neighbour's key is only the caller's own question, or none (409)."
+    ),
+    "POST /v1/teach/questions/{key}/dismiss": (
+        "`key` is a topic key, as for /answer; it names no row a neighbour owns."
     ),
 }
 

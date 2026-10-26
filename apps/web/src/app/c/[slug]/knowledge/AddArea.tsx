@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { SegmentedControl } from "@/components/interior/segmented-control";
 
@@ -25,22 +25,8 @@ const MODES: { value: Mode; label: string }[] = [
  * phone. Writing is first because it is the way that always works and the quickest way to
  * correct one fact.
  */
-export function AddArea({
-  allowed,
-  reason,
-  answering,
-}: {
-  allowed: boolean;
-  reason: string | null;
-  /** Set by "Add the answer" on a question the agents could not answer. */
-  answering: { gapId: string | null; question: string; key: number } | null;
-}) {
+export function AddArea({ allowed, reason }: { allowed: boolean; reason: string | null }) {
   const [mode, setMode] = useState<Mode>("write");
-
-  // Answering a caller's question is writing: bring the box back before it takes focus.
-  useEffect(() => {
-    if (answering) setMode("write");
-  }, [answering]);
 
   return (
     <section
@@ -66,7 +52,7 @@ export function AddArea({
           half-typed words or an upload that is still sending. */}
       <div className="mt-4">
         <div hidden={mode !== "write"}>
-          <TeachBox allowed={allowed} reason={reason} answering={answering} framed={false} />
+          <TeachBox allowed={allowed} reason={reason} framed={false} />
         </div>
         <div hidden={mode !== "file"}>
           <AddFile allowed={allowed} />

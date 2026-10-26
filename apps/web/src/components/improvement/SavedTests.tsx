@@ -1,18 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { Section } from "@/components/console/section";
+import { Section, TEXT_ACTION_SM } from "@/components/console/section";
+import { useFormValidation } from "@/components/formValidation";
 import {
+  FIELD,
+  FIELD_HINT,
+  FIELD_LABEL,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
 } from "@/components/ui";
 import { useClientSession } from "@/lib/api/session";
-import { useDeleteTestCase, useRunTestCases, useTestCases, type TestCase } from "@/lib/api/teach";
+import {
+  useCreateTestCase,
+  useDeleteTestCase,
+  useRunTestCases,
+  useTestCases,
+  type TestCase,
+} from "@/lib/api/teach";
 
 /**
  * An agent's saved tests (made from real calls with "Make this call a test") and what the
@@ -24,10 +34,13 @@ export function SavedTests({
   agentId,
   canWrite = true,
   headingLevel = 2,
+  framed = true,
 }: {
   agentId: string;
   canWrite?: boolean;
   headingLevel?: 2 | 3;
+  /** False inside a disclosure that already names it (the Training tab). */
+  framed?: boolean;
 }) {
   const session = useClientSession();
   const cases = useTestCases(session, agentId);
@@ -45,9 +58,11 @@ export function SavedTests({
 
   const data = cases.data;
   const running = data?.cases.some((c) => c.status !== "idle") ?? false;
+  const Frame = framed ? Section : Unframed;
+  const full = (data?.cases.length ?? 0) >= MAX_SAVED_TESTS;
 
   return (
-    <Section
+    <Frame
       headingLevel={headingLevel}
       title="Saved tests"
       info={
@@ -83,8 +98,7 @@ export function SavedTests({
         />
       ) : data.cases.length === 0 ? (
         <p className="text-meta text-ink-muted">
-          No saved tests yet. Open a call where the agent went wrong and choose Make this call
-          a test.
+          None yet. Make one from a call where the agent went wrong, or write one below.
         </p>
       ) : (
         <div className="space-y-3">
@@ -109,6 +123,7 @@ export function SavedTests({
           <p className="text-meta text-ink-faint">{data.cost_note}</p>
         </div>
       )}
+      {canWrite && data && !full ? <WriteATest agentId={agentId} /> : null}
       {deleting ? (
         <ConfirmDialog
           title={`Delete the test "${deleting.title}"?`}
@@ -122,7 +137,112 @@ export function SavedTests({
           It stops running with this agent&apos;s other tests. The call it was made from is kept.
         </ConfirmDialog>
       ) : null}
-    </Section>
+    </Frame>
+  );
+}
+
+/** `teach/test_cases.MAX_CASES_PER_AGENT`: the server refuses a test past it. */
+const MAX_SAVED_TESTS = 20;
+/** `teach/models.MAX_CASE_LINES`. */
+const MAX_CALLER_LINES = 6;
+
+/** The list's own frame when a disclosure around it already carries the title. */
+function Unframed({ action, children }: { action?: ReactNode; children?: ReactNode } & Record<string, unknown>) {
+  return (
+    <div className="space-y-3">
+      {action ? <div className="flex justify-end">{action}</div> : null}
+      {children}
+    </div>
+  );
+}
+
+/**
+ * A test written by hand: what the caller says (a line per thing they say) and what the
+ * agent should do. Closed until asked for, so the list stays the first thing read.
+ */
+function WriteATest({ agentId }: { agentId: string }) {
+  const session = useClientSession();
+  const create = useCreateTestCase(session, agentId);
+  const feedback = useActionFeedback(create, { errorDisplay: "inline", successToast: "Test saved" });
+  const [open, setOpen] = useState(false);
+  const [said, setSaid] = useState("");
+  const [expected, setExpected] = useState("");
+  const saidId = useId();
+  const expectedId = useId();
+  const valid = useFormValidation();
+  const saidField = valid.field("said", "Write what the caller says.");
+  const expectedField = valid.field("expected", "Write what the agent should do.");
+
+  if (!open) {
+    return (
+      <button type="button" className={`${TEXT_ACTION_SM} mt-3`} onClick={() => setOpen(true)}>
+        Write a test
+      </button>
+    );
+  }
+  const lines = said
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return (
+    <form
+      noValidate
+      className="mt-4 space-y-3"
+      onSubmit={valid.onSubmit(() =>
+        create.mutate(
+          { title: lines[0]?.slice(0, 120) ?? "", caller_lines: lines.slice(0, MAX_CALLER_LINES), expected: expected.trim() },
+          {
+            onSuccess: () => {
+              setSaid("");
+              setExpected("");
+              setOpen(false);
+            },
+          },
+        ),
+      )}
+    >
+      <div>
+        <label htmlFor={saidId} className={FIELD_LABEL}>
+          What the caller says
+        </label>
+        <textarea
+          {...saidField}
+          required
+          id={saidId}
+          rows={2}
+          maxLength={MAX_CALLER_LINES * 500}
+          value={said}
+          onChange={(event) => setSaid(event.target.value)}
+          className={FIELD}
+        />
+        <span className={FIELD_HINT}>One line for each thing they say.</span>
+        {valid.error("said")}
+      </div>
+      <div>
+        <label htmlFor={expectedId} className={FIELD_LABEL}>
+          What the agent should do
+        </label>
+        <input
+          {...expectedField}
+          required
+          id={expectedId}
+          maxLength={600}
+          value={expected}
+          onChange={(event) => setExpected(event.target.value)}
+          className={FIELD}
+        />
+        {valid.error("expected")}
+      </div>
+      {create.error ? <ProblemNotice error={create.error} /> : null}
+      <div className="flex flex-wrap gap-2">
+        <ActionButton type="submit" variant="primary-sm" status={feedback.status} successLabel="Saved">
+          Save test
+        </ActionButton>
+        <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
 

@@ -8,6 +8,8 @@ import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/component
 import { useTestConversations } from "@/lib/api/script";
 import { useClientSession } from "@/lib/api/session";
 import { useTryChat } from "@/lib/api/teach";
+
+import { TryPart } from "./TryPart";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 type Turn = { from: "you" | "agent"; text: string; lookedUp?: boolean };
@@ -25,12 +27,17 @@ export function TryChat({
   agentId,
   canWrite = true,
   headingLevel = 2,
+  bare = false,
 }: {
   agentId: string;
   canWrite?: boolean;
   headingLevel?: 2 | 3;
+  /** Drawn as one half of the Training tab's Try it card, under a small title. */
+  bare?: boolean;
 }) {
   const session = useClientSession();
+  const Frame = bare ? TryPart : Section;
+  const title = bare ? "Chat" : "Try it in a chat";
   const eg = useVerticalExamples();
   const send = useTryChat(session, agentId);
   // A refused line is said under the conversation, so it is not toasted.
@@ -73,30 +80,30 @@ export function TryChat({
 
   if (readiness.isPending) {
     return (
-      <Section headingLevel={headingLevel} title="Try it in a chat">
+      <Frame headingLevel={headingLevel} title={title}>
         <Skeleton rows={2} label="Checking whether this agent can chat yet" />
-      </Section>
+      </Frame>
     );
   }
   if (readiness.isError) {
     return (
-      <Section headingLevel={headingLevel} title="Try it in a chat">
+      <Frame headingLevel={headingLevel} title={title}>
         <ProblemNotice error={readiness.error} onRetry={() => void readiness.refetch()} />
-      </Section>
+      </Frame>
     );
   }
   if (!readiness.data.available) {
     return (
-      <Section headingLevel={headingLevel} title="Try it in a chat">
+      <Frame headingLevel={headingLevel} title={title}>
         <p className="text-body text-ink-muted">{readiness.data.unavailable_reason}</p>
-      </Section>
+      </Frame>
     );
   }
 
   return (
-    <Section
+    <Frame
       headingLevel={headingLevel}
-      title="Try it in a chat"
+      title={title}
       info={
         <p>
           Type what a caller would say. The agent answers from the script and knowledge it has been put live with. A
@@ -176,6 +183,6 @@ export function TryChat({
         </form>
         {note ? <p className="text-meta text-ink-faint">{note}</p> : null}
       </div>
-    </Section>
+    </Frame>
   );
 }

@@ -71,14 +71,15 @@ export function FirstRun({
   canRun,
   status = "idle",
   onRun,
-  knowledgeHref,
+  pricesHref,
 }: {
   data: TestConversations;
   canRun: boolean;
   /** The run request's state, for the button. */
   status?: FeedbackStatus;
   onRun: () => void;
-  knowledgeHref: string;
+  /** Opens the Questions to answer list on the prices question. */
+  pricesHref: string;
 }) {
   if (!data.available) return null;
   const noPrices = data.missing_facts?.includes("prices") ?? false;
@@ -99,7 +100,7 @@ export function FirstRun({
           tone="neutral"
           title="Add your prices first"
           action={
-            <Link href={knowledgeHref} className="text-meta font-medium text-ink underline underline-offset-2">
+            <Link href={pricesHref} className="text-meta font-medium text-ink underline underline-offset-2">
               Add prices
             </Link>
           }

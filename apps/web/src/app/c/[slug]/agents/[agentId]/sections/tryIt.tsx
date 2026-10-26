@@ -20,12 +20,13 @@
  */
 
 import Link from "next/link";
-import { useState } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { PhoneOutgoing } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { DefaultCheckbox } from "@/components/callHandlingRows";
 import { Section } from "@/components/console/section";
+import { TryPart } from "@/components/improvement/TryPart";
 import { FIELD_INLINE, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { canTestCall, isAnsweringNow } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
@@ -41,6 +42,7 @@ export function TryIt({
   onTrial,
   number,
   onNumber,
+  bare = false,
 }: {
   agent: Agent;
   slug: string;
@@ -48,14 +50,17 @@ export function TryIt({
   onTrial: boolean;
   number: string;
   onNumber: (next: string) => void;
+  bare?: boolean;
 }) {
+  let body;
   if (onTrial && canTestCall(agent)) {
-    return <TrialTestCall agent={agent} number={number} onNumber={onNumber} />;
+    body = <TrialTestCall agent={agent} number={number} onNumber={onNumber} />;
+  } else if (!onTrial && isAnsweringNow(agent) && agent.direction !== "outbound" && agent.inbound_number_count > 0) {
+    body = <RingYourNumber slug={slug} />;
+  } else {
+    body = <NoCallYet agent={agent} slug={slug} onTrial={onTrial} />;
   }
-  if (!onTrial && isAnsweringNow(agent) && agent.direction !== "outbound" && agent.inbound_number_count > 0) {
-    return <RingYourNumber slug={slug} />;
-  }
-  return <NoCallYet agent={agent} slug={slug} onTrial={onTrial} />;
+  return <BareContext.Provider value={bare}>{body}</BareContext.Provider>;
 }
 
 /** Why no practice call can be placed yet, and the one move that changes it. */
@@ -74,9 +79,7 @@ function NoCallYet({ agent, slug, onTrial }: { agent: Agent; slug: string; onTri
     move = { href: href(`/c/${slug}/phone-number`), label: "Get a number" };
   }
   return (
-    <Section
-      headingLevel={3}
-      title={PRACTICE_TITLE}
+    <PracticeFrame
       description={line}
       action={
         move ? (
@@ -89,14 +92,31 @@ function NoCallYet({ agent, slug, onTrial }: { agent: Agent; slug: string; onTri
   );
 }
 
-const PRACTICE_TITLE = "Practice call";
+/** Set by `bare`: the call half of the Training tab's Try it card, under a small title. */
+const BareContext = createContext(false);
+
+function PracticeFrame({
+  description,
+  action,
+  children,
+}: {
+  description?: ReactNode;
+  action?: ReactNode;
+  children?: ReactNode;
+}) {
+  const bare = useContext(BareContext);
+  const Frame = bare ? TryPart : Section;
+  return (
+    <Frame headingLevel={3} title={bare ? "Call" : "Practice call"} description={description} action={action}>
+      {children}
+    </Frame>
+  );
+}
 
 function RingYourNumber({ slug }: { slug: string }) {
   const { href } = useClientRealm();
   return (
-    <Section
-      headingLevel={3}
-      title={PRACTICE_TITLE}
+    <PracticeFrame
       description="Ring your number from any phone. This agent answers it the way your callers hear it."
       action={
         <Link href={href(`/c/${slug}/phone-number`)} className={SECONDARY_BUTTON}>
@@ -209,12 +229,10 @@ function TrialTestCall({
   }
 
   return (
-    <Section
-      headingLevel={3}
-      title={PRACTICE_TITLE}
+    <PracticeFrame
       description={`${agent.name} rings the number you type, from a shared trial number, and talks to you as it would to a caller.`}
     >
       {body}
-    </Section>
+    </PracticeFrame>
   );
 }

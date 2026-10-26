@@ -14,7 +14,7 @@ import { noContent, problem, renderClientPage, type Routes } from "./harness";
 /**
  * The teach box and the improvement loop (founder decisions 9 and 11). Each test names the
  * failure it guards: an owner's words saved without review, a rule saved with no agent, a
- * voice note sorted before its words are checked, a struggle that cannot be acted on, and
+ * voice note sorted before its words are checked, and
  * a test from a call that copies more than the caller's redacted lines.
  */
 
@@ -60,7 +60,7 @@ async function renderKnowledge(over: Routes = {}) {
     "/v1/kb/uploads": [],
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
-    "/v1/kb/struggles": [],
+    "/v1/teach/questions": { items: [], open_count: 0 },
     "/v1/kb/teach/open": { teaching: null },
     ...over,
   });
@@ -292,38 +292,6 @@ describe("what it knows", () => {
     const link = within(list).getByRole("link", { name: "Open Front desk’s script" });
     expect(link.getAttribute("href")).toContain("/agents/agent-1?section=script");
     expect(within(list).getAllByRole("link")).toHaveLength(1);
-  });
-});
-
-describe("where it struggled", () => {
-  it("links each struggle to its call and its script, and opens the teach box to answer it", async () => {
-    await renderKnowledge({
-      "/v1/kb/struggles": [
-        {
-          id: "g1",
-          kind: "didnt_know",
-          gap_id: "g1",
-          agent_id: "agent-1",
-          agent_name: "Front desk",
-          topic: "Chilli",
-          question: "Do you have chilli?",
-          answer: "I don't know.",
-          times: 3,
-          calls: 2,
-          last_call_id: "call-9",
-          last_seen_at: "2026-10-10T10:00:00Z",
-        },
-      ],
-    });
-    fireEvent.click(await screen.findByRole("tab", { name: "Couldn’t answer · 1" }));
-    expect((await screen.findByRole("link", { name: "Open the call" })).getAttribute("href")).toBe(
-      "/c/acme/calls/call-9",
-    );
-    expect(screen.getByRole("link", { name: "Fix in script" }).getAttribute("href")).toBe(
-      "/c/acme/agents/agent-1?section=script#stages",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Add the answer" }));
-    expect(await screen.findByText(/Answering a caller who asked/)).toBeTruthy();
   });
 });
 

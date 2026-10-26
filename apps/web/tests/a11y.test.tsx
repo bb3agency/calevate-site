@@ -829,11 +829,28 @@ const AGENT_STATS = [
   },
 ];
 
+/** One question to answer with a grounded draft (D-893), for the Training tab's list. */
+const TEACH_QUESTION = {
+  key: "root_canal",
+  question: "Do you do root canal treatment?",
+  topic: "Root canal treatment",
+  why: "callers",
+  callers: 3,
+  times: 5,
+  agent_ids: ["agent-1"],
+  latest_call_id: "0192f0aa-5555-7000-8000-0000000ca111",
+  latest_at: "2026-08-13T04:30:00Z",
+  example: "Do you do root canal treatment?",
+  draft: "Yes, Dr. Rao does root canals on weekdays.",
+  draft_source_kind: "profile",
+  draft_source_label: "Your business profile",
+  drafting: false,
+};
+
 /**
  * One OPEN knowledge gap — a question a live agent could not answer, found from a redacted
- * transcript. Populated so the per-agent `KnowledgeGaps` card renders its full markup (the
- * count badge, the quote, and the Teach/Dismiss controls) rather than its empty state,
- * which is where the labelling risk this sweep is for actually lives.
+ * transcript. Populated so the dashboard's "What needs you" row and its link render rather
+ * than its empty state.
  */
 const KNOWLEDGE_GAP = {
   id: "0192f0aa-5555-7000-8000-000000000001",
@@ -2814,12 +2831,12 @@ const CLIENT_SCREENS: Screen[] = [
           updated_at: "2026-08-12T09:30:00Z",
         },
       ],
-      // The `KnowledgeGaps` card scoped to this agent — one OPEN gap so the sweep covers
-      // the count badge, the quote and the Teach/Dismiss controls, not the empty state.
-      "/v1/knowledge-gaps?agent_id=agent-1&status=open&limit=20": {
-        items: [KNOWLEDGE_GAP],
-        open_count: 1,
-        total: 1,
+      // The Questions to answer list for this agent — one question with a draft and one
+      // practice question, so the sweep covers the badge, the rows and their controls, not
+      // the empty state.
+      "/v1/teach/questions?agent_id=agent-1": {
+        items: [TEACH_QUESTION, { ...TEACH_QUESTION, key: "pricing", why: "practice", callers: 0, draft: null, draft_source_kind: null, draft_source_label: null, latest_call_id: null }],
+        open_count: 2,
       },
     },
   },
@@ -3410,7 +3427,7 @@ const CLIENT_SCREENS: Screen[] = [
       // renders its ProblemNotice and the scan would cover an error panel.
       "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
       "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
-      "/v1/kb/struggles": [],
+      "/v1/teach/questions": { items: [], open_count: 0 },
       "/v1/kb/teach/open": { teaching: null },
       // Documents and web pages (D-534). One row per state family, so the sweep covers
       // the populated list rather than its empty state: a live PDF, and a photograph

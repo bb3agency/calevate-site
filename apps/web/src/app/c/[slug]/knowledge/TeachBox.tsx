@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
@@ -22,35 +22,22 @@ import { useAgents } from "@/lib/api/agents";
 import { useClientSession } from "@/lib/api/session";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { openAssistant } from "@/lib/copilot/launcher";
-import { lookup } from "@/lib/lookup";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
+import { useVoiceWords } from "@/components/improvement/useVoiceWords";
 import {
   isTeachingBusy,
   useDiscardTeaching,
-  useHearVoiceNote,
   useOpenTeaching,
   useSaveTeaching,
-  useTeaching,
   type TeachItem,
   type Teaching,
 } from "@/lib/api/teach";
 
 import { useKnowledgeCopilot } from "./copilot";
 
-
-const FAILURE: Record<string, string> = {
-  voice_unreadable: "We could not hear that recording. Try again somewhere quieter, or type it.",
-  nothing_heard: "We did not hear any words. Try recording again, or type it.",
-  upload_missing: "That recording went missing. Record it again.",
-  /* Set by the worker sweep `interrupted_work.py` when a run stopped part way. */
-  interrupted: "That stopped before we finished listening. Record it again, or type it.",
-};
-
 /** What Pip is asked, in the words the owner sees in its ask box. */
-export function teachRequest(words: string, question: string | null): string {
-  return question
-    ? `Teach my agents the answer to a caller who asked “${question}”: ${words}`
-    : `Teach my agents this: ${words}`;
+export function teachRequest(words: string): string {
+  return `Teach my agents this: ${words}`;
 }
 export const READ_FILE_REQUEST = "Read the photo or file I attach and teach my agents what it says.";
 
@@ -71,14 +58,11 @@ type ReviewItem = TeachItem & { key: number; keep: boolean };
 export function TeachBox({
   allowed,
   reason,
-  answering,
   headingLevel = 2,
   framed = true,
 }: {
   allowed: boolean;
   reason: string | null;
-  /** Set by "Add the answer" on a struggle: what the caller asked, and its question id. */
-  answering?: { gapId: string | null; question: string; key: number } | null;
   /** 3 inside an agent's Training tab, whose tab label is the h2. */
   headingLevel?: 2 | 3;
   /** False inside a container that already names the box (the knowledge page's Add area). */
@@ -86,18 +70,8 @@ export function TeachBox({
 }) {
   const session = useClientSession();
   const eg = useVerticalExamples();
-  const hear = useHearVoiceNote(session);
-  const discardHeard = useDiscardTeaching(session);
-  // Both refusals are drawn under the box; the pending face is the "Listening…" line.
-  useActionFeedback(hear, { errorDisplay: "inline" });
-  useActionFeedback(discardHeard, { errorDisplay: "inline" });
   const open = useOpenTeaching(session);
   const [words, setWords] = useState("");
-  const [linkedGap, setLinkedGap] = useState<string | null>(null);
-  const [asked, setAsked] = useState<string | null>(null);
-  const [heardId, setHeardId] = useState<string | null>(null);
-  const [voiceFailure, setVoiceFailure] = useState<string | null>(null);
-  const heard = useTeaching(session, heardId);
   // What the last save did, said beside the box it came back to (REDESIGN-2: saves are
   // confirmed where the person is looking, never by a toast).
   const [saved, setSaved] = useState<{ note: string; at: number } | null>(null);
@@ -106,39 +80,17 @@ export function TeachBox({
   const valid = useFormValidation();
   const teachField = valid.field("teach", "Write what your agents should know.");
 
-  useKnowledgeCopilot({
-    body: words,
-    setBody: setWords,
-    answering: asked ? { gapId: linkedGap, question: asked } : null,
-  });
+  useKnowledgeCopilot({ body: words, setBody: setWords });
 
-  useEffect(() => {
-    if (!answering) return;
-    setWords("");
-    setAsked(answering.question);
-    setLinkedGap(answering.gapId);
-    boxRef.current?.scrollIntoView?.({ block: "center" });
-    boxRef.current?.focus();
-  }, [answering]);
-
-  // A voice note's words go into the box for the owner to check; the heard teaching has
-  // done its job and is discarded.
-  const note = heard.data;
-  const discardNote = discardHeard.mutate;
-  useEffect(() => {
-    if (!note || note.id !== heardId) return;
-    if (note.status === "heard") {
-      setWords((current) => [current.trim(), note.words ?? ""].filter(Boolean).join("\n"));
-      setHeardId(null);
-      discardNote(note.id);
+  // A voice note's words go into the box for the owner to check.
+  const voice = useVoiceWords(
+    session,
+    useCallback((heard: string) => {
+      setWords((current) => [current.trim(), heard].filter(Boolean).join("\n"));
       boxRef.current?.focus();
-    } else if (note.status === "failed") {
-      setVoiceFailure(note.error_code ?? "voice_unreadable");
-      setHeardId(null);
-    }
-  }, [note, heardId, discardNote]);
-
-  const listening = hear.isPending || (heardId !== null && note?.status !== "heard" && note?.status !== "failed");
+    }, []),
+  );
+  const listening = voice.listening;
   const current = open.data ?? null;
 
   const body = (
@@ -149,8 +101,6 @@ export function TeachBox({
           onSaved={(saveNote) => {
             setSaved({ note: saveNote, at: Date.now() });
             setWords("");
-            setAsked(null);
-            setLinkedGap(null);
           }}
         />
       ) : current && isTeachingBusy(current.status) ? (
@@ -159,7 +109,7 @@ export function TeachBox({
         <form
           className="space-y-3"
           noValidate
-          onSubmit={valid.onSubmit(() => openAssistant({ prompt: teachRequest(words.trim(), asked) }))}
+          onSubmit={valid.onSubmit(() => openAssistant({ prompt: teachRequest(words.trim()) }))}
         >
           <label htmlFor={inputId} className="sr-only">
             What should your agents know?
@@ -181,11 +131,10 @@ export function TeachBox({
             className={`${FIELD} mt-0`}
           />
           {valid.error("teach")}
-          {hear.error ? <ProblemNotice error={hear.error} /> : null}
-          {discardHeard.error ? <ProblemNotice error={discardHeard.error} /> : null}
-          {voiceFailure ? (
+          {voice.error ? <ProblemNotice error={voice.error} /> : null}
+          {voice.failure ? (
             <p role="alert" className="text-sm text-ink">
-              {lookup(FAILURE, voiceFailure) ?? "We could not hear that recording. Type it instead."}
+              {voice.failure}
             </p>
           ) : null}
           <div className="flex flex-wrap items-center gap-2">
@@ -196,8 +145,7 @@ export function TeachBox({
               disabled={!allowed || listening}
               onRecorded={(blob) => {
                 setSaved(null);
-                setVoiceFailure(null);
-                hear.mutate({ file: blob }, { onSuccess: (started) => setHeardId(started.id) });
+                voice.record(blob);
               }}
               onTypeInstead={() => boxRef.current?.focus()}
             />
@@ -218,21 +166,6 @@ export function TeachBox({
               </p>
               <AskAssistant label={`Let ${ASSISTANT_NAME} read a photo or file`} prompt={READ_FILE_REQUEST} disabled={!allowed} />
             </div>
-          ) : null}
-          {asked ? (
-            <p className="text-meta text-ink-muted">
-              Answering a caller who asked &ldquo;{asked}&rdquo;.{" "}
-              <button
-                type="button"
-                className="underline"
-                onClick={() => {
-                  setAsked(null);
-                  setLinkedGap(null);
-                }}
-              >
-                Not that
-              </button>
-            </p>
           ) : null}
         </form>
       )}

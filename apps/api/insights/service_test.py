@@ -18,12 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import create_org_with_receptionist
 
 from apps.api.core.context import Principal
-from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.insights import detection, service
 from apps.api.insights.detection import RedactedTurn
-from apps.api.insights.schemas import GapTeachIn
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
@@ -173,117 +171,6 @@ async def test_urgency_ordering_open_first_then_most_frequent() -> None:
     assert result.open_count == 2
 
 
-async def test_dismiss_moves_a_gap_off_the_open_list() -> None:
-    tenant_id, agent_id = await _tenant()
-    call_id = await _call(tenant_id, agent_id, datetime.now(UTC))
-    await service.record_call_gaps(
-        tenant_id=tenant_id, agent_id=agent_id, call_id=call_id, turns=_pricing_turns()
-    )
-    principal = _client_principal(tenant_id)
-    async with tenant_session(tenant_id) as session:
-        gap = (await service.list_gaps(session)).items[0]
-        dismissed = await service.dismiss_gap(
-            session, gap.id, principal=principal, reason="Not something we sell"
-        )
-        assert dismissed.status == "dismissed"
-        assert (await service.list_gaps(session, status="open")).open_count == 0
-        # Still visible in the full history, occurrences intact.
-        assert (await service.list_gaps(session, status=None)).total == 1
-
-
-async def test_teach_records_the_answer_and_seeds_a_kb_draft() -> None:
-    tenant_id, agent_id = await _tenant()
-    call_id = await _call(tenant_id, agent_id, datetime.now(UTC))
-    await service.record_call_gaps(
-        tenant_id=tenant_id, agent_id=agent_id, call_id=call_id, turns=_pricing_turns()
-    )
-    principal = _client_principal(tenant_id)
-    async with tenant_session(tenant_id) as session:
-        gap = (await service.list_gaps(session)).items[0]
-        taught = await service.teach_gap(
-            session,
-            gap.id,
-            principal=principal,
-            payload=GapTeachIn(answer="Consultation is 500 rupees.", create_kb_draft=True),
-        )
-        assert taught.status == "taught"
-        assert taught.resolution == "Consultation is 500 rupees."
-        # Taught by the account's own people, the entry is approved on submission (D-658).
-        drafts = (
-            await session.execute(
-                text(
-                    "SELECT status, name FROM kb_sources WHERE tenant_id = "
-                    "(SELECT tenant_id FROM agents WHERE id = :a) "
-                    "AND status = 'approved'"
-                ),
-                {"a": agent_id},
-            )
-        ).all()
-        assert any("Pricing" in row.name for row in drafts)
-        assert (await service.list_gaps(session, status="open")).open_count == 0
-
-
-async def test_teach_from_a_view_as_session_waits_for_an_admin() -> None:
-    tenant_id, agent_id = await _tenant()
-    call_id = await _call(tenant_id, agent_id, datetime.now(UTC))
-    await service.record_call_gaps(
-        tenant_id=tenant_id, agent_id=agent_id, call_id=call_id, turns=_pricing_turns()
-    )
-    operator = Principal(
-        realm="admin", user_id=None, tenant_id=tenant_id, role="operator", impersonating=True
-    )
-    async with tenant_session(tenant_id) as session:
-        gap = (await service.list_gaps(session)).items[0]
-        await service.teach_gap(
-            session,
-            gap.id,
-            principal=operator,
-            payload=GapTeachIn(answer="Consultation is 500 rupees.", create_kb_draft=True),
-        )
-        statuses = (
-            (
-                await session.execute(
-                    text(
-                        "SELECT status FROM kb_sources WHERE tenant_id = "
-                        "(SELECT tenant_id FROM agents WHERE id = :a)"
-                    ),
-                    {"a": agent_id},
-                )
-            )
-            .scalars()
-            .all()
-        )
-    assert statuses == ["pending_approval"]
-
-
-async def test_teach_without_a_draft_still_records_the_answer() -> None:
-    tenant_id, agent_id = await _tenant()
-    call_id = await _call(tenant_id, agent_id, datetime.now(UTC))
-    await service.record_call_gaps(
-        tenant_id=tenant_id, agent_id=agent_id, call_id=call_id, turns=_pricing_turns()
-    )
-    principal = _client_principal(tenant_id)
-    async with tenant_session(tenant_id) as session:
-        gap = (await service.list_gaps(session)).items[0]
-        taught = await service.teach_gap(
-            session,
-            gap.id,
-            principal=principal,
-            payload=GapTeachIn(answer="500 rupees.", create_kb_draft=False),
-        )
-        assert taught.status == "taught"
-        drafts = (
-            await session.execute(
-                text(
-                    "SELECT count(*) FROM kb_sources WHERE tenant_id = "
-                    "(SELECT tenant_id FROM agents WHERE id = :a)"
-                ),
-                {"a": agent_id},
-            )
-        ).scalar()
-    assert drafts == 0
-
-
 async def test_list_gaps_filtered_by_one_agent_excludes_the_others() -> None:
     """The `agent_id` filter on both the page query and the count query — a tenant with
     two agents asking for one agent's gaps must see only that agent's, and the badge
@@ -315,18 +202,6 @@ async def test_list_gaps_filtered_by_one_agent_excludes_the_others() -> None:
     assert only_a.total == 1
     assert only_a.open_count == 1
     assert all(g.agent_id == agent_a for g in only_a.items)
-
-
-async def test_dismissing_a_gap_that_names_nothing_is_a_404() -> None:
-    """`_load_gap`'s not-found arm: a gap id that is no tenant's (or another tenant's,
-    which RLS makes indistinguishable) 404s before any write happens."""
-    tenant_id, _agent_id = await _tenant()
-    principal = _client_principal(tenant_id)
-    async with tenant_session(tenant_id) as session:
-        with pytest.raises(ProblemError) as caught:
-            await service.dismiss_gap(session, uuid7(), principal=principal, reason=None)
-    assert caught.value.status == 404
-    assert caught.value.code == "not_found"
 
 
 #: Enough topics that a hash order is almost never sorted by chance, plus phrase-derived
