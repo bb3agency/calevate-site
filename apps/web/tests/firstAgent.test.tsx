@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import FirstAgentPage from "@/app/c/[slug]/agents/first/page";
 import { metaOf, rowStateOf } from "@/app/c/[slug]/agents/first/BuildStep";
+import { JobStep } from "@/app/c/[slug]/agents/first/JobStep";
 import { callPhaseOf, isLimitRule } from "@/app/c/[slug]/agents/first/HearItStep";
 import { hoursSummary } from "@/app/c/[slug]/agents/first/QuestionsStep";
 import { recordingMimeType } from "@/components/voiceButton";
@@ -375,6 +376,20 @@ describe("meet your agent", () => {
       languages_extra: ["en-IN"],
     });
     expect(await screen.findByRole("heading", { name: "Tell it about your business" })).toBeTruthy();
+  });
+
+  it("shows a built agent's languages without offering to change them", async () => {
+    // The agent took its languages and voice when it was built; changing them here only
+    // rewrote the run, so the server refuses it (`first_run_language_locked`).
+    await renderClientPage(
+      <JobStep run={built()} defaultLanguage="te-IN" onDone={() => undefined} />,
+      routes(),
+    );
+    const telugu = (await screen.findByRole("radio", { name: /Telugu/ })) as HTMLInputElement;
+    expect(telugu.checked && telugu.disabled).toBe(true);
+    expect(screen.queryByRole("radio", { name: /Hindi/ })).toBeNull();
+    expect((screen.getByRole("checkbox", { name: /English/ }) as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText(/Change its languages on its own page/)).toBeTruthy();
   });
 
   it("starts the brief from the trade's example and says the audio is not kept", async () => {

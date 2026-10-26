@@ -843,6 +843,39 @@ async def test_the_job_is_locked_once_the_agent_is_built(monkeypatch: pytest.Mon
     assert "Anjali" not in script.identity
 
 
+async def test_the_languages_are_locked_once_the_agent_is_built(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The agent takes its languages and voice when it is made; a later change on this step
+    only rewrote the run, so the card named a language the agent does not speak."""
+    tenant_id = await _tenant()
+    headers = await _owner(tenant_id)
+    await _ready_to_build(tenant_id, "Flats")
+    run = await _run(tenant_id)
+    monkeypatch.setattr(worker, "pick_voice", _no_voice)
+    await worker.build_first_agent(
+        {}, {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
+    )
+    other = "hi-IN" if run.language_primary != "hi-IN" else "en-IN"
+    async with _client() as http:
+        moved = await http.put(
+            "/v1/first-run/job",
+            headers=headers,
+            json={"jobs": list(run.jobs), "language_primary": other},
+        )
+        same = await http.put(
+            "/v1/first-run/job",
+            headers=headers,
+            json={
+                "jobs": list(run.jobs),
+                "language_primary": run.language_primary,
+                "languages_extra": list(run.languages_extra or []),
+            },
+        )
+    assert moved.status_code == 409 and moved.json()["type"].endswith("/first_run_language_locked")
+    assert same.status_code == 200, same.text
+
+
 async def test_building_without_a_job_is_refused() -> None:
     tenant_id = await _tenant()
     headers = await _owner(tenant_id)

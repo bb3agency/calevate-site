@@ -99,15 +99,23 @@ export function JobStep({
         <legend className="text-heading text-ink">Which language does it speak first?</legend>
         <p className="text-meta text-ink-muted">Every call starts in it.</p>
         <div className="mt-2 grid grid-cols-3 gap-2">
-          {LANGUAGES.map((language) => (
+          {/* Once built, the agent has its languages and voice; the server refuses a change
+              here (`first_run_language_locked`), so the choice is shown, not offered. */}
+          {LANGUAGES.filter((language) => !locked || language.tag === primary).map((language) => (
             <LanguageTile
               key={language.tag}
               tag={language.tag}
               checked={primary === language.tag}
+              disabled={locked}
               onChange={() => choosePrimary(language.tag)}
             />
           ))}
         </div>
+        {locked ? (
+          <p className="mt-2 text-meta text-ink-muted">
+            Your agent speaks this. Change its languages on its own page.
+          </p>
+        ) : null}
       </fieldset>
 
       <fieldset className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -116,7 +124,9 @@ export function JobStep({
           It also speaks
         </span>
         <div className="flex flex-wrap gap-2">
-          {LANGUAGES.filter((language) => language.tag !== primary).map((language) => (
+          {LANGUAGES.filter(
+            (language) => language.tag !== primary && (!locked || extra.includes(language.tag)),
+          ).map((language) => (
             <ChipChoice
               key={language.tag}
               type="checkbox"
@@ -124,6 +134,7 @@ export function JobStep({
               value={language.tag}
               size="sm"
               checked={extra.includes(language.tag)}
+              disabled={locked}
               onChange={(on) =>
                 setExtra((current) => (on ? [...current, language.tag] : current.filter((tag) => tag !== language.tag)))
               }
@@ -216,14 +227,32 @@ function JobChoice({
 }
 
 /** A language as a tile: its own script's syllable, then its name. */
-function LanguageTile({ tag, checked, onChange }: { tag: string; checked: boolean; onChange: () => void }) {
+function LanguageTile({
+  tag,
+  checked,
+  disabled = false,
+  onChange,
+}: {
+  tag: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: () => void;
+}) {
   return (
     <label
-      className={`press flex min-h-12 min-w-0 cursor-pointer flex-col items-center gap-1 rounded-card border px-2 py-2 max-sm:text-center sm:flex-row sm:gap-2.5 sm:px-2.5 transition-[border-color,box-shadow] duration-(--duration-fast) has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 ${
+      className={`press flex min-h-12 min-w-0 cursor-pointer has-[:disabled]:cursor-default flex-col items-center gap-1 rounded-card border px-2 py-2 max-sm:text-center sm:flex-row sm:gap-2.5 sm:px-2.5 transition-[border-color,box-shadow] duration-(--duration-fast) has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 ${
         checked ? CHOICE_ON : CHOICE_OFF
       }`}
     >
-      <input type="radio" name="language" value={tag} checked={checked} onChange={onChange} className="sr-only" />
+      <input
+        type="radio"
+        name="language"
+        value={tag}
+        checked={checked}
+        disabled={disabled}
+        onChange={onChange}
+        className="sr-only"
+      />
       <span
         aria-hidden
         lang={tag}

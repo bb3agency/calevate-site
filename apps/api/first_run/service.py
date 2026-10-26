@@ -255,6 +255,18 @@ async def save_job(
     if row.agent_id is not None and held and held != set(jobs):
         raise _job_locked()
     extra = published_extra_languages(language_primary, languages_extra)
+    if (
+        row.agent_id is not None
+        and row.language_primary is not None
+        and (language_primary != row.language_primary or extra != list(row.languages_extra or []))
+    ):
+        # The agent took its languages and voice when it was made; a rebuild keeps them and
+        # would only write its greeting in the new one, so the run must not claim it moved.
+        raise ProblemError.conflict(
+            "first_run_language_locked",
+            "Your agent already speaks the languages you chose when it was built.",
+            remediation="Change its languages on its own page, under Settings.",
+        )
     await session.execute(
         text(
             "UPDATE first_runs SET jobs = :jobs, language_primary = :lang, "
