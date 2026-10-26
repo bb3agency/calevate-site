@@ -19,6 +19,7 @@ import type { SurfaceHolder } from "@/lib/copilot/registry";
 import { unsavedWork } from "@/lib/copilot/unsaved";
 import { openingLine, suggestedQuestions } from "@/lib/copilot/suggestions";
 import { pipLocked } from "@/lib/copilot/conversation";
+import { pressedInAnotherLayer } from "@/lib/focusTrap";
 import { useCopilotConversation, type CopilotTurn } from "@/lib/copilot/useCopilotConversation";
 
 import { AnswerText } from "./answerText";
@@ -167,7 +168,9 @@ export function CopilotPanel({
   useEffect(() => {
     if (onClose === undefined) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      // A confirmation opened from the panel ("Open this screen?", the charge dialog) takes
+      // its own Escape; "Stay here" must not also close the panel it means to stay in.
+      if (event.key === "Escape" && !pressedInAnotherLayer(event, panel.current)) onClose();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);

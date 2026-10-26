@@ -93,6 +93,20 @@ export function tabbablesWithin(root: HTMLElement | null): HTMLElement[] {
 const armedTraps: object[] = [];
 
 /**
+ * Was this key pressed inside a DIFFERENT layer from `own` — a menu, popover or dialog
+ * opened from it, which lives in its own portal and handles its own Escape? A panel that
+ * closes on a document-level Escape asks this first; closing it too would take two layers
+ * down for one keypress. `false` when focus is on nothing or inside `own`.
+ */
+export function pressedInAnotherLayer(event: KeyboardEvent, own: HTMLElement | null): boolean {
+  const target = event.target instanceof Element ? event.target : null;
+  const layer = target?.closest(
+    '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"],[data-radix-popper-content-wrapper]',
+  );
+  return Boolean(layer && own && !layer.contains(own) && !own.contains(layer));
+}
+
+/**
  * Where focus lands when the trap arms.
  *
  * `container` requires the panel to carry `tabIndex={-1}`; both callers do, because the
@@ -130,17 +144,7 @@ export function useFocusTrap(
     armedTraps.push(token);
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
-        // Only an Escape pressed in THIS panel (or with focus on nothing) closes it. A
-        // menu, popover or nested dialog opened from it lives in its own portal outside the
-        // panel and handles its own Escape; closing this one too would take two layers
-        // down for one keypress.
-        const target = event.target instanceof Element ? event.target : null;
-        const layer = target?.closest(
-          '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"],[data-radix-popper-content-wrapper]',
-        );
-        const own = panel.current;
-        const another = layer && own && !layer.contains(own) && !own.contains(layer);
-        if (!another) escape.current();
+        if (!pressedInAnotherLayer(event, panel.current)) escape.current();
         return;
       }
       if (event.key !== "Tab") return;

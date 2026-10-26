@@ -283,6 +283,20 @@ describe('"take me to billing page"', () => {
     expect(screen.queryByText(TO_CREDITS.detail)).toBeNull();
   });
 
+  it("ESCAPE ON THE QUESTION answers it, and leaves the assistant open", async () => {
+    await askToBeTaken(HAS_A_FORM);
+    const stay = screen.getByRole("button", { name: "Stay here" });
+    stay.focus();
+    await act(async () => {
+      fireEvent.keyDown(stay, { key: "Escape" });
+    });
+    expect(screen.queryByRole("dialog", { name: "Open Credits & billing?" })).toBeNull();
+    expect(nav.pushed).toEqual([]);
+    // The panel the person chose to stay in is still open. (Read off the launcher: a
+    // closing panel stays in the DOM for its exit animation.)
+    expect(screen.getByRole("button", { name: "Ask Pip" }).getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("moves them when they answer the question with yes", async () => {
     await askToBeTaken(HAS_A_FORM);
     await act(async () => {
