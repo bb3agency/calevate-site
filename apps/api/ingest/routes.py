@@ -1487,4 +1487,55 @@ async def enable_lead_source(
         )
 
 
+class UpdateLeadSourceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Which agent answers leads from this source; null leaves new leads waiting with
+    #: `ingest_no_agent` until one is chosen.
+    agent_id: UUID | None
+
+
+class LeadSourceAgentOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    agent_id: UUID | None
+
+
+@sources_router.patch(
+    "/{webhook_id}",
+    response_model=LeadSourceAgentOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Choose which agent answers leads from this source",
+    description=(
+        "Points the source at another agent, or at none. The secret and the address are "
+        "unchanged. Refused with a 404 for an agent of another account and "
+        "`agent_archived` for a deleted one."
+    ),
+)
+async def update_lead_source(
+    webhook_id: UUID,
+    payload: UpdateLeadSourceIn,
+    session: SessionDep,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> LeadSourceAgentOut:
+    assert principal.tenant_id is not None
+    previous = await service.set_source_agent(
+        session, webhook_id=webhook_id, agent_id=payload.agent_id
+    )
+    if previous != payload.agent_id:
+        await write_audit(
+            session,
+            action="lead_source.agent_changed",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="inbound_webhook",
+            object_id=str(webhook_id),
+            ip=client_request_ip(request),
+            summary={"agent_id": str(payload.agent_id or ""), "was": str(previous or "")},
+        )
+    return LeadSourceAgentOut(id=webhook_id, agent_id=payload.agent_id)
+
+
 __all__ = ["META_SOURCE", "SECRET_HEADER", "router", "sources_router"]

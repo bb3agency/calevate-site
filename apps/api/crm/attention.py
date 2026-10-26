@@ -32,9 +32,10 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.service import LOW_BALANCE_INR
+from apps.api.billing.service import low_balance_line
 from apps.api.core.logging import get_logger
 from apps.api.crm.schemas import AttentionKind
+from apps.api.db.session import session_tenant
 from apps.api.integrations.service import DELIVERY_TIMEOUT_S
 
 log = get_logger(__name__)
@@ -686,7 +687,8 @@ async def failed_calls(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> 
 
 
 async def low_credit(session: AsyncSession) -> AttentionSource:
-    """The wallet below the warning line (`billing.service.LOW_BALANCE_INR`) — a LIVE state,
+    """The wallet below the client's warning line (`billing.service.low_balance_line`) — a
+    LIVE state,
     read off the newest ledger entry under RLS, like the wallet screen. An account with no
     ledger entry yet has never been funded and is told about that elsewhere, not here. At
     zero or below the agents stop answering, which `inbound_stopped` says in full."""
@@ -698,7 +700,8 @@ async def low_credit(session: AsyncSession) -> AttentionSource:
             )
         )
     ).first()
-    if row is None or Decimal(str(row[0])) >= LOW_BALANCE_INR:
+    line = await low_balance_line(session, tenant_id=await session_tenant(session))
+    if row is None or Decimal(str(row[0])) >= line:
         return AttentionSource(kind="credit_low", items=[], total=0)
     empty = Decimal(str(row[0])) <= 0
     item = AttentionItem(
@@ -708,7 +711,7 @@ async def low_credit(session: AsyncSession) -> AttentionSource:
         detail=(
             "Top up so your agents keep answering and calling."
             if empty
-            else f"Below ₹{LOW_BALANCE_INR:.0f}. Top up before your calls stop."
+            else f"Below ₹{line:.0f}. Top up before your calls stop."
         ),
         rule="no_credits" if empty else "low_balance",
         occurred_at=row[1],

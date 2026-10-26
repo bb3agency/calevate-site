@@ -150,7 +150,55 @@ def crossed_zero(before: Decimal, after: Decimal) -> str | None:
     return None
 
 
-def crossed_downwards(before: Decimal, after: Decimal) -> str | None:
+async def chosen_low_balance_line(session: AsyncSession, *, tenant_id: UUID) -> Decimal | None:
+    """The client's own warning line (`organizations.low_balance_alert_inr`), or None when
+    they follow Calevate's. Read with the session's RLS like `plan_tier_of`: a session
+    scoped to another tenant sees no row, never a neighbour's choice."""
+    chosen = (
+        await session.execute(
+            text("SELECT low_balance_alert_inr FROM organizations WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+    ).scalar()
+    return None if chosen is None else Decimal(str(chosen))
+
+
+async def low_balance_line(session: AsyncSession, *, tenant_id: UUID) -> Decimal:
+    """The balance below which THIS client is warned: their choice or Calevate's
+    `LOW_BALANCE_INR`. 0 means the client switched the low warning off."""
+    chosen = await chosen_low_balance_line(session, tenant_id=tenant_id)
+    return LOW_BALANCE_INR if chosen is None else chosen
+
+
+async def set_low_balance_line(
+    session: AsyncSession, *, tenant_id: UUID, threshold_inr: Decimal | None
+) -> Decimal | None:
+    """Save the client's warning line (None returns to Calevate's). Returns what was set
+    before, for the audit row and Pip's Undo. `PUT /v1/billing/wallet/low-balance-alert`
+    and Pip's `low_balance_alert_set` both call this; the range is the column's CHECK and
+    `LowBalanceAlertIn`'s."""
+    row = (
+        await session.execute(
+            text("SELECT low_balance_alert_inr FROM organizations WHERE id = :tid FOR UPDATE"),
+            {"tid": tenant_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Organization")
+    value = None if threshold_inr is None else threshold_inr.quantize(PAISE, rounding=ROUNDING)
+    await session.execute(
+        text(
+            "UPDATE organizations SET low_balance_alert_inr = :v, updated_at = now() "
+            "WHERE id = :tid"
+        ),
+        {"v": value, "tid": tenant_id},
+    )
+    return None if row[0] is None else Decimal(str(row[0]))
+
+
+def crossed_downwards(
+    before: Decimal, after: Decimal, line: Decimal = LOW_BALANCE_INR
+) -> str | None:
     """Which warning line, if any, this movement took the wallet ACROSS, going down.
 
     A CROSSING and not a state, and that is the whole design of the low-balance alert:
@@ -166,7 +214,7 @@ def crossed_downwards(before: Decimal, after: Decimal) -> str | None:
     """
     if before > 0 >= after:
         return WALLET_LEVEL_EMPTY
-    if before >= LOW_BALANCE_INR > after >= 0:
+    if before >= line > after >= 0:
         return WALLET_LEVEL_LOW
     return None
 
@@ -340,7 +388,8 @@ async def _newest_balance(session: AsyncSession, tenant_id: UUID) -> Decimal:
 async def get_balance(session: AsyncSession, *, tenant_id: UUID) -> Balance:
     """The newest entry's `balance_after`."""
     balance = await _newest_balance(session, tenant_id)
-    return Balance(amount_inr=balance, is_low=balance < LOW_BALANCE_INR)
+    line = await low_balance_line(session, tenant_id=tenant_id)
+    return Balance(amount_inr=balance, is_low=balance < line)
 
 
 async def record_entry(
@@ -455,7 +504,8 @@ async def record_entry(
         from apps.api.campaigns.number_holds import queue_hold_settlement
 
         await queue_hold_settlement(session, tenant_id=tenant_id)
-    level = crossed_downwards(current, new_balance)
+    line = await low_balance_line(session, tenant_id=tenant_id)
+    level = crossed_downwards(current, new_balance, line)
     if level is not None:
         await enqueue_outbox(
             session,
@@ -473,7 +523,7 @@ async def record_entry(
         "credit_entry",
         extra={"tenant_id": str(tenant_id), "reason": reason, "balance_after": str(new_balance)},
     )
-    return Balance(amount_inr=new_balance, is_low=new_balance < LOW_BALANCE_INR)
+    return Balance(amount_inr=new_balance, is_low=new_balance < line)
 
 
 class LedgerEntryRef(NamedTuple):
@@ -3953,6 +4003,7 @@ __all__ = [
     "apply_credit_to_lots",
     "calling_revenue_inr",
     "charge_for_call",
+    "chosen_low_balance_line",
     "credit_totals",
     "crossed_downwards",
     "crossed_zero",
@@ -3965,6 +4016,7 @@ __all__ = [
     "lock_tenant_credits",
     "lot_of_entry",
     "lot_reprice_ref",
+    "low_balance_line",
     "margin_for_tenant",
     "margin_pct",
     "month_charges_inr",
@@ -3985,6 +4037,7 @@ __all__ = [
     "reprice_lot",
     "restatement_ref",
     "reversed_amounts",
+    "set_low_balance_line",
     "split_overage",
     "tier_usage",
     "to_paise",

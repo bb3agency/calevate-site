@@ -234,7 +234,6 @@ from apps.api.billing.service import (
     ADJUSTMENT_META_KIND,
     GRANT_META_KIND,
     LARGE_GRANT_INR,
-    LOW_BALANCE_INR,
     MAX_GRANT_INR,
     MIN_GRANT_INR,
     PAYMENT_REF_SQL,
@@ -249,6 +248,7 @@ from apps.api.billing.service import (
     grant_ref,
     lock_tenant_credits,
     lot_reprice_ref,
+    low_balance_line,
     purchase_lot_of_entry,
     rate_card_at,
     read_correctable_entry,
@@ -2331,6 +2331,7 @@ async def read_credits(
         # longer one balance with one price behind it, and an operator crediting it is
         # opening a priced object rather than adding to a pot.
         open_lots = await _open_lots(scoped, tenant_id=tenant_id, limit=limit)
+        alert_line = await low_balance_line(scoped, tenant_id=tenant_id)
         # D-482 L-1: a direct-admin read of one client's wallet joins the audit trail.
         await record_admin_tenant_read(
             scoped, request=request, principal=principal, tenant_id=tenant_id
@@ -2340,7 +2341,7 @@ async def read_credits(
         tenant_id=tenant_id,
         balance_inr=_paise(balance.amount_inr),
         is_low=balance.is_low,
-        low_balance_threshold_inr=_paise(LOW_BALANCE_INR),
+        low_balance_threshold_inr=_paise(alert_line),
         paid_inr=_paise(totals.paid_inr),
         granted_inr=_paise(totals.granted_inr),
         lots=open_lots,

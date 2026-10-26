@@ -1315,6 +1315,33 @@ async def rotate_secret(
     return Rotation(secret=minted, previous_secret_expires_at=row[0])
 
 
+async def set_source_agent(
+    session: AsyncSession, *, webhook_id: UUID, agent_id: UUID | None
+) -> UUID | None:
+    """Point a lead source at another agent (or none): `PATCH /v1/lead-sources/{id}` and
+    Pip's `lead_source_edit`. Returns the agent it had, for the audit row and Pip's Undo.
+
+    The agent is checked as at creation (`create_lead_source`): visible to this tenant and
+    not deleted, because the FK knows nothing about tenancy and a deleted agent can never
+    place the call. The row is locked so two edits serialise."""
+    await assert_visible(session, "agent", agent_id)
+    if agent_id is not None:
+        await assert_agent_writable(session, agent_id, verb="given a lead source")
+    row = (
+        await session.execute(
+            text("SELECT agent_id FROM inbound_webhooks WHERE id = :id FOR UPDATE"),
+            {"id": webhook_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Lead source")
+    await session.execute(
+        text("UPDATE inbound_webhooks SET agent_id = :aid, updated_at = now() WHERE id = :id"),
+        {"id": webhook_id, "aid": agent_id},
+    )
+    return None if row[0] is None else UUID(str(row[0]))
+
+
 async def set_active(session: AsyncSession, *, webhook_id: UUID, active: bool) -> bool:
     """CAS on the flag (BACKEND-PATTERNS §5); True when this call is what changed it.
 
@@ -1369,6 +1396,7 @@ __all__ = [
     "readable_mapping",
     "rotate_secret",
     "set_active",
+    "set_source_agent",
     "validate_mapping",
     "verify_ingest_secret",
 ]

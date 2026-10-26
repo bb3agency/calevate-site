@@ -5848,6 +5848,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/billing/wallet/low-balance-alert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Choose the balance at which you are warned that credit is running low
+         * @description Sets the rupee balance below which the low-credit warning is sent and shown. `null` returns to Calevate's line; `"0"` stops the low warning (the warning that credit has run out is always sent). Nothing is charged.
+         */
+        put: operations["set_low_balance_alert_v1_billing_wallet_low_balance_alert_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/billing/wallet/receipts/{payment_ref}": {
         parameters: {
             query?: never;
@@ -5934,6 +5954,23 @@ export interface paths {
         put?: never;
         /** Move the setup wizard: start it, skip a step, dismiss or reopen the checklist */
         post: operations["post_setup_v1_business_profile_setup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/call-lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How many calls your account can have at once, and how many are on now */
+        get: operations["get_my_call_lines_v1_call_lines_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8496,7 +8533,11 @@ export interface paths {
         delete: operations["deactivate_endpoint_v1_integrations_endpoints__endpoint_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Change which events an endpoint receives and what each carries
+         * @description Replace an active endpoint's events and its recording-link and transcript opt-ins. The address is not changeable: add a new destination to send somewhere else. Refused with `endpoint_inactive` for a switched-off endpoint, `sheets_endpoint_events_only` when a Google Sheets destination is asked to carry a recording or transcript, and with the create route's opt-in refusals.
+         */
+        patch: operations["update_endpoint_v1_integrations_endpoints__endpoint_id__patch"];
         trace?: never;
     };
     "/v1/integrations/endpoints/{endpoint_id}/rotate-secret": {
@@ -9248,7 +9289,11 @@ export interface paths {
         delete: operations["disable_lead_source_v1_lead_sources__webhook_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Choose which agent answers leads from this source
+         * @description Points the source at another agent, or at none. The secret and the address are unchanged. Refused with a 404 for an agent of another account and `agent_archived` for a deleted one.
+         */
+        patch: operations["update_lead_source_v1_lead_sources__webhook_id__patch"];
         trace?: never;
     };
     "/v1/lead-sources/{webhook_id}/enable": {
@@ -15787,6 +15832,20 @@ export interface components {
             name: string;
         };
         /**
+         * ClientCallLinesOut
+         * @description What the client sees of its own lines: the number in force and how many are busy
+         *     now. Choosing it stays the operator's (a commercial decision), so the client is told
+         *     whom to ask rather than offered a control.
+         */
+        ClientCallLinesOut: {
+            /** Call Lines */
+            call_lines: number;
+            /** In Progress */
+            in_progress: number;
+            /** On Trial */
+            on_trial: boolean;
+        };
+        /**
          * ClientHealthOut
          * @description One line of the board. Accounts and their state — never a person, never a number
          *     anyone could be dialled on.
@@ -22155,6 +22214,16 @@ export interface components {
             /** Status */
             status?: string | null;
         };
+        /** LeadSourceAgentOut */
+        LeadSourceAgentOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+        };
         /**
          * LeadSourceCreatedOut
          * @description The one moment a minted secret is ever returned.
@@ -22829,6 +22898,22 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /**
+         * LowBalanceAlertIn
+         * @description `null` returns to Calevate's line; `"0"` switches the low warning off. Money is a
+         *     decimal string, never a JSON float (hard rule 7).
+         */
+        LowBalanceAlertIn: {
+            /** Threshold Inr */
+            threshold_inr: number | string | null;
+        };
+        /** LowBalanceAlertOut */
+        LowBalanceAlertOut: {
+            /** Chosen */
+            chosen: boolean;
+            /** Threshold Inr */
+            threshold_inr: string;
         };
         /**
          * MaintenanceAmendIn
@@ -30508,6 +30593,35 @@ export interface components {
             retry_policy?: components["schemas"]["RetryPolicyIn"] | null;
         };
         /**
+         * UpdateEndpointIn
+         * @description The whole set of choices an endpoint can change after it exists. The destination is
+         *     not one of them: pointing lead data somewhere new is a new endpoint, behind its code.
+         */
+        UpdateEndpointIn: {
+            /** Events */
+            events: ("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed")[];
+            /**
+             * Include Raw Transcript
+             * @default false
+             */
+            include_raw_transcript: boolean;
+            /**
+             * Include Recording Url
+             * @default false
+             */
+            include_recording_url: boolean;
+            /**
+             * Include Transcript
+             * @default false
+             */
+            include_transcript: boolean;
+        };
+        /** UpdateLeadSourceIn */
+        UpdateLeadSourceIn: {
+            /** Agent Id */
+            agent_id: string | null;
+        };
+        /**
          * UploadOut
          * @description One uploaded document or link, as a client's screen shows it.
          *
@@ -31131,6 +31245,8 @@ export interface components {
             granted_inr: string;
             /** Is Low */
             is_low: boolean;
+            /** Low Balance Alert Chosen */
+            low_balance_alert_chosen: boolean;
             /** Low Balance Threshold Inr */
             low_balance_threshold_inr: string;
             /** Minutes Left */
@@ -42052,6 +42168,39 @@ export interface operations {
             };
         };
     };
+    set_low_balance_alert_v1_billing_wallet_low_balance_alert_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LowBalanceAlertIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LowBalanceAlertOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_payment_receipt_v1_billing_wallet_receipts__payment_ref__get: {
         parameters: {
             query?: never;
@@ -42223,6 +42372,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BusinessProfileOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_my_call_lines_v1_call_lines_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientCallLinesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -46747,6 +46925,41 @@ export interface operations {
             };
         };
     };
+    update_endpoint_v1_integrations_endpoints__endpoint_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                endpoint_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateEndpointIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EndpointOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     rotate_endpoint_secret_v1_integrations_endpoints__endpoint_id__rotate_secret_post: {
         parameters: {
             query?: never;
@@ -48230,6 +48443,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    update_lead_source_v1_lead_sources__webhook_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateLeadSourceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSourceAgentOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

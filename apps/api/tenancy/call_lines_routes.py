@@ -26,6 +26,7 @@ from apps.api.tenancy.call_lines import (
     PAID_CALL_LINES_DEFAULT,
     TRIAL_CALL_LINES_DEFAULT,
     CallLines,
+    calls_in_progress,
     read_call_lines,
     set_call_lines,
 )
@@ -135,4 +136,40 @@ async def admin_set_call_lines(
     return _out(state)
 
 
-__all__ = ["CallLinesIn", "CallLinesOut", "call_lines_confirmation", "router"]
+ClientReader = Annotated[Principal, Depends(requires("org:read"))]
+
+
+class ClientCallLinesOut(BaseModel):
+    """What the client sees of its own lines: the number in force and how many are busy
+    now. Choosing it stays the operator's (a commercial decision), so the client is told
+    whom to ask rather than offered a control."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    call_lines: int
+    in_progress: int
+    on_trial: bool
+
+
+@router.get(
+    "/v1/call-lines",
+    response_model=ClientCallLinesOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="How many calls your account can have at once, and how many are on now",
+    tags=["numbers"],
+)
+async def get_my_call_lines(principal: ClientReader) -> ClientCallLinesOut:
+    assert principal.tenant_id is not None
+    async with tenant_session(principal.tenant_id) as scoped:
+        state = await read_call_lines(scoped, tenant_id=principal.tenant_id)
+        busy = await calls_in_progress(scoped, tenant_id=principal.tenant_id)
+    return ClientCallLinesOut(call_lines=state.lines, in_progress=busy, on_trial=state.on_trial)
+
+
+__all__ = [
+    "CallLinesIn",
+    "CallLinesOut",
+    "ClientCallLinesOut",
+    "call_lines_confirmation",
+    "router",
+]

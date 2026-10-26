@@ -643,6 +643,9 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/integrations/endpoints/sheets": BoundedByConstruction(
         by="`events` of the ONE endpoint just created, a subset of `EVENT_TYPES`."
     ),
+    "PATCH /v1/integrations/endpoints/{endpoint_id}": BoundedByConstruction(
+        by="`events` of the ONE endpoint just edited, a subset of `EVENT_TYPES`."
+    ),
     "GET /v1/admin/tenants/{tenant_id}/profile": BoundedByConstruction(
         by=(
             "`verticals` is `get_args(admin/routes.Vertical)` — the same closed `Literal` "

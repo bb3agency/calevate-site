@@ -646,6 +646,233 @@ def recording_ready_skip_reason(*, endpoint: dict[str, Any], data: dict[str, Any
     return None
 
 
+def assert_raw_transcript_opt_in(
+    *, include_transcript: bool, include_raw_transcript: bool, role: str | None
+) -> None:
+    """Refuse a raw-transcript opt-in the caller may not make (hard rule 5).
+
+    Raw widens a transcript already asked for, so a lone raw switch is refused; and sending
+    the unredacted transcript to a third party is the same class of act as reading it, so
+    it needs `calls:read_raw` whatever role reaches the endpoint routes."""
+    from apps.api.core.rbac import role_has
+
+    if not include_raw_transcript:
+        return
+    if not include_transcript:
+        raise ProblemError(
+            kind="validation",
+            code="raw_transcript_requires_transcript",
+            title="Raw transcript needs the transcript opt-in too",
+            detail=(
+                "The unredacted transcript widens the redacted one, so “the transcript, "
+                "redacted” has to be switched on before “the transcript, unredacted” "
+                "can be."
+            ),
+            remediation="Turn on the redacted transcript as well, or turn off the raw one.",
+            fields=[
+                {
+                    "field": "include_raw_transcript",
+                    "rule": "requires",
+                    "message": "include_transcript must be true",
+                }
+            ],
+        )
+    if role is None or not role_has(role, "calls:read_raw"):
+        raise ProblemError.forbidden(
+            "Sending the unredacted transcript to an endpoint needs the same "
+            "permission as reading a raw transcript."
+        )
+
+
+def assert_recording_ready_opt_in(*, events: Sequence[str], include_recording_url: bool) -> None:
+    """Refuse `call.recording_ready` without the recording opt-in: the fan-out sends that
+    event only to endpoints that opted into the link (`enqueue_events`), so the
+    subscription alone would register an endpoint that is never sent anything."""
+    if RECORDING_READY_EVENT not in events or include_recording_url:
+        return
+    raise ProblemError(
+        kind="validation",
+        code="recording_ready_requires_recording_url",
+        title="Recording ready needs the recording link",
+        detail=(
+            "“Recording ready” sends the link to the call recording, so “a link to the "
+            "recording” has to be switched on for this endpoint too."
+        ),
+        remediation="Turn on the recording link as well, or untick “Recording ready”.",
+        fields=[
+            {
+                "field": "include_recording_url",
+                "rule": "requires",
+                "message": "include_recording_url must be true for call.recording_ready",
+            }
+        ],
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class CreatedEndpoint:
+    id: UUID
+    #: The signing secret, returned this once and never again.
+    secret: str
+    host: str
+    port: int
+
+
+async def create_webhook_endpoint(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    url: str,
+    events: Sequence[str],
+    include_recording_url: bool,
+    include_transcript: bool,
+    include_raw_transcript: bool,
+    role: str | None,
+) -> CreatedEndpoint:
+    """Register a webhook endpoint: `POST /v1/integrations/endpoints` and Pip's
+    `crm_endpoint_create`. The destination is vetted before the row exists and again on
+    every delivery (`deliver`), because the tenant controls that name's DNS."""
+    assert_raw_transcript_opt_in(
+        include_transcript=include_transcript,
+        include_raw_transcript=include_raw_transcript,
+        role=role,
+    )
+    assert_recording_ready_opt_in(events=events, include_recording_url=include_recording_url)
+    destination = await assert_public_http_url(url)
+    endpoint_id = uuid7()
+    secret = secrets.token_urlsafe(32)
+    await session.execute(
+        text(
+            "INSERT INTO outbound_webhooks (id, tenant_id, kind, url, secret_ref, events, "
+            "include_recording_url, include_transcript, include_raw_transcript, "
+            "active, created_at, updated_at) VALUES (:id, :tid, 'webhook', :url, :secret, "
+            ":events, :inc_recording, :inc_transcript, :inc_raw_transcript, "
+            "true, now(), now())"
+        ),
+        {
+            "id": endpoint_id,
+            "tid": tenant_id,
+            "url": url,
+            "secret": secret,
+            "events": list(events),
+            "inc_recording": include_recording_url,
+            "inc_transcript": include_transcript,
+            "inc_raw_transcript": include_raw_transcript,
+        },
+    )
+    return CreatedEndpoint(
+        id=endpoint_id, secret=secret, host=destination.host, port=destination.port
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class EndpointChoices:
+    """What can be changed on an endpoint after it exists. The destination is not among
+    them: pointing lead data somewhere new is a new endpoint, behind its emailed code."""
+
+    kind: str
+    events: tuple[str, ...]
+    include_recording_url: bool
+    include_transcript: bool
+    include_raw_transcript: bool
+
+
+async def read_endpoint_choices(session: AsyncSession, endpoint_id: UUID) -> EndpointChoices:
+    row = (
+        await session.execute(
+            text(
+                "SELECT kind, events, include_recording_url, include_transcript, "
+                "include_raw_transcript, active FROM outbound_webhooks WHERE id = :id"
+            ),
+            {"id": endpoint_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Endpoint")
+    if not row[5]:
+        raise ProblemError.business_rule(
+            "endpoint_inactive",
+            "This endpoint is switched off, so there is nothing to change.",
+            remediation="Add the destination again to start sending to it.",
+        )
+    return EndpointChoices(
+        kind=str(row[0]),
+        events=tuple(row[1] or ()),
+        include_recording_url=bool(row[2]),
+        include_transcript=bool(row[3]),
+        include_raw_transcript=bool(row[4]),
+    )
+
+
+async def update_endpoint(
+    session: AsyncSession,
+    *,
+    endpoint_id: UUID,
+    events: Sequence[str],
+    include_recording_url: bool,
+    include_transcript: bool,
+    include_raw_transcript: bool,
+    role: str | None,
+) -> EndpointChoices:
+    """Change which events an ACTIVE endpoint receives and what each carries:
+    `PATCH /v1/integrations/endpoints/{id}` and Pip's `crm_endpoint_edit`. Returns what
+    the row held before, for the audit row and Pip's Undo.
+
+    The same body checks as the create (`assert_raw_transcript_opt_in`,
+    `assert_recording_ready_opt_in`). A Google Sheets destination takes events only: it
+    writes rows, never a recording link or a transcript. The row is locked first so two
+    edits serialise rather than each computing from the same "before"."""
+    if not events:
+        raise ProblemError(
+            kind="validation",
+            code="endpoint_needs_an_event",
+            title="Choose at least one event",
+            detail="An endpoint with no events would never be sent anything.",
+            remediation="Tick at least one event, or switch the endpoint off instead.",
+        )
+    unknown = sorted(set(events) - set(EVENT_TYPES))
+    if unknown:
+        raise ProblemError(
+            kind="validation",
+            code="unknown_event",
+            title="Unknown event",
+            detail="One of the events is not offered: " + ", ".join(unknown),
+            remediation="Choose from the events the Integrations screen lists.",
+        )
+    await session.execute(
+        text("SELECT 1 FROM outbound_webhooks WHERE id = :id FOR UPDATE"), {"id": endpoint_id}
+    )
+    before = await read_endpoint_choices(session, endpoint_id)
+    extras = include_recording_url or include_transcript or include_raw_transcript
+    if before.kind != WEBHOOK_KIND and extras:
+        raise ProblemError.business_rule(
+            "sheets_endpoint_events_only",
+            "A Google Sheets destination writes rows; it cannot carry recordings or transcripts.",
+            remediation="Change only the events for this destination.",
+        )
+    assert_raw_transcript_opt_in(
+        include_transcript=include_transcript,
+        include_raw_transcript=include_raw_transcript,
+        role=role,
+    )
+    assert_recording_ready_opt_in(events=events, include_recording_url=include_recording_url)
+    await session.execute(
+        text(
+            "UPDATE outbound_webhooks SET events = :events, "
+            "include_recording_url = :rec, include_transcript = :tr, "
+            "include_raw_transcript = :raw, updated_at = now() WHERE id = :id"
+        ),
+        {
+            "id": endpoint_id,
+            "events": list(events),
+            "rec": include_recording_url,
+            "tr": include_transcript,
+            "raw": include_raw_transcript,
+        },
+    )
+    return before
+
+
 async def deactivate_endpoint(session: AsyncSession, *, endpoint_id: UUID) -> bool:
     """CAS on the flag (BACKEND-PATTERNS §5); True when THIS call is what changed it.
 

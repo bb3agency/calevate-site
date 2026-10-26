@@ -10990,6 +10990,31 @@
         "title": "CityOut",
         "type": "object"
       },
+      "ClientCallLinesOut": {
+        "additionalProperties": false,
+        "description": "What the client sees of its own lines: the number in force and how many are busy\nnow. Choosing it stays the operator's (a commercial decision), so the client is told\nwhom to ask rather than offered a control.",
+        "properties": {
+          "call_lines": {
+            "title": "Call Lines",
+            "type": "integer"
+          },
+          "in_progress": {
+            "title": "In Progress",
+            "type": "integer"
+          },
+          "on_trial": {
+            "title": "On Trial",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "call_lines",
+          "in_progress",
+          "on_trial"
+        ],
+        "title": "ClientCallLinesOut",
+        "type": "object"
+      },
       "ClientHealthOut": {
         "additionalProperties": false,
         "description": "One line of the board. Accounts and their state \u2014 never a person, never a number\nanyone could be dialled on.",
@@ -27393,6 +27418,34 @@
         "title": "LeadSearchIn",
         "type": "object"
       },
+      "LeadSourceAgentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id"
+        ],
+        "title": "LeadSourceAgentOut",
+        "type": "object"
+      },
       "LeadSourceCreatedOut": {
         "additionalProperties": false,
         "description": "The one moment a minted secret is ever returned.",
@@ -29167,6 +29220,54 @@
           "recorded"
         ],
         "title": "LotRepriceOut",
+        "type": "object"
+      },
+      "LowBalanceAlertIn": {
+        "additionalProperties": false,
+        "description": "`null` returns to Calevate's line; `\"0\"` switches the low warning off. Money is a\ndecimal string, never a JSON float (hard rule 7).",
+        "properties": {
+          "threshold_inr": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,13}0*$)\\d{0,10}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold Inr"
+          }
+        },
+        "required": [
+          "threshold_inr"
+        ],
+        "title": "LowBalanceAlertIn",
+        "type": "object"
+      },
+      "LowBalanceAlertOut": {
+        "additionalProperties": false,
+        "properties": {
+          "chosen": {
+            "title": "Chosen",
+            "type": "boolean"
+          },
+          "threshold_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Threshold Inr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "threshold_inr",
+          "chosen"
+        ],
+        "title": "LowBalanceAlertOut",
         "type": "object"
       },
       "MaintenanceAmendIn": {
@@ -49293,6 +49394,70 @@
         "title": "UpdateCampaignIn",
         "type": "object"
       },
+      "UpdateEndpointIn": {
+        "additionalProperties": false,
+        "description": "The whole set of choices an endpoint can change after it exists. The destination is\nnot one of them: pointing lead data somewhere new is a new endpoint, behind its code.",
+        "properties": {
+          "events": {
+            "items": {
+              "enum": [
+                "lead.created",
+                "lead.updated",
+                "call.completed",
+                "call.updated",
+                "call.recording_ready",
+                "campaign.completed"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Events",
+            "type": "array"
+          },
+          "include_raw_transcript": {
+            "default": false,
+            "title": "Include Raw Transcript",
+            "type": "boolean"
+          },
+          "include_recording_url": {
+            "default": false,
+            "title": "Include Recording Url",
+            "type": "boolean"
+          },
+          "include_transcript": {
+            "default": false,
+            "title": "Include Transcript",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "title": "UpdateEndpointIn",
+        "type": "object"
+      },
+      "UpdateLeadSourceIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          }
+        },
+        "required": [
+          "agent_id"
+        ],
+        "title": "UpdateLeadSourceIn",
+        "type": "object"
+      },
       "UploadOut": {
         "additionalProperties": false,
         "description": "One uploaded document or link, as a client's screen shows it.\n\nTHE TWO STATES ARE SEPARATE FIELDS BECAUSE THEY ARE SEPARATE FACTS, and collapsing\nthem into one \"status\" is the mistake this model exists to avoid. `ingest_status` is\nhow far the machinery got (are the bytes read, has the voice platform indexed them);\n`review_state` is whether it is approved \u2014 on submission for the account's own people\n(D-658), by an admin for anything else. A document can be `processed` and still\n`pending_approval` \u2014 read, ready, and deliberately not live.",
@@ -50866,6 +51031,10 @@
             "title": "Is Low",
             "type": "boolean"
           },
+          "low_balance_alert_chosen": {
+            "title": "Low Balance Alert Chosen",
+            "type": "boolean"
+          },
           "low_balance_threshold_inr": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Low Balance Threshold Inr",
@@ -50923,6 +51092,7 @@
           "balance_inr",
           "is_low",
           "low_balance_threshold_inr",
+          "low_balance_alert_chosen",
           "outbound_stopped",
           "runway",
           "minutes_left",
@@ -68278,6 +68448,45 @@
         "x-calevate-permission": "wallet:read"
       }
     },
+    "/v1/billing/wallet/low-balance-alert": {
+      "put": {
+        "description": "Sets the rupee balance below which the low-credit warning is sent and shown. `null` returns to Calevate's line; `\"0\"` stops the low warning (the warning that credit has run out is always sent). Nothing is charged.",
+        "operationId": "set_low_balance_alert_v1_billing_wallet_low_balance_alert_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LowBalanceAlertIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LowBalanceAlertOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Choose the balance at which you are warned that credit is running low",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/billing/wallet/receipts/{payment_ref}": {
       "get": {
         "description": "An acknowledgement that money was received against this reference. Calevate is a sole proprietorship below the GST registration threshold, so it is not registered for GST, charges no GST and does not issue tax invoices. `document_type` says what this document is and the console renders its heading from that field.",
@@ -68479,6 +68688,35 @@
           "business-profile"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/call-lines": {
+      "get": {
+        "operationId": "get_my_call_lines_v1_call_lines_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientCallLinesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How many calls your account can have at once, and how many are on now",
+        "tags": [
+          "admin",
+          "numbers"
+        ],
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/call-outcomes": {
@@ -74755,6 +74993,55 @@
           "integrations"
         ],
         "x-calevate-permission": "org:manage"
+      },
+      "patch": {
+        "description": "Replace an active endpoint's events and its recording-link and transcript opt-ins. The address is not changeable: add a new destination to send somewhere else. Refused with `endpoint_inactive` for a switched-off endpoint, `sheets_endpoint_events_only` when a Google Sheets destination is asked to carry a recording or transcript, and with the create route's opt-in refusals.",
+        "operationId": "update_endpoint_v1_integrations_endpoints__endpoint_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "endpoint_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Endpoint Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEndpointIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndpointOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Change which events an endpoint receives and what each carries",
+        "tags": [
+          "integrations"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/integrations/endpoints/{endpoint_id}/rotate-secret": {
@@ -76718,6 +77005,55 @@
           }
         },
         "summary": "Disable \u2014 kept, not deleted, so the delivery history stays readable",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      },
+      "patch": {
+        "description": "Points the source at another agent, or at none. The secret and the address are unchanged. Refused with a 404 for an agent of another account and `agent_archived` for a deleted one.",
+        "operationId": "update_lead_source_v1_lead_sources__webhook_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLeadSourceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSourceAgentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Choose which agent answers leads from this source",
         "tags": [
           "lead-ingest"
         ],

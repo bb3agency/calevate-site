@@ -42,6 +42,9 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 CALL_LINES_MIN = 1
 CALL_LINES_MAX = 50
 
+#: The highest low-balance warning line a client may set, in rupees. Migration f1a6c3e9d204.
+LOW_BALANCE_ALERT_MAX_INR = Decimal("100000.00")
+
 ORG_STATUSES = ("prospect", "onboarding", "active", "suspended", "churned")
 # D-34 runs both motions on one product; D-39 puts the column in M1 because tenancy is
 # not retrofittable. `self_serve` unlocks the M2 UI.
@@ -154,6 +157,11 @@ class Organization(PKMixin, TimestampMixin, Base):
             f"AND call_lines <= {CALL_LINES_MAX})",
             name="call_lines_range",
         ),
+        CheckConstraint(
+            "low_balance_alert_inr IS NULL OR (low_balance_alert_inr >= 0 "
+            f"AND low_balance_alert_inr <= {LOW_BALANCE_ALERT_MAX_INR})",
+            name="low_balance_alert_range",
+        ),
     )
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -215,6 +223,10 @@ class Organization(PKMixin, TimestampMixin, Base):
     #: How many calls this client may have at once (F7, `tenancy/call_lines`): NULL is
     #: Calevate's default, 2 for a paying client and 1 on a free trial.
     call_lines: Mapped[int | None] = mapped_column(Integer)
+    #: Where the client wants to be warned that credit is running low, in rupees; NULL is
+    #: Calevate's line (`billing.service.LOW_BALANCE_INR`). 0 turns the warning off; the
+    #: empty-wallet warning is sent whatever this holds.
+    low_balance_alert_inr: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     # MAY THIS ACCOUNT'S `staff` MEMBERS CURATE KNOWLEDGE — the owner-controlled half of
     # the founder's decision ("give the staff perms allowing option to owner"). FALSE for
     # every account until that account's own owner turns it on, which is why the migration

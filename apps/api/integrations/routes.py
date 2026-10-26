@@ -29,7 +29,6 @@ it changes nothing about who decides: the route still refuses on its own.
 from __future__ import annotations
 
 import json
-import secrets
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -45,11 +44,10 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
-from apps.api.core.rbac import permission_meta, role_has
+from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import ClientActionCode, client_confirmation
 from apps.api.db.base import uuid7
 from apps.api.integrations import service
-from apps.api.integrations.egress_guard import assert_public_http_url
 from apps.api.integrations.service import EVENT_TYPES
 
 # The API asking the delivery path whether it can deliver. Imported rather than
@@ -81,86 +79,26 @@ EventName = Literal[
 # which is one string away from a ledger that records an action nothing searches for.
 ENDPOINT_CREATED = "integration_endpoint.created"
 ENDPOINT_DISABLED = "integration_endpoint.disabled"
+ENDPOINT_UPDATED = "integration_endpoint.updated"
 ENDPOINT_SECRET_ROTATED = "integration_endpoint.secret_rotated"
 DELIVERY_RESENT = "webhook_delivery.resent"
 
 
 def assert_may_opt_into_raw_transcript(payload: CreateEndpointIn, principal: Principal) -> None:
-    """Refuse a raw-transcript opt-in the caller may not make. Raises, or returns.
-
-    THE RAW OPT-IN IS GATED THE SAME WAY A RAW READ IS (hard rule 5), and the check is a
-    function so it is testable without a live request — the two branches are contract, not
-    coincidence. Both are about the request BODY, which is why they cannot live on the
-    route dependency:
-
-     * `include_raw_transcript` must be layered on `include_transcript` — "raw" widens a
-       transcript the client already asked for, so a lone raw switch is refused and the
-       second opt-in is always a deliberate escalation of the first;
-     * the caller must hold `calls:read_raw`. `org:manage` (the route dependency) is what
-       an `owner` uses to point events anywhere; arranging for the UNREDACTED transcript
-       to be POSTed to a third party is the same class of act as reading it on the
-       dashboard, which `crm.routes.get_raw_transcript` puts behind `calls:read_raw`. The
-       two client roles that reach this route today both settle it — `owner` holds
-       `calls:read_raw` and `staff` lacks `org:manage` so never arrives — but the check is
-       explicit rather than inferred from that table, so a future role that holds
-       `org:manage` without `calls:read_raw` cannot silently arrange a raw egress.
-    """
-    if not payload.include_raw_transcript:
-        return
-    if not payload.include_transcript:
-        raise ProblemError(
-            kind="validation",
-            code="raw_transcript_requires_transcript",
-            title="Raw transcript needs the transcript opt-in too",
-            # The two switches named as the integrations screen names them, not as the
-            # wire names them. The wire names are still in `fields[]` below, which is
-            # where a typed caller reads them — the `detail` is the half a person reads.
-            detail=(
-                "The unredacted transcript widens the redacted one, so “the transcript, "
-                "redacted” has to be switched on before “the transcript, unredacted” "
-                "can be."
-            ),
-            remediation="Turn on the redacted transcript as well, or turn off the raw one.",
-            fields=[
-                {
-                    "field": "include_raw_transcript",
-                    "rule": "requires",
-                    "message": "include_transcript must be true",
-                }
-            ],
-        )
-    if principal.role is None or not role_has(principal.role, "calls:read_raw"):
-        raise ProblemError.forbidden(
-            "Sending the unredacted transcript to an endpoint needs the same "
-            "permission as reading a raw transcript."
-        )
+    """The create body's raw-transcript opt-in, judged by
+    `service.assert_raw_transcript_opt_in` — one rule for the create, the edit and Pip."""
+    service.assert_raw_transcript_opt_in(
+        include_transcript=payload.include_transcript,
+        include_raw_transcript=payload.include_raw_transcript,
+        role=principal.role,
+    )
 
 
 def assert_recording_ready_has_its_opt_in(payload: CreateEndpointIn) -> None:
-    """Refuse a `call.recording_ready` subscription without the recording opt-in.
-
-    The event exists to carry the link to the recording, and the fan-out sends it only to
-    endpoints that opted into that link (`service.enqueue_events`). Accepting the
-    subscription alone would register an endpoint that is never sent anything.
-    """
-    if service.RECORDING_READY_EVENT not in payload.events or payload.include_recording_url:
-        return
-    raise ProblemError(
-        kind="validation",
-        code="recording_ready_requires_recording_url",
-        title="Recording ready needs the recording link",
-        detail=(
-            "“Recording ready” sends the link to the call recording, so “a link to the "
-            "recording” has to be switched on for this endpoint too."
-        ),
-        remediation="Turn on the recording link as well, or untick “Recording ready”.",
-        fields=[
-            {
-                "field": "include_recording_url",
-                "rule": "requires",
-                "message": "include_recording_url must be true for call.recording_ready",
-            }
-        ],
+    """The create body's `call.recording_ready` opt-in, judged by
+    `service.assert_recording_ready_opt_in`."""
+    service.assert_recording_ready_opt_in(
+        events=list(payload.events), include_recording_url=payload.include_recording_url
     )
 
 
@@ -408,15 +346,23 @@ async def list_endpoints(
     # operator to write it — invisible to the tenant it belonged to, while it fanned
     # out and produced failed deliveries on the screen next door. RLS is the tenant
     # scoping here; the WHERE clause was never doing that job.
+    return await _endpoint_rows(session, "ORDER BY created_at DESC LIMIT :limit", {"limit": limit})
+
+
+async def _endpoint_rows(
+    session: AsyncSession, tail: str, params: dict[str, Any]
+) -> list[EndpointOut]:
+    """The endpoint list's one read, so the list and the edit's answer cannot disagree.
+    `tail` is a fixed clause from this module, never caller text."""
     rows = (
         await session.execute(
             text(
                 "SELECT id, url, events, active, secret_ref, created_at, kind, "
                 "include_recording_url, include_transcript, include_raw_transcript, "
                 "CASE WHEN previous_secret_expires_at > now() THEN previous_secret_expires_at END "
-                "FROM outbound_webhooks ORDER BY created_at DESC LIMIT :limit"
+                "FROM outbound_webhooks " + tail
             ),
-            {"limit": limit},
+            params,
         )
     ).all()
     return [
@@ -475,31 +421,17 @@ async def create_endpoint(
     # leaving it, so a session left open must not be enough to point it somewhere.
     await code.require(x_confirm_action, client_confirmation(request, "create_endpoint"))
     assert principal.tenant_id is not None
-    assert_may_opt_into_raw_transcript(payload, principal)
-    assert_recording_ready_has_its_opt_in(payload)
-    destination = await assert_public_http_url(str(payload.url))
-
-    endpoint_id = uuid7()
-    secret = secrets.token_urlsafe(32)
-    await session.execute(
-        text(
-            "INSERT INTO outbound_webhooks (id, tenant_id, kind, url, secret_ref, events, "
-            "include_recording_url, include_transcript, include_raw_transcript, "
-            "active, created_at, updated_at) VALUES (:id, :tid, 'webhook', :url, :secret, "
-            ":events, :inc_recording, :inc_transcript, :inc_raw_transcript, "
-            "true, now(), now())"
-        ),
-        {
-            "id": endpoint_id,
-            "tid": principal.tenant_id,
-            "url": str(payload.url),
-            "secret": secret,
-            "events": list(payload.events),
-            "inc_recording": payload.include_recording_url,
-            "inc_transcript": payload.include_transcript,
-            "inc_raw_transcript": payload.include_raw_transcript,
-        },
+    created = await service.create_webhook_endpoint(
+        session,
+        tenant_id=principal.tenant_id,
+        url=str(payload.url),
+        events=list(payload.events),
+        include_recording_url=payload.include_recording_url,
+        include_transcript=payload.include_transcript,
+        include_raw_transcript=payload.include_raw_transcript,
+        role=principal.role,
     )
+    endpoint_id = created.id
     # AFTER the INSERT, deliberately: `write_audit` takes the chain's advisory lock and
     # holds it to COMMIT (BACKEND-PATTERNS §7), so it belongs late in the transaction.
     await write_audit(
@@ -512,8 +444,8 @@ async def create_endpoint(
         ip=client_request_ip(request),
         summary={
             "kind": service.WEBHOOK_KIND,
-            "host": destination.host,
-            "port": destination.port,
+            "host": created.host,
+            "port": created.port,
             # JOINED, not a list, and for the reason `core.health` joins its missing-key
             # names: `logging.redact_mapping` renders ANY list extra as "[N items]", so
             # this field reached the audit stream as the COUNT of the events subscribed
@@ -536,8 +468,70 @@ async def create_endpoint(
         include_recording_url=payload.include_recording_url,
         include_transcript=payload.include_transcript,
         include_raw_transcript=payload.include_raw_transcript,
-        secret=secret,
+        secret=created.secret,
     )
+
+
+class UpdateEndpointIn(Strict):
+    """The whole set of choices an endpoint can change after it exists. The destination is
+    not one of them: pointing lead data somewhere new is a new endpoint, behind its code."""
+
+    events: list[EventName] = Field(min_length=1)
+    include_recording_url: bool = False
+    include_transcript: bool = False
+    include_raw_transcript: bool = False
+
+
+@router.patch(
+    "/endpoints/{endpoint_id}",
+    response_model=EndpointOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Change which events an endpoint receives and what each carries",
+    description=(
+        "Replace an active endpoint's events and its recording-link and transcript "
+        "opt-ins. The address is not changeable: add a new destination to send somewhere "
+        "else. Refused with `endpoint_inactive` for a switched-off endpoint, "
+        "`sheets_endpoint_events_only` when a Google Sheets destination is asked to carry "
+        "a recording or transcript, and with the create route's opt-in refusals."
+    ),
+)
+async def update_endpoint(
+    endpoint_id: UUID,
+    payload: UpdateEndpointIn,
+    session: Session,
+    request: Request,
+    principal: EndpointOwner,
+) -> EndpointOut:
+    """No emailed code, unlike the create: the destination was approved with one and stays
+    the same, and the raw-transcript opt-in still needs `calls:read_raw`."""
+    assert principal.tenant_id is not None
+    before = await service.update_endpoint(
+        session,
+        endpoint_id=endpoint_id,
+        events=list(payload.events),
+        include_recording_url=payload.include_recording_url,
+        include_transcript=payload.include_transcript,
+        include_raw_transcript=payload.include_raw_transcript,
+        role=principal.role,
+    )
+    await write_audit(
+        session,
+        action=ENDPOINT_UPDATED,
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="outbound_webhook",
+        object_id=str(endpoint_id),
+        ip=client_request_ip(request),
+        summary={
+            "events": ",".join(sorted(payload.events)),
+            "was_events": ",".join(sorted(before.events)),
+            "include_recording_url": payload.include_recording_url,
+            "include_transcript": payload.include_transcript,
+            "include_raw_transcript": payload.include_raw_transcript,
+        },
+    )
+    rows = await _endpoint_rows(session, "WHERE id = :id", {"id": endpoint_id})
+    return rows[0]
 
 
 @router.post(

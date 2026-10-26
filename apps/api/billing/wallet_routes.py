@@ -49,8 +49,8 @@ from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 
 from apps.api.billing.credit_packs import (
@@ -67,9 +67,12 @@ from apps.api.billing.service import (
     LOW_BALANCE_INR,
     PAYMENT_REF_SQL,
     allocate_paise,
+    chosen_low_balance_line,
     get_balance,
+    low_balance_line,
     plan_tier_of,
     recorded_payments,
+    set_low_balance_line,
     to_paise,
 )
 from apps.api.billing.wallet import (
@@ -84,15 +87,17 @@ from apps.api.billing.wallet import (
     read_wallet,
     tier_minutes,
 )
+from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import credits_exhausted
 from apps.api.compliance.trial_access import read_trial_access
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
+from apps.api.tenancy.models import LOW_BALANCE_ALERT_MAX_INR
 
 log = get_logger(__name__)
 
@@ -188,6 +193,8 @@ class WalletOut(Strict):
     balance_inr: Decimal
     is_low: bool
     low_balance_threshold_inr: Decimal
+    #: Whether the client chose `low_balance_threshold_inr`; false means it is Calevate's.
+    low_balance_alert_chosen: bool
     #: THE DIAL GATE'S OWN VERDICT (`compliance.service.credits_exhausted`) — asked, never
     #: re-derived here. It is not `balance <= 0`: that comparison is tier-blind, and a
     #: managed client's dialling does not stop for a wallet they never bought.
@@ -470,6 +477,7 @@ async def read_wallet_summary(principal: WalletRead) -> WalletOut:
         # ASKED, not re-derived. It is False for an invoiced client by the gate's own
         # rule, so this is also the answer for a tenant with no wallet.
         stopped = await credits_exhausted(session, tenant_id=tenant_id)
+        alert_chosen = await chosen_low_balance_line(session, tenant_id=tenant_id)
         access = await read_trial_access(session, tenant_id=tenant_id)
         summary = await read_wallet(
             session,
@@ -488,7 +496,10 @@ async def read_wallet_summary(principal: WalletRead) -> WalletOut:
         prepaid=summary.prepaid,
         balance_inr=to_paise(summary.balance.amount_inr),
         is_low=summary.balance.is_low,
-        low_balance_threshold_inr=to_paise(LOW_BALANCE_INR),
+        low_balance_threshold_inr=to_paise(
+            LOW_BALANCE_INR if alert_chosen is None else alert_chosen
+        ),
+        low_balance_alert_chosen=alert_chosen is not None,
         outbound_stopped=summary.outbound_stopped,
         runway=_runway_out(summary.runway),
         minutes_left=(
@@ -860,6 +871,73 @@ async def read_payment_receipt(payment_ref: str, principal: WalletRead) -> Recei
         organization_name=str(org[0]),
         organization_billing_email=str(org[1]) if org[1] is not None else None,
         note=RECEIPT_NOTE,
+    )
+
+
+#: The write is the client's own sign-in only, like `PUT /v1/billing/caps`: the line is
+#: the client's instruction about when to be told, not ours.
+AlertWrite = Annotated[Principal, Depends(requires("org:manage", realm="client"))]
+
+
+class LowBalanceAlertIn(Strict):
+    """`null` returns to Calevate's line; `"0"` switches the low warning off. Money is a
+    decimal string, never a JSON float (hard rule 7)."""
+
+    threshold_inr: Decimal | None = Field(
+        ge=0, le=LOW_BALANCE_ALERT_MAX_INR, max_digits=12, decimal_places=2
+    )
+
+    @field_validator("threshold_inr", mode="before")
+    @classmethod
+    def _never_a_float(cls, value: object) -> object:
+        if isinstance(value, float):
+            raise ValueError('money crosses the wire as a string ("500.00"), never as a float')
+        return value
+
+
+class LowBalanceAlertOut(Strict):
+    #: The line in force, chosen or Calevate's.
+    threshold_inr: Decimal
+    chosen: bool
+
+
+@router.put(
+    "/low-balance-alert",
+    response_model=LowBalanceAlertOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Choose the balance at which you are warned that credit is running low",
+    description=(
+        "Sets the rupee balance below which the low-credit warning is sent and shown. "
+        '`null` returns to Calevate\'s line; `"0"` stops the low warning (the warning '
+        "that credit has run out is always sent). Nothing is charged."
+    ),
+)
+async def set_low_balance_alert(
+    payload: LowBalanceAlertIn, request: Request, principal: AlertWrite
+) -> LowBalanceAlertOut:
+    assert principal.tenant_id is not None
+    async with tenant_session(principal.tenant_id) as session:
+        previous = await set_low_balance_line(
+            session, tenant_id=principal.tenant_id, threshold_inr=payload.threshold_inr
+        )
+        await write_audit(
+            session,
+            action="billing.low_balance_alert.set",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="organization",
+            object_id=str(principal.tenant_id),
+            ip=client_request_ip(request),
+            summary={
+                "threshold_inr": None
+                if payload.threshold_inr is None
+                else str(to_paise(payload.threshold_inr)),
+                "was": None if previous is None else str(to_paise(previous)),
+            },
+        )
+        line = await low_balance_line(session, tenant_id=principal.tenant_id)
+    return LowBalanceAlertOut(
+        threshold_inr=to_paise(line), chosen=payload.threshold_inr is not None
     )
 
 
