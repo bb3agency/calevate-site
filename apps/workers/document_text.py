@@ -64,6 +64,7 @@ import datetime as dt
 import io
 import re
 import zipfile
+import zlib
 from collections.abc import Iterator, Sequence
 from typing import Final
 from xml.etree import ElementTree
@@ -286,6 +287,20 @@ def _parse_part(archive: zipfile.ZipFile, name: str, *, what: str) -> ElementTre
             reason="part_missing",
             detail=f"That {what} file is missing the part that holds its text.",
             remediation="Open it, save a fresh copy, and upload that one.",
+        ) from failure
+    except (zipfile.BadZipFile, zlib.error, EOFError, RuntimeError, NotImplementedError) as failure:
+        # The central directory opened, but the member itself does not decompress: a bad
+        # CRC or a broken deflate stream (`BadZipFile`, `zlib.error`, `EOFError`), an
+        # encrypted member (`RuntimeError`) or a compression method `zipfile` lacks
+        # (`NotImplementedError`). Escaping as a raw exception left the upload at
+        # "received" while arq retried it and every sweep re-drove it for ever.
+        raise DocumentUnreadableError(
+            reason="damaged_part",
+            detail=f"That {what} file is damaged or password-protected, so we could not read it.",
+            remediation=(
+                "Open it on your computer, remove any password, save a fresh copy and "
+                "upload that one."
+            ),
         ) from failure
 
     if _declares_doctype(raw):

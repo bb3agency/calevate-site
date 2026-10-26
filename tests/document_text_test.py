@@ -299,6 +299,37 @@ def test_damaged_xml_inside_a_docx_is_a_refusal_and_not_a_traceback() -> None:
     assert refusal.value.reason == "malformed_xml"
 
 
+def _corrupted_member(*, stored: bool) -> bytes:
+    """A docx whose directory opens but whose body member does not decompress cleanly."""
+    method = zipfile.ZIP_STORED if stored else zipfile.ZIP_DEFLATED
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", method) as archive:
+        archive.writestr(
+            "word/document.xml",
+            f'<?xml version="1.0"?><w:document xmlns:w="{_W}"><w:body>'
+            f"{_para('Idli 40 rupees')}</w:body></w:document>",
+        )
+    data = bytearray(buffer.getvalue())
+    if stored:
+        # One byte of the body changed: the CRC no longer matches.
+        data[data.find(b"Idli")] = ord("J")
+    else:
+        # The deflate stream itself mangled, just past the local header.
+        start = 30 + len("word/document.xml")
+        for offset in range(start, start + 10):
+            data[offset] ^= 0xFF
+    return bytes(data)
+
+
+@pytest.mark.parametrize("stored", [True, False], ids=["bad_crc", "broken_deflate"])
+def test_a_docx_member_that_does_not_decompress_is_a_refusal_and_not_a_traceback(
+    stored: bool,
+) -> None:
+    with pytest.raises(DocumentUnreadableError) as refusal:
+        extract_document(_corrupted_member(stored=stored), "docx")
+    assert refusal.value.reason == "damaged_part"
+
+
 # --- HOSTILE INPUT -------------------------------------------------------------------
 
 
