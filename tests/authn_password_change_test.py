@@ -26,7 +26,7 @@ whether the new cookie is actually set, and whether the old one is dead afterwar
 
 SHARED DATABASE DISCIPLINE: every row hangs off ids this module mints with `uuid4`, the
 fixtures delete exactly those, and nothing counts rows globally. The throttle keys are
-deleted too — `PASSWORD_BUDGET` is per `(realm, subject)`, so a leftover counter from a
+deleted too — the password ceiling is per `(realm, subject)`, so a leftover counter from a
 wrong-password test would 429 an unrelated one.
 """
 
@@ -42,7 +42,7 @@ from apps.api.authn.cookies import cookie_name
 from apps.api.authn.credentials import authenticate_subject, set_password
 from apps.api.authn.sessions import issue_session, verify_session
 from apps.api.authn.stepup import REAUTH_MAX_AGE
-from apps.api.authn.throttle import KEY_PREFIX, PASSWORD_BUDGET
+from apps.api.authn.throttle import KEY_PREFIX, PASSWORD_ACCOUNT_CEILING
 from apps.api.core.redis import get_redis
 from apps.api.db.session import credential_session, untenanted_session
 from apps.api.main import app
@@ -114,6 +114,7 @@ async def subject_ids() -> AsyncIterator[dict[str, uuid.UUID]]:
         redis = get_redis()
         for realm, subject_id in (("admin", admin_id), ("client", user_id)):
             await redis.delete(f"{KEY_PREFIX}:password:{realm}:{subject_id}")
+            await redis.delete(f"{KEY_PREFIX}:{PASSWORD_ACCOUNT_CEILING.name}:{realm}:{subject_id}")
 
 
 async def _token(realm: str, subject_id: uuid.UUID, *, factor_age: timedelta | None = None) -> str:
@@ -378,7 +379,7 @@ async def test_a_wrong_current_password_spends_the_same_budget_a_sign_in_does(
     `(realm, subject)` counter `service.sign_in` spends."""
     subject_id = subject_ids["client"]
     caller = await _token("client", subject_id)
-    key = f"{KEY_PREFIX}:{PASSWORD_BUDGET.name}:client:{subject_id}"
+    key = f"{KEY_PREFIX}:{PASSWORD_ACCOUNT_CEILING.name}:client:{subject_id}"
     await get_redis().delete(key)
 
     async with _client() as http:
@@ -405,8 +406,10 @@ async def test_a_spent_budget_refuses_before_any_verification_happens(
     """
     subject_id = subject_ids["client"]
     caller = await _token("client", subject_id)
-    key = f"{KEY_PREFIX}:{PASSWORD_BUDGET.name}:client:{subject_id}"
-    await get_redis().set(key, PASSWORD_BUDGET.threshold, ex=PASSWORD_BUDGET.window_s)
+    key = f"{KEY_PREFIX}:{PASSWORD_ACCOUNT_CEILING.name}:client:{subject_id}"
+    await get_redis().set(
+        key, PASSWORD_ACCOUNT_CEILING.threshold, ex=PASSWORD_ACCOUNT_CEILING.window_s
+    )
 
     async with _client() as http:
         response = await http.post(

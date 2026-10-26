@@ -31,6 +31,7 @@ from apps.api.authn.throttle import (
     PASSWORD_BUDGET,
     RESET_BUDGET,
     clear,
+    clear_password,
     penalty_delay_s,
     pseudo_subject,
 )
@@ -54,6 +55,7 @@ async def _forget_throttle(*subject_ids: uuid.UUID) -> None:
     for subject_id in subject_ids:
         for budget in ("password", "otp", "totp", "recovery"):
             await redis.delete(f"{KEY_PREFIX}:{budget}:{REALM}:{subject_id}")
+        await clear_password(realm=REALM, subject_id=subject_id, source=None)
 
 
 @pytest_asyncio.fixture
@@ -316,7 +318,7 @@ async def test_an_unknown_address_costs_the_same_wall_clock_time_as_a_wrong_pass
     assert known_id, "the fixture's user must resolve"
 
     async def _timed(address: str, subject_for_reset: uuid.UUID) -> float:
-        await clear(PASSWORD_BUDGET, realm=REALM, subject_id=subject_for_reset)
+        await clear_password(realm=REALM, subject_id=subject_for_reset, source=None)
         started = time.perf_counter()
         with pytest.raises(ProblemError):
             await service.sign_in(
@@ -439,7 +441,7 @@ async def test_every_refused_sign_in_answers_no_sooner_than_the_floor(
     real_id = await _resolve(email)
     ghost = pseudo_subject(REALM, unknown)
     for address, subject in ((email, real_id), (unknown, ghost)):
-        await clear(PASSWORD_BUDGET, realm=REALM, subject_id=subject)
+        await clear_password(realm=REALM, subject_id=subject, source=None)
         started = time.perf_counter()
         with pytest.raises(ProblemError):
             await service.sign_in(

@@ -243,7 +243,7 @@ async def accept_with_password(
             )
 
     if not created:
-        await _prove_existing_account(user_id, password=password, at=at)
+        await _prove_existing_account(user_id, password=password, at=at, ip=ip)
 
     if not await has_password(INVITE_REALM, user_id):
         async with credential_session() as session:
@@ -297,7 +297,9 @@ async def accept_with_password(
     )
 
 
-async def _prove_existing_account(user_id: UUID, *, password: str, at: datetime) -> None:
+async def _prove_existing_account(
+    user_id: UUID, *, password: str, at: datetime, ip: str | None
+) -> None:
     """An invitation adds a membership to an account that already exists; it must not also
     sign the link holder in as that account, or give it a password.
 
@@ -307,7 +309,7 @@ async def _prove_existing_account(user_id: UUID, *, password: str, at: datetime)
     the typed password was stored, a lasting credential nobody was told about. So:
 
     - an account with a password: the typed password must be that account's, metered
-      against the same `PASSWORD_BUDGET` sign-in spends, so this is no unmetered oracle;
+      against the same password budgets sign-in spends, so this is no unmetered oracle;
     - an account with no password whose address is already proved (Google, D-703): refused
       — it accepts with Google, the way it signs in;
     - an account with no password and an unproved address is the row an earlier redemption
@@ -315,10 +317,10 @@ async def _prove_existing_account(user_id: UUID, *, password: str, at: datetime)
     """
     from apps.api.authn.credentials import authenticate_subject
     from apps.api.authn.service import _equalise
-    from apps.api.authn.throttle import PASSWORD_BUDGET, clear, reserve
+    from apps.api.authn.throttle import clear_password, reserve_password
 
     if await has_password(INVITE_REALM, user_id):
-        attempt = await reserve(PASSWORD_BUDGET, realm=INVITE_REALM, subject_id=user_id)
+        attempt = await reserve_password(realm=INVITE_REALM, subject_id=user_id, source=ip)
         async with credential_session() as session:
             ok = await authenticate_subject(
                 session, realm=INVITE_REALM, subject_id=user_id, password=password, now=at
@@ -339,7 +341,7 @@ async def _prove_existing_account(user_id: UUID, *, password: str, at: datetime)
                     "and open this invitation again."
                 ),
             )
-        await clear(PASSWORD_BUDGET, realm=INVITE_REALM, subject_id=user_id)
+        await clear_password(realm=INVITE_REALM, subject_id=user_id, source=ip)
         return
     subject = await load_subject(INVITE_REALM, user_id)
     if subject is not None and subject.email_verified_at is not None:

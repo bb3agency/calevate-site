@@ -18,8 +18,10 @@ overlapping: the limiter never looks at outcomes, and nothing here counts succes
 OWASP's Authentication Cheat Sheet (github.com/OWASP/CheatSheetSeries,
 `cheatsheets/Authentication_Cheat_Sheet.md`, read 2026-08-17) is clear that the counter
 should attach to the ACCOUNT rather than the source address, because an IP-keyed counter is
-defeated by any distributed attacker. It describes lockout as three parameters — threshold,
-observation window, duration — and mentions exponential backoff starting at one second, and
+defeated by any distributed attacker (the password budget is therefore keyed on account AND
+source, under an account-wide ceiling — `PASSWORD_ACCOUNT_CEILING`). It describes lockout as
+three parameters — threshold, observation window, duration — and mentions exponential
+backoff starting at one second, and
 it explicitly warns about the other side: a durable account lockout is a denial-of-service
 primitive that anybody can aim at a known address. It suggests at most two or three
 temporary lockouts before a permanent one.
@@ -89,7 +91,8 @@ class Budget:
     window_s: int
 
 
-#: PASSWORD. Ten consecutive wrong passwords in fifteen minutes, per account per realm.
+#: PASSWORD. Ten consecutive wrong passwords in fifteen minutes, per account per realm per
+#: source (`reserve_password`; the account as a whole has `PASSWORD_ACCOUNT_CEILING`).
 #:
 #: Ten rather than five because the population is SMB owners on phones and a floor that
 #: bites on a genuine typo run is a floor that generates support calls; ten rather than
@@ -99,6 +102,18 @@ class Budget:
 #: is the observation window AND the penalty: long enough that grinding costs an attacker
 #: 40 guesses an hour, short enough that a locked-out owner is not phoning anybody.
 PASSWORD_BUDGET: Final = Budget("password", threshold=10, window_s=900)
+
+#: THE PASSWORD BUDGET ABOVE IS KEYED ON (account, source), AND THIS IS THE ACCOUNT'S OWN
+#: CEILING. A counter on the account alone let anybody keep a known operator or owner
+#: locked out from anywhere: ten wrong guesses every fifteen minutes, from any address,
+#: and the real person met a 429 forever. OWASP's Authentication Cheat Sheet ("Account
+#: Lockout") names exactly that DoS and the answer adopted here: the hard stop applies to
+#: the source that is failing, so the owner signing in from their own connection is not
+#: refused. What a distributed guesser spreads across many sources still meets this
+#: per-account ceiling — 100 failures an hour, NIST SP 800-63B-4 §3.2.2's upper bound on
+#: consecutive failures — and, before it, an increasing delay
+#: (`reserve_password`'s returned count) that slows every guess on the account.
+PASSWORD_ACCOUNT_CEILING: Final = Budget("password-account", threshold=100, window_s=3600)
 
 #: EMAILED OTP — AND THIS PRODUCT'S ONLY SECOND FACTOR (D-170). Five guesses per account
 #: per ten minutes.
@@ -260,6 +275,96 @@ async def clear(budget: Budget, *, realm: str, subject_id: UUID) -> None:
         log.warning("authn_throttle_unclearable", extra={"budget": budget.name})
 
 
+#: Both password counters in one step: refuse if either is spent (reporting that one's
+#: TTL), otherwise count the attempt on both. Same reservation semantics as
+#: `_RESERVE_LUA`; a refused attempt is counted on neither.
+_RESERVE_PASSWORD_LUA: Final = """
+for i = 1, 2 do
+  local current = tonumber(redis.call('GET', KEYS[i]) or '0')
+  if current >= tonumber(ARGV[i * 2 - 1]) then
+    return {0, redis.call('TTL', KEYS[i]), i}
+  end
+end
+local counts = {}
+for i = 1, 2 do
+  counts[i] = redis.call('INCR', KEYS[i])
+  if redis.call('TTL', KEYS[i]) < 0 then
+    redis.call('EXPIRE', KEYS[i], ARGV[i * 2])
+  end
+end
+return {1, counts[1], counts[2]}
+"""
+
+
+def password_key(realm: str, subject_id: UUID, source: str | None) -> str:
+    """The (account, source) counter. The source is fingerprinted through the code key so
+    Redis never holds a list of client addresses beside account ids (hard rule 6)."""
+    from apps.api.authn.codes import code_fingerprint
+
+    where = code_fingerprint(source or "unknown", domain="password-source").hex()[:32]
+    return f"{_key(PASSWORD_BUDGET, realm, subject_id)}:{where}"
+
+
+async def reserve_password(*, realm: str, subject_id: UUID, source: str | None) -> int:
+    """Spend one password attempt for this account from this source, or refuse.
+
+    Refused 429 when THIS source has used `PASSWORD_BUDGET` on the account, or when the
+    account as a whole has reached `PASSWORD_ACCOUNT_CEILING`. Returns the attempt count
+    `penalty_delay_s` prices on failure: this source's count, or the account's count in
+    tens, whichever is higher — so failures spread across many sources still slow the next
+    guess on the account.
+    """
+    keys = (
+        password_key(realm, subject_id, source),
+        _key(PASSWORD_ACCOUNT_CEILING, realm, subject_id),
+    )
+    try:
+        result = await get_redis().eval(  # type: ignore[misc]
+            _RESERVE_PASSWORD_LUA,
+            2,
+            *keys,
+            str(PASSWORD_BUDGET.threshold),
+            str(PASSWORD_BUDGET.window_s),
+            str(PASSWORD_ACCOUNT_CEILING.threshold),
+            str(PASSWORD_ACCOUNT_CEILING.window_s),
+        )
+    except Exception:
+        log.warning("authn_throttle_unavailable", extra={"budget": PASSWORD_BUDGET.name})
+        raise _refused(PASSWORD_BUDGET, PASSWORD_BUDGET.window_s) from None
+    if int(result[0]):
+        here, account = int(result[1]), int(result[2])
+        log.info(
+            "authn_attempt_reserved",
+            extra={
+                "budget": PASSWORD_BUDGET.name,
+                "realm": realm,
+                "subject_id": str(subject_id),
+                "count": here,
+                "account_count": account,
+            },
+        )
+        return max(here, account // 10)
+    spent = PASSWORD_BUDGET if int(result[2]) == 1 else PASSWORD_ACCOUNT_CEILING
+    log.warning(
+        "authn_throttled",
+        extra={"budget": spent.name, "realm": realm, "subject_id": str(subject_id)},
+    )
+    ttl = int(result[1])
+    raise _refused(spent, ttl if ttl > 0 else spent.window_s)
+
+
+async def clear_password(*, realm: str, subject_id: UUID, source: str | None) -> None:
+    """A correct password: forget this source's failures and the account's. Swallowed on
+    failure for `clear`'s reason."""
+    try:
+        await get_redis().delete(
+            password_key(realm, subject_id, source),
+            _key(PASSWORD_ACCOUNT_CEILING, realm, subject_id),
+        )
+    except Exception:
+        log.warning("authn_throttle_unclearable", extra={"budget": PASSWORD_BUDGET.name})
+
+
 def pseudo_subject(realm: str, identifier: str) -> UUID:
     """A stable, non-existent subject id for an identifier that resolved to nobody.
 
@@ -301,12 +406,16 @@ def penalty_delay_s(count: int) -> float:
 __all__ = [
     "OTP_BUDGET",
     "OTP_MAX_ATTEMPTS",
+    "PASSWORD_ACCOUNT_CEILING",
     "PASSWORD_BUDGET",
     "RESET_BUDGET",
     "SIGNUP_BUDGET",
     "Budget",
     "clear",
+    "clear_password",
+    "password_key",
     "penalty_delay_s",
     "pseudo_subject",
     "reserve",
+    "reserve_password",
 ]

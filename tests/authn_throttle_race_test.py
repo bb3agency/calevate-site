@@ -18,7 +18,13 @@ import pytest
 import pytest_asyncio
 from apps.api.authn import service, throttle
 from apps.api.authn.credentials import set_password
-from apps.api.authn.throttle import KEY_PREFIX, PASSWORD_BUDGET, RESET_BUDGET, pseudo_subject
+from apps.api.authn.throttle import (
+    KEY_PREFIX,
+    PASSWORD_BUDGET,
+    RESET_BUDGET,
+    clear_password,
+    pseudo_subject,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.redis import get_redis
 from apps.api.db.session import credential_session, untenanted_session
@@ -38,6 +44,7 @@ async def _forget(*subject_ids: uuid.UUID) -> None:
     for subject_id in subject_ids:
         for budget in (PASSWORD_BUDGET.name, RESET_BUDGET.name):
             await redis.delete(f"{KEY_PREFIX}:{budget}:{REALM}:{subject_id}")
+        await clear_password(realm=REALM, subject_id=subject_id, source=None)
 
 
 @pytest_asyncio.fixture
@@ -178,3 +185,64 @@ async def test_an_unreachable_counter_refuses_rather_than_verifying(
         await service.sign_in(realm=REALM, email=email, password=PASSWORD, ip=None)
     assert refused.value.code == "too_many_attempts"
     assert refused.value.status == 429
+
+
+ATTACKER_IP = "198.51.100.23"
+OWNER_IP = "203.0.113.40"
+
+
+@pytest.mark.asyncio
+async def test_failures_from_one_source_do_not_lock_the_owner_out_elsewhere(
+    live_user: tuple[uuid.UUID, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The griefing a per-account lock allowed: ten wrong passwords every fifteen minutes,
+    from anywhere, kept the real person at 429 for as long as the attacker liked."""
+    user_id, email = live_user
+    monkeypatch.setattr(service, "_equalise", _no_delay)
+    try:
+        for _ in range(PASSWORD_BUDGET.threshold):
+            with pytest.raises(ProblemError) as wrong:
+                await service.sign_in(
+                    realm=REALM, email=email, password="wrong-but-long-enough", ip=ATTACKER_IP
+                )
+            assert wrong.value.code == "invalid_credentials"
+        with pytest.raises(ProblemError) as locked:
+            await service.sign_in(realm=REALM, email=email, password=PASSWORD, ip=ATTACKER_IP)
+        assert locked.value.code == "too_many_attempts", "the failing source is stopped"
+
+        signed_in = await service.sign_in(realm=REALM, email=email, password=PASSWORD, ip=OWNER_IP)
+        assert signed_in.subject_id == user_id, "the owner elsewhere still gets in"
+    finally:
+        for source in (ATTACKER_IP, OWNER_IP):
+            await clear_password(realm=REALM, subject_id=user_id, source=source)
+
+
+@pytest.mark.asyncio
+async def test_the_account_ceiling_still_bounds_a_guess_spread_across_sources(
+    live_user: tuple[uuid.UUID, str],
+) -> None:
+    """Spread across many sources no one source reaches its budget, so the account's own
+    ceiling is what stops a distributed guess — even from a source never seen before."""
+    user_id, _email = live_user
+    ceiling = f"{KEY_PREFIX}:{throttle.PASSWORD_ACCOUNT_CEILING.name}:{REALM}:{user_id}"
+    try:
+        for n in range(3):
+            await throttle.reserve_password(realm=REALM, subject_id=user_id, source=f"10.0.0.{n}")
+        assert int(await get_redis().get(ceiling) or 0) == 3, "every source counts on the account"
+
+        await get_redis().set(
+            ceiling,
+            throttle.PASSWORD_ACCOUNT_CEILING.threshold,
+            ex=throttle.PASSWORD_ACCOUNT_CEILING.window_s,
+        )
+        with pytest.raises(ProblemError) as refused:
+            await throttle.reserve_password(realm=REALM, subject_id=user_id, source="10.9.9.9")
+        assert refused.value.code == "too_many_attempts"
+        # Spread failures slow the next guess on the account as well as capping it.
+        await get_redis().set(ceiling, 50, ex=throttle.PASSWORD_ACCOUNT_CEILING.window_s)
+        assert (
+            await throttle.reserve_password(realm=REALM, subject_id=user_id, source="10.8.8.8") == 5
+        )
+    finally:
+        for source in ("10.0.0.0", "10.0.0.1", "10.0.0.2", "10.9.9.9", "10.8.8.8"):
+            await clear_password(realm=REALM, subject_id=user_id, source=source)

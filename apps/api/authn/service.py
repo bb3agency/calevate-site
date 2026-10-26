@@ -92,12 +92,13 @@ from apps.api.authn.sessions import (
 from apps.api.authn.subjects import Subject, load_subject, mark_email_verified, resolve_by_email
 from apps.api.authn.throttle import (
     OTP_BUDGET,
-    PASSWORD_BUDGET,
     RESET_BUDGET,
     clear,
+    clear_password,
     penalty_delay_s,
     pseudo_subject,
     reserve,
+    reserve_password,
 )
 from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
@@ -290,14 +291,14 @@ async def sign_in(
     if subject is None:
         # Everything the real path does, against a subject that does not exist.
         ghost = pseudo_subject(realm, email)
-        attempt = await reserve(PASSWORD_BUDGET, realm=realm, subject_id=ghost)
+        attempt = await reserve_password(realm=realm, subject_id=ghost, source=ip)
         await verify_password(password, None)
         await _equalise(attempt)
         await _failure_floor(started)
         log.info("auth_login_unknown_subject", extra={"realm": realm})
         raise _invalid_credentials()
 
-    attempt = await reserve(PASSWORD_BUDGET, realm=realm, subject_id=subject.subject_id)
+    attempt = await reserve_password(realm=realm, subject_id=subject.subject_id, source=ip)
     async with credential_session() as session:
         ok = await authenticate_subject(
             session, realm=realm, subject_id=subject.subject_id, password=password, now=at
@@ -313,7 +314,7 @@ async def sign_in(
         await _failure_floor(started)
         raise _invalid_credentials()
 
-    await clear(PASSWORD_BUDGET, realm=realm, subject_id=subject.subject_id)
+    await clear_password(realm=realm, subject_id=subject.subject_id, source=ip)
 
     needs_second_factor = realm in MFA_REQUIRED_REALMS
     async with credential_session() as session:
@@ -823,7 +824,7 @@ async def confirm_password_reset(
             extra={"realm": realm, "subject_id": str(redeemed.subject_id)},
         )
         raise _bad_token()
-    await clear(PASSWORD_BUDGET, realm=realm, subject_id=subject.subject_id)
+    await clear_password(realm=realm, subject_id=subject.subject_id, source=ip)
     # And the REQUEST budget, because this link being redeemed is proof the person asking
     # for the links is the person who owns the mailbox. Leaving it spent would mean somebody
     # who needed two attempts to find the right email is refused their next legitimate reset
@@ -968,7 +969,7 @@ async def change_password(
     if subject is None:
         raise _invalid_credentials()
 
-    attempt = await reserve(PASSWORD_BUDGET, realm=realm, subject_id=subject_id)
+    attempt = await reserve_password(realm=realm, subject_id=subject_id, source=ip)
     async with credential_session() as session:
         ok = await authenticate_subject(
             session, realm=realm, subject_id=subject_id, password=current_password, now=at
@@ -982,7 +983,7 @@ async def change_password(
         # denies them.
         await _equalise(attempt)
         raise _wrong_current_password()
-    await clear(PASSWORD_BUDGET, realm=realm, subject_id=subject_id)
+    await clear_password(realm=realm, subject_id=subject_id, source=ip)
 
     # AFTER the current password is proved, so this cannot be used to test a guess against
     # the stored one without spending the budget above.

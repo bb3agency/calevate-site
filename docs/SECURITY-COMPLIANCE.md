@@ -863,8 +863,9 @@ Identity & access
   accepted departure**: the client password is single-factor, and §3.1.1.2 makes 15 a
   SHALL for a password "used as a single-factor authentication mechanism". What
   compensates is online-attack control only — the blocklist below,
-  `authn/throttle.PASSWORD_BUDGET` (ten consecutive failures per account per realm per
-  fifteen minutes) and `authn/service.SIGN_IN_FAILURE_FLOOR_S` on every failed sign-in;
+  `authn/throttle.PASSWORD_BUDGET` (ten consecutive failures per account per source per
+  fifteen minutes, under `PASSWORD_ACCOUNT_CEILING`, 100 an hour per account) and
+  `authn/service.SIGN_IN_FAILURE_FLOOR_S` on every failed sign-in;
   against a stolen database dump, the Argon2id cost and the KEK-derived pepper
   (`authn/hashing.py`) are the control. `authn/policy.min_password_chars(realm)` remains
   the single reader, so a realm can be given its own floor again without touching callers.

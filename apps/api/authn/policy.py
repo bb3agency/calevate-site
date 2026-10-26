@@ -25,7 +25,8 @@ guesser is:
 
   - the blocklist in this module (SecLists' 100k most-used passwords, context words,
     keyboard walks, repetition — see below);
-  - `throttle.PASSWORD_BUDGET`: ten consecutive failures per account per fifteen minutes;
+  - `throttle.PASSWORD_BUDGET`: ten consecutive failures per account and source per fifteen
+    minutes, under `PASSWORD_ACCOUNT_CEILING` (100 an hour) for the account as a whole;
   - `service.SIGN_IN_FAILURE_FLOOR_S`: every failed sign-in takes at least that long.
 
 None of these protects a stolen database dump; the Argon2id cost and the KEK-derived
