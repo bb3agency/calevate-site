@@ -35,8 +35,9 @@ from apps.api.copilot.schemas import (
 #: opening line on `agent_edit`, and `knowledge_facts_pin`. D-893's agent-page actions,
 #: `agent_settings` and the 24 account actions add ~6,300 while each action is still its own
 #: tool; the area tools (`docs/PIP-AGENT-PLAN.md` §3 F1) replace the per-tool array and bring
-#: the client prefix under 12,000.
-PREFIX_BUDGET_TOKENS = {"client": 25_100, "admin_account": 9_500, "admin_console": 6_500}
+#: the client prefix under 12,000. The admin surface with an account open carries the client
+#: read tools too, and D-893's knowledge reads add ~40 there.
+PREFIX_BUDGET_TOKENS = {"client": 25_100, "admin_account": 9_550, "admin_console": 6_500}
 
 
 def _compact(value: Any) -> str:
