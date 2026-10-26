@@ -643,3 +643,8 @@ async def test_a_trial_opened_later_leaves_an_earlier_closed_month_whole() -> No
     assert Decimal(str(before["minutes_used"])) == Decimal("2.00")
     assert after["minutes_used"] == before["minutes_used"]
     assert after["calls"] == before["calls"] == 1
+    # The running trial covers the open period, not a month that was already charged.
+    assert after["trial"]["active"] is False
+    assert after["month_charges_inr"] == before["month_charges_inr"]
+    assert after["spend_used_inr"] == before["spend_used_inr"]
+    assert after["trial_absorbed_inr"] == Decimal("0.00")

@@ -2867,11 +2867,13 @@ async def usage_summary(
 
     # IS THIS CLIENT'S CALLING ON US RIGHT NOW (D-536)? Asked AFTER the runway above so
     # the trial's answer overrides it rather than being computed around it, and asked as a
-    # fact about the account today rather than about the month on screen — the same reading
-    # `capped` takes two paragraphs up, for the same reason: a client re-opening last
-    # month's statement is being told what they owe, not what they owed.
+    # fact about the account today for the runway, the same reading `capped` takes.
     trial = await read_trial(session, tenant_id=tenant_id)
     trial_active = trial is not None and trial.is_active(at=at)
+    # WHETHER THE MONTH ON SCREEN IS THE ONE ON US. A running trial covers the open period
+    # only: a closed month was charged, and reading it while a later trial runs must still
+    # say what it cost rather than ₹0.00 "on us".
+    period_on_us = trial_active and period == today
     if trial_active:
         # A trial bypasses the credit gate entirely (`compliance.service.credits_exhausted`),
         # so a wallet balance is not what limits this client's calling and quoting minutes
@@ -2920,7 +2922,7 @@ async def usage_summary(
             llm_surcharge_inr=surcharge.total_inr,
             self_serve_rate_inr_per_min=list_rate,
         )
-        if trial_active
+        if period_on_us
         else calling_revenue_inr(
             plan_tier=tier,
             prepaid_charged_inr=lot_charges.total_inr,
@@ -3007,27 +3009,27 @@ async def usage_summary(
         # retainer entirely and answers "what have my calls drawn down". This answers "what
         # will this month cost me", retainer included, from the same three published
         # components a client can add up by hand.
-        "month_charges_inr": _ZERO_PAISE if trial_active else charges,
+        "month_charges_inr": _ZERO_PAISE if period_on_us else charges,
         "cap_minutes": int(plan[3]) if plan and plan[3] is not None else None,
         "minutes_left": minutes_left,
         "capped": capped,
         # THE CLIENT'S OWN SPEND, in the client's own currency (P1.3). See `_spend_used`
         # for what each branch reads and why neither of them is `spend_used` any more.
-        "spend_used_inr": _ZERO_PAISE if trial_active else spend_used,
+        "spend_used_inr": _ZERO_PAISE if period_on_us else spend_used,
         # IS THIS PERIOD ON US, AND UNTIL WHEN (D-536). Always present, `active: False` for
         # every account that has never had a trial — a key that appears and disappears is a
         # key a screen forgets to handle, and this one decides whether the two figures above
         # mean "you owe nothing" or "you have spent nothing".
         "trial": {
-            "active": trial_active,
+            "active": period_on_us,
             "days_remaining": trial.days_remaining(at=at) if trial is not None else None,
-            "ends_at": trial.ends_at if trial_active and trial is not None else None,
+            "ends_at": trial.ends_at if period_on_us and trial is not None else None,
         },
         # WHAT WE ABSORBED for this client this period, at the CLIENT's own price. Zero
         # whenever no trial is running, so a screen can print it unconditionally. Never our
         # supplier cost: `unit_cost_paid` is commercially ours and the client panel has
         # never shown it (`trials.trial_cost_to_us_inr` is where an OPERATOR reads that).
-        "trial_absorbed_inr": charges if trial_active else _ZERO_PAISE,
+        "trial_absorbed_inr": charges if period_on_us else _ZERO_PAISE,
         # WHAT EACH VOICE COST THIS MONTH (D-547), from the ledger's own lot splits.
         #
         # With two voices at two prices, "how much of this month was the dearer voice" is
