@@ -19,7 +19,6 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
-from tests.conftest import _reserved_test_domains_resolve  # noqa: F401  (autouse)
 from tests.forwarding_fixtures import add_line, give_calevate_number
 
 from apps.api.copilot import account_actions, service, tools, write_tools
