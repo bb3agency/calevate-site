@@ -90,7 +90,9 @@ Real and ordinary: one person can be staff at two client businesses (`membership
 many-to-many). The user row is reused and **the password is NOT touched** — `has_password`
 is checked first, and an existing credential is left exactly as it is. Overwriting it would
 mean anybody who can get an invitation issued to your address can reset your password,
-which turns an invite into an account takeover.
+which turns an invite into an account takeover. The typed password must BE that account's
+(`_prove_existing_account`), because the session issued below is a session as that account
+in every organisation it belongs to, and the link may have been forwarded.
 
 That refusal to overwrite is right, and it is also what makes the squat stick: the honest
 invitee cannot displace a credential somebody else set. So reuse now carries a condition —
@@ -240,6 +242,9 @@ async def accept_with_password(
                 ),
             )
 
+    if not created:
+        await _prove_existing_account(user_id, password=password, at=at)
+
     if not await has_password(INVITE_REALM, user_id):
         async with credential_session() as session:
             await set_password(
@@ -290,6 +295,65 @@ async def accept_with_password(
         user_id=user_id,
         session=issued,
     )
+
+
+async def _prove_existing_account(user_id: UUID, *, password: str, at: datetime) -> None:
+    """An invitation adds a membership to an account that already exists; it must not also
+    sign the link holder in as that account, or give it a password.
+
+    The link is a key to the MEMBERSHIP, and it gets forwarded. Before this check a holder
+    redeeming against an existing account had the password they typed ignored and was handed
+    a session for every organisation that account belongs to; against a Google-only account
+    the typed password was stored, a lasting credential nobody was told about. So:
+
+    - an account with a password: the typed password must be that account's, metered
+      against the same `PASSWORD_BUDGET` sign-in spends, so this is no unmetered oracle;
+    - an account with no password whose address is already proved (Google, D-703): refused
+      — it accepts with Google, the way it signs in;
+    - an account with no password and an unproved address is the row an earlier redemption
+      of THIS flow created before its password was refused, and the retry sets it as before.
+    """
+    from apps.api.authn.credentials import authenticate_subject
+    from apps.api.authn.service import _equalise
+    from apps.api.authn.throttle import PASSWORD_BUDGET, clear, reserve
+
+    if await has_password(INVITE_REALM, user_id):
+        attempt = await reserve(PASSWORD_BUDGET, realm=INVITE_REALM, subject_id=user_id)
+        async with credential_session() as session:
+            ok = await authenticate_subject(
+                session, realm=INVITE_REALM, subject_id=user_id, password=password, now=at
+            )
+        if not ok:
+            await _equalise(attempt)
+            log.info("auth_invitation_existing_password_wrong", extra={"user_id": str(user_id)})
+            raise ProblemError(
+                kind="auth",
+                code="invitation_existing_account_password",
+                title="Enter the password of your existing account",
+                detail=(
+                    "An account already exists for this address. Joining with this "
+                    "invitation needs that account's current password."
+                ),
+                remediation=(
+                    "Type the password you sign in with, or reset it from the sign-in page "
+                    "and open this invitation again."
+                ),
+            )
+        await clear(PASSWORD_BUDGET, realm=INVITE_REALM, subject_id=user_id)
+        return
+    subject = await load_subject(INVITE_REALM, user_id)
+    if subject is not None and subject.email_verified_at is not None:
+        log.info("auth_invitation_password_on_proved_account", extra={"user_id": str(user_id)})
+        raise ProblemError(
+            kind="business_rule",
+            code="invitation_use_google",
+            title="Accept with Google",
+            detail=(
+                "An account already exists for this address and signs in with Google, so "
+                "this invitation cannot give it a password."
+            ),
+            remediation="Choose 'Accept with Google' on this page.",
+        )
 
 
 async def accept_for_verified_address(

@@ -291,7 +291,8 @@ async def test_the_refusal_leaves_the_invitation_redeemable(planted: Planted) ->
     # The person proves the mailbox — `POST /v1/auth/client/otp/verify`.
     await _mark_verified(address)
 
-    second_try = await _redeem(real_token, REDEMPTION_PASSWORD)
+    # Joining an existing account takes that account's own password.
+    second_try = await _redeem(real_token, ATTACKER_PASSWORD)
 
     assert second_try.status_code == 200, second_try.text
     assert second_try.json()["tenant_id"] == str(victim_tenant)
@@ -337,6 +338,52 @@ async def test_a_verified_account_still_joins_a_second_organisation(planted: Pla
     assert joined.json()["tenant_id"] == str(second_tenant)
     assert await _memberships(first_tenant, address) == 1
     assert await _memberships(second_tenant, address) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_forwarded_link_does_not_sign_its_holder_into_an_existing_account(
+    planted: Planted,
+) -> None:
+    """The typed password used to be ignored for an account that already had one, and the
+    holder of the link got a session as that account in every organisation it belongs to."""
+    _first_tenant, first_slug, first_session = await planted.tenant()
+    second_tenant, second_slug, second_session = await planted.tenant()
+    address = planted.address("forwarded")
+
+    first = await _invite(first_slug, first_session, address, "staff")
+    assert (await _redeem(first, REDEMPTION_PASSWORD)).status_code == 200
+    await _mark_verified(address)
+
+    second = await _invite(second_slug, second_session, address, "staff")
+    guessed = await _redeem(second, "a-colleague-guessing-123")
+
+    assert guessed.status_code == 401, guessed.text
+    assert guessed.json()["type"].endswith("/invitation_existing_account_password")
+    assert not guessed.cookies, "no session for a holder who did not prove the account"
+    assert await _memberships(second_tenant, address) == 0
+    # The invitation is not burned: the real person redeems it with their password.
+    joined = await _redeem(second, REDEMPTION_PASSWORD)
+    assert joined.status_code == 200, joined.text
+    assert await _memberships(second_tenant, address) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_invitation_cannot_give_a_google_account_a_password(planted: Planted) -> None:
+    from apps.api.authn.service import has_password
+    from apps.api.authn.subjects import create_verified_client
+
+    tenant_id, slug, session_token = await planted.tenant()
+    address = planted.address("google")
+    user_id = await create_verified_client(email=address, name=None, at=datetime.now(UTC))
+    assert user_id is not None
+
+    token = await _invite(slug, session_token, address, "staff")
+    refused = await _redeem(token, "link-holder-chosen-pass-1")
+
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["type"].endswith("/invitation_use_google")
+    assert not await has_password("client", user_id)
+    assert await _memberships(tenant_id, address) == 0
 
 
 # ═══════════════ the residual, and its closure ═══════════════

@@ -484,6 +484,15 @@ describe("§5.3 — which refusals may clear a session", () => {
     expect(isSessionGone(partial)).toBe(false);
   });
 
+  it("an invitation for an existing account asks for that account's proof", () => {
+    const wrong = problemFor(AUTHN_CODES.invitationExistingAccountPassword);
+    expect(signInMessage(wrong)).toMatch(/enter the password you sign in with/i);
+    expect(isSessionGone(wrong)).toBe(false);
+    expect(signInMessage(problemFor(AUTHN_CODES.invitationUseGoogle))).toMatch(
+      /accept with google/i,
+    );
+  });
+
   it("an unrecognised refusal gets no invented sentence", () => {
     // `null` means "fall through to ProblemNotice". A generic string here would turn every
     // unexpected failure into a confident claim about the credential.

@@ -60,6 +60,8 @@ export const AUTHN_CODES = {
   invalidResetToken: "invalid_reset_token",
   invalidSecondFactor: "invalid_second_factor",
   invitationAccountUnverified: "invitation_account_unverified",
+  invitationExistingAccountPassword: "invitation_existing_account_password",
+  invitationUseGoogle: "invitation_use_google",
   invitationInvalid: "invitation_invalid",
   passwordLength: "password_length",
   passwordUnacceptable: "password_unacceptable",
@@ -205,6 +207,10 @@ const SIGN_IN_COPY: Record<string, string> = {
   // the invite link, because re-opening the link produces this same refusal forever.
   [AUTHN_CODES.invitationAccountUnverified]:
     "There is already an account for this email address, and the address has not been confirmed. Sign in to that account, confirm the address from your account settings, then open this invitation again.",
+  [AUTHN_CODES.invitationExistingAccountPassword]:
+    "You already have a Calevate account with this email address. Enter the password you sign in with to join — or reset it from the sign-in page, then open this invitation again.",
+  [AUTHN_CODES.invitationUseGoogle]:
+    "You already have a Calevate account with this email address, and it signs in with Google. Choose Accept with Google above.",
   [AUTHN_CODES.invitationInvalid]:
     "This invitation cannot be used. Invitations work once and expire 72 hours after they are created — ask whoever invited you for a fresh link.",
   // NOT the server's `detail`, which prints the two curl calls that clear it — correct for

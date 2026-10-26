@@ -61,7 +61,8 @@ export default function AcceptInvitationPage() {
                 </div>
                 <p>
                   Choosing a password here creates your Calevate account and adds you to
-                  the business that invited you, in one step.
+                  the business that invited you, in one step. Already have an account with
+                  this address? Enter its password instead.
                 </p>
                 <p>
                   The email address comes from the invitation itself, so there is nothing
