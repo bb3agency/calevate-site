@@ -17002,6 +17002,28 @@
         "title": "DeliveryPayloadOut",
         "type": "object"
       },
+      "DeliveryResendOut": {
+        "additionalProperties": false,
+        "description": "A resend accepted: the delivery is queued again and the retry sweep sends it.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "retrying",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "DeliveryResendOut",
+        "type": "object"
+      },
       "DigiLockerRequirementIn": {
         "additionalProperties": false,
         "properties": {
@@ -74522,7 +74544,9 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryResendOut"
+                }
               }
             },
             "description": "Successful Response"

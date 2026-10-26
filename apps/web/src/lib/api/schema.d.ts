@@ -18179,6 +18179,22 @@ export interface components {
             /** Truncated */
             truncated: boolean;
         };
+        /**
+         * DeliveryResendOut
+         * @description A resend accepted: the delivery is queued again and the retry sweep sends it.
+         */
+        DeliveryResendOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "retrying";
+        };
         /** DigiLockerRequirementIn */
         DigiLockerRequirementIn: {
             /** Reason */
@@ -46587,7 +46603,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DeliveryResendOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

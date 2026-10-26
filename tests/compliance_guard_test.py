@@ -324,10 +324,10 @@ class TestBypasses:
         _edit(
             root,
             "apps/api/compliance/service.py",
-            "    platform = await get_platform_status()",
+            "    platform = await get_platform_status(force_refresh=not halt_read_by_caller)",
             '    if get_settings().app_env != "production":\n'
             "        return DispatchDecision(allowed=True)\n"
-            "    platform = await get_platform_status()",
+            "    platform = await get_platform_status(force_refresh=not halt_read_by_caller)",
         )
         offenders = guard.gate_bypasses(roots=(root,))
         assert any("check_dispatch" in o and "app_env" in o for o in offenders), offenders

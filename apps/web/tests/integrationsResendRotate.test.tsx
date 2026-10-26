@@ -76,7 +76,7 @@ describe("a delivery that finally failed", () => {
   it("can be sent again by someone who manages integrations", async () => {
     const { calls } = await renderClientPage(
       page,
-      routes(OWNER, [delivery()], { "POST /v1/integrations/deliveries/d1/resend": null }),
+      routes(OWNER, [delivery()], { "POST /v1/integrations/deliveries/d1/resend": { id: "d1", status: "retrying" } }),
     );
     fireEvent.click(await screen.findByRole("button", { name: /Send this .* again/ }));
     await waitFor(() =>

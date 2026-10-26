@@ -21,6 +21,7 @@ type Schemas = components["schemas"];
 
 export type Endpoint = Schemas["EndpointOut"];
 export type NewEndpointResult = Schemas["CreateEndpointOut"];
+export type DeliveryResend = Schemas["DeliveryResendOut"];
 /** The webhook create body, opt-ins included — the shape `useCreateEndpoint` sends. */
 export type NewEndpoint = Schemas["CreateEndpointIn"];
 export type Delivery = Schemas["DeliveryOut"];
@@ -317,7 +318,7 @@ export function useResendDelivery(session: Session) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (deliveryId: string) =>
-      apiRequest<void>(session, `/v1/integrations/deliveries/${deliveryId}/resend`, {
+      apiRequest<DeliveryResend>(session, `/v1/integrations/deliveries/${deliveryId}/resend`, {
         method: "POST",
       }),
     onSuccess: () =>

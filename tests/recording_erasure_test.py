@@ -706,6 +706,8 @@ async def test_after_an_erasure_the_subject_is_absent_from_every_store_that_may_
         "recordings_available": 0,
         "campaign_contacts": 0,
         "remembered_facts": 0,
+        "callbacks": 0,
+        "handoffs": 0,
     }
 
 

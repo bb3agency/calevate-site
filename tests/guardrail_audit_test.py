@@ -1136,6 +1136,9 @@ class TestRedactionExposure:
             "SubjectExportCallOut.summary_local",
             "SubjectExportTurnOut.text",
             "SubjectExportCallOut.summary",
+            # The hand-off brief in the subject export: the model's summary, stored
+            # redacted like the call summary.
+            "SubjectExportHandoffOut.summary",
             # D-694: the assistant's activity log and its background job progress, both
             # our own sentences redacted on write.
             "CopilotActionOut.summary",

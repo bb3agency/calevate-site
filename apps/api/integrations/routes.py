@@ -324,6 +324,13 @@ class DeliveryOut(Strict):
     resendable: bool = False
 
 
+class DeliveryResendOut(Strict):
+    """A resend accepted: the delivery is queued again and the retry sweep sends it."""
+
+    id: UUID
+    status: Literal["retrying"]
+
+
 class DeliveryPayloadOut(Strict):
     """What we actually sent, byte for byte — the raw-PII surface of this module.
 
@@ -847,6 +854,7 @@ async def rotate_endpoint_secret(
 @router.post(
     "/deliveries/{delivery_id}/resend",
     status_code=202,
+    response_model=DeliveryResendOut,
     openapi_extra=permission_meta("org:manage"),
     summary="Send a failed delivery again — same delivery id, same body",
     description=(
@@ -862,7 +870,7 @@ async def resend_delivery(
     session: Session,
     request: Request,
     principal: EndpointOwner,
-) -> None:
+) -> DeliveryResendOut:
     assert principal.tenant_id is not None
     await service.resend_delivery(session, delivery_id=delivery_id)
     await write_audit(
@@ -874,6 +882,7 @@ async def resend_delivery(
         object_id=str(delivery_id),
         ip=client_request_ip(request),
     )
+    return DeliveryResendOut(id=delivery_id, status="retrying")
 
 
 @router.get(
