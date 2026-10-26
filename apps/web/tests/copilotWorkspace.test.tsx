@@ -23,6 +23,8 @@ import {
   workspaceRoutes,
 } from "./copilotWorkspaceFixture";
 import { renderClientPage, type ApiCall } from "./harness";
+import { PLAN_ID, planFixture } from "./planFixture";
+import { TasksList } from "@/components/copilot/workspace/TasksList";
 
 function posted(calls: ApiCall[], path: string): ApiCall[] {
   return calls.filter((call) => call.method === "POST" && call.path === path);
@@ -216,5 +218,68 @@ describe("routines", () => {
       schedule: { days: ["mon", "fri"], time: "17:00" },
       enabled: true,
     });
+  });
+});
+
+describe("plans in the workspace (D-893)", () => {
+  const STAGED_PLAN = {
+    ...PENDING_APPROVAL,
+    id: "0192f0aa-0000-7000-8000-00000000a0f1",
+    tool: "leads_bulk_update",
+    summary: "Set 140 leads to contacted",
+    plan_id: PLAN_ID,
+    confirm_action: null,
+  };
+
+  it("draws a staged plan as the plan card and approves it through the inbox", async () => {
+    const view = await renderClientPage(
+      <WithSession>{(session) => <ApprovalsInbox session={session} />}</WithSession>,
+      {
+        ...workspaceRoutes(),
+        "/v1/copilot/approvals": { actions: [STAGED_PLAN], has_more: false },
+        [`/v1/copilot/plans/${PLAN_ID}`]: planFixture(),
+        [`POST /v1/copilot/approvals/${STAGED_PLAN.id}/approve`]: {
+          tool: "leads_bulk_update",
+          object_type: "plan",
+          object_id: PLAN_ID,
+          applied: true,
+          detail: "Approved.",
+          plan_id: PLAN_ID,
+        },
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Set 140 leads to contacted/ }));
+    const card = await screen.findByRole("region", { name: /Plan: Set 140 leads/ });
+    // The preview read is for single steps; a plan is its own preview.
+    expect(view.calls.some((call) => call.path.endsWith("/preview"))).toBe(false);
+    expect(screen.getByRole("button", { name: "Decline" })).toBeTruthy();
+    await expectNoA11yViolations(view.container, "the approvals inbox, a staged plan");
+    fireEvent.click(within(card).getByRole("button", { name: /Approve — / }));
+    await waitFor(() =>
+      expect(posted(view.calls, `/v1/copilot/approvals/${STAGED_PLAN.id}/approve`)).toHaveLength(1),
+    );
+    expect(posted(view.calls, `/v1/copilot/plans/${PLAN_ID}/approve`)).toHaveLength(0);
+  });
+
+  it("lists recent plans above the background tasks", async () => {
+    const view = await renderClientPage(
+      <WithSession>
+        {(session) => <TasksList session={session} onOpenApprovals={() => undefined} />}
+      </WithSession>,
+      {
+        ...workspaceRoutes(),
+        "/v1/copilot/plans?limit=10": {
+          plans: [planFixture({ status: "running", can_approve: false, done_count: 70 })],
+        },
+        [`/v1/copilot/plans/${PLAN_ID}`]: planFixture({
+          status: "running",
+          can_approve: false,
+          done_count: 70,
+        }),
+      },
+    );
+    const plans = await screen.findByRole("region", { name: "Plans" });
+    expect(await within(plans).findByText("70 of 140 done")).toBeTruthy();
+    await expectNoA11yViolations(view.container, "tasks with a running plan");
   });
 });

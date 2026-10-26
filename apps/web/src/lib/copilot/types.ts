@@ -278,10 +278,16 @@ export interface CopilotProposal {
   reversal: string;
   expires_at: string;
   /**
-   * The step-up string an ADMIN action's confirm must send as `X-Confirm-Action`, or
+   * The step-up string an ADMIN action's confirm must send as `X-Confirm-Action`, or a
+   * client emailed-code template with `{org}` for the account (D-893), or
    * absent/`null` (D-694). The same string the console button for that action sends.
    */
   confirm_action?: string | null;
+  /**
+   * Set when the proposal is a PLAN over many records (D-893): the card reads the plan from
+   * `GET /v1/copilot/plans/{plan_id}` and Confirm with this token approves exactly it.
+   */
+  plan_id?: string | null;
 }
 
 /**

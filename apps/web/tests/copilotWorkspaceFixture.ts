@@ -123,6 +123,7 @@ export function workspaceRoutes(): Record<string, unknown> {
     "/v1/copilot/approvals": { actions: [PENDING_APPROVAL], has_more: false },
     "/v1/copilot/jobs": { jobs: [RUNNING_JOB] },
     "/v1/copilot/routines": { routines: [ROUTINE_ON, ROUTINE_OFF] },
+    "/v1/copilot/plans?limit=10": { plans: [] },
     "/v1/copilot/conversation?limit=50": { turns: [], has_more: false },
     "/v1/copilot/actions?limit=30": {
       actions: [DONE_ACTION, REFUSED_ACTION, PENDING_APPROVAL],

@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { useEffect, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -25,6 +26,7 @@ import {
 import { forgetOpenOffers } from "@/lib/copilot/useCopilotConversation";
 
 import { expectNoA11yViolations } from "./a11y";
+import { PLAN_ID, planFixture } from "./planFixture";
 
 /**
  * `next/navigation` is re-mocked for this file because the PATHNAME is an input here
@@ -184,6 +186,7 @@ function stubCopilot(options: {
   confirm?: { status: number; body: Record<string, unknown> };
   confirmThrows?: boolean;
   conversation?: { turns: unknown[]; has_more: boolean };
+  plan?: Record<string, unknown>;
 }) {
   const bodies: string[] = [];
   const confirms: string[] = [];
@@ -263,6 +266,13 @@ function stubCopilot(options: {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
+      }
+      if (options.plan && path.startsWith("/v1/copilot/plans/")) {
+        // D-893: a plan proposal's card reads the plan it names.
+        return new Response(JSON.stringify(options.plan), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       if (path.startsWith("/v1/billing/ai-quota")) {
         return new Response(JSON.stringify(options.quota ?? {}), {
@@ -752,6 +762,56 @@ describe("a proposal", () => {
     // A spent token is never offered again.
     renderPanel();
     await waitFor(() => expect(screen.queryAllByText("Pause this campaign").length).toBe(0));
+  });
+
+  it("A PLAN PROPOSAL IS THE PLAN CARD, and Change puts the request back in the ask box", async () => {
+    const plan = planFixture();
+    stubCopilot({
+      chunks: proposalChunks({
+        ...PROPOSAL,
+        tool: "leads_bulk_update",
+        title: plan.title,
+        object_type: "plan",
+        object_id: PLAN_ID,
+        current: null,
+        proposed: null,
+        plan_id: PLAN_ID,
+      }),
+      plan,
+      confirm: {
+        status: 200,
+        body: { tool: "leads_bulk_update", applied: true, detail: "Approved.", plan_id: PLAN_ID },
+      },
+    });
+    renderPanel();
+    await ask("mark last week's missed callers as contacted");
+    const card = await screen.findByRole("region", { name: /Plan: Set 140 leads to contacted/ });
+    expect(within(card).getByText(/^140 leads — /)).toBeTruthy();
+
+    fireEvent.click(within(card).getByRole("button", { name: "Change" }));
+    expect(
+      (screen.getByLabelText("Your question about this screen") as HTMLTextAreaElement).value,
+    ).toBe("Change the plan: ");
+  });
+
+  it("A PLAN PROPOSAL CONFIRMS ONCE with its token and nothing else", async () => {
+    const plan = planFixture();
+    const { confirms } = stubCopilot({
+      chunks: proposalChunks({ ...PROPOSAL, tool: "leads_bulk_update", plan_id: PLAN_ID }),
+      plan,
+      confirm: {
+        status: 200,
+        body: { tool: "leads_bulk_update", applied: true, detail: "Approved.", plan_id: PLAN_ID },
+      },
+    });
+    renderPanel();
+    await ask("mark them contacted");
+    const approve = await screen.findByRole("button", { name: /^Approve — / });
+    await act(async () => {
+      fireEvent.click(approve);
+    });
+    await waitFor(() => expect(confirms).toHaveLength(1));
+    expect(JSON.parse(confirms[0])).toEqual({ token: PROPOSAL.token });
   });
 
   it("STAYS GONE AFTER A DISMISS when the panel is opened again", async () => {

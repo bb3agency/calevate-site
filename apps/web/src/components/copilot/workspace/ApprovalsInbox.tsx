@@ -16,6 +16,8 @@ import {
   type CopilotActionOut,
 } from "@/lib/copilot/workspace";
 
+import { PlanCard } from "../PlanCard";
+
 /**
  * THE APPROVALS INBOX: the steps a background task or a routine reached that call someone,
  * spend money or cannot be undone, waiting for a person (D-694).
@@ -74,8 +76,10 @@ function ApprovalRow({
   onResult: (sentence: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const preview = useApprovalPreview(session, open ? row.id : null);
-  const approve = useApproveAction(session);
+  // A staged PLAN (D-893) is shown as the plan card itself, not as a preview of one.
+  const plan = row.plan_id ?? null;
+  const preview = useApprovalPreview(session, open && plan === null ? row.id : null);
+  const approve = useApproveAction(session, row.confirm_action ?? null);
   // A decided row leaves the inbox; the server's sentence stays above the list (`onResult`)
   // and a refusal is drawn in the row.
   const approveFeedback = useActionFeedback(approve, { errorDisplay: "inline" });
@@ -110,7 +114,29 @@ function ApprovalRow({
         />
       </button>
 
-      {open && (
+      {open && plan !== null && (
+        <div id={detailsId} className="space-y-3 border-t border-line px-4 py-3">
+          <PlanCard
+            session={session}
+            planId={plan}
+            decision={{ kind: "approval", actionId: row.id, confirmAction: row.confirm_action ?? null }}
+            onDecided={() => onResult("Approved. It is running now; its result will show here and on the bell.")}
+          />
+          <ActionButton
+            variant="secondary"
+            status={rejectFeedback.status}
+            disabled={approve.isPending}
+            onClick={() =>
+              reject.mutate(row.id, { onSuccess: () => onResult("Declined. Nothing was changed.") })
+            }
+            successLabel="Declined"
+          >
+            Decline
+          </ActionButton>
+          {reject.error != null && <ProblemNotice error={reject.error} />}
+        </div>
+      )}
+      {open && plan === null && (
         <div id={detailsId} className="space-y-3 border-t border-line px-4 py-3">
           {preview.error != null && (
             <ProblemNotice error={preview.error} onRetry={() => void preview.refetch()} />

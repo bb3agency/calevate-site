@@ -96,6 +96,13 @@ const INVALIDATES: Record<string, readonly (readonly string[])[]> = {
   dnc_add: DNC_DEPENDENT_KEYS,
   dnc_remove: DNC_DEPENDENT_KEYS,
   campaign_pause: [["campaign"], ["campaigns"], ["dashboard"]],
+  // D-893: plans refresh these once they finish (`lib/copilot/plans.refreshAfterPlan`).
+  leads_bulk_update: [["leads"], ["lead"], ["lead-facets"], ["dashboard"]],
+  campaign_add_leads: [["campaign"], ["campaigns"]],
+  callbacks_book_bulk: [["callbacks"], ["leads"], ["calls-log"]],
+  calls_place_bulk: [["campaigns"], ["campaign"], ["calls-log"], ["dashboard"]],
+  callback_book: [["callbacks"], ["leads"], ["calls-log"]],
+  callback_reschedule: [["callbacks"], ["calls-log"]],
 };
 
 export function refreshAfterConfirm(
@@ -126,6 +133,39 @@ export function refreshAfterConfirm(
  * "already confirmed" — a refusal about our own retry, shown to a person whose change
  * actually succeeded.
  */
+/**
+ * The action string a confirm sends as `X-Confirm-Action`: an admin step-up string as it
+ * comes, or a client emailed-code template with `{org}` filled in with this account's slug
+ * (D-893 F4: the code the console button for the same act asks for).
+ */
+export function confirmActionFor(session: Session, template: string | null): string | null {
+  return template === null ? null : template.replaceAll("{org}", session.orgSlug);
+}
+
+/** One confirm, as the card's mutation and the plan card both send it. */
+export function confirmProposal(
+  session: Session,
+  realm: "client" | "admin",
+  template: string | null,
+  token: string,
+): Promise<CopilotConfirmOut> {
+  const path = realm === "admin" ? ADMIN_COPILOT_CONFIRM_PATH : COPILOT_CONFIRM_PATH;
+  const body = { token } satisfies CopilotConfirmIn;
+  const confirmAction = confirmActionFor(session, template);
+  if (confirmAction === null) {
+    return apiRequest<CopilotConfirmOut>(session, path, { method: "POST", body });
+  }
+  // An action whose console button asks for step-up or an emailed code asks for it here
+  // too (D-694, D-893). Retrying after the code is safe: the server checks it BEFORE it
+  // burns the proposal token.
+  return withActionCode(
+    confirmAction,
+    `Confirming what ${ASSISTANT_NAME} proposed.`,
+    () => apiRequest<CopilotConfirmOut>(session, path, { method: "POST", body, confirmAction }),
+    needsReauthentication,
+  );
+}
+
 export function useConfirmProposal(
   session: Session,
   realm: "client" | "admin" = "client",
@@ -133,22 +173,7 @@ export function useConfirmProposal(
 ) {
   const client = useQueryClient();
   return useMutation<CopilotConfirmOut, unknown, string>({
-    mutationFn: (token: string) => {
-      const path = realm === "admin" ? ADMIN_COPILOT_CONFIRM_PATH : COPILOT_CONFIRM_PATH;
-      const body = { token } satisfies CopilotConfirmIn;
-      if (confirmAction === null) {
-        return apiRequest<CopilotConfirmOut>(session, path, { method: "POST", body });
-      }
-      // An admin action whose console button asks for step-up asks for it here too (D-694).
-      // Retrying after the code is safe: the server checks step-up BEFORE it burns the
-      // proposal token (`copilot/admin_actions.confirm_admin`).
-      return withActionCode(
-        confirmAction,
-        `Confirming what ${ASSISTANT_NAME} proposed.`,
-        () => apiRequest<CopilotConfirmOut>(session, path, { method: "POST", body, confirmAction }),
-        needsReauthentication,
-      );
-    },
+    mutationFn: (token: string) => confirmProposal(session, realm, confirmAction, token),
     onSuccess: (result) => {
       // Only when something MOVED. `applied: false` means the row was already in that
       // state, so there is nothing on screen that has gone stale, and refetching the

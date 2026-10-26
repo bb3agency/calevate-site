@@ -10,6 +10,8 @@ import { ApiProblem, TransportProblem, type Session } from "@/lib/api/client";
 import { useConfirmProposal, type CopilotConfirmOut } from "@/lib/api/copilot";
 import { lookup } from "@/lib/lookup";
 import type { CopilotProposal } from "@/lib/copilot/types";
+
+import { PlanCard } from "./PlanCard";
 import { AI_CEILING_CODE } from "@/lib/copilot/useCopilotConversation";
 
 /**
@@ -60,15 +62,7 @@ import { AI_CEILING_CODE } from "@/lib/copilot/useCopilotConversation";
  * moved once, and only with cause: when Confirm resolves, the button the person was
  * standing on is replaced by the outcome, and focus would otherwise fall to `<body>`.
  */
-export function ProposalCard({
-  session,
-  proposal,
-  confirmable,
-  realm = "client",
-  onDismiss,
-  onCeiling,
-  onDecided,
-}: {
+type ProposalCardProps = {
   session: Session;
   proposal: CopilotProposal;
   /**
@@ -84,7 +78,44 @@ export function ProposalCard({
   onDecided?: () => void;
   /** Called when Confirm is refused at the AI allowance ceiling. */
   onCeiling?: () => void;
-}) {
+  /** A plan's "Change" (D-893): put the request back in the ask box. */
+  onChange?: () => void;
+};
+
+/**
+ * A proposal over a SET is a plan (D-893): the plan card reads who, why, when, the
+ * estimate and who is left out from the plan itself, and its Approve sends this token.
+ */
+export function ProposalCard(props: ProposalCardProps) {
+  const { proposal } = props;
+  if (proposal.plan_id && props.realm !== "admin" && props.confirmable) {
+    return (
+      <PlanCard
+        session={props.session}
+        planId={proposal.plan_id}
+        decision={{
+          kind: "proposal",
+          token: proposal.token,
+          confirmAction: proposal.confirm_action ?? null,
+        }}
+        onChange={props.onChange}
+        onDismiss={props.onDismiss}
+        onDecided={props.onDecided}
+      />
+    );
+  }
+  return <SingleProposalCard {...props} />;
+}
+
+function SingleProposalCard({
+  session,
+  proposal,
+  confirmable,
+  realm = "client",
+  onDismiss,
+  onCeiling,
+  onDecided,
+}: ProposalCardProps) {
   const confirm = useConfirmProposal(session, realm, proposal.confirm_action ?? null);
   // The refusal is the server's own sentence, kept on the card; the outcome replaces it.
   const confirmFeedback = useActionFeedback(confirm, { errorDisplay: "inline" });

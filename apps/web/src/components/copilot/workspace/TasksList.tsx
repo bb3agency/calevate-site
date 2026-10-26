@@ -9,7 +9,10 @@ import type { Session } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
 import { useCancelJob, useCopilotJobs, type CopilotJobOut } from "@/lib/copilot/workspace";
 
+import { useRecentPlans } from "@/lib/copilot/plans";
+
 import { JobProgress } from "../JobProgress";
+import { PlanCard } from "../PlanCard";
 
 const STATUS: Record<string, { words: string; tone: NoticeTone }> = {
   queued: { words: "Starting", tone: "neutral" },
@@ -33,25 +36,51 @@ export function TasksList({
   onOpenApprovals: () => void;
 }) {
   const jobs = useCopilotJobs(session);
+  const plans = useRecentPlans(session);
+  // PLANS FIRST (D-893): a change over many records, approved once, running here. A failed
+  // read says so rather than reading as "no plans".
+  const planList = plans.isSuccess ? plans.data.plans : [];
+  const planSection = plans.isError ? (
+    <ProblemNotice error={plans.error} onRetry={() => void plans.refetch()} />
+  ) : planList.length > 0 ? (
+      <section aria-label="Plans" className="space-y-3">
+        <h3 className="text-sm font-medium text-ink">Plans</h3>
+        <ul className="space-y-4">
+          {planList.map((plan) => (
+            <li key={plan.id}>
+              <PlanCard session={session} planId={plan.id} />
+            </li>
+          ))}
+        </ul>
+      </section>
+    ) : null;
   if (jobs.error != null) {
     return <ProblemNotice error={jobs.error} onRetry={() => void jobs.refetch()} />;
   }
   if (jobs.data === undefined) return <Skeleton rows={3} label="Loading tasks…" />;
   if (jobs.data.jobs.length === 0) {
     return (
-      <EmptyState
-        illustration={<EmptySketch kind="chat" />}
-        message="No tasks yet."
-        hint="Ask for something bigger than one answer — or set up a routine — and it runs here in the background."
-      />
+      <div className="space-y-6">
+        {planSection}
+        {plans.isSuccess && planList.length === 0 && (
+          <EmptyState
+            illustration={<EmptySketch kind="chat" />}
+            message="No tasks yet."
+            hint="Ask for something bigger than one answer — or set up a routine — and it runs here in the background."
+          />
+        )}
+      </div>
     );
   }
   return (
-    <ul className="divide-y divide-line border-y border-line" aria-label="Background tasks">
-      {jobs.data.jobs.map((job) => (
-        <TaskRow key={job.id} session={session} job={job} onOpenApprovals={onOpenApprovals} />
-      ))}
-    </ul>
+    <div className="space-y-6">
+      {planSection}
+      <ul className="divide-y divide-line border-y border-line" aria-label="Background tasks">
+        {jobs.data.jobs.map((job) => (
+          <TaskRow key={job.id} session={session} job={job} onOpenApprovals={onOpenApprovals} />
+        ))}
+      </ul>
+    </div>
   );
 }
 

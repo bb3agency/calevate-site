@@ -13,7 +13,8 @@ import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "@/lib/api/client";
-import { refreshAfterConfirm } from "@/lib/api/copilot";
+import { withAccountCode } from "@/lib/api/accountCode";
+import { confirmActionFor, refreshAfterConfirm } from "@/lib/api/copilot";
 import type { components } from "@/lib/api/schema";
 
 type Schemas = components["schemas"];
@@ -113,16 +114,27 @@ function useInvalidateWorkspace(session: Session) {
  * post of an approval that landed is answered "already decided", a refusal about our own
  * retry (`useConfirmProposal`'s reason).
  */
-export function useApproveAction(session: Session) {
+export function approveAction(
+  session: Session,
+  actionId: string,
+  template: string | null,
+): Promise<CopilotConfirmOut> {
+  const path = `/v1/copilot/approvals/${encodeURIComponent(actionId)}/approve`;
+  const confirmAction = confirmActionFor(session, template);
+  if (confirmAction === null) {
+    return apiRequest<CopilotConfirmOut>(session, path, { method: "POST" });
+  }
+  // The emailed code the console button for the same act asks for (D-893 F4).
+  return withAccountCode(confirmAction, "Approving a change that needs your code.", () =>
+    apiRequest<CopilotConfirmOut>(session, path, { method: "POST", confirmAction }),
+  );
+}
+
+export function useApproveAction(session: Session, template: string | null = null) {
   const client = useQueryClient();
   const invalidate = useInvalidateWorkspace(session);
   return useMutation<CopilotConfirmOut, unknown, string>({
-    mutationFn: (actionId) =>
-      apiRequest<CopilotConfirmOut>(
-        session,
-        `/v1/copilot/approvals/${encodeURIComponent(actionId)}/approve`,
-        { method: "POST" },
-      ),
+    mutationFn: (actionId) => approveAction(session, actionId, template),
     onSuccess: (result) => {
       invalidate();
       if (result.applied) refreshAfterConfirm(client, session.orgSlug, result.tool);

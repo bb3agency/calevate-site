@@ -596,6 +596,13 @@ export function CopilotPanel({
               onDismiss={conversation.dismissProposal}
               onDecided={conversation.settleProposal}
               onCeiling={() => setConfirmAtCeiling(true)}
+              // A plan's "Change" (D-893): the card goes, and the ask box takes the words
+              // to say what should be different; the unapproved plan simply expires.
+              onChange={() => {
+                conversation.dismissProposal();
+                setQuestion("Change the plan: ");
+                panel.current?.querySelector("textarea")?.focus();
+              }}
             />
           )}
         </div>
