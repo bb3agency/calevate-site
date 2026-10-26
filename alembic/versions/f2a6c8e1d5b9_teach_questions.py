@@ -17,7 +17,7 @@ Downgrade drops the table and its policy: settled practice and setup questions c
 drafts are written again.
 
 Revision ID: f2a6c8e1d5b9
-Revises: e5c1a9d3f720
+Revises: f2b7d4e9a1c6
 Create Date: 2026-10-26 23:00:00.000000
 """
 
@@ -30,7 +30,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "f2a6c8e1d5b9"
-down_revision: str | None = "e5c1a9d3f720"
+down_revision: str | None = "f2b7d4e9a1c6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
