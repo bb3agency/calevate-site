@@ -228,6 +228,11 @@ their OUTBOUND calling pauses; inbound is untouched; the client's screens say wh
    is irreversible.
 3. Won or closed: the hold is released automatically. Lost: the hold stays as the final debit
    (Razorpay has deducted it from our balance). Outbound resumes when no dispute is open.
+4. Events can arrive out of order. An opening event redelivered after won, lost or closed is
+   logged as `razorpay_dispute_stale_event` and changes nothing; a `lost` seen before any
+   hold writes the debit without pausing outbound. A won dispute challenged again in a
+   pre-arbitration or arbitration phase reopens and pauses outbound again, but its amount
+   is not held a second time: decide by hand whether to take it.
 
 ### B6. Auto-recharge
 

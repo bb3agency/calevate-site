@@ -15,7 +15,10 @@ WHAT HAPPENS HERE, PER EVENT (`webhooks/disputes.md`)
   (`dispute_release:<id>`), back onto the purchase's own lot at its frozen rates. `closed`
   releases too: Razorpay closes a fraud dispute after we either explain the payment or
   refund it, and a refund records its own debit through `refund.processed`.
-- `lost`: the hold stands as the final debit; Razorpay has taken the money from us.
+- `lost`: the hold stands as the final debit; Razorpay has taken the money from us. A
+  `lost` seen before any hold writes the debit then, without pausing outbound.
+- An open state arriving after `won`, `lost` or `closed` is a late redelivery and changes
+  nothing, unless the dispute has moved to a pre-arbitration or arbitration phase.
 - `under_review`, `action_required`: the row is updated and, for the second, the admin is
   alerted to add evidence.
 
@@ -60,6 +63,19 @@ log = get_logger(__name__)
 
 DISPUTE_HOLD_KIND: Final = "dispute_hold"
 DISPUTE_RELEASE_KIND: Final = "dispute_release"
+
+#: A dispute's outcomes. An open state arriving after one is a late redelivery unless the
+#: dispute moved to a later phase (`_escalated`).
+TERMINAL_STATES: Final = ("won", "lost", "closed")
+
+#: Phases in which a WON chargeback is challenged again ("challenged by the customer a
+#: second time" / "a third time", razorpay.com/docs/api/disputes/entity, read 26 Oct 2026).
+#: Whether that reuses the dispute id is not stated there, so both shapes are handled.
+ESCALATION_PHASES: Final = ("pre_arbitration", "arbitration")
+
+
+def _escalated(phase: str | None, *, was: str | None) -> bool:
+    return phase in ESCALATION_PHASES and phase != was
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,11 +141,28 @@ async def apply_dispute_event(
     await lock_tenant_credits(session, tenant_id)
     existing = (
         await session.execute(
-            text("SELECT id, hold_inr FROM payment_disputes WHERE dispute_id = :did"),
+            text(
+                "SELECT id, hold_inr, status, phase FROM payment_disputes WHERE dispute_id = :did"
+            ),
             {"did": dispute.dispute_id},
         )
     ).first()
     action_required = event == "payment.dispute.action_required"
+    if (
+        existing is not None
+        and existing.status in TERMINAL_STATES
+        and dispute.status not in TERMINAL_STATES
+        and not _escalated(dispute.phase, was=existing.phase)
+    ):
+        # A retried delivery of an earlier event arriving after the outcome. Applying it
+        # would reopen the dispute and pause outbound calling with no later event to lift
+        # the pause, so the outcome stands. A won chargeback challenged again comes back
+        # in a later phase and is applied.
+        log.info(
+            "razorpay_dispute_stale_event",
+            extra={"tenant_id": str(tenant_id), "dispute_id": dispute.dispute_id},
+        )
+        return "stale"
     if existing is None:
         await session.execute(
             text(
@@ -193,6 +226,18 @@ async def apply_dispute_event(
         session, tenant_id=tenant_id, dispute=dispute
     ):
         outcome = "released"
+    elif dispute.status == "lost" and await _hold(session, tenant_id=tenant_id, dispute=dispute):
+        # Lost with no hold yet: the opening event never reached us, or is still being
+        # retried. Razorpay has taken the money, so the debit is written now; the pause is
+        # not, because there is nothing left to wait for.
+        outcome = "debited"
+        await alert_payment_reversed(
+            session,
+            tenant_id=tenant_id,
+            kind="dispute",
+            payment_ref=dispute.payment_id,
+            reversal_ref=dispute.dispute_id,
+        )
     if action_required:
         alert(
             "ROUTE_HANDLER",

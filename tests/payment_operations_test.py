@@ -24,6 +24,7 @@ from apps.api.billing import (
     payments,
     reconciliation,
 )
+from apps.api.billing.dispute_hold import dispute_hold_active
 from apps.api.billing.disputes import DisputeFacts, apply_dispute_event, extract_dispute
 from apps.api.billing.payment_objects import AUTO_RECHARGE, MANDATE, record_route, verify_order
 from apps.api.billing.razorpay_api import ProviderPayment, ProviderRefundRow, ProviderSettlement
@@ -272,6 +273,65 @@ async def test_a_dispute_first_seen_as_won_releases_nothing() -> None:
         )
     assert outcome == "recorded"
     assert [r[0] for r in await _ledger(tenant_id)] == ["topup"]
+
+
+async def test_a_late_opening_event_does_not_reopen_a_decided_dispute() -> None:
+    """A redelivered `created` or `under_review` arriving after `won` set the status back to
+    open, and the outbound gate stayed shut with no later event to open it."""
+    tenant_id = await _tenant()
+    payment_id = _id("pay")
+    await _fund(tenant_id, payment_id, "400.00")
+    dispute_id = _id("disp")
+
+    async def apply(event: str, status: str, phase: str = "chargeback") -> str:
+        async with tenant_session(tenant_id) as session:
+            return await apply_dispute_event(
+                session,
+                tenant_id=tenant_id,
+                event=event,
+                dispute=_facts(payment_id, status, dispute_id=dispute_id, phase=phase),
+            )
+
+    assert await apply("payment.dispute.created", "open") == "held"
+    assert await apply("payment.dispute.won", "won") == "released"
+    assert await apply("payment.dispute.under_review", "under_review") == "stale"
+    async with tenant_session(tenant_id) as session:
+        assert await dispute_hold_active(session, tenant_id=tenant_id) is False
+        balance = (await get_balance(session, tenant_id=tenant_id)).amount_inr
+    assert balance == Decimal("400")
+
+    # A won chargeback challenged again comes back in a later phase, and that is applied.
+    assert await apply("payment.dispute.created", "open", phase="pre_arbitration") == "recorded"
+    async with tenant_session(tenant_id) as session:
+        assert await dispute_hold_active(session, tenant_id=tenant_id) is True
+
+
+async def test_a_dispute_first_seen_as_lost_is_debited_and_a_late_opening_changes_nothing() -> None:
+    """`lost` before `created`: the money is gone at the provider, so the debit is written
+    then; the opening event redelivered afterwards neither debits again nor pauses calls."""
+    tenant_id = await _tenant()
+    payment_id = _id("pay")
+    await _fund(tenant_id, payment_id, "400.00")
+    dispute_id = _id("disp")
+    async with tenant_session(tenant_id) as session:
+        lost = await apply_dispute_event(
+            session,
+            tenant_id=tenant_id,
+            event="payment.dispute.lost",
+            dispute=_facts(payment_id, "lost", dispute_id=dispute_id),
+        )
+    async with tenant_session(tenant_id) as session:
+        late = await apply_dispute_event(
+            session,
+            tenant_id=tenant_id,
+            event="payment.dispute.created",
+            dispute=_facts(payment_id, "open", dispute_id=dispute_id),
+        )
+        paused = await dispute_hold_active(session, tenant_id=tenant_id)
+        balance = (await get_balance(session, tenant_id=tenant_id)).amount_inr
+    assert (lost, late, paused) == ("debited", "stale", False)
+    assert balance == Decimal("0")
+    assert [r[0] for r in await _ledger(tenant_id)] == ["topup", "adjustment"]
 
 
 async def test_the_dispute_queue_lists_open_ones_and_names_their_tenant() -> None:
