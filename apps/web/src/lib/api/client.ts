@@ -928,6 +928,12 @@ export async function apiUpload<T>(
   return await withDeadline<T>(
     (deadlineSignal) =>
       new Promise<T>((resolve, reject) => {
+        // An already-aborted signal never fires `abort` again, so the listener below would
+        // miss it and the upload would still be sent.
+        if (deadlineSignal.aborted) {
+          reject(deadlineSignal.reason);
+          return;
+        }
         const xhr = new XMLHttpRequest();
         xhr.open("POST", apiUrl(path));
         // The session cookie, for the reason `credentials: "include"` is set on every

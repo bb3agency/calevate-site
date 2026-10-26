@@ -25,6 +25,7 @@ import {
   mintGrantRef,
   toTwoDecimals,
 } from "@/lib/api/credits";
+import { lookup } from "@/lib/lookup";
 import { useMakePaid, usePaidStatus, type MakePaidResult, type PaidStatus } from "@/lib/api/paidStatus";
 
 import { Field, describedBy } from "./fields";
@@ -92,7 +93,7 @@ export function PaidStatusPanel({
       {state.paid ? (
         <p className="text-body text-ink">
           Paid since {state.paid_at ? formatIST(state.paid_at) : "an unrecorded date"}, through{" "}
-          {PAID_VIA[state.via ?? ""] ?? "an unrecorded route"}.
+          {lookup(PAID_VIA, state.via) ?? "an unrecorded route"}.
           {state.reason && <span className="text-ink-muted"> “{state.reason}”</span>}
         </p>
       ) : (
