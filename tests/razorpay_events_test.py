@@ -925,6 +925,43 @@ async def test_a_non_json_200_refund_answer_is_unreadable() -> None:
     assert raised.value.code == "refund_unreadable"
 
 
+def _read_timeout(request: httpx.Request) -> httpx.Response:
+    raise httpx.ReadTimeout("no answer", request=request)
+
+
+def _refused_connection(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError("refused", request=request)
+
+
+@pytest.mark.parametrize(
+    ("responder", "code", "claim_survives"),
+    [
+        (_read_timeout, "refund_outcome_unknown", True),
+        (lambda _r: httpx.Response(502, content=b"bad gateway"), "refund_outcome_unknown", True),
+        (_refused_connection, "payment_provider_unreachable", False),
+        (lambda _r: httpx.Response(400, json={}), "refund_rejected", False),
+    ],
+    ids=["read-timeout", "server-error", "never-connected", "client-error"],
+)
+async def test_a_refund_that_may_have_been_created_keeps_its_claim(
+    responder: Any, code: str, claim_survives: bool
+) -> None:
+    """A read timeout or a 5xx can follow a refund the provider created. Releasing its claim
+    let a second, different refund pass the payment ceiling before `refund.processed` took
+    the first one off the lot. Only a request that never connected, or a 4xx, proves nothing
+    moved."""
+    adapter, _seen = _refund_adapter(responder)
+    with pytest.raises(ProblemError) as raised:
+        await adapter.create_refund(
+            payment_id="pay_1",
+            amount_inr=Decimal("500.00"),
+            notes={},
+            idempotency_key="rfnd_key_0123456789",
+        )
+    assert raised.value.code == code
+    assert (raised.value.code in payments.REFUND_MAY_HAVE_MOVED_CODES) is claim_survives
+
+
 # ============================================================================
 # extract_refund — the remaining refusal arms, each hit precisely
 # ============================================================================
@@ -1361,14 +1398,14 @@ async def test_two_refunds_racing_cannot_return_more_than_the_unspent_credit(
 async def test_a_refund_the_provider_refuses_releases_its_claim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No money moved, so nothing may go on being reserved: one vendor 500 must not
+    """No money moved, so nothing may go on being reserved: one refusal must not
     permanently shrink what this client can be refunded."""
     tenant_id = await _tenant()
     pid = _payment_id("RELEASE")
     await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
 
     def broken(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500, json={"error": {"description": "provider is down"}})
+        return httpx.Response(400, json={"error": {"description": "not refundable now"}})
 
     _install_refund(monkeypatch, broken)
     with pytest.raises(ProblemError):
@@ -1393,6 +1430,53 @@ async def test_a_refund_the_provider_refuses_releases_its_claim(
     )
     assert out.recorded is True
     assert await _balance(tenant_id) == Decimal("0.0000")
+
+
+async def test_a_refund_the_provider_may_have_created_keeps_its_claim_and_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 5xx after the request arrived does not prove nothing was refunded, so its claim
+    stays on the ceiling: a different second refund cannot slip past it before the first
+    one's `refund.processed` lands. The same amount is a replay of the same key and still
+    goes through once the provider answers."""
+    tenant_id = await _tenant()
+    pid = _payment_id("UNKNOWN")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+
+    def broken(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": {"description": "provider is down"}})
+
+    _install_refund(monkeypatch, broken)
+    with pytest.raises(ProblemError) as raised:
+        await issue_tenant_refund(
+            tenant_id,
+            RefundIn(payment_id=pid, amount_inr=Decimal("2000.00"), reason="x"),
+            _request(),
+            _admin(),
+        )
+    assert raised.value.code == "refund_outcome_unknown"
+    async with tenant_session(tenant_id) as session:
+        assert await payments.claimed_refund_total_inr(
+            session, tenant_id=tenant_id, payment_id=pid
+        ) == Decimal("2000.00")
+
+    _install_refund(monkeypatch, _refund_by_amount("rfnd_SECOND"))
+    with pytest.raises(ProblemError) as over:
+        await issue_tenant_refund(
+            tenant_id,
+            RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="more"),
+            _request(),
+            _admin(),
+        )
+    assert over.value.code == "refund_exceeds_payment"
+
+    out = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2000.00"), reason="retry"),
+        _request(),
+        _admin(),
+    )
+    assert out.recorded is True
 
 
 async def test_a_second_click_on_one_refund_is_still_a_replay_and_not_a_breach(

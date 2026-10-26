@@ -217,6 +217,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "payment_provider_unreadable": "attention",
     "refund_rejected": "attention",
     "refund_unreadable": "attention",
+    "refund_outcome_unknown": "attention",
     # A SECRET THE PLATFORM CANNOT UNWRAP is every BYOK leg down at once and no way to
     # publish, dial or extract until a human restores the key. `platform_secret_unreadable`
     # already pages; these are the same failure one layer down.

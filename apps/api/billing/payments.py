@@ -863,9 +863,21 @@ class RazorpayOrders:
         amount_paise = inr_to_paise(amount_inr)
         payload = {"amount": amount_paise, "speed": REFUND_SPEED, "notes": notes}
         path = f"{self._version_path}{PAYMENTS_PATH}/{payment_id}{REFUND_PATH_SUFFIX}"
-        response = await self._post_json(
-            path, payload, extra_headers={REFUND_IDEMPOTENCY_HEADER: idempotency_key}
-        )
+        try:
+            response = await self._post_json(
+                path, payload, extra_headers={REFUND_IDEMPOTENCY_HEADER: idempotency_key}
+            )
+        except ProblemError as exc:
+            # Only a failure to CONNECT proves the request never left us. A read timeout or
+            # a dropped response can follow a refund the provider has already created.
+            if isinstance(exc.__cause__, httpx.ConnectError | httpx.ConnectTimeout):
+                raise
+            raise _refund_outcome_unknown(payment_id) from exc
+
+        if response.status_code >= 500:
+            # A server error after the request arrived says nothing about whether the
+            # refund was created; the same idempotency key makes a retry of it safe.
+            raise _refund_outcome_unknown(payment_id)
 
         if response.status_code == 409:
             # "If a request is received while a prior request is still being processed,
@@ -936,8 +948,29 @@ class RazorpayOrders:
 #: (`refund_amount_mismatch`) or may (`refund_unreadable`). Its claim on the refund ceiling
 #: must survive them, where a refusal that proves nothing was refunded releases it.
 REFUND_MAY_HAVE_MOVED_CODES: Final[frozenset[str]] = frozenset(
-    {"refund_unreadable", "refund_amount_mismatch", "refund_in_progress"}
+    {"refund_unreadable", "refund_amount_mismatch", "refund_in_progress", "refund_outcome_unknown"}
 )
+
+
+def _refund_outcome_unknown(payment_id: str) -> ProblemError:
+    """The refund request reached the provider (or may have) and no answer came back.
+
+    A retry with the same `X-Refund-Idempotency` key and body "if you don't receive a
+    response" is the vendor's documented recovery (razorpay.com/docs/api/refunds/
+    normal-refunds-idempotent, read 26 Oct 2026; the key's lifetime is not stated), and the
+    same amount derives the same key here.
+    """
+    log.warning("razorpay_refund_outcome_unknown", extra={"payment_id": payment_id})
+    return ProblemError(
+        kind="dependency",
+        code="refund_outcome_unknown",
+        title="The payment provider did not confirm this refund",
+        detail="The refund may or may not have started.",
+        remediation=(
+            "Check the payment on the provider's dashboard, or retry with the same amount: "
+            "the provider treats it as the same refund request."
+        ),
+    )
 
 
 def refund_idempotency_key(*, payment_id: str, amount_inr: Decimal) -> str:
