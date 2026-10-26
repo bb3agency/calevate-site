@@ -366,6 +366,20 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             {"i": action_id, "t": tenant_id, "u": user_id, "j": job_id},
         )
         ids["action_id"] = str(action_id)
+        # A plan waiting for its one click (D-893 F3).
+        plan_id = uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO copilot_plans (id, tenant_id, user_id, origin, tool, target_type, "
+                "args, title, why, lens_text, target_count, excluded_count, exclusions, "
+                "estimate_note, plan_hash, status, expires_at, created_at, updated_at) VALUES "
+                "(:i, :t, :u, 'pip', 'leads_bulk_update', 'lead', '{}'::jsonb, 'A plan', "
+                "'Asked for', 'Every lead', 0, 0, '{}'::jsonb, 'Not known', :h, 'proposed', "
+                "now() + interval '1 hour', now(), now())"
+            ),
+            {"i": plan_id, "t": tenant_id, "u": user_id, "h": "0" * 64},
+        )
+        ids["plan_id"] = str(plan_id)
 
         # The business certificate on file. Its download hands back DECRYPTED bytes, so the
         # row has to be invisible to a neighbour before the object is ever read.
@@ -793,6 +807,15 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/kb/uploads/{upload_id}/original", {}, {}),
     ("POST", "/v1/kb/uploads/{upload_id}/confirm", {}, {}),
     ("DELETE", "/v1/kb/uploads/{upload_id}", {}, {}),
+    # D-893 L8: the stored words of a file, renaming it and reading it again.
+    ("GET", "/v1/kb/uploads/{upload_id}/text", {}, {}),
+    ("PATCH", "/v1/kb/uploads/{upload_id}", {"name": "Summer prices"}, {}),
+    ("POST", "/v1/kb/uploads/{upload_id}/read", {}, {}),
+    # D-893 F3: a plan, its targets, and its one click either way.
+    ("GET", "/v1/copilot/plans/{plan_id}", {}, {}),
+    ("GET", "/v1/copilot/plans/{plan_id}/targets", {}, {}),
+    ("POST", "/v1/copilot/plans/{plan_id}/approve", {"plan_hash": "0" * 64}, {}),
+    ("POST", "/v1/copilot/plans/{plan_id}/cancel", {}, {}),
     # D-694: the assistant's activity log, Approvals inbox and background jobs. Each locks
     # or reads one row by id under the caller's tenant session and scopes it to the person.
     ("POST", "/v1/copilot/actions/{action_id}/undo", {}, {}),
