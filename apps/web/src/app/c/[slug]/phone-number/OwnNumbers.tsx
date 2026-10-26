@@ -436,7 +436,15 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
           className="flex flex-wrap items-end gap-3"
           onSubmit={(event) => {
             event.preventDefault();
-            if (city) setSearch({ city, pattern: searchDigits(pattern) });
+            if (!city) return;
+            const next = { city, pattern: searchDigits(pattern) };
+            // The same search again is a retry: setting an identical key would not re-run
+            // a query that failed (retry is off for this rate-limited read).
+            if (search !== null && search.city === next.city && search.pattern === next.pattern) {
+              void available.refetch();
+            } else {
+              setSearch(next);
+            }
           }}
         >
           <label className="block">

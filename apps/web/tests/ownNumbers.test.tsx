@@ -319,6 +319,29 @@ describe("buying a number", () => {
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
   });
 
+  it("searches again when the same search is pressed after it failed", async () => {
+    let failing = true;
+    const { calls } = await renderClientPage(
+      <PhoneNumberPage />,
+      routes(status(), {
+        [FIRST_PAGE]: () =>
+          failing
+            ? problem(503, { type: "about:blank", title: "Unavailable", status: 503, detail: "Search failed." })
+            : { numbers: [offer(1)], next_cursor: null },
+      }),
+    );
+    fireEvent.change(await screen.findByLabelText("City"), { target: { value: "Hyderabad" } });
+    fireEvent.click(screen.getByRole("button", { name: "Show numbers" }));
+    await screen.findByText("Search failed.");
+    failing = false;
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Show numbers" }) as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Show numbers" }));
+    await enabledButton("Buy +91 80123 45671");
+    expect(calls.filter((call) => call.path === FIRST_PAGE)).toHaveLength(2);
+  });
+
   it("reuses one request key when Buy is pressed again after an unconfirmed purchase", async () => {
     let attempt = 0;
     const { calls } = await renderClientPage(
