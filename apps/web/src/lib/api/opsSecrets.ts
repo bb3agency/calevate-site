@@ -18,7 +18,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { apiRequest } from "./client";
 import { OPS_MODEL_PRICES_QUERY_KEY } from "./opsModelPricing";
 
@@ -128,11 +128,11 @@ export function useSetSecret() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ key, value, reason }: SecretSetInput) =>
-      apiRequest<PlatformSecret>(adminSession(), `${OPS_SECRETS_PATH}/${key}`, {
-        method: "PUT",
-        body: { value, reason },
-        confirmAction: secretConfirmation(key),
-      }),
+      confirmedAdminRequest<PlatformSecret>(
+        `${OPS_SECRETS_PATH}/${key}`,
+        { method: "PUT", body: { value, reason }, confirmAction: secretConfirmation(key) },
+        "Storing a platform secret.",
+      ),
     gcTime: CREDENTIAL_MUTATION_GC_MS,
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: OPS_SECRETS_QUERY_KEY });
@@ -152,10 +152,11 @@ export function useRemoveSecret() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ key }: { key: string }) =>
-      apiRequest<PlatformSecret>(adminSession(), `${OPS_SECRETS_PATH}/${key}`, {
-        method: "DELETE",
-        confirmAction: secretRemovalConfirmation(key),
-      }),
+      confirmedAdminRequest<PlatformSecret>(
+        `${OPS_SECRETS_PATH}/${key}`,
+        { method: "DELETE", confirmAction: secretRemovalConfirmation(key) },
+        "Removing a platform secret.",
+      ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: OPS_SECRETS_QUERY_KEY });
       void client.invalidateQueries({ queryKey: OPS_KEK_QUERY_KEY });
@@ -169,10 +170,11 @@ export function useRewrapKeks() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiRequest<RewrapResult>(adminSession(), `${OPS_SECRETS_PATH}/kek/rewrap`, {
-        method: "POST",
-        confirmAction: REWRAP_CONFIRMATION,
-      }),
+      confirmedAdminRequest<RewrapResult>(
+        `${OPS_SECRETS_PATH}/kek/rewrap`,
+        { method: "POST", confirmAction: REWRAP_CONFIRMATION },
+        "Re-wrapping stored keys under the new platform key.",
+      ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: OPS_KEK_QUERY_KEY });
       void client.invalidateQueries({ queryKey: OPS_SECRETS_QUERY_KEY });

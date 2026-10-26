@@ -56,7 +56,7 @@ import {
 
 import { ApiProblem } from "@/lib/api/client";
 import { apiRequest } from "@/lib/api/client";
-import { adminSession } from "@/lib/api/admin";
+import { adminSession, confirmedAdminRequest } from "@/lib/api/admin";
 import { formatISTInput } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import type { components } from "@/lib/api/schema";
@@ -414,20 +414,24 @@ export function useRecordRateCard() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ effectiveFrom, reason, cells }: RecordCardInput) =>
-      apiRequest<RateCardWrite>(adminSession(), OPS_RATE_CARD_PATH, {
-        method: "POST",
-        body: {
-          effective_from: effectiveFrom,
-          reason,
-          // The typed strings, unchanged. No `Number()` anywhere on this path.
-          cells: cells.map((cell) => ({
-            pack_id: cell.pack_id,
-            voice_tier: cell.voice_tier,
-            inr_per_min: cell.inr_per_min,
-          })),
+      confirmedAdminRequest<RateCardWrite>(
+        OPS_RATE_CARD_PATH,
+        {
+          method: "POST",
+          body: {
+            effective_from: effectiveFrom,
+            reason,
+            // The typed strings, unchanged. No `Number()` anywhere on this path.
+            cells: cells.map((cell) => ({
+              pack_id: cell.pack_id,
+              voice_tier: cell.voice_tier,
+              inr_per_min: cell.inr_per_min,
+            })),
+          },
+          confirmAction: recordCardConfirmation(effectiveFrom),
         },
-        confirmAction: recordCardConfirmation(effectiveFrom),
-      }),
+        "Recording a new rate card.",
+      ),
     // Re-read rather than splicing the response in. A recorded card changes `pending`,
     // and it can change `earliest_effective_from` and the card in force too (a date that
     // has since arrived), so a console that patched one field would show a fresh card
@@ -446,11 +450,15 @@ export function useCancelRateCard() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ effectiveFrom, reason }: CancelCardInput) =>
-      apiRequest<RateCardCancel>(adminSession(), `${OPS_RATE_CARD_PATH}/cancellations`, {
-        method: "POST",
-        body: { effective_from: effectiveFrom, reason },
-        confirmAction: cancelCardConfirmation(effectiveFrom),
-      }),
+      confirmedAdminRequest<RateCardCancel>(
+        `${OPS_RATE_CARD_PATH}/cancellations`,
+        {
+          method: "POST",
+          body: { effective_from: effectiveFrom, reason },
+          confirmAction: cancelCardConfirmation(effectiveFrom),
+        },
+        "Withdrawing a scheduled rate card.",
+      ),
     onSuccess: () => void client.invalidateQueries({ queryKey: OPS_RATE_CARD_QUERY_KEY }),
   });
 }

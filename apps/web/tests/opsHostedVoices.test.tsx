@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
+import { StepUpPrompt } from "@/components/authn/stepUpPrompt";
 import VoicesPage from "@/app/admin/ops/voices/page";
 import {
   NO_FILTERS,
@@ -1158,7 +1159,7 @@ describe("cloning a voice", () => {
     expect(sent.form.get("consent_no_impersonation")).toBe("true");
   });
 
-  it("offers the second-factor prompt when the server asks for it", async () => {
+  it("opens the code prompt when the server asks for a fresh second factor", async () => {
     xhrAnswer = {
       status: 403,
       body: {
@@ -1168,14 +1169,22 @@ describe("cloning a voice", () => {
         kind: "auth",
       },
     };
-    renderAdminPage(<VoicesPage />, routes());
+    // The console's layout mounts the code prompt; the gated upload opens it and waits.
+    renderAdminPage(
+      <>
+        <StepUpPrompt />
+        <VoicesPage />
+      </>,
+      routes(),
+    );
     const dialog = await openClone();
     fill(dialog);
     fireEvent.click(within(dialog).getByRole("checkbox", { name: /The voice in this recording is mine/ }));
     fireEvent.click(within(dialog).getByRole("checkbox", { name: /will not be used to pretend/ }));
     fireEvent.click(screen.getByRole("button", { name: "Clone this voice" }));
 
-    expect(await within(dialog).findByRole("button", { name: "Send me a code" })).toBeTruthy();
+    expect(await screen.findByRole("alertdialog")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /email me a code/i })).toBeTruthy();
   });
 });
 

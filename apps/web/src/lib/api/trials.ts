@@ -175,11 +175,13 @@ export function useStartTrial(session: Session, tenantId: string) {
         reason: reason.trim(),
         erasure_grace_days: erasureGraceDays ?? DEFAULT_ERASURE_GRACE_DAYS,
       };
-      return apiRequest<Trial>(session, trialPath(tenantId), {
-        method: "POST",
-        body,
-        confirmAction: startTrialConfirmation(tenantId, days),
-      });
+      const confirmAction = startTrialConfirmation(tenantId, days);
+      return withActionCode(
+        confirmAction,
+        "Starting a trial for this client.",
+        () => apiRequest<Trial>(session, trialPath(tenantId), { method: "POST", body, confirmAction }),
+        needsReauthentication,
+      );
     },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: trialKey(tenantId) });

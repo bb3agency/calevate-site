@@ -26,6 +26,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
+import { confirmedRequest } from "./admin";
 import { apiRequest, type Session } from "./client";
 
 import type { components } from "./schema";
@@ -65,11 +66,12 @@ export function useEraseTenant(session: Session, tenantId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ reason }: { reason: string }) =>
-      apiRequest<TenantErasureAccepted>(session, erasurePath(tenantId), {
-        method: "POST",
-        body: { reason },
-        confirmAction: erasureConfirmation(tenantId),
-      }),
+      confirmedRequest<TenantErasureAccepted>(
+        session,
+        erasurePath(tenantId),
+        { method: "POST", body: { reason }, confirmAction: erasureConfirmation(tenantId) },
+        "Erasing this client's records.",
+      ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["admin", "tenant-erasure", tenantId] });
       // The client leaves the directory and the detail screen the moment this completes.

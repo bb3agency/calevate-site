@@ -30,7 +30,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { apiRequest } from "./client";
 import { DNC_LIST_LIMIT } from "./dnc";
 
@@ -95,11 +95,15 @@ export function useSuppressGlobally() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ numbers, source, reason }: GlobalSuppressInput) =>
-      apiRequest<GlobalDncAddResult>(adminSession(), OPS_DNC_GLOBAL_PATH, {
-        method: "POST",
-        body: { numbers, source, reason },
-        confirmAction: SUPPRESS_GLOBALLY_CONFIRMATION,
-      }),
+      confirmedAdminRequest<GlobalDncAddResult>(
+        OPS_DNC_GLOBAL_PATH,
+        {
+          method: "POST",
+          body: { numbers, source, reason },
+          confirmAction: SUPPRESS_GLOBALLY_CONFIRMATION,
+        },
+        "Adding numbers to the platform do-not-call list.",
+      ),
     onSuccess: () => void client.invalidateQueries({ queryKey: OPS_DNC_GLOBAL_QUERY_KEY }),
   });
 }
@@ -116,10 +120,11 @@ export function useReleaseGlobally() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (entryId: string) =>
-      apiRequest<void>(adminSession(), `${OPS_DNC_GLOBAL_PATH}/${encodeURIComponent(entryId)}`, {
-        method: "DELETE",
-        confirmAction: releaseGloballyConfirmation(entryId),
-      }),
+      confirmedAdminRequest<void>(
+        `${OPS_DNC_GLOBAL_PATH}/${encodeURIComponent(entryId)}`,
+        { method: "DELETE", confirmAction: releaseGloballyConfirmation(entryId) },
+        "Releasing a number from the platform do-not-call list.",
+      ),
     onSuccess: () => void client.invalidateQueries({ queryKey: OPS_DNC_GLOBAL_QUERY_KEY }),
   });
 }

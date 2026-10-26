@@ -449,13 +449,24 @@ export function useRecordAdjustment(session: Session, tenantId: string) {
         amount_inr: amountInr.trim(),
         reason: reason.trim(),
       };
-      return apiRequest<AdjustmentResult>(session, adjustmentsPath(tenantId), {
-        method: "POST",
-        body,
-        confirmAction: takesCreditAway(entry)
-          ? creditAdjustmentConfirmation(entry.id)
-          : undefined,
-      });
+      if (!takesCreditAway(entry)) {
+        return apiRequest<AdjustmentResult>(session, adjustmentsPath(tenantId), {
+          method: "POST",
+          body,
+        });
+      }
+      const confirmAction = creditAdjustmentConfirmation(entry.id);
+      return withActionCode(
+        confirmAction,
+        "Taking credit back off this client's wallet.",
+        () =>
+          apiRequest<AdjustmentResult>(session, adjustmentsPath(tenantId), {
+            method: "POST",
+            body,
+            confirmAction,
+          }),
+        needsReauthentication,
+      );
     },
     // Three things moved: the balance, the ledger, and every entry's `reversible_inr`.
     // The third is why a replay must re-read too — the figure the next correction is
@@ -563,11 +574,18 @@ export function useRecordRestatement(session: Session, tenantId: string) {
         corrected_amount_inr: amount,
         reason: reason.trim(),
       };
-      return apiRequest<RestatementResult>(session, restatementsPath(tenantId), {
-        method: "POST",
-        body,
-        confirmAction: topupRestatementConfirmation(payment.payment_ref, amount),
-      });
+      const confirmAction = topupRestatementConfirmation(payment.payment_ref, amount);
+      return withActionCode(
+        confirmAction,
+        "Restating this payment's amount.",
+        () =>
+          apiRequest<RestatementResult>(session, restatementsPath(tenantId), {
+            method: "POST",
+            body,
+            confirmAction,
+          }),
+        needsReauthentication,
+      );
     },
     // The balance, the ledger and the payment's own total all moved — and the third is
     // what the NEXT restatement of this payment would be measured against, so a stale

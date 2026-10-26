@@ -15,7 +15,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { OPS_RATE_CARD_QUERY_KEY } from "./opsRateCard";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
@@ -50,14 +50,14 @@ export function useAttestEngineMinutePrice() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ engine, rateKey, inrPerMin, sourceNote }: AttestEngineMinuteInput) =>
-      apiRequest<EngineMinutePrice>(
-        adminSession(),
+      confirmedAdminRequest<EngineMinutePrice>(
         `${ENGINE_MINUTE_PRICES_PATH}/${engine}/${rateKey}`,
         {
           method: "POST",
           body: { inr_per_min: inrPerMin, source_note: sourceNote },
           confirmAction: attestEngineMinuteConfirmation(engine, rateKey),
         },
+        "Attesting a voice platform's per-minute price.",
       ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: QUERY_KEY });
@@ -94,11 +94,15 @@ export function useAttestCost() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ subject, value, sourceNote }: AttestCostInput) =>
-      apiRequest<CostAttestation>(adminSession(), `${COST_ATTESTATIONS_PATH}/${subject}`, {
-        method: "POST",
-        body: { value, source_note: sourceNote },
-        confirmAction: attestCostConfirmation(subject),
-      }),
+      confirmedAdminRequest<CostAttestation>(
+        `${COST_ATTESTATIONS_PATH}/${subject}`,
+        {
+          method: "POST",
+          body: { value, source_note: sourceNote },
+          confirmAction: attestCostConfirmation(subject),
+        },
+        "Attesting a cost input.",
+      ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: QUERY_KEY });
       // The gateway fee moves every cost floor on the rate card.

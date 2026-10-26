@@ -43,6 +43,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { lookup } from "@/lib/lookup";
 
+import { confirmedRequest } from "./admin";
 import { apiRequest, type Session } from "./client";
 
 import type { components } from "./schema";
@@ -233,14 +234,20 @@ export function useRecordTerms(session: Session, tenantId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ terms, confirm }: { terms: CommercialTermsIn; confirm: string | null }) =>
-      apiRequest<RecordTermsOut>(session, commercialTermsPath(tenantId), {
-        method: "POST",
-        body: terms,
-        // Sent ONLY when this write loosens a ceiling. A confirmation header attached to
-        // every request would be a confirmation of nothing — §7 wants it bound to the
-        // dangerous action, and the server refuses one that names another tenant.
-        ...(confirm ? { confirmAction: confirm } : {}),
-      }),
+      // The confirmation is sent ONLY when this write loosens a ceiling. A header attached
+      // to every request would be a confirmation of nothing — §7 wants it bound to the
+      // dangerous action, and the server refuses one that names another tenant.
+      confirm
+        ? confirmedRequest<RecordTermsOut>(
+            session,
+            commercialTermsPath(tenantId),
+            { method: "POST", body: terms, confirmAction: confirm },
+            "Loosening this client's spend ceiling.",
+          )
+        : apiRequest<RecordTermsOut>(session, commercialTermsPath(tenantId), {
+            method: "POST",
+            body: terms,
+          }),
     onSuccess: () =>
       void client.invalidateQueries({ queryKey: ["admin", "commercial-terms", tenantId] }),
   });

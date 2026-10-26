@@ -120,19 +120,22 @@ export function useConfirmProposal(
 ) {
   const client = useQueryClient();
   return useMutation<CopilotConfirmOut, unknown, string>({
-    mutationFn: (token: string) =>
-      apiRequest<CopilotConfirmOut>(
-        session,
-        realm === "admin" ? ADMIN_COPILOT_CONFIRM_PATH : COPILOT_CONFIRM_PATH,
-        {
-          method: "POST",
-          body: { token } satisfies CopilotConfirmIn,
-          // An admin action whose console button asks for step-up asks for it here too
-          // (D-694): the proposal names the string, and the server also wants a fresh
-          // second factor, which it says so in its refusal when it is missing.
-          ...(confirmAction === null ? {} : { confirmAction }),
-        },
-      ),
+    mutationFn: (token: string) => {
+      const path = realm === "admin" ? ADMIN_COPILOT_CONFIRM_PATH : COPILOT_CONFIRM_PATH;
+      const body = { token } satisfies CopilotConfirmIn;
+      if (confirmAction === null) {
+        return apiRequest<CopilotConfirmOut>(session, path, { method: "POST", body });
+      }
+      // An admin action whose console button asks for step-up asks for it here too (D-694).
+      // Retrying after the code is safe: the server checks step-up BEFORE it burns the
+      // proposal token (`copilot/admin_actions.confirm_admin`).
+      return withActionCode(
+        confirmAction,
+        `Confirming what ${ASSISTANT_NAME} proposed.`,
+        () => apiRequest<CopilotConfirmOut>(session, path, { method: "POST", body, confirmAction }),
+        needsReauthentication,
+      );
+    },
     onSuccess: (result) => {
       // Only when something MOVED. `applied: false` means the row was already in that
       // state, so there is nothing on screen that has gone stale, and refetching the

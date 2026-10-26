@@ -24,7 +24,7 @@
 import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { apiRequest } from "./client";
 
 import type { components } from "./schema";
@@ -89,17 +89,21 @@ export function useAttestModelPrice() {
       sourceNote,
       effectiveFrom,
     }: AttestPriceInput) =>
-      apiRequest<ModelPriceWrite>(adminSession(), `${OPS_MODEL_PRICES_PATH}/${model}`, {
-        method: "POST",
-        body: {
-          input_usd_per_mtok: inputUsdPerMtok,
-          output_usd_per_mtok: outputUsdPerMtok,
-          ...(cachedInputUsdPerMtok ? { cached_input_usd_per_mtok: cachedInputUsdPerMtok } : {}),
-          source_note: sourceNote,
-          ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
+      confirmedAdminRequest<ModelPriceWrite>(
+        `${OPS_MODEL_PRICES_PATH}/${model}`,
+        {
+          method: "POST",
+          body: {
+            input_usd_per_mtok: inputUsdPerMtok,
+            output_usd_per_mtok: outputUsdPerMtok,
+            ...(cachedInputUsdPerMtok ? { cached_input_usd_per_mtok: cachedInputUsdPerMtok } : {}),
+            source_note: sourceNote,
+            ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
+          },
+          confirmAction: attestConfirmation(model),
         },
-        confirmAction: attestConfirmation(model),
-      }),
+        "Attesting a model's price.",
+      ),
     // Re-read the whole list: an attestation can change one model's offerability and the
     // `as_of` instant, and a console that spliced one row into a list it already held would
     // show a fresh price inside a stale page.
@@ -153,15 +157,19 @@ export function useAttestEmbeddingPrice() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ model, inputUsdPerMtok, sourceNote, effectiveFrom }: AttestEmbeddingPriceInput) =>
-      apiRequest<EmbeddingPriceWrite>(adminSession(), `${OPS_EMBEDDING_PRICES_PATH}/${model}`, {
-        method: "POST",
-        body: {
-          input_usd_per_mtok: inputUsdPerMtok,
-          source_note: sourceNote,
-          ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
+      confirmedAdminRequest<EmbeddingPriceWrite>(
+        `${OPS_EMBEDDING_PRICES_PATH}/${model}`,
+        {
+          method: "POST",
+          body: {
+            input_usd_per_mtok: inputUsdPerMtok,
+            source_note: sourceNote,
+            ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
+          },
+          confirmAction: embeddingAttestConfirmation(model),
         },
-        confirmAction: embeddingAttestConfirmation(model),
-      }),
+        "Attesting an encoder's price.",
+      ),
     // The whole list, for the chat attestation's reason: an encoder price changes that
     // row's `usable` and the response's `as_of`, and a spliced row would sit in a stale page.
     onSuccess: () => void client.invalidateQueries({ queryKey: OPS_MODEL_PRICES_QUERY_KEY }),
@@ -219,8 +227,7 @@ export function useAttestInrLlmPrice() {
       sourceNote,
       effectiveFrom,
     }: AttestInrLlmPriceInput) =>
-      apiRequest<InrLlmPrice>(
-        adminSession(),
+      confirmedAdminRequest<InrLlmPrice>(
         `${OPS_INR_LLM_PRICES_PATH}/${encodeURIComponent(model)}`,
         {
           method: "POST",
@@ -233,6 +240,7 @@ export function useAttestInrLlmPrice() {
           },
           confirmAction: inrLlmAttestConfirmation(model),
         },
+        "Attesting a rupee-billed model's price.",
       ),
     onSuccess: () => void client.invalidateQueries({ queryKey: OPS_INR_LLM_PRICES_QUERY_KEY }),
   });

@@ -117,10 +117,11 @@ export function useSetTenantMemberRole(tenantId: string) {
 export function useRemoveTenantMember(tenantId: string) {
   return useMutation({
     mutationFn: (userId: string) =>
-      apiRequest<TenantMemberRemoved>(adminSession(), memberPath(tenantId, userId), {
-        method: "DELETE",
-        confirmAction: removeMemberConfirmation(tenantId, userId),
-      }),
+      confirmedAdminRequest<TenantMemberRemoved>(
+        memberPath(tenantId, userId),
+        { method: "DELETE", confirmAction: removeMemberConfirmation(tenantId, userId) },
+        "Removing someone from this client's account.",
+      ),
   });
 }
 

@@ -43,8 +43,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { adminSession } from "@/lib/api/admin";
-import { apiRequest } from "@/lib/api/client";
+import { confirmedAdminRequest } from "@/lib/api/admin";
 import { invalidateWallet } from "@/lib/api/credits";
 import type { components } from "@/lib/api/schema";
 
@@ -111,11 +110,15 @@ export function useApplyLotOverride(tenantId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ lotId, packId, reason }: LotOverrideDraft) =>
-      apiRequest<unknown>(adminSession(), lotOverridePath(tenantId, lotId), {
-        method: "POST",
-        body: { pack_id: packId, reason },
-        confirmAction: lotOverrideConfirmation(lotId),
-      }),
+      confirmedAdminRequest<unknown>(
+        lotOverridePath(tenantId, lotId),
+        {
+          method: "POST",
+          body: { pack_id: packId, reason },
+          confirmAction: lotOverrideConfirmation(lotId),
+        },
+        "Re-pricing this credit lot.",
+      ),
     onSuccess: () => invalidateWallet(client, tenantId),
   });
 }

@@ -114,16 +114,14 @@ export function useSetMemberRole(session: Session) {
       /** What the row was showing when the button was pressed — the CAS guard. */
       expectedRole: MemberRole;
     }) => {
-      const send = (confirmAction?: string) =>
-        apiRequest<Member>(session, `/v1/members/${userId}`, {
-          method: "PATCH",
-          body: { role, expected_role: expectedRole },
-          confirmAction,
-        });
-      if (role !== "owner" || expectedRole === "owner") return send();
+      const path = `/v1/members/${userId}`;
+      const body = { role, expected_role: expectedRole };
+      if (role !== "owner" || expectedRole === "owner") {
+        return apiRequest<Member>(session, path, { method: "PATCH", body });
+      }
       const action = promoteOwnerConfirmation(session, userId);
       return withAccountCode(action, "Making a colleague an owner of this account.", () =>
-        send(action),
+        apiRequest<Member>(session, path, { method: "PATCH", body, confirmAction: action }),
       );
     },
     onSuccess: () => invalidateTeam(client, session.orgSlug),
@@ -143,15 +141,18 @@ export function useInviteMember(session: Session) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ email, role }: { email: string; role: MemberRole }) => {
-      const send = (confirmAction?: string) =>
+      const body = { email, role };
+      if (role !== "owner") {
+        return apiRequest<CreatedInvitation>(session, "/v1/invitations", { method: "POST", body });
+      }
+      const action = inviteOwnerConfirmation(session, email);
+      return withAccountCode(action, "Inviting an owner of this account.", () =>
         apiRequest<CreatedInvitation>(session, "/v1/invitations", {
           method: "POST",
-          body: { email, role },
-          confirmAction,
-        });
-      if (role !== "owner") return send();
-      const action = inviteOwnerConfirmation(session, email);
-      return withAccountCode(action, "Inviting an owner of this account.", () => send(action));
+          body,
+          confirmAction: action,
+        }),
+      );
     },
     onSuccess: () => invalidateTeam(client, session.orgSlug),
   });

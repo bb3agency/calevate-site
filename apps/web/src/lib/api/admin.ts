@@ -128,10 +128,20 @@ export function confirmedAdminRequest<T>(
   options: NonNullable<Parameters<typeof apiRequest>[2]> & { confirmAction: string },
   reason: string,
 ): Promise<T> {
+  return confirmedRequest<T>(adminSession(), path, options, reason);
+}
+
+/** `confirmedAdminRequest` for a hook handed its session (the admin session, or a test's). */
+export function confirmedRequest<T>(
+  session: Session,
+  path: string,
+  options: NonNullable<Parameters<typeof apiRequest>[2]> & { confirmAction: string },
+  reason: string,
+): Promise<T> {
   return withActionCode(
     options.confirmAction,
     reason,
-    () => apiRequest<T>(adminSession(), path, options),
+    () => apiRequest<T>(session, path, options),
     needsReauthentication,
   );
 }
@@ -773,17 +783,21 @@ export function useSetTmRegistration() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (payload: TmRegistrationIn) =>
-      apiRequest<TmRegistration>(adminSession(), "/v1/ops/platform/tm-registration", {
-        method: "POST",
-        body: payload,
-        // The header names the DIRECTION of this write, and the rule is copied from
-        // the route verbatim (`ops/routes.py`: `"record_tm_registration" if
-        // payload.status == "active"`). That is a property of the request we are
-        // sending, not a judgement about what counts as live — the server owns that,
-        // and a mismatched header is refused rather than assumed.
-        confirmAction:
-          payload.status === "active" ? "record_tm_registration" : "withdraw_tm_registration",
-      }),
+      confirmedAdminRequest<TmRegistration>(
+        "/v1/ops/platform/tm-registration",
+        {
+          method: "POST",
+          body: payload,
+          // The header names the DIRECTION of this write, and the rule is copied from
+          // the route verbatim (`ops/routes.py`: `"record_tm_registration" if
+          // payload.status == "active"`). That is a property of the request we are
+          // sending, not a judgement about what counts as live — the server owns that,
+          // and a mismatched header is refused rather than assumed.
+          confirmAction:
+            payload.status === "active" ? "record_tm_registration" : "withdraw_tm_registration",
+        },
+        "Changing the platform's telemarketer registration.",
+      ),
     // The platform query carries `tm_registration`, so the panel above the form
     // re-reads the SERVER's `is_live` rather than assuming the write made it live.
     onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "platform"] }),
@@ -961,21 +975,21 @@ export function useSetPlatformState() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ outboundHalted, loadShedMode, reason }: PlatformTransition) =>
-      apiRequest<PlatformState>(adminSession(), "/v1/ops/platform", {
-        method: "POST",
-        body: {
-          ...(outboundHalted === undefined ? {} : { outbound_halted: outboundHalted }),
-          ...(loadShedMode === undefined ? {} : { load_shed_mode: loadShedMode }),
-          reason,
+      confirmedAdminRequest<PlatformState>(
+        "/v1/ops/platform",
+        {
+          method: "POST",
+          body: {
+            ...(outboundHalted === undefined ? {} : { outbound_halted: outboundHalted }),
+            ...(loadShedMode === undefined ? {} : { load_shed_mode: loadShedMode }),
+            reason,
+          },
+          // Step-up confirmation (BACKEND-PATTERNS §7): the header must echo the action,
+          // and a stale second factor opens the code prompt rather than failing.
+          confirmAction: platformConfirmation({ outboundHalted, loadShedMode }),
         },
-        // Step-up confirmation (BACKEND-PATTERNS §7): the header must echo the action.
-        // It is not the second factor — admin-realm MFA is enforced server-side on every
-        // admin token (`core/auth.py::verify_token`) — and it is no longer standing in
-        // for one. MFA is per SESSION; this is per ACTION, and the mis-click and the
-        // drive-by are both performed by a session that has already passed MFA. See
-        // `apps/api/ops/routes.py` for why removing it was rejected.
-        confirmAction: platformConfirmation({ outboundHalted, loadShedMode }),
-      }),
+        "Changing the platform-wide calling state.",
+      ),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "platform"] }),
   });
 }
@@ -1078,12 +1092,12 @@ export function useReplayOutbox() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (job: string | null) =>
-      apiRequest<OutboxReplayResult>(
-        adminSession(),
+      confirmedAdminRequest<OutboxReplayResult>(
         job === null
           ? "/v1/ops/outbox/replay"
           : `/v1/ops/outbox/replay?job=${encodeURIComponent(job)}`,
         { method: "POST", confirmAction: outboxReplayConfirmation(job) },
+        "Replaying failed deliveries.",
       ),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "platform"] }),
   });
@@ -1148,10 +1162,10 @@ export function useRecomputeSpendCap(tenantId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiRequest<SpendCapRecompute>(
-        adminSession(),
+      confirmedAdminRequest<SpendCapRecompute>(
         `/v1/ops/tenants/${tenantId}/spend-cap/recompute`,
         { method: "POST", confirmAction: spendCapConfirmation(tenantId) },
+        "Recomputing this client's spend cap.",
       ),
     // The flag is on three screens at once. `TenantSummary.capped` carries it on this
     // client's own page and on the directory, and `CapsOut.capped` carries it on the

@@ -10,7 +10,7 @@
 import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { apiRequest } from "./client";
 import type { AttestDataUseInput } from "./opsDashboardDataUse";
 import { hostedVoiceKeys } from "./opsHostedVoices";
@@ -49,16 +49,20 @@ export function useAttestInCallDataUse() {
       noTrainingOptInConfirmed,
       sourceNote,
     }: AttestDataUseInput) =>
-      apiRequest<InCallDataUseWrite>(adminSession(), `${OPS_IN_CALL_DATA_USE_PATH}/${provider}`, {
-        method: "POST",
-        body: {
-          vendor_account_ref: vendorAccountRef,
-          paid_tier_confirmed: paidTierConfirmed,
-          no_training_opt_in_confirmed: noTrainingOptInConfirmed,
-          source_note: sourceNote,
+      confirmedAdminRequest<InCallDataUseWrite>(
+        `${OPS_IN_CALL_DATA_USE_PATH}/${provider}`,
+        {
+          method: "POST",
+          body: {
+            vendor_account_ref: vendorAccountRef,
+            paid_tier_confirmed: paidTierConfirmed,
+            no_training_opt_in_confirmed: noTrainingOptInConfirmed,
+            source_note: sourceNote,
+          },
+          confirmAction: inCallAttestConfirmation(provider),
         },
-        confirmAction: inCallAttestConfirmation(provider),
-      }),
+        "Attesting this provider's terms for callers' speech.",
+      ),
     // The own-model card's checklist reads this attestation, so it re-reads too.
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: OPS_IN_CALL_DATA_USE_QUERY_KEY });

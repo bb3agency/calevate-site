@@ -58,7 +58,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { formatRupeeRate } from "@/components/ui";
 
-import { apiRequest, type Session } from "./client";
+import { confirmedRequest } from "./admin";
+import type { Session } from "./client";
 import { invalidateWallet, rupeeFault, type Payment } from "./credits";
 import type { components } from "./schema";
 
@@ -244,11 +245,16 @@ export function useIssueRefund(session: Session, tenantId: string) {
       // OMITTED, not `null`: absent means "the whole top-up recorded for this payment",
       // which the route reads off the ledger itself.
       if (amount !== undefined) body.amount_inr = amount;
-      return apiRequest<RefundResult>(session, refundsPath(tenantId), {
-        method: "POST",
-        body,
-        confirmAction: refundConfirmationHeader(tenantId, draft.payment.payment_ref),
-      });
+      return confirmedRequest<RefundResult>(
+        session,
+        refundsPath(tenantId),
+        {
+          method: "POST",
+          body,
+          confirmAction: refundConfirmationHeader(tenantId, draft.payment.payment_ref),
+        },
+        "Refunding this payment.",
+      );
     },
     onSuccess: () => invalidateWallet(client, tenantId),
   });

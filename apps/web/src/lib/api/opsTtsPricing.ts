@@ -32,8 +32,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { adminSession } from "@/lib/api/admin";
-import { apiRequest } from "@/lib/api/client";
+import { confirmedAdminRequest } from "@/lib/api/admin";
 import { OPS_MODEL_PRICES_QUERY_KEY } from "@/lib/api/opsModelPricing";
 import type { components } from "@/lib/api/schema";
 
@@ -84,15 +83,19 @@ export function useAttestTtsPrice() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ provider, inrPer1kChars, sourceNote, effectiveFrom }: AttestTtsInput) =>
-      apiRequest<TtsPriceWrite>(adminSession(), `${OPS_TTS_PRICES_PATH}/${provider}`, {
-        method: "POST",
-        body: {
-          inr_per_1k_chars: inrPer1kChars,
-          source_note: sourceNote,
-          ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
+      confirmedAdminRequest<TtsPriceWrite>(
+        `${OPS_TTS_PRICES_PATH}/${provider}`,
+        {
+          method: "POST",
+          body: {
+            inr_per_1k_chars: inrPer1kChars,
+            source_note: sourceNote,
+            ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
+          },
+          confirmAction: attestTtsConfirmation(provider),
         },
-        confirmAction: attestTtsConfirmation(provider),
-      }),
+        "Attesting a voice provider's price.",
+      ),
     // The whole list, for `useAttestModelPrice`'s reason: an attestation changes a voice's
     // offerability and the instant the rest of the page was resolved at.
     onSuccess: () => void client.invalidateQueries({ queryKey: OPS_MODEL_PRICES_QUERY_KEY }),

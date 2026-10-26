@@ -15,7 +15,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "@/lib/api/admin";
+import { adminSession, confirmedAdminRequest } from "@/lib/api/admin";
 import { apiRequest } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
 
@@ -60,14 +60,14 @@ export function useAttestTtsPlanFee() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ provider, month, planInr, sourceNote }: AttestTtsPlanFeeInput) =>
-      apiRequest<TtsPlanFeeWrite>(
-        adminSession(),
+      confirmedAdminRequest<TtsPlanFeeWrite>(
         `/v1/ops/tts-prices/${encodeURIComponent(provider)}/plan-fee`,
         {
           method: "POST",
           body: { month, plan_inr: planInr, source_note: sourceNote },
           confirmAction: ttsPlanFeeConfirmation(provider, month),
         },
+        "Recording a voice vendor's monthly fee.",
       ),
     // Every month's read, because the panel may be showing the current month under the
     // `null` key while the write named it explicitly; and the fleet spend board, which

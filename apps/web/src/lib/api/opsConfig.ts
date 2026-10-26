@@ -23,7 +23,7 @@
 import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { ApiProblem, apiRequest } from "./client";
 
 import type { components } from "./schema";
@@ -172,12 +172,11 @@ export function useSetConfig() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ key, value, reason, ifMatch }: ConfigSetInput) =>
-      apiRequest<ConfigWrite>(adminSession(), `${OPS_CONFIG_PATH}/${key}`, {
-        method: "PUT",
-        body: { value, reason },
-        confirmAction: configConfirmation(key),
-        ifMatch,
-      }),
+      confirmedAdminRequest<ConfigWrite>(
+        `${OPS_CONFIG_PATH}/${key}`,
+        { method: "PUT", body: { value, reason }, confirmAction: configConfirmation(key), ifMatch },
+        "Changing a platform setting.",
+      ),
     // Re-read rather than patching the cache with the response. The write changes what
     // the SERVING PROCESS reports for other keys too — the config version moves, and
     // `stale` can flip — and a console that spliced one field into a list it already
@@ -210,11 +209,11 @@ export function useRevertConfig() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ key, ifMatch }: ConfigRevertInput) =>
-      apiRequest<ConfigWrite>(adminSession(), `${OPS_CONFIG_PATH}/${key}`, {
-        method: "DELETE",
-        confirmAction: revertConfirmation(key),
-        ifMatch,
-      }),
+      confirmedAdminRequest<ConfigWrite>(
+        `${OPS_CONFIG_PATH}/${key}`,
+        { method: "DELETE", confirmAction: revertConfirmation(key), ifMatch },
+        "Reverting a platform setting.",
+      ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: OPS_CONFIG_QUERY_KEY });
       // A setting live agents carry starts a live apply (D-720); show it at once.

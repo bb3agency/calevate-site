@@ -39,7 +39,10 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { needsReauthentication } from "@/lib/authn/problems";
+import { withActionCode } from "@/lib/authn/stepUpPrompt";
+
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { apiRequest, apiUpload } from "./client";
 import type { components } from "./schema";
 
@@ -134,11 +137,11 @@ export function useSetPersonClone(): UseMutationResult<
   const invalidate = useInvalidateVoices();
   return useMutation({
     mutationFn: (body) =>
-      apiRequest<HostedVoiceWrite>(adminSession(), OPS_PERSON_CLONE_PATH, {
-        method: "PATCH",
-        body,
-        confirmAction: personCloneConfirmation(body.voice_id),
-      }),
+      confirmedAdminRequest<HostedVoiceWrite>(
+        OPS_PERSON_CLONE_PATH,
+        { method: "PATCH", body, confirmAction: personCloneConfirmation(body.voice_id) },
+        "Changing whether this voice is a real person's.",
+      ),
     onSuccess: invalidate,
   });
 }
@@ -163,9 +166,16 @@ export function useRecordConsent(): UseMutationResult<HostedVoiceWrite, Error, C
       form.set("statement", input.statement);
       form.set("consented_on", input.consentedOn);
       if (input.document) form.set("document", input.document);
-      return apiUpload<HostedVoiceWrite>(adminSession(), OPS_CLONE_CONSENT_PATH, form, {
-        confirmAction: consentConfirmation(input.voiceId),
-      });
+      const confirmAction = consentConfirmation(input.voiceId);
+      return withActionCode(
+        confirmAction,
+        "Recording the speaker's consent for this voice.",
+        () =>
+          apiUpload<HostedVoiceWrite>(adminSession(), OPS_CLONE_CONSENT_PATH, form, {
+            confirmAction,
+          }),
+        needsReauthentication,
+      );
     },
     onSuccess: invalidate,
   });
@@ -264,9 +274,15 @@ export function useCloneVoice(): UseMutationResult<CloneOut, Error, CloneVoiceIn
       form.set("remove_noise", String(input.removeNoise));
       form.set("consent_own_voice", String(input.consentOwnVoice));
       form.set("consent_no_impersonation", String(input.consentNoImpersonation));
-      return apiUpload<CloneOut>(adminSession(), OPS_CLONES_PATH, form, {
-        confirmAction: CLONE_CONFIRMATION,
-      });
+      return withActionCode(
+        CLONE_CONFIRMATION,
+        "Cloning a voice.",
+        () =>
+          apiUpload<CloneOut>(adminSession(), OPS_CLONES_PATH, form, {
+            confirmAction: CLONE_CONFIRMATION,
+          }),
+        needsReauthentication,
+      );
     },
     onSuccess: invalidate,
   });
@@ -281,10 +297,10 @@ export function useDeleteClone(): UseMutationResult<
   const invalidate = useInvalidateVoices();
   return useMutation({
     mutationFn: ({ voiceId, confirm }) =>
-      apiRequest<DeleteCloneOut>(
-        adminSession(),
+      confirmedAdminRequest<DeleteCloneOut>(
         `${OPS_CLONES_PATH}?voice_id=${encodeURIComponent(voiceId)}&confirm=${confirm}`,
         { method: "DELETE", confirmAction: deleteCloneConfirmation(voiceId) },
+        "Deleting a cloned voice.",
       ),
     onSuccess: invalidate,
   });
@@ -334,11 +350,11 @@ export function useEnableStudioVoices(): UseMutationResult<StudioVoices, Error, 
   const invalidate = useInvalidateVoices();
   return useMutation({
     mutationFn: (body) =>
-      apiRequest<StudioVoices>(adminSession(), OPS_STUDIO_ENABLE_PATH, {
-        method: "POST",
-        body,
-        confirmAction: STUDIO_ENABLE_CONFIRMATION,
-      }),
+      confirmedAdminRequest<StudioVoices>(
+        OPS_STUDIO_ENABLE_PATH,
+        { method: "POST", body, confirmAction: STUDIO_ENABLE_CONFIRMATION },
+        "Switching Studio voices.",
+      ),
     onSuccess: (data) => {
       client.setQueryData(hostedVoiceKeys.studio, data);
       return invalidate();
@@ -408,11 +424,11 @@ export function useEnableOwnModelWorkspace(): UseMutationResult<OwnModel, Error,
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body) =>
-      apiRequest<OwnModel>(adminSession(), OPS_OWN_MODEL_ENABLE_PATH, {
-        method: "POST",
-        body,
-        confirmAction: OWN_MODEL_ENABLE_CONFIRMATION,
-      }),
+      confirmedAdminRequest<OwnModel>(
+        OPS_OWN_MODEL_ENABLE_PATH,
+        { method: "POST", body, confirmAction: OWN_MODEL_ENABLE_CONFIRMATION },
+        "Installing our model key in this client's workspace.",
+      ),
     onSuccess: (data) => {
       client.setQueryData(hostedVoiceKeys.ownModel, data);
     },
@@ -424,10 +440,11 @@ export function useEnableOwnModelDeveloper(): UseMutationResult<OwnModel, Error,
   const client = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiRequest<OwnModel>(adminSession(), OPS_OWN_MODEL_DEVELOPER_PATH, {
-        method: "POST",
-        confirmAction: OWN_MODEL_DEVELOPER_CONFIRMATION,
-      }),
+      confirmedAdminRequest<OwnModel>(
+        OPS_OWN_MODEL_DEVELOPER_PATH,
+        { method: "POST", confirmAction: OWN_MODEL_DEVELOPER_CONFIRMATION },
+        "Installing our model key in the developer workspace.",
+      ),
     onSuccess: (data) => {
       client.setQueryData(hostedVoiceKeys.ownModel, data);
     },

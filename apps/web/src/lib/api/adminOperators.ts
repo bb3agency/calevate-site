@@ -48,7 +48,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
 
@@ -164,11 +164,15 @@ export function useAddOperator() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ email, name, role, reason }: AddOperatorInput) =>
-      apiRequest<Operator>(adminSession(), OPERATORS_PATH, {
-        method: "POST",
-        body: { email, name, role, reason },
-        confirmAction: addOperatorConfirmation(role),
-      }),
+      confirmedAdminRequest<Operator>(
+        OPERATORS_PATH,
+        {
+          method: "POST",
+          body: { email, name, role, reason },
+          confirmAction: addOperatorConfirmation(role),
+        },
+        "Adding an operator.",
+      ),
     onSuccess: () => invalidate(client),
   });
 }
@@ -185,11 +189,15 @@ export function useSetOperatorRole() {
       role: AdminRole;
       reason: string;
     }) =>
-      apiRequest<Operator>(adminSession(), operatorPath(operatorId), {
-        method: "PATCH",
-        body: { role, reason },
-        confirmAction: operatorRoleConfirmation(operatorId),
-      }),
+      confirmedAdminRequest<Operator>(
+        operatorPath(operatorId),
+        {
+          method: "PATCH",
+          body: { role, reason },
+          confirmAction: operatorRoleConfirmation(operatorId),
+        },
+        "Changing an operator's role.",
+      ),
     onSuccess: () => invalidate(client),
   });
 }
@@ -214,14 +222,14 @@ export function useRevokeOperator() {
       operatorId: string;
       reason: string;
     }) =>
-      apiRequest<Operator>(
-        adminSession(),
+      confirmedAdminRequest<Operator>(
         operatorPath(operatorId, "/revocation"),
         {
           method: "POST",
           body: { reason },
           confirmAction: operatorRevocationConfirmation(operatorId),
         },
+        "Revoking an operator.",
       ),
     onSuccess: () => invalidate(client),
   });
@@ -245,14 +253,14 @@ export function useResendOperatorSetupLink() {
       operatorId: string;
       reason: string;
     }) =>
-      apiRequest<Operator>(
-        adminSession(),
+      confirmedAdminRequest<Operator>(
         operatorPath(operatorId, "/setup-link"),
         {
           method: "POST",
           body: { reason },
           confirmAction: operatorSetupLinkConfirmation(operatorId),
         },
+        "Sending an operator a new setup link.",
       ),
     onSuccess: () => invalidate(client),
   });
@@ -267,11 +275,15 @@ export function useEndOperatorStaySignedIn() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ operatorId, reason }: { operatorId: string; reason: string }) =>
-      apiRequest<Operator>(adminSession(), operatorPath(operatorId, "/stay-signed-in/revocation"), {
-        method: "POST",
-        body: { reason },
-        confirmAction: operatorStaySignedInConfirmation(operatorId),
-      }),
+      confirmedAdminRequest<Operator>(
+        operatorPath(operatorId, "/stay-signed-in/revocation"),
+        {
+          method: "POST",
+          body: { reason },
+          confirmAction: operatorStaySignedInConfirmation(operatorId),
+        },
+        "Ending an operator's long sessions.",
+      ),
     onSuccess: () => invalidate(client),
   });
 }

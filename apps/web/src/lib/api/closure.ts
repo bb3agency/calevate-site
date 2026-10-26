@@ -27,7 +27,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { apiRequest } from "./client";
 
 import type { components } from "./schema";
@@ -70,11 +70,15 @@ export function useCloseAccount(tenantId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ reason, graceDays }: { reason: string; graceDays: number | null }) =>
-      apiRequest<Closure>(adminSession(), closurePath(tenantId), {
-        method: "POST",
-        body: graceDays == null ? { reason } : { reason, grace_days: graceDays },
-        confirmAction: closureConfirmation(tenantId),
-      }),
+      confirmedAdminRequest<Closure>(
+        closurePath(tenantId),
+        {
+          method: "POST",
+          body: graceDays == null ? { reason } : { reason, grace_days: graceDays },
+          confirmAction: closureConfirmation(tenantId),
+        },
+        "Closing this client's account.",
+      ),
     onSuccess: () => invalidate(client, tenantId),
   });
 }

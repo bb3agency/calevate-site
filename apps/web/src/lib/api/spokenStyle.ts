@@ -12,7 +12,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
 
@@ -88,14 +88,14 @@ export interface PublishInput {
 
 export function usePublishSpokenStyle(tag: string) {
   return useLanguageWrite(tag, ({ reviewerName, note, confirmation }: PublishInput) =>
-    apiRequest<LanguageStyle>(
-      adminSession(),
+    confirmedAdminRequest<LanguageStyle>(
       `${SPOKEN_STYLE_PATH}/${encodeURIComponent(tag)}/publish`,
       {
         method: "POST",
         body: { reviewer_name: reviewerName, note: note.trim() ? note.trim() : null },
         confirmAction: confirmation,
       },
+      "Publishing this language's spoken style.",
     ),
   );
 }

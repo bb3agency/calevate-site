@@ -15,7 +15,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
 
@@ -68,14 +68,14 @@ export function useRecordEngineModelBand() {
       band,
       sourceNote,
     }: RecordEngineModelBandInput) =>
-      apiRequest<EngineModelBand>(
-        adminSession(),
+      confirmedAdminRequest<EngineModelBand>(
         `${ENGINE_MODEL_BANDS_PATH}/${encodeURIComponent(engine)}/${encodeURIComponent(modelId)}`,
         {
           method: "POST",
           body: { band, source_note: sourceNote },
           confirmAction: recordEngineModelBandConfirmation(engine, modelId),
         },
+        "Recording this model's per-minute band.",
       ),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: QUERY_KEY });

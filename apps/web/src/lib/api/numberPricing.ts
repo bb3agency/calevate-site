@@ -17,7 +17,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { apiRequest } from "./client";
 
 import type { components } from "./schema";
@@ -46,11 +46,11 @@ export function useAttestNumberPrice() {
     // The figure travels as the string the operator typed: `inr_per_month` is a Decimal on
     // the server and a JSON float would round it before validation saw it.
     mutationFn: (body: NumberPriceIn & { inr_per_month: string }) =>
-      apiRequest<NumberPrice>(adminSession(), NUMBER_PRICING_PATH, {
-        method: "POST",
-        body,
-        confirmAction: ATTEST_NUMBER_PRICE_CONFIRMATION,
-      }),
+      confirmedAdminRequest<NumberPrice>(
+        NUMBER_PRICING_PATH,
+        { method: "POST", body, confirmAction: ATTEST_NUMBER_PRICE_CONFIRMATION },
+        "Recording the number rental price.",
+      ),
     onSuccess: (price) => {
       client.setQueryData(NUMBER_PRICING_QUERY_KEY, price);
     },

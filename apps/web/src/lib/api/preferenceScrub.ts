@@ -49,7 +49,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { hasKey } from "@/lib/lookup";
 
-import { adminSession, viewAsSession } from "./admin";
+import { confirmedAdminRequest, viewAsSession } from "./admin";
 import { apiRequest } from "./client";
 import type { CampaignSummary } from "./campaigns";
 import type { components } from "./schema";
@@ -265,14 +265,14 @@ export function useRecordPreferenceScrub(
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ draft, instant }: { draft: ScrubDraft; instant: string }) =>
-      apiRequest<PreferenceScrubOut>(
-        adminSession(),
+      confirmedAdminRequest<PreferenceScrubOut>(
         preferenceScrubPath(tenantId, campaignId ?? ""),
         {
           method: "POST",
           body: toScrubBody(draft, instant),
           confirmAction: preferenceScrubConfirmation(campaignId ?? ""),
         },
+        "Recording this campaign's preference scrub.",
       ),
     onSuccess: () =>
       void Promise.all([

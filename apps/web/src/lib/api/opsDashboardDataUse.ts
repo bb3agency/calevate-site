@@ -31,7 +31,7 @@
 import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminSession } from "./admin";
+import { adminSession, confirmedAdminRequest } from "./admin";
 import { apiRequest } from "./client";
 
 import type { components } from "./schema";
@@ -96,8 +96,7 @@ export function useAttestDashboardDataUse() {
       noTrainingOptInConfirmed,
       sourceNote,
     }: AttestDataUseInput) =>
-      apiRequest<DashboardDataUseWrite>(
-        adminSession(),
+      confirmedAdminRequest<DashboardDataUseWrite>(
         `${OPS_DASHBOARD_DATA_USE_PATH}/${provider}`,
         {
           method: "POST",
@@ -109,6 +108,7 @@ export function useAttestDashboardDataUse() {
           },
           confirmAction: attestConfirmation(provider),
         },
+        "Attesting this provider's data-use terms.",
       ),
     // Re-read the whole list: an attestation can flip one leg's eligibility, and a console
     // that spliced one row into a list it already held would show a fresh attestation inside
