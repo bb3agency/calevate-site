@@ -284,7 +284,7 @@ export function QualificationMock() {
 
 /**
  * Appointments — "Call-backs" (`app/c/[slug]/callbacks/page.tsx`: the group words
- * "Waiting", "Calling now", "Called", the "They said:" note, "Call it off", "Too late to
+ * "Waiting", "Calling now", "Called", the "Note:" line, "Call it off", "Too late to
  * stop") beside a day of a coaching centre's Google Calendar: what the agent asked about (busy
  * and free, the `calendar.freebusy` scope) and the one event it added (`calendar.events`).
  */
@@ -316,7 +316,7 @@ export function AppointmentsMock() {
                 <span>{when}</span>
               </span>
               <span className="text-[11px] font-medium text-ink-muted">{heading}</span>
-              {note && <span className="text-[11px] text-ink-muted italic">They said: {note}</span>}
+              {note && <span className="text-[11px] text-ink-muted italic">Note: {note}</span>}
             </span>
             {action && (
               <span

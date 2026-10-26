@@ -68,3 +68,15 @@ describe("calling off a call-back", () => {
     expect(calls.some((call) => call.method === "DELETE")).toBe(false);
   });
 });
+
+describe("a call-back's note", () => {
+  // The note is ours, the agent's or a team member's: a retry of a new enquiry carries
+  // "A new enquiry who did not answer the last try", which the caller never said.
+  it("is labelled a note, not the caller's words", async () => {
+    const note = "A new enquiry who did not answer the last try";
+    await renderClientPage(<CallbacksPage />, { "/v1/me": OWNER, [LIST]: [{ ...WAITING, note }] });
+
+    expect(await screen.findByText(`Note: ${note}`)).toBeTruthy();
+    expect(screen.queryByText(/They said/)).toBeNull();
+  });
+});

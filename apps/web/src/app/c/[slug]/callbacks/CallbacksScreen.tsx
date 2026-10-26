@@ -172,7 +172,9 @@ export function CallbacksScreen() {
             {lookup(HEADINGS, row.status) ?? row.status}
           </StatusPill>
           {row.explanation && <p className="text-meta text-ink-muted">{row.explanation}</p>}
-          {row.note && <p className="text-meta text-ink-muted">They said: {row.note}</p>}
+          {/* Not "They said": the note is the agent's summary, a team member's note, or ours
+              ("A new enquiry who did not answer the last try"), never the caller's words. */}
+          {row.note && <p className="text-meta text-ink-muted">Note: {row.note}</p>}
         </div>
       ),
     },
