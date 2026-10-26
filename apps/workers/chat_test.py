@@ -590,3 +590,70 @@ async def test_an_unparseable_frame_is_dropped_rather_than_ending_the_stream() -
     async with _stream_client(body) as client:
         events = [e async for e in chat.stream(LEG, [], timeout_s=1, client=client)]
     assert [e.text for e in events if e.text is not None] == ["ok"]
+
+
+# --- embeddings ------------------------------------------------------------------------
+
+EMBED_LEG = chat.ChatLeg(
+    url="https://example.invalid/openai/v1/embeddings",
+    api_key="k",
+    wire_model="dep",
+    dialect="openai",
+)
+
+
+async def _embed_answer(rows: list[dict[str, Any]], inputs: int = 3) -> chat.EmbeddingOutcome:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": rows, "usage": {"prompt_tokens": 3}})
+
+    async with _client(handler) as client:
+        return await chat.embed(
+            EMBED_LEG, [f"in{i}" for i in range(inputs)], dimensions=2, timeout_s=5, client=client
+        )
+
+
+async def test_embeddings_are_put_back_in_input_order_by_their_index() -> None:
+    outcome = await _embed_answer(
+        [
+            {"index": 2, "embedding": [2.0, 2.0]},
+            {"index": 0, "embedding": [0.0, 0.0]},
+            {"index": 1, "embedding": [1.0, 1.0]},
+        ]
+    )
+    assert outcome.vectors == ((0.0, 0.0), (1.0, 1.0), (2.0, 2.0))
+
+
+async def test_a_skipped_index_stops_the_answer_rather_than_shifting_a_neighbour_in() -> None:
+    """FAILS IF: input 1 is handed input 2's vector because index 1 was missing."""
+    outcome = await _embed_answer(
+        [{"index": 0, "embedding": [0.0, 0.0]}, {"index": 2, "embedding": [2.0, 2.0]}]
+    )
+    assert outcome.vectors == ((0.0, 0.0),)
+
+
+async def test_a_repeated_index_does_not_become_the_next_inputs_vector() -> None:
+    outcome = await _embed_answer(
+        [{"index": 0, "embedding": [0.0, 0.0]}, {"index": 0, "embedding": [9.0, 9.0]}]
+    )
+    assert outcome.vectors == ((0.0, 0.0),)
+
+
+async def test_a_non_finite_vector_ends_the_answer_before_pgvector_refuses_the_batch() -> None:
+    outcome = await _embed_answer(
+        [
+            {"index": 0, "embedding": [0.0, 0.0]},
+            {"index": 1, "embedding": ["NaN", 1.0]},
+            {"index": 2, "embedding": [2.0, 2.0]},
+        ]
+    )
+    assert outcome.vectors == ((0.0, 0.0),)
+
+
+async def test_a_vector_holding_a_non_number_is_answered_with_no_width() -> None:
+    outcome = await _embed_answer([{"index": 0, "embedding": ["x", None]}], inputs=1)
+    assert outcome.vectors == ((),)
+
+
+async def test_an_answer_with_no_index_falls_back_to_array_order() -> None:
+    outcome = await _embed_answer([{"embedding": [0.0, 0.0]}, {"embedding": [1.0, 1.0]}], inputs=2)
+    assert outcome.vectors == ((0.0, 0.0), (1.0, 1.0))

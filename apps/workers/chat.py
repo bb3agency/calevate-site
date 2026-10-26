@@ -34,6 +34,7 @@ error bodies quote the request, and on some callers the request is a call transc
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Final, Literal
@@ -903,20 +904,37 @@ async def embed(
         # an exception, for `_message_of`'s reason: the caller decides what an empty answer
         # means, and here it means "nothing was stored and the chunk stays pending".
         return EmbeddingOutcome(vectors=(), usage=usage_from_body(body))
-    ordered: list[tuple[int, tuple[float, ...]]] = []
-    for row in rows:
+    by_index: dict[int, tuple[float, ...]] = {}
+    for position, row in enumerate(rows):
         if not isinstance(row, dict):  # pragma: no cover - defensive on a vendor shape
             continue
         values = row.get("embedding")
         if not isinstance(values, list):  # pragma: no cover - defensive on a vendor shape
             continue
         index = row.get("index")
-        position = int(index) if isinstance(index, int) else len(ordered)
-        ordered.append((position, tuple(float(v) for v in values)))
-    ordered.sort(key=lambda item: item[0])
-    return EmbeddingOutcome(
-        vectors=tuple(vector for _, vector in ordered), usage=usage_from_body(body)
-    )
+        # The first answer for an index stands; a repeat is not a second input's vector.
+        by_index.setdefault(index if isinstance(index, int) else position, _vector(values))
+    # ONLY THE GAPLESS PREFIX 0, 1, 2, ... IS RETURNED. Callers pair `vectors[i]` with
+    # `inputs[i]` and refuse whatever is past the end as a short answer, so a response that
+    # skipped index 1 must stop at 1: compacting it would hand input 1 the vector of input 2.
+    vectors: list[tuple[float, ...]] = []
+    while len(vectors) < len(inputs) and len(vectors) in by_index:
+        vector = by_index[len(vectors)]
+        if not all(math.isfinite(v) for v in vector):
+            # pgvector refuses NaN and infinity, and the statement error would roll back
+            # the whole batch for every tick to re-buy; stopping here lets the caller
+            # refuse this input and everything after it instead.
+            break
+        vectors.append(vector)
+    return EmbeddingOutcome(vectors=tuple(vectors), usage=usage_from_body(body))
+
+
+def _vector(values: list[Any]) -> tuple[float, ...]:
+    """The embedding as floats; a non-number makes it empty, which callers refuse by width."""
+    try:
+        return tuple(float(v) for v in values)
+    except (TypeError, ValueError):
+        return ()
 
 
 __all__ = [
