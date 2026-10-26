@@ -158,8 +158,8 @@ async def test_the_roster_answers_who_holds_this_account_and_what_they_are_carry
 async def test_a_deactivated_person_is_listed_rather_than_filtered_out() -> None:
     """The client's own picker hides them; this must not, and the reason is mechanical.
 
-    A deactivated user still holds a membership row, still counts toward the last-owner
-    rule, and is still what has to be removed to take the grant away. An operator who
+    A deactivated user still holds a membership row, still appears beside the last-owner
+    refusal, and is still what has to be removed to take the grant away. An operator who
     could not see them would be reading a refusal ("this is the only owner") against a
     list that shows two.
     """
@@ -335,6 +335,43 @@ async def test_the_last_owner_cannot_be_demoted_from_the_console_either() -> Non
     assert response.json()["remediation"], "a refusal an operator can act on"
     assert await _role_of(tenant_id, owner_id) == "owner"
     assert await _member_writes(tenant_id) == []
+
+
+@pytest.mark.asyncio
+async def test_a_deactivated_owner_does_not_count_as_the_owner_who_remains() -> None:
+    """A second owner deactivated platform-wide cannot sign in; counting them let the last
+    owner who CAN be demoted, leaving an account nobody is able to govern."""
+    tenant_id, _slug, _token = await _make_tenant("owner")
+    owner_id = await _owner_user_id(tenant_id)
+    gone_id, _ = await _colleague(tenant_id, role="owner", name="Departed owner")
+    async with untenanted_session() as session:
+        await session.execute(
+            text("UPDATE users SET deactivated_at = now() WHERE id = :u"), {"u": gone_id}
+        )
+    _admin_id, token = await _admin()
+
+    async with _client() as http:
+        demoted = await http.patch(
+            MEMBER.format(tenant_id=tenant_id, user_id=owner_id),
+            json={"role": "staff", "expected_role": "owner"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": f"change_member_role:{tenant_id}:{owner_id}",
+            },
+        )
+        # Removing the deactivated owner is still allowed: an active owner remains.
+        removed = await http.delete(
+            MEMBER.format(tenant_id=tenant_id, user_id=gone_id),
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": remove_member_confirmation(tenant_id, gone_id),
+            },
+        )
+
+    assert demoted.status_code == 422, demoted.text
+    assert _code(demoted) == "last_owner_protected"
+    assert await _role_of(tenant_id, owner_id) == "owner"
+    assert removed.status_code == 200, removed.text
 
 
 @pytest.mark.asyncio

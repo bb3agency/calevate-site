@@ -101,7 +101,8 @@ export function MemberRow({
           {member.deactivated && (
             <p className="mt-0.5 text-meta text-warn">
               This person is deactivated platform-wide, so they are refused at sign-in. They
-              still hold a membership here, and it still counts as an owner.
+              still hold a membership here until it is removed, but they never count as the
+              owner who keeps this account manageable.
             </p>
           )}
         </div>

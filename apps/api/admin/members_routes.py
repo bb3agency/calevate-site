@@ -191,9 +191,9 @@ class TeamMemberOut(BaseModel):
     #: place in the console it can be read.
     email_verified: bool
     #: The PERSON is deactivated platform-wide, so the auth guard refuses them on every
-    #: request. Their membership row survives, still counts toward the last-owner rule
-    #: and is still what has to be removed to take the grant away — which is why they are
-    #: listed rather than filtered out.
+    #: request. Their membership row survives and is still what has to be removed to take
+    #: the grant away — which is why they are listed rather than filtered out. It does NOT
+    #: count toward the last-owner rule (`tenancy/members.lock_owner_ids`).
     deactivated: bool
     #: Leads in THIS account currently assigned to them. RLS scopes the count; removal
     #: does not clear it.

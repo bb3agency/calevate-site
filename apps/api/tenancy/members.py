@@ -162,10 +162,18 @@ async def lock_owner_ids(session: AsyncSession) -> set[UUID]:
     """
     rows = (
         await session.execute(
-            text("SELECT user_id FROM memberships WHERE role = 'owner' ORDER BY user_id FOR UPDATE")
+            text(
+                "SELECT m.user_id, u.deactivated_at IS NULL FROM memberships m "
+                "JOIN users u ON u.id = m.user_id "
+                "WHERE m.role = 'owner' ORDER BY m.user_id FOR UPDATE OF m"
+            )
         )
     ).all()
-    return {UUID(str(row[0])) for row in rows}
+    # Every owner row is locked, but only owners who can still sign in are returned: a
+    # platform-deactivated owner is refused by the auth guard on every request, so counting
+    # them let the last ACTIVE owner be demoted or removed, leaving nobody able to govern
+    # the account.
+    return {UUID(str(row[0])) for row in rows if row[1]}
 
 
 def _assert_an_owner_remains(owner_ids: set[UUID], losing_owner: UUID) -> None:
