@@ -22,7 +22,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.hosted_platform import hosted_agent_limits
 from apps.api.engine.test_chat import RunsTestChat
-from apps.api.teach.test_cases import RUN_CASES_JOB
+from apps.api.teach.test_cases import RUN_CASES_JOB, queue_run
 from apps.workers.agent_test_conversations import PAUSE_S
 
 log = get_logger(__name__)
@@ -89,10 +89,38 @@ async def run_case_lines(
     return turns
 
 
+#: ONE test per job. A test is up to six lines a `PAUSE_S` apart plus the replies; twenty
+#: of them in one job ran past the 300 s job limit, which arq does not retry, and every
+#: test not yet stored stayed `running`. Each job runs the oldest queued test and queues
+#: the next job while any remain.
+_CLAIM_ONE: Final = (
+    "UPDATE agent_test_cases SET status = 'running', updated_at = now() WHERE id = ("
+    "SELECT id FROM agent_test_cases WHERE agent_id = :aid AND status = 'queued' "
+    "ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING id, caller_lines"
+)
+
+
+async def _queue_next(tenant_id: UUID, agent_id: UUID) -> None:
+    async with tenant_session(tenant_id) as session:
+        waiting = (
+            await session.execute(
+                text(
+                    "SELECT 1 FROM agent_test_cases WHERE agent_id = :aid "
+                    "AND status = 'queued' LIMIT 1"
+                ),
+                {"aid": agent_id},
+            )
+        ).first()
+        if waiting is not None:
+            # `chained`: this job sent a message moments ago, so the next one pauses first.
+            await queue_run(session, tenant_id=tenant_id, agent_id=agent_id, chained=True)
+
+
 async def run_agent_test_cases(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
     agent_id = UUID(str(payload["agent_id"]))
+    engine = get_engine()
     async with tenant_session(tenant_id) as session:
         agent = (
             await session.execute(
@@ -103,27 +131,27 @@ async def run_agent_test_cases(ctx: dict[str, Any], payload: dict[str, Any]) -> 
                 {"aid": agent_id},
             )
         ).first()
-        cases = (
-            await session.execute(
-                text(
-                    "UPDATE agent_test_cases SET status = 'running', updated_at = now() "
-                    "WHERE agent_id = :aid AND status = 'queued' RETURNING id, caller_lines"
-                ),
-                {"aid": agent_id},
-            )
-        ).all()
+        version = int(agent[1]) if agent is not None and agent[1] is not None else None
+        if agent is None or agent[0] is None or not isinstance(engine, RunsTestChat):
+            # Nothing can run: every queued test is told so at once.
+            unavailable = (
+                await session.execute(
+                    text(
+                        "UPDATE agent_test_cases SET status = 'idle', last_error = 'unavailable', "
+                        "last_run_at = now(), last_prompt_version = :version, updated_at = now() "
+                        "WHERE agent_id = :aid AND status = 'queued' RETURNING id"
+                    ),
+                    {"aid": agent_id, "version": version},
+                )
+            ).all()
+            return "unavailable" if unavailable else "nothing_queued"
+        cases = (await session.execute(text(_CLAIM_ONE), {"aid": agent_id})).all()
     if not cases:
         return "nothing_queued"
-    engine = get_engine()
-    version = int(agent[1]) if agent is not None and agent[1] is not None else None
-    if agent is None or agent[0] is None or not isinstance(engine, RunsTestChat):
-        for case_id, _lines in cases:
-            await _store(tenant_id, case_id, result=None, error="unavailable", version=version)
-        return "unavailable"
     knowledge_tool = hosted_agent_limits(engine).knowledge_tool
-    for index, (case_id, lines) in enumerate(cases):
-        if index:
-            await _pause()
+    if payload.get("chained"):
+        await _pause()
+    for case_id, lines in cases:
         try:
             turns = await run_case_lines(
                 engine,
@@ -144,6 +172,7 @@ async def run_agent_test_cases(ctx: dict[str, Any], payload: dict[str, Any]) -> 
             await _store(tenant_id, case_id, result=None, error="crashed", version=version)
             continue
         await _store(tenant_id, case_id, result=turns, error=None, version=version)
+    await _queue_next(tenant_id, agent_id)
     log.info("agent_test_cases_done", extra={"agent_id": str(agent_id), "cases": len(cases)})
     return "done"
 

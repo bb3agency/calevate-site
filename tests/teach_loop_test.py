@@ -573,6 +573,79 @@ async def test_a_test_from_a_call_takes_only_the_callers_redacted_lines_and_reru
         assert await test_cases.list_cases(session, agent_id) == []
 
 
+async def test_saved_tests_run_one_per_job_and_a_dead_run_can_be_started_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Twenty tests in one job ran past the job time limit, which is not retried, and
+    every test not yet stored stayed running for good. One test per job, the next queued
+    behind it; a test stuck running from a lost job is queued again by the next Run."""
+    tenant_id, agent_id = await _tenant()
+    ids = []
+    async with tenant_session(tenant_id) as session:
+        for title in ("First", "Second"):
+            case = await test_cases.create_case(
+                session,
+                tenant_id=tenant_id,
+                call_id=None,
+                agent_id=agent_id,
+                title=title,
+                caller_lines=["Hello?"],
+                expected="Greets.",
+                created_by=None,
+            )
+            ids.append(case.id)
+        await session.execute(
+            text("UPDATE agents SET engine_agent_ref = 'ag_test' WHERE id = :id"), {"id": agent_id}
+        )
+        await session.execute(
+            text("UPDATE agent_test_cases SET status = 'queued' WHERE agent_id = :id"),
+            {"id": agent_id},
+        )
+
+    async def _no_pause() -> None:
+        return None
+
+    monkeypatch.setattr(case_worker, "get_engine", lambda: _FakeChat())
+    monkeypatch.setattr(case_worker, "_pause", _no_pause)
+    monkeypatch.setattr(
+        case_worker,
+        "hosted_agent_limits",
+        lambda engine: type("L", (), {"knowledge_tool": None})(),
+    )
+    payload = {"tenant_id": str(tenant_id), "agent_id": str(agent_id)}
+    assert await case_worker.run_agent_test_cases({}, payload) == "done"
+    async with tenant_session(tenant_id) as session:
+        states = sorted(c.status for c in await test_cases.list_cases(session, agent_id))
+        next_jobs = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM outbox_messages WHERE job = :job "
+                    "AND payload->>'agent_id' = :aid"
+                ),
+                {"job": test_cases.RUN_CASES_JOB, "aid": str(agent_id)},
+            )
+        ).scalar()
+    assert states == ["idle", "queued"] and next_jobs == 1
+
+    # The second job's run was lost after its claim.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE agent_test_cases SET status = 'running', "
+                "updated_at = now() - make_interval(mins => :m) WHERE status = 'queued'"
+            ),
+            {"m": test_cases.STALE_RUN_MINUTES + 1},
+        )
+
+    async def _ready(*_args: object, **_kwargs: object) -> object:
+        return type("R", (), {"available": True, "reason": None})()
+
+    monkeypatch.setattr(test_cases, "readiness", _ready)
+    async with tenant_session(tenant_id) as session:
+        listed = await test_cases.request_run(session, tenant_id=tenant_id, agent_id=agent_id)
+    assert sorted(c.status for c in listed) == ["queued", "queued"]
+
+
 # --- isolation ------------------------------------------------------------------------
 
 

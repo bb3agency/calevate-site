@@ -38,6 +38,11 @@ RUN_CASES_JOB: Final = "run_agent_test_cases"
 MAX_CASES_PER_AGENT: Final = 20
 MAX_TITLE_CHARS: Final = MAX_CASE_TITLE_CHARS
 
+#: A test still queued or running this long after its last write lost its job (the worker
+#: runs one test per job, well inside the 300 s job limit, and a timed-out job is not
+#: retried). The next "Run" queues it again instead of reporting the agent busy forever.
+STALE_RUN_MINUTES: Final = 15
+
 
 @dataclass(frozen=True, slots=True)
 class CaseDraft:
@@ -327,9 +332,11 @@ async def request_run(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID)
         await session.execute(
             text(
                 "UPDATE agent_test_cases SET status = 'queued', updated_at = now() "
-                "WHERE agent_id = :aid AND status = 'idle' RETURNING id"
+                "WHERE agent_id = :aid AND (status = 'idle' OR (status IN ('queued', "
+                "'running') AND updated_at < now() - make_interval(mins => :stale))) "
+                "RETURNING id"
             ),
-            {"aid": agent_id},
+            {"aid": agent_id, "stale": STALE_RUN_MINUTES},
         )
     ).all()
     if not queued:
@@ -347,12 +354,19 @@ async def request_run(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID)
                 "test_cases_none", "There are no saved tests for this agent yet."
             )
     else:
-        await enqueue_outbox(
-            session,
-            job=RUN_CASES_JOB,
-            payload={"tenant_id": str(tenant_id), "agent_id": str(agent_id)},
-        )
+        await queue_run(session, tenant_id=tenant_id, agent_id=agent_id)
     return await list_cases(session, agent_id)
+
+
+async def queue_run(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, chained: bool = False
+) -> None:
+    """The run job for this agent's queued tests, in the caller's transaction. `chained`
+    when the worker queues the next test behind the one it just sent."""
+    payload: dict[str, Any] = {"tenant_id": str(tenant_id), "agent_id": str(agent_id)}
+    if chained:
+        payload["chained"] = True
+    await enqueue_outbox(session, job=RUN_CASES_JOB, payload=payload)
 
 
 __all__ = [
@@ -370,6 +384,7 @@ __all__ = [
     "discard_pending",
     "draft_from_call",
     "list_cases",
+    "queue_run",
     "read_pending",
     "request_run",
     "saved_count",
