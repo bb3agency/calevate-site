@@ -397,18 +397,31 @@ class ActionTool:
     #: The one agent action whose subject is a deleted (archived) agent: restoring it.
     #: Every other agent-subject tool is refused on one (`write_tools._refuse_a_deleted_agent`).
     acts_on_archived: bool = False
+    #: The emailed-code action string the console BUTTON for this act demands (D-730), as a
+    #: template over the arguments with `{org}` for the account's slug — e.g.
+    #: `lambda args: "buy_number:{org}"`. Confirming or approving it then demands the same
+    #: code (D-893 F4); `None` when the button asks for none.
+    action_code: Callable[[Mapping[str, Any]], str] | None = None
 
     def __post_init__(self) -> None:
+        # A CONFIRM action may declare an Undo too (D-893 F4): it needed a click because it
+        # reaches a caller or the live agent, and where an exact inverse exists the activity
+        # log offers it after the change. An IMMEDIATE one must.
         if self.tier == "immediate" and self.undo is None:
             raise ValueError(
                 f"{self.name}: an immediate action must declare its inverse (D-694); "
                 "make it `confirm` if it cannot be taken back"
             )
-        if self.tier == "confirm" and self.undo is not None:
-            raise ValueError(
-                f"{self.name}: a confirm action is irreversible by definition and carries "
-                "no Undo; say how it is reversed in `Plan.reversal` instead"
-            )
+
+
+def account_code(verb: str) -> Callable[[Mapping[str, Any]], str]:
+    """`ActionTool.action_code` for a button whose code is `<verb>:<org slug>`."""
+
+    def template(args: Mapping[str, Any]) -> str:
+        del args
+        return f"{verb}:{{org}}"
+
+    return template
 
 
 def parse_args[M: BaseModel](model: type[M], args: Mapping[str, Any]) -> M:

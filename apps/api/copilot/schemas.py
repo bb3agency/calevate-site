@@ -712,6 +712,9 @@ class CopilotActionOut(BaseModel):
     #: The plan an approval or a confirmed set action is about (D-893): open it with
     #: `GET /v1/copilot/plans/{plan_id}`.
     plan_id: str | None = None
+    #: The emailed-code action string approving this one demands, with `{org}` for the
+    #: account's slug (D-893 F4), sent as `X-Confirm-Action`; null when none is needed.
+    confirm_action: str | None = None
     created_at: datetime
 
 

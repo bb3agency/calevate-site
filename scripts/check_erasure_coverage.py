@@ -472,24 +472,6 @@ ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
             "caller. A caller's deletion request has nothing to erase here; the number "
             "ends with the engagement, which `execute_tenant_erasure` covers."
         ),
-        "copilot_memories": (
-            "THE TABLE THAT EXPOSED THE UNION BUG, so its reason is written out. A "
-            "copilot memory is a distilled note about the client's own BUSINESS, written "
-            "through `copilot/memory.redacted_content`, which replaces phone numbers, "
-            "email addresses, Aadhaar, PAN, card, OTP and UPI identifiers before the row "
-            "is stored. This erasure is keyed on a phone number, so after that redaction "
-            "there is no predicate it can use — not a weakness of the arm, the absence of "
-            "anything to match. What can remain is a proper noun, which is the same limit "
-            "every digit-keyed arm has, and it is PUBLISHED to the data principal rather "
-            "than left here: `deletion.ERASURE_EXCEPTIONS` keyword 'assistant' ('it cannot "
-            "find a sentence that named the person instead') and keyword 'by name' state "
-            "it, and `tests/dpdp_known_gaps_test.py` holds the open gap with a probe that "
-            "turns red the day the keying stops being digits. The row does not survive "
-            "indefinitely: it expires on the `transcript` retention clock and the tenant "
-            "erasure deletes every row. The raw conversation IS reached by this erasure "
-            "(`_erase_copilot_turns` matches the digits), which is why only the distilled "
-            "note is registered here."
-        ),
         "copilot_plan_targets": (
             "One target of a Pip plan (D-893): a lead id, its order, and OUR OWN sentence for "
             "why it was left out or skipped (a do-not-call match, 'already hot', the calling "

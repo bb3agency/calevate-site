@@ -71,6 +71,7 @@ from apps.api.copilot.actions import (
     UndoRecord,
     UndoRefusedError,
     WriteRefusedError,
+    account_code,
     action_schema,
     parse_args,
 )
@@ -80,7 +81,6 @@ from apps.api.copilot.set_actions import CAMPAIGN_ADD_LEADS, LEADS_BULK_UPDATE
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.crm import service as crm_service
-from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 
 IST: Final = ZoneInfo("Asia/Kolkata")
@@ -590,14 +590,42 @@ class _CallbackBookArgs(BaseModel):
     note: Annotated[str, Field(max_length=500)] | None
 
 
+def _callback_time(raw: str, *, field: str) -> datetime:
+    """`raw` read as India time and held to the call-back route's own window (09:00-21:00
+    IST, two minutes to 30 days ahead: `swipe.check_schedule_time`), refused in its words."""
+    from apps.api.crm.swipe import check_schedule_time
+
+    instant = _ist_instant(raw, field=field)
+    try:
+        check_schedule_time(instant, now=datetime.now(UTC))
+    except ProblemError as problem:
+        raise WriteRefusedError(f"{problem.detail} Ask the person for another time") from problem
+    return instant
+
+
+async def _refuse_standing(
+    session: AsyncSession, actor: ToolActor, *, agent_id: UUID, phone: str
+) -> None:
+    """The gate's refusals that waiting cannot lift, told before a card (D-893 F4)."""
+    from apps.api.crm.swipe import standing_refusal
+
+    refused = await standing_refusal(
+        session, tenant_id=actor.tenant_id, agent_id=agent_id, phone=phone
+    )
+    if refused is not None:
+        raise WriteRefusedError(
+            f"the calling rules refuse this call-back whatever the time: {refused.reason}"
+        )
+
+
 async def _plan_callback_book(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Plan:
-    del actor
     parsed = parse_args(_CallbackBookArgs, args)
-    when = _ist_instant(parsed.at, field="at")
+    when = _callback_time(parsed.at, field="at")
     agent_name, _status = await _agent_name_status(session, parsed.agent_id)
-    await crm_service.get_lead(session, parsed.lead_id)
+    phone, _name = await crm_service.lead_phone(session, parsed.lead_id)
+    await _refuse_standing(session, actor, agent_id=parsed.agent_id, phone=phone)
     note = None if parsed.note is None else (strip_invisible(parsed.note.strip()) or None)
     return Plan(
         object_id=str(parsed.lead_id),
@@ -623,42 +651,125 @@ async def _plan_callback_book(
 async def _execute_callback_book(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`callbacks.service.book` — the one writer of a call-back, which the engine's
-    "call me back" action also uses. The execution id is ours, so a later move finds it."""
-    from apps.api.callbacks import service as callbacks_service
+    """`swipe.schedule_lead_callback` — `POST /v1/leads/{id}/callback`'s function (D-893 F4):
+    the 09:00-21:00 India window and the standing refusals apply exactly as for the button,
+    and a lead's waiting call-back is moved rather than doubled."""
+    from apps.api.crm.swipe import schedule_lead_callback
 
     parsed = parse_args(_CallbackBookArgs, args)
-    phone, _name = await crm_service.lead_phone(session, parsed.lead_id)
-    callback_id = uuid7()
     when = datetime.fromisoformat(parsed.at)
-    booked = await callbacks_service.book(
+    booked = await schedule_lead_callback(
         session,
-        callback_id=callback_id,
         tenant_id=actor.tenant_id,
-        agent_id=parsed.agent_id,
-        source_call_id=None,
-        source_execution_id=f"copilot:{callback_id}",
         lead_id=parsed.lead_id,
-        phone_e164=phone,
-        requested_at=when,
-        booked_at=datetime.now(UTC),
+        at=when,
         note=parsed.note,
-        language=None,
+        agent_id=parsed.agent_id,
     )
-    if booked is None:  # pragma: no cover - a fresh execution id cannot lose the upsert
-        raise ProblemError.conflict("callback_not_booked", "That call-back could not be booked.")
+    if booked.status == "blocked" or booked.callback_id is None:
+        raise ProblemError.business_rule(
+            "callback_blocked",
+            booked.blocked_reason or "The calling rules refuse this call-back.",
+        )
     return Executed(
         applied=True,
-        detail=f"Call-back booked for {_ist_words(when)}.",
-        audit_summary={"callback_id": str(booked[0]), "agent_id": str(parsed.agent_id)},
-        object_id=str(booked[0]),
+        detail=(
+            f"The waiting call-back is moved to {_ist_words(when)}."
+            if booked.rescheduled
+            else f"Call-back booked for {_ist_words(when)}."
+        ),
+        audit_summary={
+            "callback_id": str(booked.callback_id),
+            "agent_id": str(parsed.agent_id),
+            "rescheduled": booked.rescheduled,
+        },
+        object_id=str(booked.callback_id),
     )
+
+
+_CLIENT_SCHEDULED: Final = (
+    "SELECT id, requested_at FROM scheduled_callbacks WHERE lead_id = :lid "
+    "AND status = 'scheduled' AND source_execution_id LIKE :prefix "
+    "ORDER BY created_at DESC LIMIT 1"
+)
+
+
+async def _capture_callback_book(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Before: the lead's waiting client call-back, if any (booking moves it). After: the
+    call-back the booking left, by the id the executor produced."""
+    from apps.api.callbacks import service as callbacks_service
+
+    del actor
+    if args.get("callback_id"):
+        row = await callbacks_service.get_callback(session, UUID(str(args["callback_id"])))
+        assert row is not None  # the executor just wrote it
+        return {
+            "callback_id": str(args["callback_id"]),
+            "status": row["status"],
+            "requested_at": row["requested_at"].isoformat(),
+        }
+    found = (
+        await session.execute(
+            text(_CLIENT_SCHEDULED),
+            {
+                "lid": UUID(str(args["lead_id"])),
+                "prefix": f"{callbacks_service.CLIENT_SCHEDULE_PREFIX}%",
+            },
+        )
+    ).first()
+    if found is None:
+        return {"callback_id": None, "requested_at": None}
+    return {"callback_id": str(found[0]), "requested_at": found[1].isoformat()}
+
+
+async def _invert_callback_book(session: AsyncSession, actor: ToolActor, record: UndoRecord) -> str:
+    """Cancel the booked call-back, or move a moved one back — through the call-back
+    screen's own functions, only while it is still waiting at the time the booking set."""
+    from apps.api.callbacks import service as callbacks_service
+    from apps.api.crm.swipe import schedule_lead_callback
+
+    callback_id = UUID(str(record.result_state["callback_id"]))
+    row = (
+        await session.execute(
+            text(
+                "SELECT status, requested_at, lead_id, note, agent_id FROM scheduled_callbacks "
+                "WHERE id = :id "
+                "FOR UPDATE"
+            ),
+            {"id": callback_id},
+        )
+    ).first()
+    if row is None or row[0] != "scheduled":
+        raise UndoRefusedError("that call-back is no longer waiting, so it was left as it is")
+    if row[1].isoformat() != record.result_state.get("requested_at"):
+        raise UndoRefusedError("that call-back has been moved since, so it was left as it is")
+    prior_id = record.prior_state.get("callback_id")
+    prior_at = record.prior_state.get("requested_at")
+    if prior_id == str(callback_id) and prior_at:
+        try:
+            await schedule_lead_callback(
+                session,
+                tenant_id=actor.tenant_id,
+                lead_id=UUID(str(row[2])),
+                at=datetime.fromisoformat(prior_at),
+                note=row[3],
+                agent_id=UUID(str(row[4])),
+            )
+        except ProblemError as problem:
+            raise UndoRefusedError(
+                "its earlier time can no longer be used, so it stays where it is"
+            ) from problem
+        return f"The call-back is back at {_ist_words(datetime.fromisoformat(prior_at))}."
+    await callbacks_service.cancel_one(session, callback_id, reason="Undone from the assistant.")
+    return "The call-back is cancelled."
 
 
 CALLBACK_BOOK: Final = ActionTool(
     name="callback_book",
     tier="confirm",
-    undo=None,
+    undo=Undo(capture=_capture_callback_book, invert=_invert_callback_book),
     permission="leads:dispatch",
     object_type="callback",
     audit_action="callback.booked",
@@ -711,10 +822,12 @@ async def _waiting_callback(session: AsyncSession, callback_id: UUID) -> dict[st
 async def _plan_callback_reschedule(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Plan:
-    del actor
     parsed = parse_args(_CallbackMoveArgs, args)
-    when = _ist_instant(parsed.at, field="at")
+    when = _callback_time(parsed.at, field="at")
     row = await _waiting_callback(session, parsed.callback_id)
+    await _refuse_standing(
+        session, actor, agent_id=UUID(str(row["agent_id"])), phone=str(row["phone_e164"])
+    )
     current = _ist_words(row["requested_at"])
     return Plan(
         object_id=str(parsed.callback_id),
@@ -733,36 +846,11 @@ async def _execute_callback_reschedule(
 ) -> Executed:
     """`callbacks.service.book` on the row's own execution id: its upsert moves a WAITING
     promise and changes nothing that is already being dialled."""
-    from apps.api.callbacks import service as callbacks_service
-
     parsed = parse_args(_CallbackMoveArgs, args)
-    row = await _waiting_callback(session, parsed.callback_id)
-    origin = (
-        await session.execute(
-            text(
-                "SELECT source_execution_id, source_call_id, language FROM scheduled_callbacks "
-                "WHERE id = :id"
-            ),
-            {"id": parsed.callback_id},
-        )
-    ).first()
-    assert origin is not None  # `_waiting_callback` read the same row
-    when = datetime.fromisoformat(parsed.at)
-    booked = await callbacks_service.book(
-        session,
-        callback_id=parsed.callback_id,
-        tenant_id=actor.tenant_id,
-        agent_id=row["agent_id"],
-        source_call_id=origin[1],
-        source_execution_id=str(origin[0]),
-        lead_id=row["lead_id"],
-        phone_e164=row["phone_e164"],
-        requested_at=when,
-        booked_at=datetime.now(UTC),
-        note=row["note"],
-        language=origin[2],
+    applied = await _move_callback(
+        session, actor, parsed.callback_id, datetime.fromisoformat(parsed.at)
     )
-    applied = booked is not None
+    when = datetime.fromisoformat(parsed.at)
     return Executed(
         applied=applied,
         detail=(
@@ -774,10 +862,84 @@ async def _execute_callback_reschedule(
     )
 
 
+async def _move_callback(
+    session: AsyncSession, actor: ToolActor, callback_id: UUID, when: datetime
+) -> bool:
+    from apps.api.callbacks import service as callbacks_service
+
+    row = await _waiting_callback(session, callback_id)
+    origin = (
+        await session.execute(
+            text(
+                "SELECT source_execution_id, source_call_id, language FROM scheduled_callbacks "
+                "WHERE id = :id"
+            ),
+            {"id": callback_id},
+        )
+    ).first()
+    assert origin is not None  # `_waiting_callback` read the same row
+    booked = await callbacks_service.book(
+        session,
+        callback_id=callback_id,
+        tenant_id=actor.tenant_id,
+        agent_id=row["agent_id"],
+        source_call_id=origin[1],
+        source_execution_id=str(origin[0]),
+        lead_id=row["lead_id"],
+        phone_e164=row["phone_e164"],
+        requested_at=when,
+        booked_at=datetime.now(UTC),
+        note=row["note"],
+        language=origin[2],
+    )
+    return booked is not None
+
+
+async def _capture_callback_time(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> dict[str, Any]:
+    from apps.api.callbacks import service as callbacks_service
+
+    del actor
+    row = await callbacks_service.get_callback(session, UUID(str(args["callback_id"])))
+    if row is None:
+        return {"status": None, "requested_at": None}
+    return {"status": row["status"], "requested_at": row["requested_at"].isoformat()}
+
+
+async def _invert_callback_reschedule(
+    session: AsyncSession, actor: ToolActor, record: UndoRecord
+) -> str:
+    """Move it back, through the same upsert, while it still waits at the time it was moved
+    to and the earlier time is still inside the call-back window."""
+    from apps.api.crm.swipe import check_schedule_time
+
+    callback_id = UUID(str(record.args["callback_id"]))
+    row = (
+        await session.execute(
+            text("SELECT status, requested_at FROM scheduled_callbacks WHERE id = :id FOR UPDATE"),
+            {"id": callback_id},
+        )
+    ).first()
+    if row is None or row[0] != "scheduled":
+        raise UndoRefusedError("that call-back is no longer waiting, so it was left as it is")
+    if row[1].isoformat() != record.result_state.get("requested_at"):
+        raise UndoRefusedError("that call-back has been moved since, so it was left as it is")
+    prior = datetime.fromisoformat(str(record.prior_state["requested_at"]))
+    try:
+        check_schedule_time(prior, now=datetime.now(UTC))
+    except ProblemError as problem:
+        raise UndoRefusedError(
+            "its earlier time can no longer be used, so it stays where it is"
+        ) from problem
+    await _move_callback(session, actor, callback_id, prior)
+    return f"The call-back is back at {_ist_words(prior)}."
+
+
 CALLBACK_RESCHEDULE: Final = ActionTool(
     name="callback_reschedule",
     tier="confirm",
-    undo=None,
+    undo=Undo(capture=_capture_callback_time, invert=_invert_callback_reschedule),
     permission="leads:dispatch",
     object_type="callback",
     audit_action="callback.rescheduled",
@@ -1186,10 +1348,67 @@ async def _execute_campaign_schedule(
     )
 
 
+async def _capture_campaign_schedule(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> dict[str, Any]:
+    del actor
+    row = (
+        await session.execute(
+            text("SELECT status, schedule FROM campaigns WHERE id = :id"),
+            {"id": UUID(str(args["campaign_id"]))},
+        )
+    ).first()
+    if row is None:  # pragma: no cover - the planner 404'd an absent campaign
+        raise ProblemError.not_found("Campaign")
+    return {"status": str(row[0]), "schedule": row[1]}
+
+
+async def _invert_campaign_schedule(
+    session: AsyncSession, actor: ToolActor, record: UndoRecord
+) -> str:
+    """Back to a draft (`unschedule_campaign`, the Cancel schedule button) or to the start it
+    had before (`schedule_campaign`), while it has not started and still holds this time."""
+    from apps.api.campaigns import scheduling
+
+    campaign_id = UUID(str(record.args["campaign_id"]))
+    row = (
+        await session.execute(
+            text("SELECT status, schedule FROM campaigns WHERE id = :id FOR UPDATE"),
+            {"id": campaign_id},
+        )
+    ).first()
+    if (
+        row is None
+        or str(row[0]) != record.result_state.get("status")
+        or (row[1] != record.result_state.get("schedule"))
+    ):
+        raise UndoRefusedError(
+            "that campaign has started or been changed since, so it was left as it is"
+        )
+    prior_schedule = record.prior_state.get("schedule")
+    if record.prior_state.get("status") == "draft" or not prior_schedule:
+        await scheduling.unschedule_campaign(
+            session, tenant_id=actor.tenant_id, campaign_id=campaign_id
+        )
+        return "The scheduled start is cancelled; the campaign is a draft again."
+    if prior_schedule.get("kind") != scheduling.ONE_TIME:
+        raise UndoRefusedError(
+            "it repeated before, and that cannot be put back from here; set it on the "
+            "campaign's screen"
+        )
+    start = datetime.fromisoformat(str(prior_schedule["start_at"]))
+    if start <= datetime.now(UTC):
+        raise UndoRefusedError("its earlier start has passed, so it stays where it is")
+    await scheduling.schedule_campaign(
+        session, tenant_id=actor.tenant_id, campaign_id=campaign_id, start_at=start
+    )
+    return f"The campaign starts at {_ist_words(start)} again."
+
+
 CAMPAIGN_SCHEDULE: Final = ActionTool(
     name="campaign_schedule",
     tier="confirm",
-    undo=None,
+    undo=Undo(capture=_capture_campaign_schedule, invert=_invert_campaign_schedule),
     permission="leads:dispatch",
     object_type="campaign",
     audit_action="campaign.scheduled",
@@ -2237,10 +2456,60 @@ async def _execute_business_hours(
     )
 
 
+_WEEK: Final = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+async def _capture_hours(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The business's hours as stored — opening times, never anybody's data."""
+    from apps.api.tenancy.business_profile import load_profile
+
+    del args
+    profile = await load_profile(session, tenant_id=actor.tenant_id)
+    return {"hours": dict(profile.hours)}
+
+
+async def _invert_hours(session: AsyncSession, actor: ToolActor, record: UndoRecord) -> str:
+    """The earlier hours, through `save_profile` again, while the hours are still the ones
+    this change set (the profile row is locked first)."""
+    from apps.api.tenancy.business_profile import hours_line, load_profile
+    from apps.api.tenancy.profile_service import ProfilePatch, save_profile
+
+    await session.execute(
+        text("SELECT 1 FROM business_profiles WHERE tenant_id = :t FOR UPDATE"),
+        {"t": actor.tenant_id},
+    )
+    profile = await load_profile(session, tenant_id=actor.tenant_id)
+    if dict(profile.hours) != record.result_state.get("hours"):
+        raise UndoRefusedError("the hours have been changed since, so they were left as they are")
+    prior: dict[str, Any] = dict(record.prior_state.get("hours") or {})
+    if set(prior) != set(_WEEK):
+        raise UndoRefusedError(
+            "the hours were not set for every day before, so there is nothing exact to put "
+            "back; change them on the Business profile screen"
+        )
+    patch = ProfilePatch.model_validate(
+        {
+            "hours": [
+                {
+                    "day": day,
+                    "opens": None if prior[day] is None else prior[day]["opens"],
+                    "closes": None if prior[day] is None else prior[day]["closes"],
+                    "closed": prior[day] is None,
+                }
+                for day in _WEEK
+            ]
+        }
+    )
+    await save_profile(session, tenant_id=actor.tenant_id, patch=patch, user_id=actor.user_id)
+    return f"Your hours are back to {hours_line(prior)}."
+
+
 BUSINESS_HOURS_SET: Final = ActionTool(
     name="business_hours_set",
     tier="confirm",
-    undo=None,
+    undo=Undo(capture=_capture_hours, invert=_invert_hours),
     permission="org:manage",
     object_type="organization",
     audit_action="business_profile.updated",
@@ -2657,6 +2926,9 @@ NUMBER_BUY: Final = ActionTool(
     permission="org:manage",
     object_type="phone_number",
     audit_action="number.bought",
+    # Spends credit on a vendor (D-893 F4): the same emailed code an export or a stored key
+    # asks for, so a sentence typed into Pip cannot buy a number on its own.
+    action_code=account_code("buy_number"),
     where="on the Your phone number screen",
     schema=action_schema(
         "number_buy",

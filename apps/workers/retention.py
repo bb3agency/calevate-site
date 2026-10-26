@@ -2421,6 +2421,28 @@ async def _erase_copilot_turns(session: AsyncSession, *, phone: str) -> int:
     return await _delete_in_batches(session, _COPILOT_TURN_SUBJECT_SQL, {"digits": digits})
 
 
+_COPILOT_MEMORY_SUBJECT_SQL = """
+DELETE FROM copilot_memories WHERE id IN (
+  SELECT id FROM copilot_memories
+  WHERE strpos(regexp_replace(content, '[^0-9]', '', 'g'), :digits) > 0
+  LIMIT :batch)
+"""
+
+
+async def _erase_copilot_memories(session: AsyncSession, *, phone: str) -> int:
+    """Delete the assistant's distilled notes (`copilot_memories`) that carry this number's
+    digits, as `_erase_copilot_turns` does for the conversation (D-893 F4). Notes are
+    written through `memory.redacted_content`, so this is usually zero; it is the arm that
+    makes a note which slipped past redaction erasable rather than a certificate gap. A
+    note naming the person by NAME stays the published 'assistant' / 'by name' limitation
+    (`compliance/deletion.py`), which deliberately does not erase by name. Only the count
+    leaves."""
+    digits = "".join(character for character in phone if character.isdigit())[-10:]
+    if not digits:
+        return 0
+    return await _delete_in_batches(session, _COPILOT_MEMORY_SUBJECT_SQL, {"digits": digits})
+
+
 # THE HANDOVER BRIEF, REACHED BY THE CALL (D-533).
 #
 # THE HOLE THIS CLOSES is `scrub_quotes_for_calls`' hole, one table along, and the same
@@ -2884,6 +2906,8 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         # THE CONSOLE CONVERSATION (D-540), reached by the same number. See
         # `_erase_copilot_turns`: turns are stored as said since D-788.
         copilot_turns_erased = await _erase_copilot_turns(session, phone=phone)
+        # The assistant's distilled notes (D-893 F4), by the number's digits.
+        copilot_memories_erased = await _erase_copilot_memories(session, phone=phone)
 
         # THE QUEUED AND DEAD-LETTERED JOBS (P6.7). Keyed on the number and NOT on the
         # calls above, for `_erase_campaign_contacts`' reason: a delivery that never
@@ -2991,6 +3015,9 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 "copilot_conversation_turns": (
                     f"{copilot_turns_erased} in-app assistant conversation turn(s) "
                     "naming this number deleted"
+                ),
+                "copilot_memories": (
+                    f"{copilot_memories_erased} in-app assistant note(s) naming this number deleted"
                 ),
                 # THE CALLER'S OWN QUESTION, which the gap tables copied out of
                 # `transcript_turns.text_redacted` at detection time and which no other

@@ -13556,6 +13556,17 @@
             "title": "Can Undo",
             "type": "boolean"
           },
+          "confirm_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirm Action"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -73024,6 +73035,22 @@
               "title": "Action Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
           }
         ],
         "responses": {
@@ -73190,6 +73217,24 @@
       "post": {
         "description": "Carry out the change the assistant proposed, after the person confirmed it.\n\nPost back the `token` from an `event: proposal` frame, **unchanged**. The body carries\nnothing else: the account, the person, the tool and every argument are inside the token's\nsignature, so there is nothing here a browser could edit and nothing a page could invent.\n\nA token works ONCE and only for the account and the person it was minted for, and it stops\nworking five minutes after it was issued. Every refusal is a 403 with the same shape \u2014\nalready confirmed, expired, tampered with, or minted elsewhere are deliberately not told\napart, so this endpoint cannot be used to learn which half of a token is wrong.\n\nThe change runs through exactly the service function the equivalent button on the screen\ncalls, so every refusal that button can get, this can get: `409` when a campaign is not\nrunning, `404` when nothing of yours has that id. `applied: false` with a `200` is a real\nanswer \u2014 the world was already in that state and nothing was written.\n\nEvery change writes an `audit_log` row naming the person who confirmed it.\nRequires `copilot:use`, and the tool's own permission on top of it.",
         "operationId": "confirm_copilot_proposal_v1_copilot_confirm_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {

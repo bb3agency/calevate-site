@@ -43,7 +43,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Final
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, Query, Request
+from fastapi import APIRouter, Body, Depends, Header, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -97,6 +97,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta, role_has
 from apps.api.core.settings import get_settings
+from apps.api.core.stepup import ClientActionCode, account_code_check
 from apps.api.crm.assist import ASSIST_FEATURE_COPILOT, meter_assist
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -864,7 +865,9 @@ async def confirm_copilot_proposal(
     payload: Annotated[CopilotConfirmIn, Body()],
     session: Annotated[AsyncSession, Depends(db)],
     request: Request,
+    code: ClientActionCode,
     principal: Principal = Depends(requires("copilot:use")),
+    x_confirm_action: Annotated[str | None, Header(alias="X-Confirm-Action")] = None,
 ) -> CopilotConfirmOut:
     """THE HUMAN-IN-THE-LOOP GATE, and it is this route existing at all.
 
@@ -906,6 +909,7 @@ async def confirm_copilot_proposal(
         payload.token,
         principal=principal,
         ip=client_request_ip(request),
+        code_check=account_code_check(code, request, x_confirm_action),
     )
 
 
@@ -1215,6 +1219,16 @@ def _client_ids(principal: Principal) -> tuple[UUID, UUID]:
     return principal.tenant_id, principal.client_user_id
 
 
+def _approval_code(row: action_log.ActionRow) -> str | None:
+    """The code template a waiting approval will demand, read from the registry."""
+    if row.status != "pending_approval":
+        return None
+    tool = write_tools.tool_named(row.tool)
+    if tool is None or tool.action_code is None:
+        return None
+    return tool.action_code(row.args_redacted or {})
+
+
 def action_out(row: action_log.ActionRow, *, realm: action_log.ActionRealm) -> CopilotActionOut:
     """One log row on the wire. `can_undo` is decided HERE, from the server's clock."""
     return CopilotActionOut(
@@ -1237,6 +1251,7 @@ def action_out(row: action_log.ActionRow, *, realm: action_log.ActionRealm) -> C
         undone_by=None if row.undone_by is None else str(row.undone_by),
         decided_by=None if row.decided_by is None else str(row.decided_by),
         plan_id=plans.plan_id_of(row.args_redacted),
+        confirm_action=_approval_code(row),
         created_at=row.created_at,
     )
 
@@ -1340,7 +1355,9 @@ async def approve_copilot_action(
     action_id: UUID,
     session: Annotated[AsyncSession, Depends(db)],
     request: Request,
+    code: ClientActionCode,
     principal: Principal = Depends(requires("copilot:use")),
+    x_confirm_action: Annotated[str | None, Header(alias="X-Confirm-Action")] = None,
 ) -> CopilotConfirmOut:
     """The click that lets a background job's irreversible step happen (D-694).
 
@@ -1351,7 +1368,11 @@ async def approve_copilot_action(
     """
     _client_ids(principal)
     return await write_tools.approve(
-        session, action_id, principal=principal, ip=client_request_ip(request)
+        session,
+        action_id,
+        principal=principal,
+        ip=client_request_ip(request),
+        code_check=account_code_check(code, request, x_confirm_action),
     )
 
 

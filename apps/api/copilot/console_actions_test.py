@@ -166,7 +166,8 @@ def test_only_the_reviewed_console_actions_skip_the_click() -> None:
     for name in _MUST_CONFIRM:
         assert write_tools.tier_of(name) == "confirm", name
     for tool in CONSOLE_ACTIONS:
-        assert (tool.undo is not None) == (tool.tier == "immediate"), tool.name
+        # D-893 F4: a confirm action may carry an exact Undo too (`security_fixes_test`).
+        assert tool.tier != "immediate" or tool.undo is not None, tool.name
 
 
 def test_no_tool_accepts_terms_the_pledge_or_uploads_kyc() -> None:
@@ -403,6 +404,10 @@ async def test_call_place_dials_through_the_buttons_own_function() -> None:
 async def test_a_callback_is_booked_moved_and_cancelled() -> None:
     tenant_id, _slug, token = await _make_tenant()
     lead_id, agent_id = await _lead_of(tenant_id), await _agent_of(tenant_id)
+    # D-893 F4: the route's standing refusals apply, and an agent that only answers calls
+    # cannot place a call-back.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(text("UPDATE agents SET direction = 'outbound', status = 'live'"))
     with pytest.raises(write_tools.WriteRefusedError):
         await _propose(
             tenant_id,

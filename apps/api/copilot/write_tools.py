@@ -86,7 +86,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Final, Literal
@@ -1173,6 +1173,7 @@ async def plan_write(
         reversal=strip_invisible(plan.reversal),
         expires_at=expires_at,
         plan_id=plans.plan_id_of(plan.args),
+        confirm_action=None if tool.action_code is None else tool.action_code(plan.args),
     )
 
 
@@ -1662,12 +1663,57 @@ async def _unburn(jti: str) -> None:
         log.warning("copilot_proposal_unburn_failed")
 
 
+#: Checks the emailed code typed for one action string (`core.stepup.ActionCode`), with the
+#: `{org}` of an `ActionTool.action_code` template already filled in by the route.
+CodeCheck = Callable[[str], Awaitable[None]]
+
+
+async def _require_action_code(
+    tool: WriteTool, args: Mapping[str, Any], code_check: CodeCheck | None
+) -> None:
+    """The console button's emailed code, demanded of the same act through Pip (D-893 F4).
+    A caller with no way to check one (a background run) is refused, never let through."""
+    if tool.action_code is None:
+        return
+    if code_check is None:
+        raise ProblemError(
+            kind="permission",
+            code="step_up_required",
+            title="Confirmation required",
+            detail="This change needs a code sent to your email, typed for it.",
+            remediation="Confirm it from the assistant panel, where you will be asked for one.",
+        )
+    await code_check(tool.action_code(args))
+
+
+async def _record_undo(
+    session: AsyncSession,
+    tool: WriteTool,
+    actor: ToolActor,
+    args: Mapping[str, Any],
+    executed: Executed,
+    prior_state: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, datetime | None]:
+    """The state an Undo requires, read right after the change, for a confirm action that
+    declares an exact inverse (D-893 F4); `(None, None)` for one that does not."""
+    if tool.undo is None or prior_state is None or not executed.applied:
+        return None, None
+    produced = executed.object_id
+    result_state = await tool.undo.capture(
+        session,
+        actor,
+        {**args, f"{tool.object_type}_id": produced} if produced else args,
+    )
+    return result_state, action_log.undoable_until()
+
+
 async def confirm(
     session: AsyncSession,
     token: str,
     *,
     principal: Principal,
     ip: str | None,
+    code_check: CodeCheck | None = None,
 ) -> CopilotConfirmOut:
     """Verify, re-check the permission, burn, execute, audit — in that order.
 
@@ -1737,6 +1783,7 @@ async def confirm(
             detail="You do not have permission to make this change.",
             remediation="Ask an owner or manager on this account to confirm it instead.",
         )
+    await _require_action_code(proposal.tool, proposal.args, code_check)
     # THE BURN SITS IMMEDIATELY BEFORE THE EXECUTION and nothing may be inserted between
     # them: everything that can refuse has refused by here, so a burnt proposal is one
     # that was really about to run. The permission check is above it for that reason —
@@ -1746,8 +1793,16 @@ async def confirm(
 
     paid = False
     try:
+        prior_state = (
+            None
+            if proposal.tool.undo is None
+            else await proposal.tool.undo.capture(session, actor, proposal.args)
+        )
         executed = await proposal.tool.execute(session, actor, proposal.args)
         paid = proposal.tool.external_spend
+        result_state, until = await _record_undo(
+            session, proposal.tool, actor, proposal.args, executed, prior_state
+        )
         await write_audit(
             session,
             action=proposal.tool.audit_action,
@@ -1773,9 +1828,12 @@ async def confirm(
                 object_type=proposal.tool.object_type,
                 actor_id=actor.user_id,
                 tenant_id=actor.tenant_id,
-                object_id=proposal.object_id or None,
+                object_id=executed.object_id or proposal.object_id or None,
                 args=proposal.args,
+                prior_state=None if result_state is None else prior_state,
+                result_state=result_state,
                 summary=executed.recorded or executed.detail,
+                undoable_until=until,
             ),
         )
     except BaseException as failure:
@@ -1944,7 +2002,12 @@ async def _pending_for(
 
 
 async def approve(
-    session: AsyncSession, action_id: UUID, *, principal: Principal, ip: str | None
+    session: AsyncSession,
+    action_id: UUID,
+    *,
+    principal: Principal,
+    ip: str | None,
+    code_check: CodeCheck | None = None,
 ) -> CopilotConfirmOut:
     """Run one pending action, after a person clicked Approve. The click IS the confirm.
 
@@ -1982,7 +2045,10 @@ async def approve(
             applied=False,
             detail=strip_invisible(refused.reason),
         )
+    await _require_action_code(tool, plan.args, code_check)
+    prior_state = None if tool.undo is None else await tool.undo.capture(session, actor, plan.args)
     executed = await tool.execute(session, actor, plan.args)
+    result_state, until = await _record_undo(session, tool, actor, plan.args, executed, prior_state)
     await write_audit(
         session,
         action=tool.audit_action,
@@ -2000,6 +2066,14 @@ async def approve(
         by=actor.user_id,
         summary=executed.recorded or executed.detail,
     )
+    if result_state is not None and prior_state is not None:
+        await action_log.record_undo_states(
+            session,
+            action_id=action_id,
+            prior_state=prior_state,
+            result_state=result_state,
+            undoable_until=until,
+        )
     return CopilotConfirmOut(
         tool=tool.name,
         object_type=tool.object_type,
@@ -2042,6 +2116,7 @@ __all__ = [
     "WRITE_TOOLS",
     "ActionTier",
     "ActionTool",
+    "CodeCheck",
     "Executed",
     "Plan",
     "StagedApproval",

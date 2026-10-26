@@ -95,15 +95,17 @@ def test_an_immediate_tool_without_an_inverse_cannot_be_registered() -> None:
     }
     with pytest.raises(ValueError, match="inverse"):
         ActionTool(name="x", tier="immediate", undo=None, **common)
-    with pytest.raises(ValueError, match="irreversible"):
-        ActionTool(name="x", tier="confirm", undo=Undo(capture=_noop, invert=_noop), **common)
+    # D-893 F4: a confirm action may declare an exact inverse; it still needs its click.
+    confirm = ActionTool(name="x", tier="confirm", undo=Undo(capture=_noop, invert=_noop), **common)
+    assert confirm.tier == "confirm"
     assert set(ACTION_TIERS) == {"immediate", "confirm"}
 
 
-def test_every_immediate_tool_carries_an_inverse_and_every_confirm_tool_none() -> None:
+def test_every_immediate_tool_carries_an_inverse() -> None:
     """Derived from the registry, so a new tool is covered the day it is registered."""
     for tool in write_tools.WRITE_TOOLS:
-        assert (tool.undo is not None) == (tool.tier == "immediate"), tool.name
+        # D-893 F4: a confirm action may carry an exact Undo too (`security_fixes_test`).
+        assert tool.tier != "immediate" or tool.undo is not None, tool.name
     assert "lead_set_status" in write_tools.immediate_tool_names()
     assert write_tools.tier_of("dnc_add") == "confirm"
 

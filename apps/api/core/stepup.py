@@ -55,6 +55,7 @@ only source of one is `Depends(step_up_gate)`.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated
@@ -208,11 +209,27 @@ async def client_action_code(request: Request) -> ActionCode:
 ClientActionCode = Annotated[ActionCode, Depends(client_action_code)]
 
 
+def account_code_check(
+    code: ActionCode, request: Request, confirm: str | None
+) -> Callable[[str], Awaitable[None]]:
+    """The check an action TEMPLATE needs (`{org}` standing for this request's account),
+    for a door that learns which action it guards only after reading a token (D-893: a
+    Pip confirm demands the code the console button would). The org is filled in from the
+    same header `client_confirmation` reads, so the two spellings cannot differ."""
+    from apps.api.core.context import ORG_HEADER
+
+    async def check(template: str) -> None:
+        await code.require(confirm, template.replace("{org}", request.headers.get(ORG_HEADER, "")))
+
+    return check
+
+
 __all__ = [
     "ActionCode",
     "ClientActionCode",
     "StepUp",
     "StepUpGate",
+    "account_code_check",
     "client_action_code",
     "client_confirmation",
     "step_up_gate",

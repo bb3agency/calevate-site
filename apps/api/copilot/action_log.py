@@ -421,6 +421,34 @@ async def decide_approval(
     return bool(getattr(result, "rowcount", 0))
 
 
+_UNDO_STATES = (
+    "UPDATE copilot_actions SET prior_state = CAST(:prior AS jsonb), "
+    "result_state = CAST(:result AS jsonb), undoable_until = :until, updated_at = now() "
+    "WHERE id = :id"
+)
+
+
+async def record_undo_states(
+    session: AsyncSession,
+    *,
+    action_id: UUID,
+    prior_state: Mapping[str, Any],
+    result_state: Mapping[str, Any],
+    undoable_until: datetime | None,
+) -> None:
+    """What an approved action's Undo restores and requires (D-893 F4): the inbox row is
+    written when the job stages it, and the states exist only once the approval ran it."""
+    await session.execute(
+        text(_UNDO_STATES),
+        {
+            "id": action_id,
+            "prior": _json(prior_state),
+            "result": _json(result_state),
+            "until": undoable_until,
+        },
+    )
+
+
 _EXPIRE_STALE = (
     "UPDATE copilot_actions SET status = 'expired', decided_at = now(), pending_args = NULL, "
     "updated_at = now() WHERE status = 'pending_approval' AND created_at < :cutoff"
@@ -451,6 +479,7 @@ __all__ = [
     "mark_undone",
     "read_for_update",
     "record_refusal",
+    "record_undo_states",
     "redact_args",
     "undoable_until",
 ]

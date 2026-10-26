@@ -33,7 +33,11 @@ money?**
 Rules that bind every tool:
 
 1. `ActionTool.tier` and `ActionTool.undo` have **no default**. `ActionTool.__post_init__`
-   refuses an `immediate` tool with `undo=None` and a `confirm` tool with an `undo`.
+   refuses an `immediate` tool with `undo=None`. A `confirm` tool MAY declare an `undo`
+   where an exact inverse exists (D-893 F4: `callback_book`, `callback_reschedule`,
+   `business_hours_set`, `campaign_schedule`); `confirm` and `approve` then record
+   `prior_state` and `result_state` and the activity log offers Undo, exactly as for an
+   immediate action. It still needs its click.
 2. The tier is read only from the registry (`write_tools.tier_of`), never from arguments or
    from anything the model says.
 3. When in doubt, it is `confirm`. A mis-tiered action is an incident.
@@ -82,7 +86,7 @@ ActionTool(
   4. return the sentence the person reads ("The lead is back to Contacted.").
   It may read only IDS from `record.args`: the stored arguments are redacted.
 
-If you cannot write an exact inverse, the tool is `confirm`.
+If you cannot write an exact inverse, the tool is `confirm` (and declares `undo=None`).
 
 **The description** (D-779) is written for a new hire and is paid on every request, because
 the whole realm's tool array is the cacheable prefix:
@@ -150,6 +154,16 @@ is checked inside:
 * The client assistant is closed to a view-as session (`assistant_closed_to`).
 * An agent-subject tool is refused on a deleted agent before it plans
   (`_refuse_a_deleted_agent`) — keep the `agent_id` argument name.
+* **The console button's emailed code (D-730) is demanded of the same act through Pip**
+  (D-893 F4). Declare `action_code=account_code("<verb>")` (or a template over the
+  arguments with `{org}` for the account slug, matching the route's `client_confirmation`
+  string). The proposal frame and the Approvals row carry it as `confirm_action`; the browser
+  sends it, `{org}` filled in, as `X-Confirm-Action` through `withAccountCode`, and
+  `confirm` / `approve` check it (`core/stepup.account_code_check`) before the token is
+  spent. A background run cannot type a code, so it never executes such an action. Today:
+  `number_buy` (`buy_number`). Lanes adding exports, owner invites or integration endpoints
+  to Pip declare the verb their route uses (`export_leads`, `invite_owner` + email,
+  `create_endpoint`).
 * Admin actions use `role_has(actor.role, tool.permission)` and refuse an impersonating
   operator; set `confirm_action` to the step-up string the console button sends, and the
   admin confirm door demands that header plus a fresh second factor. Set it to `None`

@@ -38,6 +38,7 @@ from apps.api.billing.plans import IST
 from apps.api.callbacks import service as callbacks
 from apps.api.compliance.service import (
     PERSON_LEVEL_REFUSALS,
+    DispatchDecision,
     check_dispatch,
     person_level_refusal,
 )
@@ -265,6 +266,22 @@ async def contact_agent(session: AsyncSession, lead_id: UUID, requested: UUID | 
     return UUID(str(other)) if other is not None else UUID(str(own.agent_id))
 
 
+async def standing_refusal(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, phone: str
+) -> DispatchDecision | None:
+    """The dispatch gate's refusal that waiting until a booked time cannot lift
+    (`STANDING_REFUSALS`), or None. The person first, on its own: in `check_dispatch` the
+    hours and the account come before the do-not-call list, so a booking made at night
+    would otherwise never learn the number is on it. Asked by the call-back route and by
+    Pip's call-back actions before they book or move one."""
+    decision = await person_level_refusal(
+        session, tenant_id=tenant_id, phone_e164=phone
+    ) or await check_dispatch(session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone)
+    if not decision.allowed and decision.rule in STANDING_REFUSALS:
+        return decision
+    return None
+
+
 async def schedule_lead_callback(
     session: AsyncSession,
     *,
@@ -284,15 +301,10 @@ async def schedule_lead_callback(
     check_schedule_time(at, now=now or datetime.now(UTC))
     phone, _name = await lead_phone(session, lead_id)
     agent_id = await contact_agent(session, lead_id, agent_id)
-    # The person first, on its own: in `check_dispatch` the hours and the account come
-    # before the do-not-call list, so a booking made at night would otherwise never learn
-    # the number is on it.
-    decision = await person_level_refusal(
-        session, tenant_id=tenant_id, phone_e164=phone
-    ) or await check_dispatch(session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone)
-    if not decision.allowed and decision.rule in STANDING_REFUSALS:
+    refused = await standing_refusal(session, tenant_id=tenant_id, agent_id=agent_id, phone=phone)
+    if refused is not None:
         return ScheduleCallbackOut(
-            status="blocked", blocked_reason=decision.reason, blocked_rule=decision.rule
+            status="blocked", blocked_reason=refused.reason, blocked_rule=refused.rule
         )
     clean_note = (note or "").strip() or None
     existing = (
@@ -586,5 +598,6 @@ __all__ = [
     "schedule_lead_callback",
     "send_whatsapp_follow_up",
     "set_call_follow_up",
+    "standing_refusal",
     "whatsapp_options",
 ]

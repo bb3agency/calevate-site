@@ -16880,6 +16880,8 @@ export interface components {
             } | null;
             /** Can Undo */
             can_undo: boolean;
+            /** Confirm Action */
+            confirm_action?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -45013,7 +45015,9 @@ export interface operations {
     approve_copilot_action_v1_copilot_approvals__action_id__approve_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path: {
                 action_id: string;
             };
@@ -45139,7 +45143,9 @@ export interface operations {
     confirm_copilot_proposal_v1_copilot_confirm_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };

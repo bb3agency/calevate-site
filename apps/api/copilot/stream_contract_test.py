@@ -55,8 +55,11 @@ EXPECTED: dict[str, dict[str, Any]] = {
             "cost": '{"anyOf": [{"type": "string"}, {"type": "null"}]}',
             "reversal": '{"type": "string"}',
             "expires_at": '{"format": "date-time", "type": "string"}',
-            # D-694: the step-up string an ADMIN action's confirm must send.
+            # D-694: the step-up string an ADMIN action's confirm must send; D-893: on the client
+            # realm the emailed-code action template (`{org}` for the slug).
             "confirm_action": '{"anyOf": [{"type": "string"}, {"type": "null"}]}',
+            # D-893: the plan a set action's card is about.
+            "plan_id": '{"anyOf": [{"type": "string"}, {"type": "null"}]}',
         },
         "required": [
             "cost",
