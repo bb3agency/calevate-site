@@ -702,3 +702,14 @@ async def test_text_a_caller_controls_cannot_become_the_alert_button(
     lead_url = f"{notifications.CONSOLE_BASE}/c/{slug}/leads/{payload['lead_id']}"
     assert f'href="{lead_url}"' in html, "the alert's one button must open the lead"
     assert html.count("href=") == 1, "the alert renders exactly one link: the lead's"
+
+
+def test_the_alert_names_the_agent_not_a_receptionist() -> None:
+    """A lead turns hot on an outbound campaign call as often as on an answered one, and an
+    agent that only calls out is no receptionist."""
+    body = notifications._compose(
+        "Ravi", CALLER_TEST_E164, "hot", None, [], slug="acme", lead_id=uuid.uuid4()
+    )
+    assert "by your AI agent." in body
+    assert "receptionist" not in body.lower()
+    assert "receptionist" not in notifications.HOT_LEAD_SUBJECT.lower()

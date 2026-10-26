@@ -66,7 +66,7 @@ from apps.workers.whatsapp import enqueue_hot_lead_whatsapp
 
 log = get_logger(__name__)
 
-HOT_LEAD_SUBJECT = "Hot lead from your AI receptionist"
+HOT_LEAD_SUBJECT = "Hot lead from your AI agent"
 
 # The channel discriminator written into every `lead_events.notification` row this
 # module creates, and the predicate every query here is scoped by.
@@ -359,7 +359,7 @@ def _compose(
     """
     masked = redact(phone).text
     lines = [
-        f"A lead was marked {status} by your AI receptionist.",
+        f"A lead was marked {status} by your AI agent.",
         "",
         f"Name: {_one_line(name) or 'not captured'}",
         f"Phone: {masked}",
@@ -422,7 +422,7 @@ async def _send_email(to: str, subject: str, body: str) -> bool:
     # two-minute SLO and its reader is on a phone.
     message = from_text(
         subject=subject,
-        preheader="A lead your AI receptionist marked hot is waiting for a call back.",
+        preheader="A lead your AI agent marked hot is waiting for a call back.",
         heading="A lead is waiting for you",
         text=body,
         cta="Open the lead",
