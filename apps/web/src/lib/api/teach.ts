@@ -9,7 +9,13 @@
  * and rules into the chosen agent's script as waiting rules.
  */
 
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { apiRequest, apiUpload, type Session } from "./client";
 import type { components } from "./schema";
@@ -131,6 +137,16 @@ export function useDiscardTeaching(session: Session) {
   });
 }
 
+/**
+ * A fact added, changed or removed can answer (or reopen) a question practice callers or
+ * setup were waiting on, and moves the practice run's "Add your prices first" note.
+ */
+function afterFactChange(client: QueryClient, slug: string): void {
+  for (const family of ["kb-knows", "teach-questions", "script-tests"]) {
+    void client.invalidateQueries({ queryKey: [family, slug] });
+  }
+}
+
 export function useEditFact(session: Session) {
   const client = useQueryClient();
   return useMutation({
@@ -143,7 +159,7 @@ export function useEditFact(session: Session) {
       question?: string;
       pinned?: boolean;
     }) => apiRequest<Fact>(session, `/v1/kb/facts/${id}`, { method: "PATCH", body: patch }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: knowsKey(session.orgSlug) }),
+    onSuccess: () => afterFactChange(client, session.orgSlug),
   });
 }
 
@@ -152,7 +168,7 @@ export function useAddFact(session: Session) {
   return useMutation({
     mutationFn: (body: { text: string; question: string | null; pinned: boolean }) =>
       apiRequest<Fact>(session, "/v1/kb/facts", { method: "POST", body }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: knowsKey(session.orgSlug) }),
+    onSuccess: () => afterFactChange(client, session.orgSlug),
   });
 }
 
@@ -170,7 +186,7 @@ export function useRemoveFact(session: Session) {
   return useMutation({
     mutationFn: (id: string) =>
       apiRequest<void>(session, `/v1/kb/facts/${id}`, { method: "DELETE" }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: knowsKey(session.orgSlug) }),
+    onSuccess: () => afterFactChange(client, session.orgSlug),
   });
 }
 
