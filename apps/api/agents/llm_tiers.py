@@ -28,8 +28,11 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Final, get_args
+from uuid import UUID
 
 from calevate_shared.engine import GOOGLE_DIRECT_MODELS, LLM_MODELS, LlmTier
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.llm_models import (
     LlmReasonAudience,
@@ -233,6 +236,24 @@ def resolve_tier_choice(
     )
 
 
+async def resolve_agent_tier(
+    session: AsyncSession, agent_id: UUID, tier: LlmTier | None, *, field: str = "llm_tier"
+) -> str | None:
+    """The model one agent's tier choice stores — `PATCH /v1/agents/{id}`'s `llm_tier` and
+    Pip's `agent_settings_set`. The agent's current model is read LOCKED so "the tier it is
+    already on" and the write that depends on it see one row (`lifecycle.update_agent`
+    re-takes the same lock)."""
+    current = (
+        await session.execute(
+            text("SELECT llm_model FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"),
+            {"aid": agent_id},
+        )
+    ).first()
+    return resolve_tier_choice(
+        tier, current_model=current[0] if current is not None else None, field=field
+    )
+
+
 # --- The engine's own catalogue (D-678) ---------------------------------------------------
 
 #: Prefix of the opaque id a client is given for an engine catalogue model.
@@ -297,6 +318,7 @@ __all__ = [
     "engine_model_for_token",
     "engine_model_from_client",
     "engine_model_token",
+    "resolve_agent_tier",
     "resolve_tier_choice",
     "tier_label",
     "tier_model",

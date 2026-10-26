@@ -30,10 +30,10 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.admin.business_type import queue_apply as queue_business_type_apply
 from apps.api.admin.routes import Vertical
 from apps.api.admin.service import tenant_exists
 from apps.api.agents import lead_fields as service
+from apps.api.agents import lead_fields_writes as writes
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
@@ -172,28 +172,6 @@ async def _render(session: AsyncSession, *, tenant_id: UUID) -> LeadFieldsOut:
     )
 
 
-async def _replacement_fields(
-    session: AsyncSession, *, tenant_id: UUID, business_type: str | None
-) -> list[ExtractionField]:
-    """The standard set for the type, or — for a custom business — what its owner kept of
-    the draft. An unreviewed draft is not something to replace with (D-821)."""
-    vertical = business_type or await service.vertical_of(session, tenant_id=tenant_id)
-    if service.has_standard_set(vertical):
-        return service.standard_fields(vertical)
-    draft = await service.read_draft(session, tenant_id=tenant_id)
-    if draft is None or draft.status != "done" or not draft.reviewed or not draft.fields:
-        raise ProblemError.business_rule(
-            "lead_fields_nothing_to_replace_with",
-            (
-                "This business has no standard set of lead details, and none have been "
-                "drafted from its details and kept yet."
-            ),
-            remediation="Draft the details and keep them first, or edit each agent's details "
-            "directly.",
-        )
-    return draft.fields
-
-
 def _replace_out(written: list[service.AgentWrite]) -> ReplaceOut:
     changed = sum(1 for w in written if w.changed)
     return ReplaceOut(agents_changed=changed, agents_unchanged=len(written) - changed)
@@ -252,10 +230,7 @@ async def post_draft_review(
     payload: LeadFieldsReviewIn, session: Session, principal: Owner, request: Request
 ) -> LeadFieldsReviewOut:
     assert principal.tenant_id is not None
-    reviewed = await service.review_draft(session, tenant_id=principal.tenant_id, keep=payload.keep)
-    if reviewed.written:
-        # The scripts ask for the new details from the next call (D-722).
-        await queue_business_type_apply(session, tenant_id=principal.tenant_id)
+    reviewed = await writes.keep_draft(session, tenant_id=principal.tenant_id, keep=payload.keep)
     await write_audit(
         session,
         action="lead_fields.draft_reviewed",
@@ -286,12 +261,11 @@ async def post_replace(
     payload: ReplaceIn, session: Session, principal: Owner, request: Request
 ) -> ReplaceOut:
     assert principal.tenant_id is not None
-    fields = await _replacement_fields(session, tenant_id=principal.tenant_id, business_type=None)
-    written = await service.replace_business_fields(
-        session, fields=fields, agent_ids=payload.agent_ids
-    )
     # The scripts ask for the new details from the next call (D-722).
-    await queue_business_type_apply(session, tenant_id=principal.tenant_id)
+    done = await writes.replace_with_standard(
+        session, tenant_id=principal.tenant_id, agent_ids=payload.agent_ids
+    )
+    fields, written = done.fields, done.written
     await write_audit(
         session,
         action="lead_fields.replaced",
@@ -368,13 +342,13 @@ async def admin_post_replace(
 ) -> ReplaceOut:
     async with tenant_session(tenant_id) as scoped:
         await _require_tenant(scoped, tenant_id)
-        fields = await _replacement_fields(
-            scoped, tenant_id=tenant_id, business_type=payload.business_type
+        done = await writes.replace_with_standard(
+            scoped,
+            tenant_id=tenant_id,
+            agent_ids=payload.agent_ids,
+            business_type=payload.business_type,
         )
-        written = await service.replace_business_fields(
-            scoped, fields=fields, agent_ids=payload.agent_ids
-        )
-        await queue_business_type_apply(scoped, tenant_id=tenant_id)
+        fields, written = done.fields, done.written
         await write_audit(
             scoped,
             action="admin.lead_fields_replaced",

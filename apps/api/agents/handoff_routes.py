@@ -41,7 +41,6 @@ This router is NOT mounted here — the integrator mounts it in `main._mount_rou
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID
@@ -60,11 +59,8 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
-from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
-from apps.api.db.result import rowcount_of
 from apps.api.engine import get_engine
-from apps.api.forwarding.service import assert_not_forwarded
 
 router = APIRouter(prefix="/v1/agents/{agent_id}/handoff", tags=["agents"])
 
@@ -395,101 +391,31 @@ async def put_handoff(
     principal: Writer,
     ip: Annotated[str | None, Depends(client_request_ip)],
 ) -> HandoffOut:
-    """Replace the whole configuration in one statement, in the order given.
-
-    **DELETE-THEN-INSERT INSIDE ONE TRANSACTION, and the alternative was worse.** An
-    upsert keyed on position would have to reconcile removals anyway, and a diff keyed on
-    the member id would let a client renumber two people into the same position halfway
-    through. The ids are therefore NOT stable across a write, which is a real consequence
-    and a deliberate one: `handoff_attempts.member_id` is `SET NULL` precisely so the
-    history of a call somebody took survives the roster being re-ordered, and the number
-    that rang is copied onto the attempt row rather than looked up through this table.
-
-    Two things are refused rather than normalised, because both are a client saying
-    something they did not mean: the same contact twice (one person cannot be two rungs of
-    a hunt list, and whichever is second is unreachable), and enabling the feature with
-    nobody on the list (an agent that promises a caller a person and has none).
-    """
-    await assert_visible(session, "agent", agent_id)
-    # Two saves at once (a double click, two tabs) would each delete only the rows they can
-    # see and then collide on the position and contact unique indexes as a 500. Taking the
-    # agent row first runs them one after the other; the second replaces the first.
-    await session.execute(
-        text("SELECT 1 FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"),
-        {"aid": agent_id},
-    )
-    chosen = [m.contact_id for m in payload.members]
-    if len(set(chosen)) != len(chosen):
-        raise ProblemError.business_rule(
-            "handoff_duplicate_contact",
-            "The same person appears more than once on this handover list.",
-            remediation="List each person once. A second listing would never be tried.",
-        )
-    if payload.enabled and not payload.members:
-        raise ProblemError.business_rule(
-            "handoff_no_members",
-            "Handing calls to a person is switched on, but nobody is on the list.",
-            remediation=(
-                "Add at least one person who can take a call, or switch handovers off — "
-                "callers asking for a person are offered a call-back instead."
-            ),
-        )
-    # A person whose phone forwards to the Calevate number would hand the caller straight
-    # back to the agent (D-746).
-    if chosen:
-        phones = (
-            await session.execute(
-                text("SELECT phone_e164 FROM business_contacts WHERE id = ANY(:ids)"),
-                {"ids": chosen},
-            )
-        ).scalars()
-        await assert_not_forwarded(session, [str(phone) for phone in phones])
-    await session.execute(
-        text("DELETE FROM agent_handoff_members WHERE agent_id = :aid"), {"aid": agent_id}
-    )
-    for position, member in enumerate(payload.members):
-        # The name and number are copied from the contact (see the model): an id that is
-        # not one of THIS client's contacts inserts nothing, under RLS, and is refused.
-        inserted = await session.execute(
-            text(
-                "INSERT INTO agent_handoff_members (id, tenant_id, agent_id, contact_id, "
-                "position, label, phone_e164, hours, active, note) "
-                "SELECT :id, c.tenant_id, :aid, c.id, :pos, c.label, c.phone_e164, "
-                "CAST(:hours AS jsonb), :active, :note "
-                "FROM business_contacts c WHERE c.id = :cid AND c.tenant_id = :tid"
-            ),
-            {
-                "id": uuid7(),
-                "tid": principal.tenant_id,
-                "aid": agent_id,
-                "cid": member.contact_id,
-                "pos": position,
-                "hours": (
-                    json.dumps(
-                        {
-                            day: (None if window is None else window.model_dump())
-                            for day, window in member.hours.items()
-                        }
-                    )
+    """Replace the whole configuration in the order given (`handoff.replace_handoff`, which
+    also serves Pip's `agent_handover_set`)."""
+    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    await handoff_service.replace_handoff(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        enabled=payload.enabled,
+        trigger=payload.trigger,
+        members=[
+            handoff_service.HandoffMemberWrite(
+                contact_id=member.contact_id,
+                active=member.active,
+                hours=(
+                    {
+                        day: (None if window is None else window.model_dump())
+                        for day, window in member.hours.items()
+                    }
                     if member.hours
                     else None
                 ),
-                "active": member.active,
-                "note": member.note,
-            },
-        )
-        if rowcount_of(inserted) == 0:
-            raise ProblemError.not_found("Contact")
-    await session.execute(
-        text(
-            "UPDATE agents SET handoff_enabled = :en, handoff_trigger = :trigger, "
-            "updated_at = now() WHERE id = :aid AND deleted_at IS NULL"
-        ),
-        {
-            "en": payload.enabled,
-            "trigger": (payload.trigger or "").strip() or None,
-            "aid": agent_id,
-        },
+                note=member.note,
+            )
+            for member in payload.members
+        ],
     )
     # AUDITED, AND THE COUNT IS THE WHOLE RECORD. Who a client's callers get handed to is
     # a decision somebody should be able to answer for months later; the numbers themselves

@@ -55,6 +55,7 @@ from apps.api.agents import (
     publishing,
     script_builder,
     script_proposals,
+    script_publish,
     starters,
     test_conversations,
     trial_results,
@@ -1282,29 +1283,8 @@ async def publish_script(
     to live calls in the same request. Callers keep the old script until this succeeds."""
     assert principal.tenant_id is not None
     tenant_id = principal.tenant_id
-    async with tenant_session(tenant_id) as session:
-        script = payload.script
-        if script is None:
-            draft = await script_builder.read_draft(session, agent_id)
-            if draft is None:
-                raise ProblemError.business_rule(
-                    "script_nothing_to_publish", "There are no unpublished changes to put live."
-                )
-            script = draft.script
-        # Before the version is stored or anything reaches the calling system: a script that
-        # cannot fit is refused here with its length, and the draft is kept.
-        await script_builder.refuse_if_too_long(session, agent_id, script)
-        saved = await script_builder.save_agent_script(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            script=script,
-            notes=payload.summary,
-            created_by=principal.user_id,
-            check_version="expected_version" in payload.model_fields_set,
-            expected_version=payload.expected_version,
-        )
-        await script_builder.clear_draft(session, agent_id)
+
+    async def audit(session: AsyncSession, version: int) -> None:
         await write_audit(
             session,
             action="agent.script_published",
@@ -1313,26 +1293,20 @@ async def publish_script(
             object_type="agent",
             object_id=str(agent_id),
             ip=client_request_ip(request),
-            summary={"version": saved.version},
+            summary={"version": version},
         )
-    try:
-        applied = await publishing.apply_to_live(
-            tenant_id=tenant_id, agent_id=agent_id, expected_version=saved.version
-        )
-    except ProblemError as exc:
-        # The version above is committed and the draft cleared, so a refusal from here on
-        # must not read as "nothing happened": it says what is saved and how to finish. The
-        # refusal itself is re-raised, so its code, status and alarm stay the raise site's.
-        exc.title = "Saved, but not live yet"
-        exc.detail = (
-            f"Your changes are saved as version {saved.version}, and callers still hear the "
-            f"previous script. Putting it live did not finish: {exc.detail}"
-        )
-        exc.remediation = (
-            "Press Put it live again to finish; your changes are kept. " + (exc.remediation or "")
-        ).strip()
-        raise
-    return PublishOut(version=saved.version, live=applied.applied and applied.engine_synced)
+
+    done = await script_publish.put_draft_live(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        summary=payload.summary,
+        created_by=principal.user_id,
+        script=payload.script,
+        check_version="expected_version" in payload.model_fields_set,
+        expected_version=payload.expected_version,
+        on_saved=audit,
+    )
+    return PublishOut(version=done.version, live=done.live)
 
 
 class VersionOut(BaseModel):

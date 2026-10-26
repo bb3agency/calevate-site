@@ -73,7 +73,7 @@ from apps.api.agents.languages import (
     reply_languages_refusal,
 )
 from apps.api.agents.lead_fields import starting_business_fields
-from apps.api.agents.llm_tiers import engine_model_from_client, resolve_tier_choice
+from apps.api.agents.llm_tiers import engine_model_from_client, resolve_agent_tier
 from apps.api.agents.models import (
     CALL_CAP_MAX_S,
     CALL_CAP_MIN_S,
@@ -735,24 +735,10 @@ async def update_agent_route(
     principal: Principal = Depends(requires("org:manage")),
 ) -> AgentOut:
     assert principal.tenant_id is not None
-    # BEFORE the write, so an unavailable tier costs a 422 and no republish. The agent's
-    # current choice is read LOCKED so "the tier it is already on" and the write that
-    # depends on it see one row (`lifecycle.update_agent` re-takes the same lock).
+    # BEFORE the write, so an unavailable tier costs a 422 and no republish.
     llm_model: str | None = None
     if payload.set_llm_tier:
-        current = (
-            await session.execute(
-                text(
-                    "SELECT llm_model FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
-                ),
-                {"aid": agent_id},
-            )
-        ).first()
-        llm_model = resolve_tier_choice(
-            payload.llm_tier,
-            current_model=current[0] if current is not None else None,
-            field="llm_tier",
-        )
+        llm_model = await resolve_agent_tier(session, agent_id, payload.llm_tier)
     engine_model_id = (
         await engine_model_from_client(payload.engine_model_id)
         if payload.set_engine_model_id

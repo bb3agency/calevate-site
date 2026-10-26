@@ -48,6 +48,7 @@ rather than being left with a feature that is quietly off.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Final
@@ -60,7 +61,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.business_hours import is_after_hours
 from apps.api.agents.transfer_providers import PLATFORM_CANNOT_TRANSFER, transfer_blocked_reason
+from apps.api.core.errors import ProblemError
+from apps.api.db.base import uuid7
+from apps.api.db.ownership import assert_visible
+from apps.api.db.result import rowcount_of
 from apps.api.engine import get_engine
+from apps.api.forwarding.service import assert_not_forwarded
 from apps.workers.redaction import redact
 
 #: How many people one agent may hand a call to. A BOUNDED LIST for the reason every
@@ -423,6 +429,109 @@ def handoff_spec(duty: OnDuty, *, trigger: str | None, language: str) -> Handoff
     )
 
 
+@dataclass(frozen=True, slots=True)
+class HandoffMemberWrite:
+    """One rung of a roster write: a business contact and whether and when this agent may
+    put a caller through to them. `hours` is the stored JSON shape (`{day: {opens, closes}
+    | None}`), or None for "whenever the business is open"."""
+
+    contact_id: UUID
+    active: bool = True
+    hours: dict[str, Any] | None = None
+    note: str | None = None
+
+
+async def replace_handoff(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    enabled: bool,
+    trigger: str | None,
+    members: list[HandoffMemberWrite],
+) -> None:
+    """Replace one agent's whole handover configuration, in the order given — the write
+    behind `PUT /v1/agents/{id}/handoff` and Pip's `agent_handover_set`.
+
+    DELETE-THEN-INSERT INSIDE ONE TRANSACTION: an upsert keyed on position would have to
+    reconcile removals anyway, and a diff keyed on the member id would let two people be
+    renumbered into one position halfway through. Member ids are therefore not stable across
+    a write; `handoff_attempts.member_id` is `SET NULL` so a call's history survives a
+    re-order, and the number that rang is copied onto the attempt row.
+
+    Refused rather than normalised: the same contact twice (the second rung could never be
+    tried) and handovers switched on with nobody listed. The numbers are never logged.
+    """
+    await assert_visible(session, "agent", agent_id)
+    # Two saves at once (a double click, two tabs) would each delete only the rows they can
+    # see and then collide on the position and contact unique indexes as a 500. Taking the
+    # agent row first runs them one after the other; the second replaces the first.
+    await session.execute(
+        text("SELECT 1 FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"),
+        {"aid": agent_id},
+    )
+    chosen = [m.contact_id for m in members]
+    if len(set(chosen)) != len(chosen):
+        raise ProblemError.business_rule(
+            "handoff_duplicate_contact",
+            "The same person appears more than once on this handover list.",
+            remediation="List each person once. A second listing would never be tried.",
+        )
+    if enabled and not members:
+        raise ProblemError.business_rule(
+            "handoff_no_members",
+            "Handing calls to a person is switched on, but nobody is on the list.",
+            remediation=(
+                "Add at least one person who can take a call, or switch handovers off — "
+                "callers asking for a person are offered a call-back instead."
+            ),
+        )
+    # A person whose phone forwards to the Calevate number would hand the caller straight
+    # back to the agent (D-746).
+    if chosen:
+        phones = (
+            await session.execute(
+                text("SELECT phone_e164 FROM business_contacts WHERE id = ANY(:ids)"),
+                {"ids": chosen},
+            )
+        ).scalars()
+        await assert_not_forwarded(session, [str(phone) for phone in phones])
+    await session.execute(
+        text("DELETE FROM agent_handoff_members WHERE agent_id = :aid"), {"aid": agent_id}
+    )
+    for position, member in enumerate(members):
+        # The name and number are copied from the contact: an id that is not one of THIS
+        # client's contacts inserts nothing, under RLS, and is refused.
+        inserted = await session.execute(
+            text(
+                "INSERT INTO agent_handoff_members (id, tenant_id, agent_id, contact_id, "
+                "position, label, phone_e164, hours, active, note) "
+                "SELECT :id, c.tenant_id, :aid, c.id, :pos, c.label, c.phone_e164, "
+                "CAST(:hours AS jsonb), :active, :note "
+                "FROM business_contacts c WHERE c.id = :cid AND c.tenant_id = :tid"
+            ),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "aid": agent_id,
+                "cid": member.contact_id,
+                "pos": position,
+                "hours": json.dumps(member.hours) if member.hours else None,
+                "active": member.active,
+                "note": member.note,
+            },
+        )
+        if rowcount_of(inserted) == 0:
+            raise ProblemError.not_found("Contact")
+    await session.execute(
+        text(
+            "UPDATE agents SET handoff_enabled = :en, handoff_trigger = :trigger, "
+            "updated_at = now() WHERE id = :aid AND deleted_at IS NULL"
+        ),
+        {"en": enabled, "trigger": (trigger or "").strip() or None, "aid": agent_id},
+    )
+
+
 __all__ = [
     "HANDOFF_DEGRADED_SAY",
     "HANDOFF_NUMBER_NOT_INDIA",
@@ -431,12 +540,14 @@ __all__ = [
     "HANDOFF_TRIGGER_DEFAULT",
     "MAX_BRIEF_CHARS",
     "MAX_HANDOFF_MEMBERS",
+    "HandoffMemberWrite",
     "OnDuty",
     "RosterMember",
     "handoff_spec",
     "india_handoff_number",
     "on_duty",
     "redacted_brief",
+    "replace_handoff",
     "resolve_on_duty",
     "roster",
     "spec_for",

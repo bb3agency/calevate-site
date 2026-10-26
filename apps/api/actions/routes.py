@@ -29,8 +29,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.actions import agent_tools, oauth, service
 from apps.api.actions import credentials as creds
-from apps.api.actions import oauth, service
 from apps.api.actions import payment_links as rzp
 from apps.api.actions import sheets as gsheets
 from apps.api.actions.calendar import (
@@ -691,16 +691,7 @@ class EnableIn(Strict):
     enabled: bool
 
 
-async def _assert_agent(session: AsyncSession, agent_id: UUID) -> None:
-    """The agent must belong to this tenant (RLS) and exist. A tool for an agent the caller
-    cannot see is 404, indistinguishable from one that never existed."""
-    row = (
-        await session.execute(
-            text("SELECT 1 FROM agents WHERE id = :id AND deleted_at IS NULL"), {"id": agent_id}
-        )
-    ).first()
-    if row is None:
-        raise ProblemError.not_found("Agent")
+_assert_agent = agent_tools.assert_agent
 
 
 @router.get(
@@ -737,7 +728,7 @@ async def set_master_switch(
     await _assert_agent(session, agent_id)
     if payload.enabled:
         assert_view_as_may(principal, "actions.switch_on")
-    await service.set_actions_enabled(session, agent_id=agent_id, enabled=payload.enabled)
+    await agent_tools.switch_all(session, agent_id=agent_id, enabled=payload.enabled)
     await write_audit(
         session,
         action="agent_actions.master_switch",
@@ -748,7 +739,6 @@ async def set_master_switch(
         ip=client_request_ip(request),
         summary={"enabled": str(payload.enabled)},
     )
-    await sync_client_actions_now(session, agent_id=agent_id)
     return await list_agent_actions(agent_id, session, principal)
 
 
@@ -767,11 +757,11 @@ async def create_action(
     principal: Principal = Depends(requires("org:manage")),
 ) -> ToolOut:
     assert principal.tenant_id is not None
-    await _assert_agent(session, agent_id)
-    tool = await service.create_tool(
+    tool = await agent_tools.add_action(
         session,
         tenant_id=principal.tenant_id,
         agent_id=agent_id,
+        impersonating=principal.impersonating,
         kind=payload.kind,
         provider=payload.provider,
         name=payload.name,
@@ -781,8 +771,6 @@ async def create_action(
         credential_id=payload.credential_id,
         params=[p.model_dump() for p in payload.params],
         config=payload.config,
-        # An operator may set an action up; switching it on is the owner's.
-        enabled=not principal.impersonating,
     )
     await write_audit(
         session,
@@ -794,7 +782,6 @@ async def create_action(
         ip=client_request_ip(request),
         summary={"kind": tool.kind, "name": tool.name, "enabled": str(tool.enabled)},
     )
-    await sync_client_actions_now(session, agent_id=agent_id)
     return _tool_out(tool)
 
 
@@ -813,12 +800,11 @@ async def update_action(
     principal: Principal = Depends(requires("org:manage")),
 ) -> ToolOut:
     assert principal.tenant_id is not None
-    await _assert_agent(session, agent_id)
-    if await service.get_agent_tool(session, agent_id=agent_id, tool_id=tool_id) is None:
-        raise ProblemError.not_found("Action")
-    tool = await service.update_tool(
+    tool = await agent_tools.edit_action(
         session,
+        agent_id=agent_id,
         tool_id=tool_id,
+        impersonating=principal.impersonating,
         kind=payload.kind,
         provider=payload.provider,
         name=payload.name,
@@ -829,14 +815,6 @@ async def update_action(
         params=[p.model_dump() for p in payload.params],
         config=payload.config,
     )
-    # An operator's edit switches the action off, the rule `create_action` applies to a new
-    # one. Otherwise view-as could re-point a live action — its URL and the stored key sent
-    # with it — without the owner ever switching that configuration on.
-    if principal.impersonating and tool.enabled:
-        await service.set_enabled(session, agent_id=agent_id, tool_id=tool_id, enabled=False)
-        reread = await service.get_agent_tool(session, agent_id=agent_id, tool_id=tool_id)
-        assert reread is not None
-        tool = reread
     await write_audit(
         session,
         action="action_tool.updated",
@@ -847,7 +825,6 @@ async def update_action(
         ip=client_request_ip(request),
         summary={"kind": tool.kind, "name": tool.name, "enabled": str(tool.enabled)},
     )
-    await sync_client_actions_now(session, agent_id=agent_id)
     return _tool_out(tool)
 
 
@@ -866,13 +843,11 @@ async def set_action_enabled(
     principal: Principal = Depends(requires("org:manage")),
 ) -> ToolOut:
     assert principal.tenant_id is not None
-    await _assert_agent(session, agent_id)
     if payload.enabled:
         assert_view_as_may(principal, "actions.switch_on")
-    if not await service.set_enabled(
+    tool = await agent_tools.switch_action(
         session, agent_id=agent_id, tool_id=tool_id, enabled=payload.enabled
-    ):
-        raise ProblemError.not_found("Action")
+    )
     await write_audit(
         session,
         action="action_tool.enabled" if payload.enabled else "action_tool.disabled",
@@ -882,9 +857,6 @@ async def set_action_enabled(
         object_id=str(tool_id),
         ip=client_request_ip(request),
     )
-    await sync_client_actions_now(session, agent_id=agent_id)
-    tool = await service.get_agent_tool(session, agent_id=agent_id, tool_id=tool_id)
-    assert tool is not None
     return _tool_out(tool)
 
 
@@ -902,9 +874,7 @@ async def delete_action(
     principal: Principal = Depends(requires("org:manage")),
 ) -> None:
     assert principal.tenant_id is not None
-    await _assert_agent(session, agent_id)
-    if not await service.delete_tool(session, agent_id=agent_id, tool_id=tool_id):
-        raise ProblemError.not_found("Action")
+    await agent_tools.remove_action(session, agent_id=agent_id, tool_id=tool_id)
     await write_audit(
         session,
         action="action_tool.deleted",
@@ -914,7 +884,6 @@ async def delete_action(
         object_id=str(tool_id),
         ip=client_request_ip(request),
     )
-    await sync_client_actions_now(session, agent_id=agent_id)
 
 
 # ============================================================= test harness ====
