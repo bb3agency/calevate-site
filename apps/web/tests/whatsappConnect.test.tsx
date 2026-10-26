@@ -15,7 +15,7 @@ import {
   WHATSAPP_OFF,
   WHATSAPP_READY,
 } from "./fixtures/whatsapp";
-import { renderAdminPage, renderClientPage, type Routes } from "./harness";
+import { problem, renderAdminPage, renderClientPage, type Routes } from "./harness";
 
 // Meta's window runs on facebook.com; here it answers as if the owner finished it.
 vi.mock("@/lib/facebookSignup", async (original) => ({
@@ -143,6 +143,27 @@ describe("Integrations > WhatsApp", () => {
     const connect = calls.find((c) => c.path === "/v1/whatsapp/connect");
     await waitFor(() => expect(connect).toBeTruthy());
     expect(JSON.parse(connect?.body ?? "{}")).toMatchObject({ state: "state-1", code: "meta-code", waba_id: "1111" });
+  });
+
+  it("lets the owner retry when getting ready for Meta failed", async () => {
+    let failing = true;
+    await renderClientPage(
+      <IntegrationsPage />,
+      routes({
+        "/v1/whatsapp": WHATSAPP_READY,
+        "POST /v1/whatsapp/signup": () =>
+          failing
+            ? problem(503, { type: "about:blank", title: "Unavailable", status: 503, detail: "Could not get ready.", retryable: true })
+            : SIGNUP,
+      }),
+    );
+    fireEvent.click(await screen.findByText("I'm new to WhatsApp Business"));
+    await screen.findByText("Could not get ready.");
+    const connectButton = screen.getByRole("button", { name: "Connect WhatsApp" });
+    expect(connectButton.hasAttribute("disabled")).toBe(true);
+    failing = false;
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    await waitFor(() => expect(connectButton.hasAttribute("disabled")).toBe(false));
   });
 
   it("shows a connected number with its templates in words", async () => {

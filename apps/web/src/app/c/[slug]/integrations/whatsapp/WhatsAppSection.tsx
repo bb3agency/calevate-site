@@ -327,7 +327,9 @@ function ConnectFlow({
           ) : null}
         </NoticeBox>
       )}
-      {begin.isError && <ProblemNotice error={begin.error} />}
+      {/* Retrying asks for a fresh state; without it the Connect button stayed disabled for
+          good after one failed preparation. */}
+      {begin.isError && <ProblemNotice error={begin.error} onRetry={() => setRound((r) => r + 1)} />}
       {connect.isError && <ProblemNotice error={connect.error} />}
       {phase === "meta" && (
         <p className="flex flex-wrap items-center gap-x-4 text-body text-ink-muted" role="status">
