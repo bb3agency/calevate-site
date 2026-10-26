@@ -349,6 +349,8 @@ function CloseForm({
           </label>
           <textarea
             id="closure-reason"
+            required
+            aria-describedby="closure-reason-hint"
             rows={3}
             maxLength={500}
             value={reason}
@@ -359,7 +361,7 @@ function CloseForm({
             }}
             className={FIELD}
           />
-          <span className={FIELD_HINT}>
+          <span id="closure-reason-hint" className={FIELD_HINT}>
             Required, and quoted in the email the client receives. Write it as something they can read: it is the only answer their notice
             gives to the only question it raises.
           </span>

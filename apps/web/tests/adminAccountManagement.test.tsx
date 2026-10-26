@@ -380,6 +380,11 @@ describe("the erasure panel", () => {
     // The most irreversible submit in the product is the danger token, never brand green (F-2).
     expect(button.className).toContain("bg-danger");
     expect(screen.getByText("Type the confirmation")).toBeDefined();
+    // The string to type exists only in the hint, so the field must announce it.
+    const confirm = screen.getByLabelText("Type the confirmation");
+    const hint = document.getElementById(confirm.getAttribute("aria-describedby") ?? "");
+    expect(hint?.textContent).toContain(`erase_tenant_data:${TENANT}`);
+    expect(confirm.hasAttribute("required")).toBe(true);
   });
 
   it("reports an erasure that has already been filed, and offers no second one", async () => {

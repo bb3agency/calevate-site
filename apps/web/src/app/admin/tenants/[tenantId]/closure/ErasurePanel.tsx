@@ -143,6 +143,8 @@ export function ErasurePanel({
           </label>
           <textarea
             id="erase-reason"
+            required
+            aria-describedby="erase-reason-hint"
             rows={2}
             maxLength={500}
             value={reason}
@@ -153,7 +155,7 @@ export function ErasurePanel({
             }}
             className={FIELD}
           />
-          <span className={FIELD_HINT}>Required.</span>
+          <span id="erase-reason-hint" className={FIELD_HINT}>Required.</span>
         </div>
 
         <div>
@@ -162,6 +164,8 @@ export function ErasurePanel({
           </label>
           <input
             id="erase-confirm"
+            required
+            aria-describedby="erase-confirm-hint"
             value={typed}
             disabled={!access.allowed}
             autoComplete="off"
@@ -172,7 +176,7 @@ export function ErasurePanel({
             }}
             className={`${FIELD} font-mono`}
           />
-          <span className={FIELD_HINT}>
+          <span id="erase-confirm-hint" className={FIELD_HINT}>
             <code className="break-all">{confirmation}</code> — the same string the API demands
             as a header, so a request cannot arrive from a screen that did not mean to send it.
           </span>
