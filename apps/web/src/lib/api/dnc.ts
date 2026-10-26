@@ -22,7 +22,13 @@
  *   button the endpoint refuses.
  */
 
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
@@ -53,6 +59,29 @@ export const dncKeys = {
   list: (org: string) => ["dnc", org] as const,
 };
 
+/**
+ * Every read a change to the suppression list moves, as key prefixes (the org follows):
+ * the list itself; the leads surfaces, whose dial actions a suppressed number changes;
+ * and the campaign reads — `campaign-check` carries the launch blockers, whose "dialable"
+ * count excludes listed numbers (`campaigns/service.launch_blockers`). One list for the
+ * screen's add, remove and restore AND for Pip's confirmed `dnc_add` / `dnc_remove`
+ * (`lib/api/copilot.ts`), so the two doors refresh the same screens.
+ */
+export const DNC_DEPENDENT_KEYS: readonly (readonly string[])[] = [
+  ["dnc"],
+  ["leads"],
+  ["lead"],
+  ["campaign"],
+  ["campaigns"],
+  ["campaign-check"],
+];
+
+function refreshAfterDncChange(client: QueryClient, org: string): void {
+  for (const key of DNC_DEPENDENT_KEYS) {
+    void client.invalidateQueries({ queryKey: [...key, org] });
+  }
+}
+
 export function useDncList(session: Session): UseQueryResult<DncEntry[]> {
   return useQuery({
     queryKey: dncKeys.list(session.orgSlug),
@@ -71,7 +100,7 @@ export function useAddDncNumbers(session: Session) {
         method: "POST",
         body: { numbers, source },
       }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: dncKeys.list(session.orgSlug) }),
+    onSuccess: () => refreshAfterDncChange(client, session.orgSlug),
   });
 }
 
@@ -97,7 +126,7 @@ export function useRemoveDncEntry(session: Session) {
   return useMutation({
     mutationFn: (entryId: string) =>
       apiRequest<void>(session, `/v1/dnc/${entryId}`, { method: "DELETE" }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: dncKeys.list(session.orgSlug) }),
+    onSuccess: () => refreshAfterDncChange(client, session.orgSlug),
   });
 }
 
@@ -149,7 +178,7 @@ export function useRestoreDncEntry(session: Session) {
         method: "POST",
         body: { ground, note, latest_evidence_id: latestEvidenceId },
       }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: dncKeys.list(session.orgSlug) }),
+    onSuccess: () => refreshAfterDncChange(client, session.orgSlug),
   });
 }
 

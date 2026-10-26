@@ -38,6 +38,7 @@ import { lookup } from "@/lib/lookup";
 
 import { undoCopilotConfirmation } from "./admin";
 import { apiRequest, type Session } from "./client";
+import { DNC_DEPENDENT_KEYS } from "./dnc";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -60,9 +61,10 @@ export const COPILOT_CONFIRM_PATH = "/v1/copilot/confirm";
  *   lead and its timeline. The single lead's key is `["lead", org, id]`, and a prefix
  *   invalidation on `["lead", org]` covers it without this module having to trust that
  *   `object_id` is the lead — it is, but the prefix is free and does not depend on it.
- * - `dnc_add` → `useAddDncNumbers`, plus the lead surfaces: a suppressed number changes
- *   what the leads screen may dial, and the recall D-428(b) enqueues moves the campaign
- *   progress a person is watching.
+ * - `dnc_add` / `dnc_remove` → `DNC_DEPENDENT_KEYS` (`lib/api/dnc.ts`), the list the
+ *   screen's own add, remove and restore use: the lead surfaces, whose dial actions a
+ *   suppressed number changes, and the campaign reads, whose launch check counts only
+ *   unlisted contacts and whose progress the recall D-428(b) enqueues moves.
  * - `campaign_pause` → `usePauseCampaign`: the campaign and the list that carries status.
  *
  * Keyed by a WIRE STRING, so it is read through `lookup` (UX-DOCTRINE §10) — and the miss
@@ -70,7 +72,7 @@ export const COPILOT_CONFIRM_PATH = "/v1/copilot/confirm";
  * and the honest response to "I do not know what moved" is to refetch everything on
  * screen rather than to leave a stale figure that looks authoritative.
  */
-const INVALIDATES: Record<string, readonly string[][]> = {
+const INVALIDATES: Record<string, readonly (readonly string[])[]> = {
   lead_set_status: [["leads"], ["lead"], ["lead-timeline"], ["lead-facets"], ["dashboard"]],
   agent_create: [["agents"], ["agent"], ["dashboard"]],
   agent_rename: [["agents"], ["agent"]],
@@ -78,7 +80,8 @@ const INVALIDATES: Record<string, readonly string[][]> = {
   agent_edit: [["agents"], ["agent"]],
   agent_capture_fields_set: [["agents"], ["agent"]],
   knowledge_facts_pin: [["kb-knows"], ["kb"]],
-  dnc_add: [["dnc"], ["leads"], ["lead"], ["campaign"], ["campaigns"]],
+  dnc_add: DNC_DEPENDENT_KEYS,
+  dnc_remove: DNC_DEPENDENT_KEYS,
   campaign_pause: [["campaign"], ["campaigns"], ["dashboard"]],
 };
 
