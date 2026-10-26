@@ -59,10 +59,10 @@ const BEYOND: readonly { title: string; body: string; figure: ReactNode; span: s
   {
     figure: <BusyHourMock />,
     span: "col-span-1 sm:col-span-1 lg:col-span-3",
-    title: "A busy hour is not a queue",
+    title: "A busy hour is not one desk",
     body:
-      "Fifty callers at 11am are fifty answered calls rather than fifty people waiting " +
-      "behind three desks. Peak-hour capacity is the thing a small team cannot buy without " +
+      "Several callers at 11am are answered at the same time rather than waiting for the " +
+      "one person already on the phone. Peak-hour capacity is the thing a small team cannot buy without " +
       "carrying that headcount through every quiet week as well.",
   },
   {
@@ -101,11 +101,11 @@ const BEYOND: readonly { title: string; body: string; figure: ReactNode; span: s
 const QUALIFICATION: readonly { title: string; body: string; figure: ReactNode }[] = [
   {
     figure: <FollowUpMini />,
-    title: "Everyone on the list gets the first call",
+    title: "The list gets its first calls, in order",
     body:
-      "All of them, in the order they came in. A web enquiry becomes a call without " +
-      "waiting for someone to notice it, and the gap between the form and the dial is " +
-      "timed on every one.",
+      "Every number on it that may be called, in the order it came in. A fresh web " +
+      "enquiry becomes a call without waiting for someone to notice it, and the gap " +
+      "between the form and the dial is timed on every one.",
   },
   {
     figure: <RecordedVsSortedMock />,

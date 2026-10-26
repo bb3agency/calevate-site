@@ -1134,8 +1134,8 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
               <span className="font-semibold text-ink">
                 {formatPaiseINR(result.pipelineValuePaise)}
               </span>{" "}
-              of converted-lead value a month. A line that is always answered
-              and never queued is how more of that value is actually reached —
+              of converted-lead value a month. A line that answers at any hour
+              and takes several callers at once is how more of that value is reached —
               it is not credited to either option above.
             </p>
           )}

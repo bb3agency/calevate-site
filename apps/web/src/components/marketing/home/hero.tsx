@@ -43,7 +43,7 @@ import { HeroProduct } from "./mockups/heroProduct";
 
 const HERO_CLAIMS: readonly string[] = [
   "Answers day and night",
-  "Follows up on every enquiry",
+  "Follows up on new enquiries",
   "Qualifies before your team calls",
   "Books appointments",
 ];

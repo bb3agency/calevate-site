@@ -43,11 +43,11 @@ const DARK_PANEL = "rounded-2xl border border-white/15 bg-white/[0.06]";
 
 const QUALIFICATION: readonly { title: string; body: string }[] = [
   {
-    title: "Everyone on the list gets the first call",
+    title: "The list gets its first calls, in order",
     body:
-      "All of them, in the order they came in. A web enquiry becomes a call without " +
-      "waiting for someone to notice it, and the gap between the form and the dial is " +
-      "timed on every one.",
+      "Every number on it that may be called, in the order it came in. A fresh web " +
+      "enquiry becomes a call without waiting for someone to notice it, and the gap " +
+      "between the form and the dial is timed on every one.",
   },
   {
     title: "They come back sorted, not just recorded",

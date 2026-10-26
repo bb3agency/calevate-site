@@ -780,6 +780,10 @@ describe("the resources page", () => {
     // The one thing it may not say: that a bigger pack buys more credit. It buys a cheaper
     // minute (D-547), and no pack has granted a bonus since.
     expect(wallet).not.toMatch(/bonus|extra credit|free credit/i);
+    // An exhausted balance silences answering too (`agents/service.reconcile_inbound_
+    // answering`, D-551), as /pricing says; this entry once promised the opposite.
+    expect(wallet).toMatch(/stop answering incoming calls/i);
+    expect(wallet).not.toMatch(/never blocked/i);
   });
 });
 

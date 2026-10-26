@@ -57,10 +57,12 @@ const BEYOND: readonly { title: string; body: string }[] = [
       "morning. There is no shift to staff for them.",
   },
   {
-    title: "A busy hour is not a queue",
+    // No caller count: how many calls run at once is the voice platform's per-account line
+    // limit (`Settings.thinnest_max_concurrent_calls`), not ours to promise.
+    title: "A busy hour is not one desk",
     body:
-      "Fifty callers at 11am are fifty answered calls, not fifty people waiting behind " +
-      "three desks.",
+      "Several callers at 11am are answered at the same time, not left waiting for the " +
+      "one person already on the phone.",
   },
   {
     title: "Nothing to train, and nothing resigns",
@@ -84,7 +86,9 @@ const BEYOND: readonly { title: string; body: string }[] = [
 
 /** Three things the buyer keeps control of. Each one is enforced, not promised. */
 const RISK_REVERSAL: readonly string[] = [
-  "You approve every word before it goes live",
+  // The agent, not "every word": its replies are generated on the call, and knowledge an
+  // owner adds goes live on submission (D-658).
+  "You approve the agent before it goes live",
   "Nothing dials anybody until you launch it",
   "Pause it from your dashboard whenever you want",
 ];

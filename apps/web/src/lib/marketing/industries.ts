@@ -94,7 +94,7 @@ export const INDUSTRIES: readonly Industry[] = [
     advantage:
       "Your salesperson rings a qualified buyer, not an unexplained phone number.",
     typical: [
-      "Take the first call to every portal enquiry, in the order they arrived.",
+      "Take the first call to each portal enquiry you bring in, in the order they arrived.",
       "Ask budget, area, configuration and timeline before anybody's time is spent.",
       "Book the site visit while the person is still interested.",
       "Hand the salesperson a shortlist, with everybody else still on the list and marked.",

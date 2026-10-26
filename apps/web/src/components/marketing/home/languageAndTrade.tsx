@@ -74,7 +74,7 @@ export function LanguageAndTrade() {
               The same question, asked three ways
             </h3>
             <p className={`mt-2 text-ink-muted ${HOME.bodySm}`}>
-              Your agent answers all three on the same number.
+              Your agent can answer all three on the same number.
             </p>
             <ul className="mt-7 space-y-3">
               {SAME_QUESTION.map(({ lang, label, text }, index) => (

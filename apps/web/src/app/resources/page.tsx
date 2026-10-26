@@ -205,8 +205,10 @@ const GLOSSARY: readonly { term: string; detail: string; sample?: ReactNode }[] 
      * balance running out leaves out (D-547):
      * credit is bought in PACKS and each purchase freezes the two rates it was sold at for
      * the life of that credit (`apps/api/billing/lots.py`, rates with no UPDATE path),
-     * spent oldest purchase first; it never expires (`credit_ledger` has no expiry column
-     * and nothing sweeps it); and a call already running can take the balance slightly
+     * spent oldest purchase first; it never expires (the expiry sweep, D-840, stays off
+     * until a Terms revision states expiry: `billing/credit_expiry.
+     * TERMS_REVISION_STATING_EXPIRY` is None — publishing that revision must change this
+     * sentence too); and a call already running can take the balance slightly
      * below zero, which the next top-up clears before it opens new credit
      * (`billing/lots.py:526-531`). Terms 6.1 states the same promise in the founder's
      * approved words, so this is the plain-language twin of a term rather than a new claim.
@@ -220,8 +222,9 @@ const GLOSSARY: readonly { term: string; detail: string; sample?: ReactNode }[] 
       "You buy it in packs, and the pack you buy fixes what a minute costs on each of the " +
       "two voices for the life of that credit — a later change to our price list cannot " +
       "reprice credit you already own. It is spent oldest purchase first and it never " +
-      "expires. When it runs out, outbound calling stops; people ringing you are never " +
-      "blocked by a balance. A call already in progress can take it a little below zero, " +
+      "expires. When it runs out, calling stops both ways: nothing goes out, and your " +
+      "agents stop answering incoming calls until you top up. We email the account owner " +
+      "before it happens. A call already in progress can take it a little below zero, " +
       "and the next top-up settles that before it opens new credit.",
   },
   {

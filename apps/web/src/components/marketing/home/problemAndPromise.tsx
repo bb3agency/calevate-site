@@ -49,13 +49,13 @@ const OUTCOMES: readonly {
 }[] = [
   {
     title: "Every enquiry gets answered",
-    body: "While your staff is busy, after you close, and on a festival day — in the language the caller rang in.",
+    body: "While your staff is busy, after you close, and on a festival day — in the languages you set it to speak.",
     figure: <AnsweredMini />,
     span: "lg:col-span-3",
   },
   {
     title: "Follow-up stops depending on memory",
-    body: "Every new enquiry gets a first call without waiting for a person to notice it, and the gap is timed on every one.",
+    body: "A new enquiry gets its first call without waiting for a person to notice it, and the gap is timed on every one.",
     figure: <FollowUpMini />,
     span: "lg:col-span-2",
   },

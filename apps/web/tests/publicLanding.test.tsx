@@ -149,6 +149,22 @@ describe("the landing page's claims", () => {
     }
   });
 
+  /**
+   * How many calls run at once is the voice platform's per-account line limit
+   * (`Settings.thinnest_max_concurrent_calls`, 5 by default, inbound and outbound together),
+   * so no public page may promise a caller count or that nobody ever waits.
+   */
+  it("promises no number of simultaneous callers", () => {
+    const pages = [
+      "src/components/marketing/home/cost.tsx",
+      "src/app/why-calevate/page.tsx",
+      "src/components/marketing/roiCalculator.tsx",
+    ].map((path) => readFileSync(resolve(__dirname, "..", path), "utf8"));
+    for (const source of pages) {
+      expect(source).not.toMatch(/fifty (callers|answered)|never queued/i);
+    }
+  });
+
   it("claims no uptime, accuracy or answer-rate figure", async () => {
     const { container } = render(await Home());
     // The percentage ban is scoped off the calculator (attrition and conversion-rate are
@@ -906,7 +922,7 @@ describe("the page's structure asks for one thing, once", () => {
     const { container } = render(await Home());
     const cost = container.querySelector("#cost");
     const text = cost?.textContent ?? "";
-    expect(text).toContain("You approve every word before it goes live");
+    expect(text).toContain("You approve the agent before it goes live");
     expect(text).toContain("Nothing dials anybody until you launch it");
     expect(text).toContain("Pause it from your dashboard whenever you want");
     // And it may not reach for the thing it does not have. A guarantee, a refund, a
