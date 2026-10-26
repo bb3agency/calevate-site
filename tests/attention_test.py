@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import uuid
 
-from apps.api.crm.attention import BLOCK_REMEDIES, attention_queue
+import pytest
+from apps.api.crm.attention import BLOCK_REMEDIES, _webhook_failure_detail, attention_queue
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
@@ -436,3 +437,26 @@ async def test_low_credit_is_one_live_item_and_a_healthy_wallet_is_none() -> Non
         )
         queue = await attention_queue(session)
     assert queue["total"] == 0
+
+
+@pytest.mark.parametrize(
+    ("source", "reason", "attempts", "says"),
+    [
+        ("http_503", "HTTP 503", 3, "answered HTTP 503 each time (we tried 3 times)"),
+        ("http_404", "HTTP 404", 1, "refused it with HTTP 404, so we did not try again"),
+        ("http_429", "HTTP 429", 3, "answered HTTP 429 each time"),
+        ("http", "ReadTimeout", 3, "did not answer within 10 seconds (we tried 3 times)"),
+        ("http", "ConnectError", 1, "could not connect to your endpoint (we tried once)"),
+        ("http", "webhook_url_not_public", 1, "Nothing was sent"),
+    ],
+)
+def test_a_failed_webhook_says_what_happened_at_the_endpoint(
+    source: str, reason: str, attempts: int, says: str
+) -> None:
+    """The queue used to print the stored source verbatim: "Your endpoint answered
+    http_404 after 1 attempts", and "answered http" for a timeout or for an address we
+    refused to send to, where the endpoint answered nothing at all."""
+    detail = _webhook_failure_detail(source, reason, attempts)
+    assert says in detail, detail
+    assert "http_" not in detail and "attempts." not in detail
+    assert reason not in detail or reason.startswith("HTTP"), "a wire code reached the client"

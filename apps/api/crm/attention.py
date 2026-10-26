@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.billing.service import LOW_BALANCE_INR
 from apps.api.core.logging import get_logger
 from apps.api.crm.schemas import AttentionKind
+from apps.api.integrations.service import DELIVERY_TIMEOUT_S
 
 log = get_logger(__name__)
 
@@ -288,6 +289,52 @@ def _sheet_failure_detail(reason: str | None) -> str:
     )
 
 
+#: Statuses a receiver answers when the request itself is wrong; the worker does not retry
+#: them (`workers/outbound_webhooks.TRANSIENT_CLIENT_STATUS` names the 4xx it does retry).
+_RETRIED_4XX = frozenset({408, 425, 429})
+
+#: httpx timeout types and asyncio's, as `integrations.service.deliver` records them.
+_TIMEOUTS = frozenset(
+    {"TimeoutError", "ConnectTimeout", "ReadTimeout", "WriteTimeout", "PoolTimeout"}
+)
+
+
+def _webhook_failure_detail(source: str | None, reason: str | None, attempts: int) -> str:
+    """One failed webhook delivery → what happened at the client's endpoint, in words.
+
+    `source` is `http_<status>` when the endpoint answered and bare `http` when it did not;
+    `reason` is then an exception type or one of our egress refusal codes
+    (`integrations/egress_guard`), where nothing was sent at all. Neither is shown raw.
+    """
+    tries = "once" if attempts == 1 else f"{attempts} times"
+    status = source.removeprefix("http_") if source and source.startswith("http_") else ""
+    if status.isdigit():
+        code = int(status)
+        if 400 <= code < 500 and code not in _RETRIED_4XX:
+            return (
+                f"Your endpoint refused it with HTTP {code}, so we did not try again. Check "
+                "the address and that it accepts our signed POST."
+            )
+        return (
+            f"Your endpoint answered HTTP {code} each time (we tried {tries}). Check that "
+            "it is up and answers with a 2xx status."
+        )
+    if reason and reason.startswith("webhook_url_"):
+        return (
+            "Nothing was sent: your endpoint's address does not lead to a public server we "
+            "may send to. Check the address on the Integrations page."
+        )
+    if reason in _TIMEOUTS:
+        return (
+            f"Your endpoint did not answer within {DELIVERY_TIMEOUT_S:g} seconds "
+            f"(we tried {tries}). Check that it is reachable and answers quickly."
+        )
+    return (
+        f"We could not connect to your endpoint (we tried {tries}). Check that it is "
+        "reachable from the internet."
+    )
+
+
 async def failed_deliveries(
     session: AsyncSession, *, limit: int = DEFAULT_LIMIT
 ) -> AttentionSource:
@@ -327,10 +374,7 @@ async def failed_deliveries(
             rule = reason if reason in SHEET_FAILURE_REMEDIES else None
         else:
             title = f"{event_type} did not reach your system"
-            detail = (
-                f"Your endpoint answered {source or 'an error'} after {attempts} attempts. "
-                "Check that it is reachable and returns 2xx."
-            )
+            detail = _webhook_failure_detail(source, reason, int(attempts or 1))
             rule = None
         items.append(
             AttentionItem(
