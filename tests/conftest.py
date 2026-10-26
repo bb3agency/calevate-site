@@ -610,12 +610,14 @@ async def _owner_of(tenant_id: uuid.UUID) -> uuid.UUID:
     return user_id
 
 
-@pytest.fixture(scope="session")
-def event_loop_policy() -> asyncio.AbstractEventLoopPolicy:
-    policy = asyncio.get_event_loop_policy()
-    if sys.platform == "win32":
-        policy = asyncio.WindowsSelectorEventLoopPolicy()
-    return policy
+if sys.platform == "win32":
+    # psycopg's async driver cannot run on Windows' default Proactor loop. pytest-asyncio
+    # 1.x deprecates overriding the `event_loop_policy` fixture in favour of this hook,
+    # and the policy classes themselves are deprecated from Python 3.14. Defined only on
+    # Windows: once the hook exists it parametrises every async test by factory name,
+    # which would rename every test id on Linux CI for no change in behaviour.
+    def pytest_asyncio_loop_factories(config: pytest.Config, item: pytest.Item) -> dict[str, Any]:
+        return {"selector": asyncio.SelectorEventLoop}
 
 
 @pytest.fixture(autouse=True)

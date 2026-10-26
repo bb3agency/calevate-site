@@ -482,7 +482,7 @@ async def main() -> None:
 
 if __name__ == "__main__":
     # Windows defaults to ProactorEventLoop, which psycopg's async mode cannot use.
-    # tests/conftest.py applies the same override via its event_loop_policy fixture —
+    # tests/conftest.py selects the same loop through pytest_asyncio_loop_factories —
     # any standalone async entrypoint needs it too.
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
