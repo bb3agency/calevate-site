@@ -14,6 +14,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from apps.api.agents.extraction_routes import MAX_REASON_LEN, write_schema
@@ -150,6 +151,47 @@ async def test_the_old_wording_is_refreshed_an_edited_one_is_kept() -> None:
     # A redelivery finds nothing left to change.
     assert await refresh_field_reason({}, payload) == "done"
     assert (await _current(tenant_id, scripted))[0] == version
+
+
+async def test_one_agent_that_crashes_does_not_hold_back_the_others(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected error on the first agent used to end the loop, so on every retry the
+    agents after it never got the new wording. They are refreshed, and the job still fails
+    so the queue retries the one that crashed."""
+    from apps.workers import field_reason_refresh
+
+    old, new = _refresh("budget_lakhs")
+    tenant_id, first = await _real_estate_account()
+    async with tenant_session(tenant_id) as session:
+        second = await create_agent(
+            session,
+            tenant_id=tenant_id,
+            name="Budget desk",
+            direction="inbound",
+            language_primary="te-IN",
+            starter="answer_calls",
+        )
+    for agent in (first, second):
+        await _set_budget_reason(tenant_id, agent, old)
+    real = field_reason_refresh.recompile_collect
+
+    async def flaky(session: Any, *, tenant_id: uuid.UUID, agent_id: uuid.UUID) -> Any:
+        if agent_id == first:
+            raise ConnectionError("the voice platform hung up")
+        return await real(session, tenant_id=tenant_id, agent_id=agent_id)
+
+    monkeypatch.setattr(field_reason_refresh, "recompile_collect", flaky)
+    payload = {
+        "tenant_id": str(tenant_id),
+        "key": "budget_lakhs",
+        "old_reason": old,
+        "new_reason": new,
+    }
+    with pytest.raises(RuntimeError):
+        await refresh_field_reason({}, payload)
+    assert _budget((await _current(tenant_id, second))[1]) == new
+    assert _budget((await _current(tenant_id, first))[1]) == old
 
 
 _QUEUED = text(

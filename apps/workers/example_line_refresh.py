@@ -45,7 +45,7 @@ async def refresh_example_lines(ctx: dict[str, Any], payload: dict[str, Any]) ->
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
     replacements = {str(old): str(new) for old, new in payload["replacements"]}
-    written = refused = 0
+    written = refused = crashed = 0
     for agent_id in await _agent_ids(tenant_id):
         try:
             async with tenant_session(tenant_id) as session:
@@ -59,6 +59,15 @@ async def refresh_example_lines(ctx: dict[str, Any], payload: dict[str, Any]) ->
                 "example_line_refresh_refused",
                 extra={"agent_id": str(agent_id), "reason": exc.code},
             )
+        except Exception as exc:
+            crashed += 1
+            log.warning(
+                "example_line_refresh_crashed",
+                extra={"agent_id": str(agent_id), "error": type(exc).__name__},
+            )
+    if crashed:
+        # After every other agent had its turn; the retry finds nothing left on those.
+        raise RuntimeError(f"{crashed} agent(s) could not take the new example lines")
     log.info(
         "example_lines_refreshed",
         extra={"tenant_id": str(tenant_id), "agents_written": written, "agents_refused": refused},

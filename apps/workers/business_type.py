@@ -183,7 +183,7 @@ async def _recompile_scripts(tenant_id: UUID) -> tuple[int, int, int]:
                 )
             ).all()
         ]
-    replaced = changed = refused = 0
+    replaced = changed = refused = crashed = 0
     for agent_id in agent_ids:
         try:
             async with tenant_session(tenant_id) as session:
@@ -197,6 +197,16 @@ async def _recompile_scripts(tenant_id: UUID) -> tuple[int, int, int]:
                 "business_type_recompile_refused",
                 extra={"agent_id": str(agent_id), "reason": exc.code},
             )
+        except Exception as exc:
+            crashed += 1
+            log.warning(
+                "business_type_recompile_crashed",
+                extra={"agent_id": str(agent_id), "error": type(exc).__name__},
+            )
+    if crashed:
+        # After every other agent had its turn; the queue retries the job, and each step
+        # finds nothing left to do on the agents already brought over.
+        raise RuntimeError(f"{crashed} agent(s) could not be brought to the business type")
     return replaced, changed, refused
 
 

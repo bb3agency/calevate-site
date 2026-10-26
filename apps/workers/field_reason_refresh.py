@@ -62,7 +62,7 @@ async def refresh_field_reason(ctx: dict[str, Any], payload: dict[str, Any]) -> 
     )
     old_choices = _choices(payload, "old_enum_values")
     new_choices = _choices(payload, "new_enum_values")
-    written = refused = 0
+    written = refused = crashed = 0
     for agent_id in await _agent_ids(tenant_id):
         try:
             async with tenant_session(tenant_id) as session:
@@ -83,6 +83,15 @@ async def refresh_field_reason(ctx: dict[str, Any], payload: dict[str, Any]) -> 
                 "field_reason_refresh_refused",
                 extra={"agent_id": str(agent_id), "field_key": key, "reason": exc.code},
             )
+        except Exception as exc:
+            crashed += 1
+            log.warning(
+                "field_reason_refresh_crashed",
+                extra={"agent_id": str(agent_id), "field_key": key, "error": type(exc).__name__},
+            )
+    if crashed:
+        # After every other agent had its turn; the retry finds nothing left on those.
+        raise RuntimeError(f"{crashed} agent(s) could not take the new field wording")
     log.info(
         "field_reason_refreshed",
         extra={
