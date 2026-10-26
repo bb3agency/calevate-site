@@ -536,6 +536,15 @@ def test_not_ready_waits_for_the_vendors_delay_without_failing() -> None:
     assert raised.value.defer_score == 60_000
 
 
+@pytest.mark.parametrize("header", ["nan", "NaN", "inf", "-inf", "Wed, 21 Oct 2026 07:28:00 GMT"])
+def test_a_malformed_not_ready_delay_still_defers_within_bounds(header: str) -> None:
+    with pytest.raises(storage.RecordingNotReadyError) as raised:
+        storage._apply_source_rules(_answer(404, **{"Retry-After": header}), _RULES)
+    assert raised.value.defer_score is not None
+    low, high = storage.NOT_READY_MIN_DEFER_S * 1000, storage.NOT_READY_MAX_DEFER_S * 1000
+    assert low <= raised.value.defer_score <= high
+
+
 def test_a_call_that_was_not_recorded_is_an_outcome_not_a_retry() -> None:
     with pytest.raises(storage.RecordingUnavailableError) as raised:
         storage._apply_source_rules(_answer(404), _RULES)

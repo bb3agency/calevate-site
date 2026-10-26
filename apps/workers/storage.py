@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import os
 import threading
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
@@ -391,6 +392,10 @@ def _apply_source_rules(response: httpx.Response, rules: RecordingFetchRules) ->
         try:
             wait = float(retry_after.strip())
         except ValueError:
+            wait = RECORDING_RETRY_DEFER_S
+        # `float` also accepts "nan", which the clamp below cannot bound (every comparison
+        # with NaN is false) and which then fails converting to arq's millisecond defer.
+        if math.isnan(wait):
             wait = RECORDING_RETRY_DEFER_S
         raise RecordingNotReadyError(
             "recording not ready yet",
