@@ -181,6 +181,29 @@ describe("the business profile screen", () => {
     expect(container.textContent).toContain("Sunrise Dental");
   });
 
+  it("keeps what is being typed in one section while another section's save lands", async () => {
+    const { container } = await renderClientPage(<BusinessProfileScreen />, {
+      "/v1/me": OWNER,
+      "/v1/business-profile": profile(),
+      "PATCH /v1/business-profile": profile({
+        branches: [{ label: "Main", address: "14 MG Road, Hyderabad" }],
+      }),
+    });
+    await screen.findAllByRole("button", { name: "Save" });
+    const textboxesOf = (index: number) =>
+      within(container.querySelectorAll("form")[index] as HTMLElement).getAllByRole("textbox");
+    const address = textboxesOf(1).find(
+      (box) => (box as HTMLInputElement).value === "12 MG Road, Hyderabad",
+    ) as HTMLInputElement;
+    fireEvent.change(address, { target: { value: "14 MG Road, Hyderabad" } });
+    fireEvent.submit(container.querySelectorAll("form")[1] as HTMLFormElement);
+    // Before the save answers, the owner is already typing in another section.
+    const other = textboxesOf(5)[0] as HTMLInputElement | HTMLTextAreaElement;
+    fireEvent.change(other, { target: { value: "Walk-ins before noon only" } });
+    await screen.findByText("Your agents use this now.");
+    expect((textboxesOf(5)[0] as HTMLInputElement).value).toBe("Walk-ins before noon only");
+  });
+
   it("is read-only for staff, with the reason on screen", async () => {
     await renderClientPage(<BusinessProfileScreen />, {
       "/v1/me": { ...OWNER, role: "staff", permissions: ["org:read", "agents:read"] },

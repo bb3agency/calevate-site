@@ -2,7 +2,7 @@
 
 import { Section } from "@/components/console/section";
 
-import type { ReactNode } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ProblemNotice } from "@/components/ui";
@@ -34,7 +34,9 @@ export function ProfileSection({
   draft: ProfileDraft;
   saved: ProfileDraft;
   canWrite: boolean;
-  onDraft: (next: ProfileDraft) => void;
+  /** A state setter: the save writes back through an updater so typing done in another
+   *  section while this one saved is not replaced by the draft as it was at submit. */
+  onDraft: Dispatch<SetStateAction<ProfileDraft>>;
   problem: string | null;
   render: (errorAt: (path: string) => string | undefined) => ReactNode;
 }) {
@@ -58,7 +60,7 @@ export function ProfileSection({
             // this topic from it so the form shows exactly what the agents now say.
             onSuccess: (profile) => {
               const key = sectionKey(step.id);
-              onDraft({ ...draft, [key]: draftFromProfile(profile)[key] });
+              onDraft((current) => ({ ...current, [key]: draftFromProfile(profile)[key] }));
             },
           });
         }}
