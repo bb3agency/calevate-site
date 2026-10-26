@@ -4,9 +4,9 @@ Two sources, one list:
 
 1. Open knowledge gaps (`insights/`): a caller asked something and the agent said it did not
    know, or pushed it to a call back or WhatsApp. Grouped by topic, with the latest call.
-2. Calls that ended needing the owner (`calls.outcome_tag = 'needs_you'`, derived from facts
-   by `crm/outcomes.py`: a hand-over that reached nobody, or a need the agent could not meet)
-   on which no gap was found, so the owner still sees them.
+2. Calls where the agent could not cope (`calls.outcome_tag = 'needs_you'` because the caller
+   asked for something out of scope, or a hand-over reached nobody) on which no gap was
+   found, so the owner still sees them.
 
 Every quote is redacted text (hard rule 6): gap quotes come from redacted columns, and a
 call contributes only its headline, which the call list already shows.
@@ -21,6 +21,8 @@ from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from apps.api.crm.outcomes import HANDOFF_CONNECTED
 
 #: How far back the "needed you" calls go. Older ones were followed up or are history.
 NEEDS_YOU_DAYS: Final = 30
@@ -94,7 +96,11 @@ async def list_struggles(session: AsyncSession, *, agent_id: UUID | None = None)
         for r in gap_rows
     ]
     call_clause = "AND c.agent_id = :aid" if agent_id else ""
-    call_params: dict[str, object] = {"limit": MAX_CALLS, "days": NEEDS_YOU_DAYS}
+    call_params: dict[str, object] = {
+        "limit": MAX_CALLS,
+        "days": NEEDS_YOU_DAYS,
+        "connected": HANDOFF_CONNECTED,
+    }
     if agent_id:
         call_params["aid"] = agent_id
     call_rows = (
@@ -104,6 +110,14 @@ async def list_struggles(session: AsyncSession, *, agent_id: UUID | None = None)
                 "  COALESCE(c.ended_at, c.started_at, c.created_at) AS at "
                 "FROM calls c LEFT JOIN agents a ON a.id = c.agent_id "
                 "WHERE c.outcome_tag = 'needs_you' "
+                # Only the two ways `needs_you` means the agent could not cope: the caller
+                # asked for something it could not handle, or a hand-over reached nobody.
+                # `needs_you` also covers an answered call with a next step for the business
+                # (a booked site visit, D-887); that is follow-up work, not a struggle.
+                "  AND (EXISTS (SELECT 1 FROM call_extractions ce "
+                "               WHERE ce.call_id = c.id AND ce.out_of_scope) "
+                "       OR EXISTS (SELECT 1 FROM handoff_attempts h "
+                "                  WHERE h.source_call_id = c.id AND h.outcome <> :connected)) "
                 "  AND COALESCE(c.started_at, c.created_at) > now() - make_interval(days => :days) "
                 "  AND c.erased_subject_ref IS NULL "
                 "  AND NOT EXISTS (SELECT 1 FROM knowledge_gap_occurrences o "
@@ -121,7 +135,7 @@ async def list_struggles(session: AsyncSession, *, agent_id: UUID | None = None)
             gap_id=None,
             agent_id=r[1],
             agent_name=r[2],
-            topic=r[3] or "The call needed you",
+            topic=r[3] or "The agent could not help the caller",
             question=None,
             answer=None,
             times=1,

@@ -442,6 +442,33 @@ class _Turn:
     text: str
 
 
+async def _out_of_scope(tenant_id: uuid.UUID, call_id: uuid.UUID) -> None:
+    """The reading that says the caller asked for something the agent could not handle."""
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO call_extractions (id, tenant_id, call_id, schema_version, data, "
+                "model, valid, errors, out_of_scope, created_at, updated_at) VALUES (:id, :t, "
+                ":c, 1, CAST('{}' AS jsonb), NULL, true, NULL, true, now(), now())"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "c": call_id},
+        )
+
+
+async def test_a_call_with_only_a_next_step_is_not_a_struggle() -> None:
+    """`needs_you` also means "answered, and the business has a step to take" (a booked
+    site visit, D-887). That is follow-up work, not something the agent could not answer."""
+    tenant_id, agent_id = await _tenant()
+    visit = await _call(tenant_id, agent_id, outcome="needs_you")
+    stuck = await _call(tenant_id, agent_id, outcome="needs_you")
+    await _out_of_scope(tenant_id, stuck)
+    async with tenant_session(tenant_id) as session:
+        found = await struggles.list_struggles(session)
+    listed = {s.last_call_id for s in found if s.kind == "needed_you"}
+    assert stuck in listed
+    assert visit not in listed
+
+
 async def test_struggles_link_to_the_call_and_answering_one_closes_it() -> None:
     tenant_id, agent_id = await _tenant()
     call_id = await _call(tenant_id, agent_id)
@@ -455,6 +482,7 @@ async def test_struggles_link_to_the_call_and_answering_one_closes_it() -> None:
         ],
     )
     needs_you = await _call(tenant_id, agent_id, outcome="needs_you")
+    await _out_of_scope(tenant_id, needs_you)
     async with tenant_session(tenant_id) as session:
         found = await struggles.list_struggles(session)
     by_kind = {s.kind: s for s in found}

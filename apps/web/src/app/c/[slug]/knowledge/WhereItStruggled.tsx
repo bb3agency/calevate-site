@@ -18,7 +18,7 @@ const KIND_LABEL: Record<string, string> = {
   didnt_know: "Didn't know",
   put_off: "Put it off to a call back",
   unanswered: "Left it unanswered",
-  needed_you: "The call needed you",
+  needed_you: "Couldn't help the caller",
 };
 
 /** Where in the script a fix for this kind of struggle usually goes. */
