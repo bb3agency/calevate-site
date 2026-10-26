@@ -1,4 +1,5 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { goLiveOffered } from "@/app/c/[slug]/GoLiveInvite";
@@ -113,6 +114,20 @@ describe("the guide", () => {
       }),
     );
     expect(await screen.findByRole("heading", { name: "We're finishing this for you" })).toBeTruthy();
+  });
+
+  it("moves on by itself when the check it waits on is done, as it says it will", async () => {
+    let current = guide({ current: "verify", move: { ...guide().move, state: "done" }, verify: "in_review" });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await renderClientPage(page, routes({ "/v1/go-live": () => current }), "acme", client);
+    expect(await screen.findByRole("heading", { name: "We're checking your business details" })).toBeTruthy();
+
+    current = { ...current, current: "number", verify: "done", number: "todo" };
+    await act(async () => {
+      await client.invalidateQueries();
+    });
+
+    expect(await screen.findByRole("heading", { name: "Choose your number" })).toBeTruthy();
   });
 
   it("goes on to the business check, which opens the existing flow", async () => {

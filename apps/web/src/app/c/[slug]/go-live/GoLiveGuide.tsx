@@ -66,7 +66,17 @@ export function GoLiveGuide({ slug }: { slug: string }) {
   // (it outlives the navigation); an inline notice here would never be seen.
   const dismissFeedback = useActionFeedback(dismiss, { errorTitle: "Could not put the guide away" });
   const [stage, setStage] = useState<Stage | null>(null);
-  if (stage === null && guide.data !== undefined) setStage(stageOf(guide.data.current));
+  // The server's step as last read. When the poll moves it (the check passed, the number
+  // was approved), an owner still on the step it moved from is taken on, as the waiting
+  // steps promise; one who went Back to another step is left where they are.
+  const [serverStage, setServerStage] = useState<Stage | null>(null);
+  if (guide.data !== undefined) {
+    const now = stageOf(guide.data.current);
+    if (now !== serverStage) {
+      if (stage === null || stage === serverStage) setStage(now);
+      setServerStage(now);
+    }
+  }
 
   const skip = () => dismiss.mutate(undefined, { onSettled: () => router.push(href(`/c/${slug}`)) });
   const step = stage === null ? 0 : GO_LIVE_STEPS.findIndex((entry) => entry.id === stage);
