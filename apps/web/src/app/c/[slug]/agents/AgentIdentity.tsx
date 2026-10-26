@@ -82,25 +82,38 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
   const [rewriteOffer, setRewriteOffer] = useState<string | null>(null);
   const write = useWriteAccess(session, "org:manage", "change this agent's details");
 
-  const [name, setName] = useState(agent.name);
+  /* Each field holds only the owner's EDIT (`null` = untouched) and shows the server's
+     value otherwise. Seeded copies went stale when the agent was changed elsewhere (Pip's
+     rename, another tab): the screen showed unsaved changes nobody made, and the next save
+     wrote the old value back over the newer one. */
+  const [nameEdit, setName] = useState<string | null>(null);
+  const name = nameEdit ?? agent.name;
   const valid = useFormValidation();
   /* `AgentOut.direction` is the SAME generated union `AgentUpdateIn` accepts (D-440 typed
      both columns), so the current value needs no narrowing on the way in or out. It was
      `string` on both sides until that change, and a widened value would have had to be
      rejected here rather than pre-selected. */
-  const [direction, setDirection] = useState<AgentDirection>(agent.direction);
+  const [directionEdit, setDirection] = useState<AgentDirection | null>(null);
+  const direction = directionEdit ?? agent.direction;
   /* `AgentOut.language_primary` is a bare `str` on the wire while `AgentUpdateIn` accepts
      a closed union, so the stored value is NARROWED on the way in. `null` means "the agent
      speaks a language this build cannot offer" — its own code is still shown as the
      selected option below, and the patch simply never names the field, so opening this
      screen cannot silently change it. */
-  const [language, setLanguage] = useState<AgentLanguage | null>(
-    hasKey(LANGUAGE_NAMES, agent.language_primary) ? agent.language_primary : null,
-  );
+  const [languageEdit, setLanguage] = useState<AgentLanguage | null>(null);
+  const language =
+    languageEdit ?? (hasKey(LANGUAGE_NAMES, agent.language_primary) ? agent.language_primary : null);
   /* The other languages it replies in (D-815), in the order the server holds them. The
      main language is always first on the wire, so it is never also one of these. */
   const storedExtras = agent.reply_languages.slice(1);
-  const [extras, setExtras] = useState<AgentLanguage[]>(storedExtras);
+  const [extrasEdit, setExtras] = useState<AgentLanguage[] | null>(null);
+  const extras = extrasEdit ?? storedExtras;
+  const clearEdits = () => {
+    setName(null);
+    setDirection(null);
+    setLanguage(null);
+    setExtras(null);
+  };
   const mainLanguage = language ?? agent.language_primary;
   const shownExtras = extras.filter((tag) => tag !== mainLanguage);
 
@@ -175,6 +188,8 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
         const newMain = mainLanguage !== agent.language_primary ? mainLanguage : null;
         save.mutate(patch, {
           onSuccess: () => {
+            // The saved values are the server's now; the agent read shows them.
+            clearEdits();
             if (newMain !== null) {
               rewrite.reset();
               setRewriteOffer(newMain);
@@ -290,12 +305,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
           status={saveFeedback.status}
           disabled={!write.allowed}
           title={write.reason ?? undefined}
-          onCancel={() => {
-            setName(agent.name);
-            setDirection(agent.direction);
-            setLanguage(hasKey(LANGUAGE_NAMES, agent.language_primary) ? agent.language_primary : null);
-            setExtras(storedExtras);
-          }}
+          onCancel={clearEdits}
         />
       )}
     </form>

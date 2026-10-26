@@ -5,6 +5,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
@@ -2088,6 +2089,42 @@ describe("changing what an agent is", () => {
     expect(nameInput.value).toBe("Reception");
     expect(within(panel).queryByRole("button", { name: /Save changes/ })).toBeNull();
     expect(calls.some((call) => call.method === "PATCH")).toBe(false);
+  });
+
+  it("shows a rename made elsewhere, and a later save does not undo it", async () => {
+    // Pip's `agent_rename` writes at once and the agent read refreshes. The form held a
+    // copy of the old name, showed it as an unsaved change and sent it back on the next save.
+    let current = agent();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": () => current,
+        "PATCH /v1/agents/agent-1": () => current,
+      }),
+      "acme",
+      client,
+    );
+    await screen.findByText("Reception");
+    const panel = card("What it is");
+
+    current = agent({ name: "Front desk" });
+    await act(async () => {
+      await client.invalidateQueries();
+    });
+    const nameInput = within(panel).getByLabelText(/^Name/) as HTMLInputElement;
+    await waitFor(() => expect(nameInput.value).toBe("Front desk"));
+    expect(within(panel).queryByRole("button", { name: /Save changes/ })).toBeNull();
+
+    const replies = within(panel).getByRole("group", { name: "It also replies in" });
+    await act(async () => {
+      fireEvent.click(within(replies).getByRole("checkbox", { name: "English (India)" }));
+    });
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Save changes/));
+    });
+    const patched = calls.find((call) => call.method === "PATCH");
+    expect(JSON.parse(patched?.body ?? "{}")).not.toHaveProperty("name");
   });
 
   it("keeps an archived agent's details as they were, and says why", async () => {
