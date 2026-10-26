@@ -172,15 +172,27 @@ def due_for(row: Any, agents: list[UUID]) -> bool:
     return all(agent == own for agent in agents)
 
 
+#: A recording still `hearing` this long after it was claimed lost its worker: one
+#: transcription is `STT_TIMEOUT_S` (40 s), and a job cancelled mid-way is not retried while
+#: its claim is spent. It reads as failed so the screen stops waiting and the slot is free.
+HEARING_STALE_MINUTES: Final = 10
+
+#: `status <> 'failed'` for counting, with a dead `hearing` counted as the failure it is.
+_LIVE_RECORDING: Final = (
+    "status <> 'failed' AND NOT (status = 'hearing' "
+    "AND updated_at < now() - make_interval(mins => :stale))"
+)
+
+
 async def _recordings_used(session: AsyncSession, run_id: UUID) -> int:
     return int(
         (
             await session.execute(
                 text(
                     "SELECT count(*) FROM first_run_recordings "
-                    "WHERE first_run_id = :rid AND status <> 'failed'"
+                    f"WHERE first_run_id = :rid AND {_LIVE_RECORDING}"
                 ),
-                {"rid": run_id},
+                {"rid": run_id, "stale": HEARING_STALE_MINUTES},
             )
         ).scalar_one()
     )
@@ -397,8 +409,14 @@ class Recording:
 async def read_recording(session: AsyncSession, recording_id: UUID) -> Recording:
     row = (
         await session.execute(
-            text("SELECT id, status, words, error_code FROM first_run_recordings WHERE id = :id"),
-            {"id": recording_id},
+            text(
+                "SELECT id, CASE WHEN status = 'hearing' AND updated_at < now() - "
+                "make_interval(mins => :stale) THEN 'failed' ELSE status END AS status, words, "
+                "CASE WHEN status = 'hearing' AND updated_at < now() - "
+                "make_interval(mins => :stale) THEN 'crashed' ELSE error_code END AS error_code "
+                "FROM first_run_recordings WHERE id = :id"
+            ),
+            {"id": recording_id, "stale": HEARING_STALE_MINUTES},
         )
     ).first()
     if row is None:

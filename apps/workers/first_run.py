@@ -52,6 +52,7 @@ from calevate_shared.spoken_guard import (
     textbook_problem,
 )
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.lifecycle import create_agent, update_agent
@@ -319,14 +320,13 @@ async def write_first_run_questions(ctx: dict[str, Any], payload: dict[str, Any]
         )
     except ProblemError as refused:
         log.info("first_run_questions_fixed", extra={"reason": refused.code})
-        async with tenant_session(tenant_id) as session:
-            await crm_assist.meter_refusal(
-                session, tenant_id=tenant_id, refusal=refused, feature=ASSIST_FEATURE_FIRST_RUN
-            )
+        spent: JsonAnswer[Any] | ProblemError = refused
     else:
         questions = answer.value
         disclosure = answer.capability.disclosure
-        await _meter(tenant_id, answer)
+        spent = answer
+    # The charge and the questions are one transaction: a store that fails is retried by
+    # the queue, and a charge committed before it would be taken again on that retry.
     async with tenant_session(tenant_id) as session:
         stored = await store_questions(
             session,
@@ -335,23 +335,31 @@ async def write_first_run_questions(ctx: dict[str, Any], payload: dict[str, Any]
             questions=questions,
             disclosure=disclosure,
         )
+        await _meter(session, tenant_id, spent)
     return "ready" if stored else "not_pending"
 
 
-async def _meter(tenant_id: UUID, answer: JsonAnswer[Any] | ScriptDraft) -> None:
-    """A completed run is money spent, recorded in its own transaction (crm/assist §4)."""
-    async with tenant_session(tenant_id) as session:
-        await crm_assist.meter_earlier(
-            session, tenant_id=tenant_id, earlier=answer.earlier, feature=ASSIST_FEATURE_FIRST_RUN
+async def _meter(
+    session: AsyncSession, tenant_id: UUID, spent: JsonAnswer[Any] | ScriptDraft | ProblemError
+) -> None:
+    """What one run spent, in the caller's transaction, beside the result it paid for."""
+    if isinstance(spent, ProblemError):
+        await crm_assist.meter_refusal(
+            session, tenant_id=tenant_id, refusal=spent, feature=ASSIST_FEATURE_FIRST_RUN
         )
-        await crm_assist.meter_assist(
-            session,
-            tenant_id=tenant_id,
-            ref=new_assist_ref(),
-            result=answer,
-            model=answer.model,
-            feature=ASSIST_FEATURE_FIRST_RUN,
-        )
+        return
+    answer = spent
+    await crm_assist.meter_earlier(
+        session, tenant_id=tenant_id, earlier=answer.earlier, feature=ASSIST_FEATURE_FIRST_RUN
+    )
+    await crm_assist.meter_assist(
+        session,
+        tenant_id=tenant_id,
+        ref=new_assist_ref(),
+        result=answer,
+        model=answer.model,
+        feature=ASSIST_FEATURE_FIRST_RUN,
+    )
 
 
 # --------------------------------------------------------------------------- build
@@ -470,6 +478,7 @@ async def _write_script(
     disclosure)."""
     brief = (run.brief or "").strip()
     draft: ScriptDraft | None = None
+    spent: ScriptDraft | ProblemError | None = None
     if len(brief) >= MIN_BRIEF_CHARS:
         async with tenant_session(tenant_id) as session:
             context = await brief_for(session, tenant_id, agent_id)
@@ -495,13 +504,14 @@ async def _write_script(
             )
         except ProblemError as refused:
             log.info("first_run_script_ready_made", extra={"reason": refused.code})
-            async with tenant_session(tenant_id) as session:
-                await crm_assist.meter_refusal(
-                    session, tenant_id=tenant_id, refusal=refused, feature=ASSIST_FEATURE_FIRST_RUN
-                )
+            spent = refused
         else:
-            await _meter(tenant_id, draft)
+            spent = draft
     async with tenant_session(tenant_id) as session:
+        # Charged beside the script it paid for, for the reason `write_first_run_questions`
+        # gives.
+        if spent is not None:
+            await _meter(session, tenant_id, spent)
         if draft is not None:
             script = draft.script.model_copy(
                 update={"identity": identity_with_name(draft.script.identity, name)}

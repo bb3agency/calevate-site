@@ -291,6 +291,52 @@ async def test_the_model_writes_the_questions_and_the_gate_drops_bad_ones(
     assert items[0]["prompt"] == "Which areas of Hyderabad do your projects cover?"
 
 
+async def test_the_questions_are_charged_in_the_transaction_that_stores_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A charge committed before a store that fails would be taken again when the queue
+    retries the job, which still finds the run writing."""
+    tenant_id = await _tenant()
+    headers = await _owner(tenant_id)
+    async with _client() as http:
+        await http.put(
+            "/v1/first-run/job",
+            headers=headers,
+            json={"jobs": ["answer_calls"], "language_primary": "te-IN"},
+        )
+        await http.put("/v1/first-run/brief", headers=headers, json={"brief": LONG_BRIEF})
+    run = await _run(tenant_id)
+    sessions: dict[str, object] = {}
+
+    async def wrote(description: str, *_args: Any, parse: Any, **_kwargs: Any) -> SimpleNamespace:
+        return _answer(parse({"questions": WRITTEN}))
+
+    real_store = worker.store_questions
+
+    async def store(session: Any, **kwargs: Any) -> bool:
+        sessions["store"] = session
+        return await real_store(session, **kwargs)
+
+    async def meter(session: Any, *_args: Any) -> None:
+        sessions["meter"] = session
+
+    monkeypatch.setattr(worker, "ask_json", wrote)
+    monkeypatch.setattr(worker, "store_questions", store)
+    monkeypatch.setattr(worker, "_meter", meter)
+    assert (
+        await worker.write_first_run_questions(
+            {},
+            {
+                "tenant_id": str(tenant_id),
+                "run_id": str(run.id),
+                "brief_hash": run.questions_brief_hash,
+            },
+        )
+        == "ready"
+    )
+    assert sessions["meter"] is sessions["store"]
+
+
 def test_the_gate_drops_an_item_rather_than_repairing_it() -> None:
     from apps.api.tenancy.business_profile import Profile
 
@@ -483,6 +529,44 @@ async def test_the_answers_land_in_the_business_profile_merged() -> None:
 
 
 # ------------------------------------------------------------------ the spoken brief
+
+
+async def test_a_recording_whose_worker_died_reads_failed_and_frees_its_slot(
+    s3: FakeS3,
+) -> None:
+    """A job cancelled while transcribing is not retried and its claim is spent, so
+    `hearing` would keep the screen waiting forever and hold one of the recording slots."""
+    from apps.api.first_run import service as first_run_service
+
+    tenant_id = await _tenant()
+    headers = await _owner(tenant_id)
+    async with _client() as http:
+        posted = await http.post(
+            "/v1/first-run/recordings",
+            headers=headers,
+            files={"file": ("brief.webm", b"opus-bytes", "audio/webm")},
+            data={"language": "te-IN"},
+        )
+    recording_id = posted.json()["id"]
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE first_run_recordings SET status = 'hearing', "
+                "updated_at = now() - make_interval(mins => :m) WHERE id = :id"
+            ),
+            {"id": recording_id, "m": first_run_service.HEARING_STALE_MINUTES + 1},
+        )
+        run_id = (
+            await session.execute(
+                text("SELECT first_run_id FROM first_run_recordings WHERE id = :id"),
+                {"id": recording_id},
+            )
+        ).scalar_one()
+        assert await first_run_service._recordings_used(session, run_id) == 0
+    async with _client() as http:
+        read = await http.get(f"/v1/first-run/recordings/{recording_id}", headers=headers)
+    assert read.json()["status"] == "failed"
+    assert read.json()["error_code"] == "crashed"
 
 
 async def test_a_recording_is_heard_and_its_audio_deleted(
