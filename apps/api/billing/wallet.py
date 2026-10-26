@@ -395,7 +395,14 @@ async def read_runway(
             ),
             drawdown,
         )
-    if drawdown.spent_inr <= 0:
+    # THE BURN IS WHAT THE ACCOUNT CONSUMES: calls, AI help and the number rental. An
+    # adjustment is an operator's one-off act on the wallet (a mis-recorded payment taken
+    # back, a dispute hold, lapsed credit), so dividing it across the window projected a
+    # ₹10,000 correction as ₹333 a day of spending for a month and shortened the runway by
+    # that much. It stays in `spent_inr`, which says what left the wallet; refunds are left
+    # out of both for the same reason.
+    consumed = drawdown.calls_inr + drawdown.ai_assist_inr + drawdown.number_rental_inr
+    if consumed <= 0:
         return (
             Runway(
                 basis="no_burn",
@@ -409,7 +416,7 @@ async def read_runway(
             drawdown,
         )
 
-    daily = drawdown.spent_inr / Decimal(observed_days)
+    daily = consumed / Decimal(observed_days)
     projected = _floor_days(balance.amount_inr / daily)
     if projected > MAX_RUNWAY_DAYS:
         return (

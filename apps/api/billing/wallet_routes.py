@@ -130,8 +130,9 @@ class RunwayOut(Strict):
     #: Whole days, floored. Null unless `basis` is `projected` and `beyond_horizon` is
     #: false.
     days: int | None
-    #: What this account spent per day over the window — the working behind `days`, so an
-    #: owner who disagrees with "nine days" can see the ₹340 a day it came from.
+    #: What this account spent per day over the window on calls, AI help and number
+    #: rental (not one-off corrections) — the working behind `days`, so an owner who
+    #: disagrees with "nine days" can see the ₹340 a day it came from.
     daily_burn_inr: Decimal | None
     #: How long we have actually been watching, in whole days. What makes `too_new`
     #: legible ("three days of history; we need seven") rather than a bare refusal.

@@ -332,6 +332,21 @@ async def test_the_runway_never_quotes_a_minute_the_wallet_cannot_cover() -> Non
 # ============================================================================
 
 
+async def test_a_one_off_correction_is_not_projected_as_daily_spending() -> None:
+    """An operator taking back ₹3,000 of a mis-recorded payment is not ₹300 a day of
+    calling: it is in what left the wallet, and not in the burn the runway divides by."""
+    tenant_id = await _tenant()
+    await _past_entry(tenant_id, delta="8000", reason="topup", days_ago=10)
+    await _past_entry(tenant_id, delta="-3000", reason="adjustment", days_ago=5)
+    await _past_entry(tenant_id, delta="-1000", reason="usage", days_ago=1)
+    async with tenant_session(tenant_id) as session:
+        balance = await get_balance(session, tenant_id=tenant_id)
+        runway, drawdown = await read_runway(session, tenant_id=tenant_id, balance=balance)
+    assert drawdown.spent_inr == Decimal("4000")
+    assert runway.daily_burn_inr == Decimal("100")
+    assert runway.days == 40
+
+
 async def test_the_drawdown_splits_calls_from_ai_help_and_adds_up_exactly() -> None:
     from apps.api.billing.ai_quota import OVERAGE_META_KIND
 
