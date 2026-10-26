@@ -1494,8 +1494,11 @@ export const PRIVACY_POLICY: LegalDocument = {
               kind: "list",
               items: [
                 "A subject access export, keyed to your phone number, containing the call " +
-                  "records, the redacted transcripts, the lead record and the consent " +
-                  "entries held about you. Recordings are reported as present or absent " +
+                  "records, the redacted transcripts, the lead record, the consent " +
+                  "entries, any do-not-call entry, the calling lists your number is on, " +
+                  "call-backs promised to you, the notes an agent wrote when it passed " +
+                  "your call to a person, and anything an agent remembers about you " +
+                  "between calls. Recordings are reported as present or absent " +
                   "rather than as a link, because a link in an emailed document is a " +
                   "working key to the audio. Other people's numbers appearing inside a " +
                   "summary are masked: honouring your right must not disclose somebody " +

@@ -461,6 +461,14 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "erased only in the client's own workspace. NOT MATERIAL: less is kept, and "
                 "no new recipient or use.",
             ),
+            Revision(
+                "26",
+                False,
+                "Section 12.3 lists everything the subject access export carries: the "
+                "do-not-call entry, calling lists, promised call-backs, hand-off notes and "
+                "caller memories. NOT MATERIAL: the person is told more of what is already "
+                "held.",
+            ),
         ),
         effective_date="2026-09-02",
     ),

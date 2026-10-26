@@ -357,6 +357,15 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:1acfc7d15ebb27ae192293729a229d3b9db96425269f3502a7e4a8fb67f015b7",
       },
+      // Section 12.3 lists everything the subject access export now carries: the
+      // do-not-call entry, calling lists, promised call-backs, hand-off notes and caller
+      // memories. NOT MATERIAL: the person is told more of what is already held.
+      {
+        revision: "26",
+        material: false,
+        contentHash:
+          "sha256:1c05140f119ae7641f3628ebffdc52774ba1117debe08d3fd8450fed4cd2abba",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
