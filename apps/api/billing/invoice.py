@@ -45,10 +45,12 @@ from .gst import (
     supplier_identity,
 )
 from .number_rental import rental_statement_lines
+from .plans import parse_billing_month
 from .rates import PREPAID_TIERS
 from .service import (
     BASE_OVERAGE_RUNG,
     SECOND_OVERAGE_RUNG,
+    current_billing_month,
     overage_rungs,
     plan_tier_of,
     prepaid_call_statement_lines,
@@ -403,6 +405,18 @@ async def build_invoice(
     Must run under a tenant-scoped session — `usage_summary` and `read_kyc` read RLS'd
     tables.
     """
+    if month is not None:
+        parse_billing_month(month)
+        if month > current_billing_month():
+            # A statement for a month that has not begun would carry the plan fee and the
+            # very invoice number the real month will be issued under.
+            raise ProblemError(
+                kind="validation",
+                code="billing_month_in_future",
+                title="That month has not started yet",
+                detail=f"There is no statement for {month} yet.",
+                remediation="Choose this month or an earlier one.",
+            )
     usage = await usage_summary(session, tenant_id=tenant_id, month=month)
     period = str(usage["month"])
 

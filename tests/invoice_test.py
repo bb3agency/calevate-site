@@ -227,6 +227,22 @@ async def test_the_invoice_number_is_deterministic_per_tenant_month() -> None:
     assert first["invoice_number"] == build_expected_number(tenant_id, month_part)
 
 
+async def test_a_month_that_has_not_started_has_no_statement() -> None:
+    """A future month priced at its first instant came back with the plan fee and the
+    very number the real month will be issued under."""
+    from apps.api.billing.service import current_billing_month
+
+    tenant_id, _ = await _tenant_with_usage(minutes=10)
+    year, month = (int(part) for part in current_billing_month().split("-"))
+    following = f"{year + month // 12}-{month % 12 + 1:02d}"
+    async with tenant_session(tenant_id) as session:
+        current = await build_invoice(session, tenant_id=tenant_id, month=current_billing_month())
+        with pytest.raises(ProblemError) as refused:
+            await build_invoice(session, tenant_id=tenant_id, month=following)
+    assert current["month"] == current_billing_month()
+    assert refused.value.code == "billing_month_in_future"
+
+
 async def test_two_tenants_created_in_the_same_minute_get_different_invoice_numbers() -> None:
     """The collision D-114 closed, pinned where it can be seen.
 
