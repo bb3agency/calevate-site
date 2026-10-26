@@ -273,6 +273,21 @@ async def _hold(session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFacts
     if await find_entry_by_ref(session, tenant_id=tenant_id, reason="adjustment", ref=ref):
         return False
     paid = await find_topup(session, tenant_id=tenant_id, ref=dispute.payment_id)
+    if paid is None and await _is_fee_payment(session, payment_id=dispute.payment_id):
+        # A platform-fee payment never reached the wallet (D-707), so a chargeback on it is
+        # not calling credit to take back: drawing it FIFO off the wallet would make the
+        # client's calls pay for a fee dispute. The dispute row still pauses outbound while
+        # open; what to do about the fee is an operator's call.
+        alert(
+            "ROUTE_HANDLER",
+            "platform_fee_payment_disputed",
+            detail="A platform-fee payment is disputed. Nothing was taken from the client's "
+            "calling credit; outbound is paused while the dispute is open. Decide on the fee "
+            "by hand: /admin/payments/disputes.",
+            tenant_id=str(tenant_id),
+            dispute_id=dispute.dispute_id,
+        )
+        return False
     removal = await remove_credit_from_lots(
         session,
         tenant_id=tenant_id,
@@ -301,6 +316,17 @@ async def _hold(session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFacts
         {"amt": dispute.amount_inr, "did": dispute.dispute_id},
     )
     return True
+
+
+async def _is_fee_payment(session: AsyncSession, *, payment_id: str) -> bool:
+    row = await session.execute(
+        text(
+            "SELECT 1 FROM monthly_fee_payments WHERE method = 'razorpay' "
+            "AND payment_ref = :ref LIMIT 1"
+        ),
+        {"ref": payment_id},
+    )
+    return row.first() is not None
 
 
 async def _release(session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFacts) -> bool:

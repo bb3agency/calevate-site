@@ -233,6 +233,10 @@ their OUTBOUND calling pauses; inbound is untouched; the client's screens say wh
    hold writes the debit without pausing outbound. A won dispute challenged again in a
    pre-arbitration or arbitration phase reopens and pauses outbound again, but its amount
    is not held a second time: decide by hand whether to take it.
+5. A dispute on a monthly platform-fee payment (`platform_fee_payment_disputed`) holds
+   nothing from the calling credit, because the fee never reached it. Outbound is paused
+   while it is open. If it is lost, the fee is unpaid again: chase or record it on the
+   client's platform-fee card.
 
 ### B6. Auto-recharge
 

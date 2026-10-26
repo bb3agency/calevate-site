@@ -340,6 +340,10 @@ ALARM_SUMMARIES: Final[dict[str, AlarmSummary]] = {
         "A client's bank disputed a payment",
         "That client's outbound calling is paused and the amount is held; inbound still works.",
     ),
+    "platform_fee_payment_disputed": _s(
+        "A client's bank disputed a platform-fee payment",
+        "That client's outbound calling is paused; their calling credit was not touched.",
+    ),
     "payment_dispute_action_required": _s(
         "A payment dispute needs evidence",
         "One client's dispute will be lost if no evidence is sent in time.",

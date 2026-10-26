@@ -508,3 +508,54 @@ async def test_an_account_that_does_not_exist_has_no_exemption() -> None:
     absent = uuid.uuid4()
     async with tenant_session(absent) as session:
         assert await exemption_of(session, tenant_id=absent, at=datetime.now(UTC)) is None
+
+
+async def test_a_disputed_fee_payment_takes_nothing_from_the_calling_credit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fee payment never reached the wallet, so its chargeback was drawn FIFO off the
+    client's calling credit: their calls paid for a fee dispute."""
+    from apps.api.billing import disputes
+    from apps.api.billing.dispute_hold import dispute_hold_active
+    from apps.api.billing.disputes import DisputeFacts, apply_dispute_event
+    from apps.api.billing.service import get_balance, record_entry
+
+    raised: list[str] = []
+    monkeypatch.setattr(disputes, "alert", lambda _stage, code, **_kw: raised.append(code))
+    tenant_id = await _tenant()
+    charge_id = await _issue(tenant_id, at=datetime.now(UTC))
+    payment_id = f"pay_{uuid.uuid4().hex[:14]}"
+    async with tenant_session(tenant_id) as session:
+        await record_entry(session, tenant_id=tenant_id, delta=Decimal("1000"), reason="grant")
+        charge = await read_charge(session, tenant_id=tenant_id, charge_id=charge_id)
+        assert charge is not None
+        await record_payment(
+            session,
+            tenant_id=tenant_id,
+            charge=charge,
+            amount_inr=FEE,
+            method="razorpay",
+            payment_ref=payment_id,
+            paid_at=datetime.now(UTC),
+        )
+    async with tenant_session(tenant_id) as session:
+        outcome = await apply_dispute_event(
+            session,
+            tenant_id=tenant_id,
+            event="payment.dispute.created",
+            dispute=DisputeFacts(
+                dispute_id=f"disp_{uuid.uuid4().hex[:14]}",
+                payment_id=payment_id,
+                amount_inr=FEE,
+                status="open",
+                phase="chargeback",
+                reason_code=None,
+                respond_by=None,
+            ),
+        )
+        balance = (await get_balance(session, tenant_id=tenant_id)).amount_inr
+        paused = await dispute_hold_active(session, tenant_id=tenant_id)
+    assert outcome == "recorded"
+    assert balance == Decimal("1000")
+    assert paused is True
+    assert raised == ["platform_fee_payment_disputed"]

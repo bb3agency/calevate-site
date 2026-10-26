@@ -705,6 +705,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "razorpay_refund_failed": "page",
     # A client's bank disputed a payment: outbound is paused and a response is due by a date.
     "payment_dispute_opened": "page",
+    "platform_fee_payment_disputed": "page",
     "payment_dispute_action_required": "page",
     # The webhook leg lost a delivery and reconciliation recorded it: the money is right,
     # the webhook set-up needs a look.
