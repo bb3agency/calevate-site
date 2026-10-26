@@ -1,7 +1,7 @@
 """a PDF or a link holds a readable copy of its words, with its own reading state (D-893 L8)
 
 Revision ID: f2b7d4e9a1c6
-Revises: e5c1a9d3f720
+Revises: f1a6c3e9d204
 Create Date: 2026-10-26 20:00:00.000000
 
 A PDF and a link used to keep no text of ours: the ingest job skipped them, so their words
@@ -25,7 +25,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "f2b7d4e9a1c6"
-down_revision: str | None = "e5c1a9d3f720"
+down_revision: str | None = "f1a6c3e9d204"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
