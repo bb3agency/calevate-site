@@ -134,7 +134,7 @@ Registering a client tool is therefore one more step:
   (`set_fields`, `open_screen`, `run_in_background`) keep their names.
 * Budget: the client tool array is at most 12,000 estimated tokens
   (`prompt_budget_test.TOOL_ARRAY_BUDGET_TOKENS`); it was ~13,300 as 71 tools before the
-  D-893 lanes and is ~10,100 as 26 area tools with every lane's actions (~118 actions).
+  D-893 lanes and is ~10,100 as 26 area tools carrying every lane's 116 tools.
 * The admin realm still offers its tools one by one.
 
 ## 3. The permission check, inside the tool
