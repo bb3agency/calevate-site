@@ -79,6 +79,13 @@ class BoundedByConstruction:
 
 
 #: The lead-detail suggestion routes (D-889) share one bound.
+_ONE_PLAN = BoundedByConstruction(
+    by=(
+        "one plan; its only list is `exclusions`, the reasons targets were left out, at most "
+        "`copilot/plan_schemas.MAX_EXCLUSION_REASONS` (the rest are in the targets page)."
+    )
+)
+
 _LEAD_SUGGESTIONS = BoundedByConstruction(
     by=(
         "the open suggestions on ONE agent, at most `agents/models.MAX_FIELD_SUGGESTIONS` "
@@ -378,6 +385,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "PATCH /v1/copilot/routines/{routine_id}": BoundedByConstruction(
         by="the same one routine and its seven-day schedule."
     ),
+    # --- D-893 plans ------------------------------------------------------------------
+    "GET /v1/copilot/plans/{plan_id}": _ONE_PLAN,
+    "POST /v1/copilot/plans/{plan_id}/approve": _ONE_PLAN,
+    "POST /v1/copilot/plans/{plan_id}/cancel": _ONE_PLAN,
     # --- D-693 a client's own voice workspace -----------------------------------------
     "GET /v1/numbers/own/available": BoundedByConstruction(
         by=(

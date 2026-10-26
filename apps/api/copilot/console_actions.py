@@ -45,7 +45,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any, Final, Literal, get_args
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -74,13 +74,12 @@ from apps.api.copilot.actions import (
     action_schema,
     parse_args,
 )
-from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_REMOVE
 from apps.api.copilot.sanitize import strip_invisible
+from apps.api.copilot.set_actions import CAMPAIGN_ADD_LEADS, LEADS_BULK_UPDATE
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.crm import service as crm_service
-from apps.api.crm.schemas import LeadStatus
 from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 
@@ -94,8 +93,6 @@ _BILLED_PER_MINUTE: Final = (
 
 #: The most leads one bulk or campaign action may name. `POST /v1/leads/bulk` takes 500;
 #: a list longer than this is a screen's job, where a person can see what they selected.
-MAX_LEADS_PER_ACTION: Final = 100
-
 _MAX_NAME: Final = 120
 
 
@@ -364,136 +361,6 @@ LEAD_RENAME: Final = ActionTool(
     ),
     plan=_plan_lead_rename,
     execute=_execute_lead_rename,
-)
-
-
-class _LeadsBulkArgs(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    lead_ids: Annotated[list[UUID], Field(min_length=1, max_length=MAX_LEADS_PER_ACTION)]
-    action: Literal["status", "assign"]
-    status: LeadStatus | None
-    user_id: UUID | None
-    #: Set by the PLANNER, never the model: how many of the ids were found, so a list that
-    #: changed between the card and the click is refused exactly as `POST /v1/leads/bulk`
-    #: refuses a moved `expected_count`.
-    expected: int | None = None
-
-
-async def _plan_leads_bulk(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> Plan:
-    del actor
-    parsed = parse_args(_LeadsBulkArgs, {**args, "expected": None})
-    if parsed.action == "status" and parsed.status is None:
-        raise WriteRefusedError("a status change needs `status`")
-    targets = await crm_service.resolve_bulk_targets(session, ids=list(parsed.lead_ids))
-    if not targets.ids:
-        raise ProblemError.not_found("Lead")
-    if parsed.action == "status":
-        change = f"mark them {parsed.status}"
-    else:
-        change = f"give them to {await _member_name(session, parsed.user_id)}"
-    missing = (
-        f" {len(targets.missing)} of the ids named no lead and are left out."
-        if targets.missing
-        else ""
-    )
-    return Plan(
-        object_id="",
-        title=f"Change {len(targets.ids)} leads",
-        summary=f"For {len(targets.ids)} lead(s), {change}.{missing}",
-        current=None,
-        proposed=f"{len(targets.ids)} lead(s): {change}",
-        cost=None,
-        reversal=(
-            "There is no single undo for a bulk change; each lead can be changed back on "
-            "the Leads screen."
-        ),
-        args={
-            "lead_ids": [str(i) for i in targets.ids],
-            "action": parsed.action,
-            "status": parsed.status,
-            "user_id": None if parsed.user_id is None else str(parsed.user_id),
-            "expected": len(targets.ids),
-        },
-    )
-
-
-async def _execute_leads_bulk(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> Executed:
-    """`resolve_bulk_targets` then `apply_bulk_leads` — `POST /v1/leads/bulk`'s two calls."""
-    parsed = parse_args(_LeadsBulkArgs, args)
-    targets = await crm_service.resolve_bulk_targets(session, ids=list(parsed.lead_ids))
-    if parsed.expected is not None and len(targets.ids) != parsed.expected:
-        raise ProblemError(
-            kind="conflict",
-            code="lead_bulk_set_moved",
-            title="The selection changed",
-            detail="Some of these leads changed since the preview, so nothing was done.",
-            remediation=f"Ask {ASSISTANT_NAME} again to see the new count.",
-        )
-    outcome = await crm_service.apply_bulk_leads(
-        session,
-        targets=targets,
-        action=parsed.action,
-        status=parsed.status,
-        assignee=(
-            crm_service.AssigneeChange(user_id=parsed.user_id)
-            if parsed.action == "assign"
-            else None
-        ),
-        actor=str(actor.user_id),
-    )
-    return Executed(
-        applied=outcome.changed > 0,
-        detail=(
-            f"{outcome.changed} lead(s) changed, {outcome.unchanged} were already that way"
-            + (f", {len(outcome.failures)} could not be changed" if outcome.failures else "")
-            + "."
-        ),
-        audit_summary={
-            "action": parsed.action,
-            "requested": outcome.requested,
-            "changed": outcome.changed,
-            "unchanged": outcome.unchanged,
-            "failed": len(outcome.failures),
-        },
-    )
-
-
-LEADS_BULK_UPDATE: Final = ActionTool(
-    name="leads_bulk_update",
-    tier="confirm",
-    undo=None,
-    permission="leads:write",
-    object_type="lead",
-    audit_action="lead.bulk_action",
-    where="on the Leads screen",
-    schema=action_schema(
-        "leads_bulk_update",
-        f"Propose changing the status or the owner of up to {MAX_LEADS_PER_ACTION} leads at "
-        "once; for one lead's status use `lead_set_status`." + PROPOSES_ONLY,
-        {
-            "lead_ids": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "The leads' ids, from the SCREEN STATE selection or a lookup.",
-            },
-            "action": {"type": "string", "enum": ["status", "assign"]},
-            "status": {
-                "anyOf": [{"type": "string", "enum": list(get_args(LeadStatus))}, {"type": "null"}],
-                "description": "With `status`, the new status; null with `assign`.",
-            },
-            "user_id": {
-                "anyOf": [{"type": "string"}, {"type": "null"}],
-                "description": "With `assign`: the team member's id, or null for nobody.",
-            },
-        },
-    ),
-    plan=_plan_leads_bulk,
-    execute=_execute_leads_bulk,
 )
 
 
@@ -1251,94 +1118,6 @@ CAMPAIGN_CLONE: Final = ActionTool(
     ),
     plan=_plan_campaign_clone,
     execute=_execute_campaign_clone,
-)
-
-
-class _CampaignLeadsArgs(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    campaign_id: UUID
-    lead_ids: Annotated[list[UUID], Field(min_length=1, max_length=MAX_LEADS_PER_ACTION)]
-
-
-async def _plan_campaign_add_leads(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> Plan:
-    del actor
-    parsed = parse_args(_CampaignLeadsArgs, args)
-    name, status = await _campaign_name_status(session, parsed.campaign_id)
-    if status not in ("draft", "scheduled"):
-        raise WriteRefusedError(
-            f"“{name}” is {status}; contacts can only be added before it starts"
-        )
-    unique = list(dict.fromkeys(parsed.lead_ids))
-    found = (
-        await session.execute(
-            text("SELECT count(*) FROM leads WHERE id = ANY(:ids) AND deleted_at IS NULL"),
-            {"ids": unique},
-        )
-    ).scalar()
-    if not found:
-        raise ProblemError.not_found("Lead")
-    return Plan(
-        object_id=str(parsed.campaign_id),
-        title="Add leads to this campaign",
-        summary=(
-            f"Add {found} lead(s) to “{name}”. They are called when the campaign runs; "
-            "numbers on your do-not-call list are removed before the first dial."
-        ),
-        current=status,
-        proposed=f"{found} more contact(s)",
-        cost=_BILLED_PER_MINUTE,
-        reversal="Contacts cannot be taken off a campaign from here once added.",
-        args={"campaign_id": str(parsed.campaign_id), "lead_ids": [str(i) for i in unique]},
-    )
-
-
-async def _execute_campaign_add_leads(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> Executed:
-    """`campaigns.controls.add_leads` — `POST /v1/campaigns/{id}/contacts/from-leads`'s call —
-    fed from the leads' own records, so no number passes through the model."""
-    parsed = parse_args(_CampaignLeadsArgs, args)
-    result = await campaign_controls.add_leads(
-        session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id, lead_ids=parsed.lead_ids
-    )
-    return Executed(
-        applied=result["added"] > 0,
-        detail=(
-            f"{result['added']} contact(s) added"
-            + (f", {result['duplicate']} were already on it" if result.get("duplicate") else "")
-            + "."
-        ),
-        audit_summary={key: int(value) for key, value in result.items()},
-    )
-
-
-CAMPAIGN_ADD_LEADS: Final = ActionTool(
-    name="campaign_add_leads",
-    tier="confirm",
-    undo=None,
-    permission="leads:dispatch",
-    object_type="campaign",
-    audit_action="campaign.contacts_added",
-    where="on the campaign's own screen",
-    schema=action_schema(
-        "campaign_add_leads",
-        f"Propose adding up to {MAX_LEADS_PER_ACTION} of this account's leads to a draft "
-        "or scheduled campaign's call list. A CSV list is uploaded on the campaign screen "
-        "instead." + PROPOSES_ONLY,
-        {
-            "campaign_id": {"type": "string", "description": "The campaign's id."},
-            "lead_ids": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "The leads' ids, from the SCREEN STATE selection or a lookup.",
-            },
-        },
-    ),
-    plan=_plan_campaign_add_leads,
-    execute=_execute_campaign_add_leads,
 )
 
 

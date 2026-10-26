@@ -673,3 +673,85 @@ with its id) and `billing_settings`.
   shortened the knowledge and training siblings' descriptions.
 * Tests: `apps/api/copilot/question_actions_test.py`, `tests/teach_questions_test.py`; tool
   choice: the `c-question*`, `c-fact-*`, `c-tests-run` and `c-test-add` cases.
+## 19. Actions over a set: plans (D-893)
+
+An action that touches MANY records (leads by a filter, everyone not called back) is a
+plan, never a loop of single cards and never a list the model copies
+(`copilot/plans.py`, PIP-AGENT-PLAN §3 F2-F3). One card says who (the count and an
+expandable list), why, when, the estimate, and who is left out and why; one click
+approves exactly that plan.
+
+**Which rows: the lens.** `crm/lens.py` is the one definition of "which leads" and "which
+calls" (`LeadLensIn`, `CallLensIn`): the Leads and Calls screens, both exports, the bulk
+route and Pip all read it. Pip's `leads_find leads_search` / `calls_find calls_recent`
+answer with a count, three examples and the lens as a short JSON handle ("pass lens {...}
+to the action"); the model copies the handle into the action's `lens`. Explicit
+`lead_ids` (the screen's ticked rows, at most 500) are the other way to name a set; a call
+with both is refused.
+
+**Adding a plan-backed action** — `copilot/set_actions.py` is the worked example:
+
+```python
+MY_SET = plans.SetAction(
+    target_type="lead",
+    prepare=_prepare,    # (session, actor, args) -> plans.Prepared: targets in order (use
+                         #   set_actions.chosen_leads for lens/lead_ids), lens_text, title,
+                         #   why, the canonical `change` (ids and values, no caller data),
+                         #   run_at; WriteRefusedError for anything the model can fix
+    exclude=_exclude,    # (session, actor, change, ids) -> {id: reason}: who is left out,
+                         #   with the dispatch gate's own questions
+                         #   (set_actions.person_exclusions) where it reaches a caller
+    estimate=_estimate,  # (session, actor, change, n) -> plans.Estimate: Decimal INR from
+                         #   attested rates (set_actions.dial_estimate) or inr=None, "not
+                         #   known"; plans.NO_COST when it costs nothing
+    run_one=_run_one,    # (session, actor, change, target_id) -> TargetOutcome, calling the
+                         #   SAME service function the console button calls; or
+    # dial=_dial,        # a dialling plan: make a `pip` campaign, add, launch (one of the two)
+)
+MY_TOOL = plans.set_action_tool(
+    name="...", permission="...", object_type="...", audit_action="...", where="...",
+    description="...", properties={"lens": lens_args.LEAD_LENS_SCHEMA,
+                                   "lead_ids": ..., ...},
+    action=MY_SET,
+)
+```
+
+Then append it to `set_actions.SET_ACTIONS` (or the module's own tuple joined into
+`WRITE_TOOLS`) and give it an area line in `areas.py`. The tool is confirm tier by
+construction. What the framework does with it:
+
+* **Propose** (`plan_write`): `prepare`, `exclude`, `estimate`, then the targets are
+  FROZEN in `copilot_plan_targets` (excluded ones as `skipped` with the reason) and a
+  SHA-256 over tool, change, targets, exclusions, estimate and time is stored as
+  `plan_hash`. The proposal frame carries `plan_id`; the card reads
+  `GET /v1/copilot/plans/{id}`. The planner writes the proposal rows and nothing else.
+* **Approve**: the confirm token signs `{plan_id, plan_hash}`; `plans.approve` locks the
+  plan, refuses another person's, a different hash (`copilot_plan_changed`), an expired
+  plan (24 h) or one already decided, then marks it `approved` and enqueues
+  `run_copilot_plan` through the outbox in the same transaction. In a background job the
+  plan is staged in the Approvals inbox like any confirm action, and approving there
+  approves the same plan. `POST /v1/copilot/plans/{id}/approve {plan_hash}` is the
+  console's door (and the inbox card's); it re-checks the action's permission.
+* **Run** (`apps/workers/copilot_plans.py`): as the approver, role re-read now; each
+  pending target in its own transaction (`SKIP LOCKED`, settled by compare-and-set on
+  `pending`), so a redeploy resumes where it stopped (`resume_copilot_plans`, every five
+  minutes, re-queues a plan with no progress for ten) and no target runs twice. Every
+  target is re-checked by the service it calls; one that no longer qualifies is skipped or
+  failed with the service's own sentence, never swapped. A cancel (`POST .../cancel`) is
+  honoured before the next batch of 25.
+* **Finish**: the plan's result sentence ("Finished. 230 done, 10 skipped.") on the card,
+  and a `plan_finished` item on the bell (`notifications/service.feed`, source `plan`).
+* **The console route** `POST /v1/leads/bulk` with a filter matching more than
+  `MAX_BULK_LEADS` builds and approves the same plan (origin `console`) and answers with
+  its `plan_id`.
+
+| Route | Does |
+|---|---|
+| `GET /v1/copilot/plans?limit` | The person's recent plans. |
+| `GET /v1/copilot/plans/{id}` | `CopilotPlanOut`: title, why, who, run_at, counts, exclusions (top 10 reasons), estimate, status, progress, result, campaign, can_approve, can_cancel. |
+| `GET /v1/copilot/plans/{id}/targets?limit&offset&status` | One page of targets with the lead's name read through the lead. |
+| `POST /v1/copilot/plans/{id}/approve` | `{plan_hash}`; `409 copilot_plan_changed / copilot_plan_expired / copilot_plan_decided`. |
+| `POST /v1/copilot/plans/{id}/cancel` | `409 copilot_plan_not_cancellable` once it is finished. |
+
+Tests: `apps/api/copilot/plans_test.py`. Alarm: `copilot_plans_resume_failed`
+(`runbooks/copilot-plan-stuck.md`).

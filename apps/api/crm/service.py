@@ -51,7 +51,6 @@ from apps.api.crm.live_calls import LIVE_STATE_SQL, live_state_params
 from apps.api.crm.outcomes import normalise as normalise_outcome
 from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
-    MAX_BULK_LEADS,
     CallCallbackOut,
     CallDetailOut,
     CallMomentOut,
@@ -1813,89 +1812,34 @@ class BulkOutcome:
 async def resolve_bulk_targets(
     session: AsyncSession,
     *,
-    ids: list[UUID] | None,
-    status: str | None = None,
-    search: str | None = None,
-    agent_id: UUID | None = None,
-    assigned_to: UUID | None = None,
-    field_filters: FieldFilters | None = None,
-    more: LeadRowFilters | None = None,
+    ids: list[UUID],
 ) -> BulkTargets:
-    """Which leads the action is about — `ids is None` means "everything the lens matches".
+    """The ticked leads this account can see, in the order given, and the ids it cannot.
 
-    The lens is the SAME `_lead_scope` the list, the facet counts and the CSV export use,
-    for the reason the export's docstring gives: a scope spelled twice is a scope that
-    drifts, and here the drift would move rows the client never saw.
+    A FILTER's rows come from `crm/lens.lead_ids` (D-893), the same scope as the table and
+    the export, with no cap: a set larger than one request runs as a plan.
 
-    In IDS scope the lens is deliberately NOT re-applied. The ticked rows are the ticked
-    rows; intersecting them with a filter the person may have changed since ticking would
-    silently drop rows from a set they had already confirmed, which is the same class of
-    lie as acting on rows they cannot see. The screen's obligation is the other half —
-    it clears the selection when the lens moves — and both halves are tested.
-
-    A filter matching more than `MAX_BULK_LEADS` is REFUSED rather than truncated.
-    Silently doing the first 500 of 5,000 and reporting success is the exact failure this
-    whole slice is about.
+    The lens is deliberately NOT re-applied to ticked rows. They are the rows the person
+    confirmed; intersecting them with a filter changed since ticking would silently drop
+    some, the same class of lie as acting on rows they cannot see. The screen's obligation
+    is the other half — it clears the selection when the lens moves — and both are tested.
     """
-    if ids is not None:
-        found = {
-            UUID(str(row[0]))
-            for row in (
-                await session.execute(
-                    text(f"SELECT id FROM leads WHERE {_LEAD_VISIBLE} AND id = ANY(:ids)"),
-                    {"ids": ids},
-                )
-            ).all()
-        }
-        # Caller order preserved so the failure list reads in the order the rows sat on
-        # screen, and de-duplicated so a doubled id is not counted (or reported) twice.
-        seen: set[UUID] = set()
-        ordered: list[UUID] = []
-        for lead_id in ids:
-            if lead_id not in seen:
-                seen.add(lead_id)
-                ordered.append(lead_id)
-        return BulkTargets(
-            ids=[i for i in ordered if i in found],
-            missing=[i for i in ordered if i not in found],
-        )
-
-    params: dict[str, Any] = {"cap": MAX_BULK_LEADS}
-    clauses = _lead_scope(
-        params,
-        search=search,
-        agent_id=agent_id,
-        assigned_to=assigned_to,
-        field_filters=field_filters,
-        more=more,
+    found = {
+        UUID(str(row[0]))
+        for row in (
+            await session.execute(
+                text(f"SELECT id FROM leads WHERE {_LEAD_VISIBLE} AND id = ANY(:ids)"),
+                {"ids": ids},
+            )
+        ).all()
+    }
+    # Caller order preserved so the failure list reads in the order the rows sat on
+    # screen, and de-duplicated so a doubled id is not counted (or reported) twice.
+    ordered = list(dict.fromkeys(ids))
+    return BulkTargets(
+        ids=[i for i in ordered if i in found],
+        missing=[i for i in ordered if i not in found],
     )
-    if status:
-        clauses.append("l.status = :status")
-        params["status"] = status
-    rows = (
-        await session.execute(
-            text(
-                # `count(*) OVER ()` is evaluated before LIMIT, so one pass yields both
-                # the page of ids and the size of the set they came from — which is what
-                # tells a cap breach from a set that merely fills the cap exactly.
-                f"SELECT l.id, count(*) OVER () FROM leads l WHERE {' AND '.join(clauses)} "
-                "ORDER BY l.id LIMIT :cap"
-            ),
-            params,
-        )
-    ).all()
-    matched = int(rows[0][1]) if rows else 0
-    if matched > MAX_BULK_LEADS:
-        raise ProblemError.business_rule(
-            "lead_bulk_too_many",
-            f"This filter matches {matched} leads, and one bulk action can move at most "
-            f"{MAX_BULK_LEADS}.",
-            remediation=(
-                "Narrow the filter — by stage, by owner or by one of the panel's fields "
-                "— and run the action on each part."
-            ),
-        )
-    return BulkTargets(ids=[UUID(str(row[0])) for row in rows], missing=[])
 
 
 async def apply_bulk_leads(

@@ -286,6 +286,9 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "knowledge_fact_change",
         "agent_tests_run",
         "agent_test_add",
+        # D-893's plan-backed set actions APPEND.
+        "callbacks_book_bulk",
+        "calls_place_bulk",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]
@@ -832,6 +835,7 @@ async def test_the_confirm_route_carries_out_the_change_and_answers_what_it_did(
             "That number is on your do-not-call list, and calls already queued to it are "
             "being pulled back."
         ),
+        "plan_id": None,
     }
     assert await _dnc_count(tenant_id) == 1
 
@@ -924,6 +928,8 @@ def test_the_proposal_event_model_is_the_shape_the_browser_is_told_about() -> No
         "expires_at",
         # D-694: the step-up string an admin action's confirm sends; None on this realm.
         "confirm_action",
+        # D-893: the plan a set action's card is about.
+        "plan_id",
     }
 
 

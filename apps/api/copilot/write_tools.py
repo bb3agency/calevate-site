@@ -101,7 +101,7 @@ from apps.api.agents.write_guard import assert_agent_writable
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance import dnc
 from apps.api.compliance.audit import write_audit
-from apps.api.copilot import action_log
+from apps.api.copilot import action_log, plans
 from apps.api.copilot.account_actions import ACCOUNT_ACTIONS
 from apps.api.copilot.actions import (
     DOES_IT,
@@ -137,6 +137,7 @@ from apps.api.copilot.schemas import (
     CopilotProposalEvent,
 )
 from apps.api.copilot.script_actions import SCRIPT_ACTIONS
+from apps.api.copilot.set_actions import SET_ACTIONS
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -947,6 +948,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *KNOWLEDGE_ACTIONS,
     # D-893 lane L5: guided questions, fact changes and practice tests.
     *TRAINING_ACTIONS,
+    # D-893: plan-backed actions over a set (`set_actions.py`).
+    *SET_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}
@@ -1169,6 +1172,7 @@ async def plan_write(
         cost=None if plan.cost is None else strip_invisible(plan.cost),
         reversal=strip_invisible(plan.reversal),
         expires_at=expires_at,
+        plan_id=plans.plan_id_of(plan.args),
     )
 
 
@@ -1805,6 +1809,7 @@ async def confirm(
         # The egress strip the proposal card and the action receipt get, on the third and
         # last surface that renders an executor's prose to a person.
         detail=strip_invisible(executed.detail),
+        plan_id=plans.plan_id_of(proposal.args),
     )
 
 
@@ -2001,6 +2006,7 @@ async def approve(
         object_id=plan.object_id,
         applied=executed.applied,
         detail=strip_invisible(executed.detail),
+        plan_id=plans.plan_id_of(plan.args),
     )
 
 

@@ -458,11 +458,12 @@ async def test_an_assignee_from_another_tenant_refuses_the_whole_batch() -> None
 # --- the guardrails ---------------------------------------------------------------
 
 
-async def test_a_filter_matching_more_than_the_cap_is_refused_not_truncated() -> None:
-    """Doing the first N of a larger set and answering 200 is the failure this route
-    exists to avoid. The refusal names the real size and what to do about it."""
+async def test_a_filter_matching_more_than_one_request_runs_as_a_plan_not_truncated() -> None:
+    """Doing the first N of a larger set and answering 200 was the failure this route was
+    built to avoid; since D-893 the whole set is frozen into a plan and run in the
+    background, and the response carries the plan's id rather than a count changed."""
     tenant_id, slug, token = await _make_tenant()
-    # One over the cap, counting the lead `_make_tenant` seeds.
+    # One over what one request moves, counting the lead `_make_tenant` seeds.
     await _seed_leads(tenant_id, MAX_BULK_LEADS)
 
     async with _client() as http:
@@ -472,16 +473,22 @@ async def test_a_filter_matching_more_than_the_cap_is_refused_not_truncated() ->
             json={"scope": "filter", "action": "status", "status": "won"},
         )
 
-    assert response.status_code == 422, response.text
+    assert response.status_code == 200, response.text
     body = response.json()
-    assert body["type"].endswith("/lead_bulk_too_many")
-    assert str(MAX_BULK_LEADS + 1) in body["detail"]
-    assert "Narrow the filter" in body["remediation"]
+    assert body["plan_id"] is not None
+    assert body["requested"] == MAX_BULK_LEADS + 1 and body["changed"] == 0
     async with tenant_session(tenant_id) as session:
         moved = (
             await session.execute(text("SELECT count(*) FROM leads WHERE status = 'won'"))
         ).scalar()
-    assert moved == 0, "a refused batch still wrote"
+        plan = (
+            await session.execute(
+                text("SELECT status, target_count FROM copilot_plans WHERE id = :i"),
+                {"i": uuid.UUID(body["plan_id"])},
+            )
+        ).first()
+    assert moved == 0, "the request writes nothing itself; the plan worker does"
+    assert plan is not None and tuple(plan) == ("approved", MAX_BULK_LEADS + 1)
 
 
 async def test_a_set_that_moved_since_the_confirmation_is_refused() -> None:

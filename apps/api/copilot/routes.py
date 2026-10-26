@@ -56,6 +56,7 @@ from apps.api.copilot import (
     live_sync,
     memory,
     model_tiers,
+    plans,
     service,
     session_run,
     transcript,
@@ -1235,6 +1236,7 @@ def action_out(row: action_log.ActionRow, *, realm: action_log.ActionRealm) -> C
         job_id=None if row.job_id is None else str(row.job_id),
         undone_by=None if row.undone_by is None else str(row.undone_by),
         decided_by=None if row.decided_by is None else str(row.decided_by),
+        plan_id=plans.plan_id_of(row.args_redacted),
         created_at=row.created_at,
     )
 

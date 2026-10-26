@@ -178,8 +178,16 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "status or owner of many leads by `lens` or lead_ids; one lead: lead_set_status",
     ),
     AreaEntry("dnc_remove", "leads", "take a lead off do-not-call (hand-added only)"),
-    AreaEntry("call_place", "calls", "an agent calls one lead now; free trial: agent_test_call"),
-    AreaEntry("callback_book", "callbacks", "call one lead back at a time (ISO, IST)"),
+    AreaEntry(
+        "call_place",
+        "calls",
+        "an agent calls one lead now; free trial: agent_test_call; many: calls_place_bulk",
+    ),
+    AreaEntry(
+        "callback_book",
+        "callbacks",
+        "call one lead back at a time (IST); many: callbacks_book_bulk",
+    ),
     AreaEntry("callback_reschedule", "callbacks", "move a waiting call-back"),
     AreaEntry("callback_cancel", "callbacks", "cancel a waiting call-back"),
     AreaEntry("campaign_create", "campaigns", "a new draft campaign"),
@@ -250,6 +258,18 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry("business_copy_refresh", "settings", "rewrite the account's examples"),
     AreaEntry(
         "knowledge_facts_pin", "knowledge", "pin up to three questions with the owner's answers"
+    ),
+    # D-893 F3: plan-backed actions over a set.
+    AreaEntry(
+        "callbacks_book_bulk",
+        "callbacks",
+        "call-backs for many leads at one time, by `lens` or lead_ids; one lead: callback_book",
+    ),
+    AreaEntry(
+        "calls_place_bulk",
+        "calls",
+        "an agent calls many leads as a campaign, by `lens` or lead_ids; ask consent_source; "
+        "one lead now: call_place",
     ),
 )
 
@@ -386,8 +406,26 @@ def _compact(value: Any) -> str:
 # --- the surface -----------------------------------------------------------------------------
 
 
+def _undescribed(value: Any) -> Any:
+    """A schema with every `description` removed, at any depth: the action line and the
+    refusal's full schema carry the meaning, and descriptions inside a nested lens would
+    otherwise be paid once per area that takes it."""
+    if isinstance(value, Mapping):
+        options = value.get("anyOf")
+        if isinstance(options, list):
+            # "X or null" is shown as X: an argument that may be null may be left out
+            # (`_with_nulls`), and the validation reads the action's own schema.
+            kept = [option for option in options if option != {"type": "null"}]
+            if len(kept) == 1 and len(kept) < len(options):
+                return _undescribed(kept[0])
+        return {key: _undescribed(item) for key, item in value.items() if key != "description"}
+    if isinstance(value, list):
+        return [_undescribed(item) for item in value]
+    return value
+
+
 def _alternatives(schema: Mapping[str, Any]) -> list[dict[str, Any]]:
-    bare = {key: item for key, item in schema.items() if key != "description"}
+    bare = _undescribed(schema)
     if set(bare) == {"anyOf"}:
         return [dict(option) for option in bare["anyOf"]]
     return [bare]

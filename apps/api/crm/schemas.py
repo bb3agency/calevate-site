@@ -674,15 +674,10 @@ class LeadUpdateIn(Strict):
 # the two selection scopes are named in the request AND echoed in the response, and the
 # outcome has three buckets rather than two.
 
-#: How many leads one bulk action may move. Declared HERE, and imported by the service,
-#: because `service` already imports `schemas` and the reverse would be a cycle — and
-#: because the number is part of the contract: it bounds `ids` at the wire and is the
-#: figure `lead_bulk_too_many` quotes back. Two constants would eventually be two numbers.
-#:
-#: The value is set by the status path being one `transition_status` call per lead —
-#: deliberately, so bulk and single-lead share ONE discriminator rather than a set-based
-#: copy of it — and by 500 rows being the point past which the honest answer to a person
-#: operating a grid is a narrower filter. The refusal says exactly that.
+#: How many leads one bulk REQUEST moves itself. It bounds `ids` at the wire; a filter
+#: matching more runs as an approved plan in the background (D-893: no fixed size), because
+#: the status path is one `transition_status` call per lead — bulk and single-lead share
+#: ONE discriminator rather than a set-based copy — and a request is no place for thousands.
 MAX_BULK_LEADS = 500
 
 
@@ -722,6 +717,9 @@ class LeadBulkIn(Strict):
     #: is sent and no longer matches, the action is refused rather than run over a
     #: different set than the one that was agreed to. Omitted = no such claim was made.
     expected_count: int | None = Field(default=None, ge=0)
+    #: The filter scope's full lens (D-893): every filter the Leads screen applies, in the
+    #: body. When sent, the query-string filters and `search` above are not read.
+    lens: LeadLensIn | None = None
 
     @model_validator(mode="after")
     def _coherent(self) -> LeadBulkIn:
@@ -776,6 +774,10 @@ class LeadBulkOut(Strict):
     #: client has to be able to see which rows were left behind, which is the difference
     #: between a partial success and a green tick over one.
     failures: list[LeadBulkFailureOut] = Field(default_factory=list)
+    #: Set when the filter matched more than one request can move at once (D-893): the
+    #: change runs as an approved plan in the background, and `GET /v1/copilot/plans/
+    #: {plan_id}` reads its progress. `changed` and `unchanged` are then 0 until it finishes.
+    plan_id: UUID | None = None
 
 
 # --- saved views (SURFACES §2: "named filter+column combinations per user") ----

@@ -490,6 +490,14 @@ ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
             "(`_erase_copilot_turns` matches the digits), which is why only the distilled "
             "note is registered here."
         ),
+        "copilot_plan_targets": (
+            "One target of a Pip plan (D-893): a lead id, its order, and OUR OWN sentence for "
+            "why it was left out or skipped (a do-not-call match, 'already hot', the calling "
+            "rules' refusal) — never a caller's words or number; a lead's name is read "
+            "through the lead at display time and never copied here. A caller's deletion "
+            "request empties their lead, which the plan card then shows without a name. "
+            "The tenant erasure deletes every row."
+        ),
         "copilot_routine_runs": (
             "When one of the in-app assistant's routines ran (D-694): a routine id, the "
             "slot, a status, a task id, and for a skipped run OUR OWN sentence for why "

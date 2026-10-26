@@ -38,12 +38,14 @@ from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
 from apps.api.copilot.question_actions import TRAINING_ACTIONS
 from apps.api.copilot.script_actions import SCRIPT_ACTIONS
+from apps.api.copilot.set_actions import SET_ACTIONS
 from apps.api.copilot.write_tools_test import _audit, _confirm, _principal, _user_of
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import Permission, role_has
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.main import app
+from apps.workers.copilot_plans import run_copilot_plan
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -152,6 +154,7 @@ def test_the_console_actions_are_appended_after_the_earlier_ones() -> None:
         + len(ACCOUNT_ACTIONS)
         + len(KNOWLEDGE_ACTIONS)
         + len(TRAINING_ACTIONS)
+        + len(SET_ACTIONS)
     )
     assert names[-len(console) - later : -later] == console
     assert len(set(names)) == len(names)
@@ -311,9 +314,13 @@ async def test_bulk_update_previews_the_count_and_changes_each_lead() -> None:
             "user_id": None,
         },
     )
+    # D-893: a plan over the ids this account can see; the confirm approves it and the plan
+    # worker makes the change (`plans_test.py` proves the run itself).
     assert proposal.title == "Change 1 leads"
-    assert "1 of the ids named no lead" in proposal.summary
+    assert proposal.plan_id is not None
+    assert "1 of the 1 leads you chose" in proposal.summary
     await _confirm(tenant_id, _user_of(token), proposal.token)
+    await run_copilot_plan({}, {"tenant_id": str(tenant_id), "plan_id": proposal.plan_id})
     assert (await _one(tenant_id, "SELECT status FROM leads WHERE id = :i", i=lead_id))[0] == "hot"
 
 
@@ -496,8 +503,9 @@ async def test_campaign_create_undo_refuses_once_contacts_were_added() -> None:
         "campaign_add_leads",
         {"campaign_id": receipt.object_id, "lead_ids": [str(await _lead_of(tenant_id))]},
     )
-    assert "Add 1 lead(s)" in added.summary
+    assert added.title == "Add 1 leads to “Spring recall”"
     await _confirm(tenant_id, _user_of(token), added.token)
+    await run_copilot_plan({}, {"tenant_id": str(tenant_id), "plan_id": added.plan_id})
     async with _client() as http:
         refused = await http.post(
             f"/v1/copilot/actions/{receipt.action_id}/undo", headers=_headers(token, slug)

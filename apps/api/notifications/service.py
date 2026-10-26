@@ -13,6 +13,7 @@ from the queue the attention screen reads. What is stored is one high-water mark
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final, Literal
 from uuid import UUID
@@ -28,7 +29,7 @@ from apps.api.db.base import uuid7
 
 MAX_FEED: Final = 100
 
-NotificationSource = Literal["attention", "announcement"]
+NotificationSource = Literal["attention", "announcement", "plan"]
 
 #: How loud each attention kind is on the bell. A kind missing here is `warning`: an
 #: unlisted refusal is still something to look at.
@@ -52,7 +53,7 @@ class NotificationOut(BaseModel):
     #: Unique within the feed: `<source>:<id>`.
     id: str
     source: NotificationSource
-    #: The attention kind (`crm/schemas.AttentionKind`), or `announcement`.
+    #: The attention kind (`crm/schemas.AttentionKind`), `announcement`, or `plan_finished`.
     kind: str
     tone: Tone
     title: str
@@ -104,6 +105,47 @@ async def read_mark(session: AsyncSession, *, user_id: UUID | None) -> datetime 
     return value if isinstance(value, datetime) else None
 
 
+#: How far back a finished Pip plan stays on the bell (D-893).
+PLAN_NOTICE_DAYS: Final = 7
+
+
+@dataclass(frozen=True, slots=True)
+class _FinishedPlan:
+    id: UUID
+    title: str
+    status: str
+    result: str | None
+    failed_count: int
+    finished_at: datetime
+
+
+async def _finished_plans(session: AsyncSession, *, user_id: UUID | None) -> list[_FinishedPlan]:
+    """The reader's own plans that finished or were stopped in the last week — the "when it
+    finishes" notice of PIP-AGENT-PLAN §3 F3. Read from the plans themselves, not copied."""
+    if user_id is None:
+        return []
+    rows = await session.execute(
+        text(
+            "SELECT id, title, status, result, failed_count, finished_at FROM copilot_plans "
+            "WHERE user_id = :uid AND status IN ('done', 'cancelled') "
+            "AND finished_at > now() - make_interval(days => :days) "
+            "ORDER BY finished_at DESC LIMIT :lim"
+        ),
+        {"uid": user_id, "days": PLAN_NOTICE_DAYS, "lim": MAX_FEED},
+    )
+    return [
+        _FinishedPlan(
+            id=UUID(str(r[0])),
+            title=str(r[1]),
+            status=str(r[2]),
+            result=r[3],
+            failed_count=int(r[4]),
+            finished_at=r[5],
+        )
+        for r in rows.all()
+    ]
+
+
 async def feed(
     session: AsyncSession, *, tenant_id: UUID, user_id: UUID | None, limit: int
 ) -> NotificationFeedOut:
@@ -145,6 +187,21 @@ async def feed(
             unread=unread(a.starts_at),
         )
         for a in shown
+    ]
+    items += [
+        NotificationOut(
+            id=f"plan:{plan.id}",
+            source="plan",
+            kind="plan_finished",
+            tone="warning" if plan.failed_count else "success",
+            title=f"{plan.title}: {'stopped' if plan.status == 'cancelled' else 'finished'}",
+            detail=plan.result,
+            href=None,
+            link_label=None,
+            occurred_at=plan.finished_at,
+            unread=unread(plan.finished_at),
+        )
+        for plan in await _finished_plans(session, user_id=user_id)
     ]
     items.sort(key=lambda n: (n.occurred_at, n.id), reverse=True)
     items = items[:limit]

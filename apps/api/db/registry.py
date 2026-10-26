@@ -16,6 +16,7 @@ from apps.api.campaigns import models as campaigns_models
 from apps.api.campaigns import number_models as campaigns_number_models
 from apps.api.compliance import models as compliance_models
 from apps.api.copilot import models as copilot_models
+from apps.api.copilot import plan_models as copilot_plan_models
 from apps.api.copilot import routine_models as copilot_routine_models
 from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
@@ -53,6 +54,7 @@ __all__ = [
     "campaigns_number_models",
     "compliance_models",
     "copilot_models",
+    "copilot_plan_models",
     "copilot_routine_models",
     "crm_models",
     "first_run_models",
@@ -455,6 +457,12 @@ TENANT_TABLES = [
     # append-only: a routine is edited and its schedule advances. DELETEd by tenant erasure.
     "copilot_routines",
     "copilot_routine_runs",
+    # Plans (D-893 F3, migration f4b8d2a61c39): one approved set action and its frozen
+    # targets. `copilot_plans` carries the routines' asymmetric pair (a `FOR SELECT` for
+    # the untenanted resume sweep). NOT append-only: a plan moves through its states and
+    # each target records its outcome. DELETEd by tenant erasure.
+    "copilot_plans",
+    "copilot_plan_targets",
     # The auto-healer's tenant tables (D-701, migration b7d4e2a91c3f). A client's side of
     # an incident (`heal_client_incidents`, which also carries a `FOR SELECT` read for the
     # untenanted notice sweep), the owner-set fallback phone, the per-agent health windows

@@ -130,6 +130,7 @@ from apps.workers.client_actions import run_after_call_actions, run_client_actio
 from apps.workers.comp_notices import notify_comp
 from apps.workers.copilot_jobs import run_copilot_job
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
+from apps.workers.copilot_plans import resume_copilot_plans, run_copilot_plan
 from apps.workers.copilot_routines import fire_due_routines
 from apps.workers.copilot_transcript import (
     TRANSCRIPT_SWEEP_MINUTE,
@@ -355,6 +356,8 @@ FUNCTIONS: list[Any] = [
         remove_engine_dnc,
         # An assistant background job (D-694), from the outbox (`copilot/jobs.create_job`).
         run_copilot_job,
+        # An approved Pip plan (D-893), from the outbox (`copilot/plans.approve`).
+        run_copilot_plan,
         # A custom business's one AI draft of its lead fields (founder decision 15), from
         # the outbox (`agents/lead_fields.request_draft`).
         draft_lead_fields,
@@ -807,6 +810,19 @@ CRON_JOBS = [
             "at most MAX_FIRES_PER_TICK"
         ),
         second={30},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # A Pip plan (D-893) whose worker stopped holding it is queued again. Every five minutes
+    # at :40s: a stalled plan is one with no progress for ten. Resuming is safe because each
+    # target is settled by a compare-and-set on `pending`.
+    _cron(
+        traced_job(resume_copilot_plans),
+        walk=bounded(
+            "one untenanted read of stalled plans, then one tenant_session per plan, "
+            "at most MAX_RESUMES_PER_TICK"
+        ),
+        minute=set(range(2, 60, 5)),
+        second={40},
         max_tries=WORKER_MAX_TRIES,
     ),
     # Pip jobs and teachings a `job_timeout` overrun left in flight, ended as failed with a

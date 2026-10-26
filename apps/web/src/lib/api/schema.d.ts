@@ -7571,6 +7571,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/copilot/plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My recent plans, newest first */
+        get: operations["list_copilot_plans_v1_copilot_plans_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/plans/{plan_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One plan: who, why, when, the estimate, who is left out, and its progress */
+        get: operations["get_copilot_plan_v1_copilot_plans__plan_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/plans/{plan_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve exactly this plan; it runs in the background */
+        post: operations["approve_copilot_plan_v1_copilot_plans__plan_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/plans/{plan_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop a plan; what already ran stays, nothing more runs */
+        post: operations["cancel_copilot_plan_v1_copilot_plans__plan_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/plans/{plan_id}/targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One page of a plan's targets and what happened to each */
+        get: operations["get_copilot_plan_targets_v1_copilot_plans__plan_id__targets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/copilot/routines": {
         parameters: {
             query?: never;
@@ -9455,10 +9540,10 @@ export interface paths {
          *     **200, always, when the request itself was well-formed.** A lead the action could not
          *     move is a per-item outcome in `failures`, not an HTTP error — the same shape
          *     `POST /leads/{id}/call` uses for a compliance refusal, and the reason RFC-9457 stays
-         *     reserved for "the request failed". The two cases that ARE request failures and are
-         *     refused up front: a filter matching more than the cap (`lead_bulk_too_many` — never a
-         *     silent truncation), and a set that moved out from under a confirmation
-         *     (`lead_bulk_set_moved`).
+         *     reserved for "the request failed". The one case that IS a request failure: a set that
+         *     moved out from under a confirmation (`lead_bulk_set_moved`). A filter matching more
+         *     than `MAX_BULK_LEADS` runs as an approved plan in the background (D-893) and the
+         *     response carries its `plan_id`.
          */
         post: operations["bulk_leads_v1_leads_bulk_post"];
         delete?: never;
@@ -15541,6 +15626,24 @@ export interface components {
             value: string;
         };
         /**
+         * CapturedFieldFilterIn
+         * @description One captured detail to match: `key` is the field's key, `value` is compared as text
+         *     (`equals`: the whole value, ignoring case; `contains`: anywhere in it). Bound as a
+         *     parameter, never written into the query.
+         */
+        CapturedFieldFilterIn: {
+            /** Key */
+            key: string;
+            /**
+             * Op
+             * @default equals
+             * @enum {string}
+             */
+            op: "equals" | "contains";
+            /** Value */
+            value: string;
+        };
+        /**
          * CapturedFieldOut
          * @description One captured detail under the name it was captured with (`crm/captured.py`).
          *
@@ -16794,6 +16897,8 @@ export interface components {
             object_id: string | null;
             /** Object Type */
             object_type: string;
+            /** Plan Id */
+            plan_id?: string | null;
             /**
              * Realm
              * @enum {string}
@@ -16945,6 +17050,8 @@ export interface components {
             object_id: string;
             /** Object Type */
             object_type: string;
+            /** Plan Id */
+            plan_id?: string | null;
             /** Tool */
             tool: string;
         };
@@ -17171,6 +17278,134 @@ export interface components {
             label: string;
             /** Value */
             value: string;
+        };
+        /**
+         * CopilotPlanApproveIn
+         * @description The hash of the plan the person was shown; a plan that is not that one is refused.
+         */
+        CopilotPlanApproveIn: {
+            /** Plan Hash */
+            plan_hash: string;
+        };
+        /** CopilotPlanExclusionOut */
+        CopilotPlanExclusionOut: {
+            /** Count */
+            count: number;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * CopilotPlanOut
+         * @description One plan: who, why, when, the estimate, who is left out and why, and how far it got.
+         */
+        CopilotPlanOut: {
+            /** Approved At */
+            approved_at: string | null;
+            /** Campaign Id */
+            campaign_id: string | null;
+            /** Can Approve */
+            can_approve: boolean;
+            /** Can Cancel */
+            can_cancel: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Done Count */
+            done_count: number;
+            /** Estimate Inr */
+            estimate_inr: string | null;
+            /** Estimate Note */
+            estimate_note: string;
+            /** Excluded Count */
+            excluded_count: number;
+            /** Exclusions */
+            exclusions: components["schemas"]["CopilotPlanExclusionOut"][];
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Failed Count */
+            failed_count: number;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "pip" | "console";
+            /** Pending Count */
+            pending_count: number;
+            /** Plan Hash */
+            plan_hash: string;
+            /** Result */
+            result: string | null;
+            /** Run At */
+            run_at: string | null;
+            /** Skipped Count */
+            skipped_count: number;
+            /** Started At */
+            started_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "proposed" | "approved" | "running" | "done" | "cancelled" | "expired";
+            /** Target Count */
+            target_count: number;
+            /**
+             * Target Type
+             * @enum {string}
+             */
+            target_type: "lead" | "call" | "callback";
+            /** Title */
+            title: string;
+            /** Tool */
+            tool: string;
+            /** Who */
+            who: string;
+            /** Why */
+            why: string;
+        };
+        /** CopilotPlanPageOut */
+        CopilotPlanPageOut: {
+            /** Plans */
+            plans: components["schemas"]["CopilotPlanOut"][];
+        };
+        /** CopilotPlanTargetOut */
+        CopilotPlanTargetOut: {
+            /** Excluded */
+            excluded: boolean;
+            /** Finished At */
+            finished_at: string | null;
+            /** Label */
+            label: string | null;
+            /** Position */
+            position: number;
+            /** Reason */
+            reason: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "done" | "skipped" | "failed";
+            /** Target Id */
+            target_id: string;
+        };
+        /** CopilotPlanTargetPageOut */
+        CopilotPlanTargetPageOut: {
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Targets */
+            targets: components["schemas"]["CopilotPlanTargetOut"][];
+            /** Total */
+            total: number;
         };
         /**
          * CopilotRoutineIn
@@ -21771,6 +22006,7 @@ export interface components {
             expected_count?: number | null;
             /** Ids */
             ids?: string[];
+            lens?: components["schemas"]["LeadLensIn"] | null;
             /**
              * Scope
              * @enum {string}
@@ -21805,6 +22041,8 @@ export interface components {
             changed: number;
             /** Failures */
             failures?: components["schemas"]["LeadBulkFailureOut"][];
+            /** Plan Id */
+            plan_id?: string | null;
             /** Requested */
             requested: number;
             /**
@@ -22094,14 +22332,37 @@ export interface components {
             ask?: string | null;
             /** Assigned To */
             assigned_to?: string | null;
+            /** Callback Open */
+            callback_open?: boolean | null;
+            /** Captured */
+            captured?: components["schemas"]["CapturedFieldFilterIn"][];
             /** Columns */
             columns?: string | null;
+            /** Created From */
+            created_from?: string | null;
+            /** Created To */
+            created_to?: string | null;
+            /** Direction */
+            direction?: ("inbound" | "outbound") | null;
             /** F */
             f?: string[];
+            /** Follow Up */
+            follow_up?: ("done" | "not_done") | null;
+            /** Last Call From */
+            last_call_from?: string | null;
+            /** Last Call To */
+            last_call_to?: string | null;
+            /** Last Outcome */
+            last_outcome?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
             /** Search */
             search?: string | null;
             /** Status */
             status?: string | null;
+            /**
+             * Test Calls
+             * @default true
+             */
+            test_calls: boolean;
         };
         /**
          * LeadListOut
@@ -22218,10 +22479,28 @@ export interface components {
             ask?: string | null;
             /** Assigned To */
             assigned_to?: string | null;
+            /** Callback Open */
+            callback_open?: boolean | null;
+            /** Captured */
+            captured?: components["schemas"]["CapturedFieldFilterIn"][];
             /** Columns */
             columns?: string | null;
+            /** Created From */
+            created_from?: string | null;
+            /** Created To */
+            created_to?: string | null;
+            /** Direction */
+            direction?: ("inbound" | "outbound") | null;
             /** F */
             f?: string[];
+            /** Follow Up */
+            follow_up?: ("done" | "not_done") | null;
+            /** Last Call From */
+            last_call_from?: string | null;
+            /** Last Call To */
+            last_call_to?: string | null;
+            /** Last Outcome */
+            last_outcome?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
             /**
              * Limit
              * @default 50
@@ -22236,6 +22515,11 @@ export interface components {
             search?: string | null;
             /** Status */
             status?: string | null;
+            /**
+             * Test Calls
+             * @default true
+             */
+            test_calls: boolean;
         };
         /** LeadSourceAgentOut */
         LeadSourceAgentOut: {
@@ -23531,7 +23815,7 @@ export interface components {
              * Source
              * @enum {string}
              */
-            source: "attention" | "announcement";
+            source: "attention" | "announcement" | "plan";
             /** Title */
             title: string;
             /**
@@ -42645,6 +42929,10 @@ export interface operations {
                 test_calls?: boolean;
                 /** @description Only the calls one campaign placed */
                 campaign_id?: string | null;
+                /** @description done: marked handled; not_done: not marked handled */
+                follow_up?: ("done" | "not_done") | null;
+                /** @description True: a call-back is waiting */
+                callback_open?: boolean | null;
             };
             header?: never;
             path?: never;
@@ -42683,6 +42971,8 @@ export interface operations {
                 until?: string | null;
                 test_calls?: boolean;
                 campaign_id?: string | null;
+                follow_up?: ("done" | "not_done") | null;
+                callback_open?: boolean | null;
             };
             header?: {
                 "X-Confirm-Action"?: string | null;
@@ -45142,6 +45432,169 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_copilot_plans_v1_copilot_plans_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotPlanPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_copilot_plan_v1_copilot_plans__plan_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotPlanOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    approve_copilot_plan_v1_copilot_plans__plan_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopilotPlanApproveIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotPlanOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    cancel_copilot_plan_v1_copilot_plans__plan_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotPlanOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_copilot_plan_targets_v1_copilot_plans__plan_id__targets_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                status?: ("pending" | "done" | "skipped" | "failed") | null;
+            };
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotPlanTargetPageOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

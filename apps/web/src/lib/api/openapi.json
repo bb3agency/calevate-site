@@ -10250,6 +10250,38 @@
         "title": "CapturedChipOut",
         "type": "object"
       },
+      "CapturedFieldFilterIn": {
+        "additionalProperties": false,
+        "description": "One captured detail to match: `key` is the field's key, `value` is compared as text\n(`equals`: the whole value, ignoring case; `contains`: anywhere in it). Bound as a\nparameter, never written into the query.",
+        "properties": {
+          "key": {
+            "pattern": "^[a-z][a-z0-9_]{0,39}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "op": {
+            "default": "equals",
+            "enum": [
+              "equals",
+              "contains"
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "title": "CapturedFieldFilterIn",
+        "type": "object"
+      },
       "CapturedFieldOut": {
         "additionalProperties": false,
         "description": "One captured detail under the name it was captured with (`crm/captured.py`).\n\n`core` marks the details every business captures (`calevate_shared.lead_fields`);\n`current` is False for a detail the agent no longer captures, whose value is still shown.\n`unlisted` is what the caller said for a choice detail none of whose choices fitted\n(D-889); `value` is then null, because the nearest choice would have been wrong.",
@@ -13582,6 +13614,17 @@
             "title": "Object Type",
             "type": "string"
           },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Id"
+          },
           "realm": {
             "enum": [
               "client",
@@ -13929,6 +13972,17 @@
           "object_type": {
             "title": "Object Type",
             "type": "string"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Id"
           },
           "tool": {
             "title": "Tool",
@@ -14408,6 +14462,388 @@
           "label"
         ],
         "title": "CopilotOption",
+        "type": "object"
+      },
+      "CopilotPlanApproveIn": {
+        "additionalProperties": false,
+        "description": "The hash of the plan the person was shown; a plan that is not that one is refused.",
+        "properties": {
+          "plan_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Plan Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_hash"
+        ],
+        "title": "CopilotPlanApproveIn",
+        "type": "object"
+      },
+      "CopilotPlanExclusionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "count"
+        ],
+        "title": "CopilotPlanExclusionOut",
+        "type": "object"
+      },
+      "CopilotPlanOut": {
+        "additionalProperties": false,
+        "description": "One plan: who, why, when, the estimate, who is left out and why, and how far it got.",
+        "properties": {
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "can_approve": {
+            "title": "Can Approve",
+            "type": "boolean"
+          },
+          "can_cancel": {
+            "title": "Can Cancel",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "done_count": {
+            "title": "Done Count",
+            "type": "integer"
+          },
+          "estimate_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate Inr"
+          },
+          "estimate_note": {
+            "title": "Estimate Note",
+            "type": "string"
+          },
+          "excluded_count": {
+            "title": "Excluded Count",
+            "type": "integer"
+          },
+          "exclusions": {
+            "items": {
+              "$ref": "#/components/schemas/CopilotPlanExclusionOut"
+            },
+            "title": "Exclusions",
+            "type": "array"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "failed_count": {
+            "title": "Failed Count",
+            "type": "integer"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "pip",
+              "console"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "pending_count": {
+            "title": "Pending Count",
+            "type": "integer"
+          },
+          "plan_hash": {
+            "title": "Plan Hash",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run At"
+          },
+          "skipped_count": {
+            "title": "Skipped Count",
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "proposed",
+              "approved",
+              "running",
+              "done",
+              "cancelled",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_count": {
+            "title": "Target Count",
+            "type": "integer"
+          },
+          "target_type": {
+            "enum": [
+              "lead",
+              "call",
+              "callback"
+            ],
+            "title": "Target Type",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tool": {
+            "title": "Tool",
+            "type": "string"
+          },
+          "who": {
+            "title": "Who",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tool",
+          "origin",
+          "target_type",
+          "title",
+          "why",
+          "who",
+          "run_at",
+          "target_count",
+          "excluded_count",
+          "exclusions",
+          "estimate_inr",
+          "estimate_note",
+          "plan_hash",
+          "status",
+          "expires_at",
+          "approved_at",
+          "started_at",
+          "finished_at",
+          "done_count",
+          "skipped_count",
+          "failed_count",
+          "pending_count",
+          "result",
+          "campaign_id",
+          "can_approve",
+          "can_cancel",
+          "created_at"
+        ],
+        "title": "CopilotPlanOut",
+        "type": "object"
+      },
+      "CopilotPlanPageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "plans": {
+            "items": {
+              "$ref": "#/components/schemas/CopilotPlanOut"
+            },
+            "title": "Plans",
+            "type": "array"
+          }
+        },
+        "required": [
+          "plans"
+        ],
+        "title": "CopilotPlanPageOut",
+        "type": "object"
+      },
+      "CopilotPlanTargetOut": {
+        "additionalProperties": false,
+        "properties": {
+          "excluded": {
+            "title": "Excluded",
+            "type": "boolean"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "done",
+              "skipped",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_id",
+          "position",
+          "excluded",
+          "status",
+          "reason",
+          "label",
+          "finished_at"
+        ],
+        "title": "CopilotPlanTargetOut",
+        "type": "object"
+      },
+      "CopilotPlanTargetPageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/CopilotPlanTargetOut"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "targets",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "CopilotPlanTargetPageOut",
         "type": "object"
       },
       "CopilotRoutineIn": {
@@ -26162,6 +26598,16 @@
             "title": "Ids",
             "type": "array"
           },
+          "lens": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LeadLensIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "scope": {
             "enum": [
               "ids",
@@ -26231,6 +26677,18 @@
             },
             "title": "Failures",
             "type": "array"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Id"
           },
           "requested": {
             "title": "Requested",
@@ -26952,6 +27410,25 @@
             ],
             "title": "Assigned To"
           },
+          "callback_open": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callback Open"
+          },
+          "captured": {
+            "items": {
+              "$ref": "#/components/schemas/CapturedFieldFilterIn"
+            },
+            "maxItems": 5,
+            "title": "Captured",
+            "type": "array"
+          },
           "columns": {
             "anyOf": [
               {
@@ -26963,12 +27440,109 @@
             ],
             "title": "Columns"
           },
+          "created_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created From"
+          },
+          "created_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created To"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "inbound",
+                  "outbound"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
           "f": {
             "items": {
               "type": "string"
             },
             "title": "F",
             "type": "array"
+          },
+          "follow_up": {
+            "anyOf": [
+              {
+                "enum": [
+                  "done",
+                  "not_done"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up"
+          },
+          "last_call_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call From"
+          },
+          "last_call_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call To"
+          },
+          "last_outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "call_back_booked",
+                  "needs_you",
+                  "answered",
+                  "transferred",
+                  "hung_up_early",
+                  "missed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Outcome"
           },
           "search": {
             "anyOf": [
@@ -26992,6 +27566,11 @@
               }
             ],
             "title": "Status"
+          },
+          "test_calls": {
+            "default": true,
+            "title": "Test Calls",
+            "type": "boolean"
           }
         },
         "title": "LeadLensIn",
@@ -27353,6 +27932,25 @@
             ],
             "title": "Assigned To"
           },
+          "callback_open": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callback Open"
+          },
+          "captured": {
+            "items": {
+              "$ref": "#/components/schemas/CapturedFieldFilterIn"
+            },
+            "maxItems": 5,
+            "title": "Captured",
+            "type": "array"
+          },
           "columns": {
             "anyOf": [
               {
@@ -27364,12 +27962,109 @@
             ],
             "title": "Columns"
           },
+          "created_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created From"
+          },
+          "created_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created To"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "inbound",
+                  "outbound"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
           "f": {
             "items": {
               "type": "string"
             },
             "title": "F",
             "type": "array"
+          },
+          "follow_up": {
+            "anyOf": [
+              {
+                "enum": [
+                  "done",
+                  "not_done"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up"
+          },
+          "last_call_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call From"
+          },
+          "last_call_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call To"
+          },
+          "last_outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "call_back_booked",
+                  "needs_you",
+                  "answered",
+                  "transferred",
+                  "hung_up_early",
+                  "missed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Outcome"
           },
           "limit": {
             "default": 50,
@@ -27406,6 +28101,11 @@
               }
             ],
             "title": "Status"
+          },
+          "test_calls": {
+            "default": true,
+            "title": "Test Calls",
+            "type": "boolean"
           }
         },
         "title": "LeadSearchIn",
@@ -30773,7 +31473,8 @@
           "source": {
             "enum": [
               "attention",
-              "announcement"
+              "announcement",
+              "plan"
             ],
             "title": "Source",
             "type": "string"
@@ -69285,6 +69986,46 @@
               "description": "Only the calls one campaign placed",
               "title": "Campaign Id"
             }
+          },
+          {
+            "description": "done: marked handled; not_done: not marked handled",
+            "in": "query",
+            "name": "follow_up",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "done",
+                    "not_done"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "done: marked handled; not_done: not marked handled",
+              "title": "Follow Up"
+            }
+          },
+          {
+            "description": "True: a call-back is waiting",
+            "in": "query",
+            "name": "callback_open",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "True: a call-back is waiting",
+              "title": "Callback Open"
+            }
           }
         ],
         "responses": {
@@ -69456,6 +70197,42 @@
                 }
               ],
               "title": "Campaign Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "follow_up",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "done",
+                    "not_done"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Follow Up"
+            }
+          },
+          {
+            "in": "query",
+            "name": "callback_open",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Callback Open"
             }
           },
           {
@@ -72802,6 +73579,263 @@
           }
         },
         "summary": "Follow a background job as it runs \u2014 streamed",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/plans": {
+      "get": {
+        "operationId": "list_copilot_plans_v1_copilot_plans_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotPlanPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "My recent plans, newest first",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/plans/{plan_id}": {
+      "get": {
+        "operationId": "get_copilot_plan_v1_copilot_plans__plan_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotPlanOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One plan: who, why, when, the estimate, who is left out, and its progress",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/plans/{plan_id}/approve": {
+      "post": {
+        "operationId": "approve_copilot_plan_v1_copilot_plans__plan_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopilotPlanApproveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotPlanOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Approve exactly this plan; it runs in the background",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/plans/{plan_id}/cancel": {
+      "post": {
+        "operationId": "cancel_copilot_plan_v1_copilot_plans__plan_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Plan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotPlanOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Stop a plan; what already ran stays, nothing more runs",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/plans/{plan_id}/targets": {
+      "get": {
+        "operationId": "get_copilot_plan_targets_v1_copilot_plans__plan_id__targets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Plan Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "done",
+                    "skipped",
+                    "failed"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotPlanTargetPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One page of a plan's targets and what happened to each",
         "tags": [
           "copilot"
         ],
@@ -77657,7 +78691,7 @@
     },
     "/v1/leads/bulk": {
       "post": {
-        "description": "Move many leads at once, and report what happened to each of them.\n\n**`leads:write` and no new permission.** Both actions are the ones the row already\noffers inline, done to more rows at a time; a bulk-only permission would be a fourth\nRBAC entry every role holds exactly when it holds `leads:write`. `leads:write` is in\n`MUTATING_PERMISSIONS`, so a D-22 impersonating operator is refused this for free.\n\n**No `Idempotency-Key`, and that is a property rather than an omission.** The\nreliability triad asks for one where a repeat has a side effect that cannot be undone\n\u2014 a phone ringing twice (`POST /leads/{id}/call`), a campaign launched twice. Here a\nrepeat is *the same request*: `status` and `assigned_to` are single-value fields, so\nthe second run finds every lead already in the target state and answers\n`unchanged: N` with no timeline rows written (`db/transition.py`). The idempotency\nthat matters is in the write, not in a key.\n\n**200, always, when the request itself was well-formed.** A lead the action could not\nmove is a per-item outcome in `failures`, not an HTTP error \u2014 the same shape\n`POST /leads/{id}/call` uses for a compliance refusal, and the reason RFC-9457 stays\nreserved for \"the request failed\". The two cases that ARE request failures and are\nrefused up front: a filter matching more than the cap (`lead_bulk_too_many` \u2014 never a\nsilent truncation), and a set that moved out from under a confirmation\n(`lead_bulk_set_moved`).",
+        "description": "Move many leads at once, and report what happened to each of them.\n\n**`leads:write` and no new permission.** Both actions are the ones the row already\noffers inline, done to more rows at a time; a bulk-only permission would be a fourth\nRBAC entry every role holds exactly when it holds `leads:write`. `leads:write` is in\n`MUTATING_PERMISSIONS`, so a D-22 impersonating operator is refused this for free.\n\n**No `Idempotency-Key`, and that is a property rather than an omission.** The\nreliability triad asks for one where a repeat has a side effect that cannot be undone\n\u2014 a phone ringing twice (`POST /leads/{id}/call`), a campaign launched twice. Here a\nrepeat is *the same request*: `status` and `assigned_to` are single-value fields, so\nthe second run finds every lead already in the target state and answers\n`unchanged: N` with no timeline rows written (`db/transition.py`). The idempotency\nthat matters is in the write, not in a key.\n\n**200, always, when the request itself was well-formed.** A lead the action could not\nmove is a per-item outcome in `failures`, not an HTTP error \u2014 the same shape\n`POST /leads/{id}/call` uses for a compliance refusal, and the reason RFC-9457 stays\nreserved for \"the request failed\". The one case that IS a request failure: a set that\nmoved out from under a confirmation (`lead_bulk_set_moved`). A filter matching more\nthan `MAX_BULK_LEADS` runs as an approved plan in the background (D-893) and the\nresponse carries its `plan_id`.",
         "operationId": "bulk_leads_v1_leads_bulk_post",
         "parameters": [
           {

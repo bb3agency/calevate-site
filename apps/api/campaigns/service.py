@@ -770,6 +770,7 @@ async def create_campaign(
     consent_source: str | None = None,
     consent_collected_at: datetime | None = None,
     retry_policy: dict[str, Any] | None = None,
+    kind: str = "standard",
 ) -> UUID:
     """Create a draft campaign.
 
@@ -815,13 +816,15 @@ async def create_campaign(
         text(
             "INSERT INTO campaigns (id, tenant_id, agent_id, name, classification, number_id, "
             "dlt_template_id, status, concurrency, retry_policy, calling_hours, "
-            "consent_source, consent_collected_at, created_at, updated_at) "
+            "consent_source, consent_collected_at, kind, created_at, updated_at) "
             "VALUES (:id, :tid, :aid, :name, :cls, :nid, :dlt, 'draft', :conc, "
-            "CAST(:retry AS jsonb), CAST(:window AS jsonb), :source, :collected, now(), now())"
+            "CAST(:retry AS jsonb), CAST(:window AS jsonb), :source, :collected, :kind, now(), "
+            "now())"
         ),
         {
             "source": source,
             "collected": collected_at,
+            "kind": kind,
             "id": campaign_id,
             "tid": tenant_id,
             "aid": agent_id,

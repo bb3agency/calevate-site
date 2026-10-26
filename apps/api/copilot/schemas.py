@@ -386,6 +386,10 @@ class CopilotProposalEvent(BaseModel):
     #: admin action whose console button asks for a second factor asks for it here too; the
     #: browser sends this value as `X-Confirm-Action` with the confirm request.
     confirm_action: str | None = None
+    #: Set when the proposal is a PLAN over a set (D-893): the card reads
+    #: `GET /v1/copilot/plans/{plan_id}` for who, why, when, the estimate and who is left
+    #: out, and Confirm with this token approves exactly that plan.
+    plan_id: str | None = None
 
 
 class CopilotStepEvent(BaseModel):
@@ -556,6 +560,9 @@ class CopilotConfirmOut(BaseModel):
     object_id: str
     applied: bool
     detail: str
+    #: Set when the confirmed action was a plan (D-893); its progress is
+    #: `GET /v1/copilot/plans/{plan_id}`.
+    plan_id: str | None = None
 
 
 class CopilotDoneEvent(BaseModel):
@@ -702,6 +709,9 @@ class CopilotActionOut(BaseModel):
     #: Who undid it, and who approved or declined it — both people on this account.
     undone_by: str | None = None
     decided_by: str | None = None
+    #: The plan an approval or a confirmed set action is about (D-893): open it with
+    #: `GET /v1/copilot/plans/{plan_id}`.
+    plan_id: str | None = None
     created_at: datetime
 
 

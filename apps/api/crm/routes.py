@@ -46,6 +46,7 @@ from apps.api.crm.live_calls import MAX_LIVE_IDS, CallLiveOut, read_live_calls
 from apps.api.crm.performance import performance
 from apps.api.crm.recording_download import DOWNLOAD_LINK_TTL_S, recording_download_for
 from apps.api.crm.schemas import (
+    MAX_BULK_LEADS,
     AttentionOut,
     CallbackEligibilityOut,
     CallbackOut,
@@ -1147,6 +1148,62 @@ async def export_leads_filtered(
 # load-bearing — which is exactly when it is cheapest to get right.
 
 
+async def _bulk_as_plan(
+    session: AsyncSession,
+    request: Request,
+    principal: Principal,
+    payload: LeadBulkIn,
+    chosen: LeadLensIn,
+) -> LeadBulkOut:
+    """A filter-scoped bulk change too large for one request, as an approved plan (D-893
+    F3): the same `leads_bulk_update` plan Pip makes, built and approved in this request."""
+    from apps.api.copilot import plans
+    from apps.api.copilot.actions import actor_for
+    from apps.api.copilot.set_actions import BULK_UPDATE
+
+    actor = actor_for(principal)
+    if actor is None:
+        raise ProblemError.forbidden("Bulk changes belong to a signed-in user of this account.")
+    built = await plans.build_plan(
+        session,
+        actor,
+        tool="leads_bulk_update",
+        action=BULK_UPDATE,
+        args={
+            "lens": chosen.model_dump(mode="json", exclude_defaults=True),
+            "action": payload.action,
+            "status": payload.status,
+            "user_id": None if payload.assign_to is None else str(payload.assign_to),
+        },
+        origin="console",
+    )
+    approved = await plans.approve(session, actor, plan_id=built.id, expected_hash=built.plan_hash)
+    await write_audit(
+        session,
+        action="copilot.plan_approved",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="copilot_plan",
+        object_id=str(approved.id),
+        ip=client_request_ip(request),
+        summary={
+            "tool": approved.tool,
+            "origin": approved.origin,
+            "targets": approved.target_count,
+            "excluded": approved.excluded_count,
+        },
+    )
+    return LeadBulkOut(
+        action=payload.action,
+        scope=payload.scope,
+        requested=approved.target_count,
+        changed=0,
+        unchanged=approved.excluded_count,
+        failures=[],
+        plan_id=approved.id,
+    )
+
+
 @router.post(
     "/leads/bulk",
     response_model=LeadBulkOut,
@@ -1190,31 +1247,27 @@ async def bulk_leads(
     **200, always, when the request itself was well-formed.** A lead the action could not
     move is a per-item outcome in `failures`, not an HTTP error — the same shape
     `POST /leads/{id}/call` uses for a compliance refusal, and the reason RFC-9457 stays
-    reserved for "the request failed". The two cases that ARE request failures and are
-    refused up front: a filter matching more than the cap (`lead_bulk_too_many` — never a
-    silent truncation), and a set that moved out from under a confirmation
-    (`lead_bulk_set_moved`).
+    reserved for "the request failed". The one case that IS a request failure: a set that
+    moved out from under a confirmation (`lead_bulk_set_moved`). A filter matching more
+    than `MAX_BULK_LEADS` runs as an approved plan in the background (D-893) and the
+    response carries its `plan_id`.
     """
     assert principal.tenant_id is not None  # guaranteed by the tenant-scoped session
     _refuse_search_in_query(search)
 
-    # An unknown facet key is refused here exactly as it is on the list and the export.
-    # The stakes are higher, not lower: a filter that silently did nothing would WIDEN
-    # the set, and this route writes to every row in it.
-    available = lead_column_registry.available(await service.lead_columns(session, agent_id))
-    field_filters = _parse_field_filters(
-        f, frozenset(c.key for c in lead_column_registry.facetable(available))
+    # THE ONE LENS (D-893): the body's, or the query string's filters as one. An unknown
+    # facet key is refused (`lens.resolve_lead_scope`) exactly as on the list and the
+    # export: a filter that silently did nothing would WIDEN the set this route writes to.
+    chosen = payload.lens or LeadLensIn(
+        status=status, search=payload.search, agent_id=agent_id, assigned_to=assigned_to, f=f
     )
-
-    targets = await service.resolve_bulk_targets(
-        session,
-        ids=list(payload.ids) if payload.scope == "ids" else None,
-        status=status,
-        search=payload.search,
-        agent_id=agent_id,
-        assigned_to=assigned_to,
-        field_filters=field_filters,
-    )
+    field_filters: service.FieldFilters = {}
+    if payload.scope == "ids":
+        targets = await service.resolve_bulk_targets(session, ids=list(payload.ids))
+    else:
+        scope = await lens.resolve_lead_scope(session, chosen)
+        field_filters = scope.field_filters
+        targets = service.BulkTargets(ids=await lens.lead_ids(session, scope), missing=[])
     total = len(targets.ids) + len(targets.missing)
     if payload.expected_count is not None and payload.expected_count != total:
         # The set the person confirmed is not the set in front of us. Refusing costs one
@@ -1226,6 +1279,11 @@ async def bulk_leads(
             "you confirmed, so nothing was changed.",
             remediation="Check the table and run the action again.",
         )
+    if total > MAX_BULK_LEADS:
+        # NO FIXED SIZE (D-893): a set larger than one request should move runs as a plan
+        # in the background — the frozen leads, each re-checked — and the person's click on
+        # the confirmed count IS the approval.
+        return await _bulk_as_plan(session, request, principal, payload, chosen)
 
     outcome = await service.apply_bulk_leads(
         session,

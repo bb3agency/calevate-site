@@ -50,6 +50,7 @@ CONSENT_SOURCES = (
 # Sources the launch gate refuses outright rather than merely recording.
 REFUSED_CONSENT_SOURCES = ("purchased_list",)
 CAMPAIGN_STATUSES = ("draft", "scheduled", "running", "paused", "completed", "cancelled")
+CAMPAIGN_KINDS = ("standard", "pip")
 #: The automatic pauses that carry no marker column of their own (D-773). Maintenance and
 #: the healer are named by `paused_by_maintenance_id` / `paused_by_heal_id`.
 AUTO_PAUSE_REASONS = ("complaint_spike", "out_of_credit", "spend_cap")
@@ -72,6 +73,7 @@ class Campaign(PKMixin, TimestampMixin, Base):
             f"classification IN {CAMPAIGN_CLASSIFICATIONS!r}", name="classification_enum"
         ),
         CheckConstraint(f"status IN {CAMPAIGN_STATUSES!r}", name="status_enum"),
+        CheckConstraint(f"kind IN {CAMPAIGN_KINDS!r}", name="kind_enum"),
         # Per-campaign concurrency slider, bounded by the plan ceiling at launch time
         # (FLOWS §5 rule 4); the DB bound is the absolute sanity limit.
         CheckConstraint("concurrency BETWEEN 1 AND 10", name="concurrency_range"),
@@ -101,6 +103,9 @@ class Campaign(PKMixin, TimestampMixin, Base):
         ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    #: `pip` for a campaign a dialling plan made (D-893, migration f4b8d2a61c39), so its
+    #: calls get a campaign's line limit, pacing, hours and retries; `standard` otherwise.
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, server_default="standard")
     classification: Mapped[str] = mapped_column(String, nullable=False)
     number_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("phone_numbers.id", ondelete="SET NULL")

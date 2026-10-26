@@ -3627,6 +3627,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         await session.execute(text("DELETE FROM copilot_routine_runs"))
         routines_erased = await session.execute(text("DELETE FROM copilot_routines"))
         counts["copilot_routines_erased"] = int(rowcount_of(routines_erased) or 0)
+        # Plans (D-893) before the campaigns their dialling plans created; targets go with
+        # their plan.
+        await session.execute(text("DELETE FROM copilot_plan_targets"))
+        plans_erased = await session.execute(text("DELETE FROM copilot_plans"))
+        counts["copilot_plans_erased"] = int(rowcount_of(plans_erased) or 0)
         copilot_jobs = await session.execute(text("DELETE FROM copilot_jobs"))
         counts["copilot_jobs_erased"] = int(rowcount_of(copilot_jobs) or 0)
         # The auto-healer's backup phone (D-701): a staff number, gone with the account.

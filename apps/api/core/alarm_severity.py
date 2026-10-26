@@ -521,6 +521,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "copilot_transcript_sweep_failed": "attention",
     # The assistant's routine tick (D-694). A client's scheduled request did not start.
     "copilot_routines_tick_failed": "attention",
+    "copilot_plans_resume_failed": "attention",
     "copilot_routine_fire_failed": "attention",
     "kb_gloss_worklist_failed": "attention",
     # DPDP §12: the statutory clock has already run out.

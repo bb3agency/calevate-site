@@ -166,6 +166,8 @@ SIBLINGS = (
     ("agent_script_discard", "agent_changes_apply"),
     ("agent_prepare", "agent_publish"),
     ("billing_overview", "billing_settings"),
+    ("call_place", "calls_place_bulk"),
+    ("callback_book", "callbacks_book_bulk"),
 )
 
 
