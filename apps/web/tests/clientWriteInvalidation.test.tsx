@@ -84,11 +84,11 @@ describe("a number put on or taken off an agent", () => {
 
 describe("writes that add or mark a call", () => {
   it("marking a follow-up re-reads the calls screen's log, not only the dashboard list", async () => {
-    stubApi({ [`PUT /v1/calls/${CALL}/follow-up`]: { state: "done" } });
+    stubApi({ [`PUT /v1/calls/${CALL}/follow-up`]: { state: "resolved" } });
     const { wrapper, keys } = harness();
     const { result } = renderHook(() => useMarkCallFollowUp(SESSION), { wrapper });
     await act(async () => {
-      await result.current.mutateAsync({ callId: CALL, state: "done" });
+      await result.current.mutateAsync({ callId: CALL, state: "resolved" });
     });
     await expectInvalidated(keys, [key("calls-log", "acme"), key("call", "acme", CALL)]);
   });

@@ -39,13 +39,13 @@ describe("useFocusTrap", () => {
           Collapse sidebar
         </button>
         <button type="button">Close navigation</button>
-        <a href="/c/acme/leads">Leads</a>
+        <button type="button">Leads</button>
       </Panel>,
     );
     const close = screen.getByRole("button", { name: "Close navigation" });
     expect(document.activeElement).toBe(close);
 
-    const leads = screen.getByRole("link", { name: "Leads" });
+    const leads = screen.getByRole("button", { name: "Leads" });
     leads.focus();
     fireEvent.keyDown(document, { key: "Tab" });
     expect(document.activeElement).toBe(close);
