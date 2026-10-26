@@ -50,6 +50,12 @@ def test_a_list_that_cannot_be_sent_is_refused_in_words(languages: list[str], wh
     assert why in str(refused.value)
 
 
+def test_an_empty_update_names_the_fields_it_could_have_sent() -> None:
+    with pytest.raises(ValidationError) as refused:
+        AgentUpdateIn.model_validate({})
+    assert "send at least one of name, direction" in str(refused.value)
+
+
 def test_the_first_reply_language_is_the_main_language() -> None:
     update = AgentUpdateIn.model_validate({"reply_languages": ["en-IN", "te-IN"]})
     assert update.main_language == "en-IN" and update.extra_languages == ["te-IN"]

@@ -595,7 +595,7 @@ class AgentUpdateIn(BaseModel):
             and not self.set_engine_model_id
         ):
             raise ValueError(
-                "name at least one of name, direction, language_primary, reply_languages, "
+                "send at least one of name, direction, language_primary, reply_languages, "
                 "llm_tier, engine_voice_id, engine_model_id"
             )
         return self
