@@ -287,7 +287,7 @@ async def create_line(
     ring_seconds: int,
     calevate_number_id: UUID | None,
     attest: bool,
-    ip: str | None,
+    ip: str | None = None,
 ) -> LineView:
     """Record a published number the client will forward. The client must confirm it is
     the business's own (the test call may only ever dial a number so confirmed)."""
@@ -371,7 +371,7 @@ async def update_line(
     mode: str,
     ring_seconds: int,
     calevate_number_id: UUID | None,
-    ip: str | None,
+    ip: str | None = None,
 ) -> LineView:
     """Change how the number is forwarded. A change of mode or target means the forward the
     client set may no longer match, so the line reads untested until it is tested again."""
@@ -421,7 +421,7 @@ async def delete_line(
     principal: Principal,
     tenant_id: UUID,
     line_id: UUID,
-    ip: str | None,
+    ip: str | None = None,
 ) -> None:
     """Forget a published number. The client should also switch the forward off on its
     phone; the screen shows the codes for that before the button."""

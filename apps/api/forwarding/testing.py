@@ -256,7 +256,7 @@ async def start_test(
     principal: Principal,
     tenant_id: UUID,
     line_id: UUID,
-    ip: str | None,
+    ip: str | None = None,
 ) -> ForwardingTestView:
     """Check, reserve the shared line, place the legs. Raises a refusal before anything
     rings; a leg the platform refuses leaves the test `failed` with the code."""

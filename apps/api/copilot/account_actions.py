@@ -321,7 +321,6 @@ async def _execute_line_add(
         ring_seconds=parsed.ring_seconds,
         calevate_number_id=parsed.calevate_number_id,
         attest=True,
-        ip=None,
     )
     return Executed(
         applied=True,
@@ -407,7 +406,6 @@ async def _execute_line_change(
         mode=parsed.mode,
         ring_seconds=parsed.ring_seconds,
         calevate_number_id=parsed.calevate_number_id,
-        ip=None,
     )
     return Executed(
         applied=True,
@@ -473,7 +471,6 @@ async def _invert_line(session: AsyncSession, actor: ToolActor, record: UndoReco
         mode=str(prior["mode"]),
         ring_seconds=int(prior["ring_seconds"]),
         calevate_number_id=_uuid_or_none(prior["calevate_number_id"]),
-        ip=None,
     )
     return "The number's forwarding is back to what it was."
 
@@ -545,7 +542,6 @@ async def _execute_line_remove(
         principal=_principal_of(actor),
         tenant_id=actor.tenant_id,
         line_id=parsed.line_id,
-        ip=None,
     )
     return Executed(applied=True, detail="The number is removed.", audit_summary={})
 
@@ -606,7 +602,6 @@ async def _execute_line_test(
         principal=_principal_of(actor),
         tenant_id=actor.tenant_id,
         line_id=parsed.line_id,
-        ip=None,
     )
     return Executed(
         applied=True,
