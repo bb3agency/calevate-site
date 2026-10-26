@@ -90,6 +90,20 @@ def test_an_inactive_person_is_skipped_and_the_next_one_takes_it() -> None:
     assert duty.member.phone_e164 == "+919000000002"
 
 
+def test_a_day_the_hours_reader_does_not_know_is_refused() -> None:
+    """ "monday" would be stored and never read, so that person would never be on duty."""
+    from apps.api.agents.handoff_routes import HandoffMemberIn
+    from pydantic import ValidationError
+
+    window = {"opens": "09:00", "closes": "18:00"}
+    contact = str(uuid.uuid4())
+    with pytest.raises(ValidationError) as refused:
+        HandoffMemberIn.model_validate({"contact_id": contact, "hours": {"monday": window}})
+    assert "monday" in str(refused.value)
+    kept = HandoffMemberIn.model_validate({"contact_id": contact, "hours": {"mon": window}})
+    assert kept.hours is not None and set(kept.hours) == {"mon"}
+
+
 def test_a_persons_own_hours_beat_the_agents() -> None:
     """A rota: the first person works evenings only, so at 10:30 the second takes it."""
     evenings = {"wed": {"opens": "18:00", "closes": "22:00"}}

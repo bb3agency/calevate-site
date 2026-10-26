@@ -47,7 +47,7 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,6 +111,18 @@ class HandoffMemberIn(Strict):
     #: answers "unknown" for it, and an unknown hour is not one we ring a mobile in.
     hours: dict[str, HandoffDayWindow | None] | None = None
     note: str | None = Field(default=None, max_length=500)
+
+    @field_validator("hours")
+    @classmethod
+    def _days_are_ours(
+        cls, hours: dict[str, HandoffDayWindow | None] | None
+    ) -> dict[str, HandoffDayWindow | None] | None:
+        # A key the hours reader does not know ("monday") would be stored and never read, so
+        # that person would silently never be on duty.
+        unknown = sorted(set(hours or {}) - set(DAYS))
+        if unknown:
+            raise ValueError(f"days are {', '.join(DAYS)}; not {', '.join(unknown)}")
+        return hours
 
 
 class HandoffIn(Strict):
@@ -399,6 +411,13 @@ async def put_handoff(
     nobody on the list (an agent that promises a caller a person and has none).
     """
     await assert_visible(session, "agent", agent_id)
+    # Two saves at once (a double click, two tabs) would each delete only the rows they can
+    # see and then collide on the position and contact unique indexes as a 500. Taking the
+    # agent row first runs them one after the other; the second replaces the first.
+    await session.execute(
+        text("SELECT 1 FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"),
+        {"aid": agent_id},
+    )
     chosen = [m.contact_id for m in payload.members]
     if len(set(chosen)) != len(chosen):
         raise ProblemError.business_rule(
