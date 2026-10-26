@@ -238,3 +238,63 @@ async def test_the_legacy_rate_stays_readable_through_its_own_reader() -> None:
         )
     async with untenanted_session() as session:
         assert await self_serve_rate_at(session, at=at + timedelta(seconds=1)) == Decimal("5.5000")
+
+
+async def test_a_pack_dropped_from_the_card_keeps_its_rates_on_credit_bought_under_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A purchase freezes its pack's rates onto its lot, so a later card that no longer
+    sells the pack neither reprices that credit nor puts the pack back on sale from an
+    older card's rows (`card_at` answers only for packs this build sells)."""
+    from apps.api.billing import list_rates
+    from apps.api.billing import lots as credit_lots
+    from apps.api.billing.service import LotRates
+    from apps.api.db.session import tenant_session
+    from tests.conftest import create_org_with_receptionist
+    from tests.credit_lots_helpers import add_lot
+
+    admin = await _admin()
+    dropped, *kept = PACK_CATALOGUE
+    async with untenanted_session() as session:
+        first = await record_card(
+            session, self_serve_inr_per_min=LEGACY_RATE, recorded_by=admin, note="launch"
+        )
+    created = await create_org_with_receptionist(
+        name="Dropped Pack Clinic",
+        slug=f"drop-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    tenant_id = UUID(str(created["id"]))
+    bought = (dropped.clear_inr_per_min, dropped.studio_inr_per_min)
+    lot_id = await add_lot(tenant_id, credits_inr="1000.00", rates=bought, pack_id=dropped.pack_id)
+
+    monkeypatch.setattr(list_rates, "PACK_CATALOGUE", tuple(kept))
+    async with untenanted_session() as session:
+        second = await record_card(
+            session,
+            card=tuple(kept),
+            self_serve_inr_per_min=LEGACY_RATE,
+            recorded_by=admin,
+            note="the entry pack is retired",
+        )
+        now = await card_at(session, at=second + timedelta(seconds=1))
+        then = await card_at(session, at=first + timedelta(microseconds=1))
+    assert dropped.pack_id not in now and dropped.pack_id not in then
+
+    async with tenant_session(tenant_id) as session:
+        splits = await credit_lots.consume(
+            session,
+            tenant_id=tenant_id,
+            demand=credit_lots.CallDemand(
+                minutes=Decimal("2"),
+                voice_tier="clear",
+                fallback_rates=LotRates(
+                    clear_inr_per_min=Decimal("99"), studio_inr_per_min=Decimal("99")
+                ),
+            ),
+        )
+    assert [(s.lot_id, s.inr_per_min) for s in splits] == [(lot_id, bought[0])]
+    assert splits[0].credits == (bought[0] * 2).quantize(Decimal("0.0001"))
