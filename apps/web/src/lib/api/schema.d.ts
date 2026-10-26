@@ -3863,6 +3863,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/known-facts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What this agent knows by heart and what it looks up when asked */
+        get: operations["known_facts_v1_agents__agent_id__known_facts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/lead-suggestions": {
         parameters: {
             query?: never;
@@ -21730,6 +21747,34 @@ export interface components {
             /** Topic Label */
             topic_label: string;
         };
+        /** KnownFactOut */
+        KnownFactOut: {
+            /** Asks */
+            asks: number;
+            /** Text */
+            text: string;
+        };
+        /** KnownFactsOut */
+        KnownFactsOut: {
+            /** Applies */
+            applies: boolean;
+            /** Budget Chars */
+            budget_chars: number;
+            /** By Heart */
+            by_heart: components["schemas"]["KnownFactOut"][];
+            /** Calls Read */
+            calls_read: number;
+            /** Computed At */
+            computed_at: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Looked Up */
+            looked_up: string[];
+            /** Looked Up Total */
+            looked_up_total: number;
+            /** Used Chars */
+            used_chars: number;
+        };
         /** KnownItemOut */
         KnownItemOut: {
             /**
@@ -26587,6 +26632,8 @@ export interface components {
             by_client: components["schemas"]["ClientReplyTimes"][];
             /** By Day */
             by_day: components["schemas"]["DayReplyTimes"][];
+            /** By Setting */
+            by_setting: components["schemas"]["SettingReplyTimes"][];
             /** By Tier */
             by_tier: components["schemas"]["TierReplyTimes"][];
             /** Complete */
@@ -26594,8 +26641,10 @@ export interface components {
             /** Empty Reason */
             empty_reason: ("no_calls" | "not_reported") | null;
             overall: components["schemas"]["ReplyTimeFigures"];
-            /** Target Ms */
-            target_ms: number;
+            /** Slow Target Ms */
+            slow_target_ms: number;
+            /** Typical Target Ms */
+            typical_target_ms: number;
             /** Window Days */
             window_days: number;
             /** Worst Calls */
@@ -27599,6 +27648,44 @@ export interface components {
             person_clone: boolean;
             /** Voice Id */
             voice_id: string;
+        };
+        /** SettingReplyTimes */
+        SettingReplyTimes: {
+            /** Calls */
+            calls: number;
+            /** Calls Measured */
+            calls_measured: number;
+            /** Calls Over Target */
+            calls_over_target: number;
+            /** First Token Slow Ms */
+            first_token_slow_ms?: number | null;
+            /** First Token Typical Ms */
+            first_token_typical_ms?: number | null;
+            /** Interruptions */
+            interruptions: number;
+            /** Long Silences */
+            long_silences: number;
+            /** Model Errors */
+            model_errors: number;
+            /** Reply Slow Ms */
+            reply_slow_ms?: number | null;
+            /** Reply Typical Ms */
+            reply_typical_ms?: number | null;
+            /** Reply Worst Ms */
+            reply_worst_ms?: number | null;
+            /** Rescues */
+            rescues: number;
+            /**
+             * Setting
+             * @enum {string}
+             */
+            setting: "turn_detection" | "known_facts" | "known_facts_size" | "filler_delay_ms" | "early_answers" | "turn_silence_ms";
+            /** Slow Reply Problems */
+            slow_reply_problems: number;
+            /** Turns */
+            turns: number;
+            /** Value */
+            value: string;
         };
         /** SheetEndpointOut */
         SheetEndpointOut: {
@@ -39151,6 +39238,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HandoffOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    known_facts_v1_agents__agent_id__known_facts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnownFactsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

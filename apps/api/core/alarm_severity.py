@@ -926,6 +926,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # (D-689). The catch-up converges it without anyone acting; attention, never a page.
     "kb_fan_out_incomplete": "attention",
     "pinned_facts_not_delivered": "attention",
+    # An agent keeps its previous facts known by heart (D-896); calls are answered, at most
+    # a lookup slower. The nightly sweep or the next knowledge change tries again.
+    "hot_facts_not_delivered": "attention",
+    "hot_facts_sweep_truncated": "attention",
     # An archived agent's vendor copy of the client's knowledge would not come down. It
     # stays claimed and the agent answers no calls, so it is billing and tidiness only.
     "kb_retired_agent_copy_left": "attention",

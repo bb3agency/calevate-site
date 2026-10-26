@@ -353,6 +353,17 @@ const TRAINING_READS = {
     pinned_not_yet_on: [],
   },
   "/v1/kb/teach/open": { teaching: null },
+  "/v1/agents/agent-1/known-facts": {
+    enabled: true,
+    applies: true,
+    by_heart: [{ text: "Red chilli powder is ₹120 for 250 g.", asks: 4 }],
+    looked_up: ["We deliver in Kukatpally."],
+    looked_up_total: 1,
+    used_chars: 90,
+    budget_chars: 6000,
+    calls_read: 12,
+    computed_at: "2026-10-27T01:00:00Z",
+  },
   "/v1/agents/agent-1/test-cases": { cases: [], limit: 20 },
   "/v1/agents/agent-1/script/tests": {
     available: true,
@@ -2181,7 +2192,7 @@ describe("Training shows what the agent knows (D-689: the business's knowledge, 
 
     const heading = await screen.findByRole("heading", { level: 3, name: "What it knows" });
     const panel = heading.closest("details") as HTMLElement;
-    await within(panel).findByText("Red chilli powder is ₹120 for 250 g.");
+    await within(panel).findAllByText("Red chilli powder is ₹120 for 250 g.");
     // Folded to one line (D-893 §6): files and links are counted, never claimed as known,
     // because a PDF's or a link's words do not reach the agents yet (D-868).
     expect(panel.textContent).toContain("2 facts, 1 file or link, shared by all your agents.");
@@ -2191,6 +2202,35 @@ describe("Training shows what the agent knows (D-689: the business's knowledge, 
     expect(facts).toEqual(["Red chilli powder is ₹120 for 250 g.", "We deliver in Kukatpally."]);
     const link = within(panel).getByRole("link", { name: /Open What your agents know/ });
     expect(link.getAttribute("href")).toBe("/c/acme/knowledge");
+  });
+
+  it("says which facts this agent knows by heart and how many it looks up (D-896)", async () => {
+    await renderClientPage(page, routes(TRAINING_READS));
+
+    const heading = await screen.findByRole("heading", { level: 4, name: "Knows by heart" });
+    const known = heading.closest("section") as HTMLElement;
+    // Inside the folded "What it knows" section, so the tab stays one line per part (D-893 §6).
+    const whatItKnows = screen.getByRole("heading", { level: 3, name: "What it knows" });
+    expect(whatItKnows.closest("details")?.contains(known)).toBe(true);
+    await within(known).findByText(/Knows 1 fact by heart/);
+    expect(within(known).getByLabelText("Known by heart")).toBeTruthy();
+    expect(known.textContent).toContain("Looks up 1 fact when asked");
+  });
+
+  it("hides the split where every fact is in the agent's instructions anyway", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        ...TRAINING_READS,
+        "/v1/agents/agent-1/known-facts": {
+          ...TRAINING_READS["/v1/agents/agent-1/known-facts"],
+          applies: false,
+        },
+      }),
+    );
+    await screen.findByRole("heading", { level: 3, name: "What it knows" });
+    await screen.findAllByText("Red chilli powder is ₹120 for 250 g.");
+    expect(screen.queryByRole("heading", { level: 4, name: "Knows by heart" })).toBeNull();
   });
 
   it("does not say the agent was never tested when the last run could not be read", async () => {

@@ -1154,6 +1154,7 @@ class TestRedactionExposure:
             # teach box (D-719), an agent script's sample dialogue and a version's change
             # note (D-714).
             "FactOut.text",
+            "KnownFactOut.text",
             "TeachItemIO.text",
             "RuleOut.text",
             "ExampleLine.text",

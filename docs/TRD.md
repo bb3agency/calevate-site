@@ -321,9 +321,12 @@ future second adapter cheap to add (BRD R-02).
 > api-reference/calls/get-call.md:300-307,327-335,984-1080`). We store it on
 > `calls.engine_quality` (D-736) and `call_engine_signals`.
 >
-> **The one target is `reply_time_target_ms`** (console setting, default **500 ms**, the
-> founder's end-to-end goal of 27 Aug 2026), judged against each call's p90 `responseMs`: a
-> call is over target when more than one reply in ten kept the caller waiting longer. The
+> **The targets are `reply_time_typical_target_ms` and `reply_time_slow_target_ms`**
+> (console settings, defaults **1,600 ms** and **2,200 ms**, the founder's targets of 27 Oct
+> 2026, D-896, replacing the 500 ms goal of 27 Aug 2026 that the model's ~1 s first word alone
+> cannot meet). The typical figure is judged against the first; a call is over target when its
+> own p90 `responseMs` exceeds the second (more than one reply in ten waited longer). Every
+> figure is also split by the voice settings each call ran on (`calls.voice_settings`). The
 > admin **Voice response time** screen (`/admin/ops/reply-times`, `GET /v1/ops/reply-times`,
 > `apps/api/ops/reply_times.py`) reports it across every client: per window (1/7/30/90
 > days) the calls measured, the median of the calls' own median reply, the 90th percentile

@@ -53,7 +53,11 @@ export function ReplyTimesScreen() {
       : data
         ? [
             { key: "window_days", label: "Window shown (days)", value: String(data.window_days) },
-            { key: "target", label: "Reply time target", value: formatMs(data.target_ms) },
+            {
+              key: "targets",
+              label: "Reply time targets (typical / slow)",
+              value: `${formatMs(data.typical_target_ms)} / ${formatMs(data.slow_target_ms)}`,
+            },
             {
               key: "calls",
               label: "Calls measured / finished",

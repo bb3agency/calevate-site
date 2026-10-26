@@ -70,7 +70,8 @@ const slowCall = (over: Partial<SlowCall> = {}): SlowCall => ({
 export function replyTimeReport(over: Partial<ReplyTimeReport> = {}): ReplyTimeReport {
   return {
     window_days: 7,
-    target_ms: 500,
+    typical_target_ms: 1600,
+    slow_target_ms: 2200,
     complete: true,
     empty_reason: null,
     overall: figures(),
@@ -92,6 +93,10 @@ export function replyTimeReport(over: Partial<ReplyTimeReport> = {}): ReplyTimeR
     by_day: [
       { day: "2026-10-13", ...figures({ calls_over_target: 0 }) },
       { day: "2026-10-14", ...figures() },
+    ],
+    by_setting: [
+      { setting: "turn_detection", value: "ear", ...figures() },
+      { setting: "known_facts", value: "not_recorded", ...figures({ calls_over_target: 0 }) },
     ],
     worst_calls: [slowCall()],
     ...over,

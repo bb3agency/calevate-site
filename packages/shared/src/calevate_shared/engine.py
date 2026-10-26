@@ -2910,6 +2910,12 @@ def _how_to_speak(pack: PackChoice | None) -> str:
 #: prompt (`AgentConfig.facts_in_knowledge`, D-678); present only on such an engine.
 FACTS_IN_KNOWLEDGE_GUIDANCE: Final = "Facts are in your knowledge."
 
+#: Said instead of "search before answering" when the script carries facts of its own: the
+#: pinned quick facts and the known facts (`AgentConfig.facts_inline`).
+FACTS_INLINE_GUIDANCE: Final = (
+    "The facts in your script answer what callers ask most: answer from them when they cover it."
+)
+
 
 #: Said by a language pack's keep-English-nouns rule when the agent has one (D-830).
 _NAMES_RULE: Final = " Say names as your facts give them, never translated."
@@ -2924,7 +2930,17 @@ def _knowledge_section(cfg: AgentConfig, pack: PackChoice | None = None) -> str:
     named where the engine tells us its name (`AgentConfig.knowledge_tool`), searching comes
     before any "I don't know", and the script's quick facts win where the two disagree.
     """
-    if cfg.facts_in_knowledge:
+    if cfg.facts_in_knowledge and cfg.facts_inline:
+        # A search is a second model pass before the first word (about a second on our
+        # model, `docs/evidence/latency-research-2026-10-27.md` §0), so with the commonest
+        # facts in the script the model answers from them and searches only what they miss.
+        tool = f"the {cfg.knowledge_tool} tool" if cfg.knowledge_tool else "your knowledge search"
+        where = (
+            f"{FACTS_IN_KNOWLEDGE_GUIDANCE} {FACTS_INLINE_GUIDANCE} Search with {tool}, in the "
+            "caller's words and the plain English name, only for what they do not cover, and "
+            "before saying you do not know."
+        )
+    elif cfg.facts_in_knowledge:
         tool = f"the {cfg.knowledge_tool} tool" if cfg.knowledge_tool else "your knowledge search"
         where = (
             f"{FACTS_IN_KNOWLEDGE_GUIDANCE} Search with {tool}, in the caller's words and the "
@@ -3792,6 +3808,11 @@ class AgentConfig(BaseModel):
     #: prompt tells the model to look them up (`FACTS_IN_KNOWLEDGE_GUIDANCE`). False on every
     #: engine that holds the facts in the prompt, which leaves its composition unchanged.
     facts_in_knowledge: bool = False
+    #: The script carries facts the model should answer from before searching: the pinned
+    #: quick facts and the known facts (`apps/api/agents/hot_facts.py`). Set at publish only
+    #: while the console's `hot_facts_enabled` is on. Excluded from every dump for
+    #: `detect_machines`' reason.
+    facts_inline: bool = Field(default=False, exclude=True)
     webhook_url: str | None = None
     knowledge_base_ref: str | None = None
     max_call_duration_s: int = 600
@@ -6190,6 +6211,7 @@ __all__ = [
     "DAYS_RULE",
     "E164",
     "EMBEDDING_MODELS",
+    "FACTS_INLINE_GUIDANCE",
     "FACTS_IN_KNOWLEDGE_GUIDANCE",
     "FORWARDED_LINE_RULE",
     "LAYER_SEPARATOR",

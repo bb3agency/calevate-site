@@ -25888,6 +25888,93 @@
         "title": "KnowledgeGapOut",
         "type": "object"
       },
+      "KnownFactOut": {
+        "additionalProperties": false,
+        "properties": {
+          "asks": {
+            "title": "Asks",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "asks"
+        ],
+        "title": "KnownFactOut",
+        "type": "object"
+      },
+      "KnownFactsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "applies": {
+            "title": "Applies",
+            "type": "boolean"
+          },
+          "budget_chars": {
+            "title": "Budget Chars",
+            "type": "integer"
+          },
+          "by_heart": {
+            "items": {
+              "$ref": "#/components/schemas/KnownFactOut"
+            },
+            "title": "By Heart",
+            "type": "array"
+          },
+          "calls_read": {
+            "title": "Calls Read",
+            "type": "integer"
+          },
+          "computed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Computed At"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "looked_up": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Looked Up",
+            "type": "array"
+          },
+          "looked_up_total": {
+            "title": "Looked Up Total",
+            "type": "integer"
+          },
+          "used_chars": {
+            "title": "Used Chars",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "applies",
+          "by_heart",
+          "looked_up",
+          "looked_up_total",
+          "used_chars",
+          "budget_chars",
+          "calls_read",
+          "computed_at"
+        ],
+        "title": "KnownFactsOut",
+        "type": "object"
+      },
       "KnownItemOut": {
         "additionalProperties": false,
         "properties": {
@@ -39149,6 +39236,13 @@
             "title": "By Day",
             "type": "array"
           },
+          "by_setting": {
+            "items": {
+              "$ref": "#/components/schemas/SettingReplyTimes"
+            },
+            "title": "By Setting",
+            "type": "array"
+          },
           "by_tier": {
             "items": {
               "$ref": "#/components/schemas/TierReplyTimes"
@@ -39178,8 +39272,12 @@
           "overall": {
             "$ref": "#/components/schemas/ReplyTimeFigures"
           },
-          "target_ms": {
-            "title": "Target Ms",
+          "slow_target_ms": {
+            "title": "Slow Target Ms",
+            "type": "integer"
+          },
+          "typical_target_ms": {
+            "title": "Typical Target Ms",
             "type": "integer"
           },
           "window_days": {
@@ -39196,7 +39294,8 @@
         },
         "required": [
           "window_days",
-          "target_ms",
+          "typical_target_ms",
+          "slow_target_ms",
           "complete",
           "empty_reason",
           "overall",
@@ -39205,6 +39304,7 @@
           "agents_total",
           "by_tier",
           "by_day",
+          "by_setting",
           "worst_calls"
         ],
         "title": "ReplyTimeReport",
@@ -41562,6 +41662,132 @@
           "person_clone"
         ],
         "title": "SetPersonCloneIn",
+        "type": "object"
+      },
+      "SettingReplyTimes": {
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "calls_measured": {
+            "title": "Calls Measured",
+            "type": "integer"
+          },
+          "calls_over_target": {
+            "title": "Calls Over Target",
+            "type": "integer"
+          },
+          "first_token_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Token Slow Ms"
+          },
+          "first_token_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Token Typical Ms"
+          },
+          "interruptions": {
+            "title": "Interruptions",
+            "type": "integer"
+          },
+          "long_silences": {
+            "title": "Long Silences",
+            "type": "integer"
+          },
+          "model_errors": {
+            "title": "Model Errors",
+            "type": "integer"
+          },
+          "reply_slow_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Slow Ms"
+          },
+          "reply_typical_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Typical Ms"
+          },
+          "reply_worst_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply Worst Ms"
+          },
+          "rescues": {
+            "title": "Rescues",
+            "type": "integer"
+          },
+          "setting": {
+            "enum": [
+              "turn_detection",
+              "known_facts",
+              "known_facts_size",
+              "filler_delay_ms",
+              "early_answers",
+              "turn_silence_ms"
+            ],
+            "title": "Setting",
+            "type": "string"
+          },
+          "slow_reply_problems": {
+            "title": "Slow Reply Problems",
+            "type": "integer"
+          },
+          "turns": {
+            "title": "Turns",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "calls",
+          "calls_measured",
+          "calls_over_target",
+          "slow_reply_problems",
+          "turns",
+          "model_errors",
+          "rescues",
+          "interruptions",
+          "long_silences",
+          "setting",
+          "value"
+        ],
+        "title": "SettingReplyTimes",
         "type": "object"
       },
       "SheetEndpointOut": {
@@ -64879,6 +65105,46 @@
           "agents"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/known-facts": {
+      "get": {
+        "operationId": "known_facts_v1_agents__agent_id__known_facts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnownFactsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What this agent knows by heart and what it looks up when asked",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/agents/{agent_id}/lead-suggestions": {

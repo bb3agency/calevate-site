@@ -611,6 +611,11 @@ class Agent(PKMixin, TimestampMixin, Base):
     )
     #: When the last pass finished or stopped.
     field_suggestions_at: Mapped[datetime | None]
+    #: The call-handling settings the engine was last sent for this agent, written by
+    #: `agents/service.publish_agent` from the config it published (`agents/voice_stamp`,
+    #: D-896). Copied onto each call when its row is first written, so reply times can be
+    #: split by the settings a call ran on. NULL until the first publish after D-896.
+    voice_settings: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     # THE PER-AGENT MASTER SWITCH for in-call Actions/tools (migration
     # e1f7a3c920b4). Default FALSE: an agent nobody configured actions for makes no
     # mid-call external calls. Read by `actions/service.actions_enabled` and written
@@ -1184,6 +1189,43 @@ class AgentTestLabel(PKMixin, TimestampMixin, Base):
     label: Mapped[str] = mapped_column(Text, nullable=False, server_default="wrong")
     snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+
+
+class AgentHotFacts(PKMixin, TimestampMixin, Base):
+    """The facts one agent knows by heart (D-896): chosen from the client's live knowledge by
+    what its callers ask (`agents/hot_facts.py`) and spliced into its instructions at publish.
+
+    One row per agent, replaced whole by each choice. `items` holds the chosen facts in
+    rank order, each `{key, text, asks}`: the client's own approved words and a count, never
+    a caller's words. `digest` covers the items and the switch, so a choice that changes
+    nothing republishes nothing.
+    """
+
+    __tablename__ = "agent_hot_facts"
+    __table_args__ = (
+        UniqueConstraint("agent_id"),
+        CheckConstraint("jsonb_typeof(items) = 'array'", name="items_is_array"),
+        CheckConstraint("used_chars >= 0 AND budget_chars >= 0", name="chars_not_negative"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    items: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    digest: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The room the choice filled: the console ceiling or what the script left, the smaller.
+    budget_chars: Mapped[int] = mapped_column(Integer, nullable=False)
+    used_chars: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Facts it could have chosen from; the rest are looked up when asked.
+    candidates: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Calls whose questions informed the choice.
+    calls_read: Mapped[int] = mapped_column(Integer, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class PhoneNumber(PKMixin, TimestampMixin, Base):

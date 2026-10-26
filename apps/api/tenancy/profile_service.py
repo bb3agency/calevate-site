@@ -417,6 +417,11 @@ async def apply_to_agents(session: AsyncSession, *, tenant_id: UUID, changed: se
             await sync_business_facts(
                 session, engine, agent_id=agent_id, ref=str(ref), facts=block[4] if block else None
             )
+    if facts_changed:
+        # The profile's lines are facts an agent may know by heart (D-896).
+        from apps.api.agents.hot_facts import request_recompute
+
+        await request_recompute(session, tenant_id=tenant_id)
     if config_reaches_live:
         # Hours and contacts are agent configuration read at publish time, so
         # the client's live agents are brought onto them by the live-apply seam, queued in

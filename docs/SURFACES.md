@@ -546,7 +546,7 @@ Admin realm (`/admin/…`)
   voice platform's own per-call `quality` (`calls.engine_quality`) and its live
   `slow_reply` problems, across every client: calls measured, typical reply (median of each
   call's median), slow reply (90th percentile of each call's p90, withheld below ten calls),
-  the model's first-word share, calls over the `reply_time_target_ms` console target
+  the model's first-word share, calls over the `reply_time_slow_target_ms` console target (typical judged against `reply_time_typical_target_ms`, D-896), split by each call's voice settings
   (default 500 ms, judged on each call's p90), model errors, rescues, interruptions and long
   silences; broken down by client, agent (worst 50), Clear/Studio rung and IST day, with the
   20 slowest calls opening through view-as. An empty window says whether no call finished or

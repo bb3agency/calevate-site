@@ -195,6 +195,9 @@ from apps.workers.forwarding import (
 )
 from apps.workers.fx_pull import PULL_MINUTES, pull_fx_rate
 from apps.workers.healer import SCORE_MINUTES, healer_sweep, run_healer, score_agent_health
+from apps.workers.hot_facts import SWEEP_HOUR as HOT_FACTS_SWEEP_HOUR
+from apps.workers.hot_facts import SWEEP_MINUTE as HOT_FACTS_SWEEP_MINUTE
+from apps.workers.hot_facts import recompute_hot_facts, sweep_hot_facts
 from apps.workers.inbound_cutover import apply_inbound_credit_state
 from apps.workers.interrupted_work import SWEEP_MINUTES as INTERRUPTED_SWEEP_MINUTES
 from apps.workers.interrupted_work import end_interrupted_work
@@ -403,6 +406,9 @@ FUNCTIONS: list[Any] = [
         rebuild_collect,
         # Pinned facts re-spliced into every agent (founder decision 9).
         recompile_pinned_facts,
+        # Each agent's facts known by heart chosen again (D-896), from the outbox
+        # (`agents/hot_facts.request_recompute`) and the daily `sweep_hot_facts`.
+        recompute_hot_facts,
         # D-720. A saved setting brought onto every live agent it changes: the walk in
         # bounded batches and one agent's retry ladder, both from the outbox
         # (`agents/live_apply.queue_live_apply`).
@@ -1287,6 +1293,16 @@ CRON_JOBS = [
         walk=fleet_wide("one tenant_session per open organization, under a time budget"),
         hour={10},
         minute={44},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-896. Daily: every open client's facts known by heart are chosen again, because what
+    # callers ask moves with the calls. Idempotent per IST day (`enqueue_outbox_once`); a
+    # choice that changes nothing republishes nothing.
+    _cron(
+        traced_job(sweep_hot_facts),
+        walk=fleet_wide("one tenant_session per open organization, under a time budget"),
+        hour={HOT_FACTS_SWEEP_HOUR},
+        minute={HOT_FACTS_SWEEP_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     _cron(

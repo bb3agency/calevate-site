@@ -12,10 +12,13 @@ import { NoticeBox, formatCount, formatCountOf, formatIST } from "@/components/u
 import { viewAsHref } from "@/lib/api/session";
 import {
   EMPTY_COPY,
+  SETTING_LABELS,
   TIER_LABELS,
   formatDay,
   formatMs,
+  settingValueLabel,
   windowLabel,
+  type SettingReplyTimes,
   type AgentReplyTimes,
   type ClientReplyTimes,
   type DayReplyTimes,
@@ -162,6 +165,27 @@ const TIER_COLUMNS: DataColumn<TierReplyTimes>[] = [
   ...figureColumns<TierReplyTimes>(),
 ];
 
+const SETTING_COLUMNS: DataColumn<SettingReplyTimes>[] = [
+  {
+    id: "setting",
+    header: "Setting",
+    cell: (row) => (
+      <span className="font-medium text-ink">{lookup(SETTING_LABELS, row.setting) ?? row.setting}</span>
+    ),
+  },
+  {
+    id: "value",
+    header: "Value",
+    cell: (row) => <span className="whitespace-nowrap">{settingValueLabel(row.value)}</span>,
+  },
+  ...figureColumns<SettingReplyTimes>(),
+];
+
+/** Over the target, when there is a figure to judge. */
+function overTarget(value: number | null | undefined, target: number): boolean {
+  return value !== null && value !== undefined && value > target;
+}
+
 const DAY_COLUMNS: DataColumn<DayReplyTimes>[] = [
   {
     id: "day",
@@ -252,19 +276,22 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
         </span>
         <span>over target</span>
         <span className="text-ink-muted">
-          · target <span className="font-medium text-ink">{formatMs(report.target_ms)}</span>
+          · targets: typical{" "}
+          <span className="font-medium text-ink">{formatMs(report.typical_target_ms)}</span>, slow{" "}
+          <span className="font-medium text-ink">{formatMs(report.slow_target_ms)}</span>
         </span>
         <span className="text-ink-muted">
           · last <span className="font-medium text-ink">{windowLabel(report.window_days)}</span>
         </span>
         <InfoTip label="How calls are judged">
           <p>
-            A call is over target when more than one of its replies in ten kept the caller
-            waiting longer than the target. The target is a console setting.
+            The typical reply is judged against the typical target. A call is over target when
+            more than one of its replies in ten kept the caller waiting longer than the slow
+            target. Both are console settings.
           </p>
           <p>
             <Link href={CONFIG_HREF} className={TEXT_ACTION}>
-              Change the target in Configuration
+              Change the targets in Configuration
             </Link>
           </p>
         </InfoTip>
@@ -288,12 +315,18 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
             <Metric
               label="Typical reply"
               value={formatMs(overall.reply_typical_ms)}
-              hint={`${formatCountOf(overall.calls_measured, "measured call")} of ${formatCount(overall.calls)}`}
+              tone={overTarget(overall.reply_typical_ms, report.typical_target_ms) ? "warn" : "default"}
+              hint={`Target ${formatMs(report.typical_target_ms)} · ${formatCountOf(overall.calls_measured, "measured call")} of ${formatCount(overall.calls)}`}
             />
             <Metric
               label="Slow reply"
               value={formatMs(overall.reply_slow_ms)}
-              hint={overall.reply_slow_ms == null ? "Needs ten measured calls" : "Nine calls in ten were faster"}
+              tone={overTarget(overall.reply_slow_ms, report.slow_target_ms) ? "warn" : "default"}
+              hint={
+                overall.reply_slow_ms == null
+                  ? "Needs ten measured calls"
+                  : `Target ${formatMs(report.slow_target_ms)} · nine calls in ten were faster`
+              }
             />
             <Metric
               label="Model's first word"
@@ -367,6 +400,22 @@ export function ReplyTimesReport({ report }: { report: ReplyTimeReport }) {
               getRowId={(row) => row.tier}
               label="Reply times by voice"
             />
+          </Section>
+
+          <Section
+            title="By call setting"
+            description="Each call is counted under the settings its agent was published with when it began."
+          >
+            {report.by_setting.length === 0 ? (
+              <EmptyState align="start" message="No calls in this window" />
+            ) : (
+              <DataTable
+                rows={report.by_setting}
+                columns={SETTING_COLUMNS}
+                getRowId={(row) => `${row.setting}:${row.value}`}
+                label="Reply times by call setting"
+              />
+            )}
           </Section>
 
           <Section

@@ -37,10 +37,21 @@ describe("the voice response time report", () => {
 
     await screen.findByRole("table", { name: "Reply times by client" });
     expect(container.textContent).toContain("3 of 12 measured calls");
-    expect(container.textContent).toContain("target 500 ms");
+    expect(container.textContent).toContain("typical 1,600 ms");
+    expect(container.textContent).toContain("slow 2,200 ms");
     // Rounded to whole milliseconds, never recomputed.
     expect(container.textContent).toContain("812 ms");
     expect(container.textContent).toContain("1,460 ms");
+  });
+
+  it("splits the figures by the settings each call ran on", async () => {
+    renderAdminPage(<ReplyTimesPage />, routes());
+
+    const table = await screen.findByRole("table", { name: "Reply times by call setting" });
+    expect(table.textContent).toContain("Turn detection");
+    expect(table.textContent).toContain("Ear");
+    expect(table.textContent).toContain("Facts known by heart");
+    expect(table.textContent).toContain("Not recorded");
   });
 
   it("times the model's first word from the turn reaching the platform", async () => {
@@ -77,6 +88,7 @@ describe("the voice response time report", () => {
       by_agent: [],
       by_tier: [],
       by_day: [],
+      by_setting: [],
       worst_calls: [],
     });
     const { container } = renderAdminPage(<ReplyTimesPage />, routes({ [WINDOW_PATH(7)]: empty }));

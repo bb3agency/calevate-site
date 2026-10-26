@@ -10,6 +10,8 @@
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
+import { lookup } from "@/lib/lookup";
+
 import { adminSession } from "./admin";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
@@ -23,6 +25,8 @@ export type AgentReplyTimes = Schemas["AgentReplyTimes"];
 export type TierReplyTimes = Schemas["TierReplyTimes"];
 export type DayReplyTimes = Schemas["DayReplyTimes"];
 export type SlowCall = Schemas["SlowCall"];
+export type SettingReplyTimes = Schemas["SettingReplyTimes"];
+export type SettingKey = SettingReplyTimes["setting"];
 export type EmptyReason = NonNullable<ReplyTimeReport["empty_reason"]>;
 export type VoiceTierKey = TierReplyTimes["tier"];
 
@@ -63,6 +67,37 @@ export const TIER_LABELS: Record<VoiceTierKey, string> = {
   studio: "Studio",
   not_metered: "Not billed yet",
 };
+
+/**
+ * The call-handling settings the report splits by (D-896), keyed by the generated union so a
+ * new setting fails `tsc` here. Each call carries the settings its agent was published with.
+ */
+export const SETTING_LABELS: Record<SettingKey, string> = {
+  turn_detection: "Turn detection",
+  known_facts: "Facts known by heart",
+  known_facts_size: "Size of facts known by heart",
+  filler_delay_ms: "Filler after (ms)",
+  early_answers: "Early answers",
+  turn_silence_ms: "End-of-turn pause (ms)",
+};
+
+/** The server's closed-set values in words; anything else (a number) is shown as sent. */
+const SETTING_VALUE_LABELS: Record<string, string> = {
+  not_recorded: "Not recorded",
+  on: "On",
+  off: "Off",
+  timer: "Silence",
+  ear: "Ear",
+  smart: "Smart",
+  none: "None",
+  under_2000: "Under 2,000 characters",
+  "2000_to_4000": "2,000 to 4,000 characters",
+  "4000_plus": "4,000 characters or more",
+};
+
+export function settingValueLabel(value: string): string {
+  return lookup(SETTING_VALUE_LABELS, value) ?? value;
+}
 
 /** Why a window has no figures, in words an operator can act on. */
 export const EMPTY_COPY: Record<EmptyReason, { message: string; hint: string }> = {

@@ -118,6 +118,62 @@ async def what_it_knows(
     )
 
 
+class KnownFactOut(Strict):
+    #: The client's own words, as the agent carries them.
+    text: str
+    #: Calls in the last weeks on which callers asked about it (questions it could not answer
+    #: included); 0 for a fact chosen because the agent's script talks about it.
+    asks: int
+
+
+class KnownFactsOut(Strict):
+    #: The console switch: off, every fact is looked up during the call.
+    enabled: bool
+    #: False where the calling system keeps every fact in the instructions anyway.
+    applies: bool
+    #: In this agent's instructions, answered at once, most asked first.
+    by_heart: list[KnownFactOut]
+    #: The first of the facts it looks up when a caller asks; `looked_up_total` counts all.
+    looked_up: list[str]
+    looked_up_total: int
+    used_chars: int
+    budget_chars: int
+    #: Calls whose questions informed the choice.
+    calls_read: int
+    #: When the facts were last chosen; null before the first choice.
+    computed_at: datetime | None
+
+
+@router.get(
+    "/v1/agents/{agent_id}/known-facts",
+    response_model=KnownFactsOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="What this agent knows by heart and what it looks up when asked",
+)
+async def known_facts(
+    agent_id: UUID, session: Session, principal: Principal = Depends(requires("agents:read"))
+) -> KnownFactsOut:
+    from apps.api.agents import hot_facts
+    from apps.api.engine import get_engine
+
+    assert principal.tenant_id is not None
+    await assert_agent_visible(session, agent_id)
+    found = await hot_facts.view(
+        session, tenant_id=principal.tenant_id, agent_id=agent_id, engine=get_engine()
+    )
+    return KnownFactsOut(
+        enabled=found.enabled,
+        applies=found.applies,
+        by_heart=[KnownFactOut(text=i.text, asks=i.asks) for i in found.by_heart],
+        looked_up=list(found.looked_up),
+        looked_up_total=found.looked_up_total,
+        used_chars=found.used_chars,
+        budget_chars=found.budget_chars,
+        calls_read=found.calls_read,
+        computed_at=found.computed_at,
+    )
+
+
 class FactIn(Strict):
     text: str = Field(min_length=1, max_length=MAX_PINNED_ANSWER_CHARS)
     question: str | None = Field(default=None, max_length=MAX_PINNED_QUESTION_CHARS)

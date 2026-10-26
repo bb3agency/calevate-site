@@ -956,6 +956,50 @@ def _id_param(key: str, where: str) -> dict[str, Any]:
     return {key: {"type": "string", "description": description}}
 
 
+# --- agent_known_facts -----------------------------------------------------------------
+
+#: Facts known by heart quoted to the model; the rest are counted.
+MAX_KNOWN_SHOWN: Final = 15
+
+
+async def _agent_known_facts(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """`agents/hot_facts.view` — `GET /v1/agents/{id}/known-facts`'s reader (D-896)."""
+    from apps.api.agents import hot_facts
+    from apps.api.engine import get_engine
+
+    agent_id = _uuid_arg(args, "agent_id")
+    if agent_id is None:
+        return _missing_id("agent_id", "an `agents_list` lookup")
+    if context.tenant_id is None or await roster.agent_by_id(session, agent_id) is None:
+        return "No agent with that id in this account."
+    found = await hot_facts.view(
+        session, tenant_id=context.tenant_id, agent_id=agent_id, engine=get_engine()
+    )
+    if not found.applies:
+        return "This agent carries every fact in its instructions, so it never looks one up."
+    if not found.enabled:
+        return (
+            "Knowing facts by heart is switched off for every agent, so this agent looks "
+            "each fact up when a caller asks."
+        )
+    lines = [
+        f"Knows {len(found.by_heart)} fact(s) by heart and looks up "
+        f"{found.looked_up_total} other(s) when asked."
+    ]
+    lines += [
+        _clean(f"- by heart: {item.text} (asked on {item.asks} recent call(s))")
+        for item in found.by_heart[:MAX_KNOWN_SHOWN]
+    ]
+    if found.computed_at is None:
+        lines.append("Its facts have not been chosen yet; that happens within the day.")
+    else:
+        lines.append(f"Last chosen {ist_stamp(found.computed_at)} from {found.calls_read} call(s).")
+    lines.append("The owner sees the same on the agent's Training tab.")
+    return "\n".join(lines)
+
+
 _LIMIT: Final = {
     "anyOf": [{"type": "integer"}, {"type": "null"}],
     "description": f"How many to return, at most {MAX_ROWS}. Null means {MAX_ROWS}.",
@@ -1160,6 +1204,16 @@ CONSOLE_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         # `GET /v1/teach/questions`' permission: it quotes callers' redacted words.
         permission="calls:read",
         run=_knowledge_questions,
+    ),
+    ReadTool(
+        name="agent_known_facts",
+        description=(
+            "Which facts one agent knows by heart (answered at once) and how many it looks "
+            "up when asked (about a second slower)."
+        ),
+        parameters=_object(_id_param("agent_id", "agent")),
+        permission="agents:read",
+        run=_agent_known_facts,
     ),
 )
 

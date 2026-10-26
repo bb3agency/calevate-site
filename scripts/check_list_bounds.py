@@ -240,6 +240,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="`teach.questions.MAX_QUESTIONS` gap topics in the LIMIT plus at most three "
         "practice and setup questions."
     ),
+    "GET /v1/agents/{agent_id}/known-facts": BoundedByConstruction(
+        by=(
+            "facts by heart capped by `agents.hot_facts.MAX_ITEMS` when chosen, looked-up "
+            "facts by `hot_facts.LOOKED_UP_SHOWN` in the read (D-896)."
+        )
+    ),
     "GET /v1/kb/teach/{teaching_id}": BoundedByConstruction(
         by="one teaching's items, at most `workers.kb_teach.MAX_ITEMS` and 30 on save (`SaveIn`)."
     ),

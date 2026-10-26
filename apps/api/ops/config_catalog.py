@@ -363,12 +363,36 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         '"okay" never stop it.',
         _THINNEST,
     ),
-    "reply_time_target_ms": _m(
+    "reply_time_typical_target_ms": _m(
         "voice-engine",
         "thinnest",
-        "Reply time target",
-        "How long a caller should wait for the agent to start answering. A call is over "
-        "target when more than one reply in ten took longer.",
+        "Typical reply time target",
+        "How long a caller should usually wait for the agent to start answering: the "
+        "middle of the calls' typical waits is judged against it.",
+        _THINNEST,
+    ),
+    "reply_time_slow_target_ms": _m(
+        "voice-engine",
+        "thinnest",
+        "Slow reply time target",
+        "The longest a slow reply should take. A call is over target when more than one "
+        "reply in ten took longer than this.",
+        _THINNEST,
+    ),
+    "hot_facts_enabled": _m(
+        "voice-engine",
+        "thinnest",
+        "Agents know the most asked facts by heart",
+        "On: the facts callers ask most are in each agent's instructions, answered without a "
+        "search (about a second). Off: every fact is looked up.",
+        _THINNEST,
+    ),
+    "hot_facts_max_chars": _m(
+        "voice-engine",
+        "thinnest",
+        "Most characters of facts known by heart",
+        "Each character is read again on every reply, so this caps what the facts add to a "
+        "call's cost. Agents use less when their script leaves less room.",
         _THINNEST,
     ),
     # ---- telephony -------------------------------------------------------------------
@@ -1297,7 +1321,9 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
             OptionLabel("smart", "Smart", "A model judges; replies start later."),
         )
     ),
-    "reply_time_target_ms": ControlHint(kind="duration", unit="milliseconds"),
+    "reply_time_typical_target_ms": ControlHint(kind="duration", unit="milliseconds"),
+    "reply_time_slow_target_ms": ControlHint(kind="duration", unit="milliseconds"),
+    "hot_facts_max_chars": ControlHint(unit="characters"),
     "carrier_concurrency": ControlHint(unit="calls at once"),
     "inbound_reserved_lines": ControlHint(
         unit="lines", help="Leave unset to use the automatic share."

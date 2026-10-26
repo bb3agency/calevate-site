@@ -302,6 +302,9 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "knowledge_questions", "knowledge", "questions the agents need answered, with drafts"
     ),
+    AreaEntry(
+        "agent_known_facts", "knowledge", "facts one agent answers at once and how many it looks up"
+    ),
     # D-893 L4: the agent page's buttons.
     AreaEntry("agent_restore", "agents", "bring a deleted agent back, paused"),
     AreaEntry(

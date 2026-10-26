@@ -611,8 +611,23 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # Read inside every ThinnestAI dial's intent transaction (`agents/service.dispatch_call`)
     # and once per dispatch tick for the outbound pool, like `carrier_concurrency`.
     "thinnest_max_concurrent_calls": AppliesRule(LIVE),
-    # Read on every load of the Voice response time report (D-770).
-    "reply_time_target_ms": AppliesRule(LIVE),
+    # Read on every load of the Voice response time report (D-770, D-896).
+    "reply_time_typical_target_ms": AppliesRule(LIVE),
+    "reply_time_slow_target_ms": AppliesRule(LIVE),
+    # Each agent's known facts are spliced into its instructions at publish (D-896), so both
+    # republish every live agent. A higher ceiling is filled by the next choice of facts
+    # (`apps/workers/hot_facts.py`, nightly or on a knowledge change); a lower one cuts the
+    # list at once.
+    "hot_facts_enabled": AppliesRule(
+        LIVE_AGENTS,
+        "saving it republishes every live agent with the facts callers ask most in its "
+        f"instructions (on) or every fact looked up during the call (off){_NOW}",
+    ),
+    "hot_facts_max_chars": AppliesRule(
+        LIVE_AGENTS,
+        "saving it republishes every live agent; a lower ceiling drops its least asked facts at "
+        f"once, a higher one is filled when its facts are next chosen{_NOW}",
+    ),
     # Read by the ops dashboard and the provisioning alarm each time (D-693).
     "thinnest_customer_plan": AppliesRule(LIVE),
     "thinnest_action_source_ips": AppliesRule(LIVE),

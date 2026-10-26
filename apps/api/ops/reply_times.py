@@ -19,10 +19,18 @@ this". Every call weighs the same however many turns it had. Below `P90_MIN_CALL
 calls the slow figure is withheld, because the p90 of fewer than ten values is the maximum
 under another name.
 
-THE TARGET is one console setting, `reply_time_target_ms` (default 500, the founder's
-end-to-end goal of 27 Aug 2026), compared with each call's p90 reply. It replaces the
-per-stage STT/LLM/TTS budget the removed Pipecat loop was judged by, which has no meaning on
-a hosted engine that reports no stages.
+THE TARGETS are two console settings (D-896, founder 27 Oct 2026): `reply_time_typical_target_ms`
+(1,600) for the typical figure and `reply_time_slow_target_ms` (2,200) for the slow one; a
+call is over target when its own p90 reply exceeds the slow target. They replaced one 500 ms
+goal the model's first word alone (~1 s) cannot meet
+(`docs/evidence/latency-research-2026-10-27.md`).
+
+BY SETTING. Each call carries the call-handling settings its agent was published with when
+the call began (`calls.voice_settings`, `agents/voice_stamp.py`), so every figure is also split
+by turn detection, the known facts (on/off and size), the filler delay, early answers and the
+end-of-turn pause, with `not_recorded` for calls from before the stamp. Whether a turn searched
+knowledge is not split: the voice platform reports no per-turn lookup (asked, T3 in
+`docs/vendor/thinnest-replies-2026-10-12.md`).
 
 CROSS-CLIENT READ. `call_reply_scan` (migration d3f8b2c6a417) enters each live tenant with
 its own `app.tenant_id` inside one statement, so no session ever holds a cross-tenant view
@@ -37,7 +45,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -80,7 +88,7 @@ _SCAN_SQL = text(
     "(s.quality ->> 'long_silences')::float8 AS long_silences, "
     "(s.quality ->> 'interruptions')::float8 AS interruptions, "
     "(s.quality ->> 'model_errors')::float8 AS model_errors, "
-    "(s.quality ->> 'backup_answers')::float8 AS rescues "
+    "(s.quality ->> 'backup_answers')::float8 AS rescues, s.voice_settings "
     "FROM call_reply_scan(:since) AS s "
     "JOIN organizations o ON o.id = s.scanned_tenant_id "
     "ORDER BY s.started_at DESC LIMIT :cap"
@@ -108,6 +116,8 @@ class _Call:
     interruptions: int | None
     model_errors: int | None
     rescues: int | None
+    #: `agents/voice_stamp.stamp_of`'s record, or None for a call from before it.
+    voice_settings: dict[str, Any] | None = None
 
     @property
     def measured(self) -> bool:
@@ -168,6 +178,32 @@ class DayReplyTimes(ReplyTimeFigures):
     day: date
 
 
+#: The settings the report splits by, in the order the screen shows them.
+SettingKey = Literal[
+    "turn_detection",
+    "known_facts",
+    "known_facts_size",
+    "filler_delay_ms",
+    "early_answers",
+    "turn_silence_ms",
+]
+SETTING_KEYS: tuple[SettingKey, ...] = get_args(SettingKey)
+
+#: A call whose settings were not recorded (before D-896, or an agent not yet republished).
+NOT_RECORDED = "not_recorded"
+
+#: Known-facts size bands, in characters of the section: small enough to compare.
+_SIZE_BANDS: tuple[tuple[int, str], ...] = ((2000, "under_2000"), (4000, "2000_to_4000"))
+
+
+class SettingReplyTimes(ReplyTimeFigures):
+    #: Which setting (`SETTING_KEYS`).
+    setting: SettingKey
+    #: Its value on these calls, as a closed-set string (`on`/`off`, `ear`, `2000`, ...),
+    #: or `not_recorded`.
+    value: str
+
+
 class SlowCall(BaseModel):
     """One of the window's slowest calls, by its p90 reply time."""
 
@@ -190,8 +226,10 @@ class SlowCall(BaseModel):
 
 class ReplyTimeReport(BaseModel):
     window_days: int
-    #: The console setting every call is judged against, as read for this report.
-    target_ms: int
+    #: The console targets, as read for this report: the typical figure is judged against
+    #: the first, each call's p90 against the second.
+    typical_target_ms: int
+    slow_target_ms: int
     #: False when the window held more than `MAX_CALLS` calls and only the newest were read.
     complete: bool
     #: Set when there are no figures to show, saying why.
@@ -203,6 +241,8 @@ class ReplyTimeReport(BaseModel):
     agents_total: int
     by_tier: list[TierReplyTimes]
     by_day: list[DayReplyTimes]
+    #: Every figure again per value of each call-handling setting (`SETTING_KEYS` order).
+    by_setting: list[SettingReplyTimes]
     worst_calls: list[SlowCall]
 
 
@@ -295,7 +335,32 @@ def _call(row: Row[Any]) -> _Call:
         interruptions=_whole(m["interruptions"]),
         model_errors=_whole(m["model_errors"]),
         rescues=_whole(m["rescues"]),
+        voice_settings=m["voice_settings"] if isinstance(m["voice_settings"], dict) else None,
     )
+
+
+def setting_value(call: _Call, key: SettingKey) -> str:
+    """The call's value for one setting as a closed-set string, or `NOT_RECORDED`."""
+    stamp = call.voice_settings
+    if stamp is None:
+        return NOT_RECORDED
+    if key == "known_facts_size":
+        chars = stamp.get("known_facts_chars")
+        if not isinstance(chars, int):
+            return NOT_RECORDED
+        if chars == 0:
+            return "none"
+        return next((band for ceiling, band in _SIZE_BANDS if chars < ceiling), "4000_plus")
+    value = stamp.get(key)
+    if value is None:
+        return NOT_RECORDED
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    return str(value)
+
+
+def _value_of(key: SettingKey) -> Callable[[_Call], str]:
+    return lambda call: setting_value(call, key)
 
 
 def _grouped[K](calls: list[_Call], key: Callable[[_Call], K]) -> dict[K, list[_Call]]:
@@ -330,9 +395,16 @@ def _slow_call(call: _Call) -> SlowCall:
 
 
 def build_report(
-    calls: list[_Call], *, days: int, target_ms: int, complete: bool
+    calls: list[_Call],
+    *,
+    days: int,
+    typical_target_ms: int,
+    slow_target_ms: int,
+    complete: bool,
 ) -> ReplyTimeReport:
     """Every breakdown of one window's calls. Pure, so the rules are testable without a database."""
+    # A call is over target when its own p90 passes the slow target.
+    target_ms = slow_target_ms
     overall = figures(calls, target_ms=target_ms)
     empty: EmptyReason | None = None
     if overall.calls == 0:
@@ -379,6 +451,17 @@ def build_report(
         for day in sorted(days_of)
     ]
 
+    by_setting = [
+        SettingReplyTimes(
+            setting=key, value=value, **figures(group, target_ms=target_ms).model_dump()
+        )
+        for key in SETTING_KEYS
+        for value, group in sorted(
+            _grouped(calls, _value_of(key)).items(),
+            key=lambda item: (item[0] == NOT_RECORDED, item[0]),
+        )
+    ]
+
     slowest = sorted(
         (c for c in calls if c.reply_p90 is not None),
         key=lambda c: (-(c.reply_p90 or 0.0), -(c.reply_max or 0.0)),
@@ -386,7 +469,8 @@ def build_report(
 
     return ReplyTimeReport(
         window_days=days,
-        target_ms=target_ms,
+        typical_target_ms=typical_target_ms,
+        slow_target_ms=slow_target_ms,
         complete=complete,
         empty_reason=empty,
         overall=overall,
@@ -395,6 +479,7 @@ def build_report(
         agents_total=len(agents),
         by_tier=by_tier,
         by_day=by_day,
+        by_setting=by_setting,
         worst_calls=[_slow_call(c) for c in slowest],
     )
 
@@ -410,7 +495,8 @@ async def reply_time_report(
     return build_report(
         calls,
         days=window,
-        target_ms=get_settings().reply_time_target_ms,
+        typical_target_ms=get_settings().reply_time_typical_target_ms,
+        slow_target_ms=get_settings().reply_time_slow_target_ms,
         complete=len(rows) <= MAX_CALLS,
     )
 
@@ -421,15 +507,20 @@ __all__ = [
     "MAX_CALLS",
     "MAX_WINDOW_DAYS",
     "MAX_WORST_CALLS",
+    "NOT_RECORDED",
     "P90_MIN_CALLS",
+    "SETTING_KEYS",
     "AgentReplyTimes",
     "ClientReplyTimes",
     "DayReplyTimes",
     "ReplyTimeFigures",
     "ReplyTimeReport",
+    "SettingKey",
+    "SettingReplyTimes",
     "SlowCall",
     "TierReplyTimes",
     "build_report",
     "figures",
     "reply_time_report",
+    "setting_value",
 ]

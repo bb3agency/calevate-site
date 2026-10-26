@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -136,18 +137,82 @@ async def test_every_client_is_read_under_its_own_policy_and_figures_are_per_cal
     assert ra.client_slug == a.slug
 
 
-async def test_a_call_is_over_target_when_its_p90_reply_exceeds_the_console_setting(
+async def test_a_call_is_over_target_when_its_p90_reply_exceeds_the_slow_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant = await _tenant()
     await _call(tenant, _quality(400, 450))
     await _call(tenant, _quality(400, 900))
-    monkeypatch.setattr(get_settings(), "reply_time_target_ms", 500)
+    monkeypatch.setattr(get_settings(), "reply_time_typical_target_ms", 300)
+    monkeypatch.setattr(get_settings(), "reply_time_slow_target_ms", 500)
 
     report = await _report()
 
-    assert report.target_ms == 500
+    assert (report.typical_target_ms, report.slow_target_ms) == (300, 500)
     assert _client(report, tenant).calls_over_target == 1
+
+
+def test_the_targets_default_to_the_founders_typical_and_slow_figures() -> None:
+    """D-896: 1.6 s typical, 2.2 s slow, replacing the unreachable 500 ms."""
+    from calevate_shared.config import Settings
+
+    fields = Settings.model_fields
+    assert fields["reply_time_typical_target_ms"].default == 1600
+    assert fields["reply_time_slow_target_ms"].default == 2200
+    assert "reply_time_target_ms" not in fields
+
+
+async def test_each_call_is_split_by_the_settings_its_agent_was_published_with() -> None:
+    """The agent's stamp is copied onto the call when its row is first written and is never
+    overwritten; the report splits by it, and an unstamped call reads `not_recorded`."""
+    tenant = await _tenant()
+    await _call(tenant, _quality(900, 1200))  # before any stamp
+    stamp = {
+        "turn_detection": "ear",
+        "turn_silence_ms": 250,
+        "early_answers": True,
+        "filler_delay_ms": 2000,
+        "known_facts": True,
+        "known_facts_chars": 2500,
+    }
+    async with tenant_session(tenant.tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET voice_settings = CAST(:s AS jsonb) WHERE id = :aid"),
+            {"s": json.dumps(stamp), "aid": tenant.agent_id},
+        )
+    stamped = await _call(tenant, _quality(1500, 1800))
+    async with tenant_session(tenant.tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET voice_settings = NULL WHERE id = :aid"),
+            {"aid": tenant.agent_id},
+        )
+        held = (
+            await session.execute(
+                text("SELECT voice_settings FROM calls WHERE id = :cid"), {"cid": stamped}
+            )
+        ).scalar_one()
+    assert held == stamp
+
+    report = await _report()
+    rows = {(r.setting, r.value): r for r in report.by_setting}
+    assert rows[("turn_detection", "ear")].calls >= 1
+    assert rows[("known_facts", "on")].reply_typical_ms is not None
+    assert ("known_facts_size", "2000_to_4000") in rows
+    assert ("filler_delay_ms", "2000") in rows
+    assert rows[("turn_detection", "not_recorded")].calls >= 1
+
+
+def test_setting_values_are_closed_set_strings() -> None:
+    from apps.api.ops.reply_times import setting_value
+
+    call = _fake(1, reply_p90=900.0)
+    assert setting_value(call, "turn_detection") == "not_recorded"
+    stamped = replace(call, voice_settings={"known_facts": False, "known_facts_chars": 0})
+    assert setting_value(stamped, "known_facts") == "off"
+    assert setting_value(stamped, "known_facts_size") == "none"
+    assert setting_value(stamped, "early_answers") == "not_recorded"
+    big = replace(call, voice_settings={"known_facts_chars": 5000})
+    assert setting_value(big, "known_facts_size") == "4000_plus"
 
 
 async def test_tier_agent_and_worst_calls_carry_the_client_and_the_call() -> None:
@@ -225,20 +290,27 @@ def _fake(n: int, *, reply_p90: float | None, day_offset: int = 0) -> _Call:
 
 def test_the_slow_figure_appears_at_ten_measured_calls_and_interpolates() -> None:
     nine = [_fake(i, reply_p90=float(100 * (i + 1))) for i in range(P90_MIN_CALLS - 1)]
-    assert build_report(nine, days=1, target_ms=500, complete=True).overall.reply_slow_ms is None
+    assert (
+        build_report(
+            nine, days=1, typical_target_ms=400, slow_target_ms=500, complete=True
+        ).overall.reply_slow_ms
+        is None
+    )
 
     ten = [*nine, _fake(99, reply_p90=1000.0)]
-    report = build_report(ten, days=1, target_ms=500, complete=True)
+    report = build_report(ten, days=1, typical_target_ms=400, slow_target_ms=500, complete=True)
     # p90 over 100..1000 by percentile_cont: position 8.1 -> 900 + 0.1 * 100.
     assert report.overall.reply_slow_ms == pytest.approx(910.0)
     assert report.overall.calls_over_target == 5
 
 
 def test_an_empty_window_says_whether_there_were_calls() -> None:
-    none = build_report([], days=7, target_ms=500, complete=True)
+    none = build_report([], days=7, typical_target_ms=400, slow_target_ms=500, complete=True)
     assert none.empty_reason == "no_calls"
 
-    unmeasured = build_report([_fake(1, reply_p90=None)], days=7, target_ms=500, complete=True)
+    unmeasured = build_report(
+        [_fake(1, reply_p90=None)], days=7, typical_target_ms=400, slow_target_ms=500, complete=True
+    )
     assert unmeasured.empty_reason == "not_reported"
     assert unmeasured.overall.calls == 1 and unmeasured.overall.calls_measured == 0
     assert unmeasured.worst_calls == []
@@ -247,7 +319,7 @@ def test_an_empty_window_says_whether_there_were_calls() -> None:
 def test_days_are_ist_calendar_days_and_worst_calls_are_capped() -> None:
     # 20:00 UTC on 14 Oct is 01:30 IST on 15 Oct (D-709).
     calls = [_fake(i, reply_p90=float(i + 1)) for i in range(MAX_WORST_CALLS + 5)]
-    report = build_report(calls, days=1, target_ms=500, complete=True)
+    report = build_report(calls, days=1, typical_target_ms=400, slow_target_ms=500, complete=True)
 
     assert [row.day.isoformat() for row in report.by_day] == ["2026-10-15"]
     assert len(report.worst_calls) == MAX_WORST_CALLS

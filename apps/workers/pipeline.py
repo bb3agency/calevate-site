@@ -687,11 +687,13 @@ async def _upsert_call_row(
                 text(
                     "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
                     "from_e164, to_e164, status, started_at, ended_at, duration_s, "
-                    "engine_quality, forwarded_to_phone, not_placed_reason, created_at, "
-                    "updated_at) VALUES (:id, :tid, :aid, :ecid, :dir, :from_e, "
+                    "engine_quality, forwarded_to_phone, not_placed_reason, voice_settings, "
+                    "created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, :dir, :from_e, "
                     f"COALESCE(CAST(:to_e AS text), {_INBOUND_NUMBER_SQL}), :status, :started, "
-                    ":ended, :dur, CAST(:quality AS jsonb), :forwarded, :not_placed, now(), "
-                    "now()) "
+                    ":ended, :dur, CAST(:quality AS jsonb), :forwarded, :not_placed, "
+                    # What the call ran on (D-896): the agent's published settings when the
+                    # row is first written, kept by every later write.
+                    "(SELECT a.voice_settings FROM agents a WHERE a.id = :aid), now(), now()) "
                     "ON CONFLICT (engine_call_id) DO UPDATE SET "
                     # A snapshot whose engine stated no status keeps the row's: its
                     # `failed` is a default, not an outcome.
@@ -713,6 +715,7 @@ async def _upsert_call_row(
                     "    calls.forwarded_to_phone OR EXCLUDED.forwarded_to_phone, "
                     "  not_placed_reason = "
                     "    COALESCE(EXCLUDED.not_placed_reason, calls.not_placed_reason), "
+                    "  voice_settings = COALESCE(calls.voice_settings, EXCLUDED.voice_settings), "
                     "  updated_at = now() "
                     # THE CONSTANT, NOT A RETYPED COPY OF ITS FIVE MEMBERS. This clause
                     # is what stops a late `ringing` webhook un-completing a finished

@@ -43,6 +43,7 @@ import { asText } from "@/lib/copilot/types";
 import { TeachBox } from "../../../knowledge/TeachBox";
 import { countsOf } from "../test/testCopy";
 import { TestSection } from "../test/TestSection";
+import { KnownFactsPanel } from "./knownFacts";
 import { TryIt } from "./tryIt";
 
 /** Facts shown before "and N more"; the full list is on the Knowledge page. */
@@ -120,7 +121,7 @@ function Training({ agent, slug }: { agent: Agent; slug: string }) {
       </Section>
 
       <div className="space-y-3">
-        <WhatItKnows slug={slug} />
+        <WhatItKnows slug={slug} agentId={agent.id} />
         <SavedTestsSummary agentId={agent.id} canWrite={tryAccess.allowed} />
         <PracticeCallers agent={agent} slug={slug} />
       </div>
@@ -137,7 +138,7 @@ function countLine(n: number, one: string, many: string): string {
  * belongs to the business and every agent answers from it (D-689), so this never offers a
  * per-agent copy; the editing happens on the Knowledge page.
  */
-function WhatItKnows({ slug }: { slug: string }) {
+function WhatItKnows({ slug, agentId }: { slug: string; agentId: string }) {
   const session = useClientSession();
   const { href } = useClientRealm();
   const teach = useWriteAccess(session, "kb:write", "teach your agents");
@@ -189,6 +190,8 @@ function WhatItKnows({ slug }: { slug: string }) {
     <Disclosure variant="card" headingLevel={3} title="What it knows" subtitle={line}>
       <div className="space-y-6">
         {body}
+        {/* The shared facts above, then which of them this agent answers at once (D-896). */}
+        <KnownFactsPanel agentId={agentId} />
         <Link href={href(`/c/${slug}/knowledge`)} className={`${TEXT_ACTION} inline-flex items-center gap-1.5`}>
           <BookOpen aria-hidden className="h-4 w-4" />
           Open What your agents know

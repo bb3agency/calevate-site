@@ -55,6 +55,7 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "team_members": _l("Checking your team", "Checked your team"),
     "voices_offered": _l("Checking the voices", "Checked the voices"),
     "agent_settings": _l("Reading the agent's set-up", "Read the agent's set-up"),
+    "agent_known_facts": _l("Checking what it knows by heart", "Checked what it knows by heart"),
     # Client changes.
     "lead_set_status": _l("Updating the lead", "Updated the lead"),
     "dnc_add": _l("Adding to do-not-call", "Added to do-not-call"),

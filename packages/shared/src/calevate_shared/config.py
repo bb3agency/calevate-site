@@ -539,13 +539,24 @@ class Settings(BaseSettings):
     #: by the engine, which is what makes 2 safe (channels/voice.md:845-885, 19 Oct 2026
     #: snapshot). Saving it republishes every live agent.
     thinnest_interrupt_words: int = Field(default=2, ge=1, le=6)
-    #: How long a caller may wait for a reply, in milliseconds: from the moment they stop
-    #: speaking to the agent's first audio, as the voice platform measures it per call
-    #: (`CallQuality.reply_ms_*`). A call is over target when its p90 reply exceeds this: more
-    #: than one reply in ten kept the caller waiting longer. 500 is the founder's end-to-end
-    #: goal of 27 Aug 2026;
-    #: the admin "Voice response time" screen judges against it (D-770).
-    reply_time_target_ms: int = Field(default=500, ge=100, le=10_000)
+    #: How long a caller should wait for a reply, in milliseconds, from the moment they stop
+    #: speaking to the agent's first audio as the voice platform measures it per call
+    #: (`CallQuality.reply_ms_*`): the TYPICAL wait (the calls' median) and the SLOW one (the
+    #: calls' p90; a call is over target when its own p90 exceeds it). 1,600 / 2,200 are the
+    #: founder's targets of 27 Oct 2026 (D-896), which replaced one 500 ms goal the model alone
+    #: cannot meet (its first word takes ~1 s, `docs/evidence/latency-research-2026-10-27.md`).
+    #: The admin "Voice response time" screen judges against them (D-770).
+    reply_time_typical_target_ms: int = Field(default=1600, ge=100, le=10_000)
+    reply_time_slow_target_ms: int = Field(default=2200, ge=100, le=10_000)
+    #: Put the facts callers ask for most into each agent's instructions, chosen per agent
+    #: from evidence (`apps/api/agents/hot_facts.py`, D-896), so those answers need no
+    #: knowledge search mid-call. Off, every fact is looked up as before. Saving it
+    #: republishes every live agent.
+    hot_facts_enabled: bool = True
+    #: The most characters of such facts one agent carries. The room actually used is the
+    #: smaller of this and what the agent's instructions leave under the engine's limit;
+    #: every character is re-read on every reply, so this bounds what a reply costs.
+    hot_facts_max_chars: int = Field(default=6000, ge=0, le=12_000)
     #: The public `https://` origin of `apps/api` (e.g. `https://api.calevate.tech`) that
     #: ThinnestAI's custom actions call for our in-call tools (`reliability/engine_actions.py`).
     #: Not `webhook_base_url`: that is voice-runtime's face, which may not write the DNC list

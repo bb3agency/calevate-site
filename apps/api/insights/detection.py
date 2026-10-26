@@ -327,6 +327,21 @@ def _topic(caller_text: str, agent_text: str) -> tuple[str, str]:
     return "q_" + "_".join(picked), " ".join(picked).capitalize()
 
 
+def topics_in(value: str) -> frozenset[str]:
+    """Every canonical topic key (`_TOPICS`) whose triggers occur in `value`.
+
+    Not `_topic`'s first-match: a fact or a caller's line can be about a price AND a
+    delivery, and the known-facts chooser (`agents/hot_facts.py`) matches demand to facts on
+    every topic both name, with the gap detector's own vocabulary so the two never disagree
+    about what a topic is."""
+    haystack = value.lower()
+    return frozenset(
+        key
+        for key, _label, triggers in _TOPICS
+        if any(_contains_word(haystack, trigger) for trigger in triggers)
+    )
+
+
 def _contains_word(haystack: str, phrase: str) -> bool:
     """`phrase` as whole word(s) inside `haystack` — the same word-boundary discipline the
     extractor uses, so "cost" does not match inside "costume" and a two-word trigger like
@@ -388,4 +403,4 @@ def _nearest_caller(turns: Sequence[Turn], agent_idx: int) -> str | None:
     return None
 
 
-__all__ = ["DetectedGap", "RedactedTurn", "Signal", "Turn", "detect_gaps"]
+__all__ = ["DetectedGap", "RedactedTurn", "Signal", "Turn", "detect_gaps", "topics_in"]

@@ -36,6 +36,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Final
 from uuid import UUID
 
@@ -45,6 +46,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.engine_facts import recorded_facts_handles
+from apps.api.agents.hot_facts import request_recompute
 from apps.api.agents.llm_tiers import client_model_label
 from apps.api.agents.t0 import KnowledgeFact, recompile_t0
 from apps.api.core.alerting import alert
@@ -1604,6 +1606,48 @@ async def delivered_source_count(session: AsyncSession) -> int:
             )
         ).scalar_one()
     )
+@dataclass(frozen=True, slots=True)
+class LiveChunk:
+    """One chunk of a LIVE source, as the known-facts chooser reads it
+    (`agents/hot_facts.py`): the approved text, its English gloss when it has one (a matching
+    key only, never said), the source's name and when the chunk was written."""
+
+    source: str
+    content: str
+    gloss: str | None
+    written_at: datetime
+
+
+#: The most chunks the known-facts chooser reads per client. The client's knowledge is
+#: bounded already (`teach/facts.MAX_FACTS` facts, chunked sources); a larger corpus is a
+#: catalogue that stays searchable rather than a list to rank.
+MAX_LIVE_CHUNKS: Final = 600
+
+
+async def live_chunks(session: AsyncSession, *, tenant_id: UUID) -> list[LiveChunk]:
+    """Every chunk of the tenant's LIVE sources, in source then reading order.
+
+    The twin of `active_knowledge` for a reader that needs the chunks rather than whole
+    sources: "live" is `s.is_active`, which only `publish_source` sets, so the approval gate
+    is inherited, and a PDF's or link's read words count only while they are sent
+    (`extracted_text_reaches_agents`), so a fact chosen by heart is never one the agents are
+    not otherwise given. `tenant_id` is restated on top of RLS for `live_glosses`' reason.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT s.name, d.content, d.gloss, d.created_at "
+                "FROM kb_sources s JOIN kb_documents d ON d.source_id = s.id "
+                f"WHERE s.tenant_id = :tid AND s.is_active = true AND {_DELIVERED_BY_SOURCE} "
+                "ORDER BY s.name, d.idx LIMIT :cap"
+            ),
+            {"tid": tenant_id, "cap": MAX_LIVE_CHUNKS, **_delivery_params()},
+        )
+    ).all()
+    return [
+        LiveChunk(source=str(r[0]), content=str(r[1] or ""), gloss=r[2], written_at=r[3])
+        for r in rows
+    ]
 
 
 async def live_glosses(session: AsyncSession, *, tenant_id: UUID) -> list[tuple[str, str]]:
@@ -2167,6 +2211,8 @@ async def _refresh_agents(session: AsyncSession, *, tenant_id: UUID) -> int:
             "kb_agent_refreshed",
             extra={"agent_id": str(agent_id), "prompt_version": prompt_version},
         )
+    # What is live changed, so each agent's facts known by heart are chosen again (D-896).
+    await request_recompute(session, tenant_id=tenant_id)
     return len(agents)
 
 
@@ -2868,11 +2914,13 @@ async def list_sources(
 
 __all__ = [
     "MAX_CHUNK_CHARS",
+    "MAX_LIVE_CHUNKS",
     "PUBLISH_KB_SOURCE_JOB",
     "SUPPORTED_SUBMISSION_KINDS",
     "CatchUp",
     "KbRoute",
     "KbTarget",
+    "LiveChunk",
     "active_knowledge",
     "approve_source",
     "catch_up_agent",
@@ -2882,6 +2930,7 @@ __all__ = [
     "extracted_text_reaches_agents",
     "knowledge_agents",
     "list_sources",
+    "live_chunks",
     "lock_tenant_knowledge",
     "preview",
     "project_chunks",

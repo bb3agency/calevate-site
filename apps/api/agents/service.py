@@ -72,6 +72,7 @@ unguarded.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -125,7 +126,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import assignment, call_outcomes, field_suggestions
+from apps.api.agents import assignment, call_outcomes, field_suggestions, hot_facts
 from apps.api.agents import handoff as handoff_module
 from apps.api.agents.call_handling import (
     AGENT_SETTING_COLUMNS,
@@ -166,6 +167,7 @@ from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
 from apps.api.agents.reply_length import resolve_max_reply_tokens
 from apps.api.agents.t0_block import block_of, with_knowledge_of, without_block
 from apps.api.agents.verification import verify_publish
+from apps.api.agents.voice_stamp import stamp_of
 from apps.api.agents.voice_tuning import TUNING_COLUMNS, config_speaking_speed, config_tuning
 from apps.api.agents.voices import get_voice, speech_for_voice_id, voice_id_of
 from apps.api.agents.write_guard import archived_refusal, assert_agent_writable
@@ -519,6 +521,8 @@ class AgentRow(TypedDict):
     business_name: NotRequired[str | None]
     #: The opening waits for the person who picked up to speak (D-871).
     opening_waits_for_caller: NotRequired[bool]
+    # The facts the agent knows by heart, in rank order (D-896, `agents/hot_facts`).
+    hot_facts: NotRequired[tuple[str, ...]]
 
 
 def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
@@ -715,6 +719,8 @@ async def _load_agent(
         "detect_machines": await machine_detection_on(session),
         # The hidden-caller instruction is carried only by a client with a forwarded number.
         "forwarded_line": await has_forwarded_line(session),
+        # The facts this agent knows by heart, in rank order (D-896, `agents/hot_facts`).
+        "hot_facts": await hot_facts.load_texts(session, agent_id=agent_id),
     }
 
 
@@ -858,7 +864,7 @@ def _to_config(
     steps, body = _steps_for(
         engine, agent, _script_for(engine, _assert_has_a_script(agent)), handoff=handoff
     )
-    return AgentConfig(
+    config = AgentConfig(
         tenant_id=str(tenant_id),
         agent_id=str(agent["id"]),
         name=str(agent["name"]),
@@ -962,6 +968,9 @@ def _to_config(
         # drift path both pass it deliberately rather than by default.
         handoff=handoff,
     )
+    # The facts this agent knows by heart, cut to fit (D-896); a no-op on every engine that
+    # holds the facts in the prompt already.
+    return hot_facts.with_known_facts(config, agent.get("hot_facts") or (), engine)
 
 
 def _call_prompt_for(
@@ -2911,6 +2920,8 @@ async def publish_agent(
                 )
                 + "live_tts_voice = :live_voice, live_tts_provider = :live_provider, "
                 "live_verify_state = :verify_state, live_verified_at = :verified_at, "
+                # What each call will run on, for the reply-time split (D-896).
+                "voice_settings = CAST(:voice_settings AS jsonb), "
                 # THE SOFT-DELETE GUARD, and it is not belt-and-braces. `_load_agent` filters
                 # on `deleted_at IS NULL`, but this UPDATE used to name the id alone — so a
                 # delete committed between the two would be silently undone here, resurrecting
@@ -2944,6 +2955,7 @@ async def publish_agent(
                 # every published agent as permanently diverged.
                 "live_voice": voice_id_of(config.models.tts_model, config.models.tts_voice),
                 "live_provider": config.models.tts_provider,
+                "voice_settings": json.dumps(stamp_of(config, engine)),
                 "verify_state": verdict.stored_state,
                 # NULL unless something was actually proven. A timestamp on an `unreachable`
                 # would let a screen render "confirmed just now" over an answer nobody read.
@@ -3211,7 +3223,7 @@ def _variant_config(
     The script is the arm's with the client's knowledge sections taken from the agent
     (`_arm_script`), so a fact pinned or published while the test runs reaches the arms.
     """
-    return _to_config(tenant_id, agent, engine=engine, handoff=handoff).model_copy(
+    arm = _to_config(tenant_id, agent, engine=engine, handoff=handoff).model_copy(
         update={
             "agent_id": str(variant_id),
             "name": f"{agent['name']} [variant {label}]",
@@ -3239,6 +3251,9 @@ def _variant_config(
             ),
         }
     )
+    # The arm's own body replaced the agent's above, so its known facts are spliced again:
+    # an arm carries the client's knowledge like the agent (D-689).
+    return hot_facts.with_known_facts(arm, agent.get("hot_facts") or (), engine)
 
 
 async def publish_variant(

@@ -231,6 +231,11 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
         "a fact the BUSINESS wrote about itself (the teach box or the Knowledge screen, "
         "`kb_facts`), never transcript text; tenant-scoped by RLS (tests/teach_loop_test.py)"
     ),
+    "KnownFactOut.text": (
+        "one paragraph of the business's own APPROVED knowledge or profile (D-896, "
+        "`agent_hot_facts.items`, chosen from `kb_documents` of live sources), never a "
+        "caller's words; tenant-scoped by RLS (tests/hot_facts_test.py)"
+    ),
     "TeachItemIO.text": (
         "one fact or rule sorted out of the owner's OWN words in the teach box "
         "(`kb_teachings.items`), never a caller's; tenant-scoped by RLS"

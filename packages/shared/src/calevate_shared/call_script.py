@@ -361,6 +361,53 @@ def splice_quick_facts(
     return "\n\n".join("\n".join(part) for part in parts)
 
 
+#: The facts callers ask for most, chosen per agent from the client's searchable knowledge
+#: (`apps/api/agents/hot_facts.py`) so the commonest answers need no knowledge search
+#: mid-call. Never authored: spliced in at publish, after the quick facts.
+KNOWN_FACTS_HEADER: Final = "[KNOWN FACTS]"
+KNOWN_FACTS_LEAD: Final = f"{KNOWN_FACTS_HEADER} From your knowledge, what callers ask most."
+
+
+def splice_known_facts(body: str | None, lines: Sequence[str]) -> str:
+    """`body` carrying exactly `lines` as its known-facts section, one `- ` line each.
+
+    Any known-facts section already there is removed. The new one goes right after the quick
+    facts when there are some, else where the quick facts would go (`splice_quick_facts`):
+    before the platform's facts block, and never after a section holding a `{{ variable }}`,
+    so the engine's cached prefix still ends at the first per-call value. Every line is
+    collapsed to one line, so none can start with `[` and end the section early. Pure.
+    """
+    kept: list[str] = []
+    skipping = removed = False
+    for line in (body or "").splitlines():
+        if line.startswith("["):
+            skipping = line.startswith(KNOWN_FACTS_HEADER)
+            removed = removed or skipping
+        if not skipping:
+            kept.append(line)
+    items = [" ".join(line.split()) for line in lines]
+    items = [item for item in items if item]
+    if not items and not removed:
+        return body or ""
+    if not items:
+        return "\n".join(kept).strip("\n")
+    starts = [i for i, line in enumerate(kept) if line.startswith("[")]
+    quick = next((i for i in starts if kept[i].startswith(QUICK_FACTS_HEADER)), None)
+    if quick is not None:
+        at = next((i for i in starts if i > quick), len(kept))
+    else:
+        at = next((i for i in starts if kept[i].startswith("[T0 FACTS]")), len(kept))
+    at = min(at, _first_per_call_section(kept))
+    head, tail = kept[:at], kept[at:]
+    while head and not head[-1].strip():
+        head.pop()
+    while tail and not tail[0].strip():
+        tail.pop(0)
+    middle = [KNOWN_FACTS_LEAD, *(f"- {item}" for item in items)]
+    parts: list[list[str]] = [part for part in (head, middle, tail) if part]
+    return "\n\n".join("\n".join(part) for part in parts)
+
+
 def _first_per_call_section(lines: Sequence[str]) -> int:
     """The index of the first section header (a line starting with `[`) whose section holds
     a `{{ variable }}`, or `len(lines)` when none does."""
@@ -1073,6 +1120,8 @@ __all__ = [
     "EXAMPLE_HEADER",
     "GUARDRAILS_BLOCK",
     "HAND_OVER",
+    "KNOWN_FACTS_HEADER",
+    "KNOWN_FACTS_LEAD",
     "MAX_SCRIPT_STAGES",
     "NO_CALL_BACKS_POLICY",
     "OPENING_HEADER",
@@ -1111,6 +1160,7 @@ __all__ = [
     "quick_fact_lines",
     "render_steps",
     "script_text",
+    "splice_known_facts",
     "splice_quick_facts",
     "substitute_variables",
     "unplaced_lines",

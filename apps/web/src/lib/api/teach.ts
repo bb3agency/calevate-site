@@ -61,6 +61,23 @@ export function useKnows(session: Session): UseQueryResult<Knows> {
   });
 }
 
+export type KnownFacts = Schemas["KnownFactsOut"];
+
+/**
+ * What one agent knows by heart and what it looks up (D-896). Under the `kb-knows` prefix,
+ * so every fact mutation that refreshes "what it knows" refreshes this too; the choice
+ * itself is made by a worker, so a fresh read may still show the previous one for a minute.
+ */
+export const knownFactsKey = (slug: string, agentId: string) =>
+  [...knowsKey(slug), "agent", agentId] as const;
+
+export function useKnownFacts(session: Session, agentId: string): UseQueryResult<KnownFacts> {
+  return useQuery({
+    queryKey: knownFactsKey(session.orgSlug, agentId),
+    queryFn: () => apiRequest<KnownFacts>(session, `/v1/agents/${agentId}/known-facts`),
+  });
+}
+
 export function useTeaching(session: Session, id: string | null): UseQueryResult<Teaching> {
   return useQuery({
     queryKey: teachingKey(session.orgSlug, id),

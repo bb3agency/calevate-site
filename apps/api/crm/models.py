@@ -413,6 +413,9 @@ class Call(PKMixin, TimestampMixin, Base):
     #: model errors and backup answers, each NULL when not measured. Numbers only, which the
     #: CHECK of migration a5d1c7e93f28 enforces. NULL until the platform reports it.
     engine_quality: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: The agent's published call-handling settings when this row was first written
+    #: (`agents.voice_settings`, D-896), never overwritten: what the reply times above ran on.
+    voice_settings: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     # The one-way handle a DPDP erasure leaves behind when it clears this row's numbers
     # (D-310, migration c1e9a4f7d302). Without it an erased call is orphaned from its
     # subject forever — the two phone columns were the only join — so records that arrive
