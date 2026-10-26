@@ -73,15 +73,25 @@ class Draft:
     reviewed: bool = False
 
 
+#: A draft still `running` this long after its last write died with its worker (the job
+#: asks the model once, `DRAFT_TIMEOUT_S` 45 s; a timed-out or killed job is not retried and
+#: its claim is spent). It reads as failed, so the owner may ask again.
+DRAFT_STALE_MINUTES: Final = 10
+
 _DRAFT_SQL: Final = (
-    "SELECT status, fields, requested_at, completed_at, error_code, reviewed_at "
+    "SELECT CASE WHEN status = 'running' AND updated_at < now() - make_interval(mins => :stale) "
+    "THEN 'failed' ELSE status END, fields, requested_at, completed_at, "
+    "CASE WHEN status = 'running' AND updated_at < now() - make_interval(mins => :stale) "
+    "THEN 'draft_crashed' ELSE error_code END, reviewed_at "
     "FROM lead_field_drafts "
     "WHERE tenant_id = :tid"
 )
 
 
 async def read_draft(session: AsyncSession, *, tenant_id: UUID) -> Draft | None:
-    row = (await session.execute(text(_DRAFT_SQL), {"tid": tenant_id})).first()
+    row = (
+        await session.execute(text(_DRAFT_SQL), {"tid": tenant_id, "stale": DRAFT_STALE_MINUTES})
+    ).first()
     if row is None:
         return None
     return Draft(
@@ -154,10 +164,12 @@ async def request_draft(
                 "ON CONFLICT (tenant_id) DO UPDATE SET status = 'queued', error_code = NULL, "
                 "requested_by = EXCLUDED.requested_by, requested_at = now(), "
                 "completed_at = NULL, updated_at = now() "
-                "WHERE lead_field_drafts.status = 'failed' "
+                "WHERE lead_field_drafts.status = 'failed' OR (lead_field_drafts.status = "
+                "'running' AND lead_field_drafts.updated_at "
+                "< now() - make_interval(mins => :stale)) "
                 "RETURNING status, requested_at"
             ),
-            {"id": uuid7(), "tid": tenant_id, "by": requested_by},
+            {"id": uuid7(), "tid": tenant_id, "by": requested_by, "stale": DRAFT_STALE_MINUTES},
         )
     ).first()
     if row is None:

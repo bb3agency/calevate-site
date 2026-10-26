@@ -288,8 +288,26 @@ async def _draft(
     )
 
 
-async def _meter(tenant_id: UUID, answer: JsonAnswer[list[ExtractionField]]) -> None:
+async def _store(tenant_id: UUID, answer: JsonAnswer[list[ExtractionField]]) -> bool:
+    """Meter the answer and store the draft in ONE transaction, so a failed store charges
+    nothing. False when the claim is no longer ours (read as dead and asked for again)."""
     async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text(
+                    "UPDATE lead_field_drafts SET status = 'done', "
+                    "fields = CAST(:fields AS jsonb), model = :model, error_code = NULL, "
+                    "completed_at = now(), updated_at = now() WHERE status = 'running' "
+                    "RETURNING id"
+                ),
+                {
+                    "fields": json.dumps([f.model_dump() for f in answer.value]),
+                    "model": answer.model,
+                },
+            )
+        ).first()
+        if stored is None:
+            return False
         await crm_assist.meter_earlier(
             session, tenant_id=tenant_id, earlier=answer.earlier, feature=ASSIST_FEATURE_LEAD_FIELDS
         )
@@ -301,6 +319,7 @@ async def _meter(tenant_id: UUID, answer: JsonAnswer[list[ExtractionField]]) -> 
             feature=ASSIST_FEATURE_LEAD_FIELDS,
             model=answer.model,
         )
+    return True
 
 
 async def _refused(tenant_id: UUID, refused: ProblemError) -> str:
@@ -351,27 +370,17 @@ async def draft_lead_fields(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         except ProblemError as refused:
             await _fail(tenant_id, await _refused(tenant_id, refused))
             return "failed"
-        await _meter(tenant_id, answer)
+        if not await _store(tenant_id, answer):
+            return "not_running"
     except Exception:
         log.exception("lead_fields_draft_crashed", extra={"tenant_id": str(tenant_id)})
         await _fail(tenant_id, "draft_crashed")
         return "failed"
-    fields, model = answer.value, answer.model
-
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "UPDATE lead_field_drafts SET status = 'done', fields = CAST(:fields AS jsonb), "
-                "model = :model, error_code = NULL, completed_at = now(), updated_at = now() "
-                "WHERE status = 'running'"
-            ),
-            {"fields": json.dumps([f.model_dump() for f in fields]), "model": model},
-        )
     # It reaches no agent until the owner keeps it, field by field (D-821,
     # `lead_fields.review_draft`).
     log.info(
         "lead_fields_drafted",
-        extra={"tenant_id": str(tenant_id), "fields": len(fields)},
+        extra={"tenant_id": str(tenant_id), "fields": len(answer.value)},
     )
     return "done"
 

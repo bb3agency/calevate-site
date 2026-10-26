@@ -355,6 +355,53 @@ async def test_a_failed_draft_may_be_asked_for_again(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.rls
+async def test_a_draft_whose_worker_died_reads_failed_and_may_be_asked_for_again() -> None:
+    """A job killed or timed out after its claim is not retried, so `running` would stay
+    forever and the business could never be drafted."""
+    tenant_id, _ = await _tenant("custom")
+    await _request(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE lead_field_drafts SET status = 'running', "
+                "updated_at = now() - make_interval(mins => :m)"
+            ),
+            {"m": lead_fields.DRAFT_STALE_MINUTES + 1},
+        )
+        draft = await lead_fields.read_draft(session, tenant_id=tenant_id)
+        assert draft is not None and draft.status == "failed"
+        assert draft.error_code == "draft_crashed"
+        again = await lead_fields.request_draft(session, tenant_id=tenant_id, requested_by=None)
+    assert again.status == "queued"
+
+
+@pytest.mark.rls
+async def test_a_draft_that_cannot_be_stored_charges_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The charge and the stored draft are one transaction: when either fails, neither is
+    kept, so the account never pays for a draft it does not have."""
+    tenant_id, _ = await _tenant("custom")
+    await _request(tenant_id)
+    metered: list[str] = []
+
+    async def earlier(*_args: object, **_kwargs: object) -> None:
+        metered.append("earlier")
+
+    async def broken_assist(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("the charge failed")
+
+    monkeypatch.setattr(lead_fields_draft.crm_assist, "meter_earlier", earlier)
+    monkeypatch.setattr(lead_fields_draft.crm_assist, "meter_assist", broken_assist)
+    assert await _run_worker(tenant_id, monkeypatch) == "failed"
+    async with tenant_session(tenant_id) as session:
+        draft = await lead_fields.read_draft(session, tenant_id=tenant_id)
+    # The draft had been written in the charge's transaction, and went with it.
+    assert metered == ["earlier"]
+    assert draft is not None and draft.status == "failed" and draft.fields == []
+
+
+@pytest.mark.rls
 async def test_a_known_business_type_is_never_drafted() -> None:
     tenant_id, token = await _tenant("retail")
     assert await _business_keys(tenant_id) == [[f["key"] for f in VERTICAL_TEMPLATES["retail"]]]
