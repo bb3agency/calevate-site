@@ -88,14 +88,17 @@ function bodyOf(draft: Draft): VoiceTuningIn {
 export function VoiceTuningPanel({
   tenantId,
   agentId,
+  voiceId,
   write,
 }: {
   tenantId: string;
   agentId: string;
+  /** The agent's configured voice: a new one reads the settings afresh. */
+  voiceId: string | null;
   write: ReturnType<typeof useAdminAccess>;
 }) {
-  const held = useVoiceTuning(tenantId, agentId);
-  const save = useSetVoiceTuning(tenantId, agentId);
+  const held = useVoiceTuning(tenantId, agentId, voiceId);
+  const save = useSetVoiceTuning(tenantId, agentId, voiceId);
   const preview = useVoiceTuningPreview(tenantId, agentId);
   const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const previewFeedback = useActionFeedback(preview, { errorDisplay: "inline" });

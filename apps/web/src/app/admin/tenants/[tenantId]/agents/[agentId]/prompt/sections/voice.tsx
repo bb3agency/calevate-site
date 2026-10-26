@@ -67,7 +67,14 @@ export function VoicePanel({
           </>
         )}
       </div>
-      {!tenantLoading && <VoiceTuningPanel tenantId={tenantId} agentId={agentId} write={write} />}
+      {!tenantLoading && (
+        <VoiceTuningPanel
+          tenantId={tenantId}
+          agentId={agentId}
+          voiceId={agent?.engine_voice_id ?? null}
+          write={write}
+        />
+      )}
     </div>
   );
 }

@@ -283,6 +283,26 @@ describe("the voice panel", () => {
     expect(write.headers["X-Impersonate-Org"]).toBe("sunrise");
   });
 
+  it("reads the voice settings afresh once another voice is saved", async () => {
+    let saved = false;
+    const { calls } = await render({
+      "/v1/agents": () => [agentRow({ id: AGENT, engine_voice_id: saved ? "engine:3b7e" : null })],
+      [`PATCH /v1/agents/${AGENT}`]: () => {
+        saved = true;
+        return agentRow({ id: AGENT, engine_voice_id: "engine:3b7e" });
+      },
+    });
+    const reads = () => calls.filter((c) => c.path === TUNING_PATH && c.method === "GET").length;
+
+    await screen.findByRole("radio", { name: /Anjali/ });
+    await waitFor(() => expect(reads()).toBeGreaterThan(0));
+    const before = reads();
+    fireEvent.click(radio(/Anjali/));
+    fireEvent.click(await screen.findByRole("button", { name: "Use this voice" }));
+
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
+
   it("renders a refusal, not an empty picker, when the voices cannot be read", async () => {
     await render({
       [ENGINE_CATALOGUE_PATH]: problem(503, {

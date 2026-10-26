@@ -47,8 +47,13 @@ export function voiceTuningPreviewPath(tenantId: string, agentId: string): strin
   return PREVIEW_PATH.replace("{tenant_id}", tenantId).replace("{agent_id}", agentId);
 }
 
-export const voiceTuningKey = (tenantId: string, agentId: string) =>
-  ["voice-tuning", tenantId, agentId] as const;
+/**
+ * Keyed by the agent's configured voice, as `clientVoiceTuningKey` is: choosing another voice
+ * changes whether these apply (`studio`) and may start the emotion on calm, and the console
+ * saves the voice through the client route, whose refresh does not know this key.
+ */
+export const voiceTuningKey = (tenantId: string, agentId: string, voiceId: string | null) =>
+  ["voice-tuning", tenantId, agentId, voiceId] as const;
 
 /** A held speed or volume as a number, or null; the server sends decimals as strings. */
 export function tuningNumber(value: string | number | null | undefined): number | null {
@@ -57,9 +62,13 @@ export function tuningNumber(value: string | number | null | undefined): number 
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function useVoiceTuning(tenantId: string, agentId: string): UseQueryResult<VoiceTuning> {
+export function useVoiceTuning(
+  tenantId: string,
+  agentId: string,
+  voiceId: string | null,
+): UseQueryResult<VoiceTuning> {
   return useQuery({
-    queryKey: voiceTuningKey(tenantId, agentId),
+    queryKey: voiceTuningKey(tenantId, agentId, voiceId),
     queryFn: () => apiRequest<VoiceTuning>(adminSession(), voiceTuningPath(tenantId, agentId)),
     enabled: Boolean(tenantId) && Boolean(agentId),
   });
@@ -68,6 +77,7 @@ export function useVoiceTuning(tenantId: string, agentId: string): UseQueryResul
 export function useSetVoiceTuning(
   tenantId: string,
   agentId: string,
+  voiceId: string | null,
 ): UseMutationResult<VoiceTuning, Error, VoiceTuningIn> {
   const client = useQueryClient();
   return useMutation({
@@ -77,7 +87,7 @@ export function useSetVoiceTuning(
         body: payload,
       }),
     onSuccess: (data) => {
-      client.setQueryData(voiceTuningKey(tenantId, agentId), data);
+      client.setQueryData(voiceTuningKey(tenantId, agentId, voiceId), data);
     },
   });
 }
