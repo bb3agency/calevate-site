@@ -118,6 +118,24 @@ describe("the client's line protection screen", () => {
     expect(JSON.parse(put?.body ?? "{}")).toEqual({ phone_e164: "+919876543210" });
   });
 
+  it("offers no empty backup-phone form over a read that failed", async () => {
+    await renderClientPage(
+      <LineProtectionPage />,
+      routes({
+        "/v1/healer/fallback-phone": problem(503, {
+          type: "about:blank",
+          title: "Service unavailable",
+          status: 503,
+          detail: "We could not read your backup phone.",
+          retryable: true,
+        }),
+      }),
+    );
+    await screen.findByText("We could not read your backup phone.");
+    expect(screen.queryByLabelText("Indian mobile number")).toBeNull();
+    expect(document.body.textContent).not.toContain("try again later");
+  });
+
   it("asks before turning a held line back on", async () => {
     const { calls } = await renderClientPage(
       <LineProtectionPage />,

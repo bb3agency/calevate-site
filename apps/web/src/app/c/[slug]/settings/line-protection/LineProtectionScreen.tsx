@@ -78,6 +78,10 @@ function BackupPhone({ session, allowed }: { session: Realm["session"]; allowed:
       {phone.error != null && <ProblemNotice error={phone.error} onRetry={() => phone.refetch()} />}
       {phone.isLoading ? (
         <Skeleton rows={2} label="Loading your backup phone" />
+      ) : phone.data === undefined ? (
+        // A failed first read: the notice above says so. An empty form here would claim
+        // no backup phone is set and invite overwriting one that is.
+        null
       ) : (
         <form
           noValidate
