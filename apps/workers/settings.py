@@ -195,6 +195,8 @@ from apps.workers.forwarding import (
 from apps.workers.fx_pull import PULL_MINUTES, pull_fx_rate
 from apps.workers.healer import SCORE_MINUTES, healer_sweep, run_healer, score_agent_health
 from apps.workers.inbound_cutover import apply_inbound_credit_state
+from apps.workers.interrupted_work import SWEEP_MINUTES as INTERRUPTED_SWEEP_MINUTES
+from apps.workers.interrupted_work import end_interrupted_work
 from apps.workers.kb_aggregation import (
     DIGEST_HOUR,
     DIGEST_MINUTE,
@@ -780,6 +782,18 @@ CRON_JOBS = [
             "at most MAX_FIRES_PER_TICK"
         ),
         second={30},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # Pip jobs and teachings a `job_timeout` overrun left in flight, ended as failed with a
+    # sentence (`interrupted_work.py` argues failing over re-queuing). Retrying is safe:
+    # each statement only moves rows still past the cutoff.
+    _cron(
+        traced_job(end_interrupted_work),
+        walk=bounded(
+            "one untenanted outbox read for recent tenants, then one tenant_session each, "
+            "at most MAX_TENANTS_PER_TICK"
+        ),
+        minute=set(INTERRUPTED_SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
     # CROSS-CALL MEMORY: what a finished call taught us about the PERSON who rang (D-513).
