@@ -281,6 +281,11 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         # D-893 L8's knowledge rename and note APPEND.
         "knowledge_rename",
         "knowledge_note_save",
+        # D-893 lane L5: guided questions, facts and practice tests APPEND.
+        "knowledge_question_settle",
+        "knowledge_fact_change",
+        "agent_tests_run",
+        "agent_test_add",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]

@@ -146,6 +146,13 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "auto_recharge_set": _l("Preparing the auto-recharge change", "Prepared the change"),
     "low_balance_alert_set": _l("Setting the low-credit warning", "Set the low-credit warning"),
     "ai_allowance_extra": _l("Preparing more AI help", "Prepared more AI help"),
+    "knowledge_questions": _l(
+        "Checking the questions to answer", "Checked the questions to answer"
+    ),
+    "knowledge_question_settle": _l("Preparing the answer", "Prepared the answer"),
+    "knowledge_fact_change": _l("Preparing the fact change", "Prepared the fact change"),
+    "agent_tests_run": _l("Preparing the practice tests", "Prepared the practice tests"),
+    "agent_test_add": _l("Saving the practice test", "Saved the practice test"),
     "open_screen": _l("Opening the screen", "Opened the screen"),
     "run_in_background": _l("Starting a background task", "Started a background task"),
     # Operator reads and actions (admin realm).

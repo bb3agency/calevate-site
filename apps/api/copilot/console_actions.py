@@ -2751,10 +2751,13 @@ KNOWLEDGE_LINK_ADD: Final = ActionTool(
     where="on the What your agents know screen",
     schema=action_schema(
         "knowledge_link_add",
-        "Propose adding to knowledge a web page the person gave you, never one you chose."
+        "Add a web page the person gave you, never one you chose, to what the agents know."
         + PROPOSES_ONLY,
         {
-            "name": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            "name": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "description": "A short title, or null for the page's own.",
+            },
             "url": {"type": "string"},
         },
     ),

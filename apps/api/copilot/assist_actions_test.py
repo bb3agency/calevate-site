@@ -27,6 +27,7 @@ from apps.api.copilot.agent_setup_actions import AGENT_SETUP_ACTIONS
 from apps.api.copilot.agent_tool_actions import AGENT_TOOL_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
+from apps.api.copilot.question_actions import TRAINING_ACTIONS
 from apps.api.copilot.schemas import CopilotProposalEvent
 from apps.api.copilot.write_tools_test import _audit, _confirm, _outbox_jobs, _principal, _user_of
 from apps.api.core.errors import ProblemError
@@ -65,7 +66,7 @@ def test_each_is_on_its_buttons_permission_and_only_the_form_filler_skips_the_cl
         assert (tool.tier, tool.permission) == (tier, permission), name
     assert [t.name for t in assist_actions.ASSIST_ACTIONS] == list(expected)
     count = len(assist_actions.ASSIST_ACTIONS)
-    # D-854's pinned answers and D-893's agent, account and knowledge actions were appended
+    # D-854's pinned answers and D-893's agent, account, knowledge and training actions were appended
     # after them.
     after = (
         len(FACT_ACTIONS)
@@ -73,6 +74,7 @@ def test_each_is_on_its_buttons_permission_and_only_the_form_filler_skips_the_cl
         + len(AGENT_TOOL_ACTIONS)
         + len(ACCOUNT_ACTIONS)
         + len(KNOWLEDGE_ACTIONS)
+        + len(TRAINING_ACTIONS)
     )
     assert write_tools.WRITE_TOOLS[-count - after : -after] == assist_actions.ASSIST_ACTIONS
 

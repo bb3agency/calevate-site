@@ -149,9 +149,8 @@ KNOWLEDGE_FACTS_PIN: Final = ActionTool(
     where="on the What your agents know screen",
     schema=action_schema(
         "knowledge_facts_pin",
-        "Pin up to three questions callers ask, each with the business's answer in the "
-        "person's own words, so every agent answers them the same way. Never invent an "
-        "answer, price or time: ask. For a longer document use `knowledge_teach`." + PROPOSES_ONLY,
+        "Pin up to three caller questions, each with the answer in the person's words. "
+        "Never invent an answer, price or time: ask." + PROPOSES_ONLY,
         {
             "facts": {
                 "type": "array",

@@ -152,16 +152,12 @@ KNOWLEDGE_TEACH: Final = ActionTool(
     where="in the Add area on the What your agents know screen",
     schema=action_schema(
         "knowledge_teach",
-        "Teach the agents something about the business: the words are sorted into facts "
-        "and rules the person keeps on the What your agents know screen. Pass what they typed, or "
-        "the words of a photo or file they attached, as written. For one fact to add to "
-        "knowledge directly, use `propose_knowledge`." + PROPOSES_ONLY,
+        "Teach the agents what the person typed, or an attached photo's or file's words, as "
+        "written; sorted into facts and rules they keep on What your agents know. One fact: "
+        "`propose_knowledge`." + PROPOSES_ONLY,
         {
-            "words": {"type": "string", "description": "What the agents should know."},
-            "gap_id": {
-                **_NULLABLE_TEXT,
-                "description": "The caller question being answered, from SCREEN STATE, or null.",
-            },
+            "words": {"type": "string"},
+            "gap_id": {**_NULLABLE_TEXT, "description": "From SCREEN STATE, or null."},
         },
     ),
     plan=_plan_teach,
@@ -481,18 +477,12 @@ CALL_TEST_PREPARE: Final = ActionTool(
     where="in the test form on the call's page",
     schema=action_schema(
         "call_test_prepare",
-        "Make one call a test for its agent: fills in the test form on the call's page "
-        "with the caller's lines, which the person checks and saves there." + DOES_IT,
+        "Make one call a test: fills in the call page's test form, which the person "
+        "checks and saves." + DOES_IT,
         {
-            "call_id": {
-                "type": "string",
-                "description": "The call's id, from SCREEN STATE or `calls_recent`.",
-            },
-            "expected": {
-                **_NULLABLE_TEXT,
-                "description": "What the agent should do instead, in their words, or null.",
-            },
-            "title": {**_NULLABLE_TEXT, "description": "A name for the test, or null."},
+            "call_id": {"type": "string", "description": "From SCREEN STATE or `calls_recent`."},
+            "expected": {**_NULLABLE_TEXT, "description": "What the agent should do, or null."},
+            "title": _NULLABLE_TEXT,
         },
     ),
     plan=_plan_call_test,

@@ -102,6 +102,10 @@ _REVIEWED_IMMEDIATE: dict[str, str] = {
     "low_balance_alert_set": "when a warning is sent; charges nothing, prior line restored",
     # D-893 L8: a heading, not an answer; the prior name is the exact inverse.
     "knowledge_rename": "renames a file, link or note; Undo restores the old name under a CAS",
+    "agent_test_add": (
+        "a saved test reaches no caller and spends nothing until a run is asked for; Undo "
+        "deletes it"
+    ),
 }
 
 

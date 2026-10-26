@@ -36,6 +36,7 @@ from apps.api.copilot.assist_actions import ASSIST_ACTIONS
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
+from apps.api.copilot.question_actions import TRAINING_ACTIONS
 from apps.api.copilot.script_actions import SCRIPT_ACTIONS
 from apps.api.copilot.write_tools_test import _audit, _confirm, _principal, _user_of
 from apps.api.core.errors import ProblemError
@@ -150,6 +151,7 @@ def test_the_console_actions_are_appended_after_the_earlier_ones() -> None:
         + len(AGENT_TOOL_ACTIONS)
         + len(ACCOUNT_ACTIONS)
         + len(KNOWLEDGE_ACTIONS)
+        + len(TRAINING_ACTIONS)
     )
     assert names[-len(console) - later : -later] == console
     assert len(set(names)) == len(names)

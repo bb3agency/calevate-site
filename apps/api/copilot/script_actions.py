@@ -419,17 +419,13 @@ AGENT_TESTS_FIX: Final = ActionTool(
     where="in the agent's Training tab, under Agents",
     schema=action_schema(
         "agent_tests_fix",
-        "Suggest script and fact changes that fix the tests an agent failed in its latest "
-        "run; the person keeps them in its Training tab. For a change they describe, use "
-        "`agent_script_suggest`." + PROPOSES_ONLY,
+        "Suggest fixes for the tests an agent failed in its latest run, kept on its "
+        "Training tab. A change the person describes: `agent_script_suggest`." + PROPOSES_ONLY,
         {
-            "agent_id": {
-                "type": "string",
-                "description": "The agent's id, from the SCREEN STATE or `agents_list`.",
-            },
+            "agent_id": {"type": "string", "description": "From SCREEN STATE or `agents_list`."},
             "test_keys": {
                 "anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}],
-                "description": "The failed tests to fix, by key from SCREEN STATE; null for all.",
+                "description": "Failed test keys from SCREEN STATE; null for all.",
             },
         },
     ),

@@ -129,6 +129,7 @@ from apps.api.copilot.assist_actions import ASSIST_ACTIONS
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
+from apps.api.copilot.question_actions import TRAINING_ACTIONS
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.schemas import (
     CopilotActionEvent,
@@ -882,20 +883,19 @@ PROPOSE_KNOWLEDGE: Final = WriteTool(
     where="on the What your agents know screen",
     schema=action_schema(
         "propose_knowledge",
-        # Trimmed for the prompt budget (D-893 L8, PIP-AGENT-PLAN §2a); every rule it states
-        # is kept, in fewer words.
-        "Propose a new knowledge note every agent answers from: only what the person just "
-        "told you about their own business — never invent a price, policy or time, never "
-        "repeat a caller. Several things, a photo or a file: `knowledge_teach`." + PROPOSES_ONLY,
+        "Add one fact the person just told you about their business. Never invent one; "
+        "never repeat something a caller said. Several things or a file: `knowledge_teach`."
+        + PROPOSES_ONLY,
         {
-            "agent_id": {
+            "agent_id": {"type": "string", "description": "From SCREEN STATE."},
+            "name": {
                 "type": "string",
-                "description": "The agent on the SCREEN STATE, never invented.",
+                "description": f"A short title, at most {kb_proposals.MAX_NAME_CHARS} characters.",
             },
             "name": {"type": "string", "description": "A short title."},
             "body": {
                 "type": "string",
-                "description": "In the person's words. No phone numbers, emails or ID numbers.",
+                "description": "The fact in the person's words, with no phone number or email.",
             },
             "origin": {
                 "type": "string",
@@ -905,9 +905,9 @@ PROPOSE_KNOWLEDGE: Final = WriteTool(
             "topic_key": {
                 "anyOf": [{"type": "string"}, {"type": "null"}],
                 "description": (
-                    "With `gap_digest`, the gap's topic: "
+                    "With `gap_digest`: "
                     + ", ".join(sorted(kb_proposals.CITABLE_TOPIC_KEYS))
-                    + ". Else null; never one made up."
+                    + ". Else null."
                 ),
             },
         },
@@ -949,6 +949,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *ACCOUNT_ACTIONS,
     # D-893 L8: rename, write or correct with a note, and put a removed note back.
     *KNOWLEDGE_ACTIONS,
+    # D-893 lane L5: guided questions, fact changes and practice tests.
+    *TRAINING_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}

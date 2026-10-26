@@ -74,6 +74,8 @@ from apps.api.crm import service as crm_service
 from apps.api.crm.attention import attention_queue, failed_deliveries
 from apps.api.ingest.service import list_lead_sources
 from apps.api.quality.service import list_reports
+from apps.api.teach import facts as fact_store
+from apps.api.teach import questions as teach_questions
 
 #: How many transcript turns `call_detail` hands the model, and how much of each. A call
 #: summary answers most questions; the turns are for "what exactly did they ask", and a
@@ -363,6 +365,40 @@ async def _callbacks_list(
             matching="still waiting" if open_only else None,
             next_step="A call-back is booked when a caller asks to be called back.",
         ),
+    )
+
+
+# --- knowledge_questions ---------------------------------------------------------------
+
+
+_WHY_WORDS: Final = {
+    "callers": "asked on {n} call(s)",
+    "practice": "practice callers need it",
+    "setup": "your setup leaves it open",
+}
+
+
+async def _knowledge_questions(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """`teach.questions.list_questions`, the Questions to answer list. It never queues a
+    draft: a question asked of Pip is not the owner opening the list."""
+    if context.tenant_id is None:
+        return "No account is open."
+    found = await teach_questions.list_questions(
+        session, tenant_id=context.tenant_id, agent_id=_uuid_arg(args, "agent_id")
+    )
+    lines = []
+    for q in found.items[:MAX_ROWS]:
+        line = f"- {q.question} · {_WHY_WORDS[q.why].format(n=q.callers)}"
+        if q.draft:
+            line += f" · draft from {q.draft_source_label}: {q.draft}"
+        lines.append(_clean(line) + f" [question_key {q.key}]")
+    return _listing(
+        lines,
+        total=found.open_count,
+        shown_of="questions to answer",
+        nothing="Nothing to answer: no caller, practice caller or setup step is waiting on one.",
     )
 
 
@@ -1108,6 +1144,22 @@ CONSOLE_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         parameters=_object({}),
         permission="billing:read",
         run=_billing_settings,
+    ReadTool(
+        name="knowledge_questions",
+        description=(
+            "Questions the agents need answered, most asked first, with drafts and sources."
+        ),
+        parameters=_object(
+            {
+                "agent_id": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "description": "Null for every agent.",
+                }
+            }
+        ),
+        # `GET /v1/teach/questions`' permission: it quotes callers' redacted words.
+        permission="calls:read",
+        run=_knowledge_questions,
     ),
 )
 
