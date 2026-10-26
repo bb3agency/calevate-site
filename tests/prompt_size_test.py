@@ -279,7 +279,17 @@ async def test_a_recorded_refusal_is_held_back_until_the_agent_goes_live_again()
 # --- pinned facts cannot push a live agent over --------------------------------------
 
 
-async def test_a_pinned_fact_that_would_push_a_live_agent_over_is_refused() -> None:
+@pytest.mark.parametrize(
+    ("status", "ref"),
+    [
+        ("live", None),
+        # D-838's ready agent: the recompile republishes it, so it must fit too.
+        ("paused", "ag_ready"),
+    ],
+)
+async def test_a_pinned_fact_that_would_push_a_live_agent_over_is_refused(
+    status: str, ref: str | None
+) -> None:
     from apps.api.teach import pinned as pinned_store
 
     # `_agent_with_script` resets the engine cache, so agents are made outside `_selected`.
@@ -293,7 +303,11 @@ async def test_a_pinned_fact_that_would_push_a_live_agent_over_is_refused() -> N
     tenant_id, agent_id = await _agent_with_script("w" * (1 + 20_000 - size.total - 40))
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text("UPDATE agents SET status = 'live' WHERE id = :a"), {"a": agent_id}
+            text(
+                "UPDATE agents SET status = :s, "
+                "engine_agent_ref = COALESCE(CAST(:r AS text), engine_agent_ref) WHERE id = :a"
+            ),
+            {"a": agent_id, "s": status, "r": ref},
         )
     with _selected(_thinnest()):
         async with tenant_session(tenant_id) as session:

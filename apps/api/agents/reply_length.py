@@ -24,6 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.live_apply import queue_live_apply
+from apps.api.agents.models import is_published
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -75,16 +76,17 @@ async def set_reply_length(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, tokens: int | None
 ) -> tuple[ReplyLengthState, bool]:
     """Write the agent's own ceiling (None inherits) and queue its live apply when it is
-    live. The row is locked first, so the comparison and the write are one step and a repeat
-    of the held value writes and queues nothing. The bounds are the route's and the column
-    CHECK's. Answers the new state and whether it moved."""
+    published (live, or ready and not taking calls). The row is locked first, so the
+    comparison and the write are one step and a repeat of the held value writes and queues
+    nothing. The bounds are the route's and the column CHECK's. Answers the new state and
+    whether it moved."""
     row = (await session.execute(text(_READ_SQL + " FOR UPDATE"), {"aid": agent_id})).first()
     if row is None:
         raise ProblemError.not_found("Agent")
     moved = row[0] != tokens
     if moved:
         await session.execute(text(_UPDATE_SQL), {"tokens": tokens, "aid": agent_id})
-        if str(row[1]) == "live" and row[2]:
+        if is_published(row[1], row[2]):
             await queue_live_apply(
                 session,
                 scope="agent",

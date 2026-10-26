@@ -109,14 +109,15 @@ async def assert_room(
 
 
 _LIVE_AGENTS: Final = (
-    "SELECT id, name FROM agents WHERE status = 'live' AND deleted_at IS NULL ORDER BY id"
+    "SELECT id, name FROM agents WHERE (status = 'live' OR (status = 'paused' "
+    "AND engine_agent_ref IS NOT NULL)) AND deleted_at IS NULL ORDER BY id"
 )
 
 
 async def _assert_live_agents_fit(
     session: AsyncSession, *, tenant_id: UUID, pairs: Sequence[tuple[str, str]]
 ) -> None:
-    """Refuse a pinned-facts change that would push a live agent's instructions past the
+    """Refuse a pinned-facts change that would push a published agent's instructions past the
     calling system's box (D-752). Pinned facts ride in every agent's instructions, so a
     change accepted here and refused at the recompile's publish would leave that agent on
     its old script with nobody told."""

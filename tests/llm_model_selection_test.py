@@ -1280,3 +1280,33 @@ async def test_on_an_engine_that_runs_its_own_models_no_tier_is_chosen() -> None
         assert refused.status_code == 422, refused.text
         assert refused.json()["type"].rsplit("/", 1)[-1] == TIER_NOT_CHOSEN_HERE
     assert cleared.status_code == 200, cleared.text
+
+
+async def test_an_account_default_change_reaches_a_ready_agent_not_taking_calls() -> None:
+    """D-838's ready agent (paused, on the voice platform) runs the inherited model in its Try
+    it chat and trial calls, so the default's live apply must cover it, not only live ones."""
+    from apps.api.agents.llm_routes import _write_default
+    from calevate_shared.engine import PLATFORM_DEFAULT_LLM_MODEL
+    from tests.call_handling_test import _make_live, _tenant
+
+    tenant_id, agent_id, _headers = await _tenant()
+    await _make_live(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET status = 'paused', llm_model = NULL WHERE id = :aid"),
+            {"aid": agent_id},
+        )
+        await session.execute(text("UPDATE organizations SET default_llm_model = NULL"))
+        assert await _write_default(session, tenant_id=tenant_id, model=PLATFORM_DEFAULT_LLM_MODEL)
+    async with untenanted_session() as session:
+        queued = (
+            await session.execute(
+                text(
+                    "SELECT 1 FROM live_apply_runs WHERE status = 'pending' "
+                    "AND reasons ? 'default_llm_model' AND (scope = 'platform' "
+                    "OR (scope = 'tenant' AND tenant_id = :tid))"
+                ),
+                {"tid": tenant_id},
+            )
+        ).first()
+    assert queued is not None

@@ -209,6 +209,22 @@ async def test_an_operator_sets_and_clears_the_ceiling_audited_and_applied_live(
     assert audits == 2
 
 
+async def test_a_ready_agent_not_taking_calls_is_applied_too() -> None:
+    """D-838's ready agent is on the voice platform; its Try it chat and trial calls use it."""
+    tenant_id, agent_id, _headers = await _tenant()
+    await _make_live(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET status = 'paused' WHERE id = :aid"), {"aid": agent_id}
+        )
+    async with _client() as client:
+        saved = await client.patch(
+            _path(tenant_id, agent_id), headers=await _operator(), json={"max_reply_tokens": 400}
+        )
+    assert saved.status_code == 200, saved.text
+    assert await _reply_length_queued_for(tenant_id, agent_id)
+
+
 async def test_a_client_cannot_reach_the_operator_routes() -> None:
     tenant_id, agent_id, headers = await _tenant()
     async with _client() as client:

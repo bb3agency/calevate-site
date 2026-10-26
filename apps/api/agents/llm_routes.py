@@ -350,10 +350,10 @@ _ORG_MODEL_FOR_UPDATE = (
     "SELECT default_llm_model FROM organizations WHERE deleted_at IS NULL FOR UPDATE"
 )
 
-#: Whether this account default MOVES any live agent: one that is known to the engine and
-#: has no model of its own.
+#: Whether this account default MOVES any published agent (live, or ready and not taking
+#: calls, D-838): one that is known to the engine and has no model of its own.
 _INHERITING_LIVE_AGENT = (
-    "SELECT 1 FROM agents WHERE deleted_at IS NULL AND status = 'live' "
+    "SELECT 1 FROM agents WHERE deleted_at IS NULL AND status IN ('live', 'paused') "
     "AND engine_agent_ref IS NOT NULL AND llm_model IS NULL LIMIT 1"
 )
 
