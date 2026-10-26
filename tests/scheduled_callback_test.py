@@ -109,6 +109,23 @@ async def test_one_tenants_promises_are_invisible_to_another(anyio_backend: str)
     assert len(mine) == 1
 
 
+async def test_the_upcoming_list_keeps_the_soonest_promises_when_it_is_cut() -> None:
+    """The open list is the work queue. Ordered latest-first, a page smaller than the
+    number of open promises dropped the ones due next, and showed next month's on top."""
+    tenant_id, agent_id = await _tenant()
+    now = datetime.now(UTC)
+    later = await _book(tenant_id, agent_id, when=now + timedelta(days=20))
+    soon = await _book(tenant_id, agent_id, when=now + timedelta(hours=1))
+    middle = await _book(tenant_id, agent_id, when=now + timedelta(days=2))
+
+    async with tenant_session(tenant_id) as session:
+        upcoming = await callbacks.list_callbacks(session, limit=2, open_only=True)
+        everything = await callbacks.list_callbacks(session, limit=3)
+
+    assert [row["id"] for row in upcoming] == [soon, middle]
+    assert [row["id"] for row in everything] == [later, middle, soon]
+
+
 async def test_a_caller_who_changes_their_mind_moves_the_promise() -> None:
     """ "Make it five, not four" is an ordinary sentence and it must move the time. The
     guard is `booked_at`, not `DO NOTHING`, so two jobs racing land on the caller's LATER

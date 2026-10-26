@@ -621,20 +621,22 @@ async def cancel_one(session: AsyncSession, callback_id: UUID, *, reason: str) -
 async def list_callbacks(
     session: AsyncSession, *, limit: int, open_only: bool = False
 ) -> list[dict[str, Any]]:
-    """The client's list: soonest promise first, then the recently settled ones.
+    """The client's list. Bounded by `limit` at the route, which is what keeps it off the
+    BOUNDED_LISTS registry.
 
-    Ordered by `requested_at` DESC so the most recent activity is at the top of the
-    screen and the callbacks still to come sit above the ones that have been. Bounded by
-    `limit` at the route, which is what keeps it off the BOUNDED_LISTS registry.
+    Every promise: `requested_at` DESC, so the furthest-out promise and then the most
+    recent activity sit at the top. Only the open ones: soonest FIRST, because the limit
+    cuts from the end and the promises due next are the ones somebody has to act on; the
+    other way round, a client with more open promises than the page lost today's.
     """
-    where = " WHERE status = 'scheduled'" if open_only else ""
+    where, order = (" WHERE status = 'scheduled'", "ASC") if open_only else ("", "DESC")
     rows = (
         await session.execute(
             text(
                 "SELECT id, agent_id, phone_e164, requested_at, status, attempts, "
                 "  last_refusal_rule, last_refusal_reason, last_call_id, lead_id, note, "
                 "  settled_at "
-                f"FROM scheduled_callbacks{where} ORDER BY requested_at DESC, id LIMIT :n"
+                f"FROM scheduled_callbacks{where} ORDER BY requested_at {order}, id LIMIT :n"
             ),
             {"n": limit},
         )
