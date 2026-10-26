@@ -347,6 +347,34 @@ async def test_a_one_off_correction_is_not_projected_as_daily_spending() -> None
     assert runway.days == 40
 
 
+async def test_the_published_spending_lines_add_up_to_the_spent_total() -> None:
+    """Each bucket was rounded on its own and the total from the exact sum, so two buckets
+    with half a paisa each printed ₹100.01 and ₹0.01 under a total of ₹100.01."""
+    from apps.api.billing.ai_quota import OVERAGE_META_KIND
+    from apps.api.billing.tier_routes import _period
+    from apps.api.billing.wallet_routes import _drawdown_out
+
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await record_entry(session, tenant_id=tenant_id, delta=Decimal("1000"), reason="topup")
+        await record_entry(session, tenant_id=tenant_id, delta=Decimal("-100.0050"), reason="usage")
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal("-0.0050"),
+            reason="usage",
+            meta={"kind": OVERAGE_META_KIND},
+        )
+        balance = await get_balance(session, tenant_id=tenant_id)
+        _, drawdown = await read_runway(session, tenant_id=tenant_id, balance=balance)
+        usage = await _period(session, tenant_id=tenant_id, period="all_time", start=None, end=None)
+    wallet = _drawdown_out(drawdown)
+    for out in (wallet, usage):
+        parts = (out.calls_inr, out.ai_assist_inr, out.adjustments_inr, out.number_rental_inr)
+        assert out.spent_inr == Decimal("100.01")
+        assert sum(parts, Decimal("0")) == out.spent_inr
+
+
 async def test_the_drawdown_splits_calls_from_ai_help_and_adds_up_exactly() -> None:
     from apps.api.billing.ai_quota import OVERAGE_META_KIND
 

@@ -31,7 +31,12 @@ from apps.api.billing.ai_quota import OVERAGE_META_KIND
 from apps.api.billing.payment_routes import rate_card_out
 from apps.api.billing.plans import ist_month_window
 from apps.api.billing.rates import VOICE_TIERS, VoiceTier, voice_tier_label
-from apps.api.billing.service import current_billing_month, to_paise, voice_tier_usage
+from apps.api.billing.service import (
+    allocate_paise,
+    current_billing_month,
+    to_paise,
+    voice_tier_usage,
+)
 from apps.api.billing.wallet import CREDIT_ADDED_SQL, DRAWDOWN_BUCKETS_SQL
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
@@ -216,14 +221,18 @@ async def _period(
         )
     ).one()
     added, calls, ai, adjustments, rental = (Decimal(str(v)) for v in row)
+    # The parts are allocated against the rounded total, so the lines printed under
+    # "spent" add up to it: call debits carry sub-paisa digits.
+    spent = to_paise(calls + ai + adjustments + rental)
+    calls_p, ai_p, adjustments_p, rental_p = allocate_paise([calls, ai, adjustments, rental], spent)
     return CreditUsagePeriodOut(
         period=period,
         added_inr=to_paise(added),
-        spent_inr=to_paise(calls + ai + adjustments + rental),
-        calls_inr=to_paise(calls),
-        ai_assist_inr=to_paise(ai),
-        number_rental_inr=to_paise(rental),
-        adjustments_inr=to_paise(adjustments),
+        spent_inr=spent,
+        calls_inr=calls_p,
+        ai_assist_inr=ai_p,
+        number_rental_inr=rental_p,
+        adjustments_inr=adjustments_p,
     )
 
 

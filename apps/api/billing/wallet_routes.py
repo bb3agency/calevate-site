@@ -66,6 +66,7 @@ from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import (
     LOW_BALANCE_INR,
     PAYMENT_REF_SQL,
+    allocate_paise,
     get_balance,
     plan_tier_of,
     recorded_payments,
@@ -77,6 +78,7 @@ from apps.api.billing.wallet import (
     LEDGER_LIMIT,
     MAX_RUNWAY_DAYS,
     MIN_BURN_HISTORY_DAYS,
+    Drawdown,
     Runway,
     read_attempts,
     read_wallet,
@@ -390,6 +392,30 @@ class ReceiptOut(Strict):
 RECEIPT_NOTE = f"This is a receipt for calling credit added to your account. {GST_STATUS_SENTENCE}"
 
 
+def _drawdown_out(drawdown: Drawdown) -> DrawdownOut:
+    """The four outgoing buckets allocated against the rounded total, so the rows a screen
+    prints under "spent" add up to it: call debits carry sub-paisa digits."""
+    spent = to_paise(drawdown.spent_inr)
+    calls, ai_assist, adjustments, rental = allocate_paise(
+        [
+            drawdown.calls_inr,
+            drawdown.ai_assist_inr,
+            drawdown.adjustments_inr,
+            drawdown.number_rental_inr,
+        ],
+        spent,
+    )
+    return DrawdownOut(
+        calls_inr=calls,
+        ai_assist_inr=ai_assist,
+        adjustments_inr=adjustments,
+        number_rental_inr=rental,
+        spent_inr=spent,
+        added_inr=to_paise(drawdown.added_inr),
+        refunded_inr=to_paise(drawdown.refunded_inr),
+    )
+
+
 def _runway_out(runway: Runway) -> RunwayOut:
     """The dataclass `billing/wallet.py` computed, published.
 
@@ -473,15 +499,7 @@ async def read_wallet_summary(principal: WalletRead) -> WalletOut:
                 for tier in summary.minutes_left
             ]
         ),
-        drawdown=DrawdownOut(
-            calls_inr=to_paise(summary.drawdown.calls_inr),
-            ai_assist_inr=to_paise(summary.drawdown.ai_assist_inr),
-            adjustments_inr=to_paise(summary.drawdown.adjustments_inr),
-            number_rental_inr=to_paise(summary.drawdown.number_rental_inr),
-            spent_inr=to_paise(summary.drawdown.spent_inr),
-            added_inr=to_paise(summary.drawdown.added_inr),
-            refunded_inr=to_paise(summary.drawdown.refunded_inr),
-        ),
+        drawdown=_drawdown_out(summary.drawdown),
         paid_inr=to_paise(summary.totals.paid_inr),
         granted_inr=to_paise(summary.totals.granted_inr),
         trial=(
