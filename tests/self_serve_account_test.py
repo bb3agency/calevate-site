@@ -165,6 +165,7 @@ def _id_token(expected_nonce: str, **over: Any) -> str:
         "sub": f"g-{uuid.uuid4().hex}",
         "email": _address("google"),
         "email_verified": True,
+        "hd": "calevate-test.example",
         "name": "Ravi Kumar",
         "nonce": expected_nonce,
         "iat": int(now.timestamp()),
@@ -241,6 +242,34 @@ async def test_a_verified_google_email_links_to_the_existing_account(
     signed_in, _ = await _sign_in(monkeypatch, email=email.upper())
     assert signed_in.subject_id == created.subject_id
     assert signed_in.linked is True
+
+
+async def test_an_address_google_does_not_host_neither_links_nor_creates(
+    monkeypatch: pytest.MonkeyPatch, planted: list[str]
+) -> None:
+    """A consumer Google account on a non-Gmail address carries `email_verified` from when
+    it was created; the mailbox may belong to somebody else now (Google's own guide)."""
+    email = _address("reassigned")
+    planted.append(email)
+    box = await _start(monkeypatch, email)
+    await registration.complete_signup(
+        email=email, code=box.sent[0]["secret"], password=GOOD_PASSWORD, name=None, ip=None
+    )
+    with pytest.raises(ProblemError) as link:
+        await _sign_in(monkeypatch, email=email, hd=None)
+    assert link.value.code == "google_email_not_authoritative"
+    with pytest.raises(ProblemError) as create:
+        await _sign_in(monkeypatch, email=_address("fresh"), hd=None)
+    assert create.value.code == "google_email_not_authoritative"
+
+
+async def test_a_gmail_address_needs_no_hosted_domain(
+    monkeypatch: pytest.MonkeyPatch, planted: list[str]
+) -> None:
+    email = f"ravi.{uuid.uuid4().hex[:10]}@gmail.com"
+    planted.append(email)
+    signed_in, _ = await _sign_in(monkeypatch, email=email, hd=None)
+    assert signed_in.created is True
 
 
 async def test_an_unverified_google_email_opens_nothing(

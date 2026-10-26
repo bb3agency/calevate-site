@@ -334,6 +334,22 @@ def verify_id_token(
     return claims
 
 
+def _google_is_authoritative(email: str, claims: dict[str, Any]) -> bool:
+    """Whether Google's `email_verified` proves the person holds this address TODAY.
+
+    Google's guide: a `@gmail.com` address is a Gmail account; `email_verified` with `hd`
+    set is a Workspace account; otherwise "Google is not authoritative", because
+    `email_verified` may record a check made when the account was created on an address
+    whose ownership has since changed (developers.google.com/identity/gsi/web/guides/
+    verify-google-id-token, read 26 Oct 2026). Linking such an address to an existing
+    account, or opening one on it, would hand that account to a former owner of the mailbox.
+    """
+    if email.casefold().endswith("@gmail.com"):
+        return True
+    hd = claims.get("hd")
+    return isinstance(hd, str) and bool(hd.strip())
+
+
 async def _identity_subject(provider_subject: str) -> Any | None:
     async with credential_session() as session:
         row = (
@@ -420,6 +436,15 @@ async def finish(
                 "Google has not verified this email address",
                 "We can only use a Google account whose email address Google has verified.",
                 "Verify the address with Google, or sign in with your email and password.",
+            )
+        if not _google_is_authoritative(email, id_claims):
+            log.info("google_sign_in_not_authoritative")
+            raise _refused(
+                "google_email_not_authoritative",
+                "Google cannot vouch for this email address",
+                "This Google account uses an address Google does not host, so we cannot "
+                "use it to open or create a Calevate account.",
+                "Sign in or sign up with your email address and password.",
             )
         existing = await resolve_by_email(REALM, email)
         if existing is not None:
