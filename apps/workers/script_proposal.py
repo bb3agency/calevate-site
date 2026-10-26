@@ -137,8 +137,23 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
         await _fail(tenant_id, agent_id, proposal_id, script_proposals.FAILED_NOTE)
         return "failed"
 
-    # A completed run is money spent: recorded in its own transaction (crm/assist §4).
+    unplaced = (
+        unplaced_lines(proposal.base_script.raw_override or "", draft.script)
+        if proposal.mode == "steps"
+        else []
+    )
+    # A completed run is money spent, recorded in the transaction that stores the proposal:
+    # committed first, a store that failed left the account paying for a proposal it never
+    # got (the retry finds the claim spent).
     async with tenant_session(tenant_id) as session:
+        stored = await script_proposals.store_ready(
+            session,
+            agent_id=agent_id,
+            proposal_id=proposal_id,
+            script=draft.script,
+            unplaced=unplaced,
+            disclosure=draft.capability.disclosure,
+        )
         await crm_assist.meter_earlier(
             session, tenant_id=tenant_id, earlier=draft.earlier, feature=feature
         )
@@ -149,20 +164,6 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
             result=draft,
             model=draft.model,
             feature=feature,
-        )
-    unplaced = (
-        unplaced_lines(proposal.base_script.raw_override or "", draft.script)
-        if proposal.mode == "steps"
-        else []
-    )
-    async with tenant_session(tenant_id) as session:
-        stored = await script_proposals.store_ready(
-            session,
-            agent_id=agent_id,
-            proposal_id=proposal_id,
-            script=draft.script,
-            unplaced=unplaced,
-            disclosure=draft.capability.disclosure,
         )
     log.info(
         "script_proposal_written",
