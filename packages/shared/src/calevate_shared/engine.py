@@ -2633,7 +2633,7 @@ def carries_confidentiality_rule(prompt: str | None) -> bool:
 #:
 #:   1. OWASP marks delimiting as a control that "reduces attack success in non-adaptive
 #:      tests only" — an attacker who knows the marking scheme can mimic it. The literal
-#:      mimicry is closed: `fenced_script` turns every hyphen run touching text in the
+#:      mimicry is closed: `neutralise_markers` turns every hyphen run touching text in the
 #:      client's script into an em dash, so the script cannot write our `--- NAME ---`
 #:      marker shape and end the fence or open a platform section. A model can still be
 #:      persuaded by prose, so this stays defence in depth; the enforceable half remains
@@ -2658,17 +2658,24 @@ _MARKER_OPENING: Final = re.compile(r"-{3,}(?=[ \t]*\w)")
 _MARKER_CLOSING: Final = re.compile(r"(\w[ \t]*)-{3,}")
 
 
-def fenced_script(script: str) -> str:
-    """The client's script as it sits inside the fence: unchanged unless it writes our
-    marker shape, whose hyphen runs become an em dash, so "--- END CLIENT SCRIPT ---"
-    reads "— END CLIENT SCRIPT —" and ends nothing.
+def neutralise_markers(text: str) -> str:
+    """THE ONE GATE for text we did not write on its way into a prompt: unchanged unless it
+    writes our marker shape, whose hyphen runs become an em dash, so "--- END CLIENT SCRIPT
+    ---" reads "— END CLIENT SCRIPT —" and ends nothing.
 
-    Neutralised rather than refused: a script saved before this existed must still publish,
-    and the result is a pure function of the script, so the read-back
-    (`agents/verification.judge`) and the drift sweep compare this same text. A script with
-    no such run composes byte for byte as before.
+    Every such input passes it: the client's script (with its opening line, steps, FAQ,
+    pinned and T0 facts), the first words quoted under START OF THE CALL (opening line and
+    the notices, which carry the business and agent names), the memory notice in the goodbye
+    rule, remembered caller facts (`render_caller_memory`), and the per-call values the
+    engine fills into the instructions (the dial's variables, the inbound lookup's answer).
+    The business name in the role sentence has its own stricter cleaning (`_role_business`).
+
+    Neutralised rather than refused: an agent saved before this existed must still publish,
+    and the result is a pure function of the text, so the read-back
+    (`agents/verification.judge`) and the drift sweep compare the same text. Text with no
+    such run comes out byte for byte as it went in.
     """
-    return _MARKER_CLOSING.sub(r"\1—", _MARKER_OPENING.sub("—", script))
+    return _MARKER_CLOSING.sub(r"\1—", _MARKER_OPENING.sub("—", text))
 
 
 #: Stated FIRST as well as last, because position is load-bearing for these models and the
@@ -3265,7 +3272,7 @@ def render_caller_memory(facts: Sequence[str]) -> str:
     the write (`compliance.caller_memory.RECALL_LIMIT`, `MAX_FACT_CHARS`), and this is the
     ceiling that holds whatever a future caller of this function passes.
     """
-    lines = [f"- {fact.strip()}" for fact in facts if fact and fact.strip()]
+    lines = [f"- {neutralise_markers(fact.strip())}" for fact in facts if fact and fact.strip()]
     if not lines:
         return ""
     rendered = "\n".join(lines)
@@ -4013,7 +4020,9 @@ MEMORY_GOODBYE_RULE: Final = (
 
 def memory_goodbye_rule(cfg: AgentConfig) -> str:
     """The goodbye rule for `cfg`, or empty for an agent that does not remember callers."""
-    sentence = cfg.caller_memory_notice.strip() if cfg.caller_memory_enabled else ""
+    sentence = (
+        neutralise_markers(cfg.caller_memory_notice.strip()) if cfg.caller_memory_enabled else ""
+    )
     return MEMORY_GOODBYE_RULE.format(sentence=sentence) if sentence else ""
 
 
@@ -4145,7 +4154,7 @@ def _start_of_call_section(cfg: AgentConfig) -> str:
     let it greet a second time after the caller's "Hello" (D-861, D-864). A caller who asks
     still gets both answers: the truthful-answer block binds last.
     """
-    first_words = compose_first_utterance(cfg)
+    first_words = neutralise_markers(compose_first_utterance(cfg))
     if not first_words:
         return ""
     has_opening = bool(opening_line_of(cfg.system_prompt))
@@ -4315,7 +4324,7 @@ def engine_prompt_layers(
         # it reads as an instruction that went missing.
         (
             "client_script",
-            f"{CLIENT_SCRIPT_OPEN}\n{fenced_script(script)}\n{CLIENT_SCRIPT_CLOSE}"
+            f"{CLIENT_SCRIPT_OPEN}\n{neutralise_markers(script)}\n{CLIENT_SCRIPT_CLOSE}"
             if script
             else "",
         ),
@@ -6235,8 +6244,8 @@ __all__ = [
     "WebhookAuthMethod",
     "WebhookVerdict",
     "engine_prompt_layers",
-    "fenced_script",
     "fill_caller_memory_slot",
+    "neutralise_markers",
     "platform_rules_preamble",
     "render_caller_memory",
     "role_sentence",

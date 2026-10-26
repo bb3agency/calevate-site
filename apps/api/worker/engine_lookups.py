@@ -36,7 +36,12 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Final
 
-from calevate_shared.engine import CALLER_HIDDEN_VARIABLE, TODAY_VARIABLE, today_value
+from calevate_shared.engine import (
+    CALLER_HIDDEN_VARIABLE,
+    TODAY_VARIABLE,
+    neutralise_markers,
+    today_value,
+)
 from calevate_shared.engine_scope import raw_of
 from calevate_shared.webhook_signature import (
     signed_time_is_fresh,
@@ -77,10 +82,13 @@ _UNAUTHORISED: Final = {"error": "unauthorised"}
 
 
 def _answer_with(variables: dict[str, str]) -> JSONResponse:
-    """The lookup's answer: `variables` plus today's date, which no caller record decides."""
-    return JSONResponse(
-        {"variables": {**variables, TODAY_VARIABLE: today_value(datetime.now(UTC))}}
-    )
+    """The lookup's answer: `variables` plus today's date, which no caller record decides.
+
+    The engine fills these into the instructions, so each value passes the prompt's one
+    marker gate (`neutralise_markers`): a lead name or a captured detail cannot write a
+    platform section."""
+    safe = {key: neutralise_markers(value) for key, value in variables.items()}
+    return JSONResponse({"variables": {**safe, TODAY_VARIABLE: today_value(datetime.now(UTC))}})
 
 
 def _empty() -> JSONResponse:

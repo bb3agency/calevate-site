@@ -82,6 +82,7 @@ from calevate_shared.engine import (
     WebhookVerdict,
     compose_engine_prompt,
     compose_first_utterance,
+    neutralise_markers,
     today_value,
 )
 from calevate_shared.engine_scope import raw_of, scoped_handle
@@ -3057,6 +3058,9 @@ class ThinnestEngine:
         variables: dict[str, str] = dict(ctx.fields)
         if ctx.lead_name:
             variables[NAME_VARIABLE] = ctx.lead_name
+        # The engine fills these into the instructions: each passes the prompt's one marker
+        # gate, so an uploaded lead's name or field cannot write a platform section.
+        variables = {key: neutralise_markers(value) for key, value in variables.items()}
         # The instructions' `TODAY_LINE` (D-888). Taken at the dial: `ifOutsideHours: refuse`
         # means the call rings now or never, so the day cannot move under it.
         variables[TODAY_VARIABLE] = today_value(datetime.now(UTC))

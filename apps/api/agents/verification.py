@@ -73,8 +73,8 @@ from calevate_shared.engine import (
     HeldVoice,
     VoiceEngine,
     compose_first_utterance,
-    fenced_script,
     memory_goodbye_rule,
+    neutralise_markers,
 )
 
 from apps.api.core.errors import ProblemError
@@ -370,14 +370,15 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     the prompt copy is reported beside it, never instead of it.
     """
     # The script as the composer fences it: a script that wrote our marker shape is held
-    # with those runs neutralised (`fenced_script`), and only that text can read back.
-    prompt = snapshot.carries_prompt_marker(fenced_script(cfg.system_prompt))
+    # with those runs neutralised (`neutralise_markers`), and only that text can read back;
+    # the quoted first words below likewise.
+    prompt = snapshot.carries_prompt_marker(neutralise_markers(cfg.system_prompt))
     disclosure = _greeting_verdict(engine, cfg, snapshot)
     # The whole first turn, which START OF THE CALL quotes verbatim: an introducing agent's
     # notices are said on either side of its opening line (D-865), so `cfg.opening_line`
     # alone is no longer one stretch of the quote.
     prompt_disclosure = (
-        snapshot.carries_prompt_marker(compose_first_utterance(cfg))
+        snapshot.carries_prompt_marker(neutralise_markers(compose_first_utterance(cfg)))
         if cfg.opening_line.strip()
         else None
     )
