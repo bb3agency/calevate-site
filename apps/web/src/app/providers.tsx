@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
 import { TooltipProvider } from "@/components/arc/tooltip";
-import { ApiProblem } from "@/lib/api/client";
+import { queryRetryDelay, shouldRetryQuery } from "@/lib/api/queryRetry";
 import { liveStaleTime } from "@/lib/live/liveStatus";
 
 /**
@@ -21,10 +21,8 @@ export function Providers({ children }: { children: ReactNode }) {
         defaultOptions: {
           queries: {
             staleTime: liveStaleTime,
-            retry: (failureCount, error) => {
-              if (error instanceof ApiProblem) return error.retryable && failureCount < 2;
-              return failureCount < 2;
-            },
+            retry: shouldRetryQuery,
+            retryDelay: queryRetryDelay,
           },
           mutations: {
             // Never auto-retry a mutation: the expensive ones place phone calls, and
